@@ -90,21 +90,27 @@ For example, ``nextpnr`` declares the input ``netlist`` of type ``JsonNetlist``,
 producer ``yosys_fpga`` and its output ``netlist``. Sources of an accepted type displace that
 default producer.
 
-``can_precede`` lists the flows that can come directly after this flow in a chain (``xeda run
-this+other``), and ``can_follow`` lists the flows that this flow can come directly after. The
-validator that ``xeda run`` applies judges both, on declarations alone, so a pair that the validator
-refuses is never listed. Planning checks one more thing that declarations cannot show: related
-inputs of a flow must come from one producer. A listed pair can therefore still be refused there,
-with the bindings to add. For example, ``vivado_alt_synth`` is listed before ``vivado_power``, but
-the ``activity`` input of ``vivado_power`` still comes from ``vivado_synth`` unless you bind the
-simulation too.
+``can_precede`` lists the flows that can come after this flow in a chain (``xeda run this+other``),
+and ``can_follow`` lists the flows that this flow can come after. The direct relations come first.
+An entry whose ``through`` is not empty is a link that passes through the flows between the two,
+which Xeda plans as it does for the second flow alone. The validator that ``xeda run`` applies
+judges both, on declarations alone, so a pair that the validator refuses is never listed. Planning
+checks one more thing that declarations cannot show: related inputs of a flow must come from one
+producer. A listed pair can therefore still be refused there, with the bindings to add. For example,
+``vivado_alt_synth`` is listed before ``vivado_power``, but the ``activity`` input of
+``vivado_power`` still comes from ``vivado_synth`` unless you bind the simulation too.
 
 Each entry of these two lists has these keys:
 
 - ``flow`` is the other flow.
 - ``output`` is the producer output that the request must name. It is ``null`` when the unqualified
   request is valid.
-- ``binds`` lists the ``input`` and ``output`` pairs that the adjacency binds.
+- ``through`` lists the flows that the link passes through, in chain order. It is ``[]`` for a
+  direct link. Every entry has this key, as every element of ``request`` does.
+- ``binds`` lists the ``flow``, ``input`` and ``output`` of each binding that the link makes. The
+  ``flow`` is the flow whose input the link binds. It is the second flow for a direct link. For a
+  link that passes through flows, it can be one of those flows, such as ``nextpnr`` for ``netlist``
+  in ``yosys_fpga+fpga_pack``.
 - ``target_dependent`` is true when a produced or accepted kind is a union that the target selects
   from, so the resolved plan is authoritative. For example, ``nextpnr`` makes the configuration of
   the family of the target.
@@ -259,18 +265,20 @@ delivered the file there once the run finished:
             "binding_origin": null, "binding_location": null, "overridden": []}
          ]}
       ],
-      "request": [{"node": "nextpnr", "flow": "nextpnr", "output": null}]
+      "request": [{"node": "nextpnr", "flow": "nextpnr", "output": null, "through": []}]
     }
 
 ``xeda run`` also takes a chain, such as ``xeda run yosys_fpga+nextpnr+fpga_pack design.yaml``. The
 last flow of a chain is the requested flow: ``flow``, ``results``, ``run_path`` and the exit status
-are those of that flow. Each earlier flow supplies the compatible required inputs of the next flow.
-The ``request`` key lists the elements of the request as given, in canonical form. Each element is
-an object with ``node``, ``flow`` and ``output``, where ``output`` is the ``FLOW.OUTPUT`` qualifier
-or ``null``. A single flow gives a one-element list. Each ``nodes`` entry carries its ``node`` name
-and its resolved ``inputs``, which are empty for a flow that declares none. The plan of a dry run
-uses the same representation for the inputs (the section on planning, below, describes the fields).
-When a producer fails, the planned nodes that were never entered come after the other nodes, with
+are those of that flow. Each earlier flow supplies the compatible required inputs of the next flow
+or, when the link passes through flows, the inputs that it feeds in the plan of the next flow. The
+``request`` key lists the elements of the request as given, in canonical form. Each element is an
+object with ``node``, ``flow``, ``output`` and ``through``, where ``output`` is the ``FLOW.OUTPUT``
+qualifier or ``null``, and ``through`` lists the flows that the link to the next element passes
+through. A single flow gives a one-element list. Each ``nodes`` entry carries its ``node`` name and
+its resolved ``inputs``, which are empty for a flow that declares none. The plan of a dry run uses
+the same representation for the inputs (the section on planning, below, describes the fields). When
+a producer fails, the planned nodes that were never entered come after the other nodes, with
 ``"state": "not run"``. A chain that is malformed (an empty element, an unknown flow or output, a
 repeated flow, a programmer before the end, or a pair with no compatible output) is a usage error.
 It gives one error document and exit status 2, with no ``request``, ``plan`` or ``nodes``. Chains
@@ -371,7 +379,7 @@ an unknown setting:
         "type": "FlowSettingsError",
         "message": "FlowSettingsError: 1 error validating VivadoSynth.Settings\n   Extra inputs are not permitted: no_such_setting (extra_forbidden)"
       },
-      "request": [{"node": "vivado_synth", "flow": "vivado_synth", "output": null}],
+      "request": [{"node": "vivado_synth", "flow": "vivado_synth", "output": null, "through": []}],
       "nodes": []
     }
 
@@ -523,7 +531,7 @@ switches an optional output of its producer on:
     {
       "flow": "nextpnr", "design": "blinky", "design_file": "/path/to/blinky.yaml",
       "target": null, "success": true, "dry_run": true,
-      "request": [{"node": "nextpnr", "flow": "nextpnr", "output": null}],
+      "request": [{"node": "nextpnr", "flow": "nextpnr", "output": null, "through": []}],
       "plan": {
         "requested": "nextpnr",
         "target": null,
@@ -652,9 +660,11 @@ Xeda plans and runs a chain in the same way. This example uses the ``routed_demo
 
     xeda run yosys_fpga+nextpnr+fpga_pack routed_demo.yaml --dry-run --json
 
-``request`` is the chain as a list of ``{node, flow, output}`` elements. It is structural and never
-the joined text. Every node of ``plan.nodes`` has its resolved ``inputs``. The next document is
-abridged: it shows only the wired inputs of each node, and none of the paths and hashes:
+``request`` is the chain as a list of ``{node, flow, output, through}`` elements. It is structural
+and never the joined text. ``through`` lists the flows between an element and the next one. It is
+empty for a direct link and for the last element. Every node of ``plan.nodes`` has its resolved
+``inputs``. The next document is abridged: it shows only the wired inputs of each node, and none of
+the paths and hashes:
 
 .. code-block:: json
 
@@ -663,9 +673,9 @@ abridged: it shows only the wired inputs of each node, and none of the paths and
       "success": true,
       "dry_run": true,
       "request": [
-        {"node": "yosys_fpga", "flow": "yosys_fpga", "output": null},
-        {"node": "nextpnr", "flow": "nextpnr", "output": null},
-        {"node": "fpga_pack", "flow": "fpga_pack", "output": null}
+        {"node": "yosys_fpga", "flow": "yosys_fpga", "output": null, "through": []},
+        {"node": "nextpnr", "flow": "nextpnr", "output": null, "through": []},
+        {"node": "fpga_pack", "flow": "fpga_pack", "output": null, "through": []}
       ],
       "plan": {
         "requested": "fpga_pack",

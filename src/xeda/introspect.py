@@ -112,10 +112,18 @@ def design_info(requested: Any, loaded: str | None = None) -> dict[str, Any]:
 def request_info(request: Any) -> list[dict[str, Any]]:
     """Return the elements of a request with canonical names: one for a single flow, several for
     a chain. `output` is the output that a chain element selects for its edge to the next
-    element, else None."""
+    element, else None. `through` lists the names of the flows between the element and the next
+    one, in chain order. It is empty for a direct link and for the last element."""
     return [
-        {"node": element.node, "flow": element.flow_class.name, "output": element.output}
-        for element in request.elements
+        {
+            "node": element.node,
+            "flow": element.flow_class.name,
+            "output": element.output,
+            "through": (
+                [flow.name for flow in request.through(index)] if index < len(request.links) else []
+            ),
+        }
+        for index, element in enumerate(request.elements)
     ]
 
 
@@ -228,13 +236,21 @@ def _category(cls: Type[Flow]) -> str:
 def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
     """Return one follow relation as plain data, seen from the other end. `other` is the flow
     that the relation names. `output` is the producer output that a request must name, and None
-    when the unqualified request is valid. `binds` lists the input and output pairs that the
-    adjacency binds. `target_dependent` tells whether a type that the relation makes or takes is
-    a union that the target settings narrow."""
+    when the unqualified request is valid. `through` lists the flows that the link passes
+    through, in chain order, and is empty for a direct link. `binds` lists the input and output
+    pairs that the link binds, and each item names the flow whose input it binds (`flow`): the
+    consumer of a direct link. `target_dependent` tells whether a type that the relation makes
+    or takes is a union that the target settings narrow.
+
+    Every relation has these keys, in this order."""
     return {
         "flow": other.name,
         "output": edge.output,
-        "binds": [{"input": taken, "output": made} for taken, made in edge.binds],
+        "through": [flow.name for flow in edge.through],
+        "binds": [
+            {"flow": flow.name, "input": taken, "output": made}
+            for flow, (taken, made) in zip(edge.bound_flows, edge.binds)
+        ],
         "target_dependent": edge.target_dependent,
     }
 
@@ -243,11 +259,13 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     """Return everything known about a flow without instantiating it.
 
     `dependencies` lists the default producers of the declared inputs. `can_precede` lists the
-    flows that can directly follow this flow in a chain (`this+other`), and `can_follow` lists
-    the flows that this flow can directly follow (`other+this`). The chain validator judges both
-    on declarations alone (`chains.followers` and `chains.predecessors`), so a hint and a refusal
-    cannot disagree. A relation is `target_dependent` when a union of types decides it and the
-    target settings narrow that union. The resolved plan is authoritative.
+    flows that can follow this flow in a chain (`this+other`), and `can_follow` lists the flows
+    that this flow can follow (`other+this`). The direct relations come first. A relation whose
+    link passes through the flows between the two lists them in `through`, which is empty for a
+    direct relation. The chain validator judges both on declarations alone (`chains.followers`
+    and `chains.predecessors`), so a hint and a refusal cannot disagree. A relation is
+    `target_dependent` when a union of types decides it and the target settings narrow that
+    union. The resolved plan is authoritative.
     """
     cls = _resolve(flow)
     candidates = all_flow_classes()
@@ -319,18 +337,18 @@ def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
         makes.append(f"{name} ({kinds(item)})")
     if info["action_reason"]:
         makes.append(f"action: {info['action_reason']} (ends a chain)")
-    following = [
-        (
+    following = []
+    for edge in info["can_precede"]:
+        text = (
             edge["flow"]
             if edge["output"] is None
             else f"{info['name']}.{edge['output']}+{edge['flow']}"
         )
-        for edge in info["can_precede"]
-    ]
-    following = [
-        f"{name} (depends on the target)" if edge["target_dependent"] else name
-        for name, edge in zip(following, info["can_precede"])
-    ]
+        if edge["through"]:
+            text += f" (through {', '.join(edge['through'])})"
+        if edge["target_dependent"]:
+            text += " (depends on the target)"
+        following.append(text)
     return "\n".join(takes) or "-", "\n".join(makes) or "-", "\n".join(following) or "-"
 
 

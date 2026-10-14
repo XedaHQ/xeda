@@ -533,8 +533,18 @@ def test_documented_shared_settings_are_the_resolvers(relative, start):
 
 def test_the_machine_readable_docs_name_the_chain_keys_list_flows_publishes():
     docs = (README.parent / "docs/machine-readable.rst").read_text(encoding="utf-8")
-    for key in ("can_follow", "can_precede", "action_reason", "target_dependent", "required"):
+    for key in (
+        "can_follow",
+        "can_precede",
+        "through",
+        "action_reason",
+        "target_dependent",
+        "required",
+    ):
         assert f"``{key}``" in docs, key
+
+
+EDGE_KEYS = ["flow", "output", "through", "binds", "target_dependent"]
 
 
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
@@ -543,13 +553,27 @@ def test_every_published_follow_relation_is_a_chain_xeda_run_accepts(flow_class)
     cannot advertise a chain that run refuses."""
     from xeda.flow_runner.chains import parse_request
 
+    def published(edge, request):
+        """The link of the request, which must be what the entry publishes."""
+        link = parse_request(request).links[0]
+        assert [flow.name for flow in link.through] == edge["through"], request
+        # every binding names the flow whose input it binds: the consumer of a direct link
+        assert [(bound["flow"], bound["input"], bound["output"]) for bound in edge["binds"]] == [
+            (flow.name, name, made) for flow, name, made in link.binds
+        ], request
+
     info = flow_info(flow_class)
     for edge in info["can_precede"]:
         qualifier = f".{edge['output']}" if edge["output"] else ""
-        parse_request(f"{info['name']}{qualifier}+{edge['flow']}")
+        published(edge, f"{info['name']}{qualifier}+{edge['flow']}")
     for edge in info["can_follow"]:
         qualifier = f".{edge['output']}" if edge["output"] else ""
-        parse_request(f"{edge['flow']}{qualifier}+{info['name']}")
+        published(edge, f"{edge['flow']}{qualifier}+{info['name']}")
+    # the direct relations come first
+    for key in ("can_precede", "can_follow"):
+        assert all(list(edge) == EDGE_KEYS for edge in info[key]), key
+        passes = [bool(edge["through"]) for edge in info[key]]
+        assert passes == sorted(passes), key
     if info["action_reason"]:
         assert info["can_precede"] == []
     if not info["inputs"] and not info["outputs"]:

@@ -46,8 +46,8 @@ def _json(*args):
 
 
 REQUEST = [
-    {"node": "__input_maker", "flow": "__input_maker", "output": None},
-    {"node": "__taker", "flow": "__taker", "output": None},
+    {"node": "__input_maker", "flow": "__input_maker", "output": None, "through": []},
+    {"node": "__taker", "flow": "__taker", "output": None, "through": []},
 ]
 
 
@@ -81,7 +81,9 @@ def test_a_single_flow_keeps_its_document_and_gains_the_request(tmp_path):
     result, document = _json("run", "__taker", _design(tmp_path))
     assert result.exit_code == 0, result.output
     assert document["flow"] == "__taker" and document["results"]["read"] == "made\n"
-    assert document["request"] == [{"node": "__taker", "flow": "__taker", "output": None}]
+    assert document["request"] == [
+        {"node": "__taker", "flow": "__taker", "output": None, "through": []}
+    ]
     assert [n["flow"] for n in document["nodes"]] == ["__maker", "__taker"]
     assert document["nodes"][1]["inputs"][0]["binding_origin"] is None
 
@@ -539,11 +541,15 @@ def _real(edges):
     return [edge for edge in edges if not edge["flow"].startswith("__")]
 
 
-def _edge(flow, output=None, binds=(), target_dependent=False):
+def _edge(flow, binds=(), target_dependent=False, through=(), output=None):
+    """One relation of `can_precede` or `can_follow`. Every relation has the same keys: `through`
+    lists the flows that the link passes through (none for a direct link), and each item of
+    `binds` is `(flow, input, output)`, with the flow whose input it binds."""
     return {
         "flow": flow,
         "output": output,
-        "binds": [{"input": i, "output": o} for i, o in binds],
+        "through": list(through),
+        "binds": [{"flow": f, "input": i, "output": o} for f, i, o in binds],
         "target_dependent": target_dependent,
     }
 
@@ -561,11 +567,32 @@ def test_list_flows_json_adds_requiredness_and_follow_relations():
         inputs["netlist"]
     )
     # the family-union configuration is a target-dependent hint
-    assert _real(nextpnr["can_follow"]) == [_edge("yosys_fpga", None, [("netlist", "netlist")])]
-    assert _real(nextpnr["can_precede"]) == [_edge("fpga_pack", None, [("config", "config")], True)]
+    assert _real(nextpnr["can_follow"]) == [
+        _edge("yosys_fpga", [("nextpnr", "netlist", "netlist")])
+    ]
+    assert _real(nextpnr["can_precede"]) == [
+        _edge("fpga_pack", [("fpga_pack", "config", "config")], True),
+        # the loader reads the packed bitstream: the link passes through the packer
+        _edge("openfpgaloader", [("fpga_pack", "config", "config")], True, through=["fpga_pack"]),
+    ]
     assert flows["yosys_fpga"]["can_follow"] == []
     assert _real(flows["fpga_pack"]["can_precede"]) == [
-        _edge("openfpgaloader", None, [("bitstream", "bitstream")])
+        _edge("openfpgaloader", [("openfpgaloader", "bitstream", "bitstream")])
+    ]
+    # a link that skips a flow is listed after the direct ones, with the flows it passes through
+    assert _real(flows["yosys_fpga"]["can_precede"]) == [
+        _edge("nextpnr", [("nextpnr", "netlist", "netlist")]),
+        _edge("vivado_impl", [("vivado_impl", "netlist", "netlist_edif")]),
+        _edge("fpga_pack", [("nextpnr", "netlist", "netlist")], through=["nextpnr"]),
+        _edge(
+            "openfpgaloader",
+            [("nextpnr", "netlist", "netlist")],
+            through=["nextpnr", "fpga_pack"],
+        ),
+    ]
+    assert _real(flows["fpga_pack"]["can_follow"]) == [
+        _edge("nextpnr", [("fpga_pack", "config", "config")], True),
+        _edge("yosys_fpga", [("nextpnr", "netlist", "netlist")], through=["nextpnr"]),
     ]
 
 
@@ -579,6 +606,8 @@ def test_list_flows_json_shows_an_action_and_a_flow_without_declared_io_by_their
         "vivado_alt_synth",
         "vivado_impl",
         "vivado_synth",
+        "nextpnr",
+        "yosys_fpga",
     ]
     assert flows["nextpnr"]["action_reason"] is None
     bsc = flows["bsc"]
@@ -595,7 +624,12 @@ def test_list_flows_json_qualifies_an_ambiguous_follower():
     producer = _listed()["__chain_producer"]
     ambiguous = [e for e in producer["can_precede"] if e["flow"] == "__chain_ambiguous_consumer"]
     assert [e["output"] for e in ambiguous] == ["json_a", "json_b"]
-    assert all(e["binds"] == [{"input": "netlist", "output": e["output"]}] for e in ambiguous)
+    assert all(
+        e["binds"]
+        == [{"flow": "__chain_ambiguous_consumer", "input": "netlist", "output": e["output"]}]
+        for e in ambiguous
+    )
+    assert all(e["through"] == [] for e in ambiguous)
     plain = [e for e in producer["can_precede"] if e["flow"] == "__chain_ambiguous_default"]
     assert [e["output"] for e in plain] == [None]
 
@@ -624,6 +658,11 @@ def test_list_flows_table_names_takes_makes_followers_and_the_boundary(monkeypat
     assert "[constraints...] (Lpf/Pcf/Pdc/Xdc)" in rows["nextpnr"]
     assert "config (EcpConfig/IceAsc/Fasm)" in rows["nextpnr"]
     assert "fpga_pack (depends on the target)" in rows["nextpnr"]
+    # a follower that a link reaches through other flows names them, so it never reads as direct
+    assert "openfpgaloader (through fpga_pack) (depends on the target)" in rows["nextpnr"]
+    assert "fpga_pack (through nextpnr)" in rows["yosys_fpga"]
+    assert "openfpgaloader (through nextpnr, fpga_pack)" in rows["yosys_fpga"]
+    assert "nextpnr (through" not in rows["yosys_fpga"]
     assert "it programs a device" in rows["openfpgaloader"]
     assert "ends a chain" in rows["openfpgaloader"]
     assert "declared" not in rows["bsc"] and "runs alone" not in rows["bsc"]
@@ -651,14 +690,85 @@ def test_action_reason_is_class_metadata_the_dry_run_shows_apart_from_what_a_run
 
 
 def test_a_refused_chain_advertises_only_validated_requests(tmp_path):
-    result = _xeda("run", "nextpnr+openfpgaloader", _design(tmp_path))
+    result = _xeda("run", "yosys_fpga.netlist_edif+fpga_pack", _design(tmp_path))
     assert result.exit_code == 2
-    assert "Did you mean `nextpnr+fpga_pack+openfpgaloader`?" in result.stderr
-    result, document = _json("run", "nextpnr+openfpgaloader", _design(tmp_path))
+    assert "Did you mean `yosys_fpga+fpga_pack` or `yosys_fpga.netlist+fpga_pack`?" in (
+        result.stderr
+    )
+    result, document = _json("run", "yosys_fpga.netlist_edif+fpga_pack", _design(tmp_path))
     assert result.exit_code == 2 and document["success"] is False
-    assert "nextpnr+fpga_pack+openfpgaloader" in document["error"]["message"]
+    assert "yosys_fpga.netlist+fpga_pack" in document["error"]["message"]
     nothing = _xeda("run", "__chain_simple_consumer+__chain_producer", _design(tmp_path))
     assert nothing.exit_code == 2 and "Did you mean" not in nothing.stderr
+
+
+def test_the_request_lists_the_flows_a_link_passes_through(tmp_path):
+    result, document = _json("run", "__route_a+__route_c", _design(tmp_path), "--dry-run")
+    assert result.exit_code == 0, result.output
+    assert document["request"] == [
+        {"node": "__route_a", "flow": "__route_a", "output": None, "through": ["__route_b"]},
+        {"node": "__route_c", "flow": "__route_c", "output": None, "through": []},
+    ]
+    assert [node["name"] for node in document["plan"]["nodes"]] == [
+        "__route_a",
+        "__route_b",
+        "__route_c",
+    ]
+    (bound,) = document["plan"]["nodes"][1]["inputs"]
+    assert (bound["producer"], bound["output"], bound["binding_origin"]) == (
+        "__route_a",
+        "x",
+        "chain",
+    )
+    (taken,) = document["plan"]["nodes"][2]["inputs"]
+    assert taken["binding_origin"] is None, "the other edges of the graph stay default edges"
+
+
+def test_a_pass_through_link_collides_with_a_binding_of_its_input_on_the_command_line(tmp_path):
+    result, document = _json(
+        "run",
+        "__route_a+__route_c",
+        _design(tmp_path),
+        "-s",
+        "flows.__route_b.inputs.x=__route_a.x",
+        "--dry-run",
+    )
+    assert result.exit_code == 1, result.output
+    message = document["error"]["message"]
+    assert (
+        "The chain position 1 (__route_a) -> 2 (__route_c), through __route_b, binds input 'x' "
+        "of __route_b; "
+    ) in message
+    assert "flows.__route_b.inputs.x also binds that input." in message
+
+
+def test_a_binding_that_cuts_the_graph_is_refused(tmp_path):
+    result, document = _json(
+        "run",
+        "__route_a+__route_c",
+        _design(tmp_path),
+        "-s",
+        "flows.__route_c.inputs.y=__maker.made",
+        "--dry-run",
+    )
+    assert result.exit_code == 1, result.output
+    message = document["error"]["message"]
+    assert (
+        "The chain link `__route_a+__route_c` passes through `__route_b`, which the binding of "
+        "`__route_c.y` at "
+    ) in message
+    assert "flows.__route_c.inputs.y takes" in message and message.endswith("out of the plan.")
+    # the same binding without the chain plans, and leaves `__route_b` out
+    plain, planned = _json(
+        "run",
+        "__route_c",
+        _design(tmp_path),
+        "-s",
+        "flows.__route_c.inputs.y=__maker.made",
+        "--dry-run",
+    )
+    assert plain.exit_code == 0, plain.output
+    assert [node["name"] for node in planned["plan"]["nodes"]] == ["__maker", "__route_c"]
 
 
 def test_an_unknown_input_or_output_name_in_a_binding_gets_close_matches(tmp_path):
@@ -673,3 +783,61 @@ def test_an_unknown_input_or_output_name_in_a_binding_gets_close_matches(tmp_pat
     # nothing close: say what is declared instead
     assert "It declares: `made`." in message({"zzz": "__maker"})
     assert "It declares: `made`." in message({"made": "__maker.zzz"})
+
+
+def _fan_design(tmp_path, sources=(), flows=None):
+    """A design for the fan: `__fan_head` feeds `__fan_base`, which feeds `__fan_left` and
+    `__fan_right`, and both feed `__fan_tail`."""
+    path = tmp_path / "fan.yaml"
+    path.write_text(
+        yaml.safe_dump({"name": "fan", "rtl": {"sources": list(sources)}, "flows": flows or {}})
+    )
+    return path
+
+
+def test_a_link_that_binds_one_flow_lists_every_flow_it_passes_through(tmp_path):
+    result, document = _json("run", "__fan_head+__fan_tail", _fan_design(tmp_path), "--dry-run")
+    assert result.exit_code == 0, result.output
+    head, tail = document["request"]
+    assert head["through"] == ["__fan_base", "__fan_left", "__fan_right"]
+    assert tail["through"] == []
+    assert [node["name"] for node in document["plan"]["nodes"]] == [
+        "__fan_head",
+        "__fan_base",
+        "__fan_left",
+        "__fan_right",
+        "__fan_tail",
+    ]
+
+
+def test_a_source_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_path):
+    (tmp_path / "left.txt").write_text("")
+    design = _fan_design(tmp_path, [{"file": "left.txt", "type": "Data"}])
+    result, document = _json("run", "__fan_head+__fan_tail", design, "--dry-run")
+    assert result.exit_code == 1, result.output
+    assert (
+        "The chain link `__fan_head+__fan_tail` passes through `__fan_left`, which the source "
+        "of `__fan_tail.left` takes out of the plan."
+    ) in document["error"]["message"]
+    # the request for the tail alone plans without `__fan_left`
+    plain, planned = _json("run", "__fan_tail", design, "--dry-run")
+    assert plain.exit_code == 0, plain.output
+    assert "__fan_left" not in [node["name"] for node in planned["plan"]["nodes"]]
+
+
+def test_a_binding_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_path):
+    result, document = _json(
+        "run",
+        "__fan_head+__fan_tail",
+        _fan_design(tmp_path, flows={"__maker": {}}),
+        "-s",
+        "flows.__fan_tail.inputs.left=__maker.made",
+        "--dry-run",
+    )
+    assert result.exit_code == 1, result.output
+    message = document["error"]["message"]
+    assert (
+        "The chain link `__fan_head+__fan_tail` passes through `__fan_left`, which the binding "
+        "of `__fan_tail.left` at "
+    ) in message
+    assert "flows.__fan_tail.inputs.left takes" in message and message.endswith("out of the plan.")

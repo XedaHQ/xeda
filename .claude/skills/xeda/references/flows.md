@@ -9,7 +9,7 @@ xeda list-settings <flow> --json     # every setting: name, type, default, meani
 xeda list-results <flow> --json      # every result key, with its meaning
 ```
 
-Flows with declared file I/O chain with `+`: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` binds each flow's declared outputs to the next flow's required inputs. "can follow" and "can be followed by" below are the declared relations; `(depends on the target)` marks one the target's family decides, and `flow.output+flow` one that needs the output named. A refused chain says which chain would be valid, if any. The relations are declarations only: planning can still refuse a chain that passes (related inputs). For example, `yosys_fpga+vivado_impl+vivado_power` also needs `-s flows.vivado_postsynth_sim.inputs.<input>=vivado_impl.<input>` for each of `netlist`, `netlist_timing` and `sdf`; the refusal lists the bindings to add. A flow with no declared I/O runs alone.
+Flows with declared file I/O chain with `+`: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` binds each flow's declared outputs to the next flow's required inputs. "can follow" and "can be followed by" below are the declared relations; `(depends on the target)` marks one the target's family decides, and `flow.output+flow` one that needs the output named. `(through a, b)` marks a relation whose link passes through the flows `a` and `b` between the two: Xeda runs them as it does for the second flow alone. A refused chain says which chain would be valid, if any. The relations are declarations only: planning can still refuse a chain that passes (related inputs). For example, `yosys_fpga+vivado_impl+vivado_power` also needs `-s flows.vivado_postsynth_sim.inputs.<input>=vivado_impl.<input>` for each of `netlist`, `netlist_timing` and `sdf`; the refusal lists the bindings to add. A flow with no declared I/O runs alone.
 
 ## Simulation
 
@@ -107,7 +107,7 @@ Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `
 
 ### `fpga_pack`
 
-*runs first: `nextpnr` | can follow: `nextpnr` (depends on the target) | can be followed by: `openfpgaloader`*
+*runs first: `nextpnr` | can follow: `nextpnr` (depends on the target), `yosys_fpga` (through `nextpnr`) | can be followed by: `openfpgaloader`*
 
 Pack a routed FPGA design into a bitstream. The `config` input is the routed configuration of the device's family. It is a typed design source (`EcpConfig`, `IceAsc` or `Fasm`) or, by default, the `config` output of `nextpnr`. The flow packs it with `ecppack` (ECP5), `icepack` (iCE40) or openXC7's `fpga-as` (Xilinx 7-series) into the declared `bitstream` output. The packer writes to scratch space in the run directory. The flow publishes the bitstream only after the packer exits successfully with a nonempty file, so a failed packing leaves no partial bitstream and keeps an earlier one. The flow programs nothing. `openfpgaloader` programs a bitstream.
 
@@ -129,7 +129,7 @@ Reports: `minimum_period`, `maximum_frequency`, `Fmax`, `wns`, `lut`, `ff`, `sli
 
 ### `nextpnr`
 
-*runs first: `yosys_fpga` | can follow: `yosys_fpga` | can be followed by: `fpga_pack` (depends on the target)*
+*runs first: `yosys_fpga` | can follow: `yosys_fpga` | can be followed by: `fpga_pack` (depends on the target), `openfpgaloader` (through `fpga_pack`) (depends on the target)*
 
 Place and route an FPGA design with nextpnr. The input `netlist` is a `JsonNetlist` design source or, by default, the netlist that `yosys_fpga` produces. The flow runs the nextpnr variant for `fpga.family`: `nextpnr-ecp5`, `nextpnr-ice40`, `nextpnr-nexus`, or openXC7's `nextpnr-himbaechel` for Xilinx 7-series (Artix, Kintex, Spartan, Virtex, Zynq). It then parses the JSON report of nextpnr for the achieved frequency, the slack and the resource utilization. A 7-series part needs the full part name (`xc7a100tcsg324-1`) and pin constraints (typed `Xdc` sources, or the pin constraints of a board). The chip database is generated once for each run root, unless `chipdb` names one. Canonical resource names (`lut`, `ff`, ...) are mapped for ECP5 and 7-series. Other families report raw bel-type counts. `lut` is counted at this stage by the method that `LUT:METHOD` names. For 7-series it is the number of occupied physical LUTs, read from the placement dump. It is not certified comparable with the count of another toolchain. `Fmax` is the timing of nextpnr itself: compare it only with other nextpnr runs. A family without a tested mapping of device, constraints and output is refused before any producer runs.
 
@@ -141,7 +141,7 @@ Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `tim
 
 ### `openfpgaloader`
 
-*runs first: `fpga_pack` | can follow: `fpga_pack`, `vivado_alt_synth`, `vivado_impl`, `vivado_synth` | programs a device and can only end a chain*
+*runs first: `fpga_pack` | can follow: `fpga_pack`, `vivado_alt_synth`, `vivado_impl`, `vivado_synth`, `nextpnr` (through `fpga_pack`) (depends on the target), `yosys_fpga` (through `nextpnr`, `fpga_pack`) | programs a device and can only end a chain*
 
 Program a bitstream onto an FPGA board with openFPGALoader. The `bitstream` input is a typed `Bitstream` design source (a file built elsewhere, by any toolchain) or, by default, the `bitstream` output of `fpga_pack`. The flow builds and packs nothing itself. The settings of the earlier stages belong to their own sections (`flows.nextpnr`, `flows.fpga_pack`). The flow selects the device with `cable`, else with the name of the board in openFPGALoader (`openfpgaloader_board` in the board database) when the board has one. The flow passes the FPGA part when the part is known and either `cable` is set or no board name is passed: a Xilinx part without its speed grade, any other part as it is. Without a part, openFPGALoader detects the device. Programming the flash (`write_flash`) needs the part. The flow keeps the output of the loader in `openfpgaloader.log` in the run directory. It needs openFPGALoader 0.13.1 or newer and refuses an older loader before it builds or programs anything. The run fails when the loader exits with a nonzero status. It also fails when the output shows that the device was not programmed although the status is 0: DONE low after a Xilinx load (with the ID or CRC error that the FPGA reports), a step that printed FAIL, or an error message such as a flash that does not answer. A flash write on a Xilinx FPGA also fails unless the loader reports that it wrote the flash. The flow always runs, because it changes a device and no file. It is the only built-in flow that programs a device.
 
@@ -219,7 +219,7 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 ### `yosys_fpga`
 
-*can be followed by: `nextpnr`, `vivado_impl`*
+*can be followed by: `nextpnr`, `vivado_impl`, `fpga_pack` (through `nextpnr`), `openfpgaloader` (through `nextpnr`, `fpga_pack`)*
 
 Synthesize a design for an FPGA device with Yosys.
 

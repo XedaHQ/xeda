@@ -143,7 +143,10 @@ def _complete(shell, words):
     ("words", "expected"),
     [
         ("xeda run yosys_fpga+ne", ["yosys_fpga+nextpnr"]),
-        ("xeda run yosys_fpga+nextpnr+", ["yosys_fpga+nextpnr+fpga_pack"]),
+        (
+            "xeda run yosys_fpga+nextpnr+",
+            ["yosys_fpga+nextpnr+fpga_pack", "yosys_fpga+nextpnr+openfpgaloader"],
+        ),
         ("xeda run --json yosys_fpga+nextpnr+fpga_pack+open", None),
         ("xeda run nextpnr.", ["nextpnr.config"]),
         ("xeda run openfpgaloader+", []),
@@ -155,6 +158,38 @@ def test_completion_requests_complete_flow_chains(shell, words, expected):
     if expected is None:
         expected = [words.split()[-1] + "fpgaloader"]
     assert values == expected
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+@pytest.mark.parametrize(
+    ("words", "expected"),
+    [
+        ("xeda run yosys_fpga+o", ["yosys_fpga+openfpgaloader"]),
+        ("xeda run yosys_fpga+f", ["yosys_fpga+fpga_pack"]),
+        ("xeda run yosys_fpga+fpga_pack+", ["yosys_fpga+fpga_pack+openfpgaloader"]),
+        ("xeda run nextpnr+", ["nextpnr+fpga_pack", "nextpnr+openfpgaloader"]),
+        # a flow that the link `yosys_fpga+fpga_pack` skips cannot come again
+        ("xeda run yosys_fpga+fpga_pack+n", []),
+        ("xeda run yosys_fpga+openfpgaloader+", []),
+    ],
+)
+def test_completion_offers_the_flows_a_link_can_skip_to(shell, words, expected):
+    assert _complete(shell, words) == expected
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_completion_lists_the_direct_followers_before_the_ones_through_other_flows(shell):
+    offered = [
+        value
+        for value in _complete(shell, "xeda run yosys_fpga+")
+        if not value.startswith("yosys_fpga+__")
+    ]
+    assert offered == [
+        "yosys_fpga+nextpnr",
+        "yosys_fpga+vivado_impl",
+        "yosys_fpga+fpga_pack",
+        "yosys_fpga+openfpgaloader",
+    ]
 
 
 @pytest.mark.parametrize("shell", SHELLS)
@@ -220,8 +255,12 @@ def test_completion_of_chains_of_declared_test_flows(shell, words, expected):
 CHAIN_CASES = [
     ("xeda r", "run"),
     ("xeda run yosys_fpga+ne", ["yosys_fpga+nextpnr"]),
-    ("xeda run yosys_fpga+nextpnr+", ["yosys_fpga+nextpnr+fpga_pack"]),
+    (
+        "xeda run yosys_fpga+nextpnr+",
+        ["yosys_fpga+nextpnr+fpga_pack", "yosys_fpga+nextpnr+openfpgaloader"],
+    ),
     ("xeda run yosys_fpga+nextpnr+fpga_pack+", ["yosys_fpga+nextpnr+fpga_pack+openfpgaloader"]),
+    ("xeda run yosys_fpga+fpga_pack+", ["yosys_fpga+fpga_pack+openfpgaloader"]),
     ("xeda run nextpnr.", ["nextpnr.config"]),
     ("xeda run openfpgaloader+", []),
     ("xeda run yosys_fpga+nextpnr+n", []),

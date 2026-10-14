@@ -1,10 +1,17 @@
 """The generated lightweight flow catalog stays fresh and matches chain validation."""
 
+import json
+import runpy
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from xeda.flow.io import declared_outputs
+
+from . import io_flows
+from .flow_registry import preserved_flow_registry
 
 pytestmark = pytest.mark.python_compat
 
@@ -83,8 +90,19 @@ cases = {
     "openfpgaloader+nextpnr+fp",
     "yosys_fpga+nextpnr+yosys_fpga",
     "yosys_fpga+nextpnr+fpga_pack+open",
+    # a link can pass through the flows between its two flows
+    "yosys_fpga+fpga_pack+", "yosys_fpga+fpga_pack+o", "yosys_fpga+fpga_pack+ne",
+    "yosys_fpga+fpga_pack+nextpnr", "yosys_fpga+openfpgaloader+",
+    "yosys_fpga+openfpgaloader+fpga_pack", "nextpnr+openfpgaloader+", "nextpnr+fpga_pack+",
+    "nextpnr+openfpgaloader+fpga_pack", "yosys_fpga.netlist+fpga_pack+",
+    "yosys_fpga.netlist+openfpgaloader+", "yosys_fpga.netlist+", "yosys_fpga.netlist+o",
+    "yosys_fpga.netlist+f", "yosys_fpga+fpga_pack.", "yosys_fpga+fpga_pack.b",
+    "yosys_fpga+openfpgaloader.", "nextpnr.config+openfpgaloader+", "nextpnr.config+",
+    "yosys_fpga+nextpnr+openfpgaloader+", "YosysFpga+FpgaPack+", "yosys-fpga+fpga-pack+o",
+    "yosys_fpga+open_xc7+fpga_pack+",
 }
 
+by_spelling = {name: cls for cls in classes for name in (cls.name, *cls.aliases)}
 for cls in classes:
     spellings = {
         cls.name,
@@ -104,6 +122,17 @@ for cls in classes:
             for candidate in complete_request(qualified, classes):
                 child = candidate[len(qualified):]
                 cases.update(qualified + child[:length] for length in range(1, len(child) + 1))
+
+        # every valid link of two flows, unqualified and qualified, followed by `+`
+        for output in ("", *("." + name for name in declared_outputs(cls))):
+            head = spelling + output + "+"
+            for candidate in complete_request(head, classes):
+                follower = candidate[len(head):]
+                cases.add(head + follower + "+")
+                for third in complete_request(head + follower + "+", classes):
+                    cases.add(third)
+                for made in declared_outputs(by_spelling[follower]):
+                    cases.add(head + follower + "." + made[:1])
 
 # Include each actual follower and a partial follower prefix for every builtin producer spelling.
 for cls in classes:
@@ -133,3 +162,107 @@ for incomplete in sorted(cases):
         timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def _spellings(cls):
+    return {cls.name, cls.name.replace("_", "-"), cls.__name__, *cls.aliases}
+
+
+def _agreement_cases(classes, complete_request):
+    """The unfinished requests to compare: every spelling of every flow, and then every valid
+    chain of up to four flows (with each flow's outputs) followed by `+`, with the prefixes of the
+    next element and of its outputs."""
+    by_spelling = {spelling: cls for cls in classes for spelling in _spellings(cls)}
+    cases = {""}
+    heads = {""} | {spelling + "+" for spelling in by_spelling}
+    for _ in range(4):
+        grown = set()
+        for head in heads:
+            for token in complete_request(head, classes):
+                spelling = token[len(head) :]
+                cases.update(head + spelling[:length] for length in range(len(spelling) + 1))
+                for output in declared_outputs(by_spelling[spelling]):
+                    cases.update(
+                        f"{head}{spelling}.{output[:length]}" for length in range(len(output) + 1)
+                    )
+                    grown.add(f"{head}{spelling}.{output}+")
+                grown.add(token + "+")
+        cases |= grown
+        heads = grown
+    return {case for case in cases if "+" in case or "." in case}
+
+
+def _flows_that_skip():
+    return sorted(
+        [
+            getattr(io_flows, name)
+            for name in (
+                "_SkipMake",
+                "_SkipMid",
+                "_SkipEnd",
+                "_SkipSide",
+                "_SkipSink",
+                "_RouteA",
+                "_RouteB",
+                "_RouteC",
+                "_ChainProducer",
+                "_ChainAliased",
+                "_ChainAction",
+            )
+        ],
+        key=lambda cls: cls.name,
+    )
+
+
+def test_completion_from_the_catalog_matches_the_runtime_across_a_skipped_flow(monkeypatch):
+    """No built-in chain repeats a flow through a link that skips it, so the toy flows do."""
+    from xeda import flow_catalog
+    from xeda.flow_runner.chains import complete_request
+
+    with preserved_flow_registry():
+        classes = _flows_that_skip()
+        monkeypatch.setattr(sys, "path", list(sys.path))  # the generator puts `src` on the path
+        render = runpy.run_path(str(ROOT / "tools" / "generate_flow_catalog.py"))["render"]
+        catalog = json.loads(render(classes))
+        monkeypatch.setattr(flow_catalog, "_builtin_flows", lambda: list(catalog.items()))
+        # the catalog lists the flow a link skips, and lists it for the follower alone
+        assert catalog["__skip_make"]["followers"][""] == [
+            "__chain_aliased",
+            "__route_b",
+            "__skip_mid",
+            "__skip_side",
+            "__skip_end",
+            "__skip_sink",
+        ]
+        assert catalog["__skip_make"]["routes"][""] == {
+            "__skip_end": ["__skip_mid"],
+            "__skip_sink": ["__skip_mid"],
+        }
+        assert "routes" not in catalog["__skip_mid"]
+        cases = _agreement_cases(classes, complete_request)
+        assert "__skip_make+__skip_end+__skip_side+" in cases
+        assert len(cases) > 200
+        for incomplete in sorted(cases):
+            expected = complete_request(incomplete, classes)
+            actual = flow_catalog.complete_builtin_request(incomplete)
+            assert actual == expected, (incomplete, expected, actual)
+        # a skipped flow is refused as the next element and in a later link
+        after_end = flow_catalog.complete_builtin_request("__skip_make+__skip_end+")
+        assert "__skip_make+__skip_end+__skip_side" in after_end
+        assert not [name for name in after_end if name.endswith(("__skip_mid", "__skip_sink"))]
+        assert flow_catalog.complete_builtin_request("__skip_make+__skip_end+__skip_side+") == []
+        assert flow_catalog.complete_builtin_request("__skip_make+__skip_end+__skip_mid+") == []
+
+
+def test_a_catalog_without_routes_completes_every_follower_as_a_direct_one(monkeypatch):
+    from xeda import flow_catalog
+
+    records = {
+        "a": {"aliases": [], "class_name": "A", "followers": {"": ["b", "c"]}},
+        "b": {"aliases": [], "class_name": "B", "followers": {"": ["c"]}},
+        "c": {"aliases": [], "class_name": "C", "followers": {"": []}},
+    }
+    monkeypatch.setattr(flow_catalog, "_builtin_flows", lambda: list(records.items()))
+    assert flow_catalog.complete_builtin_request("a+") == ["a+b", "a+c"]
+    assert flow_catalog.complete_builtin_request("a+b+") == ["a+b+c"]
+    assert flow_catalog.complete_builtin_request("a+c+") == []

@@ -75,6 +75,17 @@ def test_generated_reference_publishes_the_chains_each_flow_can_join():
     assert "`fpga_pack` (depends on the target)" in _facts(section, "can be followed by").split(
         ", "
     )
+    # a relation whose link skips flows names them, so it never reads as direct
+    assert "`fpga_pack` (through `nextpnr`)" in _facts(
+        reference.partition("### `yosys_fpga`")[2].partition("###")[0], "can be followed by"
+    ).split(", ")
+    assert "`yosys_fpga` (through `nextpnr`)" in _facts(
+        reference.partition("### `fpga_pack`")[2].partition("###")[0], "can follow"
+    ).split(", ")
+    assert "`openfpgaloader` (through `nextpnr`, `fpga_pack`)" in _facts(
+        reference.partition("### `yosys_fpga`")[2].partition("###")[0], "can be followed by"
+    )
+    assert "through" in reference.partition("### ")[0]
     loader = reference.partition("### `openfpgaloader`")[2].partition("###")[0]
     assert "programs a device and can only end a chain" in loader
     assert _facts(loader, "can be followed by") == ""

@@ -74,11 +74,25 @@
     "class_name": "Nextpnr",
     "followers": {
       "": [
-        "fpga_pack"
+        "fpga_pack",
+        "openfpgaloader"
       ],
       "config": [
-        "fpga_pack"
+        "fpga_pack",
+        "openfpgaloader"
       ]
+    },
+    "routes": {
+      "": {
+        "openfpgaloader": [
+          "fpga_pack"
+        ]
+      },
+      "config": {
+        "openfpgaloader": [
+          "fpga_pack"
+        ]
+      }
     }
   },
   "nvc": {
@@ -237,14 +251,38 @@
     "followers": {
       "": [
         "nextpnr",
-        "vivado_impl"
+        "vivado_impl",
+        "fpga_pack",
+        "openfpgaloader"
       ],
       "netlist": [
-        "nextpnr"
+        "nextpnr",
+        "fpga_pack",
+        "openfpgaloader"
       ],
       "netlist_edif": [
         "vivado_impl"
       ]
+    },
+    "routes": {
+      "": {
+        "fpga_pack": [
+          "nextpnr"
+        ],
+        "openfpgaloader": [
+          "nextpnr",
+          "fpga_pack"
+        ]
+      },
+      "netlist": {
+        "fpga_pack": [
+          "nextpnr"
+        ],
+        "openfpgaloader": [
+          "nextpnr",
+          "fpga_pack"
+        ]
+      }
     }
   },
   "yosys_sim": {

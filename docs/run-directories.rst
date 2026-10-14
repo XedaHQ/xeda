@@ -154,9 +154,10 @@ names. The trace decides whether the content of such a file changed since the la
 How you asked for an input is not part of either hash. This applies to a chain, to a
 ``flows.<flow>.inputs`` binding in a design, a project, the command line or the API. Only the
 producer and the output it selects count. A chain, a saved binding and the defaults that choose the
-same producer and output give the same hashes and the same directories. A chain that selects another
-producer or another output gives the consumer another ``flowrun_hash``, and with
-``--hashed-run-dirs`` another directory. Without hashed directories, the consumer keeps its
+same producer and output give the same hashes and the same directories. This holds for a link that
+passes through flows, too: ``yosys_fpga+fpga_pack`` and ``fpga_pack`` alone give the same hashes. A
+chain that selects another producer or another output gives the consumer another ``flowrun_hash``,
+and with ``--hashed-run-dirs`` another directory. Without hashed directories, the consumer keeps its
 directory and the trace gives the reason for the new run: ``declared input bindings changed``. See
 :ref:`flow-chains`.
 

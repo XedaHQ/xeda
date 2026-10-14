@@ -1,6 +1,6 @@
 """Pure graph resolution, with agreement of shared settings that keeps their origins.
 
-An input is supplied, in this order of precedence, by an explicit binding (a chain adjacency,
+An input is supplied, in this order of precedence, by an explicit binding (a chain link,
 or `flows.<consumer>.inputs.<input>` in a file, on the command line or through the API), by
 the typed sources of the design, or by its declared default producer. Nodes are told apart by
 `NodeKey` and each is resolved once, so every demand on the outputs of a producer is known
@@ -39,7 +39,7 @@ from .bindings import (
     node_bindings,
     node_identity,
 )
-from .chains import FlowRequest, fitting_outputs
+from .chains import FlowRequest, default_graph, fitting_outputs, request_text
 from .related_inputs import Node, check_related_inputs
 from .settings_layers import (
     API_ORIGIN,
@@ -408,6 +408,53 @@ class _Request:
     @property
     def label(self) -> str:
         return self.key.label if self.key else self.cls.name
+
+
+def _check_links_pass_through(
+    flow_request: FlowRequest | None, requests: Sequence[_Request]
+) -> None:
+    """Refuse a chain link when a flow that it passes through is not in the plan.
+
+    The check covers every flow of `link.through`, also a flow that the link does not bind. A
+    source or a binding of an input can take such a flow out of the plan. The request would then
+    list a flow that does not run, so it would not mean what it says."""
+    if flow_request is None:
+        return
+    retained = {request.cls: request for request in requests}
+    for index, link in enumerate(flow_request.links):
+        if not link.through:
+            continue
+        # The bound flows are in `through`, and the next element itself is always in the plan.
+        for missing in dict.fromkeys(
+            [*link.through, *(bound for bound, _input, _output in link.binds)]
+        ):
+            if missing in retained:
+                continue
+            elements = flow_request.elements[index : index + 2]
+            graph = default_graph(elements[1].flow_class)
+            cause = ""
+            for edge in graph.edges:
+                if (
+                    edge.consumer in retained
+                    and edge.producer not in retained
+                    and (
+                        edge.producer is missing or missing in default_graph(edge.producer).flows()
+                    )
+                ):
+                    resolved = next(
+                        item for item in retained[edge.consumer].inputs if item.name == edge.input
+                    )
+                    where = f"`{edge.consumer.name}.{edge.input}`"
+                    cause = (
+                        f"the source of {where} takes"
+                        if resolved.origin == "source"
+                        else f"the binding of {where} at {resolved.binding_location} takes"
+                    )
+                    break
+            raise FlowSettingsException(
+                f"The chain link `{request_text(elements)}` passes through `{missing.name}`, "
+                + (f"which {cause} out of the plan." if cause else "which the plan does not keep.")
+            )
 
 
 def _error(cls: type[Flow], leaf: str, message: str) -> FlowSettingsError:
@@ -838,7 +885,7 @@ def resolve(
                 f"{cls.name}.{declaration.name}"
             )
         made = ", ".join(f"{out.name} ({kinds(out.types)})" for out in outputs.values())
-        # The one edge predicate, shared with chain adjacency (`chains.fitting_outputs`).
+        # The one edge predicate, shared with chain links (`chains.fitting_outputs`).
         fitting, many = fitting_outputs(producer, declaration, output=wanted)
         if wanted is not None:
             if wanted in many:
@@ -1099,6 +1146,7 @@ def resolve(
         # A displaced producer leaves the graph, with its settings and shared leaves.
         demands()
 
+    _check_links_pass_through(flow_request, requests)
     check_related_inputs(
         Node(request.label, request.cls, {item.name: item for item in request.inputs})
         for request in requests

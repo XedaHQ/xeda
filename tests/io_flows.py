@@ -432,3 +432,243 @@ class _ChainAliased(Flow):
 
     def run(self) -> None:
         pass
+
+
+class _RouteBoth(Flow):
+    """Takes `_RouteA` directly and `_RouteB`, which itself reads `_RouteA`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        x: Path = In(
+            SourceType.JsonNetlist, producer="__route_a", output="x", description="Stage A."
+        )
+        y: Path = In(SourceType.Data, producer="__route_b", output="y", description="Stage B.")
+
+    def run(self) -> None:
+        pass
+
+
+class _DiamondHead(Flow):
+    """The head of a diamond: makes a netlist `o1` and a constraints file `o2`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Outputs(Flow.Outputs):
+        o1: Path = Out(SourceType.JsonNetlist, description="The netlist.")
+        o2: Path = Out(SourceType.Sdc, description="The constraints file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _DiamondLeft(Flow):
+    """One side of the diamond: reads the netlist of the head."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        i: Path = In(
+            SourceType.JsonNetlist, producer="__diamond_head", output="o1", description="Netlist."
+        )
+
+    class Outputs(Flow.Outputs):
+        out: Path = Out(SourceType.Data, description="The left file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _DiamondRight(Flow):
+    """The other side of the diamond: reads the netlist of the head."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        i: Path = In(
+            SourceType.JsonNetlist, producer="__diamond_head", output="o1", description="Netlist."
+        )
+
+    class Outputs(Flow.Outputs):
+        out: Path = Out(SourceType.Data, description="The right file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _DiamondTail(Flow):
+    """The end of the diamond: reads both sides."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        left: Path = In(
+            SourceType.Data, producer="__diamond_left", output="out", description="Left."
+        )
+        right: Path = In(
+            SourceType.Data, producer="__diamond_right", output="out", description="Right."
+        )
+
+    def run(self) -> None:
+        pass
+
+
+class _SkipMake(Flow):
+    """The head of a route a link can skip: makes a netlist."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Outputs(Flow.Outputs):
+        made: Path = Out(SourceType.JsonNetlist, description="The netlist.")
+
+    def run(self) -> None:
+        pass
+
+
+class _SkipSide(Flow):
+    """Makes the constraints file that `_SkipMid` also reads. Its own input has no default."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        net: Path = In(SourceType.JsonNetlist, description="The netlist it reads.")
+
+    class Outputs(Flow.Outputs):
+        side: Path = Out(SourceType.Sdc, description="The constraints file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _SkipMid(Flow):
+    """The middle of the route: reads `_SkipMake`'s netlist and `_SkipSide`'s file, makes data."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        made: Path = In(
+            SourceType.JsonNetlist, producer="__skip_make", output="made", description="Netlist."
+        )
+        side: Path = In(
+            SourceType.Sdc, producer="__skip_side", output="side", description="Constraints."
+        )
+
+    class Outputs(Flow.Outputs):
+        mid: Path = Out(SourceType.Data, description="The data.")
+
+    def run(self) -> None:
+        pass
+
+
+class _SkipEnd(Flow):
+    """Reads `_SkipMid`'s data and makes a netlist, which `_SkipMid` and `_SkipSide` could take
+    directly: `_SkipMake+_SkipEnd` skips `_SkipMid`, which a flow after it could name."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        mid: Path = In(
+            SourceType.Data, producer="__skip_mid", output="mid", description="The data."
+        )
+
+    class Outputs(Flow.Outputs):
+        end: Path = Out(SourceType.JsonNetlist, description="The netlist.")
+
+    def run(self) -> None:
+        pass
+
+
+class _SkipSink(Flow):
+    """Reads `_SkipMid`'s data: `_SkipSide+_SkipSink` skips `_SkipMid` as `_SkipMake+_SkipEnd` does."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        mid: Path = In(
+            SourceType.Data, producer="__skip_mid", output="mid", description="The data."
+        )
+
+    def run(self) -> None:
+        pass
+
+
+class _FanHead(Flow):
+    """The head of a fan: makes the netlist that only `_FanBase` reads."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Outputs(Flow.Outputs):
+        net: Path = Out(SourceType.JsonNetlist, description="The netlist.")
+
+    def run(self) -> None:
+        pass
+
+
+class _FanBase(Flow):
+    """Reads the netlist of `_FanHead` and makes one file for each of `_FanLeft` and `_FanRight`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        net: Path = In(
+            SourceType.JsonNetlist, producer="__fan_head", output="net", description="Netlist."
+        )
+
+    class Outputs(Flow.Outputs):
+        left: Path = Out(SourceType.Sdc, description="The file for the left flow.")
+        right: Path = Out(SourceType.Lpf, description="The file for the right flow.")
+
+    def run(self) -> None:
+        pass
+
+
+class _FanLeft(Flow):
+    """Reads the left file of `_FanBase`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        side: Path = In(
+            SourceType.Sdc, producer="__fan_base", output="left", description="The left file."
+        )
+
+    class Outputs(Flow.Outputs):
+        out: Path = Out(SourceType.Data, description="The left result.")
+
+    def run(self) -> None:
+        pass
+
+
+class _FanRight(Flow):
+    """Reads the right file of `_FanBase`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        side: Path = In(
+            SourceType.Lpf, producer="__fan_base", output="right", description="The right file."
+        )
+
+    class Outputs(Flow.Outputs):
+        out: Path = Out(SourceType.Pcf, description="The right result.")
+
+    def run(self) -> None:
+        pass
+
+
+class _FanTail(Flow):
+    """Reads both results. The link from `_FanHead` binds an input of `_FanBase` only, and passes
+    through `_FanLeft` and `_FanRight` too."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        left: Path = In(
+            SourceType.Data, producer="__fan_left", output="out", description="The left result."
+        )
+        right: Path = In(
+            SourceType.Pcf, producer="__fan_right", output="out", description="The right result."
+        )
+
+    def run(self) -> None:
+        pass
