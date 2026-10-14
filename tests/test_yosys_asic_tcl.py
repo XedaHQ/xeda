@@ -12,6 +12,7 @@ tests at the end run a real yosys with Tcl (`XEDA_TESTS_YOSYS_TCL=1`, the `yosys
 
 import json
 import re
+import time
 import shutil
 import subprocess
 from importlib import resources
@@ -882,11 +883,27 @@ def _launch(tmp_path: Path, source: str, top: str, script_format: str = "tcl", *
 def _modules(netlist: str) -> dict[str, str]:
     """The text of each module of a Verilog netlist, by name, with the attributes before it."""
     found = {}
-    for match in re.finditer(
-        r"((?:\(\*[^\n]*\*\)\s*)*)module\s+(\S+?)\s*\(.*?endmodule", netlist, re.S
-    ):
+    for match in MODULE_WITH_ATTRIBUTES.finditer(netlist):
         found[match.group(2)] = match.group(0)
     return found
+
+
+#: A module of a Verilog netlist, with the attributes (`(* ... *)`) before it. An attribute body
+#: never holds `*)`, so a line of attributes splits into attributes in one way only.
+MODULE_WITH_ATTRIBUTES = re.compile(
+    r"((?:\(\*(?:[^*\n]|\*(?!\)))*\*\)\s*)*)module\s+(\S+?)\s*\(.*?endmodule", re.S
+)
+
+
+def test_the_module_pattern_reads_attributes_and_returns_at_once_on_a_line_without_a_module():
+    netlist = '(* keep *)\n(* a = "1" *) (* b *)\nmodule m(a);\nendmodule\n(* x *) module n (b); endmodule'
+    assert {name: text.split("module")[0] for name, text in _modules(netlist).items()} == {
+        "m": '(* keep *)\n(* a = "1" *) (* b *)\n',
+        "n": "(* x *) ",
+    }
+    started = time.monotonic()
+    assert _modules("(*" + "*)(*" * 24 + " x") == {}
+    assert time.monotonic() - started < 1
 
 
 @pytest.mark.parametrize("mapper", ["abc", "abc_new"])
