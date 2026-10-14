@@ -45,6 +45,7 @@ from .flow.io import declared_inputs, declared_outputs, selected_types
 from .flow_runner import get_flow_class
 from .flow_runner.chains import ChainEdge, followers, predecessors
 from .flows import __builtin_flows__
+from .units import QUANTITY_KEY
 from .utils import json_encodable, unique, with_json_keys
 
 if TYPE_CHECKING:
@@ -376,6 +377,10 @@ def type_str(field_schema: Any, definitions: Optional[Dict[str, Any]] = None) ->
         return "|".join(type_str(f, definitions) for f in field_schema)
     if not isinstance(field_schema, dict):
         return "any"
+    kind = field_schema.get(QUANTITY_KEY)
+    if isinstance(kind, str):
+        # A quantity is text with a unit in the schema. The listing names what it measures.
+        return kind
     ref = field_schema.get("$ref")
     typ = field_schema.get("type")
     if typ is None and ref:

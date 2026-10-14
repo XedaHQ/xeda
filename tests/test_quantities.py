@@ -610,6 +610,52 @@ def test_every_kind_has_a_schema(cls) -> None:
         assert unit in node["description"]
 
 
+@pytest.mark.parametrize("cls", list(TABLE))
+def test_a_listing_shows_the_kind_of_a_quantity(cls) -> None:
+    class M(XedaBaseModel):
+        x: cls  # type: ignore[valid-type]
+
+    schema = M.model_json_schema()
+    assert introspect.type_str(schema["properties"]["x"], schema.get("$defs")) == KINDS[cls][0]
+
+
+def test_a_listing_shows_the_kind_inside_optional_unions_and_containers() -> None:
+    schema = Rich.model_json_schema()
+    shown = {
+        name: introspect.type_str(spec, schema.get("$defs"))
+        for name, spec in schema["properties"].items()
+    }
+    assert shown["period"] == "time"
+    assert shown["opt"] == "time"  # an optional setting reads as its type
+    assert shown["bounded"] == "time"
+    assert shown["many"] == "array[time]"
+    assert shown["named"] == "dict[string, time]"
+    # a union lists its branches by type, as it does for any other union: the text `auto` is a
+    # string
+    assert shown["auto"] == "string | time"
+
+
+def test_the_settings_schema_of_a_flow_checks_the_form_of_a_quantity_and_names_its_kind() -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = introspect.settings_info("yosys")["json_schema"]
+    validator = jsonschema.Draft202012Validator(schema)
+    assert not list(validator.iter_errors({"clock": {"period": "10 ns"}}))
+    assert not list(validator.iter_errors({"abc": {"delay_target": "auto", "load": "3.9 fF"}}))
+    # a bare number is not text: the schema can say so
+    assert list(validator.iter_errors({"clock": {"period": 10}}))
+    assert list(validator.iter_errors({"abc": {"delay_target": 500}}))
+    # it cannot check the unit in a text: Xeda refuses `10` and `10 MHz` as a time, and the
+    # schema accepts both
+    assert not list(validator.iter_errors({"clock": {"period": "10"}}))
+    assert not list(validator.iter_errors({"clock": {"period": "10 MHz"}}))
+    clock = schema["$defs"]["PhysicalClock"]["properties"]
+    assert (clock["period"]["type"], clock["period"]["x-xeda-quantity"]) == ("string", "time")
+    assert (clock["freq"]["type"], clock["freq"]["x-xeda-quantity"]) == ("string", "frequency")
+    abc = schema["$defs"]["AbcGroup"]["properties"]
+    assert _quantity_schemas(abc["max_slew"])[0]["x-xeda-quantity"] == "time"
+    assert _quantity_schemas(abc["load"])[0]["x-xeda-quantity"] == "capacitance"
+
+
 def test_a_field_description_replaces_the_description_but_not_the_kind() -> None:
     class M(XedaBaseModel):
         x: Time = Field(Time("1 ns"), description="The clock period.")

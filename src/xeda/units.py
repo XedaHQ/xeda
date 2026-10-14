@@ -202,6 +202,9 @@ def time_ns_optional(
 
 # ---- quantities with a required unit ---------------------------------------------------------
 
+#: The key of the JSON Schema of a quantity that names its kind (`time`).
+QUANTITY_KEY = "x-xeda-quantity"
+
 
 class QuantityError(ValueError):
     """The text or number that a quantity was asked to hold is not a valid quantity of the kind.
@@ -533,7 +536,7 @@ class Quantity:
     ) -> dict[str, Any]:
         return {
             "type": "string",
-            "x-xeda-quantity": cls.kind,
+            QUANTITY_KEY: cls.kind,
             "description": (
                 f"A {cls.kind} with a unit, such as `{cls.example}`. "
                 f"Units: {', '.join(cls.units)}."
@@ -775,6 +778,7 @@ __all__ = [
     "MEASURE_KEY",
     "Quantity",
     "QuantityError",
+    "QUANTITY_KEY",
     "Q_",
     "Resistance",
     "Time",
