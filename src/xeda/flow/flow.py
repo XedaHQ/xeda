@@ -35,7 +35,7 @@ from typing import (
 import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
-from pydantic_core import InitErrorDetails
+from pydantic_core import ErrorDetails, InitErrorDetails
 
 from ..dataclass import (
     DELIVERABLE_ROLE,
@@ -58,6 +58,7 @@ from ..dataclass import (
     input_names,
     is_locator,
     model_validator,
+    nested_model,
     opaque_key_fields_of,
     table_entries,
     validation_errors,
@@ -443,6 +444,83 @@ def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
 
     map_written_leaves(settings, check)
     return problems
+
+
+def _item_annotation(annotation: Any) -> tuple[Any, bool]:
+    """Return the annotation of the items of a list or a dictionary, and whether the location of
+    an item has a key after the field name. Any other annotation gives `(None, False)`."""
+    while True:
+        origin = get_origin(annotation)
+        if origin is Annotated:
+            annotation = get_args(annotation)[0]
+        elif origin in (Union, UnionType):
+            members = [a for a in get_args(annotation) if a is not type(None)]
+            if len(members) != 1:
+                return None, False
+            annotation = members[0]
+        else:
+            break
+    arguments = get_args(annotation)
+    if origin is list and len(arguments) == 1:
+        return arguments[0], False
+    if origin is dict and len(arguments) == 2:
+        return arguments[1], True
+    return None, False
+
+
+def _model_at(model: type[BaseModel], path: Sequence[Any]) -> Optional[type[BaseModel]]:
+    """Return the model that holds the setting at `path` in `model`, from the location of a
+    validation error, or None when `path` leads through anything that is no nested model."""
+    current: Optional[type[BaseModel]] = model
+    skip = False
+    for part in path:
+        if current is None:
+            return None
+        if skip or isinstance(part, int):  # the index or key of an item
+            skip = False
+            continue
+        field = input_names(current).get(part)
+        if field is None:
+            return None
+        annotation = current.model_fields[field].annotation
+        current = nested_model(annotation)
+        if current is None:
+            item, skip = _item_annotation(annotation)
+            current = nested_model(item)
+    return current
+
+
+def _spelling_by_case(model: type[BaseModel], key: str) -> Optional[str]:
+    """Return the one name of a field of `model` that is `key` in another case or with `-` for
+    `_`, or None when there is none or there are several fields like that."""
+
+    def plain(name: str) -> str:
+        return name.lower().replace("-", "_")
+
+    names = input_names(model)
+    matches = {name: field for name, field in names.items() if plain(name) == plain(key)}
+    if len(set(matches.values())) != 1:
+        return None
+    return next((name for name, field in matches.items() if name == field), next(iter(matches)))
+
+
+def _with_case_hints(
+    model: type[BaseModel], errors: List[ErrorDetails]
+) -> List[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]]:
+    """Return `validation_errors(errors)`, with a hint on each unknown key that is a known name in
+    another case: "Extra inputs are not permitted; did you mean `knob`?". The key may be in a
+    nested model, such as a settings group."""
+    shown = validation_errors(errors)
+    hinted = []
+    for error, (location, message, context, kind) in zip(errors, shown):
+        loc = error.get("loc", ())
+        if kind == "extra_forbidden" and loc and isinstance(loc[-1], str):
+            owner = _model_at(model, loc[:-1])
+            spelling = _spelling_by_case(owner, loc[-1]) if owner is not None else None
+            if spelling is not None and spelling != loc[-1]:
+                message = f"{message}; did you mean `{spelling}`?"
+        hinted.append((location, message, context, kind))
+    return hinted
 
 
 def _plain_model(annotation: Any) -> Optional[type[BaseModel]]:
@@ -903,7 +981,16 @@ class Flow(metaclass=ABCMeta):
         """Refuse settings that this flow cannot support. Pure.
 
         The check constructs no flow and probes no tool. A flow overrides it to refuse what it
-        cannot do."""
+        cannot do, and calls this method first: it refuses what is wrong with the settings
+        groups (`settings_group.group_problems`) in one error that lists every problem."""
+        from .settings_group import group_problems  # settings_group imports this module
+
+        problems = group_problems(settings)
+        if problems:
+            raise FlowSettingsError(
+                [(key, message, None, "settings_group") for key, message in problems],
+                cls.Settings,
+            )
 
     @classmethod
     def check_run_directory(cls, settings: "Flow.Settings", run_path: Path) -> None:
@@ -1188,7 +1275,7 @@ class Flow(metaclass=ABCMeta):
                 debug = data.get("debug")
                 if debug is True or (isinstance(debug, str) and debug.lower() == "true"):
                     raise e
-                raise FlowSettingsError(validation_errors(e.errors()), cls, e.json()) from e
+                raise FlowSettingsError(_with_case_hints(cls, e.errors()), cls, e.json()) from e
 
         @property
         def context(self) -> dict[str, Any]:

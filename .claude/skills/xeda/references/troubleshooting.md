@@ -27,7 +27,7 @@
 
 | Message | Fix |
 | --- | --- |
-| `Extra inputs are not permitted: <name> (extra_forbidden)` | No such setting on this flow. `xeda list-settings <flow> --json \| jq -r '.fields[].name'`. A producer's setting goes under `-s flows.<producer>.<name>=...`. |
+| `Extra inputs are not permitted: <name> (extra_forbidden)` | No such setting on this flow. A `did you mean` hint names the setting with the right case (settings are case-sensitive; a group leaf is `group.leaf`). `xeda list-settings <flow> --json \| jq -r '.fields[].name'`. A producer's setting goes under `-s flows.<producer>.<name>=...`. |
 | `` <flow> runs Vivado in non-project mode, which has no runs to use `<setting>` on: it is a setting of vivado_synth `` | A flow refuses a setting that belongs to a related flow and names that flow. Move the setting there (`flows.vivado_synth.<setting>`). |
 | `` `-s flows.<name>.*` names no flow of this run (<flow>) `` | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
 | `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says; when nothing replaces the setting, it says so (`` `no_console` was removed: no flow read it; delete it ``). Settings nothing used were removed, for example `timeout_seconds` (now `timeout`, on the simulators). For `open_xc7`, use `fpga_pack` to build and `openfpgaloader` to program: move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga` and its pin files to `rtl.sources`. |

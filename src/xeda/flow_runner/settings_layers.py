@@ -705,7 +705,13 @@ def suggest_dependency_node(flow_cls: type[Flow], error: FlowSettingsError) -> N
     dependencies = transitive_dependencies(flow_cls)
     suggested = []
     for location, message, context, kind in error.errors:
-        if kind == "extra_forbidden" and location and " -> " not in location:
+        # A hint for a name in another case already names the setting this flow has.
+        if (
+            kind == "extra_forbidden"
+            and location
+            and " -> " not in location
+            and ("did you mean" not in (message or ""))
+        ):
             owner = next(
                 (d for d in dependencies.values() if location in d.Settings.model_fields), None
             )
