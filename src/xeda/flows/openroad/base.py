@@ -17,9 +17,15 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Sequence
+from typing import Annotated, Any, ClassVar, Dict, List, Optional, Sequence
 
-from ...dataclass import Field
+from ...dataclass import (
+    Field,
+    ListLiteralText,
+    XedaBaseModel,
+    comma_separated_items,
+    field_validator,
+)
 from ...design import Design
 from ...flow import Flow
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
@@ -37,6 +43,7 @@ __all__ = [
     "OpenroadStage",
     "effective_base",
     "base_values",
+    "WireRcSettings",
     "merge_wire_rc",
     "platform_time_unit",
     "space_word",
@@ -98,7 +105,49 @@ def to_lib_time(nanoseconds: Any, unit: str) -> str:
     return tcl_number(round(converted, 9))
 
 
-def merge_wire_rc(platform: WireRc, given: Optional[WireRc]) -> WireRc:
+#: A number of the setting `wire_rc`. `nan` and `inf` are no resistance or capacitance.
+Finite = Annotated[float, Field(allow_inf_nan=False)]
+
+
+class WireRcSettings(XedaBaseModel):
+    """The setting `wire_rc`: the wire resistance and capacitance that replace the values of the
+    platform. It has the fields of the platform's `WireRc`, but it reads its numbers as every
+    number setting does, so the command line can give them (`-s wire_rc.vias.v1=0.5`). The
+    platform model keeps its strict numbers for the typed files of a platform."""
+
+    signal_layer: Optional[str] = Field(
+        None, description="Layer whose resistance and capacitance estimate a signal net."
+    )
+    clock_layer: Optional[str] = Field(
+        None, description="Layer whose resistance and capacitance estimate a clock net."
+    )
+    layers: Dict[str, tuple[Finite, Finite]] = Field(
+        default_factory=dict,
+        description="Resistance and capacitance per micrometer of each layer, in the units of "
+        "the Liberty file. On the command line, give a pair as `resistance,capacitance`.",
+    )
+    vias: Dict[str, Finite] = Field(
+        default_factory=dict, description="Resistance of each via, by via name."
+    )
+
+    @field_validator("layers", mode="before")
+    @classmethod
+    def _pair_as_text(cls, value: Any) -> Any:
+        """Read a pair given as text by the rule that every list given as text uses."""
+        if not isinstance(value, dict):
+            return value
+        pairs = {}
+        for layer, pair in value.items():
+            if isinstance(pair, str):
+                try:
+                    pair = comma_separated_items(f"layers.{layer}", pair)
+                except ListLiteralText as error:
+                    raise error.validation_error() from None
+            pairs[layer] = pair
+        return pairs
+
+
+def merge_wire_rc(platform: WireRc, given: Optional[WireRcSettings]) -> WireRc:
     """Return the wire RC of the platform with the leaves of `given` over it.
 
     Each leaf that `given` sets replaces the leaf of the platform. The tables `layers` and `vias`
@@ -188,7 +237,7 @@ class OpenroadStage(AsicPlatformFlow, Flow):
             "not tell how it was read, so every OpenROAD flow of a chain must agree on this "
             "setting. It is separate from the hierarchy that `yosys` keeps.",
         )
-        wire_rc: Optional[WireRc] = Field(
+        wire_rc: Optional[WireRcSettings] = Field(
             None,
             description="Resistance and capacitance of the wires, which replace the values of "
             "the platform leaf by leaf: the layers and vias that you list replace the ones of "

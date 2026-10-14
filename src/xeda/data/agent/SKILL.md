@@ -244,11 +244,10 @@ Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clock
 `pdk_root`, `hierarchical`, `wire_rc`, where both nodes declare them) must agree. `platform` is a
 bundled name; `platform_file` and `pdk_root` compare by resolved path; an unset `pdk_provider` or
 `pdk_version` is filled in from the platform before hashing. `hierarchical` and `wire_rc` are the
-OpenROAD flows' (the database stores neither); give the numbers of `wire_rc` in a design or
-project file, not with `-s`. Disjoint leaves combine; two values for one leaf fail and name both
-origins. A command-line leaf (`-s fpga.part=...` or `-s flows.yosys_fpga.fpga.part=...`) wins for
-the connected group. A shared setting written under a flow that is not in the run reaches no
-node.
+OpenROAD flows' (the database stores neither). Disjoint leaves combine; two values for one leaf
+fail and name both origins. A command-line leaf (`-s fpga.part=...` or
+`-s flows.yosys_fpga.fpga.part=...`) wins for the connected group. A shared setting written under
+a flow that is not in the run reaches no node.
 
 Do not suggest a chain through `bsc` (`bsc+yosys_fpga`) or an `inputs.design` binding: `bsc`
 declares no I/O, and Xeda refuses both. `vivado_synth+openfpgaloader` is a valid chain that

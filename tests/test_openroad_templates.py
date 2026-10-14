@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from xeda.flows.openroad import base
-from xeda.flows.openroad.base import effective_base, merge_wire_rc, tcl_number
+from xeda.flows.openroad.base import WireRcSettings, effective_base, merge_wire_rc, tcl_number
 from xeda.platforms.model import WireRc
 from xeda.utils import tcl_word
 
@@ -208,7 +208,7 @@ def test_a_platform_that_names_no_time_unit_has_the_unit_of_the_format(tmp_path)
 def test_the_wire_rc_merges_leaf_by_leaf():
     platform = WireRc(signal_layer="a", clock_layer="b", layers={"a": (1.0, 2.0)}, vias={"v": 3.0})
     assert merge_wire_rc(platform, None) is platform
-    given = WireRc(clock_layer="c", layers={"d": (4.0, 5.0)})
+    given = WireRcSettings(clock_layer="c", layers={"d": (4.0, 5.0)})
     merged = merge_wire_rc(platform, given)
     assert merged == WireRc(
         signal_layer="a",

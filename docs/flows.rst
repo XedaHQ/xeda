@@ -565,9 +565,8 @@ group. ``pdk_root`` is not. It tells where the files are, and the same files in 
 the same run. ``hierarchical`` and ``wire_rc`` belong to the OpenROAD flows only: an OpenROAD
 database stores neither the way it was read nor the wire resistance and capacitance, so every flow
 of a chain must use the same values. Xeda compares ``wire_rc`` leaf by leaf (``wire_rc.signal_layer``,
-``wire_rc.layers.metal2``). Give its numbers in a design file or a project file. The command line
-gives text, and these leaves take numbers. A leaf given on one node applies to both, and disjoint
-leaves combine. Different
+``wire_rc.layers.metal2``). A leaf given on one node applies to both, and disjoint leaves
+combine. Different
 values for the same leaf fail before anything runs, and the error names both files and sections.
 An example is ``flows.nextpnr.fpga.part`` in a project and ``flows.yosys_fpga.fpga.part`` in a
 design. A command-line leaf (``-s fpga.part=...`` or ``-s flows.yosys_fpga.fpga.part=...``) wins
