@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from ...dataclass import Field, XedaBaseModel, validation_errors
 from ...deliver import deliverable_locations
 from ...design import Design
-from ...flow import Flow, FlowFatalError, FlowSettingsError, flowrun_hash
+from ...flow import Flow, FlowFatalError, FlowSettingsError, FlowSettingsException, flowrun_hash
 from ...run_dir import RunDirectory
 from ...tool import NonZeroExitCode
 from ...utils import (
@@ -27,6 +27,7 @@ from ...utils import (
     semantic_hash,
     settings_to_dict,
 )
+from ..chains import FlowRequest, parse_request
 from ..default_runner import (
     FlowLauncher,
     add_file_logger,
@@ -42,6 +43,28 @@ from ..run_lock import run_dir_lock
 from ..trace import as_recorded
 
 log = logging.getLogger(__name__)
+
+
+OPENROAD_DSE_REFUSAL = (
+    "Fmax exploration of the OpenROAD flows is not supported yet: the clock is a setting of "
+    "openroad_place, which the optimizer does not reach. Run `xeda dse` on `yosys`, or vary "
+    "`flows.openroad_place.clocks` yourself."
+)
+
+
+def _refuse_openroad(flow: Union[str, Type[Flow], FlowRequest]) -> None:
+    """Refuse a request whose requested flow is one of the OpenROAD flows.
+
+    The optimizer puts its candidate periods into the `clocks` of the requested flow. The clock
+    of an OpenROAD flow chain is a setting of `openroad_place`, so the periods do not reach it.
+    The test is by class: every flow built on `OpenroadStage` is refused, whatever its name."""
+    from ...flows.openroad import OpenroadStage
+
+    if isinstance(flow, str):
+        flow = parse_request(flow)
+    requested = flow.requested if isinstance(flow, FlowRequest) else flow
+    if isclass(requested) and issubclass(requested, OpenroadStage):
+        raise FlowSettingsException(OPENROAD_DSE_REFUSAL)
 
 
 def _purge_run(run_path: Path, run_root: Path, flow_name: str) -> None:
@@ -290,6 +313,12 @@ class Dse(FlowLauncher):
             max_workers=self.settings.max_workers, settings=optimizer_settings
         )
 
+    def _refuse_unaccepted_request(self, flow, flow_settings, flow_overrides, xedaproject) -> None:
+        """Refuse an OpenROAD flow or a chain that ends in one, then what a chain or a binding
+        brings, before anything is loaded."""
+        _refuse_openroad(flow)
+        super()._refuse_unaccepted_request(flow, flow_settings, flow_overrides, xedaproject)
+
     @with_debug_logging
     def run_flow(
         self,
@@ -303,6 +332,7 @@ class Dse(FlowLauncher):
     ):
         """Explore variations of the flow settings and return the best run."""
         assert isinstance(self.settings, self.Settings)
+        _refuse_openroad(flow_class)
         timer = Timer()
 
         optimizer = self.optimizer
