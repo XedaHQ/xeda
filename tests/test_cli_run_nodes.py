@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import ClassVar
 
+from pydantic import Field
+
 import pytest
 from click.testing import CliRunner
 
@@ -22,12 +24,20 @@ def toys():
 
         results_description: ClassVar[dict[str, str]] = {}
 
+        class Settings(Flow.Settings):
+            reject: bool = Field(False, description="Reject the results in the checks.")
+
         class Outputs(Flow.Outputs):
             out: Path = Out(SourceType.Data, description="The file it writes.")
 
         def run(self) -> None:
             (self.run_path / "out.txt").write_text("out\n")
             self.outputs.out = self.run_path / "out.txt"
+
+        def check_results(self) -> bool:
+            if self.settings.reject:
+                self.reject("the file is rejected")
+            return super().check_results()
 
     class ToyNodeFailing(Flow):
         """Reads the producer's file, then fails."""
@@ -108,3 +118,44 @@ def test_a_producer_reached_twice_within_a_launch_is_one_node(toys, design):
     assert _states(document) == [("toy_node_producer", "ran"), ("toy_node_twice", "ran")]
     paths = [node["run_path"] for node in document["nodes"]]
     assert len(paths) == len(set(paths))
+
+
+def test_a_rejected_flow_is_failed_and_then_rejected_again(toys, design):
+    """The first launch runs the flow and the checks reject it. The next one reports the same
+    rejection without running the flow. Both exit with `FlowFailed`."""
+    args = ("toy_node_producer", str(design), "-s", "reject=true")
+    result, document = _run(*args)
+    assert result.exit_code != 0 and document["success"] is False
+    assert document["error"]["type"] == "FlowFailed"
+    assert _states(document) == [("toy_node_producer", "failed")]
+    message = json.loads(Path(document["nodes"][0]["run_path"], "results.json").read_text())[
+        "error"
+    ]["message"]
+    result, document = _run(*args)
+    assert result.exit_code != 0 and document["success"] is False
+    assert document["error"]["type"] == "FlowFailed"
+    assert _states(document) == [("toy_node_producer", "rejected again")]
+    assert document["nodes"][0]["reason"] == message
+
+
+def test_the_consumer_of_a_rejected_flow_is_blocked(toys, design):
+    """The consumer does not run: it is `blocked`, and the document names a dependency failure,
+    on the first launch and when the rejection is reported again."""
+    args = (
+        "toy_node_producer+toy_node_twice",
+        str(design),
+        "-s",
+        "flows.toy_node_producer.reject=true",
+    )
+    result, document = _run(*args)
+    assert result.exit_code != 0 and document["success"] is False
+    assert document["error"]["type"] == "FlowDependencyFailure"
+    assert _states(document) == [("toy_node_producer", "failed"), ("toy_node_twice", "blocked")]
+    assert document["nodes"][1]["reason"] == "toy_node_producer did not succeed"
+    result, document = _run(*args)
+    assert document["error"]["type"] == "FlowDependencyFailure"
+    assert _states(document) == [
+        ("toy_node_producer", "rejected again"),
+        ("toy_node_twice", "blocked"),
+    ]
+    assert document["nodes"][1]["reason"] == "toy_node_producer did not succeed"

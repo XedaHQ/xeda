@@ -251,5 +251,14 @@ class IseSynth(FpgaSynthFlow):
         )
         if "wns" in self.results:
             wns = try_convert_to_primitives(self.results["wns"])
-            fail |= not isinstance(wns, (float, int)) or wns < 0
+            fail |= not isinstance(wns, (float, int))
         return not fail
+
+    def check_results(self) -> bool:
+        """Reject the run if the slack that the synthesis report shows is negative."""
+        ok = super().check_results()
+        wns = try_convert_to_primitives(self.results.get("wns"))
+        if isinstance(wns, (float, int)) and not isinstance(wns, bool) and wns < 0:
+            self.reject(f"timing not met: negative slack (WNS {wns} ns)")
+            return False
+        return ok

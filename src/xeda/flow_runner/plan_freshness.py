@@ -1,8 +1,15 @@
 """Whether each node is up to date in a dry run: what a launch would do with each node of a plan.
 
-Each node is `fresh` (a launch reuses it), `stale` (a launch runs it, for the reason the launch
-logs) or `unknown` (nothing can be said without making something first: a producer that would
-run, a container image to look up, a prepared input that does not exist yet).
+Each node is in one of five states:
+
+- `fresh`: a launch reuses the node.
+- `stale`: a launch runs the node, for the reason the launch logs.
+- `unknown`: nothing can be said without making something first. Examples are a producer that
+  would run, a container image to look up and a prepared input that does not exist yet.
+- `rejected again`: the last run of the node was rejected by its own checks, and nothing it
+  consumes changed. A launch reports that rejection again and does not run the tool.
+- `blocked`: a producer of the node is `rejected again` or `blocked`. A launch stops at that
+  producer, before it prepares anything for the node.
 
 The dry run uses what the launch uses. `trace_inputs.expected_run` says what a node would
 consume, `trace.check_trace` compares it with the last run, and the pure hooks of the flows answer
@@ -16,9 +23,11 @@ A node is judged in the order the launch uses:
 
 1. The settings, which a launch checks against the design. If it refuses them, the node is
    `unknown`.
-2. The recorded outputs of every producer that is `fresh`, whatever the other producers do. If
-   one cannot be handed over, the node is `unknown`. A producer that is not `fresh` is not
-   read, because it will be rewritten.
+2. The producers, in the order in which a launch runs them. A producer that is `rejected again`
+   or `blocked` makes the node `blocked`. The recorded outputs of every producer that is `fresh`,
+   whatever the other producers do, must be handed over. If one cannot be, the node is
+   `unknown`. A producer that is not `fresh` is not read, because it will be rewritten. Of the
+   two problems, the one with the earlier producer decides.
 3. The prepared inputs, located. If preparation refuses them, the node is `unknown`.
 4. `always_runs()`: the node is `stale`.
 5. `--clean`, then `--rebuild-all`: the node is `stale`.
@@ -26,6 +35,10 @@ A node is judged in the order the launch uses:
 7. The trace: the node is `stale` with the reason of `check_trace`. What the producers handed
    over is compared last, and only when every producer is `fresh`. Otherwise a node that
    nothing above decided is `unknown`, with the reason `depends on <producer>`.
+8. `results.json`, only when the trace is current and every producer is `fresh`. The document
+   must agree with the verdict of the trace (`launch_report.adoptable_document`). If it does
+   not, the node is `stale`. If it does, the node is `fresh` for a run that passed, and
+   `rejected again` for a run that was rejected.
 """
 
 from __future__ import annotations
@@ -50,6 +63,7 @@ from ..proc_utils import DOCKER_IMAGE_PREFIX
 from ..run_dir import RunDirectory, RunDirectoryError
 from . import launch_input
 from .outputs import recorded_entries
+from .launch_report import adoptable_document
 from .resolver import Plan, PlanNode
 from .trace import (
     BoundProducer,
@@ -63,7 +77,7 @@ from .trace_inputs import expected_run
 
 log = logging.getLogger(__name__)
 
-State = Literal["fresh", "stale", "unknown"]
+State = Literal["fresh", "stale", "unknown", "rejected again", "blocked"]
 
 #: Why a node runs under `--rebuild-all` and `--clean`. The launch records these too.
 EVERY_FLOW_RUNS_REBUILD_ALL = "every flow runs (--rebuild-all)"
@@ -75,7 +89,9 @@ class NodeFreshness:
     """What a launch would do with one node.
 
     `reason` is the reason that the launch itself gives for a `stale` node. For an `unknown`
-    node it says why nothing can be said. It is empty for a `fresh` node."""
+    node it says why nothing can be said. For a `rejected again` node it is the message of the
+    rejection. For a `blocked` node it names the producer that blocks it. It is empty for a
+    `fresh` node."""
 
     state: State
     reason: str = ""
@@ -96,14 +112,14 @@ def dry_locate(name: str) -> str | None:
 
 
 def _results(node: PlanNode) -> dict | None:
-    """Return the recorded results of the last run of the node, if a launch would reuse them.
+    """Return the recorded results of the last run of the node, or None if they cannot be read.
 
-    A launch reuses them only if they are a success (`launch_report.reuse_results`)."""
+    Whether a launch adopts them depends on the trace (`launch_report.adoptable_document`)."""
     try:
         document = json.loads((node.run_path / "results.json").read_text())
     except (OSError, ValueError):
         return None
-    return document if isinstance(document, dict) and document.get("success") else None
+    return document if isinstance(document, dict) else None
 
 
 def _entries(results: dict, producer: PlanNode, output: str) -> tuple[OutputEntry, ...] | str:
@@ -244,22 +260,30 @@ def judge_node(
         # The plan made the checks of the hooks of the flow. A launch also checks the settings in
         # the context of the design, as it constructs the flow, and would refuse these.
         return NodeFreshness("unknown", f"a launch refuses its settings: {error}")
-    # The recorded results of a producer that is up to date are the ones a launch hands over,
-    # whatever the other producers do. A producer that is not up to date runs first and its
-    # results are rewritten.
+    # A launch takes the producers in order. One that was rejected in its last run, or is blocked
+    # itself, stops the launch before the consumer prepares anything. The recorded results of a
+    # producer that is up to date are the ones a launch hands over, whatever the other producers
+    # do. A producer that is not up to date runs first and its results are rewritten.
     producers = [plan.node(ref.node) for item in node.inputs for ref in item.references]
     waiting = next((p for p in producers if states[p.name].state != "fresh"), None)
     entries: dict[tuple[str, str], tuple[OutputEntry, ...]] = {}
     lacks: NodeFreshness | None = None
     for item in node.inputs:
         for ref in item.references:
+            producer = plan.node(ref.node)
+            if states[ref.node].state == "rejected again":
+                return lacks or NodeFreshness(
+                    "blocked", f"{producer.name} was rejected in its last run"
+                )
+            if states[ref.node].state == "blocked":
+                return lacks or NodeFreshness("blocked", f"{producer.name} is blocked")
             if states[ref.node].state != "fresh":
                 continue
-            results = _results(plan.node(ref.node))
+            results = _results(producer)
             found = (
                 f"{ref.node} recorded no output `{ref.output}` to hand over"
                 if results is None
-                else _entries(results, plan.node(ref.node), ref.output)
+                else _entries(results, producer, ref.output)
             )
             if isinstance(found, str):
                 lacks = lacks or NodeFreshness("unknown", found)
@@ -312,8 +336,11 @@ def judge_node(
         return NodeFreshness("stale", freshness.reason)
     if waiting is not None:
         return NodeFreshness("unknown", f"depends on {waiting.name}")
-    if _results(node) is None:
-        return NodeFreshness("stale", f"no successful results in {node.run_path / 'results.json'}")
+    if not adoptable_document(_results(node), freshness.verdict, freshness.error):
+        return NodeFreshness("stale", f"no completed results in {node.run_path / 'results.json'}")
+    if freshness.verdict == "rejected":
+        assert freshness.error is not None
+        return NodeFreshness("rejected again", freshness.error["message"])
     return NodeFreshness("fresh")
 
 

@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,7 @@ from xeda.flow_runner.dse.dse_runner import Dse, Optimizer, _variation_delta
 from xeda.flow_runner.dse.fmax import FmaxOptimizer
 from xeda.flow_runner.settings_layers import merge_layers
 from xeda.dataclass import Field
+from xeda.utils import replacing_file
 from xeda.flow import FpgaSynthFlow
 from .io_flows import _Place
 
@@ -608,3 +610,126 @@ def test_a_search_removes_its_log_handler_when_its_set_up_fails(tmp_path, monkey
 def test_the_default_runtime_limit_of_a_search_is_twelve_hours():
     """`max_runtime_minutes` is compared with `Timer.minutes`, so the default is in minutes."""
     assert Dse.Settings().max_runtime_minutes == 12 * 60
+
+
+class _TimingJudged(FpgaSynthFlow):
+    """A synthesis flow that reports the Fmax its period suggests and rejects a short period.
+
+    It counts its runs in a file of its run directory, which a worker process of the search can
+    leave for the test to read."""
+
+    results_description = {}
+    #: The shortest period, in ns, that the checks accept.
+    MIN_PERIOD = 8.0
+
+    class Settings(FpgaSynthFlow.Settings):
+        pass
+
+    def run(self):
+        counter = self.run_path / "runs.txt"
+        previous = counter.read_text() if counter.exists() else ""
+        with replacing_file(self.run_directory.writable(counter)) as f:
+            f.write(previous + "run\n")
+        period = self.settings.main_clock.period
+        self.results["period"] = period
+        self.results["Fmax"] = round(1000.0 / period, 4)
+        self.results["started_at"] = time.time_ns()
+
+    def check_results(self):
+        period = self.settings.main_clock.period
+        if period < self.MIN_PERIOD:
+            self.reject(f"a period of {period} ns does not meet timing")
+            return False
+        return True
+
+
+class _OneBatchFmax(FmaxOptimizer):
+    """The Fmax search, with one fixed batch of periods in place of its frequency sweep."""
+
+    PERIODS = (10.0, 12.5, 6.25, 5.0)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.outcomes = []
+        self.batches = 0
+
+    def next_batch(self):
+        self.batches += 1
+        if self.batches > 1:
+            return None
+        base = self.base_settings.model_dump()
+        return [
+            merge_layers(
+                base,
+                {"clocks": {"main_clock": {"period": period}}},
+                settings_cls=self.flow_class.Settings,
+            )
+            for period in self.PERIODS
+        ]
+
+    def process_outcome(self, outcome, idx):
+        self.outcomes.append(outcome)
+        return super().process_outcome(outcome, idx)
+
+
+def _as_json(results) -> dict:
+    """The results as `results.json` holds them: a run that was just made keeps a `Path` where a
+    run read from that file keeps its text."""
+    return json.loads(json.dumps(dict(results), default=str))
+
+
+def _search_timing_judged(tmp_path) -> Dse:
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
+    runner = Dse(
+        _OneBatchFmax,
+        optimizer_settings={"init_freq_low": 100.0, "init_freq_high": 300.0},
+        run_root=tmp_path / "run",
+        variations={},
+        max_workers=2,
+    )
+    assert runner.run(
+        _TimingJudged,
+        design,
+        flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}},
+    )
+    return runner
+
+
+def test_a_search_gets_the_same_outcomes_when_it_replays_the_rejections_of_the_first(tmp_path):
+    """A candidate whose checks rejected it keeps its trace. The same search again reports each
+    rejection from the recorded results, without running the flow. The optimizer gets the same
+    failed outcome, with its `Fmax`, as on the first search, and picks the same best run.
+
+    The worker processes of the search return only a `FlowOutcome`, which does not carry
+    `Flow.rejected_again`, so the replay shows in the count of runs of each run directory and in
+    the unchanged `started_at` of each result."""
+    first = _search_timing_judged(tmp_path)
+    runs = {p: p.read_text().count("run") for p in (tmp_path / "run").glob("**/runs.txt")}
+    assert sorted(runs.values()) == [1, 1, 1, 1], "one run directory per candidate, each run once"
+
+    second = _search_timing_judged(tmp_path)
+    assert {
+        p: p.read_text().count("run") for p in (tmp_path / "run").glob("**/runs.txt")
+    } == runs, "the second search ran no flow again"
+
+    def by_period(optimizer):
+        return {o.results["period"]: o for o in optimizer.outcomes}
+
+    before, after = by_period(first.optimizer), by_period(second.optimizer)
+    assert sorted(before) == sorted(after) == sorted(_OneBatchFmax.PERIODS)
+    for period, outcome in after.items():
+        rejected = period < _TimingJudged.MIN_PERIOD
+        assert outcome.results.success is (not rejected)
+        assert outcome.results["Fmax"] == round(1000.0 / period, 4), "a rejection keeps its Fmax"
+        assert outcome.results.get("error", {}).get("type") == (
+            "ReportedFailure" if rejected else None
+        )
+        assert outcome.run_path == before[period].run_path
+        assert _as_json(outcome.results) == _as_json(before[period].results)
+        assert outcome.settings == before[period].settings
+
+    # `FmaxOptimizer.process_outcome` keeps the best Fmax that a failed candidate suggested.
+    assert first.optimizer.failed_fmax == second.optimizer.failed_fmax == 200.0
+    assert first.optimizer.best is not None and second.optimizer.best is not None
+    assert second.optimizer.best.results["period"] == first.optimizer.best.results["period"] == 10.0
+    assert _as_json(second.optimizer.best.results) == _as_json(first.optimizer.best.results)

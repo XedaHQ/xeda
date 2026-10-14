@@ -474,9 +474,19 @@ Example: xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
 
 def _node_states(flows: Iterable[Flow], plan: Optional[Plan] = None) -> List[Dict[str, Any]]:
     """Return one `nodes` entry for each run directory that the launcher entered, in completion
-    order. `run --json` reports these entries. The `state` is `fresh` for a reused run, else
-    `ran` or `failed`. A flow that always runs (`Flow.always_runs`) is never reused. A planned
-    node that the launch never entered has the state `not run`."""
+    order. `run --json` reports these entries. The `state` is one of these:
+
+    - `rejected again`: the run was rejected by its checks in an earlier launch, and Xeda
+      reported that again without running it. The `reason` is the message of the rejection.
+    - `blocked`: a producer failed, was rejected or is blocked, so the flow did not run. The
+      `reason` names that producer.
+    - `fresh`: the recorded run was reused.
+    - `ran`: the flow ran and succeeded.
+    - `failed`: the flow ran and failed. Its checks can have rejected the result on this launch.
+      A problem with what its producers handed over can also have stopped it.
+
+    A flow that always runs (`Flow.always_runs`) is never reused. A planned node that the launch
+    never entered has the state `not run`."""
     nodes: List[Dict[str, Any]] = []
     seen = set()
     for f in flows:
@@ -486,13 +496,20 @@ def _node_states(flows: Iterable[Flow], plan: Optional[Plan] = None) -> List[Dic
             (n for n in (plan.nodes if plan else ()) if os.path.abspath(n.run_path) == run_path),
             None,
         )
+        if f.rejected_again:
+            state, reason = "rejected again", f.rejection or ""
+        elif f.blocked_by:
+            state, reason = "blocked", f"{f.blocked_by} did not succeed"
+        else:
+            state = "fresh" if f.reused else ("ran" if f.succeeded else "failed")
+            reason = f.stale_reason or ""
         nodes.append(
             {
                 "node": planned.name if planned else f.name,
                 "flow": f.name,
                 "run_path": str(f.run_path),
-                "state": "fresh" if f.reused else ("ran" if f.succeeded else "failed"),
-                "reason": f.stale_reason or "",
+                "state": state,
+                "reason": reason,
                 "deliveries": [d.as_json_value() for d in getattr(f, "deliveries", [])],
                 "inputs": inputs_info(planned) if planned else [],
             }
@@ -576,8 +593,9 @@ def _run_document(
 
 
 def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
-    """Print each planned flow, its directory, what a launch would do with it (`fresh`,
-    `stale: <reason>` or `unknown: <reason>`), its input origins and switched-on outputs."""
+    """Print each planned flow, its directory, what a launch would do with it (`fresh`, or a state
+    and its reason: `stale: <reason>`, `unknown: <reason>`, `rejected again: <message>` or
+    `blocked: <reason>`), its input origins and switched-on outputs."""
     target = f", target {plan.context.target}" if plan.context.target else ""
     click.echo(f"Plan for {plan.requested}{target} (a dry run: nothing runs)")
     for node in plan.nodes:

@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from xeda.design import SourceType
-from xeda.flow import registered_flows
+from xeda.flow import Flow, registered_flows
 from xeda.flow.sim import (
     SimEvent,
     SimEvidence,
@@ -84,9 +84,11 @@ class _Stub:
     """Just what `judge_evidence` reads from a flow."""
 
     name = "stub_sim"
+    reject = Flow.reject
 
     def __init__(self, stop_time=None):
         self.results = {}
+        self.rejection = None
         self.settings = type("S", (), {"stop_time": stop_time, "max_cycles": None})()
 
 
@@ -228,6 +230,59 @@ def test_a_failed_cocotb_run_records_its_counts_through_check_results():
     flow.report_file = lambda path: None
     assert SimFlow.check_results(flow) is False
     assert flow.results["error"]["message"].startswith("`stub_sim` reported failure: 2 of 3")
+
+
+def test_a_missing_end_record_is_a_failure_no_rejection():
+    flow = _Stub()
+    assert judge_evidence(flow, None, "error") is False
+    assert flow.rejection is None
+    assert flow.results["error"]["type"] == "ReportedFailure"
+
+
+def test_a_simulation_that_ended_badly_is_a_rejection():
+    flow = _Stub()
+    assert judge_evidence(flow, SimEvidence(ended_by="error", time=5), "error") is False
+    assert "ended it" in flow.rejection
+    assert flow.results["error"]["message"].endswith(flow.rejection)
+
+
+def test_an_event_at_fail_severity_is_a_rejection():
+    flow = _Stub()
+    evidence = SimEvidence(
+        ended_by="finish", time=5, events=[SimEvent(kind="error", message="bad", time=1)]
+    )
+    assert judge_evidence(flow, evidence, "error") is False
+    assert "fail_severity=error" in flow.rejection
+
+
+def test_cocotb_results_that_fail_are_a_rejection():
+    class Cocotb:
+        def add_results(self, results, results_file=None):
+            results.update({"cocotb.tests": 3, "cocotb.failures": 2, "cocotb.errors": 0})
+            return False
+
+        results_xml = "results.xml"
+
+    flow = _Stub()
+    flow.cocotb = Cocotb()
+    flow.report_file = lambda path: None
+    assert SimFlow.check_results(flow) is False
+    assert flow.rejection.startswith("2 of 3 cocotb test(s) failed")
+
+
+def test_cocotb_results_that_cannot_be_read_are_a_failure_no_rejection():
+    class Cocotb:
+        def add_results(self, results, results_file=None):
+            return False
+
+        results_xml = "results.xml"
+
+    flow = _Stub()
+    flow.cocotb = Cocotb()
+    flow.report_file = lambda path: None
+    assert SimFlow.check_results(flow) is False
+    assert flow.rejection is None
+    assert "no readable test results" in flow.results["error"]["message"]
 
 
 ENDINGS = [

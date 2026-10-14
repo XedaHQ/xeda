@@ -478,7 +478,7 @@ def test_post_cleanup_waits_for_the_requested_flow(tmp_path, design):
         # `undeclared.txt`), so it is never reused -- both run again.
         flow, ran = _run(tmp_path, ToyScratchReader, design, post_cleanup=True)
         assert ran == ["toy_scratcher", "toy_scratch_reader"]
-        assert flow.producers[0].stale_reason == "no successful previous run"
+        assert flow.producers[0].stale_reason == "no completed previous run"
         _, ran = _run(
             tmp_path, ToyScratchReader, design, post_cleanup=True, post_cleanup_purge=True
         )

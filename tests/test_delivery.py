@@ -92,6 +92,7 @@ class _Deliverer(Flow):
         )
         text: str = Field("net\n", description="What it writes.")
         fail: bool = Field(False, description="Whether its reports say it failed.")
+        reject: bool = Field(False, description="Whether its checks reject the results.")
         reads: Optional[Path] = Field(None, description="A file it reads: an input.")
 
     class Outputs(Flow.Outputs):
@@ -116,6 +117,12 @@ class _Deliverer(Flow):
     def parse_reports(self) -> bool:
         return not self.settings.fail
 
+    def check_results(self) -> bool:
+        if self.settings.reject:
+            self.reject("the netlist is not accepted")
+            return False
+        return True
+
 
 class _Wrapper(Flow):
     """Reads the deliverer's netlist: the deliverer is its producer."""
@@ -125,6 +132,7 @@ class _Wrapper(Flow):
     class Settings(Flow.Settings):
         reads: Optional[Path] = Field(None, description="A file it reads: an input.")
         fail: bool = Field(False, description="Whether its reports say it failed.")
+        reject: bool = Field(False, description="Whether its checks reject the results.")
 
     class Inputs(Flow.Inputs):
         netlist: Path = In(
@@ -146,6 +154,12 @@ class _Wrapper(Flow):
 
     def parse_reports(self) -> bool:
         return not self.settings.fail
+
+    def check_results(self) -> bool:
+        if self.settings.reject:
+            self.reject("the summary is not accepted")
+            return False
+        return True
 
 
 # Test-only flows, launched by class: out of the registry at once, so that no sweep over every
@@ -1014,6 +1028,71 @@ def test_a_failed_requested_flow_delivers_nothing_not_even_its_dependency_s(worl
     assert (world.user / "net.v").read_text() == "mine\n"
     assert not (world.user / "got").exists()
     assert flow.deliveries == [] and flow.producers[0].deliveries == []
+
+
+def test_a_rejected_requested_flow_delivers_nothing_on_the_first_launch_or_the_replay(world):
+    """A run whose checks rejected it delivers nothing, as a failed run does, and the launch that
+    reports the rejection again delivers nothing either. A file an earlier, accepted run
+    delivered stays as it was, and a destination that run did not name stays absent."""
+    _launch(world, netlist="$PWD/net.v", text="a\n")
+    assert (world.user / "net.v").read_text() == "a\n"
+    arguments = {"netlist": "$PWD/net.v", "report": "$PWD/r.rpt", "text": "b\n", "reject": True}
+
+    first = _launch(world, **arguments)
+    assert first.outcome == "rejected" and not first.succeeded and not first.rejected_again
+    assert RUNS == [_Deliverer.name] * 2
+    assert (world.user / "net.v").read_text() == "a\n" and not (world.user / "r.rpt").exists()
+    assert first.deliveries == []
+
+    replay = _launch(world, **arguments)
+    assert replay.outcome == "rejected" and replay.rejected_again and not replay.succeeded
+    assert RUNS == [_Deliverer.name] * 2, "the replay did not run the flow"
+    assert replay.results.error.message == first.results.error.message
+    assert (world.user / "net.v").read_text() == "a\n" and not (world.user / "r.rpt").exists()
+    assert replay.deliveries == []
+
+
+def test_a_rejected_flow_leaves_a_file_of_the_user_and_the_outputs_to_directory_alone(world):
+    """The same holds when the user allows a replacement (`overwrite_outputs`) and asks for a
+    copy of the artifacts (`outputs_to`): a rejected run, first or replayed, replaces nothing and
+    creates nothing."""
+    (world.user / "net.v").write_text("mine\n")
+    got = world.user / "got"
+    for attempt in ("first", "replay"):
+        launcher = DefaultRunner(
+            world.root, display_results=False, overwrite_outputs=True, outputs_to=got
+        )
+        flow = _launch(world, launcher, netlist="$PWD/net.v", reject=True)
+        assert flow.outcome == "rejected" and flow.rejected_again is (attempt == "replay")
+        assert (world.user / "net.v").read_text() == "mine\n" and not got.exists()
+        assert flow.deliveries == []
+    assert RUNS == [_Deliverer.name]
+
+
+def test_a_rejected_producer_blocks_its_consumer_and_delivers_nothing_on_either_launch(world):
+    """The consumer of a rejected producer does not run, on the first launch or on the replay of
+    the rejection. It is blocked by the producer, and the launch delivers nothing, not even what
+    the consumer or an earlier accepted run of the producer would have delivered."""
+    _launch(world, netlist="$PWD/net.v", text="a\n")
+    deliverer = {"netlist": "$PWD/net.v", "report": "$PWD/r.rpt", "text": "b\n", "reject": True}
+    assert RUNS == [_Deliverer.name]
+    for attempt in ("first", "replay"):
+        launcher = DefaultRunner(
+            world.root, display_results=False, overwrite_outputs=True, outputs_to=world.user / "got"
+        )
+        with pytest.raises(FlowDependencyFailure) as failed:
+            _launch(world, launcher, flow=_Wrapper, deliverer=deliverer)
+        assert failed.value.producer == _Deliverer.name
+        consumer = launcher.launched[-1]
+        assert consumer.name == _Wrapper.name and consumer.blocked_by == _Deliverer.name
+        assert consumer.deliveries == []
+        (producer,) = [f for f in launcher.launched if f.name == _Deliverer.name]
+        assert producer.outcome == "rejected" and producer.rejected_again is (attempt == "replay")
+        assert producer.deliveries == []
+        assert (world.user / "net.v").read_text() == "a\n", "the earlier delivery stays"
+        assert not (world.user / "r.rpt").exists() and not (world.user / "got").exists()
+        assert not (consumer.run_path / "summary.txt").exists(), "the consumer did not run"
+    assert RUNS == [_Deliverer.name] * 2, "only the first launch ran the rejected producer"
 
 
 def test_a_destination_changed_while_the_run_went_on_is_not_replaced(world):

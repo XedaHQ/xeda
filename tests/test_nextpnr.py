@@ -146,10 +146,11 @@ def test_critical_paths_are_summarized_not_copied(tmp_path):
 def test_wns_is_derived_from_periods(tmp_path, constraint, achieved, expected_wns, met):
     report = {"fmax": {"clk": {"achieved": achieved, "constraint": constraint}}}
     flow = make_flow(tmp_path, report)
-    result = flow.parse_reports()
+    assert flow.parse_reports() is True
     assert flow.results["wns"] == pytest.approx(expected_wns, abs=1e-3)
     assert flow.results["timing_met"] is met
-    assert result is met
+    assert flow.check_results() is met
+    assert (flow.rejection is None) is met
 
 
 def test_timing_failure_still_reports_results(tmp_path):
@@ -159,7 +160,9 @@ def test_timing_failure_still_reports_results(tmp_path):
         "utilization": {"TRELLIS_COMB": {"used": 5, "available": 100}},
     }
     flow = make_flow(tmp_path, report)
-    assert flow.parse_reports() is False
+    assert flow.parse_reports() is True
+    assert flow.check_results() is False
+    assert flow.rejection is not None and "timing not met" in flow.rejection
     assert flow.results["Fmax"] == pytest.approx(100.0)
     assert flow.results["wns"] < 0
     assert flow.results["lut"] == 5
@@ -170,6 +173,8 @@ def test_timing_allow_fail_keeps_the_flow_successful(tmp_path):
     flow = make_flow(tmp_path, report)
     flow.settings.timing_allow_fail = True
     assert flow.parse_reports() is True
+    assert flow.check_results() is True
+    assert flow.rejection is None
     assert flow.results["timing_met"] is False  # still reported
 
 
@@ -575,7 +580,8 @@ def test_slack_just_below_zero_is_a_violation(tmp_path):
     """Rounding before the sign test turned -0.00025 ns into -0.0, and -0.0 >= 0 is True."""
     report = {"fmax": {"clk": {"achieved": 199.99, "constraint": 200.0}}}
     flow = make_flow(tmp_path, report)
-    assert flow.parse_reports() is False
+    assert flow.parse_reports() is True
+    assert flow.check_results() is False
     assert flow.results["timing_met"] is False
     assert flow.results["wns"] < 0
 
@@ -591,6 +597,7 @@ def test_slack_exactly_zero_is_met(tmp_path):
     report = {"fmax": {"clk": {"achieved": 200.0, "constraint": 200.0}}}
     flow = make_flow(tmp_path, report)
     assert flow.parse_reports() is True
+    assert flow.check_results() is True
     assert flow.results["timing_met"] is True
 
 

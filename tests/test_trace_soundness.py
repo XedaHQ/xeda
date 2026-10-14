@@ -726,8 +726,8 @@ def test_pruning_still_drops_the_trace(probes, root):
         assert not (run_dir / "trace.json").exists()
         assert not (run_dir / "scratch.txt").exists()
     flow, out, (producer,) = _launch_graph(root, cls, post_cleanup=True)
-    assert not flow.reused and flow.stale_reason == "no successful previous run"
-    assert producer.stale_reason == "no successful previous run"
+    assert not flow.reused and flow.stale_reason == "no completed previous run"
+    assert producer.stale_reason == "no completed previous run"
     assert out == "declared\n"
 
 

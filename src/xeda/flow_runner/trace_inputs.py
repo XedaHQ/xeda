@@ -840,7 +840,7 @@ def _programs(
     it (`FileRecord.trusted`, against the time when that trace took its records, which is the
     time a check trusts it by too), as `snapshot_inputs` keeps the record of an input. So a
     program such as yosys or nextpnr is read when it is first recorded or changed, and not at
-    every successful run. A record that stands for a file that changed during a run
+    every completed run. A record that stands for a file that changed during a run
     (`unknown`) is never kept."""
     before = getattr(names, "before", {})
     programs: Dict[str, Optional[ProgramRecord]] = {}
@@ -968,7 +968,10 @@ def build_trace(
     input_settings: Flow.Settings,
     previous: Optional[Trace] = None,
 ) -> Trace:
-    """Return the trace of the successful run that `flow` just completed, under a new `run_id`.
+    """Return the trace of the run that `flow` just completed, under a new `run_id`.
+
+    The run passed, or its checks rejected it (`Flow.outcome`); the trace records which, and for
+    a rejection the error of the results (`Trace.verdict`, `Trace.error`).
 
     Its inputs are those that `snapshot` recorded. Its outputs (`output_files`) are recorded
     now, after the file-system clock is read (`outputs_recorded_ns`). Each file that its
@@ -1070,6 +1073,7 @@ def build_trace(
             implicit[key] = unknown_record(path, why)
         else:
             implicit[key] = before if before is not None else record(path)
+    rejected = flow.outcome == "rejected"
     return Trace(
         flow=expected.flow,
         run_id=uuid.uuid4().hex,
@@ -1089,4 +1093,13 @@ def build_trace(
         outputs=outputs,
         reports=run_reports(flow),
         declared_inputs=[_consumed(record, snapshot) for record in expected.declared_inputs],
+        verdict="rejected" if rejected else "passed",
+        error=(
+            {
+                "type": str(flow.results["error"]["type"]),
+                "message": str(flow.results["error"]["message"]),
+            }
+            if rejected
+            else None
+        ),
     )

@@ -88,13 +88,14 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
     The sequence is `run()`, `parse_reports()` and `check_results()`."""
     record_identity(flow, run_path)
 
-    success = True
+    tool_completed = False
 
     with WorkingDirectory(run_path):
         if flow.settings.reports_dir:
             flow.settings.reports_dir.mkdir(exist_ok=True, parents=True)
         try:
             flow.run()
+            tool_completed = True
         except NonZeroExitCode as e:
             if isinstance(e, ProcessTimeout):
                 log.error("%s", e)
@@ -109,29 +110,40 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
                     e.exit_code,
                 )
             flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
-            success = False
         if flow.init_time is not None:
             flow.results.runtime = time.monotonic() - flow.init_time
+        reports_ok: bool | None = None
+        checks_ok = False
         try:
-            success &= flow.parse_reports()
-            success &= flow.check_results()
+            reports_ok = flow.parse_reports()
+            checks_ok = flow.check_results()
         except Exception as e:  # pylint: disable=broad-except
             log.critical("parse_reports or check_results threw an exception: %s", e)
-            if success:  # if so far so good this is a bug!
+            if tool_completed and reports_ok is not False:  # if so far so good this is a bug!
                 raise e
         flow.add_canonical_result_aliases()
-        if success:
+        # `reject()` is the verdict: a run that called it never passes, whatever the checks
+        # returned.
+        rejected = flow.rejection is not None
+        problems: list[str] = []
+        if tool_completed and reports_ok and (checks_ok or rejected):
             # Consumers use these integrity records for a producer that just ran and for a
-            # reused one alike.
-            problems = record_outputs(flow)
+            # reused one alike. A rejected run has its outputs checked, and hands none over.
+            problems = record_outputs(flow, record=checks_ok and not rejected)
             for problem in problems:
                 log.error("%s", problem)
-            if problems:
-                success = False
+        if tool_completed and reports_ok and checks_ok and not rejected and not problems:
+            flow.outcome = "passed"
+        elif tool_completed and reports_ok and rejected and not problems:
+            flow.outcome = "rejected"
+        else:
+            flow.outcome = "failed"
+            if problems and checks_ok and not rejected:
                 flow.results["error"] = {
                     "type": "MissingOutput",
                     "message": "; ".join(problems),
                 }
+        success = flow.outcome == "passed"
         if not success and not input_settings.is_quiet:
             log.debug("Failure was reported in the parsed results.")
         if not success and not flow.results.get("error"):

@@ -434,7 +434,9 @@ def test_totals_are_the_routed_fabric_s_not_the_marketed_device_s(tmp_path, monk
 def test_a_missed_constraint_fails_unless_allowed(tmp_path, monkeypatch, prefix):
     report = {**REPORT, "fmax": {"clk": {"achieved": 90.0, "constraint": 100.0}}}
     flow, ok = _parsed(tmp_path, monkeypatch, prefix, report, {})
-    assert ok is False and flow.results["timing_met"] is False
+    assert ok is True and flow.results["timing_met"] is False
+    assert flow.check_results() is False
+    assert flow.rejection is not None and "timing not met" in flow.rejection
     assert flow.results["clock_port"] == "clk"  # the domain is itself a port of the top module
 
 

@@ -1,8 +1,10 @@
-"""Traces: what a successful run consumed and produced, and whether that still holds.
+"""Traces: what a completed run consumed and produced, and whether that still holds.
 
-A trace is written into a run directory after the run succeeded, last and atomically. It is
-deleted before a run starts executing. Its presence means "the last run in this directory
-completed and succeeded". Its content says with which settings, programs, inputs and outputs.
+A trace is written into a run directory after a run completed and its checks passed or rejected
+it (`Flow.reject`), last and atomically. It is deleted before a run starts executing. Its
+presence means "the last run in this directory completed". Its `verdict` says whether its checks
+passed or rejected the results. Its content says with which settings, programs, inputs and
+outputs.
 
 Its inputs are recorded as the run found them when it started (`trace_inputs.snapshot_inputs`),
 not as it left them, so a file edited while the run was going on no longer matches. Its outputs
@@ -68,7 +70,9 @@ TRACE_FILE = "trace.json"
 #: 14: the producers' runs a consumer consumed (`dependency_runs`) decide its freshness.
 #: 15: a consumer consumed what its producers handed over (`BoundProducer.entries`), not their
 #: files: a producer that ran again with the same outputs leaves it up to date.
-TRACE_FORMAT = 15
+#: 16: a run whose checks rejected it keeps a trace (`verdict`, `error`); reuse requires
+#: `results.json` to agree with them.
+TRACE_FORMAT = 16
 
 #: The names that Xeda reserves at the top of a run directory, never outputs: the trace and the
 #: trace being written. The clock markers (`digest.TIME_MARKER_PREFIX` plus a random suffix) are
@@ -248,7 +252,7 @@ def ran_again_note(records: Sequence[DeclaredInputRecord], ran_again: Collection
 
 
 class Trace(XedaBaseModel):
-    """What a successful run consumed and produced."""
+    """What a completed run consumed and produced, and whether its checks passed it."""
 
     format: int = TRACE_FORMAT
     flow: str
@@ -292,6 +296,12 @@ class Trace(XedaBaseModel):
     #: in POSIX form. They are removed before the next run executes.
     reports: List[str] = []
     declared_inputs: list[DeclaredInputRecord] = []
+    #: What the checks of the run decided: "passed", or "rejected" (the run called
+    #: `Flow.reject`). A launch with the same inputs and settings reports a rejection again
+    #: without running.
+    verdict: Literal["passed", "rejected"] = "passed"
+    #: The `error` of the results of a rejected run (its `type` and `message`); None if it passed.
+    error: Optional[Dict[str, str]] = None
 
 
 def run_directory_files(run_path: Path) -> list[Path]:
@@ -444,7 +454,8 @@ class Freshness:
 
     `refreshed` is the trace with updated file metadata, when a file was touched but not
     changed. The launcher writes it back, so the next check need not hash the file again.
-    `run_id` is the id of the run that is up to date."""
+    `run_id` is the id of the run that is up to date. `verdict` and `error` are those of its
+    trace when it is up to date: a fresh trace of a rejected run says the run was rejected."""
 
     fresh: bool
     reason: str = ""
@@ -453,6 +464,8 @@ class Freshness:
     #: The inputs whose files differ from the ones consumed but are equivalent
     #: (`changed_edge`).
     equivalent: tuple[str, ...] = ()
+    verdict: str = "passed"
+    error: Optional[Dict[str, str]] = None
 
 
 def _flatten(value: Any, prefix: str = "") -> Dict[str, Any]:
@@ -513,7 +526,7 @@ def check_trace(
         recorded = _recorded_format(run_dir)
         if recorded is not None and recorded != TRACE_FORMAT:
             return Freshness(False, "recorded by another Xeda")
-        return Freshness(False, "no successful previous run")
+        return Freshness(False, "no completed previous run")
     trace, _written_ns = found
     if trace.format != TRACE_FORMAT:
         return Freshness(False, "recorded by another Xeda")
@@ -653,8 +666,8 @@ def check_trace(
     if checked_ns is None or (
         refreshed == trace and not any(record.settled_before(checked_ns) for record in read)
     ):
-        return Freshness(True, "", None, trace.run_id, equivalent)
+        return Freshness(True, "", None, trace.run_id, equivalent, trace.verdict, trace.error)
     # Every record now reflects the file as it was at `checked_ns` or later.
     refreshed.inputs_recorded_ns = checked_ns
     refreshed.outputs_recorded_ns = checked_ns
-    return Freshness(True, "", refreshed, trace.run_id, equivalent)
+    return Freshness(True, "", refreshed, trace.run_id, equivalent, trace.verdict, trace.error)

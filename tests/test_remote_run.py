@@ -22,10 +22,12 @@ from types import SimpleNamespace
 
 import execnet
 import pytest
+from click.testing import CliRunner
 
 from pydantic import ValidationError
 
 from xeda import Design
+from xeda.cli import cli
 from xeda.design import GitReference, SourceType
 from xeda.deliver import DeliveryError
 from xeda.flow import FlowException, FlowSettingsError, FlowSettingsException
@@ -794,6 +796,91 @@ def test_a_failed_remote_run_reports_its_failure(tmp_path, remote_host, monkeypa
         assert label not in results["artifacts"], label
     saved = json.loads((Path(results["run_path"]) / "results.json").read_text())
     assert saved["success"] is False
+
+
+def _remote_with_fake_fpga_tools(tmp_path: Path, remote_host: Path, monkeypatch) -> Path:
+    """Put the fake FPGA toolchain first on the "remote" PATH, and return a design that has no
+    source but a Verilog file. The fake `nextpnr` reports 250 MHz."""
+    from .tool_utils import use_fake_fpga_tools
+
+    use_fake_fpga_tools(monkeypatch, tmp_path / "toolchain")
+    path = os.environ["PATH"]
+    monkeypatch.setattr(
+        remote_module, "get_login_env", lambda conn: {"PATH": path, "HOME": str(remote_host)}
+    )
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
+    design = root / "top.yaml"
+    design.write_text("name: top\nrtl:\n  sources: [top.v]\n  top: top\n  clock: {port: clk}\n")
+    return design
+
+
+#: A clock of 400 MHz: the fake `nextpnr` reports 250 MHz, so the checks of the flow reject it.
+REJECTED_REMOTE_SETTINGS = ["fpga.part=LFE5U-25F-6BG381C", "clock.freq=400"]
+
+
+def test_a_remote_run_whose_checks_reject_it_reports_the_rejection_and_keeps_no_trace(
+    tmp_path, remote_host, monkeypatch
+):
+    """A remote run whose checks rejected it reports failure, with the rejection as its error, on
+    the first launch and on the next, whether or not the remote replays it. The local mirror holds
+    the records of the remote run and never a trace: nothing local vouches for them."""
+    design = _remote_with_fake_fpga_tools(tmp_path, remote_host, monkeypatch)
+    run_root = tmp_path / "local" / "xeda_run"
+
+    runs = []
+    for _launch in range(2):
+        results = RemoteRunner(run_root, display_results=False).run_remote(
+            design, "nextpnr", host="somewhere", flow_settings=REJECTED_REMOTE_SETTINGS
+        )
+        assert results is not None and results["success"] is False, results
+        assert results["error"]["type"] == "ReportedFailure"
+        assert "timing not met" in results["error"]["message"]
+        mirror = Path(results["run_path"])
+        assert mirror.is_relative_to(run_root)
+        assert json.loads((mirror / "results.json").read_text())["success"] is False
+        assert not list(mirror.glob("**/trace.json")), "the mirror holds no trace"
+        runs.append(results)
+    assert runs[0]["error"] == runs[1]["error"]
+    assert runs[0]["run_path"] == runs[1]["run_path"]
+    assert not list(run_root.glob("**/trace.json")), "no local run directory holds a trace"
+    # Each launch ships its design to a directory of its own on the remote, which keeps the trace
+    # of a rejected run as a local launch does.
+    remote_traces = list(remote_host.glob(".xeda/remote_run/*/xeda_run/*/nextpnr*/trace.json"))
+    assert len(remote_traces) == 2
+    assert {json.loads(t.read_text())["verdict"] for t in remote_traces} == {"rejected"}
+
+
+def test_a_rejected_remote_run_is_a_failed_flow_in_the_json_document(
+    tmp_path, remote_host, monkeypatch
+):
+    """`xeda run --remote --json` names a rejected remote run as it names any failed flow:
+    `success` is false and the error is `FlowFailed`. The results hold the rejection as their
+    own error."""
+    design = _remote_with_fake_fpga_tools(tmp_path, remote_host, monkeypatch)
+    arguments = [
+        "run",
+        "nextpnr",
+        "--design",
+        str(design),
+        "--remote",
+        "somewhere",
+        "--run-root",
+        str(tmp_path / "local" / "xeda_run"),
+        "--json",
+    ]
+    for setting in REJECTED_REMOTE_SETTINGS:
+        arguments += ["-s", setting]
+    for _launch in range(2):
+        result = CliRunner().invoke(cli, arguments)
+        assert result.exit_code != 0, result.output
+        document = json.loads(result.stdout)
+        assert document["success"] is False
+        assert document["error"]["type"] == "FlowFailed"
+        assert document["results"]["error"]["type"] == "ReportedFailure"
+        assert "timing not met" in document["results"]["error"]["message"]
+        assert not list(Path(document["run_path"]).glob("**/trace.json"))
 
 
 def _remote_runner_with_unwritten_artifacts(channel, **kwargs):

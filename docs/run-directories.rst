@@ -228,7 +228,9 @@ What makes a flow stale
 
 A flow is stale, and runs again, in any of these cases:
 
-- There is no successful previous run, because there is none yet or the last one failed.
+- There is no completed previous run: none yet, or the last one failed without a rejection by its
+  checks (a tool error, a crash, a kill, a missing report). A failure that no check rejected keeps
+  no trace.
 - The flow always runs. It programs a device, draws a new random seed, or reads pin constraints
   fetched from a URL (see `Flows that always run`_).
 - Its settings changed (the reason names which ones), or a path that a setting names now points
@@ -255,8 +257,10 @@ A flow is stale, and runs again, in any of these cases:
 
 ``xeda run --dry-run`` applies these rules and runs nothing. It reports each planned flow as
 ``fresh`` (the launch reuses it), ``stale: <reason>`` (the launch runs it, for the reason that the
-log gives) or ``unknown: <reason>``. A flow is unknown when the answer needs something that only a
-launch makes:
+log gives), ``unknown: <reason>``, ``rejected again: <message>`` (the launch reports the recorded
+rejection again and does not run the flow, see `A run that its checks rejected`_) or
+``blocked: <reason>`` (a producer is rejected again or blocked, so the flow does not run). A flow
+is unknown when the answer needs something that only a launch makes:
 
 - The flow needs the output of a producer that would run first. The launch judges the flow by the
   outputs that the run hands over, and the reason is ``depends on <producer>``.
@@ -283,9 +287,11 @@ first. A launch has one run per flow and enters each run directory once.
 ``trace.json``
 ---------------
 
-Xeda writes the trace last and atomically, only after a run succeeds. It removes the trace before
-the next run in that directory executes. The presence of the trace alone therefore means that the
-last run here completed and succeeded. The trace records:
+Xeda writes the trace last and atomically, only after a run passed or its checks rejected it. A
+failure that no check rejected keeps no trace. Xeda removes the trace before the next run in that
+directory executes. The presence of the trace alone therefore means that the last run here
+completed. Its ``verdict`` is ``passed`` or ``rejected``.
+The trace records:
 
 - The identity of the run: ``flowrun_hash`` (the settings and where the declared inputs come from),
   ``settings_hash`` (the settings alone) and the design hash.
@@ -448,6 +454,57 @@ A generation happens while Xeda loads the design, before any flow or run directo
 why the record lives in the run root and not beside the design. It is also why a design that is
 loaded with no run root generates every time. ``--rebuild-all`` and ``--clean`` regenerate, as they
 run every flow again. See :ref:`generators`.
+
+A run that its checks rejected
+------------------------------
+
+Xeda reports a failure again, and does not run the flow, only when all of these are true:
+
+- The tools of the run ended with a normal exit status.
+- Xeda read the reports of the run.
+- The declared outputs of the run are valid.
+- The checks of the flow rejected the results.
+- The flow does not always run (see `Flows that always run`_).
+- Nothing that the flow consumes changed since the run.
+
+Such a run keeps its trace, with the verdict ``rejected``. In ``xeda run --json``, the launch in
+which the checks reject the run gives the node the state ``failed``. The next launch, with nothing
+changed, logs that the last run with these inputs and settings was rejected, and gives the node
+the state ``rejected again``, with the message of the rejection as its ``reason``. A flow that
+reads the outputs of this run does not run either. Its state is ``blocked``, and its ``reason`` is
+"<producer> did not succeed".
+
+These checks reject a run:
+
+- A simulation (``ghdl_sim``, ``nvc``, ``verilator``, ``modelsim``, ``vcs``, ``bsc_sim``,
+  ``yosys_sim``, ``vivado_sim`` and ``vivado_postsynth_sim``): an end record that shows the
+  simulation did not end as intended, an event at or above ``fail_severity``, or cocotb results
+  that Xeda read and that show failed tests. A missing end record, missing cocotb results and a
+  missing waveform are failures, not rejections.
+- ``quartus`` and ``ise_synth``: negative slack.
+- ``diamond_synth``: negative slack, unrouted nets, timing errors, or a DSP or block RAM that
+  ``allow_dsps`` or ``allow_brams`` forbids.
+- ``vivado_synth``, ``vivado_alt_synth`` and ``vivado_impl`` with ``fail_timing``: negative hold
+  slack (WHS) or hold violations.
+- ``nextpnr``: a missed constraint that nextpnr reports while it exits normally.
+
+All other failures are tool failures. A tool failure keeps no trace, and the next launch runs the
+flow again. This includes these cases:
+
+- A tool that ends with an error status, a crash, a kill, a timeout, and a report that is missing
+  or cannot be read. A simulator that ends with an error status is a tool failure. An example is
+  GHDL after a failed ``severity failure`` assertion.
+- A negative setup slack in Vivado with ``fail_timing``. The Xeda script of Vivado stops the tool
+  with an error, so the flow runs again at every launch.
+- A missed constraint in ``nextpnr`` without ``timing_allow_fail``. nextpnr stops with an error
+  itself, so the flow runs again at every launch.
+- Every failure of ``dc`` and ``openroad``. Xeda never reports these again.
+- Every failure of a flow that always runs. Such a flow keeps no trace.
+
+To run a rejected flow again, change what it consumes, or run with ``--rebuild-all``. Xeda
+notices a change only in what it tracks. If a file that the run reads is not tracked (see `What is
+not tracked`_), an edit of it goes unnoticed, and Xeda reports the old rejection. A data file that a
+testbench reads is the common case: declare it as a source of the design.
 
 What is not tracked
 ---------------------
@@ -700,13 +757,13 @@ destination of a delivery therefore never runs the flow again and never changes 
 It changes only where the copy lands.
 
 A run is identified by what it writes: whether it writes the output, and the name it writes the
-output under in the run directory. A location is not part of that. A run that is up to date
-therefore delivers to a location that you give it later, without running again. If the flow writes
-the output in any case, you can give a location, change it or remove it, and the run stays the same.
-When the setting is unset, the flow writes the conventional name. ``fpga_pack`` always writes its
-bitstream, so ``-s bitstream=$PWD/blinky.bit`` after a plain run only delivers the file. The same
-holds for ``verilog_output`` of ``ghdl_synth`` and for ``placement`` of ``nextpnr`` on Xilinx
-targets.
+output under in the run directory. A location is not part of that. A run that passed and is up to
+date therefore delivers to a location that you give it later, without running again. If the flow
+writes the output in any case, you can give a location, change it or remove it, and the run stays
+the same. When the setting is unset, the flow writes the conventional name. ``fpga_pack`` always
+writes its bitstream, so ``-s bitstream=$PWD/blinky.bit`` after a plain run only delivers the
+file. The same holds for ``verilog_output`` of ``ghdl_synth`` and for ``placement`` of ``nextpnr``
+on Xilinx targets.
 
 A setting that switches an output on works in another way. ``vivado_synth`` writes no bitstream
 until ``bitstream`` is set. The first location you give it runs the flow again. Later locations do
@@ -765,7 +822,9 @@ A yes holds for the file you were asked about. If that file changes before the l
 flow that delivers it, Xeda asks again. If it changes while Xeda waits for your answer, Xeda does
 not replace it. Xeda checks once more right before the copy, in case something changed in between.
 It never replaces a destination that changed since its last check, whether you confirmed it or not.
-A run that is up to date (the trace found it current, so no tool ran) delivers its outputs too.
+A run that is up to date (the trace found it current, so no tool ran) delivers its outputs too,
+if it passed. A run that its checks rejected delivers nothing, on the first launch or when it
+is reported again.
 
 With ``--post-cleanup-purge``, Xeda deletes the run directory right after the delivery. Xeda then
 moves a delivered file out of the run directory and does not copy it, so a large output does not

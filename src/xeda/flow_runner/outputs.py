@@ -38,8 +38,11 @@ def declared_output_files(results: dict[str, Any]) -> list[Path]:
     return files
 
 
-def record_outputs(flow: Flow) -> list[str]:
-    """Record the enabled declared outputs after a successful run, and return the problems found.
+def record_outputs(flow: Flow, *, record: bool = True) -> list[str]:
+    """Check the enabled declared outputs of a run, record them, and return the problems found.
+
+    With `record=False` the function checks the outputs and returns the problems, and it records
+    nothing: a rejected run hands over no output, but its outputs must still be valid.
 
     Required scalar and list outputs, and optional outputs that are switched on, must be
     present. Only complete output groups are recorded. Disabled outputs are ignored even if
@@ -91,7 +94,8 @@ def record_outputs(flow: Flow) -> list[str]:
             entries.append(entry)
         if len(entries) == len(paths):
             records[name] = entries if many else entries[0]
-    flow.results["outputs"] = records
+    if record:
+        flow.results["outputs"] = records
     return problems
 
 

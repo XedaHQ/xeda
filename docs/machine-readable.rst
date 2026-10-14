@@ -293,14 +293,27 @@ has a ``state``:
 
 - ``"fresh"``: the recorded run was still valid, and Xeda reused it without running it again.
 - ``"ran"``: the flow ran and succeeded.
-- ``"failed"``: the flow ran and failed.
+- ``"failed"``: the flow ran and failed. Its checks can have rejected the result on this launch.
+  A problem with what its producers handed over can also have stopped it.
+- ``"rejected again"``: the checks of the flow rejected its last run, and nothing it consumes
+  changed. Xeda reported that rejection again without running the flow. ``reason`` is the message
+  of the rejection. The launch in which the checks reject the run gives ``"failed"``.
+- ``"blocked"``: a producer of the flow failed, was rejected or is blocked, so the flow did not
+  run. ``reason`` is ``<producer> did not succeed``.
 
-``reason`` says why the flow ran. It is empty for a node that is ``"fresh"``, and otherwise it is
-the text that the log shows as ``Running <flow>: <reason>``. Runs are make-like by default (without
-``--rebuild-all``), so a launch where everything is up to date has ``"success": true`` and every
-node ``"fresh"``. See :doc:`run-directories` for what makes a node stale. A flow that always runs is
-never ``"fresh"``. Its ``reason`` says why. ``openfpgaloader``, which programs a device, is one such
-flow, and so is a flow that is asked for a fresh random seed.
+The ``error`` of the document depends on what stopped the launch. If the requested flow itself was
+rejected, ``error.type`` is ``FlowFailed``, on the launch that ran it and when Xeda reports the
+rejection again. If a producer stopped the requested flow, the requested flow is ``"blocked"`` and
+``error.type`` is ``FlowDependencyFailure``.
+
+For a node that is ``"ran"`` or ``"failed"``, ``reason`` says why the flow ran: it is the text that
+the log shows as ``Running <flow>: <reason>``. It is empty for a node that is ``"fresh"``. For a
+node that is ``"rejected again"`` or ``"blocked"``, the flow did not run, and ``reason`` is the
+text described above. Runs are make-like by default
+(without ``--rebuild-all``), so a launch where everything is up to date has ``"success": true`` and
+every node ``"fresh"``. See :doc:`run-directories` for what makes a node stale. A flow that always
+runs is never ``"fresh"``. Its ``reason`` says why. ``openfpgaloader``, which programs a device, is
+one such flow, and so is a flow that is asked for a fresh random seed.
 
 ``deliveries`` lists every output that the flow of the node copied to a location that the settings
 or ``--outputs-to`` named, once the whole launch finished (see "Outputs where you name them" in
@@ -518,13 +531,13 @@ switches an optional output of its producer on:
           {"name": "yosys_fpga", "flow": "yosys_fpga",
            "run_path": "/path/to/xeda_run/blinky/yosys_fpga", "flowrun_hash": "...",
            "settings_hash": "...",
-           "state": "stale", "reason": "no successful previous run",
+           "state": "stale", "reason": "no completed previous run",
            "inputs": [], "switched_on": ["netlist"], "action_reason": null,
            "input_types": {}, "output_types": {"netlist": ["JsonNetlist"], "netlist_edif": []}},
           {"name": "nextpnr", "flow": "nextpnr",
            "run_path": "/path/to/xeda_run/blinky/nextpnr", "flowrun_hash": "...",
            "settings_hash": "...",
-           "state": "stale", "reason": "no successful previous run",
+           "state": "stale", "reason": "no completed previous run",
            "inputs": [{"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
                        "output": "netlist", "sources": [],
                        "references": [{"node": "yosys_fpga", "output": "netlist"}],
@@ -574,14 +587,25 @@ the effective types of each declaration after the settings of the nodes agree. F
 selects ``Pcf`` pin constraints and the ``IceAsc`` configuration. The static flow catalog lists the
 full vocabulary of declared types.
 
-Each node also says what a launch would do with it. ``state`` is ``fresh`` (the launch reuses the
-recorded run), ``stale`` (the launch runs the node) or ``unknown`` (nothing can be said without
-running something). ``reason`` says why:
+Each node also says what a launch would do with it. ``state`` is one of these:
+
+- ``fresh``: the launch reuses the recorded run.
+- ``stale``: the launch runs the node.
+- ``unknown``: nothing can be said without running something.
+- ``rejected again``: the checks of the node rejected its last run, and nothing it consumes
+  changed. The launch reports that rejection again and does not run the tool.
+- ``blocked``: a producer of the node is ``rejected again`` or ``blocked``. The launch stops at
+  that producer.
+
+``reason`` says why:
 
 - For a stale node, it is the text that the launch logs after ``Running <flow>:``. Examples are ``no
-  successful previous run``, ``input changed: <file>``, ``settings changed: <names>``, ``every flow
+  completed previous run``, ``input changed: <file>``, ``settings changed: <names>``, ``every flow
   runs (--rebuild-all)`` and ``it draws a new random seed``.
 - For an unknown node, it says what stops the answer.
+- For a rejected again node, it is the message of the rejection.
+- For a blocked node, it names the producer: ``<producer> was rejected in its last run``, or
+  ``<producer> is blocked`` when that producer is itself blocked.
 - For a fresh node, it is empty.
 
 A node is unknown in these cases:

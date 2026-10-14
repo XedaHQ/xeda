@@ -12,6 +12,12 @@ import sys
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
+
+from xeda.cli import cli
+
+from .test_remote_run import _remote_with_fake_fpga_tools
+from .test_remote_run import remote_host  # noqa: F401  (the fixture of the remote harness)
 
 pytestmark = pytest.mark.python_compat
 
@@ -246,6 +252,26 @@ def test_remote_status_comes_from_the_remote_results(remote_success, expected_ex
     assert document["results"]["success"] is remote_success
     if not remote_success:
         assert document["error"]["type"] == "FlowFailed"
+
+
+def test_a_remote_run_puts_only_the_json_document_on_stdout(
+    tmp_path, remote_host, monkeypatch  # noqa: F811
+):
+    """The real `send_design` and the real remote worker run: nothing that the local side prints
+    on the way (such as the list of files it ships) may precede or follow the document."""
+    design = _remote_with_fake_fpga_tools(tmp_path, remote_host, monkeypatch)
+    result = CliRunner().invoke(
+        cli,
+        ["run", "nextpnr", "--design", str(design), "--remote", "somewhere"]
+        + ["--run-root", str(tmp_path / "local" / "xeda_run"), "--json"]
+        + ["-s", "fpga.part=LFE5U-25F-6BG381C", "-s", "clock.freq=200"],
+    )
+    assert result.exit_code == 0, result.output
+    try:
+        document = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        pytest.fail(f"stdout was not a single JSON document ({e})\nstdout:\n{result.stdout}")
+    assert document["success"] is True
 
 
 def test_remote_output_is_wired_to_the_redirected_stream():

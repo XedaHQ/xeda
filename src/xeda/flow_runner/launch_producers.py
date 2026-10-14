@@ -130,13 +130,15 @@ def run_producers(
                             f"; see {producer_node.run_path / 'results.json'}"
                             if entered(producer_node.run_path)
                             else ""
-                        )
+                        ),
+                        producer=producer_node.name,
                     ) from error
                 completed[key] = producer
             if not producer.succeeded:
                 raise FlowDependencyFailure(
                     f"producer {producer.name} failed: {producer.results.get('error', '')}; "
-                    f"see {producer.run_path / 'results.json'}"
+                    f"see {producer.run_path / 'results.json'}",
+                    producer=producer.name,
                 )
             if producer not in consumed_from:
                 read_leases.enter_context(read_lease(producer))

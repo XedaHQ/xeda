@@ -60,7 +60,8 @@ nested. Launch and `xeda scrub` share one rule, `run_dir.run_directory_problem`
 `launch_flow` runs every flow and producer: input settings -> identity (hashes, run directory,
 lock) -> build the flow from deep copies, `init()` -> producers -> `prepare_inputs()` ->
 freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_reports()`,
-`check_results()` -> `results.json` -> `trace.json`, last and only on success.
+`check_results()` -> `results.json` -> `trace.json`, last and only for a passed or rejected run
+(`tests/test_rejected_verdicts.py`).
 
 - Never modify the input settings or the design; the flow gets copies
   (`tests/test_flow_design_isolation.py`). A launch leaves no process-wide state
@@ -76,7 +77,9 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
   not write (`tests/test_stale_reports.py`).
 - A failure after a run starts leaves `results.json` with `success: false`, `error.type` and
   `error.message` (`tests/test_failure_results.py`). `ReportedFailure` is a node's cause;
-  `FlowFailed` is the verdict of `xeda run --json`.
+  `FlowFailed` is the verdict of `xeda run --json`. Only a rejection (`Flow.reject` in
+  `check_results()`; `parse_reports()` only reads, `tests/test_verdict_placement.py`) keeps
+  the trace and is reported again unchanged; every other failure keeps none.
 - `Flow.always_runs()` returns a reason or `None`; every override calls `super()`. A simulation
   passes only on evidence that it ended (`judge_evidence`, `tests/test_sim_evidence.py`).
 

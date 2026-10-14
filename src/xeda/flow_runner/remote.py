@@ -516,8 +516,10 @@ def send_design(
             for place, local in archive_entries.items():
                 archive.write(local, arcname=place)
 
-        with zipfile.ZipFile(zip_file, mode="r") as archive:
-            archive.printdir()
+        if log.isEnabledFor(logging.DEBUG):
+            with zipfile.ZipFile(zip_file, mode="r") as archive:
+                for info in archive.infolist():
+                    log.debug("Archive entry: %s (%d bytes)", info.filename, info.file_size)
 
         log.info("Transferring design to %s in %s", conn.host, remote_path)
         conn.put(zip_file, remote=remote_path)
