@@ -5,7 +5,9 @@
    put the pins on the routing tracks. The pin placer reads its constraints and the shape of the
    pins from commands that run before it, so the stage sets them whichever flow places the pins.
    The pins by hand come first, in a procedure of their own: the pass without pins and the
-   main placement both must see them as placed. #}
+   main placement both must see them as placed. When the flow places no pins (`io.flow: fixed`,
+   or the pins of a DEF file), a pin that nothing placed would stop the main placement later with
+   GPL-0326, so the stage checks first and says which settings place the pins. #}
 {% set io = settings.io %}
 {% set before_placement = io.flow == "skip_io_pass" and settings.floorplan.sizing != "def" %}
 {% set places = before_placement or io.flow == "concurrent" %}
@@ -56,5 +58,14 @@ proc xeda_io_placement {} {
 {% endif %}
 {% if before_placement %}
     xeda_place_pins
+{% endif %}
+{% if not places %}
+    if {![all_pins_placed]} {
+{% if io.flow == "fixed" %}
+        error "xeda: the pins are not all placed, and io.flow is fixed, so the flow leaves the pins where they are: place every pin with io.fixed_pins or in the DEF file of floorplan.sizing: def, or set io.flow: skip_io_pass or io.flow: concurrent to place the pins"
+{% else %}
+        error "xeda: the pins are not all placed, and the DEF file of floorplan.sizing: def keeps the pins of the file: place every pin in the file or with io.fixed_pins, or set io.flow: concurrent to place the pins again"
+{% endif %}
+    }
 {% endif %}
 }

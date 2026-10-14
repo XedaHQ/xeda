@@ -296,7 +296,8 @@ def test_the_floorplan_takes_the_die_and_the_core_from_the_areas(tmp_path):
     run_script(flow, script)
 
 
-def test_the_floorplan_takes_everything_from_a_def_file(tmp_path):
+def test_the_floorplan_takes_everything_from_a_def_file(tmp_path, monkeypatch):
+    fake_returns(monkeypatch, {("all_pins_placed",): "1"})  # the file places the pins
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "plan.def").write_text("VERSION 5.8 ;\n")
     flow = place_flow(
@@ -1737,7 +1738,8 @@ def test_concurrent_placement_of_the_pins_places_them_with_the_cells_and_then_le
     assert names(calls, "global_placement", "place_pins") == ["global_placement", "place_pins"]
 
 
-def test_the_pins_stay_where_they_are_with_the_fixed_flow(tmp_path):
+def test_the_pins_stay_where_they_are_with_the_fixed_flow(tmp_path, monkeypatch):
+    fake_returns(monkeypatch, {("all_pins_placed",): "1"})
     flow = place_flow(tmp_path, {"io": {"flow": "fixed"}})
     script = render(flow)
     assert "xeda_place_pins" not in script
@@ -1746,7 +1748,8 @@ def test_the_pins_stay_where_they_are_with_the_fixed_flow(tmp_path):
     assert all("-skip_io" not in call for call in global_placement_calls(calls))
 
 
-def test_a_floorplan_from_a_def_file_keeps_its_pins(tmp_path):
+def test_a_floorplan_from_a_def_file_keeps_its_pins(tmp_path, monkeypatch):
+    fake_returns(monkeypatch, {("all_pins_placed",): "1"})
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "plan.def").write_text("VERSION 5.8 ;\n")
     flow = place_flow(
@@ -1754,7 +1757,7 @@ def test_a_floorplan_from_a_def_file_keeps_its_pins(tmp_path):
     )
     script = render(flow)
     assert stage(script, "xeda_global_place_skip_io") == ["xeda_stage globalplace_skip_io"]
-    assert stage(script, "xeda_io_placement") == ["xeda_stage io_placement"]
+    assert stage(script, "xeda_io_placement")[0] == "xeda_stage io_placement"
     assert names(run_script(flow, script), "place_pins") == []
 
 
@@ -2379,7 +2382,8 @@ def test_the_metrics_stages_follow_the_stages_in_order(tmp_path):
         if not isinstance(value, dict)
     ),
 )
-def test_every_choice_of_the_placement_groups_renders_and_runs(tmp_path, settings):
+def test_every_choice_of_the_placement_groups_renders_and_runs(tmp_path, monkeypatch, settings):
+    fake_returns(monkeypatch, {("all_pins_placed",): "1"})  # for the choices that place no pins
     run_script(place_flow(tmp_path, settings))
 
 
@@ -2673,8 +2677,9 @@ def test_every_status_of_a_pin_by_hand_renders_and_runs(tmp_path, status):
     "io_flow, sizing", [("fixed", "area"), ("concurrent", "utilization"), ("skip_io_pass", "def")]
 )
 def test_the_pins_by_hand_work_with_every_flow_and_with_a_floorplan_from_a_def_file(
-    tmp_path, io_flow, sizing
+    tmp_path, monkeypatch, io_flow, sizing
 ):
+    fake_returns(monkeypatch, {("all_pins_placed",): "1"})
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "plan.def").write_text("VERSION 5.8 ;\n")
     modes = {"enabled": False} if io_flow == "concurrent" else {}
@@ -2740,6 +2745,57 @@ def test_the_pins_that_stay_need_a_def_floorplan_or_pins_by_hand(tmp_path):
     )
     plan(tmp_path / "def", "io.flow=fixed", "floorplan.sizing=def", "floorplan.def_file=a.def")
     plan(tmp_path / "hand", "io.flow=fixed", typed={"io.fixed_pins": FIXED_PINS})
+
+
+def stays_flow(tmp_path: Path, *, sizing: str) -> OpenroadPlace:
+    """A flow whose pins stay where they are: `io.flow: fixed`, or the pins of a DEF file."""
+    if sizing == "def":
+        (tmp_path / "design").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "design" / "plan.def").write_text("VERSION 5.8 ;\n")
+        floorplan = {"sizing": "def", "def_file": "plan.def"}
+        return place_flow(
+            tmp_path, {"floorplan": floorplan, "io": {"flow": "skip_io_pass"}}, model={"site": None}
+        )
+    return place_flow(tmp_path, {"io": {"flow": "fixed", "fixed_pins": FIXED_PINS}})
+
+
+@pytest.mark.parametrize("sizing", ["utilization", "def"])
+def test_pins_that_stay_must_all_be_placed_before_the_global_placement_needs_them(tmp_path, sizing):
+    """With `io.flow: fixed`, and with the pins of a DEF file, the flow places no pins. A list of
+    pins by hand or a file that places only some of them leaves the rest unplaced, and the global
+    placement stops later with GPL-0326. The stage of the pins checks it first and says which
+    settings place the pins."""
+    flow = stays_flow(tmp_path, sizing=sizing)
+    body = stage(render(flow), "xeda_io_placement")
+    assert body[:3] == ["xeda_stage io_placement", "if {![all_pins_placed]} {", body[2]]
+    assert body[2].startswith('error "xeda: ') and body[3] == "}"
+    message = body[2]
+    assert "io.fixed_pins" in message and "the pins are not all placed" in message
+    assert "floorplan.sizing: def" in message and "io.flow: concurrent" in message
+    assert ("io.flow is fixed" in message) == (sizing != "def")
+
+
+@pytest.mark.parametrize("sizing", ["utilization", "def"])
+def test_unplaced_pins_stop_the_flow_before_the_global_placement(tmp_path, monkeypatch, sizing):
+    require_tclsh()
+    flow = stays_flow(tmp_path / "unplaced", sizing=sizing)
+    flow.bind_template_values()
+    flow.copy_from_template("clocks.sdc", trim_blocks=True, lstrip_blocks=True)
+    done = run_fake_openroad(flow.run_path, render(flow), driver="openroad_place")
+    assert done.returncode != 0
+    assert "xeda: the pins are not all placed" in done.stderr + done.stdout
+    assert (flow.run_path / "openroad_place-failed.odb").is_file()
+    recorded = "".join(log.read_text() for log in flow.run_path.rglob("fake_*.calls"))
+    assert "ARG global_placement\n" not in recorded
+    fake_returns(monkeypatch, {("all_pins_placed",): "1"})
+    placed = stays_flow(tmp_path / "placed", sizing=sizing)
+    assert names(run_script(placed), "global_placement") == ["global_placement"]
+
+
+def test_the_pins_that_the_flow_places_are_not_checked_before_the_placement(tmp_path):
+    for settings in ({}, {"io": {"flow": "concurrent"}}):
+        script = render(place_flow(tmp_path / str(len(settings)), settings))
+        assert "all_pins_placed" not in " ".join(stage(script, "xeda_io_placement"))
 
 
 @pytest.mark.parametrize(
