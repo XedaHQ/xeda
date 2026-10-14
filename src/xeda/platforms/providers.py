@@ -498,8 +498,15 @@ def install_plan(
 #: The variables of the environment that `ciel` gets. Others, such as `PDK_ROOT` and
 #: `GITHUB_TOKEN`, change where it installs or how it reaches the network.
 CIEL_ENVIRONMENT = ("PATH", "HOME", "LANG")
-#: The text of a partial directory that an install fills before it moves the directory.
-PARTIAL_PREFIX = ".partial-"
+#: The variables of the environment that `git` gets besides its own settings: the proxies.
+GIT_PASSED_ENVIRONMENT = (
+    *CIEL_ENVIRONMENT,
+    *(
+        name if upper else name.lower()
+        for name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY")
+        for upper in (True, False)
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -572,30 +579,54 @@ def _locate_everywhere(
 def installed(
     residue: Residue, provider: Optional[str], version: Optional[str], root: Path
 ) -> Optional[Located]:
-    """Return the platform if the store holds every file at the pinned version, else `None`."""
+    """Return the platform if the store holds it at the pinned version, else `None`.
+
+    Every file of every corner must be there, and the pin must verify. For `ciel`, the receipt
+    must exist too. `ciel` unpacks straight into the store, so a `ciel` that failed or was killed
+    can leave a truncated file under the right name. The receipt is written only after an install
+    that finished and checked its files."""
     try:
         located = _locate_everywhere(residue, provider, version, root)
         verify_pin(located, residue)
     except (PdkNotInstalled, PdkVersionMismatch):
         return None
+    if located.provider == "ciel":
+        if not _receipt_path(located.root, residue.name, located.version).is_file():
+            return None
     return located
 
 
-def _alreadyinstalled(
+def _already_installed(
     residue: Residue, plan: InstallPlan, provider: Optional[str], version: Optional[str]
 ) -> Optional[InstallResult]:
     located = installed(residue, provider, version, plan.root)
     if located is None:
         return None
-    receipt = _receipt_path(plan)
+    receipt = _receipt_path(plan.root, plan.platform, plan.version)
     return InstallResult(located, True, receipt if receipt.is_file() else None, [])
 
 
-def _receipt_path(plan: InstallPlan) -> Path:
-    return plan.root / "xeda" / "receipts" / f"{plan.platform}-{plan.version}.json"
+def _receipt_path(root: Path, platform: str, version: str) -> Path:
+    return root / "xeda" / "receipts" / f"{platform}-{version}.json"
+
+
+def _git_environment() -> dict[str, str]:
+    """The environment of a `git` command: the variables that it needs to run and to reach the
+    network, and settings that stop it from reading the configuration of the user or asking
+    questions. `GIT_DIR`, `GIT_WORK_TREE` and the like are left out, so that `git` works only in
+    the directory that the command names."""
+    env = {name: os.environ[name] for name in GIT_PASSED_ENVIRONMENT if name in os.environ}
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
 
 
 def _run(command: list[str], env: Optional[dict[str, str]], plan: InstallPlan) -> None:
+    if command[0] == "git":
+        # No hook of any configuration runs, whatever `git` reads.
+        command = [command[0], "-c", f"core.hooksPath={os.devnull}", *command[1:]]
+        env = _git_environment()
     try:
         run_process(command[0], command[1:], env=env)
     except NonZeroExitCode as error:
@@ -679,7 +710,7 @@ def _fetch_ciel(plan: InstallPlan) -> None:
 
 
 def _write_receipt(plan: InstallPlan, located: Located) -> Path:
-    path = _receipt_path(plan)
+    path = _receipt_path(plan.root, plan.platform, plan.version)
     path.parent.mkdir(parents=True, exist_ok=True)
     document = {
         "platform": plan.platform,
@@ -700,7 +731,7 @@ def _write_receipt(plan: InstallPlan, located: Located) -> Path:
 def _install_locked(
     residue: Residue, plan: InstallPlan, provider: Optional[str], version: Optional[str]
 ) -> InstallResult:
-    found = _alreadyinstalled(residue, plan, provider, version)
+    found = _already_installed(residue, plan, provider, version)
     if found is not None:
         return found
     if plan.provider == "orfs":
@@ -736,17 +767,33 @@ def install(
 
     * `orfs`: the Git commands fill `<root>/xeda/.partial-<random>`, and one rename then moves it
       to the directory of the commit, so that the store never holds a part of a checkout under
-      that name. If a command fails, or a file is missing, the install removes what it made.
+      that name. If a command fails, or a file is missing, the install removes what it made, and
+      the store is as it was. Every `git` command gets a controlled environment: no `GIT_DIR`,
+      no configuration of the user and no hook.
     * `ciel`: the plan runs with `PATH`, `HOME` and `LANG` only. A `ciel` on `PATH` must say that
       it is version 3. `ciel` writes the store itself, and one build may hold several libraries,
-      so the install never removes it.
+      so the install never removes it: a failed install may leave files of `ciel` in the store.
+
+    A store of `ciel` counts as installed only with its receipt (see `installed`), so a store
+    that `ciel` filled but nobody checked is fetched again.
 
     Raise `PdkInstallBusy` if another install holds the lock, `PdkInstallFailed` if the install
-    does not finish, and what `install_plan` raises for a plan that cannot be made."""
+    does not finish (a file system error too, naming the path), and what `install_plan` raises for a plan that cannot be made.
+    """
     plan = plan_install(residue, provider, version, root, partial=secrets.token_hex(6), url=url)
-    found = _alreadyinstalled(residue, plan, provider, version)
+    found = _already_installed(residue, plan, provider, version)
     if found is not None:
         return found
+    try:
+        return _install_under_lock(residue, plan, provider, version)
+    except OSError as error:
+        # A root that cannot be written, a full disk: the message names the path.
+        raise PdkInstallFailed(f"cannot install platform '{plan.platform}': {error}") from None
+
+
+def _install_under_lock(
+    residue: Residue, plan: InstallPlan, provider: Optional[str], version: Optional[str]
+) -> InstallResult:
     lock_path = plan.root / "xeda" / ".lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with open(lock_path, "a") as lock:

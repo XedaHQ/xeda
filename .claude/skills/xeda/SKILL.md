@@ -20,6 +20,7 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 | Design file schema | `xeda design-schema` |
 | Boards, ASIC platforms, DSE optimizers | `xeda list-boards --json`, `xeda list-platforms --json`, `xeda list-optimizers --json` |
 | Which PDK files of a platform are installed, and where | `xeda pdk list --json`, `xeda pdk path <platform> --json` (fails with the install command when they are missing) |
+| Install the PDK files of a platform (downloads and writes the PDK store; propose it to the user first) | `xeda pdk install <platform> --json` (installs without asking; reports `already_installed` when the files are there) |
 | What a run would do | `xeda run <flow> <design> --dry-run --json` |
 | Run | `xeda run <flow> <design> -s KEY=VALUE --json` |
 | Search for the highest clock frequency | `xeda dse <flow> --design <design> --json` |

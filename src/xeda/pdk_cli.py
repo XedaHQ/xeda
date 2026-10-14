@@ -345,10 +345,11 @@ def pdk_install(
 ) -> None:
     """Install the PDK files of a platform into the PDK store. This is the only command that uses
     the network and writes the store. It shows what it downloads, where it installs and the
-    commands, and it asks for confirmation. `--yes` skips the question. A machine-readable format
-    such as `--json` also installs without a question, because a program cannot answer. If the
-    store holds the files already, the command says so and runs nothing. Only one install at a
-    time can use a store."""
+    commands, and it asks for confirmation. `--yes` skips the question. `--json`, `--format json`,
+    `--format jsonl` and `--format yaml` install without a question, because a program cannot
+    answer. If the store holds the files already, the command says so and runs nothing. A failed
+    `orfs` install leaves the store as it was. A failed `ciel` install may leave files of `ciel`
+    in the store. Only one install at a time can use a store."""
     from .cli_utils import emit_structured, machine_readable_mode, resolve_format
     from .platforms.providers import (
         PdkInstallBusy,

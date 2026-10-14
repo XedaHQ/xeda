@@ -33,11 +33,14 @@ how to install them. ``pdk list`` and ``pdk path`` only look at the files: they 
 and use no network.
 
 ``xeda pdk install <platform>`` downloads the PDK files that a platform pins. It is the only
-``pdk`` command that uses the network and writes the PDK store. With ``--json`` it asks no question
-and installs, as ``--yes`` does. Tool output goes to stderr, and stdout carries one document:
-``{"success": true, "directory": ..., "receipt": ..., "already_installed": ...}``, or
-``{"success": false, "error": ...}`` if the install fails. A failed install leaves the store as it
-was.
+``pdk`` command that uses the network and writes the PDK store. Every machine-readable format
+(``--json``, ``--format json``, ``--format jsonl`` and ``--format yaml``) installs without asking,
+as ``--yes`` does, because a program cannot answer a question. Tool output goes to stderr, and
+stdout carries one document: ``{"success": true, "directory": ..., "receipt": ...,
+"already_installed": ...}``, or ``{"success": false, "error": ...}`` if the install fails. A failed
+``orfs`` install leaves the store as it was. A failed ``ciel`` install may leave files of ``ciel``
+in the store, so a ``ciel`` store counts as installed for this command only when its receipt
+exists.
 
 Executional commands do work and print the logs of the tools. They take a plain ``--json`` flag. It
 moves tool output, log messages and result tables to stderr, so that stdout carries only the JSON

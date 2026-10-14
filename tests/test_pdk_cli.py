@@ -22,7 +22,7 @@ from click.testing import CliRunner
 from xeda import pdk_cli
 from xeda.cli import cli
 from xeda.introspect import provider_status
-from xeda.platforms import Residue, load_residue
+from xeda.platforms import Residue, load_residue, locate
 from xeda.platforms.providers import PROVIDERS
 
 pytestmark = pytest.mark.python_compat
@@ -1185,3 +1185,186 @@ def test_the_help_says_that_json_asks_no_question():
     assert "--yes" in text
     assert "--json" in text
     assert "without a question" in " ".join(text.split())
+
+
+# ---------------------------------------------------------------------------------------------
+# The environment of the install, the errors of the file system and the receipt of ciel
+# ---------------------------------------------------------------------------------------------
+
+
+def repository_state(directory: Path) -> dict[str, str]:
+    """Every file under a repository, with its content, to compare before and after."""
+    return {
+        path.relative_to(directory).as_posix(): path.read_text(errors="replace")
+        for path in sorted(directory.rglob("*"))
+        if path.is_file() and path.name != "index"
+    }
+
+
+def test_git_runs_in_its_own_repository_whatever_the_caller_sets(tmp_path, upstream, monkeypatch):
+    """GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE point at another repository: the install still
+    fills its own, and leaves the other one as it was."""
+    other = tmp_path / "other"
+    other.mkdir()
+    git(other, "init", "--quiet")
+    (other / "mine.txt").write_text("mine\n")
+    git(other, "add", "mine.txt")
+    git(other, "commit", "--quiet", "-m", "mine")
+    before = repository_state(other)
+    head = git(other, "rev-parse", "HEAD")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(other / ".git" / "index"))
+    root = tmp_path / "store"
+    result = install_orfs(root, upstream)
+    assert result.already_installed is False
+    assert (result.located.directory / "config.mk").is_file()
+    assert repository_state(other) == before
+    monkeypatch.delenv("GIT_DIR")
+    monkeypatch.delenv("GIT_WORK_TREE")
+    monkeypatch.delenv("GIT_INDEX_FILE")
+    assert git(other, "rev-parse", "HEAD") == head
+    assert git(other, "status", "--porcelain") == ""
+
+
+def test_a_hook_of_the_global_configuration_does_not_run(tmp_path, upstream, monkeypatch):
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    marker = tmp_path / "hook-ran"
+    hook = hooks / "post-checkout"
+    hook.write_text(f"#!/bin/sh\necho ran > {marker}\n")
+    hook.chmod(0o755)
+    config = tmp_path / "gitconfig"
+    config.write_text(f"[core]\n\thooksPath = {hooks}\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    install_orfs(tmp_path / "store", upstream)
+    assert not marker.exists()
+
+
+def test_git_gets_a_controlled_environment(tmp_path, monkeypatch):
+    """A `git` that records its environment: only the variables that the install passes."""
+    from xeda.platforms.providers import install
+
+    fakes = tmp_path / "fakes"
+    fakes.mkdir()
+    record = tmp_path / "git-env.json"
+    program = fakes / "git"
+    program.write_text(
+        f"#!{sys.executable}\nimport json, os, sys\n"
+        f"open({str(record)!r}, 'w').write(json.dumps({{'env': dict(os.environ), "
+        "'argv': sys.argv[1:]}))\nsys.exit(1)\n"
+    )
+    program.chmod(0o755)
+    monkeypatch.setenv("PATH", str(fakes) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    monkeypatch.setenv("GIT_ASKPASS", "/bin/true")
+    monkeypatch.setenv("https_proxy", "http://proxy.example:3128")
+    monkeypatch.setenv("NO_PROXY", "example.com")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/elsewhere/gitconfig")
+    from xeda.platforms.providers import PdkInstallFailed
+
+    with pytest.raises(PdkInstallFailed):
+        install(nangate(), "orfs", PIN, tmp_path / "store")
+    seen = json.loads(record.read_text())
+    env = seen["env"]
+    assert env["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert env["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert env["https_proxy"] == "http://proxy.example:3128"
+    assert env["NO_PROXY"] == "example.com"
+    assert "GITHUB_TOKEN" not in env and "GIT_ASKPASS" not in env
+    allowed = {"PATH", "HOME", "LANG", "https_proxy", "NO_PROXY", "__CF_USER_TEXT_ENCODING"}
+    assert set(env) - allowed <= {"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT"}
+    assert seen["argv"][:2] == ["-c", f"core.hooksPath={os.devnull}"]
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a permission check")
+def test_a_root_that_cannot_be_written_fails_with_one_document(monkeypatch, home, tmp_path):
+    root = tmp_path / "locked"
+    root.mkdir()
+    root.chmod(0o555)
+    try:
+        result = invoke(monkeypatch, NANGATE, "--root", str(root), "--json", home=home)
+    finally:
+        root.chmod(0o755)
+    assert result.exit_code == 1
+    answer = json.loads(result.stdout)
+    assert answer["success"] is False
+    assert answer["error"]["type"] == "PdkInstallFailed"
+    assert str(root) in answer["error"]["message"]
+    assert tree(root) == []
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a permission check")
+def test_a_receipt_that_cannot_be_written_fails_with_a_message(tmp_path, monkeypatch):
+    from xeda.platforms import providers
+
+    fake = fake_ciel(monkeypatch, tmp_path)
+    root = tmp_path / "store"
+    receipts = root / "xeda" / "receipts"
+    receipts.mkdir(parents=True)
+    receipts.chmod(0o555)
+    try:
+        with pytest.raises(providers.PdkInstallFailed) as raised:
+            providers.install(fake.residue, "ciel", None, root)
+    finally:
+        receipts.chmod(0o755)
+    assert str(receipts) in str(raised.value)
+
+
+def test_a_ciel_store_without_a_receipt_is_not_installed(tmp_path, monkeypatch):
+    """ciel unpacks into the store, so a killed ciel can leave a truncated file that a check of
+    the names accepts. Only the receipt, which comes after a verified install, says that it is
+    complete."""
+    from xeda.platforms.providers import install, installed
+
+    fake = fake_ciel(monkeypatch, tmp_path)
+    root = tmp_path / "store"
+    entry = fake.entry
+    directory = root / "ciel" / entry.family / "versions" / entry.version / entry.variant
+    for name in every_corner_file(fake.residue):
+        (directory / name).parent.mkdir(parents=True, exist_ok=True)
+        (directory / name).write_text("")
+    # The names are all there, and finding the files accepts them.
+    assert locate(fake.residue, "ciel", None, root, None).directory == directory
+    assert installed(fake.residue, "ciel", None, root) is None
+    first = install(fake.residue, "ciel", None, root)
+    assert first.already_installed is False
+    assert len(fake.calls()) == 1
+    assert installed(fake.residue, "ciel", None, root) is not None
+    second = install(fake.residue, "ciel", None, root)
+    assert second.already_installed is True
+    assert second.receipt == first.receipt
+    assert len(fake.calls()) == 1
+
+
+def test_an_orfs_store_needs_no_receipt(tmp_path):
+    from xeda.platforms.providers import installed
+
+    root = tmp_path / "store"
+    touch_all(nangate_directory(root), nangate())
+    assert installed(nangate(), "orfs", None, root) is not None
+
+
+@pytest.mark.parametrize("fmt", ["json", "jsonl", "yaml"])
+def test_every_machine_readable_format_installs_without_a_question(
+    monkeypatch, home, tmp_path, upstream, fmt
+):
+    local_orfs(monkeypatch, upstream)
+    root = tmp_path / "store"
+    result = invoke(
+        monkeypatch, NANGATE, "--root", str(root), "--version", upstream.commit,
+        *["--format", fmt], home=home,
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    assert nangate_directory(root, upstream.commit).is_dir()
+    assert "[y/N]" not in result.stdout + result.stderr
+
+
+def test_the_help_names_every_format_that_asks_no_question():
+    text = " ".join(
+        click.unstyle(CliRunner().invoke(cli, ["pdk", "install", "--help"]).output).split()
+    )
+    text = text.replace("`", "")
+    assert "--json, --format json, --format jsonl and --format yaml install without" in text
+    assert "without a question" in text
