@@ -465,12 +465,12 @@ Xeda reports a failure again, and does not run the flow, only when all of these 
 - The flow does not always run (see `Flows that always run`_).
 - Nothing that the flow consumes changed since the run.
 
-Such a run keeps its trace, with the verdict ``rejected``. The log says that the last run with
-these inputs and settings was rejected. ``xeda run --json`` gives the node the state
-``rejected again``, and its ``reason`` is the message of the rejection. The first launch that
-finds the rejection gives the state ``failed``. The next launch, with nothing changed, gives
-``rejected again``. A flow that reads the outputs of this run does not run either. Its state is
-``blocked``, and its ``reason`` is "<producer> did not succeed".
+Such a run keeps its trace, with the verdict ``rejected``. In ``xeda run --json``, the launch in
+which the checks reject the run gives the node the state ``failed``. The next launch, with nothing
+changed, logs that the last run with these inputs and settings was rejected, and gives the node
+the state ``rejected again``, with the message of the rejection as its ``reason``. A flow that
+reads the outputs of this run does not run either. Its state is ``blocked``, and its ``reason`` is
+"<producer> did not succeed".
 
 These checks reject a run:
 
@@ -483,7 +483,7 @@ These checks reject a run:
 - ``diamond_synth``: negative slack, unrouted nets, timing errors, or a DSP or block RAM that
   ``allow_dsps`` or ``allow_brams`` forbids.
 - ``vivado_synth``, ``vivado_alt_synth`` and ``vivado_impl`` with ``fail_timing``: negative hold
-  slack (WHS) or violation counts.
+  slack (WHS) or hold violations.
 - ``nextpnr``: a missed constraint that nextpnr reports while it exits normally.
 
 All other failures are tool failures. A tool failure keeps no trace, and the next launch runs the
