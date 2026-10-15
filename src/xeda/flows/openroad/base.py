@@ -1,11 +1,12 @@
 """The base of the OpenROAD flows.
 
-Each flow runs OpenROAD once or twice. A process starts from a netlist (`openroad_place`) or from
-the database (`.odb`) of the flow before it, and writes its own database and its SDC file. The
-database stores the design and the routing and optimization options that the placement flow set
-(`openroad_place` owns them, and no later flow sets them again). It does not store the
-Liberty files, the SDC constraints, the wire parasitics or the cells that must not be used. So
-every process starts with the same restart header (`templates/restart.tcl.j2`) that applies them.
+`openroad_place`, `openroad_cts` and `openroad_grt` run one OpenROAD process each; `openroad` runs
+two, and a third with `save_images`. A process starts from a netlist (`openroad_place`) or from a
+database (`.odb`): the one of the flow before it, or the one that an earlier process of `openroad`
+wrote. The database stores the design and the routing and optimization options that the placement
+flow set (`openroad_place` owns them, and no later flow sets them again). It does not store the
+Liberty files, the SDC constraints, the wire parasitics or the cells that must not be used. So every
+process starts with the same restart header (`templates/restart.tcl.j2`) that applies them.
 
 `OpenroadStage` holds what the four flows share: the settings `hierarchical` and `wire_rc`, the
 platform files, the values that the templates read (`effective_base`), the way a driver script

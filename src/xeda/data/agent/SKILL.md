@@ -261,9 +261,9 @@ Open `references/fpga-flows.md` for the open-source FPGA flow (yosys, nextpnr, o
 constraints, programming) and for `vivado_impl`.
 
 ASIC place and route: `xeda run openroad design.yaml` plans `yosys`, `openroad_place`,
-`openroad_cts`, `openroad_grt` and `openroad`. Each runs one OpenROAD process, but `openroad` runs
-two (detailed route, final outputs) and a third with `save_images`. Every flow needs
-`platform`, and the PDK files must be installed (`xeda pdk path <platform> --json`). A changed
+`openroad_cts`, `openroad_grt` and `openroad`. The first three run one OpenROAD process each;
+`openroad` runs two (detailed route, final outputs), and a third with `save_images`. Every flow
+needs `platform`, and the PDK files must be installed (`xeda pdk path <platform> --json`). A changed
 setting of a late flow reruns only that flow and the ones after it; a shared setting (`wire_rc`,
 `platform`) reruns every flow. The database carries the routing layers, the layer adjustments,
 `resize.opt_config`, `resize.global_sizing` and `design.dont_touch`: set them under
