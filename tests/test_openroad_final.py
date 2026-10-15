@@ -2925,3 +2925,243 @@ def test_the_options_of_the_filler_run_under_the_fake(tmp_path):
     (fill,) = [call for call in calls if call[0] == "filler_placement"]
     assert fill == ["filler_placement", "-prefix", "P_", "D FILL_X1"]
     assert "check_placement" not in [call[0] for call in calls]
+
+
+# ============================================================================== the extraction options
+
+
+def extract_line(tmp_path: Path, extraction: dict[str, Any] | None = None, **kwargs: Any) -> str:
+    """The line of `extract_parasitics` in the stage of the final outputs."""
+    found = outputs_body(
+        tmp_path, {"extraction": {"method": "rcx", **(extraction or {})}}, **kwargs
+    )
+    (line,) = [line for line in found if line.startswith("extract_parasitics")]
+    return line
+
+
+def test_the_extraction_has_no_flag_by_default(tmp_path):
+    assert extract_line(tmp_path, {"method": "auto"}) == "extract_parasitics"
+
+
+@pytest.mark.parametrize(
+    "option, flag",
+    [
+        ({"corner_index": 1}, '-corner "1"'),
+        ({"corner_count": 2}, '-corner_cnt "2"'),
+        ({"max_res": 20}, '-max_res "20.0"'),
+        ({"cc_model": 4}, '-cc_model "4"'),
+        ({"context_depth": 3}, '-context_depth "3"'),
+        ({"merge_via_res": False}, "-no_merge_via_res"),
+        ({"skip_over_cell": True}, "-skip_over_cell"),
+        ({"model_version": 2.0}, '-version "2.0"'),
+        ({"lef_values": "res"}, "-lef_res"),
+        ({"lef_values": "rc"}, "-lef_rc"),
+    ],
+    ids=lambda value: json.dumps(value) if isinstance(value, dict) else value,
+)
+def test_each_option_of_openrcx_prints_its_flag(tmp_path, option, flag):
+    assert extract_line(tmp_path, option) == f"extract_parasitics {flag}"
+
+
+def test_the_coupling_threshold_is_given_in_picofarads_and_printed_in_femtofarads(tmp_path):
+    assert extract_line(tmp_path, {"coupling_threshold": 0.0002}) == (
+        "extract_parasitics -coupling_threshold 0.2"
+    )
+    assert extract_line(tmp_path / "zero", {"coupling_threshold": 0}) == (
+        "extract_parasitics -coupling_threshold 0.0"
+    )
+
+
+def test_the_options_come_in_one_order_the_threshold_and_the_lef_values_first(tmp_path):
+    line = extract_line(
+        tmp_path,
+        {
+            "model_version": 1.0,
+            "skip_over_cell": True,
+            "lef_values": "rc",
+            "coupling_threshold": 0.001,
+            "corner_count": 1,
+        },
+    )
+    assert line == (
+        'extract_parasitics -coupling_threshold 1.0 -lef_rc -corner_cnt "1" -skip_over_cell '
+        '-version "1.0"'
+    )
+
+
+def test_the_index_of_the_model_goes_to_the_process_corner(tmp_path):
+    found = outputs_body(tmp_path, {"extraction": {"model_index": 2}})
+    assert "define_process_corner -ext_model_index 2 X" in found
+    assert "define_process_corner -ext_model_index 0 X" in outputs_body(tmp_path / "default")
+
+
+def test_the_scale_comes_after_the_extraction_and_before_the_file_of_the_parasitics(tmp_path):
+    found = outputs_body(tmp_path, {"extraction": {"scale": {"res": 1.5, "gnd": 0.8}}})
+    assert 'adjust_rc -res_factor "1.5" -gndc_factor "0.8"' in found
+    lines_ = [line.split()[0] for line in found]
+    assert (
+        lines_.index("extract_parasitics") < lines_.index("adjust_rc") < lines_.index("write_spef")
+    )
+    assert "adjust_rc" not in " ".join(outputs_body(tmp_path / "default"))
+
+
+def test_a_scale_of_one_is_a_scale(tmp_path):
+    found = outputs_body(tmp_path, {"extraction": {"scale": {"cc": 1}}})
+    assert 'adjust_rc -cc_factor "1.0"' in found
+
+
+def test_the_options_of_openrcx_run_under_the_fake(tmp_path):
+    flow = final_flow(
+        tmp_path,
+        {
+            "extraction": {
+                "method": "rcx",
+                "model_index": 1,
+                "corner_index": 0,
+                "coupling_threshold": 0.0003,
+                "lef_values": "res",
+                "scale": {"res": 2},
+            }
+        },
+    )
+    calls = run_final_script(flow)
+    (extract,) = [call for call in calls if call[0] == "extract_parasitics"]
+    assert extract == [
+        "extract_parasitics",
+        "-coupling_threshold",
+        "0.3",
+        "-lef_res",
+        "-corner",
+        "0",
+    ]
+    (adjust,) = [call for call in calls if call[0] == "adjust_rc"]
+    assert adjust == ["adjust_rc", "-res_factor", "2.0"]
+
+
+def test_the_options_of_openrcx_are_the_femtofarad_filter_of_the_base(tmp_path):
+    flow = final_flow(tmp_path)
+    assert flow.jinja_env.filters["femtofarads"](0.0001) == "0.1"
+    with pytest.raises(TypeError):
+        flow.jinja_env.filters["femtofarads"](True)
+    with pytest.raises(TypeError):
+        flow.jinja_env.filters["femtofarads"](float("nan"))
+
+
+# ------------------------------------------------------------------------------ the rules file
+
+
+def rules_of_setting(tmp_path: Path) -> Path:
+    path = tmp_path / "mine.rules"
+    path.write_text("my rules\n")
+    return path
+
+
+def test_the_rules_file_of_the_setting_replaces_the_file_of_the_platform(tmp_path):
+    mine = rules_of_setting(tmp_path)
+    given = {"extraction": {"rules_file": str(mine)}}
+    flow = final_flow(tmp_path, given)
+    assert flow.effective().rcx_rules == mine
+    assert flow.platform_model.files["rcx_rules"][0] != mine
+    found = outputs_body(tmp_path / "again", given)
+    assert f'set_extraction_rules_file "{mine}"' in [tokens(tmp_path, line) for line in found]
+
+
+def test_a_platform_without_rules_extracts_with_the_rules_file_of_the_setting(tmp_path):
+    mine = rules_of_setting(tmp_path)
+    flow = route_flow(tmp_path, {"extraction": {"rules_file": str(mine)}}, rules=False)
+    values = flow.effective()
+    assert (values.extraction, values.rcx_rules) == ("rcx", mine)
+    assert flow.locate_prepared_inputs() == flow.implicit_inputs
+
+
+def test_the_rules_file_of_the_platform_is_no_input_when_the_setting_gives_another(tmp_path):
+    mine = rules_of_setting(tmp_path)
+    flow = final_flow(tmp_path, {"extraction": {"rules_file": str(mine)}})
+    assert RCX_RULES not in [path.name for path in flow.implicit_inputs]
+    assert flow.locate_prepared_inputs() == flow.implicit_inputs
+
+
+def test_the_rules_file_of_the_setting_is_an_input_of_the_run(tmp_path):
+    from xeda.flow_runner.trace_inputs import setting_read_paths
+
+    mine = rules_of_setting(tmp_path)
+    flow = final_flow(tmp_path, {"extraction": {"rules_file": str(mine)}})
+    assert mine in setting_read_paths(flow.settings, Path(flow.run_path))
+    assert mine.parent in flow.input_directories()
+
+
+def test_a_rules_file_that_is_no_file_stops_the_run_before_openroad_starts(tmp_path):
+    missing = tmp_path / "missing.rules"
+    with pytest.raises(FlowSettingsException) as raised:
+        final_flow(tmp_path, {"extraction": {"rules_file": str(missing)}})
+    assert (
+        f"`extraction.rules_file` names {missing}, which is not a file: give the rules file of "
+        "OpenRCX, or delete `extraction.rules_file` to use the file of the platform"
+    ) in str(raised.value)
+
+
+def test_the_rules_file_of_the_setting_makes_the_automatic_extraction_rcx_at_planning(tmp_path):
+    mine = rules_of_setting(tmp_path)
+    settings = Openroad.Settings.from_input(
+        {
+            **tiny_settings(tiny_store(tmp_path), residue=TINY_OPENROAD_RESIDUE),
+            "extraction": {"rules_file": str(mine), "max_res": 20},
+        },
+        design_root=tmp_path,
+        runner_cwd=tmp_path,
+    )
+    Openroad.check_settings_supported(settings)
+
+
+# ------------------------------------------------------------------------------ the refusals
+
+
+def test_an_option_of_openrcx_is_refused_with_an_estimate_that_the_method_chooses(tmp_path):
+    message = refuse_settings(tmp_path, {"extraction": {"method": "estimate", "max_res": 20}})
+    assert (
+        "`extraction.max_res` is an option of OpenRCX and has no effect with "
+        "`extraction.method: estimate`: set `extraction.method: rcx` and give the rules, or "
+        "delete `extraction.max_res`" in message
+    )
+
+
+def test_an_option_of_openrcx_is_refused_where_auto_gives_an_estimate(tmp_path):
+    message = refuse_settings(tmp_path, {"extraction": {"cc_model": 4, "model_index": 1}})
+    assert "`extraction.cc_model` is an option of OpenRCX" in message
+    assert "`extraction.model_index` is an option of OpenRCX" in message
+    assert "the platform 'tiny', which gives no rules file and so gets an estimate from" in message
+
+
+def test_the_options_of_openrcx_plan_where_the_platform_has_rules(tmp_path):
+    store = tiny_store(tmp_path)
+    (store / "tiny" / RCX_RULES).write_text("rules\n")
+    residue = variant_residue(tmp_path, rules=True, supply=SUPPLY)
+    settings = Openroad.Settings.from_input(
+        {**tiny_settings(store, residue=residue), "extraction": {"cc_model": 4}},
+        design_root=tmp_path,
+        runner_cwd=tmp_path,
+    )
+    Openroad.check_settings_supported(settings)
+
+
+@pytest.mark.parametrize(
+    "leaf, value",
+    [
+        ("corner_index", -1),
+        ("corner_count", 0),
+        ("max_res", -1),
+        ("coupling_threshold", -0.1),
+        ("model_version", 0),
+        ("lef_values", "all"),
+    ],
+)
+def test_a_value_outside_the_range_of_openrcx_is_refused(tmp_path, leaf, value):
+    with pytest.raises(Exception):
+        Openroad.Settings.from_input({"extraction": {leaf: value}}, design_root=tmp_path)
+
+
+@pytest.mark.parametrize("leaf", ["res", "cc", "gnd"])
+@pytest.mark.parametrize("value", [0, -1])
+def test_a_factor_of_the_scale_is_positive(tmp_path, leaf, value):
+    with pytest.raises(Exception):
+        Openroad.Settings.from_input({"extraction": {"scale": {leaf: value}}}, design_root=tmp_path)

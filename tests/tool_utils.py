@@ -839,6 +839,7 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     "define_process_corner",
     "set_extraction_rules_file",
     "extract_parasitics",
+    "adjust_rc",
     "write_spef",
     "read_spef",
     "set_pdnsim_net_voltage",

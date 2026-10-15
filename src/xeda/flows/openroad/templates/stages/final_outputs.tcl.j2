@@ -5,7 +5,11 @@
    masters that only occupy the layout (fill, tap and end cap cells), so that a simulation or an
    equivalence check sees none of them. The parasitics come last: OpenRCX extracts them with the
    rules of the platform and the file is read back, or else OpenROAD estimates them from the
-   route. Only the final stage of the process may set the stage of the metrics here. #}
+   route. The options of OpenRCX are flags of the extraction, and the factors that scale the
+   result come in a command of their own after it. Only the final stage of the process may set
+   the stage of the metrics here. #}
+{% set ext = settings.extraction %}
+{% set scale = settings.extraction.scale %}
 proc xeda_final_outputs {} {
     xeda_stage finish
     set_propagated_clock [all_clocks]
@@ -16,9 +20,12 @@ proc xeda_final_outputs {} {
     write_def {{ outputs.def_file|tcl_word }}
     write_verilog {{ outputs.netlist|tcl_word }} -remove_cells [xeda_physical_only_masters]
 {% if P.extraction == "rcx" %}
-    define_process_corner -ext_model_index 0 X
+    define_process_corner -ext_model_index {{ ext.model_index|tcl_number }} X
     set_extraction_rules_file {{ P.rcx_rules|tcl_word }}
-    extract_parasitics
+    {{ ["extract_parasitics", ("-coupling_threshold " ~ (ext.coupling_threshold|femtofarads)) if ext.coupling_threshold is not none else "", "-lef_res" if ext.lef_values == "res" else ("-lef_rc" if ext.lef_values == "rc" else ""), render_flags(ext)]|select|join(" ") }}
+{% if scale.res is not none or scale.cc is not none or scale.gnd is not none %}
+    {{ ["adjust_rc", render_flags(scale)]|select|join(" ") }}
+{% endif %}
     write_spef {{ outputs.spef|tcl_word }}
     read_spef {{ outputs.spef|tcl_word }}
 {% else %}

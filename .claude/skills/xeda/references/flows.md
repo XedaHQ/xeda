@@ -337,7 +337,7 @@ Group `antenna`: no common settings; 5 more: `xeda list-settings openroad --tier
 
 Group `fill`: `fill.cells`; 3 more: `xeda list-settings openroad --tier expert --json`
 
-Group `extraction`: `extraction.method`
+Group `extraction`: `extraction.method`; 15 more: `xeda list-settings openroad --tier expert --json`
 
 Group `ir_drop`: no common settings; 1 more: `xeda list-settings openroad --tier expert --json`
 

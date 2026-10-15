@@ -422,6 +422,10 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         1,
         "looks for the PDK files in the store on disk",
     ),
+    "xeda.flows.openroad.final:Openroad.prepare_inputs": (
+        1,
+        "needs the rules file of `extraction.rules_file` on disk",
+    ),
     "xeda.flows.openroad.place:OpenroadPlace.prepare_inputs": (
         1,
         "needs the DEF file of `floorplan.def_file` on disk",

@@ -90,7 +90,8 @@ class EffectiveFinal(EffectiveBase):
     #: How the parasitics of the final report come about: `rcx` (OpenRCX extracts them with the
     #: rules of the platform) or `estimate` (OpenROAD estimates them from the route).
     extraction: str
-    #: The rules file of OpenRCX when `extraction` is `rcx`, else `None`.
+    #: The rules file of OpenRCX when `extraction` is `rcx`, else `None`: the file of the setting
+    #: `extraction.rules_file`, else the file of the platform.
     rcx_rules: Optional[Path]
     #: Whether the flow analyzes the IR drop (the setting `ir_drop.enabled`). With no supply net
     #: that has a voltage, there is nothing to analyze.
@@ -136,7 +137,8 @@ def effective(settings: "Openroad.Settings", model: PlatformModel) -> EffectiveF
     cells = settings.fill.cells
     decap = settings.fill.decap_cells
     given_diode = settings.antenna.diode_cell
-    rules = model.files.get("rcx_rules", [])
+    given_rules = settings.extraction.rules_file
+    rules = [given_rules] if given_rules is not None else model.files.get("rcx_rules", [])
     extraction = resolve_extraction(
         settings.extraction.method, has_rules=bool(rules), platform=model.name
     )
@@ -424,32 +426,72 @@ class Openroad(OpenroadStage):
                     "`write_gds` needs to merge the layout: add them to `files` in its residue "
                     "file (`platform_file`), or set `write_gds: false`"
                 )
-        resolve_extraction(
+        extraction = resolve_extraction(
             settings.extraction.method,
-            has_rules=bool(residue.files.rcx_rules),
+            has_rules=bool(residue.files.rcx_rules) or settings.extraction.rules_file is not None,
             platform=residue.name,
         )
+        if extraction == "estimate":
+            leaves = [
+                leaf
+                for leaf in differing_leaves(settings.extraction, "extraction")
+                if leaf != "extraction.method"
+            ]
+            if leaves:
+                why = (
+                    "`extraction.method: estimate`"
+                    if settings.extraction.method == "estimate"
+                    else f"the platform {residue.name!r}, which gives no rules file and so gets "
+                    "an estimate from `extraction.method: auto`,"
+                )
+                raise FlowSettingsError(
+                    [
+                        (
+                            leaf,
+                            f"`{leaf}` is an option of OpenRCX and has no effect with {why}: set "
+                            f"`extraction.method: rcx` and give the rules, or delete `{leaf}`",
+                            None,
+                            "value_error",
+                        )
+                        for leaf in leaves
+                    ],
+                    cls.Settings,
+                )
 
     @property
     def platform_roles(self) -> tuple[str, ...]:
         """The roles of the platform files that the flow opens: those of every OpenROAD flow, the
-        rules file of OpenRCX when the extraction is `rcx`, and the technology file of KLayout and
-        the GDSII files with `write_gds`. It follows the settings and the residue file of the
+        rules file of OpenRCX when the extraction is `rcx` and no setting gives another rules
+        file, and the technology file of KLayout and the GDSII files with `write_gds`. It follows the settings and the residue file of the
         platform, so a dry run, which builds no platform model, gets the same roles as a run."""
         settings = self.settings
         assert isinstance(settings, self.Settings)
         residue = settings.residue()
+        given_rules = settings.extraction.rules_file
         extraction = resolve_extraction(
             settings.extraction.method,
-            has_rules=bool(residue.files.rcx_rules),
+            has_rules=bool(residue.files.rcx_rules) or given_rules is not None,
             platform=residue.name,
         )
         roles: tuple[str, ...] = PLATFORM_ROLES
-        if extraction == "rcx":
+        if extraction == "rcx" and given_rules is None:
             roles = (*roles, "rcx_rules")
         if settings.write_gds:
             roles = (*roles, *GDS_ROLES)
         return roles
+
+    def prepare_inputs(self) -> None:
+        """Find the files of the platform, and check the rules file of the setting."""
+        super().prepare_inputs()
+        settings = self.settings
+        assert isinstance(settings, self.Settings)
+        rules = settings.extraction.rules_file
+        if rules is not None and not rules.is_file():
+            raise FlowSettingsException(
+                f"`extraction.rules_file` names {rules}, which is not a file: give the rules "
+                "file of OpenRCX, or delete `extraction.rules_file` to use the file of the "
+                "platform"
+            )
 
     # --- the values of the templates ----------------------------------------------------------
 

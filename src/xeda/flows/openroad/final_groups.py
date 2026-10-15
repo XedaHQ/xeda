@@ -14,13 +14,14 @@ from .groups import differing_leaves
 
 __all__ = [
     "DetailedRouteGroup",
-    "NdrGroup",
-    "NdrRule",
     "ExtractionGroup",
+    "ExtractionScale",
     "FillGroup",
     "FinalAntennaGroup",
     "GdsGroup",
     "IrDropGroup",
+    "NdrGroup",
+    "NdrRule",
     "ViaInPin",
 ]
 
@@ -366,8 +367,51 @@ class FillGroup(SettingsGroup):
     )
 
 
+class ExtractionScale(SettingsGroup):
+    """The factors that scale the extracted parasitics (`adjust_rc`). A factor that is unset is 1."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("res", "-res_factor", "value"),
+        Flag("cc", "-cc_factor", "value"),
+        Flag("gnd", "-gndc_factor", "value"),
+    )
+
+    res: Optional[float] = Field(
+        None,
+        gt=0,
+        description="The factor for the resistance of the wires (`-res_factor`). Unset: 1.",
+        json_schema_extra=tier("expert"),
+    )
+    cc: Optional[float] = Field(
+        None,
+        gt=0,
+        description="The factor for the coupling capacitance between wires (`-cc_factor`). "
+        "Unset: 1.",
+        json_schema_extra=tier("expert"),
+    )
+    gnd: Optional[float] = Field(
+        None,
+        gt=0,
+        description="The factor for the capacitance of the wires to the ground "
+        "(`-gndc_factor`). Unset: 1.",
+        json_schema_extra=tier("expert"),
+    )
+
+
 class ExtractionGroup(SettingsGroup):
-    """The extraction of the parasitics of the routed design."""
+    """The extraction of the parasitics of the routed design. Every setting but `method` is an
+    option of OpenRCX, so it has no effect when the parasitics are an estimate."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("corner_index", "-corner", "value"),
+        Flag("corner_count", "-corner_cnt", "value"),
+        Flag("max_res", "-max_res", "value"),
+        Flag("cc_model", "-cc_model", "value"),
+        Flag("context_depth", "-context_depth", "value"),
+        Flag("merge_via_res", "-no_merge_via_res", "skip"),
+        Flag("skip_over_cell", "-skip_over_cell", "switch"),
+        Flag("model_version", "-version", "value"),
+    )
 
     method: Literal["auto", "rcx", "estimate"] = Field(
         "auto",
@@ -375,6 +419,94 @@ class ExtractionGroup(SettingsGroup):
         "`estimate` estimates them from the detailed route (`estimate_parasitics`). `auto` uses "
         "`rcx` when the platform has the rules, and `estimate` otherwise.",
         json_schema_extra=tier("common"),
+    )
+    rules_file: Optional[Path] = Field(
+        None,
+        description="The rules file of OpenRCX (`set_extraction_rules_file`). A relative path is "
+        "relative to the design root. Unset: the rules file of the platform.",
+        json_schema_extra=tier("advanced"),
+    )
+    model_index: int = Field(
+        0,
+        ge=0,
+        description="The index of the process corner in the rules file "
+        "(`define_process_corner -ext_model_index`). The default is the one of "
+        "OpenROAD-flow-scripts.",
+        json_schema_extra=tier("expert"),
+    )
+    corner_index: Optional[int] = Field(
+        None,
+        ge=0,
+        description="The corner to extract (`-corner`). Unset: the default of the tool, all.",
+        json_schema_extra=tier("expert"),
+    )
+    corner_count: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The number of corners to extract (`-corner_cnt`). Unset: the default of "
+        "the tool, 1.",
+        json_schema_extra=tier("expert"),
+    )
+    max_res: Optional[float] = Field(
+        None,
+        ge=0,
+        description="The resistors in series merge up to this resistance, in ohms "
+        "(`-max_res`). Unset: the default of the tool, 50.",
+        json_schema_extra=tier("expert"),
+    )
+    coupling_threshold: Optional[float] = Field(
+        None,
+        ge=0,
+        description="A coupling capacitance below this value counts as a capacitance to the "
+        "ground, in picofarads (`-coupling_threshold`, which takes femtofarads). Unset: the "
+        "default of the tool, 0.0001 pF.",
+        json_schema_extra=tier("advanced"),
+    )
+    cc_model: Optional[int] = Field(
+        None,
+        ge=0,
+        description="The number of tracks on each side of a wire that count for its lateral "
+        "coupling (`-cc_model`). Unset: the default of the tool, 10.",
+        json_schema_extra=tier("expert"),
+    )
+    context_depth: Optional[int] = Field(
+        None,
+        ge=0,
+        description="The number of layers above and below a wire that count for its capacitance "
+        "(`-context_depth`). Unset: the default of the tool, 5.",
+        json_schema_extra=tier("expert"),
+    )
+    lef_values: Literal["none", "res", "rc"] = Field(
+        "none",
+        description="Take the resistance (`res`, `-lef_res`) or the resistance and the "
+        "capacitance (`rc`, `-lef_rc`) of the wires from the LEF files and not from the rules "
+        "file. `none` takes both from the rules file. OpenROAD v2.0-26132-g6b305a712 crashes "
+        "with `rc` (signal 11 in `dbVia::getBottomLayer`, called from `extMain::getShapeRC`) "
+        "on a routed nangate45 design; no upstream issue is known.",
+        json_schema_extra=tier("expert"),
+    )
+    merge_via_res: bool = Field(
+        True,
+        description="Merge the resistance of a via into the wire next to it. False keeps the "
+        "resistance of the vias apart (`-no_merge_via_res`).",
+        json_schema_extra=tier("expert"),
+    )
+    skip_over_cell: bool = Field(
+        False,
+        description="Ignore the shapes inside the cells when OpenRCX looks for the neighbors of "
+        "a wire (`-skip_over_cell`).",
+        json_schema_extra=tier("expert"),
+    )
+    model_version: Optional[float] = Field(
+        None,
+        gt=0,
+        description="The version of the extraction model (`-version`): 1.0 or 2.0. Unset: the "
+        "default of the tool, 1.0.",
+        json_schema_extra=tier("expert"),
+    )
+    scale: ExtractionScale = Field(
+        default_factory=ExtractionScale,
+        description="The factors that scale the extracted parasitics.",
     )
 
 
