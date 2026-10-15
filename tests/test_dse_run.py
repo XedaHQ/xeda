@@ -839,7 +839,9 @@ def test_dse_does_not_refuse_a_flow_that_is_not_an_openroad_flow(tmp_path, monke
     runner = Dse(_ClockWritingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     assert (
         runner.run(
-            _DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
+            _DseLeaf,
+            design,
+            flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}},
         )
         is not None
     )
