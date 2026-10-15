@@ -441,16 +441,16 @@ def test_each_platform_floorplans_a_four_cell_netlist(name, tmp_path):
     assert found and int(found.group(1)) >= 4, count.stdout
 
 
-# ---------------------------------------------------------------------------- gcd through the chain
+# --------------------------------------------------------------------------- fifo through the chain
 
-#: The design `gcd` of OpenROAD-flow-scripts on nangate45, with the settings of its configuration.
-GCD_DESIGN = Path(__file__).parent.parent / "examples" / "asic" / "gcd" / "gcd.yaml"
-#: The clock period of the ORFS configuration, which these flows do not meet on gcd.
-ORFS_PERIOD = "0.25ns"
+#: The FIFO example. Its design file also holds the settings of the chain on nangate45.
+FIFO_DESIGN = Path(__file__).parent.parent / "examples" / "sv" / "fifo" / "fifo.xeda.yaml"
+#: A clock period that these flows do not meet on the FIFO: the worst setup slack is about -0.25 ns.
+TOO_FAST_PERIOD = "0.25ns"
 
 
-def require_gcd_tools() -> Path:
-    """Insist on what a gcd run needs: OpenROAD, yosys, and a PDK store that holds nangate45.
+def require_fifo_tools() -> Path:
+    """Insist on what a FIFO run needs: OpenROAD, yosys, and a PDK store that holds nangate45.
     Return the store."""
     require_openroad()
     require_yosys()
@@ -460,8 +460,8 @@ def require_gcd_tools() -> Path:
     return store
 
 
-def gcd_settings(store: Path, period: str | None = None) -> list[str]:
-    """The settings of the command line for a gcd run: the PDK store, and the clock period of
+def fifo_settings(store: Path, period: str | None = None) -> list[str]:
+    """The settings of the command line for a FIFO run: the PDK store, and the clock period of
     the two flows that take it, if `period` is given."""
     settings = [f"pdk_root={store}"]
     if period is not None:
@@ -469,14 +469,14 @@ def gcd_settings(store: Path, period: str | None = None) -> list[str]:
     return settings
 
 
-def run_gcd(
+def run_fifo(
     runner: DefaultRunner, store: Path, *extra: str, period: str | None = None, flow: str = ""
 ) -> Flow:
-    """Launch `yosys+openroad` (or `flow`) on gcd with `runner` and return the requested flow."""
+    """Launch `yosys+openroad` (or `flow`) on the FIFO with `runner`; return the requested flow."""
     launched = runner.run(
         flow or "yosys+openroad",
-        str(GCD_DESIGN),
-        flow_settings=[*gcd_settings(store, period), *extra],
+        str(FIFO_DESIGN),
+        flow_settings=[*fifo_settings(store, period), *extra],
     )
     assert launched is not None
     return launched
@@ -490,13 +490,13 @@ def started(runner: DefaultRunner, first: int) -> list[str]:
 CHAIN = ["yosys", "openroad_place", "openroad_cts", "openroad_grt", "openroad"]
 
 
-def test_gcd_runs_through_the_chain(tmp_path):
-    """The whole chain closes gcd at 0.65 ns on nangate45: timing met, no DRC error, no antenna
+def test_fifo_runs_through_the_chain(tmp_path):
+    """The whole chain closes the FIFO at 0.8 ns on nangate45: timing met, no DRC error, no antenna
     violation, and a trace in each of the five run directories."""
-    store = require_gcd_tools()
+    store = require_fifo_tools()
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     start = time.monotonic()
-    flow = run_gcd(runner, store)
+    flow = run_fifo(runner, store)
     elapsed = time.monotonic() - start
     assert flow.succeeded, flow.results.get("error")
     assert started(runner, 0) == CHAIN
@@ -504,23 +504,23 @@ def test_gcd_runs_through_the_chain(tmp_path):
     assert results["wns"] == 0 and results["worst_slack"] > 0, results["worst_slack"]
     assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
     for name in CHAIN:
-        assert (tmp_path / "run" / "gcd" / name / "trace.json").is_file(), name
-    print(f"the gcd chain took {elapsed:.0f} s")
+        assert (tmp_path / "run" / "fifo" / name / "trace.json").is_file(), name
+    print(f"the fifo chain took {elapsed:.0f} s")
 
 
-def test_gcd_at_its_orfs_clock_is_rejected_and_reported_again(tmp_path):
-    """At the 0.25 ns of its ORFS configuration, `openroad` rejects gcd for its timing and
+def test_fifo_at_a_clock_it_misses_is_rejected_and_reported_again(tmp_path):
+    """At a clock period that the flows do not meet, `openroad` rejects the FIFO for its timing and
     keeps the trace. A second launch reports the rejection again and starts no tool."""
-    store = require_gcd_tools()
+    store = require_fifo_tools()
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = run_gcd(runner, store, period=ORFS_PERIOD)
+    flow = run_fifo(runner, store, period=TOO_FAST_PERIOD)
     assert flow.name == "openroad" and flow.outcome == "rejected", flow.results.get("error")
     assert "timing not met" in (flow.rejection or "")
     assert (flow.run_path / "trace.json").is_file()
     logs = [flow.run_path / f"openroad_{process}.log" for process in ("route", "final")]
     stamps = [log.stat().st_mtime_ns for log in logs]
     first = len(runner.launched)
-    again = run_gcd(runner, store, period=ORFS_PERIOD)
+    again = run_fifo(runner, store, period=TOO_FAST_PERIOD)
     assert again.reused and again.rejected_again and not again.succeeded
     document = json.loads((flow.run_path / "results.json").read_text())
     assert again.rejection == document["error"]["message"]
@@ -532,16 +532,16 @@ def test_gcd_at_its_orfs_clock_is_rejected_and_reported_again(tmp_path):
 def test_a_late_setting_reruns_only_the_later_flows(tmp_path):
     """A setting of `openroad` reruns only `openroad`. A setting of `openroad_grt` reruns
     `openroad_grt` and `openroad`, and the earlier flows are reused."""
-    store = require_gcd_tools()
+    store = require_fifo_tools()
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    assert run_gcd(runner, store).succeeded
+    assert run_fifo(runner, store).succeeded
     first = len(runner.launched)
     route = "flows.openroad.detailed_route.end_iteration=32"
-    assert run_gcd(runner, store, route).succeeded
+    assert run_fifo(runner, store, route).succeeded
     assert started(runner, first) == ["openroad"]
     first = len(runner.launched)
     congestion = "flows.openroad_grt.congestion.iterations=40"
-    assert run_gcd(runner, store, route, congestion).succeeded
+    assert run_fifo(runner, store, route, congestion).succeeded
     assert started(runner, first) == ["openroad_grt", "openroad"]
 
 
@@ -557,10 +557,12 @@ def test_two_runs_write_the_same_database(tmp_path):
     """`openroad_place` in two run roots writes the same SDC file and the same database, or at
     least the same design: the DEF files that OpenROAD writes from the two databases are equal.
     The database never holds the path of its netlist."""
-    store = require_gcd_tools()
+    store = require_fifo_tools()
     openroad = require_openroad()
     flows = [
-        run_gcd(DefaultRunner(tmp_path / root, display_results=False), store, flow="openroad_place")
+        run_fifo(
+            DefaultRunner(tmp_path / root, display_results=False), store, flow="openroad_place"
+        )
         for root in ("one", "two")
     ]
     assert all(flow.succeeded for flow in flows)
@@ -589,10 +591,10 @@ def test_the_chain_writes_nothing_outside_its_run_root(tmp_path, monkeypatch):
     writes through the permissions: the CI job runs in a container as root."""
     from .test_isolation import World, _freeze, _state, watching
 
-    store = require_gcd_tools()
+    store = require_fifo_tools()
     parent = tmp_path / "world"
     work = parent / "work"
-    shutil.copytree(GCD_DESIGN.parent, work)
+    shutil.copytree(FIFO_DESIGN.parent, work)
     pdks = parent / "pdks"
     shutil.copytree(store, pdks, symlinks=True)
     home = parent / "home"
@@ -613,10 +615,10 @@ def test_the_chain_writes_nothing_outside_its_run_root(tmp_path, monkeypatch):
     try:
         with watching(world) as violations:
             runner = DefaultRunner(world.root, display_results=False)
-            design = str(work / GCD_DESIGN.name)
+            design = str(work / FIFO_DESIGN.name)
 
             def launch(period: str | None = None) -> Flow:
-                settings = gcd_settings(pdks, period)
+                settings = fifo_settings(pdks, period)
                 flow = runner.run("yosys+openroad", design, flow_settings=settings)
                 assert flow is not None
                 return flow
@@ -624,7 +626,7 @@ def test_the_chain_writes_nothing_outside_its_run_root(tmp_path, monkeypatch):
             assert launch().succeeded
             first = len(runner.launched)
             assert launch().reused and started(runner, first) == []
-            assert launch(ORFS_PERIOD).outcome == "rejected"
+            assert launch(TOO_FAST_PERIOD).outcome == "rejected"
     finally:  # the modes as they were: the store holds executable files
         for path, mode in sorted(modes.items(), key=lambda item: len(item[0].parts)):
             if frozen and not stat.S_ISLNK(mode):

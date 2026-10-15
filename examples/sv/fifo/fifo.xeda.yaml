@@ -1,3 +1,4 @@
+name: fifo
 description: FIFO in SystemVerilog with a SystemVerilog testbench
 rtl:
   sources:
@@ -14,3 +15,10 @@ flows:
   verilator:
     timing: true
     vcd: true
+  # ASIC place and route on nangate45: `xeda run yosys+openroad fifo.xeda.yaml`.
+  yosys:
+    # Shared settings: they reach the four OpenROAD flows along the chain.
+    platform: nangate45
+    clock.period: 0.8 ns
+    # Yosys reads SystemVerilog with the slang plugin by default, and not every Yosys build has it.
+    systemverilog: default

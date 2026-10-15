@@ -5,8 +5,8 @@ exactly the commands of `tool_utils.OPENROAD_COMMANDS`: a command outside that l
 error, so a typo, or a command that OpenROAD lacks, fails a test and never passes silently.
 
 The recorded metrics in `tests/resources/openroad/metrics/` are the metrics files of a real xeda
-run of the gcd design on nangate45 (`examples/asic/gcd/gcd.yaml`) at the 0.25 ns clock of its ORFS
-configuration, which misses timing: one file for each driver script.
+run of the design `gcd` of OpenROAD-flow-scripts on nangate45 at a 0.25 ns clock, which misses
+timing: one file for each driver script.
 """
 
 import json

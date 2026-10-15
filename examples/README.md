@@ -65,19 +65,18 @@ xeda run fpga_pack --design-name dvi_test
 
 ## ASIC
 
-`asic/gcd` is the design `gcd` of OpenROAD-flow-scripts on the platform nangate45, with the
-settings of its configuration. Yosys maps it to the cells of the platform, and four OpenROAD flows
-place, route and finish it. Install the PDK files of the platform once, then run the chain:
+`sv/fifo` also has the settings for the ASIC chain on the platform nangate45, next to those of the
+simulation. Yosys maps the design to the cells of the platform, and four OpenROAD flows place,
+route and finish it. Install the PDK files of the platform once, then run the chain:
 
 ```bash
-xeda pdk install nangate45                  # download the PDK files that the platform pins
-cd examples/asic/gcd
-xeda run yosys+openroad gcd.yaml --dry-run  # show the five flows
-xeda run yosys+openroad gcd.yaml            # run them: yosys and OpenROAD must be on PATH
+xeda pdk install nangate45                       # download the PDK files that the platform pins
+cd examples/sv/fifo
+xeda run yosys+openroad fifo.xeda.yaml --dry-run  # show the five flows
+xeda run yosys+openroad fifo.xeda.yaml            # run them: yosys and OpenROAD must be on PATH
 ```
 
-The routed design and its reports are in `xeda_run/gcd/openroad`. `gcd.v` comes from
-OpenROAD-flow-scripts; see its first line for the source.
+The routed design and its reports are in `xeda_run/fifo/openroad`.
 
 ## Bluespec
 

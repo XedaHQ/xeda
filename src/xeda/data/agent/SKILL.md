@@ -271,7 +271,8 @@ setting of a late flow reruns only that flow and the ones after it; a shared set
 violations (`fail_drc`) and antenna violations left after the repair (`fail_antenna`), all on by
 default: `FlowFailed` with `ReportedFailure`, reported again without a tool run until something
 changes. A failed stage leaves `<flow>-failed.odb` in its run directory.
-`examples/asic/gcd/gcd.yaml` is a working design file for nangate45.
+`examples/sv/fifo/fifo.xeda.yaml` is a working design file for nangate45: its `flows.yosys`
+section sets `platform`, `clock.period` and the SystemVerilog front end.
 
 ## Results
 

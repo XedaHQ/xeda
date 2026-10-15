@@ -1833,38 +1833,37 @@ stage stopped. The flow deletes it before its next process starts.
 Example
 -------
 
-The design ``gcd`` of OpenROAD-flow-scripts on nangate45 is in ``examples/asic/gcd``. Its design
-file holds the values of the configuration of OpenROAD-flow-scripts:
+The FIFO in ``examples/sv/fifo`` has one design file for a simulation and for the ASIC chain. The
+section ``flows.verilator`` configures the simulation. The section ``flows.yosys`` holds the
+settings that reach the four OpenROAD flows. Every other setting keeps its default:
 
 .. code-block:: yaml
 
-    # openroad-gcd.yaml: the design `gcd` of OpenROAD-flow-scripts on nangate45, as in
-    # examples/asic/gcd/gcd.yaml. The clock period is 0.65 ns. The configuration file of
-    # OpenROAD-flow-scripts asks for 0.25 ns, which these flows do not meet.
-    name: gcd
+    # openroad-fifo.yaml: the design file examples/sv/fifo/fifo.xeda.yaml.
+    name: fifo
+    description: FIFO in SystemVerilog with a SystemVerilog testbench
     rtl:
-      sources: [gcd.v]
-      top: gcd
+      sources:
+        - "fifo.sv"
+      top: fifo
       clock.port: clk
+    tb:
+      sources:
+        - "fifo_tb.sv"
+      top: fifo_tb
+      # The testbench writes dump.vcd when DUMP_VCD is defined.
+      defines.DUMP_VCD: null
     flows:
+      verilator:
+        timing: true
+        vcd: true
+      # ASIC place and route on nangate45: `xeda run yosys+openroad fifo.xeda.yaml`.
       yosys:
         # Shared settings: they reach the four OpenROAD flows along the chain.
         platform: nangate45
-        clock.period: 0.65 ns
-        # ABC_AREA=1 selects the area script, and the empty ADDER_MAP_FILE leaves the adders to ABC.
-        abc.strategy: area
-        arithmetic.adder_map: none
-      openroad_place:
-        floorplan.core_utilization_percent: 55
-        # PLACE_DENSITY_LB_ADDON=0.20 on top of the density that the cells need.
-        global_placement.density.mode: auto
-        global_placement.density.headroom: 0.20
-        # The grid of grid_strategy-M1-M4-M7.tcl: a smaller pitch for a small block, no pin layer.
-        pdn.grid:
-          straps:
-            - {layer: metal4, width: 0.48 um, pitch: 28 um, offset: 2 um}
-            - {layer: metal7, width: 1.40 um, pitch: 15 um, offset: 2 um}
-          pin_layers: []
+        clock.period: 0.8 ns
+        # Yosys reads SystemVerilog with the slang plugin by default, and not every Yosys build has it.
+        systemverilog: default
 
 The physical settings take a quantity with its unit (see `Physical quantities and units`_). The
 settings of the old single ``openroad`` flow fail, and each message names its replacement.

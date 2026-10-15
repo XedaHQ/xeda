@@ -159,9 +159,9 @@ def test_the_documents_carry_the_fixtures_the_chain_chapter_teaches():
 
 
 def test_the_openroad_fixture_is_the_example_that_the_real_tool_tests_run():
-    """The OpenROAD section shows the design file of `examples/asic/gcd`, as data."""
-    example = yaml.safe_load((ROOT / "examples/asic/gcd/gcd.yaml").read_text(encoding="utf-8"))
-    assert yaml.safe_load(_fixture("openroad-gcd.yaml")) == example
+    """The OpenROAD section shows the design file `examples/sv/fifo/fifo.xeda.yaml`, as data."""
+    example = yaml.safe_load((ROOT / "examples/sv/fifo/fifo.xeda.yaml").read_text(encoding="utf-8"))
+    assert yaml.safe_load(_fixture("openroad-fifo.yaml")) == example
 
 
 @pytest.mark.parametrize("document, name", FIXTURES)
