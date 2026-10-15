@@ -1032,7 +1032,7 @@ def test_the_defaults_of_the_clock_tree_and_the_global_route_are_the_stage_defau
     assert cts.repair_clock_nets.when == "in_cts" and cts.legalize.cell_padding == 0
     grt = OpenroadGrt.Settings()
     assert grt.pin_access.enabled is True
-    assert (grt.congestion.iterations, grt.congestion.allow) == (30, False)
+    assert (grt.congestion.iterations, grt.congestion.allow) == (None, False)
     assert (grt.router.seed, grt.legalize.cell_padding) == (None, 0)
     assert (grt.repair.wns_polish, grt.repair.recover_power_percent) == (None, None)
     assert (grt.antenna.repair, grt.antenna.iterations, grt.antenna.diode_cell) == (True, 5, None)
@@ -1177,9 +1177,7 @@ def test_the_global_route_groups_render_their_flags():
     assert render(grt.congestion) == (
         '-congestion_iterations "50" -congestion_report_iter_step "5" -allow_congestion'
     )
-    assert render(OpenroadGrt.Settings().congestion) == (
-        '-congestion_iterations "30" -congestion_report_iter_step "5"'
-    )
+    assert render(OpenroadGrt.Settings().congestion) == '-congestion_report_iter_step "5"'
     assert render(grt.antenna) == '-iterations "3"'
     assert render(grt.repair.timing) == '-repair_tns "100.0"'
     assert grt.repair.timing.setup_margin == 0.1
@@ -1266,16 +1264,6 @@ def test_the_last_flow_prints_the_flags_of_the_detailed_route():
 
 #: The hatch of each command: the flow, the key of the group, and the flags that it accepts.
 HATCHES = {
-    "global_route": (
-        OpenroadGrt,
-        "router",
-        {
-            "-use_cugr",
-            "-resistance_aware",
-            "-res_aware_nets_percentage",
-            "-snapshot_batched_width",
-        },
-    ),
     "detailed_route": (
         None,
         "detailed_route",
@@ -1598,14 +1586,11 @@ def test_a_flag_that_a_typed_leaf_prints_is_refused_naming_the_setting():
     ) in message
 
 
-def test_the_flag_of_a_leaf_in_a_sub_group_is_refused_as_not_allowed():
-    message = refused(OpenroadGrt, "router.extra_args=-allow_congestion,3")
-    assert "`-allow_congestion` in `router.extra_args` is not allowed" in message
-
-
 def test_a_hatch_must_start_with_a_flag():
-    message = refused(OpenroadGrt, "router.extra_args=5,-use_cugr")
-    assert "`router.extra_args` must start with a flag, not `5`" in message
+    from xeda.flows.openroad import Openroad
+
+    message = refused(Openroad, "detailed_route.extra_args=5,-clean_patches")
+    assert "`detailed_route.extra_args` must start with a flag, not `5`" in message
 
 
 def test_every_flag_of_the_legalization_and_the_placement_commands_has_a_setting():
@@ -1658,7 +1643,8 @@ def test_the_clock_tree_has_no_hatch():
             "global_route",
             [
                 flag.flag
-                for flag in OpenroadGrt.Settings.model_fields["congestion"].annotation.FLAGS
+                for name in ("congestion", "router")
+                for flag in OpenroadGrt.Settings.model_fields[name].annotation.FLAGS
             ],
         ),
         (

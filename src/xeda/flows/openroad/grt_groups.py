@@ -19,6 +19,7 @@ __all__ = [
     "PinAccessGroup",
     "RegionAdjustment",
     "RouterGroup",
+    "SteinerAlpha",
 ]
 
 #: A coordinate that is finite and not negative.
@@ -117,11 +118,12 @@ class CongestionGroup(SettingsGroup):
         Flag("allow", "-allow_congestion", "switch"),
     )
 
-    iterations: int = Field(
-        30,
+    iterations: Optional[int] = Field(
+        None,
         ge=1,
         description="The number of iterations that remove the overflow (`-congestion_iterations`). "
-        "The default is the one of OpenROAD-flow-scripts. The tool uses 50.",
+        "Unset: 30, and 10 with `router.engine: cugr`, as OpenROAD-flow-scripts does. The tool "
+        "uses 50, and 5 with CUGR.",
         json_schema_extra=tier("common"),
     )
     report_step: int = Field(
@@ -165,20 +167,90 @@ class CongestionGroup(SettingsGroup):
         json_schema_extra=tier("advanced"),
     )
 
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse a region without area."""
+        return [
+            (
+                f"{key}.region_adjustments",
+                f"`{key}.region_adjustments[{number}]` has no area: the upper right corner must "
+                "lie above and right of the lower left corner",
+            )
+            for number, cut in enumerate(self.region_adjustments)
+            if not (cut.region[2] > cut.region[0] and cut.region[3] > cut.region[1])
+        ]
 
-class RouterGroup(SettingsGroup):
-    """The global router."""
 
-    #: The research options of `global_route`, which the tool adds and changes often.
-    EXTRA_FLAGS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "-use_cugr",
-            "-resistance_aware",
-            "-res_aware_nets_percentage",
-            "-snapshot_batched_width",
-        }
+class SteinerAlpha(XedaBaseModel):
+    """One call of `set_routing_alpha`: the weight of the Steiner tree builder between the length
+    of the tree (0) and the path length from the driver (1), for all nets or for some of them. A
+    later call for the same nets replaces an earlier one."""
+
+    alpha: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] = Field(
+        description="The weight, from 0 to 1."
+    )
+    nets: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="Apply the weight to these nets, by name (`-net`, once for each net). "
+        "Empty: no such selector.",
+    )
+    min_fanout: Optional[Annotated[int, Field(ge=1)]] = Field(
+        None,
+        description="Apply the weight to the nets with at least this many pins (`-min_fanout`).",
+    )
+    min_hpwl: Optional[NonNegative] = Field(
+        None,
+        description="Apply the weight to the nets with at least this half-perimeter wire length, "
+        "in micrometers (`-min_hpwl`).",
+    )
+    clock_nets: bool = Field(
+        False, description="Apply the weight to the clock nets (`-clock_nets`)."
     )
 
+    def selectors(self) -> list[str]:
+        """Return the names of the selectors that this call gives."""
+        return [
+            name
+            for name in ("nets", "min_fanout", "min_hpwl", "clock_nets")
+            if getattr(self, name) not in (None, False, [])
+        ]
+
+
+class RouterGroup(SettingsGroup):
+    """The global router. Every flag of `global_route` has a setting here, or belongs to the flow
+    (the guides, the congestion report, the increments and the verbose report), or is
+    `-infinite_cap`, which the tool documents as a testing flag."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("resistance_aware", "-resistance_aware", "switch"),
+        Flag("res_aware_nets_percent", "-res_aware_nets_percentage", "value"),
+        Flag("batch_width", "-snapshot_batched_width", "value"),
+        Flag("skip_fanout_above", "-skip_large_fanout_nets", "value"),
+    )
+
+    engine: Literal["fastroute", "cugr"] = Field(
+        "fastroute",
+        description="The global router. `fastroute` is the default one. `cugr` is the second "
+        "router of OpenROAD, which its README calls not ready for production (`-use_cugr`). The "
+        "tool keeps the choice across the incremental routes.",
+        json_schema_extra=tier("advanced"),
+    )
+    resistance_aware: bool = Field(
+        False,
+        description="Assign layers and route in 3D with the resistance of the wires in mind "
+        "(`-resistance_aware`). The README of OpenROAD calls it not ready for production. The "
+        "flow gives the flag to each route that ends an increment too. With CUGR it has an "
+        "effect only when `congestion.critical_nets_percent` is not 0.",
+        json_schema_extra=tier("expert"),
+    )
+    res_aware_nets_percent: Optional[float] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="The share of the nets that the router treats resistance-aware, in percent "
+        "(`-res_aware_nets_percentage`). Unset: the default of the tool, 15. Needs "
+        "`resistance_aware`.",
+        json_schema_extra=tier("expert"),
+    )
     seed: Optional[int] = Field(
         None,
         ge=1,
@@ -187,14 +259,108 @@ class RouterGroup(SettingsGroup):
         "refuses it. The database does not store the seed.",
         json_schema_extra=tier("advanced"),
     )
-    extra_args: list[str] = Field(
-        [],
-        description="More flags for `global_route`. Each flag must be one of `-use_cugr`, "
-        "`-resistance_aware`, `-res_aware_nets_percentage` and `-snapshot_batched_width`, each "
-        "followed by its value where it takes one. The flow gives `-resistance_aware` to each "
-        "route that ends an increment too.",
+    capacity_perturbation_percent: Optional[float] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="The share of the edges whose capacity the router changes at random, in "
+        "percent (`-capacities_perturbation_percentage`). Unset: the default of the tool, 0. "
+        "Needs `seed`. OpenROAD v2.0-26132 stops with signal 11 in `perturbCapacities` for 5 "
+        "percent on a design of 72 nets, and runs with 1 percent. No upstream issue exists.",
         json_schema_extra=tier("expert"),
     )
+    perturbation_amount: Optional[int] = Field(
+        None,
+        ge=1,
+        description="By how much the router changes the capacity of such an edge "
+        "(`-perturbation_amount`). Unset: the default of the tool, 1. Needs `seed`.",
+        json_schema_extra=tier("expert"),
+    )
+    steiner_alphas: list[SteinerAlpha] = Field(
+        [],
+        description="The weights of the Steiner tree builder, one call of `set_routing_alpha` "
+        "each, in order. The tool has a default for all nets. The database does not store them.",
+        json_schema_extra=tier("expert"),
+    )
+    batch_width: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The most batches in a wave of the batched routing (`-snapshot_batched_width`). "
+        "The README of OpenROAD advises it for exploration only. Unset: no batching. Only "
+        "the default router uses it.",
+        json_schema_extra=tier("expert"),
+    )
+    grid_origin: Optional[Tuple[NonNegative, NonNegative]] = Field(
+        None,
+        description="The origin of the routing grid, in micrometers: x, y (`-grid_origin`, which "
+        "takes database units: the flow converts). The flow gives it to every route, because "
+        "the tool resets the origin at each call without it, and the origin shifts the guides "
+        "that the call writes. Unset: the origin of the die.",
+        json_schema_extra=tier("expert"),
+    )
+    skip_fanout_above: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Give no route to a net with more pins than this (`-skip_large_fanout_nets`). "
+        "The detailed router skips it too. The README of OpenROAD advises it for estimation "
+        "flows. Unset: no limit. In OpenROAD v2.0-26132, a net without a route stops the "
+        "following steps: `repair_design` ends with signal 11 in `getPinGridPositions`, and "
+        "`check_antennas` stops with ANT-0008 where `repair.strategy` is `none`. It was seen "
+        "with a design of 72 nets. No upstream issue exists.",
+        json_schema_extra=tier("expert"),
+    )
+    only_nets: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="Route only these nets, by name or pattern (`set_nets_to_route`). The other "
+        "nets get no guides, so the detailed router leaves them open. For debugging. Empty: "
+        "every net. A net without a route stops the following steps in OpenROAD v2.0-26132: "
+        "`repair_design` ends with signal 11 in `getPinGridPositions`. It was seen with a "
+        "design of 72 nets. No upstream issue exists.",
+        json_schema_extra=tier("expert"),
+    )
+
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse what has no effect: a share of resistance-aware nets without the mode, a
+        perturbation without the seed, batching with CUGR, and a weight with two selectors."""
+        found: list[tuple[str, str]] = []
+        if self.res_aware_nets_percent is not None and not self.resistance_aware:
+            found.append(
+                (
+                    f"{key}.res_aware_nets_percent",
+                    f"`{key}.res_aware_nets_percent` has no effect without "
+                    f"`{key}.resistance_aware`, and the tool sets the share to 0: set "
+                    f"`{key}.resistance_aware: true` or delete `{key}.res_aware_nets_percent`",
+                )
+            )
+        for name in ("capacity_perturbation_percent", "perturbation_amount"):
+            if getattr(self, name) is not None and self.seed is None:
+                found.append(
+                    (
+                        f"{key}.{name}",
+                        f"`{key}.{name}` has no effect without `{key}.seed`, since "
+                        f"`set_global_routing_random` needs the seed: set `{key}.seed` or delete "
+                        f"`{key}.{name}`",
+                    )
+                )
+        if self.batch_width is not None and self.engine == "cugr":
+            found.append(
+                (
+                    f"{key}.batch_width",
+                    f"`{key}.batch_width` has no effect with `{key}.engine: cugr`, which does "
+                    f"not batch: set `{key}.engine: fastroute` or delete `{key}.batch_width`",
+                )
+            )
+        for number, alpha in enumerate(self.steiner_alphas):
+            if len(alpha.selectors()) > 1:
+                found.append(
+                    (
+                        f"{key}.steiner_alphas",
+                        f"`{key}.steiner_alphas[{number}]` gives more than one of `nets`, "
+                        "`min_fanout`, `min_hpwl` and `clock_nets`, and the command takes only "
+                        "the first: give one, and a call of its own for each other selector",
+                    )
+                )
+        return found
 
 
 class GrtRepairGroup(SettingsGroup):

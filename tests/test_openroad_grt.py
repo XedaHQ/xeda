@@ -20,7 +20,7 @@ from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.openroad import OpenroadGrt, base
 from xeda.flows.openroad.grt import EffectiveGrt, effective
-from xeda.flows.openroad.grt_groups import PinAccessGroup
+from xeda.flows.openroad.grt_groups import PinAccessGroup, RouterGroup
 from xeda.platforms.model import CellPort
 
 from .openroad_utils import (
@@ -411,25 +411,54 @@ def test_the_pin_access_has_no_list_of_extra_flags(tmp_path):
     assert not PinAccessGroup.EXTRA_FLAGS
 
 
+def first_route(found: list[str]) -> str:
+    return words(found, "global_route")[0]
+
+
 def test_the_seed_is_set_before_the_first_route_and_not_by_default(tmp_path):
     found = body(tmp_path, {"router": {"seed": 7}})
     seed = "set_global_routing_random -seed 7"
     assert seed in found
-    assert found.index(seed) < found.index(words(found, "global_route")[0])
+    assert found.index(seed) < found.index(first_route(found))
     assert not [line for line in body(tmp_path / "none") if "random" in line]
 
 
-def test_the_router_takes_the_flags_of_its_hatch_on_the_first_route(tmp_path):
-    found = body(tmp_path, {"router": {"extra_args": ["-use_cugr"]}})
+def test_the_perturbation_of_the_capacities_goes_with_the_seed(tmp_path):
+    found = body(
+        tmp_path,
+        {"router": {"seed": 7, "capacity_perturbation_percent": 5, "perturbation_amount": 3}},
+    )
+    assert words(found, "set_global_routing_random") == [
+        "set_global_routing_random -seed 7 -capacities_perturbation_percentage 5.0 "
+        "-perturbation_amount 3"
+    ]
+
+
+def test_the_cugr_engine_is_chosen_on_the_first_route_only(tmp_path):
+    """The tool keeps the engine across an increment, and a later `-use_cugr` would be ignored."""
+    found = body(tmp_path, {"router": {"engine": "cugr"}})
     first, *incremental = words(found, "global_route")
-    assert first.endswith('-verbose "-use_cugr"')
+    assert " -use_cugr" in first
     assert not [line for line in incremental if "cugr" in line]
+    assert "cugr" not in first_route(body(tmp_path / "none"))
+
+
+def test_the_default_iterations_follow_the_engine_as_openroad_flow_scripts_does(tmp_path):
+    """The router of the default engine gets 30 iterations, and CUGR gets 10, which it needs less.
+    A setting replaces both."""
+    assert '-congestion_iterations "30"' in first_route(body(tmp_path))
+    cugr = body(tmp_path / "cugr", {"router": {"engine": "cugr"}})
+    assert '-congestion_iterations "10"' in first_route(cugr)
+    given = body(
+        tmp_path / "given", {"router": {"engine": "cugr"}, "congestion": {"iterations": 7}}
+    )
+    assert '-congestion_iterations "7"' in first_route(given)
 
 
 def test_a_resistance_aware_route_keeps_the_flag_in_the_routes_that_end_an_increment(tmp_path):
-    found = body(tmp_path, {"router": {"extra_args": ["-resistance_aware"]}})
+    found = body(tmp_path, {"router": {"resistance_aware": True}})
     first, *incremental = words(found, "global_route")
-    assert first.endswith('"-resistance_aware"')
+    assert first.endswith("-verbose -resistance_aware")
     assert [line.split()[1] for line in incremental] == [
         "-start_incremental",
         "-end_incremental",
@@ -438,6 +467,72 @@ def test_a_resistance_aware_route_keeps_the_flag_in_the_routes_that_end_an_incre
     ]
     assert all("-resistance_aware" in line for line in incremental if "-end_" in line)
     assert not [line for line in incremental if "-start_" in line and "-resistance_aware" in line]
+    assert "-resistance_aware" not in " ".join(body(tmp_path / "none"))
+
+
+def test_the_share_of_resistance_aware_nets_goes_to_the_first_route(tmp_path):
+    found = body(tmp_path, {"router": {"resistance_aware": True, "res_aware_nets_percent": 20}})
+    first, *incremental = words(found, "global_route")
+    assert '-res_aware_nets_percentage "20.0"' in first
+    assert not [line for line in incremental if "percentage" in line]
+
+
+def test_the_batch_width_and_the_fanout_limit_go_to_the_first_route(tmp_path):
+    found = body(tmp_path, {"router": {"batch_width": 4, "skip_fanout_above": 500}})
+    first, *incremental = words(found, "global_route")
+    assert '-snapshot_batched_width "4"' in first and '-skip_large_fanout_nets "500"' in first
+    assert not [line for line in incremental if "batched" in line or "fanout" in line]
+
+
+def test_the_grid_origin_is_given_in_micrometers_to_every_route(tmp_path):
+    """The tool takes database units and resets the origin at each call without the flag, and the
+    origin shifts the guides that the call saves. So every route gets it."""
+    found = body(tmp_path, {"router": {"grid_origin": [1, 2.5]}})
+    routes = words(found, "global_route")
+    assert len(routes) == 5
+    origin = "-grid_origin [list [ord::microns_to_dbu 1.0] [ord::microns_to_dbu 2.5]]"
+    assert all(origin in line for line in routes)
+    assert "-grid_origin" not in " ".join(body(tmp_path / "none"))
+
+
+def test_the_steiner_alphas_are_set_in_order_before_the_first_route(tmp_path):
+    found = body(
+        tmp_path,
+        {
+            "router": {
+                "steiner_alphas": [
+                    {"alpha": 0.4},
+                    {"alpha": 0.1, "clock_nets": True},
+                    {"alpha": 0.8, "nets": ["a", "b"]},
+                    {"alpha": 0.2, "min_fanout": 20},
+                    {"alpha": 0.3, "min_hpwl": 150.5},
+                ]
+            }
+        },
+    )
+    alphas = words(found, "set_routing_alpha")
+    assert alphas == [
+        "set_routing_alpha 0.4",
+        "set_routing_alpha 0.1 -clock_nets",
+        'set_routing_alpha 0.8 -net "a" -net "b"',
+        "set_routing_alpha 0.2 -min_fanout 20",
+        "set_routing_alpha 0.3 -min_hpwl 150.5",
+    ]
+    assert found.index(alphas[-1]) < found.index(first_route(found))
+
+
+def test_the_nets_to_route_are_set_before_the_first_route(tmp_path):
+    found = body(tmp_path, {"router": {"only_nets": ["clk", "n*"]}})
+    line = 'set_nets_to_route [list "clk" "n*"]'
+    assert line in found and found.index(line) < found.index(first_route(found))
+    assert not words(body(tmp_path / "none"), "set_nets_to_route")
+
+
+def test_the_router_has_no_list_of_extra_flags():
+    """Every flag of `global_route` has a setting, or belongs to the flow (the guide, the
+    report, the increments, the verbose report), or is the testing flag `-infinite_cap`."""
+    assert "extra_args" not in RouterGroup.model_fields
+    assert not RouterGroup.EXTRA_FLAGS
 
 
 def test_the_congestion_settings_reach_the_first_route(tmp_path):
@@ -728,9 +823,13 @@ def test_the_iterations_of_the_antenna_repair_follow_the_settings(tmp_path):
             }
         },
         {"router": {"seed": 3}},
-        {"router": {"extra_args": ["-use_cugr"]}},
-        {"router": {"extra_args": ["-resistance_aware", "-res_aware_nets_percentage", "20"]}},
-        {"router": {"extra_args": ["-snapshot_batched_width", "4"]}},
+        {"router": {"engine": "cugr", "resistance_aware": True, "res_aware_nets_percent": 20}},
+        {"router": {"resistance_aware": True}},
+        {"router": {"batch_width": 4, "skip_fanout_above": 100, "grid_origin": [0, 1.5]}},
+        {"router": {"seed": 2, "capacity_perturbation_percent": 3, "perturbation_amount": 2}},
+        {"router": {"steiner_alphas": [{"alpha": 0.5}, {"alpha": 0.2, "nets": ["a"]}]}},
+        {"router": {"steiner_alphas": [{"alpha": 0.5, "clock_nets": True}]}},
+        {"router": {"only_nets": ["clk"]}},
         {"legalize": {"cell_padding": 1}},
         {"repair": {"strategy": "none"}},
         {"repair": {"strategy": "incremental"}},
@@ -924,8 +1023,20 @@ def test_a_valid_set_of_settings_plans_the_three_flows(tmp_path):
             "has no effect while `pin_access.enabled` is false",
         ),
         (
-            ["router.extra_args=-infinite_cap"],
-            "`-infinite_cap` in `router.extra_args` is not allowed",
+            ["router.res_aware_nets_percent=20"],
+            "`router.res_aware_nets_percent` has no effect without `router.resistance_aware`",
+        ),
+        (
+            ["router.capacity_perturbation_percent=5"],
+            "`router.capacity_perturbation_percent` has no effect without `router.seed`",
+        ),
+        (
+            ["router.perturbation_amount=2"],
+            "`router.perturbation_amount` has no effect without `router.seed`",
+        ),
+        (
+            ["router.engine=cugr", "router.batch_width=4"],
+            "`router.batch_width` has no effect with `router.engine: cugr`",
         ),
         (
             ["repair.timing.fix=hold", "repair.timing.last_gasp=false"],
@@ -935,6 +1046,51 @@ def test_a_valid_set_of_settings_plans_the_three_flows(tmp_path):
 )
 def test_the_refusals_come_at_planning_with_the_way_out(tmp_path, texts, expected):
     assert expected in refusal(tmp_path, *texts)
+
+
+def test_a_steiner_alpha_with_two_selectors_is_refused_with_the_way_out(tmp_path):
+    """The command takes the first selector that it finds and ignores the others."""
+    message = refusal(
+        tmp_path,
+        typed={
+            "router.steiner_alphas": [
+                {"alpha": 0.2},
+                {"alpha": 0.4, "clock_nets": True, "nets": ["a"]},
+            ]
+        },
+    )
+    assert "`router.steiner_alphas[1]` gives more than one of `nets`, `min_fanout`" in message
+    assert (
+        "`min_hpwl` and `clock_nets`" in message and "the command takes only the first" in message
+    )
+
+
+@pytest.mark.parametrize(
+    "alpha",
+    [
+        {"alpha": 1.5},
+        {"alpha": -0.1},
+        {"alpha": 0.5, "min_fanout": -1},
+        {"alpha": 0.5, "min_hpwl": -1.0},
+    ],
+    ids=lambda alpha: json.dumps(alpha),
+)
+def test_a_steiner_alpha_out_of_range_is_refused(alpha):
+    with pytest.raises(ValueError):
+        OpenroadGrt.Settings(router={"steiner_alphas": [alpha]})
+
+
+def test_a_region_adjustment_without_area_is_refused_with_the_way_out(tmp_path):
+    message = refusal(
+        tmp_path,
+        typed={
+            "congestion.region_adjustments": [
+                {"region": [5, 5, 5, 20], "layer": "m2", "adjustment": 0.5}
+            ]
+        },
+    )
+    assert "`congestion.region_adjustments[0]` has no area" in message
+    assert "the upper right corner must lie above and right of the lower left corner" in message
 
 
 def test_a_power_recovery_that_the_polish_of_the_platform_replaces_is_refused_at_planning(
