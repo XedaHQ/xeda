@@ -73,13 +73,16 @@ IMAGE_NAMES = (
 class EffectiveFinal(EffectiveBase):
     """The values of the platform and the settings that the stages of `openroad` read as `P`."""
 
-    #: The diode cell that `repair_antennas` inserts, or `None`: the tool finds one.
+    #: The diode cell that `repair_antennas` inserts, or `None`: the tool finds one. The setting
+    #: `antenna.diode_cell` wins over the antenna cell of the platform.
     diode_cell: Optional[str]
-    #: Whether the router can insert a diode. The platform may say that its diode is not usable,
-    #: and a platform that says nothing is trusted.
+    #: Whether the router can insert a diode. A diode that the settings name is usable. The
+    #: platform may say that its diode is not, and a platform that says nothing is trusted.
     diode_usable: bool
-    #: The filler cells (names or glob patterns): those of the setting `fill.cells`, else those of
-    #: the platform. The tuple is empty when there are none, and then the flow places no filler.
+    #: The masters that the filler command gets (names or glob patterns): the decap cells of the
+    #: setting `fill.decap_cells`, then the filler cells of the setting `fill.cells`, else those
+    #: of the platform. The tuple is empty when there are none, and then the flow places no
+    #: filler.
     fill_cells: tuple[str, ...]
     #: The range of layers where a via may sit inside a pin, or `None` for no range. No platform
     #: gives one, so only the setting does.
@@ -131,6 +134,8 @@ def effective(settings: "Openroad.Settings", model: PlatformModel) -> EffectiveF
     """Return the values of the templates of `openroad` for `settings` and the platform `model`.
     The function reads only its arguments and changes neither."""
     cells = settings.fill.cells
+    decap = settings.fill.decap_cells
+    given_diode = settings.antenna.diode_cell
     rules = model.files.get("rcx_rules", [])
     extraction = resolve_extraction(
         settings.extraction.method, has_rules=bool(rules), platform=model.name
@@ -138,9 +143,9 @@ def effective(settings: "Openroad.Settings", model: PlatformModel) -> EffectiveF
     supply = model.supply
     return EffectiveFinal(
         **base_values(settings, model),
-        diode_cell=model.antenna_cell.cell if model.antenna_cell is not None else None,
-        diode_usable=model.diode_usable is not False,
-        fill_cells=tuple(model.fill_cells if cells is None else cells),
+        diode_cell=given_diode or (model.antenna_cell.cell if model.antenna_cell else None),
+        diode_usable=given_diode is not None or model.diode_usable is not False,
+        fill_cells=(*decap, *(model.fill_cells if cells is None else cells)),
         via_in_pin=settings.detailed_route.via_in_pin,
         extraction=extraction,
         rcx_rules=rules[0] if extraction == "rcx" else None,

@@ -44,11 +44,11 @@ proc xeda_detail_route {} {
 {% if ant.repair %}
 {% if P.diode_usable %}
     set pass 1
-    if {[{{ ["repair_antennas", (P.diode_cell|tcl_word) if P.diode_cell else ""]|select|join(" ") }}]} {
+    if {[{{ ["repair_antennas", (P.diode_cell|tcl_word) if P.diode_cell else "", render_flags(ant), "-diode_only" if ant.method == "diode" else ("-jumper_only" if ant.method == "jumper" else "")]|select|join(" ") }}]} {
         detailed_route {*}$route_args
     }
     while {[check_antennas] && $pass < {{ ant.reroute_iterations|tcl_number }}} {
-        {{ ["repair_antennas", (P.diode_cell|tcl_word) if P.diode_cell else ""]|select|join(" ") }}
+        {{ ["repair_antennas", (P.diode_cell|tcl_word) if P.diode_cell else "", render_flags(ant), "-diode_only" if ant.method == "diode" else ("-jumper_only" if ant.method == "jumper" else "")]|select|join(" ") }}
         detailed_route {*}$route_args
         incr pass
     }

@@ -2801,3 +2801,127 @@ def test_a_rule_that_changes_nothing_is_refused_with_the_way_out(tmp_path):
         "the rule `empty` in `ndr.rules` sets no width, no spacing and no via: give one of them "
         "or delete the rule" in message
     )
+
+
+# ============================================================================== the antenna repair
+
+
+def repairs(found: list[str]) -> list[str]:
+    """The lines of the stage that call `repair_antennas`, with the `if` of the first call."""
+    return [
+        line.removeprefix("if {[").removesuffix("]} {")
+        for line in found
+        if "repair_antennas" in line
+    ]
+
+
+@pytest.mark.parametrize(
+    "method, flag", [("both", ""), ("diode", " -diode_only"), ("jumper", " -jumper_only")]
+)
+def test_the_method_of_the_repair_chooses_its_flag_in_every_call(tmp_path, method, flag):
+    found = route_body(tmp_path, {"antenna": {"method": method}})
+    assert repairs(found) == [f'repair_antennas "ANTENNA_X1"{flag}'] * 2
+
+
+def test_the_margin_of_the_repair_goes_to_every_call(tmp_path):
+    found = route_body(tmp_path, {"antenna": {"ratio_margin_percent": 5}})
+    assert repairs(found) == ['repair_antennas "ANTENNA_X1" -ratio_margin "5.0"'] * 2
+    assert "-ratio_margin" not in " ".join(route_body(tmp_path / "default"))
+
+
+def test_the_margin_comes_before_the_method(tmp_path):
+    found = route_body(tmp_path, {"antenna": {"ratio_margin_percent": 1, "method": "diode"}})
+    assert repairs(found)[0] == 'repair_antennas "ANTENNA_X1" -ratio_margin "1.0" -diode_only'
+
+
+def test_the_repair_gets_no_count_of_iterations_since_the_loop_counts(tmp_path):
+    assert "-iterations" not in " ".join(route_body(tmp_path, {"antenna": {"method": "diode"}}))
+
+
+def test_a_diode_of_the_settings_replaces_the_diode_of_the_platform(tmp_path):
+    found = route_body(tmp_path, {"antenna": {"diode_cell": "MY_DIODE"}})
+    assert repairs(found) == ['repair_antennas "MY_DIODE"'] * 2
+
+
+def test_a_diode_of_the_settings_is_used_where_the_platform_says_the_router_cannot(tmp_path):
+    found = route_body(
+        tmp_path, {"antenna": {"diode_cell": "MY_DIODE"}}, model={"diode_usable": False}
+    )
+    assert repairs(found) == ['repair_antennas "MY_DIODE"'] * 2
+    assert "antenna repair skipped" not in " ".join(found)
+    found = route_body(tmp_path / "plain", model={"diode_usable": False})
+    assert repairs(found) == [] and "antenna repair skipped" in " ".join(found)
+
+
+def test_the_diode_and_its_use_come_from_the_setting_and_else_from_the_platform(tmp_path):
+    flow = route_flow(tmp_path, {"antenna": {"diode_cell": "MY_DIODE"}})
+    unknown = flow.platform_model.model_copy(update={"antenna_cell": None, "diode_usable": False})
+    values = effective(flow.settings, unknown)
+    assert (values.diode_cell, values.diode_usable) == ("MY_DIODE", True)
+
+
+def test_the_options_of_the_repair_run_under_the_fake(tmp_path):
+    calls = run_script(
+        route_flow(
+            tmp_path,
+            {"antenna": {"method": "jumper", "ratio_margin_percent": 2.5, "diode_cell": "D"}},
+        )
+    )
+    first, *_ = [call for call in calls if call[0] == "repair_antennas"]
+    assert first == ["repair_antennas", "D", "-ratio_margin", "2.5", "-jumper_only"]
+
+
+@pytest.mark.parametrize(
+    "leaf, value",
+    [("method", "diode"), ("ratio_margin_percent", 1.0), ("diode_cell", "D")],
+)
+def test_an_option_of_the_repair_is_refused_without_the_repair(tmp_path, leaf, value):
+    message = refuse_settings(tmp_path, {"antenna": {"repair": False, leaf: value}})
+    assert f"`antenna.{leaf}` has no effect with `antenna.repair: false`" in message
+
+
+@pytest.mark.parametrize("margin", [-1, 100, 120])
+def test_a_margin_outside_the_percentages_is_refused(tmp_path, margin):
+    with pytest.raises(Exception):
+        Openroad.Settings.from_input(
+            {"antenna": {"ratio_margin_percent": margin}}, design_root=tmp_path
+        )
+
+
+# ============================================================================== the filler cells
+
+
+def test_the_decap_cells_come_before_the_filler_cells_in_one_command(tmp_path):
+    found = fill_body(tmp_path, {"fill": {"decap_cells": ["DECAP_*"]}})
+    assert words(found, "filler_placement") == ['filler_placement [list "DECAP_*" "FILL_X1"]']
+
+
+def test_the_decap_cells_come_before_the_cells_of_the_settings(tmp_path):
+    found = fill_body(tmp_path, {"fill": {"decap_cells": ["D"], "cells": ["F1", "F2"]}})
+    assert words(found, "filler_placement") == ['filler_placement [list "D" "F1" "F2"]']
+
+
+def test_decap_cells_alone_fill_when_the_filler_list_is_empty(tmp_path):
+    found = fill_body(tmp_path, {"fill": {"decap_cells": ["D"], "cells": []}})
+    assert words(found, "filler_placement") == ['filler_placement [list "D"]']
+
+
+def test_the_prefix_comes_before_the_masters_and_is_not_printed_by_default(tmp_path):
+    found = fill_body(tmp_path, {"fill": {"prefix": "PAD_"}})
+    assert words(found, "filler_placement") == ['filler_placement -prefix "PAD_" [list "FILL_X1"]']
+    assert "-prefix" not in " ".join(fill_body(tmp_path / "default"))
+
+
+def test_the_check_after_the_filler_can_be_switched_off(tmp_path):
+    found = fill_body(tmp_path, {"fill": {"check": False}})
+    assert words(found, "filler_placement") and not words(found, "check_placement")
+    assert words(fill_body(tmp_path / "default"), "check_placement")
+
+
+def test_the_options_of_the_filler_run_under_the_fake(tmp_path):
+    calls = run_script(
+        route_flow(tmp_path, {"fill": {"decap_cells": ["D"], "prefix": "P_", "check": False}})
+    )
+    (fill,) = [call for call in calls if call[0] == "filler_placement"]
+    assert fill == ["filler_placement", "-prefix", "P_", "D FILL_X1"]
+    assert "check_placement" not in [call[0] for call in calls]

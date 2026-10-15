@@ -271,13 +271,16 @@ class NdrGroup(SettingsGroup):
 
 
 class FinalAntennaGroup(SettingsGroup):
-    """The repair of the antenna violations of the detailed route, with diodes. The repair, the
-    reroute and the check repeat until no violation is left or the iterations end."""
+    """The repair of the antenna violations of the detailed route, with diodes or jumpers. The
+    repair, the reroute and the check repeat until no violation is left or the iterations end."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("ratio_margin_percent", "-ratio_margin", "value"),)
 
     repair: bool = Field(
         True,
         description="Repair the antenna violations of the detailed route. OpenROAD-flow-scripts "
-        "does it.",
+        "does it. The flow skips the repair, with a note in the log, when the platform says that "
+        "the router cannot use its diode. The check of the antenna violations runs in every case.",
         json_schema_extra=tier("advanced"),
     )
     reroute_iterations: int = Field(
@@ -285,6 +288,32 @@ class FinalAntennaGroup(SettingsGroup):
         ge=1,
         description="The most rounds of repair and reroute. The default is the one of "
         "OpenROAD-flow-scripts.",
+        json_schema_extra=tier("advanced"),
+    )
+    method: Literal["both", "diode", "jumper"] = Field(
+        "both",
+        description="How `repair_antennas` fixes a violation. `diode` inserts diodes only "
+        "(`-diode_only`), `jumper` moves wire to a higher layer only (`-jumper_only`), and "
+        "`both` tries jumpers and then diodes. The default is the one of OpenROAD-flow-scripts, "
+        "which names neither flag. The command reads the diffusion area of the diode to judge "
+        "a violation, with every method, so a platform without a usable diode skips it.",
+        json_schema_extra=tier("advanced"),
+    )
+    ratio_margin_percent: Optional[float] = Field(
+        None,
+        ge=0,
+        lt=100,
+        description="Repair a violation when the antenna ratio comes within this share of its "
+        "limit, in percent (`-ratio_margin`). The margin costs area. Unset: the default of the "
+        "tool, 0.",
+        json_schema_extra=tier("advanced"),
+    )
+    diode_cell: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="The diode cell that `repair_antennas` inserts. Unset: the antenna cell of "
+        "the platform. A cell named here is used even where the platform says that the router "
+        "cannot use its diode.",
         json_schema_extra=tier("advanced"),
     )
 
@@ -306,12 +335,34 @@ class FinalAntennaGroup(SettingsGroup):
 class FillGroup(SettingsGroup):
     """The filler cells that fill the gaps in the rows."""
 
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("prefix", "-prefix", "value"),)
+
     cells: Optional[list[Annotated[str, Field(min_length=1)]]] = Field(
         None,
         description="The filler cells, as glob patterns of cell names (`filler_placement`). The "
         "flow places them after the last change of the route. An empty list places no filler. "
         "Unset: the value of the platform.",
         json_schema_extra=tier("common"),
+    )
+    decap_cells: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="The decoupling capacitor cells, as glob patterns of cell names. They fill "
+        "the same gaps, and the flow gives them to the same `filler_placement` command, before "
+        "`cells`. No platform gives any. Empty: no decap cell.",
+        json_schema_extra=tier("advanced"),
+    )
+    prefix: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="The prefix of the names of the filler instances (`-prefix`). Unset: the "
+        "default of the tool, `FILLER_`.",
+        json_schema_extra=tier("expert"),
+    )
+    check: bool = Field(
+        True,
+        description="Check the placement after the filler cells are in (`check_placement`). The "
+        "check stops the flow on an illegal placement. OpenROAD-flow-scripts does it.",
+        json_schema_extra=tier("advanced"),
     )
 
 

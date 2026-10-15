@@ -333,9 +333,9 @@ Group `detailed_route`: `detailed_route.end_iteration`; 17 more: `xeda list-sett
 
 Group `ndr`: no common settings; 3 more: `xeda list-settings openroad --tier expert --json`
 
-Group `antenna`: no common settings; 2 more: `xeda list-settings openroad --tier expert --json`
+Group `antenna`: no common settings; 5 more: `xeda list-settings openroad --tier expert --json`
 
-Group `fill`: `fill.cells`
+Group `fill`: `fill.cells`; 3 more: `xeda list-settings openroad --tier expert --json`
 
 Group `extraction`: `extraction.method`
 

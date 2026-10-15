@@ -1,12 +1,15 @@
 {# The filler cells. They follow the last change of the route: `repair_antennas` removes fillers,
    and a diode that it inserts later would have no row to sit in. The command takes one argument,
-   a list of cell names or patterns. A platform that has no filler cells, or a setting that gives
-   none, places nothing. #}
+   a list of cell names or patterns: the decap cells come before the filler cells. A platform that
+   has no filler cells, or a setting that gives none, places nothing. #}
+{% set fill = settings.fill %}
 proc xeda_fillcell {} {
     xeda_stage fillcell
 {% if P.fill_cells %}
-    filler_placement {{ P.fill_cells|tcl_list }}
+    filler_placement {{ [render_flags(fill), P.fill_cells|tcl_list]|select|join(" ") }}
+{% if fill.check %}
     check_placement
+{% endif %}
 {% else %}
     puts "xeda: no filler cells; filler placement skipped"
 {% endif %}
