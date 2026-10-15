@@ -126,7 +126,30 @@ FieldPath = tuple[Step, ...]
 
 #: A valid value for each required field of a model that a path goes through. A model with a
 #: required field that is not here fails loudly, so that a sweep cannot pass by being refused.
-REQUIRED_VALUES: dict[FieldKey, Any] = {("PhysicalClock", "period"): "5 ns"}
+REQUIRED_VALUES: dict[FieldKey, Any] = {
+    ("PhysicalClock", "period"): "5 ns",
+    ("EdgeInterval", "edge"): "top",
+    ("FixedPin", "pin"): "p",
+    ("FixedPin", "layer"): "m3",
+    ("FixedPin", "x"): "1 um",
+    ("FixedPin", "y"): "1 um",
+    ("PdnConnect", "layers"): ["m1", "m2"],
+    ("PdnRail", "layer"): "m1",
+    ("PdnRail", "width"): "1 um",
+    ("PdnRing", "layers"): ["m3", "m4"],
+    ("PdnRing", "widths"): "1 um",
+    ("PdnRing", "spacings"): "1 um",
+    ("PdnRing", "core_offset"): "1 um",
+    ("PdnStripe", "layer"): "m4",
+    ("PdnStripe", "width"): "1 um",
+    ("PdnStripe", "pitch"): "9 um",
+    ("PdnStripe", "offset"): "1 um",
+    ("PinGroup", "pins"): ["p*"],
+    ("RegionAdjustment", "layer"): "m2",
+    ("RegionAdjustment", "adjustment"): 0.5,
+    ("RoutingBlockage", "layer"): "m2",
+    ("SteinerAlpha", "alpha"): 0.5,
+}
 
 #: The key that stands for any key of a `dict`.
 ANY_KEY = "key"
@@ -152,11 +175,24 @@ def _valid_value(annotation: Any) -> Any:
     raise TypeError(f"give {annotation!r} a valid value in settings_fields._valid_value")
 
 
-def _paths(annotation: Any, trail: tuple[type[BaseModel], ...]) -> Iterable[FieldPath]:
+def _least_length(metadata: Iterable[Any]) -> int:
+    """Return the least length that the constraints in `metadata` ask of a collection."""
+    found = 0
+    for item in metadata:
+        found = max(found, getattr(item, "min_length", None) or 0)
+        found = max(found, _least_length(getattr(item, "metadata", ())))
+    return found
+
+
+def _paths(
+    annotation: Any, trail: tuple[type[BaseModel], ...], least: int = 0
+) -> Iterable[FieldPath]:
+    """Yield the paths to the quantities that `annotation` holds. `least` is the least length that
+    the constraints of the field ask of a list, so that the path builds a list that passes them."""
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
     if origin is Annotated:
-        yield from _paths(args[0], trail)
+        yield from _paths(args[0], trail, max(least, _least_length(args[1:])))
     elif origin is Literal:
         return
     elif origin in (dict, Mapping):
@@ -164,7 +200,8 @@ def _paths(annotation: Any, trail: tuple[type[BaseModel], ...]) -> Iterable[Fiel
             yield (Step(ANY_KEY, None), *path)
     elif origin in (list, set, frozenset):
         for path in _paths(args[0], trail):
-            yield (Step(0, None), *path)
+            slots = tuple(_valid_value(args[0]) for _ in range(least)) if least > 1 else ()
+            yield (Step(0, None, slots), *path)
     elif origin is tuple and args and args[-1] is Ellipsis:  # any number of one type
         for path in _paths(args[0], trail):
             yield (Step(0, None), *path)
@@ -177,20 +214,28 @@ def _paths(annotation: Any, trail: tuple[type[BaseModel], ...]) -> Iterable[Fiel
                     yield (Step(index, None, slots), *path)
     elif origin is not None:
         for arg in args:
-            yield from _paths(arg, trail)
+            yield from _paths(arg, trail, least)
     elif isinstance(annotation, type) and issubclass(annotation, Quantity):
         yield ()
     elif isinstance(annotation, type) and issubclass(annotation, BaseModel):
         if annotation in trail:
             return
         for name, info in annotation.model_fields.items():
-            for path in _paths(info.annotation, (*trail, annotation)):
+            for path in _paths(info.annotation, (*trail, annotation), _least_length(info.metadata)):
                 yield (Step(name, annotation), *path)
 
 
 def quantity_paths(model: type[BaseModel]) -> list[FieldPath]:
     """Return the path from `model` to each field that holds a quantity, at any depth."""
     return list(_paths(model, ()))
+
+
+def kind_of(path: FieldPath) -> type[Quantity]:
+    """Return the quantity class at the end of `path`: the type of the last field on the way. The
+    steps after that field go into a `dict`, a `list` or a `tuple` of quantities."""
+    last = [step for step in path if step.model is not None][-1]
+    (kind,) = shape_of(last.model.model_fields[last.key].annotation).quantity_types[:1]
+    return kind
 
 
 def dotted(path: FieldPath) -> str:
@@ -246,4 +291,8 @@ def assign(settings: Any, path: FieldPath, value: Any) -> None:
         items[last.key] = value
         assign(settings, path[:-1], tuple(items))
     else:
-        parent[last.key] = value
+        # A `list` or a `dict` does not validate an item that is set in it. A user of the Python
+        # API assigns the whole container to its field, which validates every item.
+        copy = list(parent) if isinstance(parent, list) else dict(parent)
+        copy[last.key] = value  # type: ignore[index]
+        assign(settings, path[:-1], copy)

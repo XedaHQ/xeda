@@ -35,12 +35,12 @@ proc xeda_floorplan {} {
 {% if fp.sizing == "utilization" %}
     # The utilization is that of the netlist as it is now. The repairs below and the tap cells add
     # area, so the utilization after the placement is higher than this value.
-{% set size = ["-utilization " ~ (fp.core_utilization_percent|tcl_number), "-aspect_ratio " ~ (fp.aspect_ratio|tcl_number), "-core_space " ~ ((fp.core_margin|tcl_number) if fp.core_margin is number else (fp.core_margin|tcl_numbers))] %}
+{% set size = ["-utilization " ~ (fp.core_utilization_percent|tcl_number), "-aspect_ratio " ~ (fp.aspect_ratio|tcl_number), "-core_space " ~ (fp.core_margin|micrometers)] %}
 {% else %}
-{% set size = ["-die_area " ~ (fp.die_area|tcl_numbers), "-core_area " ~ (fp.core_area|tcl_numbers)] %}
+{% set size = ["-die_area " ~ (fp.die_area|micrometers), "-core_area " ~ (fp.core_area|micrometers)] %}
 {% endif %}
 {# The options of the rows follow the site: the parity is a flag that takes capitals. #}
-    {{ (["initialize_floorplan"] + size + ["-site " ~ (P.site|tcl_word), ("-row_parity " ~ (fp.row_parity|upper)) if fp.row_parity != "none" else "", render_flags(fp)])|select|join(" ") }}
+    {{ (["initialize_floorplan"] + size + ["-site " ~ (P.site|tcl_word), ("-row_parity " ~ (fp.row_parity|upper)) if fp.row_parity != "none" else "", render_flags(fp), ("-gap " ~ (fp.row_gap|micrometers|tcl_word)) if fp.row_gap is not none else ""])|select|join(" ") }}
 {% endif %}
 {% if P.tracks %}
 {# The tracks are platform data. A platform may give one grid to several layers, which a bare
@@ -71,10 +71,10 @@ proc xeda_floorplan {} {
     set_dont_touch {{ name|tcl_word }}
 {% endfor %}
 {% for blockage in fp.placement_blockages %}
-    {{ ["create_blockage -region " ~ (blockage.region|tcl_numbers), ("-max_density " ~ (blockage.max_density_percent|tcl_number)) if blockage.max_density_percent is not none else "", "-soft" if blockage.soft else ""]|select|join(" ") }}
+    {{ ["create_blockage -region " ~ (blockage.region|micrometers), ("-max_density " ~ (blockage.max_density_percent|tcl_number)) if blockage.max_density_percent is not none else "", "-soft" if blockage.soft else ""]|select|join(" ") }}
 {% endfor %}
 {% for obstruction in fp.routing_blockages %}
-    create_obstruction -layer {{ obstruction.layer|tcl_word }} -region {{ obstruction.region|tcl_numbers }}
+    create_obstruction -layer {{ obstruction.layer|tcl_word }} -region {{ obstruction.region|micrometers }}
 {% endfor %}
 {% if settings.tie.insert_cells %}
     # The command takes the master and the port, without the library. The repair of the fanout
@@ -86,8 +86,8 @@ proc xeda_floorplan {} {
     # The synthesis puts the tie cells in the netlist. Each load gets its own copy of the tie
     # cell. The repair comes before any removal of buffers, since one tie cell can drive buffers
     # that drive many loads.
-    repair_tie_fanout {{ render_flags(settings.tie) }} [xeda_tie_pin {{ P.tie_low.cell|tcl_word }} {{ P.tie_low.port|tcl_word }}]
-    repair_tie_fanout {{ render_flags(settings.tie) }} [xeda_tie_pin {{ P.tie_high.cell|tcl_word }} {{ P.tie_high.port|tcl_word }}]
+    {{ ["repair_tie_fanout -separation " ~ (settings.tie.separation|micrometers|tcl_word), render_flags(settings.tie), "[xeda_tie_pin " ~ (P.tie_low.cell|tcl_word) ~ " " ~ (P.tie_low.port|tcl_word) ~ "]"]|select|join(" ") }}
+    {{ ["repair_tie_fanout -separation " ~ (settings.tie.separation|micrometers|tcl_word), render_flags(settings.tie), "[xeda_tie_pin " ~ (P.tie_high.cell|tcl_word) ~ " " ~ (P.tie_high.port|tcl_word) ~ "]"]|select|join(" ") }}
 {% endif %}
 {% if settings.arith_swap.enabled %}
     {{ ["replace_arith_modules", render_flags(settings.arith_swap), ("-slack_threshold " ~ (settings.arith_swap.slack_threshold|lib_time)) if settings.arith_swap.slack_threshold is not none else ""]|select|join(" ") }}

@@ -16,7 +16,7 @@ from xeda.flow.settings_group import SettingsGroup, render_flags
 from xeda.flow_runner.settings_layers import compose_flow_settings
 from xeda.flows.openroad import OpenroadCts, OpenroadGrt, OpenroadPlace
 from xeda.flows.openroad import groups
-from xeda.units import Quantity, Time
+from xeda.units import Length, Quantity, Time
 from xeda.utils import tcl_word
 
 from .openroad_utils import OPENROAD_FLOWS
@@ -49,7 +49,9 @@ def refused(flow, *items: Any) -> str:
     """Return every message that planning refuses `items` with, as one text."""
     found = problems(flow, *items)
     assert found, f"{flow.name} accepted {items}"
-    return " ".join(" ".join(message for _, message in found).split())
+    message = " ".join(" ".join(message for _, message in found).split())
+    assert "needs a unit" not in message, "the refusal is about a missing unit: " + message
+    return message
 
 
 def render(group: SettingsGroup) -> str:
@@ -244,10 +246,13 @@ def test_repair_timing_refuses_a_value_out_of_range(name, value):
         groups.RepairTiming(**{name: value})
 
 
-def test_repair_design_prints_its_margins_and_its_wire_length():
+def test_repair_design_prints_its_margins_and_the_template_prints_its_wire_length():
     assert render(groups.RepairDesign()) == '-slew_margin "0.0" -cap_margin "0.0"'
-    design = groups.RepairDesign(slew_margin_percent=20, cap_margin_percent=10, max_wire_length=300)
-    assert render(design) == ('-max_wire_length "300.0" -slew_margin "20.0" -cap_margin "10.0"')
+    design = groups.RepairDesign(
+        slew_margin_percent=20, cap_margin_percent=10, max_wire_length=Length("300 um")
+    )
+    assert render(design) == '-slew_margin "20.0" -cap_margin "10.0"'
+    assert design.max_wire_length == Length("0.3 mm")
 
 
 def test_repair_design_prints_its_switches():
@@ -567,7 +572,7 @@ def test_a_disabled_cleanup_repair_reports_each_leaf_once():
 
 FLOORPLAN_REFUSALS = [
     (
-        ({"floorplan.die_area": [0, 0, 100, 100]},),
+        ({"floorplan.die_area": ["0 um", "0 um", "100 um", "100 um"]},),
         "`floorplan.die_area` is a leaf of `floorplan.sizing: area`",
     ),
     (("floorplan.def_file=a.def",), "`floorplan.def_file` is a leaf of `floorplan.sizing: def`"),
@@ -576,11 +581,15 @@ FLOORPLAN_REFUSALS = [
         "`floorplan.core_utilization_percent` is a leaf of `floorplan.sizing: utilization`",
     ),
     (
-        ("floorplan.sizing=area", {"floorplan.die_area": [0, 0, 100, 100]}),
+        ("floorplan.sizing=area", {"floorplan.die_area": ["0 um", "0 um", "100 um", "100 um"]}),
         "needs `floorplan.die_area` and `floorplan.core_area`, and `floorplan.core_area` is not set",
     ),
     (
-        ("floorplan.sizing=area", "floorplan.core_margin=3", {"floorplan.die_area": [0, 0, 9, 9]}),
+        (
+            "floorplan.sizing=area",
+            "floorplan.core_margin=3 um",
+            {"floorplan.die_area": ["0 um", "0 um", "9 um", "9 um"]},
+        ),
         "`floorplan.core_margin` is a leaf of `floorplan.sizing: utilization`",
     ),
     (
@@ -594,16 +603,16 @@ FLOORPLAN_REFUSALS = [
     (
         (
             "floorplan.sizing=area",
-            {"floorplan.die_area": [10, 0, 0, 100]},
-            {"floorplan.core_area": [1, 1, 2, 2]},
+            {"floorplan.die_area": ["10 um", "0 um", "0 um", "100 um"]},
+            {"floorplan.core_area": ["1 um", "1 um", "2 um", "2 um"]},
         ),
         "`floorplan.die_area` must list the lower-left corner and then the upper-right corner",
     ),
     (
         (
             "floorplan.sizing=area",
-            {"floorplan.die_area": [0, 0, 100, 100]},
-            {"floorplan.core_area": [1, 1, 101, 99]},
+            {"floorplan.die_area": ["0 um", "0 um", "100 um", "100 um"]},
+            {"floorplan.core_area": ["1 um", "1 um", "101 um", "99 um"]},
         ),
         "`floorplan.core_area` must lie inside `floorplan.die_area`",
     ),
@@ -621,8 +630,8 @@ def test_the_floorplan_accepts_each_way_of_sizing():
         problems(
             OpenroadPlace,
             "floorplan.sizing=area",
-            {"floorplan.die_area": [0, 0, 100, 100]},
-            {"floorplan.core_area": [2, 2, 98, 98]},
+            {"floorplan.die_area": ["0 um", "0 um", "100 um", "100 um"]},
+            {"floorplan.core_area": ["2 um", "2 um", "98 um", "98 um"]},
         )
         == []
     )
@@ -635,7 +644,7 @@ def test_the_floorplan_accepts_each_way_of_sizing():
         "floorplan.core_utilization_percent=0",
         "floorplan.core_utilization_percent=101",
         "floorplan.aspect_ratio=0",
-        "floorplan.core_margin=-1",
+        "floorplan.core_margin=-1 um",
         "floorplan.sizing=file",
     ],
 )
@@ -647,24 +656,24 @@ def test_the_floorplan_refuses_a_value_out_of_range(item):
 def test_the_defaults_of_the_floorplan_are_the_stage_defaults():
     floorplan = OpenroadPlace.Settings().floorplan
     assert (floorplan.sizing, floorplan.core_utilization_percent) == ("utilization", 50.0)
-    assert (floorplan.aspect_ratio, floorplan.core_margin) == (1.0, 1.0)
+    assert (floorplan.aspect_ratio, floorplan.core_margin) == (1.0, Length("1 um"))
     assert (floorplan.die_area, floorplan.core_area, floorplan.def_file) == (None, None, None)
 
 
 PLACE_REFUSALS = [
-    ("tie.separation=2", "tie.repair_fanout=false", "`tie.separation` has no effect with"),
+    ("tie.separation=2 um", "tie.repair_fanout=false", "`tie.separation` has no effect with"),
     (
         "tapcell.mode=none",
-        "tapcell.distance=10",
+        "tapcell.distance=10 um",
         "`tapcell.distance` has no effect with `tapcell.mode: none`",
     ),
     ("tapcell.mode=none", "tapcell.endcap_master=TAP", "`tapcell.endcap_master` has no effect"),
     ("tapcell.mode=cut_rows", "tapcell.master=TAP", "`tapcell.master` has no effect with"),
     ("pdn.mode=none", "pdn.grid.power_net=VDD", "`pdn.grid` has no effect with `pdn.mode: none`"),
     (
-        "io.min_distance_unit=tracks",
-        "io.corner_avoidance=1",
-        "`io.min_distance_unit: tracks` is the unit of `io.min_distance`, and that is not set",
+        "io.min_distance=4 um",
+        "io.min_distance_tracks=2",
+        "`io.min_distance` and `io.min_distance_tracks` both give the smallest distance",
     ),
     (
         "global_placement.density.value=0.5",
@@ -765,8 +774,9 @@ def test_the_groups_of_the_placement_accept_their_combinations():
             "global_placement.nesterov.min_phi_coef=0.95",
             "global_placement.nesterov.max_phi_coef=1.05",
         ),
-        ("io.min_distance=4", "io.min_distance_unit=tracks"),
-        ("tapcell.mode=tap_endcap", "tapcell.distance=120", "tapcell.master=TAP"),
+        ("io.min_distance=4 um", "io.corner_avoidance=1 um"),
+        ("io.min_distance_tracks=4",),
+        ("tapcell.mode=tap_endcap", "tapcell.distance=120 um", "tapcell.master=TAP"),
         ("pdn.grid.power_net=VDD",),
         ("tapcell.mode=cut_rows", "tapcell.endcap_master=TAP"),
     ):
@@ -801,9 +811,10 @@ def test_the_groups_of_the_placement_accept_their_combinations():
         "resize.global_sizing.budget_safety_factor=1.5",
         "resize.global_sizing.budget_safety_factor=0",
         "arith_swap.path_count=0",
-        {"detailed_placement.max_displacement": [5]},
-        {"detailed_placement.max_displacement": [5, 1.5]},
-        {"detailed_placement.max_displacement": [-1, 1]},
+        {"detailed_placement.max_displacement": ["5 um"]},
+        {"detailed_placement.max_displacement": ["5 um", "1.5 um"]},
+        {"detailed_placement.max_displacement": [5, 1]},
+        {"detailed_placement.max_displacement": ["-1 um", "1 um"]},
         "detailed_placement.negotiation.site_search_window=-1",
         "detailed_placement.negotiation.row_search_window=-1",
         "detailed_placement.negotiation.drc_penalty=-0.5",
@@ -825,7 +836,7 @@ def test_the_groups_of_the_placement_accept_their_combinations():
         {"detailed_placement.improve.max_displacement": [5]},
         {"detailed_placement.improve.max_displacement": [5, -1]},
         "detailed_placement.check=warn",
-        {"floorplan.die_area": [0, 0, 1]},
+        {"floorplan.die_area": ["0 um", "0 um", "1 um"]},
         "tapcell.mode=welltap",
         "input_delay_frac=1",
         "output_delay_frac=-0.1",
@@ -857,7 +868,7 @@ def test_the_platform_grid_type_is_the_one_of_the_platform_model():
     grid = settings_of(
         OpenroadPlace,
         "pdn.grid.power_net=VDD",
-        {"pdn.grid.straps": [{"layer": "m4", "width": 1, "pitch": 9, "offset": 0}]},
+        {"pdn.grid.straps": [{"layer": "m4", "width": "1 um", "pitch": "9 um", "offset": "0 um"}]},
     ).pdn.grid
     assert isinstance(grid, Pdn) and grid.power_net == "VDD" and grid.straps[0].layer == "m4"
 
@@ -951,14 +962,14 @@ def test_the_flags_of_the_detailed_placement_groups():
     assert render(dp.improve) == '-max_displacement "5,1"'
     settings = settings_of(
         OpenroadPlace,
-        {"detailed_placement.max_displacement": [300, 40]},
+        {"detailed_placement.max_displacement": ["300 um", "40 um"]},
         "detailed_placement.negotiation.site_search_window=30",
         "detailed_placement.negotiation.row_search_window=0",
         "detailed_placement.negotiation.drc_penalty=2.5",
         "detailed_placement.negotiation.window_extension=false",
         "detailed_placement.improve.random_seed=7",
     ).detailed_placement
-    assert render(settings) == '-max_displacement "300,40"'
+    assert render(settings) == ""  # the flow prints the displacement itself: it is a length
     assert render(settings.negotiation) == (
         '-site_search_window "30" -row_search_window "0" -disable_window_extension '
         '-drc_penalty "2.5"'
@@ -982,10 +993,11 @@ def test_a_padding_override_names_masters_or_instances_and_not_both():
 
 
 def test_the_flags_of_the_pin_placement_and_the_tie_cells():
-    io = settings_of(OpenroadPlace, "io.min_distance=4", "io.corner_avoidance=2.5").io
-    assert render(io) == '-corner_avoidance "2.5"'  # the flow prints `min_distance` itself
+    io = settings_of(OpenroadPlace, "io.min_distance=4 um", "io.corner_avoidance=2.5 um").io
+    # the flow prints the distances itself: they are lengths
+    assert render(io) == ""
     assert render(OpenroadPlace.Settings().io) == ""
-    assert render(OpenroadPlace.Settings().tie) == '-separation "0.0"'
+    assert render(OpenroadPlace.Settings().tie) == ""
 
 
 def test_the_maximum_displacement_of_the_improvement_prints_as_a_tcl_list():
@@ -998,9 +1010,9 @@ def test_the_defaults_of_the_placement_are_the_stage_defaults():
     assert (place.input_delay_frac, place.output_delay_frac) == (0.2, 0.2)
     assert (place.input_delay, place.output_delay, place.sdc_files) == (None, None, [])
     assert (place.design.eliminate_dead_logic, place.design.dont_touch) == (True, [])
-    assert (place.tie.repair_fanout, place.tie.separation) == (True, 0.0)
+    assert (place.tie.repair_fanout, place.tie.separation) == (True, Length("0 um"))
     assert place.pdn.mode == "generated" and place.pdn.grid is None
-    assert (place.io.flow, place.io.min_distance_unit) == ("skip_io_pass", "um")
+    assert (place.io.flow, place.io.min_distance_tracks) == ("skip_io_pass", None)
     density = place.global_placement.density
     assert (density.mode, density.value, density.headroom) == ("fixed", None, None)
     assert place.global_placement.cell_padding == 0
@@ -1080,14 +1092,17 @@ CTS_REFUSALS = [
         "`sink_clustering.size` has no effect with `sink_clustering.mode: auto`",
     ),
     (
-        ("sink_clustering.mode=off", "sink_clustering.max_diameter=50"),
+        ("sink_clustering.mode=off", "sink_clustering.max_diameter=50 um"),
         "`sink_clustering.max_diameter` has no effect with `sink_clustering.mode: off`",
     ),
     (
         ("sink_clustering.mode=explicit",),
         "`sink_clustering.mode: explicit` needs `sink_clustering.size`",
     ),
-    (("tree.buffer_distance=100",), "`tree.buffer_distance` has no effect with `tree.style: lut`"),
+    (
+        ("tree.buffer_distance=100 um",),
+        "`tree.buffer_distance` has no effect with `tree.style: lut`",
+    ),
     (("tree.style=simple_segments",), "`tree.style: simple_segments` needs `tree.buffer_distance`"),
 ]
 
@@ -1105,17 +1120,15 @@ def test_the_clock_tree_groups_render_the_flags_of_their_choices():
         "buffers.root=CLKBUF_X2",
         "sink_clustering.mode=explicit",
         "sink_clustering.size=20",
-        "sink_clustering.max_diameter=60",
+        "sink_clustering.max_diameter=60 um",
         "tree.style=simple_segments",
-        "tree.buffer_distance=100",
+        "tree.buffer_distance=100 um",
     )
     assert problems(OpenroadCts, "buffers.select=list", "buffers.cells=CLKBUF_X1") == []
     assert (
         render_flags(cts.buffers, tcl_word) == '-root_buf "CLKBUF_X2"'
     )  # the flow prints the rest
-    assert render(cts.sink_clustering) == (
-        '-sink_clustering_size "20" -sink_clustering_max_diameter "60.0"'
-    )
+    assert render(cts.sink_clustering) == '-sink_clustering_size "20"'
     assert render(cts.tree) == ""  # the flow prints the distance when the style asks for it
     assert render(OpenroadCts.Settings().buffers) == ""
 
@@ -1126,9 +1139,9 @@ def test_the_clock_tree_groups_render_the_flags_of_their_choices():
         "buffers.select=pattern",
         "sink_clustering.mode=on",
         "sink_clustering.size=0",
-        "sink_clustering.max_diameter=0",
+        "sink_clustering.max_diameter=0 um",
         "tree.style=h_tree",
-        "tree.buffer_distance=0",
+        "tree.buffer_distance=0 um",
         "repair_clock_nets.when=before",
         "legalize.cell_padding=-1",
     ],
@@ -1547,7 +1560,111 @@ INSTALLED_HELP = {
         "-allow_congestion",
     },
     "repair_tie_fanout": {"-separation", "-max_fanout", "-verbose"},
+    "tapcell": {
+        "-tapcell_master",
+        "-tap_prefix",
+        "-endcap_master",
+        "-endcap_prefix",
+        "-distance",
+        "-disallow_one_site_gaps",
+        "-halo_width_x",
+        "-halo_width_y",
+        "-row_min_width",
+        "-row_min_height",
+        "-tap_nwin2_master",
+        "-tap_nwin3_master",
+        "-tap_nwout2_master",
+        "-tap_nwout3_master",
+        "-tap_nwintie_master",
+        "-tap_nwouttie_master",
+        "-cnrcap_nwin_master",
+        "-cnrcap_nwout_master",
+        "-incnrcap_nwin_master",
+        "-incnrcap_nwout_master",
+        "-tbtie_cpp",
+        "-endcap_cpp",
+        "-no_cell_at_top_bottom",
+    },
+    "cut_rows": {
+        "-endcap_master",
+        "-halo_width_x",
+        "-halo_width_y",
+        "-row_min_width",
+        "-row_min_height",
+    },
+    "repair_clock_nets": {"-max_wire_length"},
+    "initialize_floorplan": {
+        "-utilization",
+        "-aspect_ratio",
+        "-core_space",
+        "-die_area",
+        "-core_area",
+        "-additional_sites",
+        "-site",
+        "-row_parity",
+        "-flip_sites",
+        "-gap",
+    },
+    "set_pdnsim_source_settings": {
+        "-bump_dx",
+        "-bump_dy",
+        "-bump_size",
+        "-bump_interval",
+        "-strap_track_pitch",
+        "-external_resistance",
+    },
+    "extract_parasitics": {
+        "-ext_model_file",
+        "-corner",
+        "-corner_cnt",
+        "-max_res",
+        "-coupling_threshold",
+        "-debug_net_id",
+        "-dbg",
+        "-lef_res",
+        "-lef_rc",
+        "-cc_model",
+        "-context_depth",
+        "-no_merge_via_res",
+        "-skip_over_cell",
+        "-version",
+    },
 }
+
+#: The flags that a template prints for a setting that holds a quantity. A group cannot print
+#: them with `render_flags`, which would write the unit. The installed tool must know each one.
+QUANTITY_FLAGS = {
+    "place_pins": {"-min_distance", "-min_distance_in_tracks", "-corner_avoidance"},
+    "set_pin_length": {"-hor_length", "-ver_length"},
+    "set_pin_length_extension": {"-hor_extension", "-ver_extension"},
+    "initialize_floorplan": {"-gap", "-core_space", "-die_area", "-core_area"},
+    "tapcell": {"-row_min_width", "-row_min_height"},
+    "cut_rows": {"-row_min_width", "-row_min_height"},
+    "repair_tie_fanout": {"-separation"},
+    "global_placement": {"-perturb_dist"},
+    "detailed_placement": {"-max_displacement"},
+    "repair_design": {"-max_wire_length"},
+    "repair_clock_nets": {"-max_wire_length"},
+    "clock_tree_synthesis": {
+        "-wire_unit",
+        "-branching_point_buffers_distance",
+        "-distance_between_buffers",
+        "-sink_clustering_max_diameter",
+        "-macro_clustering_max_diameter",
+    },
+    "repair_timing": {"-setup_margin", "-hold_margin"},
+    "set_global_sizing_config": {"-setup_slack_margin"},
+    "replace_arith_modules": {"-slack_threshold"},
+    "set_pdnsim_source_settings": {"-bump_dx", "-bump_dy", "-bump_size", "-external_resistance"},
+    "extract_parasitics": {"-max_res", "-coupling_threshold"},
+}
+
+
+@pytest.mark.parametrize("command", sorted(QUANTITY_FLAGS))
+def test_every_flag_that_a_template_prints_for_a_quantity_is_in_the_help_of_the_installed_tool(
+    command,
+):
+    assert QUANTITY_FLAGS[command] <= INSTALLED_HELP[command]
 
 
 #: The command of each group inside `io`, which has the flags of its own command.
@@ -1637,10 +1754,6 @@ def test_the_clock_tree_has_no_hatch():
             + [flag.flag for flag in groups.RepairMoves.FLAGS],
         ),
         ("repair_design", [flag.flag for flag in groups.RepairDesign.FLAGS]),
-        (
-            "place_pins",
-            [flag.flag for flag in OpenroadPlace.Settings.model_fields["io"].annotation.FLAGS],
-        ),
         (
             "global_placement",
             [

@@ -11,9 +11,9 @@ resolves it first, and the template prints the result.
 
 from typing import Annotated, Any, ClassVar, Literal, Optional, Sequence, Tuple
 
-from ...dataclass import Field, tier
+from ...dataclass import Field, extras, tier
 from ...flow.settings_group import Flag, SettingsGroup
-from ...units import Bounds, Time
+from ...units import Bounds, Length, Time, count, percent
 from ...utils import tcl_word
 
 __all__ = [
@@ -28,6 +28,7 @@ __all__ = [
     "SetupMove",
     "comma_word",
     "differing_leaves",
+    "whole_micrometers",
 ]
 
 #: The moves that `repair_timing -sequence` takes, in the spelling of the tool. A name that the
@@ -99,6 +100,16 @@ _PHASE_SWITCHES = {
 #: The leaves of `RepairTiming` that a power recovery reads. The tool ignores every other leaf of
 #: the call when `recover_power_percent` is set.
 _RECOVERY_LEAVES = frozenset({"enabled", "match_cell_footprint", "recover_power_percent"})
+
+
+def whole_micrometers(value: Length) -> Length:
+    """Return `value` if it is a whole number of micrometers, else raise `ValueError`. A few
+    options of OpenROAD take integers of micrometers."""
+    if not value.to("um").is_integer():
+        raise ValueError(
+            f"must be a whole number of micrometers, got {value}: the tool takes an integer"
+        )
+    return value
 
 
 def comma_word(items: Sequence[Any]) -> str:
@@ -266,7 +277,7 @@ class RepairTiming(SettingsGroup):
         description="The share of the endpoints with a setup violation that the repair works "
         "on, in percent (`-repair_tns`). 0 repairs only the worst path. The default is the one "
         "of the tool and of OpenROAD-flow-scripts. Not with `fix: hold`.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), percent()),
     )
     sequence: list[SetupMove] = Field(
         [],
@@ -313,21 +324,21 @@ class RepairTiming(SettingsGroup):
         description="The most hold buffers that the repair inserts, in percent of the cells "
         "(`-max_buffer_percent`). Unset: the default of the tool, 20. Needs hold repair: not "
         "with `fix: setup`.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), percent()),
     )
     max_iterations: Optional[int] = Field(
         None,
         ge=1,
         description="The most iterations of the setup repair and of the hold repair "
         "(`-max_iterations`). Unset: no limit, which is the `-1` of the tool.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     max_passes: Optional[int] = Field(
         None,
         ge=1,
         description="The most passes of one run of the repair (`-max_passes`). The tool calls "
         "it an option for debugging. Unset: the default of the tool, 10000.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     max_repairs_per_pass: Optional[int] = Field(
         None,
@@ -335,7 +346,7 @@ class RepairTiming(SettingsGroup):
         description="The most repairs in one pass on the worst paths (`-max_repairs_per_pass`). "
         "The number goes down to 1 for the last violations. Unset: the default of the tool, 1. "
         "Not with `fix: hold`.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     recover_power_percent: Optional[float] = Field(
         None,
@@ -346,7 +357,7 @@ class RepairTiming(SettingsGroup):
         "hold, so every other leaf of this call must keep its default, except "
         "`match_cell_footprint`. The documentation of OpenROAD advises the parasitics of a "
         "global route for it. Unset: no power recovery.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), percent()),
     )
 
     def problems(self, key: str) -> list[tuple[str, str]]:
@@ -469,7 +480,6 @@ class RepairDesign(SettingsGroup):
     global route. Only the call after global routing sets it."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("max_wire_length", "-max_wire_length", "value"),
         Flag("slew_margin_percent", "-slew_margin", "value"),
         Flag("cap_margin_percent", "-cap_margin", "value"),
         Flag("pre_placement", "-pre_placement", "switch"),
@@ -488,7 +498,7 @@ class RepairDesign(SettingsGroup):
         lt=100,
         description="Repair the slew with this margin, in percent of the limit "
         "(`-slew_margin`). The default is the one of the tool and of OpenROAD-flow-scripts.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), percent()),
     )
     cap_margin_percent: float = Field(
         0.0,
@@ -496,12 +506,11 @@ class RepairDesign(SettingsGroup):
         lt=100,
         description="Repair the capacitance with this margin, in percent of the limit "
         "(`-cap_margin`). The default is the one of the tool and of OpenROAD-flow-scripts.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), percent()),
     )
-    max_wire_length: Optional[float] = Field(
+    max_wire_length: Optional[Annotated[Length, Bounds(ge="0 um")]] = Field(
         None,
-        ge=0,
-        description="Buffer each wire that is longer than this length, in micrometers "
+        description="Buffer each wire that is longer than this length, a length with a unit "
         "(`-max_wire_length`). Unset: the flow does not pass the flag.",
         json_schema_extra=tier("advanced"),
     )
@@ -552,5 +561,5 @@ class Legalize(SettingsGroup):
         "(`set_placement_padding -global -left N -right N`), in sites. The default is the one of "
         "OpenROAD-flow-scripts. Use the value of `detailed_placement.cell_padding` of "
         "`openroad_place`, so that both legalizations leave the same space.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )

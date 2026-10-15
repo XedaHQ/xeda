@@ -6,7 +6,8 @@ route, and the repair of the antenna violations.
 
 from typing import Annotated, ClassVar, Literal, Optional, Tuple
 
-from ...dataclass import Field, XedaBaseModel, tier
+from ...dataclass import Field, XedaBaseModel, extras, tier
+from ...units import Bounds, Length, count, percent, ratio
 from ...flow.settings_group import Flag, SettingsGroup
 from .final_groups import ViaInPin
 from .groups import RepairDesign, RepairTiming, differing_leaves
@@ -23,8 +24,8 @@ __all__ = [
     "SteinerAlpha",
 ]
 
-#: A coordinate that is finite and not negative.
-NonNegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+#: A coordinate or a distance that is not negative.
+NonNegative = Annotated[Length, Bounds(ge="0 um")]
 
 
 class GrtRepairTiming(RepairTiming):
@@ -89,14 +90,14 @@ class PinAccessGroup(SettingsGroup):
         ge=1,
         description="The fewest access points to find for each pin (`-min_access_points`). "
         "Unset: the default of the tool.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     verbose: Optional[int] = Field(
         None,
         ge=0,
         description="The level of the log of the command (`-verbose`). Unset: the default of "
         "the tool, 1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
 
 
@@ -105,13 +106,14 @@ class RegionAdjustment(XedaBaseModel):
     (`set_global_routing_region_adjustment`)."""
 
     region: Tuple[NonNegative, NonNegative, NonNegative, NonNegative] = Field(
-        description="The region, in micrometers: lower-left x, lower-left y, upper-right x, "
-        "upper-right y. It must lie inside the die."
+        description="The region, four lengths with units: lower-left x, lower-left y, "
+        "upper-right x, upper-right y. It must lie inside the die."
     )
     layer: str = Field(min_length=1, description="The routing layer of the cut (`-layer`).")
     adjustment: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] = Field(
         description="The share of the routing tracks that the router may not use, from 0 to 1 "
-        "(`-adjustment`)."
+        "(`-adjustment`).",
+        json_schema_extra=ratio(),
     )
 
 
@@ -132,7 +134,7 @@ class CongestionGroup(SettingsGroup):
         description="The number of iterations that remove the overflow (`-congestion_iterations`). "
         "Unset: 30, and 10 with `router.engine: cugr`, as OpenROAD-flow-scripts does. The tool "
         "uses 50, and 5 with CUGR.",
-        json_schema_extra=tier("common"),
+        json_schema_extra=extras(tier("common"), count()),
     )
     report_step: int = Field(
         5,
@@ -140,7 +142,7 @@ class CongestionGroup(SettingsGroup):
         description="Write the congestion report every this many iterations "
         "(`-congestion_report_iter_step`). 0 writes it at the end only. The default is the one "
         "of OpenROAD-flow-scripts. The tool uses 0.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     allow: bool = Field(
         False,
@@ -157,7 +159,7 @@ class CongestionGroup(SettingsGroup):
         "when it removes overflow, in percent (`-critical_nets_percentage`). The router "
         "estimates the slack from the parasitics of its own route. Unset: the default of the "
         "tool.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), percent()),
     )
     macro_extension: Optional[int] = Field(
         None,
@@ -165,7 +167,7 @@ class CongestionGroup(SettingsGroup):
         description="The halo around each macro in which the router reduces the capacity, in "
         "global routing cells (`set_macro_extension`). Unset: the default of the tool, 0. The "
         "database does not store it.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     region_adjustments: list[RegionAdjustment] = Field(
         [],
@@ -194,7 +196,8 @@ class SteinerAlpha(XedaBaseModel):
     later call for the same nets replaces an earlier one."""
 
     alpha: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] = Field(
-        description="The weight, from 0 to 1."
+        description="The weight, from 0 to 1.",
+        json_schema_extra=ratio(),
     )
     nets: list[Annotated[str, Field(min_length=1)]] = Field(
         [],
@@ -204,11 +207,12 @@ class SteinerAlpha(XedaBaseModel):
     min_fanout: Optional[Annotated[int, Field(ge=1)]] = Field(
         None,
         description="Apply the weight to the nets with at least this many pins (`-min_fanout`).",
+        json_schema_extra=count(),
     )
     min_hpwl: Optional[NonNegative] = Field(
         None,
         description="Apply the weight to the nets with at least this half-perimeter wire length, "
-        "in micrometers (`-min_hpwl`).",
+        "a length with a unit (`-min_hpwl`).",
     )
     clock_nets: bool = Field(
         False, description="Apply the weight to the clock nets (`-clock_nets`)."
@@ -257,7 +261,7 @@ class RouterGroup(SettingsGroup):
         description="The share of the nets that the router treats resistance-aware, in percent "
         "(`-res_aware_nets_percentage`). Unset: the default of the tool, 15. Needs "
         "`resistance_aware`.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), percent()),
     )
     seed: Optional[int] = Field(
         None,
@@ -265,7 +269,7 @@ class RouterGroup(SettingsGroup):
         description="The seed that shuffles the order of the nets (`set_global_routing_random "
         "-seed`). Unset: the order is fixed. A seed of 0 shuffles nothing, so the setting "
         "refuses it. The database does not store the seed.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     capacity_perturbation_percent: Optional[float] = Field(
         None,
@@ -275,14 +279,14 @@ class RouterGroup(SettingsGroup):
         "percent (`-capacities_perturbation_percentage`). Unset: the default of the tool, 0. "
         "Needs `seed`. OpenROAD v2.0-26132 stops with signal 11 in `perturbCapacities` for 5 "
         "percent on a design of 72 nets, and runs with 1 percent. No upstream issue exists.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), percent()),
     )
     perturbation_amount: Optional[int] = Field(
         None,
         ge=1,
         description="By how much the router changes the capacity of such an edge "
         "(`-perturbation_amount`). Unset: the default of the tool, 1. Needs `seed`.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     steiner_alphas: list[SteinerAlpha] = Field(
         [],
@@ -296,12 +300,12 @@ class RouterGroup(SettingsGroup):
         description="The most batches in a wave of the batched routing (`-snapshot_batched_width`). "
         "The README of OpenROAD advises it for exploration only. Unset: no batching. Only "
         "the default router uses it.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     grid_origin: Optional[Tuple[NonNegative, NonNegative]] = Field(
         None,
-        description="The origin of the routing grid, in micrometers: x, y (`-grid_origin`, which "
-        "takes database units: the flow converts). The flow gives it to every route, because "
+        description="The origin of the routing grid, two lengths with units: x, y "
+        "(`-grid_origin`, which takes database units: the flow converts). The flow gives it to every route, because "
         "the tool resets the origin at each call without it, and the origin shifts the guides "
         "that the call writes. Unset: the origin of the die.",
         json_schema_extra=tier("expert"),
@@ -315,7 +319,7 @@ class RouterGroup(SettingsGroup):
         "following steps: `repair_design` ends with signal 11 in `getPinGridPositions`, and "
         "`check_antennas` stops with ANT-0008 where `repair.strategy` is `none`. It was seen "
         "with a design of 72 nets. No upstream issue exists.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     only_nets: list[Annotated[str, Field(min_length=1)]] = Field(
         [],
@@ -395,7 +399,7 @@ class GrtRepairGroup(SettingsGroup):
         description="Trade positive slack for power on this share of the paths, in percent "
         "(`repair_timing -recover_power`). Unset: no power recovery. The flow runs the recovery "
         "only without the WNS polish.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), percent()),
     )
     design: GrtRepairDesign = Field(
         default_factory=GrtRepairDesign,
@@ -457,7 +461,7 @@ class AntennaGroup(SettingsGroup):
         ge=1,
         description="The most passes of `repair_antennas` (`-iterations`). The default is the "
         "one of OpenROAD-flow-scripts.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     method: Literal["both", "diode", "jumper"] = Field(
         "both",
@@ -475,7 +479,7 @@ class AntennaGroup(SettingsGroup):
         description="Repair a violation when the antenna ratio comes within this share of its "
         "limit, in percent (`-ratio_margin`). The margin costs area. Unset: the default of the "
         "tool, 0.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), percent()),
     )
     diode_cell: Optional[str] = Field(
         None,

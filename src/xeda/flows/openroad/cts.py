@@ -25,7 +25,7 @@ from .cts_groups import (
     CtsBuffersGroup,
     CtsTreeGroup,
     MacroClusteringGroup,
-    NdrGroup,
+    CtsNdrGroup,
     RepairClockNetsGroup,
     SinkClusteringGroup,
     WordName,
@@ -121,8 +121,8 @@ class OpenroadCts(OpenroadStage):
             description="The balance of the clock latencies between macros and registers, and of "
             "the loads at the leaves.",
         )
-        ndr: NdrGroup = Field(
-            default_factory=NdrGroup,
+        ndr: CtsNdrGroup = Field(
+            default_factory=CtsNdrGroup,
             description="The non-default routing rule of the clock nets.",
         )
         characterization: CharacterizationGroup = Field(

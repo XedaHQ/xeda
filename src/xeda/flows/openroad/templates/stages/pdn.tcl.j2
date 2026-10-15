@@ -4,8 +4,8 @@
    not run it, so the check is off unless `pdn.check` asks for it. #}
 {% set dsn = settings.design %}
 {% set pdn = settings.pdn %}
-{# The words of a flag that takes a number, or a list of numbers for a pair of layers or sides. #}
-{% macro numbers(value) %}{{ (value|tcl_number) if value is number else (value|tcl_numbers) }}{% endmacro %}
+{# A flag that takes a length, or a list of lengths for a pair of layers or sides, gets the word of
+   the filter `micrometers`. #}
 proc xeda_pdn {} {
     xeda_stage pdn
 {% if pdn.mode == "generated" %}
@@ -27,20 +27,20 @@ proc xeda_pdn {} {
     {{ ["set_voltage_domain -name CORE", "-power " ~ (P.pdn.power_net|tcl_word), "-ground " ~ (P.pdn.ground_net|tcl_word), ("-secondary_power " ~ (pdn.secondary_power|tcl_list)) if pdn.secondary_power else ""]|select|join(" ") }}
     {{ ["define_pdn_grid -name grid -voltage_domains CORE", ("-pins " ~ (P.pdn.pin_layers|tcl_list)) if P.pdn.pin_layers else "", ("-starts_with " ~ (P.pdn.starts_with|upper)) if P.pdn.starts_with else ""]|select|join(" ") }}
 {% for rail in P.pdn.rails %}
-    add_pdn_stripe -grid grid -layer {{ rail.layer|tcl_word }} -width {{ rail.width|tcl_number }}{{ " -pitch " ~ (rail.pitch|tcl_number) if rail.pitch is not none else "" }}{{ " -offset " ~ (rail.offset|tcl_number) if rail.offset is not none else "" }} -followpins
+    add_pdn_stripe -grid grid -layer {{ rail.layer|tcl_word }} -width {{ rail.width|micrometers }}{{ " -pitch " ~ (rail.pitch|micrometers) if rail.pitch is not none else "" }}{{ " -offset " ~ (rail.offset|micrometers) if rail.offset is not none else "" }} -followpins
 {% endfor %}
 {% for strap in P.pdn.straps %}
-    {{ ["add_pdn_stripe -grid grid", "-layer " ~ (strap.layer|tcl_word), "-width " ~ (strap.width|tcl_number), "-pitch " ~ (strap.pitch|tcl_number), "-offset " ~ (strap.offset|tcl_number), ("-spacing " ~ (strap.spacing|tcl_number)) if strap.spacing is not none else "", ("-offset_type " ~ (strap.offset_type|upper)) if strap.offset_type else "", ("-starts_with " ~ (strap.starts_with|upper)) if strap.starts_with else "", ({"core_ring": "-extend_to_core_ring", "boundary": "-extend_to_boundary"}[strap.extend]) if strap.extend else "", ("-extend_by " ~ (strap.extend_by|tcl_number)) if strap.extend_by is not none else "", "-snap_to_grid" if strap.snap_to_grid else "", ("-number_of_straps " ~ (strap.number_of_straps|tcl_number)) if strap.number_of_straps is not none else "", ("-nets " ~ (strap.nets|tcl_list)) if strap.nets else "", "-allow_out_of_core" if strap.allow_out_of_core else ""]|select|join(" ") }}
+    {{ ["add_pdn_stripe -grid grid", "-layer " ~ (strap.layer|tcl_word), "-width " ~ (strap.width|micrometers), "-pitch " ~ (strap.pitch|micrometers), "-offset " ~ (strap.offset|micrometers), ("-spacing " ~ (strap.spacing|micrometers)) if strap.spacing is not none else "", ("-offset_type " ~ (strap.offset_type|upper)) if strap.offset_type else "", ("-starts_with " ~ (strap.starts_with|upper)) if strap.starts_with else "", ({"core_ring": "-extend_to_core_ring", "boundary": "-extend_to_boundary"}[strap.extend]) if strap.extend else "", ("-extend_by " ~ (strap.extend_by|micrometers)) if strap.extend_by is not none else "", "-snap_to_grid" if strap.snap_to_grid else "", ("-number_of_straps " ~ (strap.number_of_straps|tcl_number)) if strap.number_of_straps is not none else "", ("-nets " ~ (strap.nets|tcl_list)) if strap.nets else "", "-allow_out_of_core" if strap.allow_out_of_core else ""]|select|join(" ") }}
 {% endfor %}
 {% for ring in P.pdn.rings %}
-    {{ ["add_pdn_ring -grid grid", "-layers " ~ (ring.layers|tcl_list), "-widths " ~ numbers(ring.widths), "-spacings " ~ numbers(ring.spacings), "-core_offsets " ~ numbers(ring.core_offset), "-add_connect" if ring.add_connect else "", "-extend_to_boundary" if ring.extend_to_boundary else "", ("-nets " ~ (ring.nets|tcl_list)) if ring.nets else "", ("-starts_with " ~ (ring.starts_with|upper)) if ring.starts_with else "", "-allow_out_of_die" if ring.allow_out_of_die else ""]|select|join(" ") }}
+    {{ ["add_pdn_ring -grid grid", "-layers " ~ (ring.layers|tcl_list), "-widths " ~ (ring.widths|micrometers), "-spacings " ~ (ring.spacings|micrometers), "-core_offsets " ~ (ring.core_offset|micrometers), "-add_connect" if ring.add_connect else "", "-extend_to_boundary" if ring.extend_to_boundary else "", ("-nets " ~ (ring.nets|tcl_list)) if ring.nets else "", ("-starts_with " ~ (ring.starts_with|upper)) if ring.starts_with else "", "-allow_out_of_die" if ring.allow_out_of_die else ""]|select|join(" ") }}
 {% endfor %}
 {% for connect in P.pdn.connects %}
 {% set cuts = [] %}
 {% for layer, pitch in connect.split_cuts.items() %}
-{% set _ = cuts.extend([layer|tcl_word, pitch|tcl_number]) %}
+{% set _ = cuts.extend([layer|tcl_word, pitch|micrometers]) %}
 {% endfor %}
-    {{ ["add_pdn_connect -grid grid", "-layers " ~ (connect.layers|tcl_list), ("-cut_pitch " ~ numbers(connect.cut_pitch)) if connect.cut_pitch is not none else "", ("-fixed_vias " ~ (connect.fixed_vias|tcl_list)) if connect.fixed_vias else "", ("-dont_use_vias " ~ (connect.dont_use_vias|tcl_list)) if connect.dont_use_vias else "", ("-max_rows " ~ (connect.max_rows|tcl_number)) if connect.max_rows is not none else "", ("-max_columns " ~ (connect.max_columns|tcl_number)) if connect.max_columns is not none else "", ("-ongrid " ~ (connect.ongrid|tcl_list)) if connect.ongrid else "", ("-min_width_layers " ~ (connect.min_width_layers|tcl_list)) if connect.min_width_layers else "", ("-split_cuts [list " ~ (cuts|join(" ")) ~ "]") if cuts else "", "-split_cuts_staggered" if connect.split_cuts_staggered else ""]|select|join(" ") }}
+    {{ ["add_pdn_connect -grid grid", "-layers " ~ (connect.layers|tcl_list), ("-cut_pitch " ~ (connect.cut_pitch|micrometers)) if connect.cut_pitch is not none else "", ("-fixed_vias " ~ (connect.fixed_vias|tcl_list)) if connect.fixed_vias else "", ("-dont_use_vias " ~ (connect.dont_use_vias|tcl_list)) if connect.dont_use_vias else "", ("-max_rows " ~ (connect.max_rows|tcl_number)) if connect.max_rows is not none else "", ("-max_columns " ~ (connect.max_columns|tcl_number)) if connect.max_columns is not none else "", ("-ongrid " ~ (connect.ongrid|tcl_list)) if connect.ongrid else "", ("-min_width_layers " ~ (connect.min_width_layers|tcl_list)) if connect.min_width_layers else "", ("-split_cuts [list " ~ (cuts|join(" ")) ~ "]") if cuts else "", "-split_cuts_staggered" if connect.split_cuts_staggered else ""]|select|join(" ") }}
 {% endfor %}
     {{ ["pdngen", render_flags(pdn)]|select|join(" ") }}
 {% if pdn.check.mode != "off" %}

@@ -17,10 +17,16 @@ import pytest
 from xeda import Design
 from xeda.flow import FlowSettingsException
 from xeda.platforms import PdkNotInstalled
-from xeda.units import Time
+from xeda.units import Length, Time
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.openroad import OpenroadPlace, base
-from xeda.flows.openroad.base import fraction_of, to_lib_time, to_seconds
+from xeda.flows.openroad.base import (
+    fraction_of,
+    to_lib_time,
+    to_micrometers,
+    to_nanometers,
+    to_seconds,
+)
 from xeda.flows.openroad.place_groups import PresizeMode, SwapTarget
 from xeda.flows.openroad.place import EffectivePlace, effective
 from xeda.flows.openroad.place_pdn import PdnStripe
@@ -147,7 +153,9 @@ def plan(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None):
 def refusal(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None) -> str:
     with pytest.raises(FlowSettingsException) as error:
         plan(tmp_path, *texts, typed=typed)
-    return " ".join(str(error.value).split())
+    message = " ".join(str(error.value).split())
+    assert "needs a unit" not in message, "the refusal is about a missing unit: " + message
+    return message
 
 
 # ------------------------------------------------------------------------------ time and numbers
@@ -322,8 +330,8 @@ def test_the_floorplan_takes_the_die_and_the_core_from_the_areas(tmp_path):
         {
             "floorplan": {
                 "sizing": "area",
-                "die_area": [0, 0, 100, 90],
-                "core_area": [2, 2, 98, 88.5],
+                "die_area": ["0 um", "0 um", "100 um", "90 um"],
+                "core_area": ["2 um", "2 um", "98 um", "88.5 um"],
             }
         },
     )
@@ -453,8 +461,8 @@ def test_the_site_of_the_settings_replaces_the_site_of_the_platform(tmp_path):
         {
             "floorplan": {
                 "sizing": "area",
-                "die_area": [0, 0, 100, 90],
-                "core_area": [2, 2, 98, 88],
+                "die_area": ["0 um", "0 um", "100 um", "90 um"],
+                "core_area": ["2 um", "2 um", "98 um", "88 um"],
                 "site": "othersite",
             }
         },
@@ -475,7 +483,7 @@ def test_the_rows_get_their_options(tmp_path):
             "floorplan": {
                 "additional_sites": ["s2", "s3"],
                 "flip_sites": ["s2"],
-                "row_gap": 6.0,
+                "row_gap": "6.0 um",
                 "row_parity": "odd",
             }
         },
@@ -494,8 +502,8 @@ def test_the_row_options_go_to_the_floorplan_by_areas_too(tmp_path):
         {
             "floorplan": {
                 "sizing": "area",
-                "die_area": [0, 0, 100, 90],
-                "core_area": [2, 2, 98, 88],
+                "die_area": ["0 um", "0 um", "100 um", "90 um"],
+                "core_area": ["2 um", "2 um", "98 um", "88 um"],
                 "row_parity": "even",
             }
         },
@@ -523,7 +531,7 @@ def test_a_row_parity_in_capitals_is_refused(tmp_path):
         ("site", "x"),
         ("additional_sites", "x"),
         ("flip_sites", "x"),
-        ("row_gap", "2"),
+        ("row_gap", "2 um"),
         ("row_parity", "odd"),
     ],
 )
@@ -537,20 +545,30 @@ def test_a_floorplan_from_a_def_file_has_no_row_option(tmp_path, leaf, value):
 
 
 def test_the_margin_of_the_core_can_differ_on_each_side(tmp_path):
-    flow = place_flow(tmp_path, {"floorplan": {"core_margin": [1, 2, 3, 4.5]}})
+    flow = place_flow(tmp_path, {"floorplan": {"core_margin": ["1 um", "2 um", "3 um", "4.5 um"]}})
     body = stage(render(flow), "xeda_floorplan")
     assert any("-core_space [list 1.0 2.0 3.0 4.5] -site" in line for line in body)
     run_script(flow)
 
 
-@pytest.mark.parametrize("margin", [[1, 2, 3], [1, 2, 3, 4, 5], [1, 2, 3, -4], -1])
+@pytest.mark.parametrize(
+    "margin",
+    [
+        ["1 um", "2 um", "3 um"],
+        ["1 um", "2 um", "3 um", "4 um", "5 um"],
+        ["1 um", "2 um", "3 um", "-4 um"],
+        "-1 um",
+        [1, 2, 3, 4],
+        1,
+    ],
+)
 def test_a_core_margin_is_one_distance_or_four(tmp_path, margin):
     with pytest.raises(FlowSettingsException):
         plan(tmp_path, typed={"floorplan.core_margin": margin})
 
 
-POLYGON_DIE = [0, 0, 100, 0, 100, 100, 50, 100, 50, 50, 0, 50]
-POLYGON_CORE = [2, 2, 98, 2, 98, 98, 52, 98, 52, 52, 2, 52]
+POLYGON_DIE = [f"{n} um" for n in (0, 0, 100, 0, 100, 100, 50, 100, 50, 50, 0, 50)]
+POLYGON_CORE = [f"{n} um" for n in (2, 2, 98, 2, 98, 98, 52, 98, 52, 52, 2, 52)]
 
 
 def test_the_floorplan_takes_a_polygon_for_the_die_and_the_core(tmp_path):
@@ -570,11 +588,11 @@ def test_a_die_is_a_rectangle_or_a_polygon_with_corners(tmp_path, count):
         tmp_path,
         "floorplan.sizing=area",
         typed={
-            "floorplan.die_area": [float(n) for n in range(count)],
-            "floorplan.core_area": [1, 1, 9, 9],
+            "floorplan.die_area": [f"{n} um" for n in range(count)],
+            "floorplan.core_area": ["1 um", "1 um", "9 um", "9 um"],
         },
     )
-    assert "die_area" in message and "4 numbers" in message
+    assert "die_area" in message and "4 lengths" in message
 
 
 def test_a_polygon_and_a_rectangle_are_left_to_the_tool(tmp_path):
@@ -583,7 +601,10 @@ def test_a_polygon_and_a_rectangle_are_left_to_the_tool(tmp_path):
     plan(
         tmp_path,
         "floorplan.sizing=area",
-        typed={"floorplan.die_area": [0, 0, 100, 100], "floorplan.core_area": POLYGON_CORE},
+        typed={
+            "floorplan.die_area": ["0 um", "0 um", "100 um", "100 um"],
+            "floorplan.core_area": POLYGON_CORE,
+        },
     )
 
 
@@ -611,11 +632,11 @@ def test_blockages_of_the_placement_and_of_the_routing_follow_the_tracks(tmp_pat
         {
             "floorplan": {
                 "placement_blockages": [
-                    {"region": [1, 2, 3, 4]},
-                    {"region": [5, 6, 7, 8], "soft": True},
-                    {"region": [9, 10, 11, 12], "max_density_percent": 40},
+                    {"region": ["1 um", "2 um", "3 um", "4 um"]},
+                    {"region": ["5 um", "6 um", "7 um", "8 um"], "soft": True},
+                    {"region": ["9 um", "10 um", "11 um", "12 um"], "max_density_percent": 40},
                 ],
-                "routing_blockages": [{"layer": "m2", "region": [1, 1, 2, 2]}],
+                "routing_blockages": [{"layer": "m2", "region": ["1 um", "1 um", "2 um", "2 um"]}],
             }
         },
     )
@@ -647,7 +668,11 @@ def test_a_soft_blockage_has_no_density(tmp_path):
         tmp_path,
         typed={
             "floorplan.placement_blockages": [
-                {"region": [1, 2, 3, 4], "soft": True, "max_density_percent": 40}
+                {
+                    "region": ["1 um", "2 um", "3 um", "4 um"],
+                    "soft": True,
+                    "max_density_percent": 40,
+                }
             ]
         },
     )
@@ -659,9 +684,9 @@ def test_a_soft_blockage_has_no_density(tmp_path):
 @pytest.mark.parametrize(
     "key, item",
     [
-        ("placement_blockages", {"region": [3, 2, 1, 4]}),
-        ("placement_blockages", {"region": [1, 2, 3, 2]}),
-        ("routing_blockages", {"layer": "m2", "region": [3, 2, 1, 4]}),
+        ("placement_blockages", {"region": ["3 um", "2 um", "1 um", "4 um"]}),
+        ("placement_blockages", {"region": ["1 um", "2 um", "3 um", "2 um"]}),
+        ("routing_blockages", {"layer": "m2", "region": ["3 um", "2 um", "1 um", "4 um"]}),
     ],
 )
 def test_a_blockage_region_lists_the_lower_left_and_the_upper_right_corner(tmp_path, key, item):
@@ -672,12 +697,18 @@ def test_a_blockage_region_lists_the_lower_left_and_the_upper_right_corner(tmp_p
 @pytest.mark.parametrize(
     "key, item",
     [
-        ("placement_blockages", {"region": [1, 2, 3]}),
-        ("placement_blockages", {"region": [1, 2, 3, 4], "max_density_percent": 101}),
-        ("placement_blockages", {"region": [1, 2, 3, 4], "max_density_percent": -1}),
-        ("placement_blockages", {"region": [1, 2, 3, 4], "layer": "m1"}),
-        ("routing_blockages", {"region": [1, 2, 3, 4]}),
-        ("routing_blockages", {"layer": "", "region": [1, 2, 3, 4]}),
+        ("placement_blockages", {"region": ["1 um", "2 um", "3 um"]}),
+        (
+            "placement_blockages",
+            {"region": ["1 um", "2 um", "3 um", "4 um"], "max_density_percent": 101},
+        ),
+        (
+            "placement_blockages",
+            {"region": ["1 um", "2 um", "3 um", "4 um"], "max_density_percent": -1},
+        ),
+        ("placement_blockages", {"region": ["1 um", "2 um", "3 um", "4 um"], "layer": "m1"}),
+        ("routing_blockages", {"region": ["1 um", "2 um", "3 um", "4 um"]}),
+        ("routing_blockages", {"layer": "", "region": ["1 um", "2 um", "3 um", "4 um"]}),
     ],
 )
 def test_a_malformed_blockage_is_refused(tmp_path, key, item):
@@ -752,7 +783,7 @@ def test_tie_fanout_comes_before_any_removal_of_buffers(tmp_path):
 
 
 def test_the_tie_separation_is_passed(tmp_path):
-    body = stage(render(place_flow(tmp_path, {"tie": {"separation": 2.5}})), "xeda_floorplan")
+    body = stage(render(place_flow(tmp_path, {"tie": {"separation": "2.5 um"}})), "xeda_floorplan")
     assert all('-separation "2.5"' in line for line in body if line.startswith("repair_tie_fanout"))
 
 
@@ -800,14 +831,14 @@ def test_the_fanout_limit_of_a_tie_cell_is_passed(tmp_path):
     assert len(ties) == 2 and all('-separation "0.0" -max_fanout "8"' in line for line in ties)
 
 
-@pytest.mark.parametrize("leaf, value", [("separation", 1.0), ("max_fanout", 4)])
+@pytest.mark.parametrize("leaf, value", [("separation", "1 um"), ("max_fanout", 4)])
 def test_a_tie_option_has_no_effect_without_the_repair_of_the_fanout(tmp_path, leaf, value):
     message = refusal(tmp_path, f"tie.{leaf}={value}", "tie.repair_fanout=false")
     assert f"tie.{leaf}" in message and "no effect" in message
 
 
 def test_the_tie_options_keep_their_ranges(tmp_path):
-    for text in ("tie.max_fanout=0", "tie.separation=-1"):
+    for text in ("tie.max_fanout=0", "tie.separation=-1 um"):
         with pytest.raises(FlowSettingsException):
             plan(tmp_path / text, text)
 
@@ -1048,7 +1079,7 @@ def test_the_tap_cells_come_from_the_platform(tmp_path):
 
 def test_the_settings_replace_the_tap_cells_of_the_platform(tmp_path):
     flow = place_flow(
-        tmp_path, {"tapcell": {"distance": 30, "master": "T2", "endcap_master": "E2"}}
+        tmp_path, {"tapcell": {"distance": "30 um", "master": "T2", "endcap_master": "E2"}}
     )
     body = stage(render(flow), "xeda_tapcell")
     assert 'tapcell -distance 30.0 -tapcell_master "T2" -endcap_master "E2"' in body
@@ -1096,14 +1127,14 @@ def test_the_tap_cell_mode_tap_endcap_needs_a_master_and_a_distance(tmp_path):
 
 
 def test_a_tap_distance_has_no_effect_when_the_platform_cuts_the_rows(tmp_path):
-    flow = place_flow(tmp_path, {"tapcell": {"distance": 20}})
+    flow = place_flow(tmp_path, {"tapcell": {"distance": "20 um"}})
     model = flow.platform_model.model_copy(update={"tap_cell": None})
     with pytest.raises(FlowSettingsException, match=r"tapcell\.distance.*cut_rows"):
         effective(flow.settings, model)
 
 
 def test_the_rows_of_the_tap_cells_keep_a_minimum_width_and_height(tmp_path):
-    flow = place_flow(tmp_path, {"tapcell": {"row_min_width": 3, "row_min_height": 2.5}})
+    flow = place_flow(tmp_path, {"tapcell": {"row_min_width": "3 um", "row_min_height": "2.5 um"}})
     assert stage(render(flow), "xeda_tapcell")[1:] == [
         'tapcell -distance 12.0 -tapcell_master "TAP_X1" -endcap_master "ENDCAP_X1" '
         '-row_min_width "3.0" -row_min_height "2.5"'
@@ -1113,7 +1144,8 @@ def test_the_rows_of_the_tap_cells_keep_a_minimum_width_and_height(tmp_path):
 
 def test_the_rows_that_are_cut_keep_a_minimum_width_and_height(tmp_path):
     flow = place_flow(
-        tmp_path, {"tapcell": {"mode": "cut_rows", "row_min_width": 3, "row_min_height": 2.5}}
+        tmp_path,
+        {"tapcell": {"mode": "cut_rows", "row_min_width": "3 um", "row_min_height": "2.5 um"}},
     )
     assert stage(render(flow), "xeda_tapcell")[1:] == [
         'cut_rows -endcap_master "ENDCAP_X1" -row_min_width "3.0" -row_min_height "2.5"'
@@ -1172,7 +1204,7 @@ def test_the_masters_by_well_come_before_the_masters_of_the_corners(tmp_path):
     ],
 )
 def test_a_tap_cell_option_that_the_mode_does_not_use_is_refused(tmp_path, mode, leaf):
-    value = "2" if leaf.startswith("row_") else "M_X1"
+    value = "2 um" if leaf.startswith("row_") else "M_X1"
     message = refusal(tmp_path, f"tapcell.mode={mode}", f"tapcell.{leaf}={value}")
     assert f"tapcell.{leaf}" in message and "no effect" in message
 
@@ -1186,8 +1218,8 @@ def test_a_master_by_well_has_no_effect_when_the_platform_cuts_the_rows(tmp_path
 
 def test_the_tap_cell_options_keep_their_ranges(tmp_path):
     for text in (
-        "tapcell.row_min_width=-1",
-        "tapcell.row_min_height=-1",
+        "tapcell.row_min_width=-1 um",
+        "tapcell.row_min_height=-1 um",
         "tapcell.nwell_masters.nwin2=",
     ):
         with pytest.raises(FlowSettingsException):
@@ -1227,7 +1259,7 @@ def test_the_power_grid_is_not_checked(tmp_path):
 
 def test_a_leaf_of_the_grid_in_the_settings_replaces_the_leaf_of_the_platform(tmp_path):
     """The pitch of the stripes must fit the die, so a small design needs its own pitch."""
-    grid = {"straps": [{"layer": "m3", "width": 0.3, "pitch": 4, "offset": 2}]}
+    grid = {"straps": [{"layer": "m3", "width": "0.3 um", "pitch": "4 um", "offset": "2 um"}]}
     flow = place_flow(tmp_path, {"pdn": {"grid": grid}})
     body = stage(render(flow), "xeda_pdn")
     stripes = [line for line in body if line.startswith("add_pdn_stripe")]
@@ -1243,7 +1275,7 @@ def test_the_grid_of_the_settings_may_give_a_leaf_that_the_platform_leaves_empty
     grid = {
         "power_net": "VPWR",
         "ground_net": "VGND",
-        "rails": [{"layer": "m1", "width": 0.1}],
+        "rails": [{"layer": "m1", "width": "0.1 um"}],
     }
     flow = place_flow(tmp_path, {"pdn": {"grid": grid}}, model={"pdn": Pdn()})
     body = stage(render(flow), "xeda_pdn")
@@ -1284,13 +1316,17 @@ def test_a_leaf_of_the_grid_replaces_the_platform_leaf_in_a_planned_flow(tmp_pat
     A leaf that the user left out still keeps the value of the platform."""
     planned = plan(
         tmp_path,
-        typed={"pdn.grid": {"straps": [{"layer": "m4", "width": 1, "pitch": 6, "offset": 1}]}},
+        typed={
+            "pdn.grid": {
+                "straps": [{"layer": "m4", "width": "1 um", "pitch": "6 um", "offset": "1 um"}]
+            }
+        },
     )
     settings = planned.nodes[0].settings
     assert {"power_net", "rails"} <= settings.pdn.grid.model_fields_set
     model = place_flow(tmp_path / "flow").platform_model
     grid = effective(settings, model).pdn
-    assert [(strap.layer, strap.pitch) for strap in grid.straps] == [("m4", 6)]
+    assert [(strap.layer, strap.pitch) for strap in grid.straps] == [("m4", Length("6 um"))]
     assert grid.power_net == "VDD" and [rail.layer for rail in grid.rails] == ["m1"]
 
 
@@ -1322,14 +1358,14 @@ def test_the_grid_starts_with_power_or_ground(tmp_path, polarity):
 def test_the_options_of_a_stripe_are_passed_after_its_size(tmp_path):
     strap = {
         "layer": "m4",
-        "width": 0.5,
-        "pitch": 12,
-        "offset": 1,
-        "spacing": 3,
+        "width": "0.5 um",
+        "pitch": "12 um",
+        "offset": "1 um",
+        "spacing": "3 um",
         "offset_type": "center",
         "starts_with": "power",
         "extend": "core_ring",
-        "extend_by": 2,
+        "extend_by": "2 um",
         "snap_to_grid": True,
         "number_of_straps": 4,
         "nets": ["VDD", "VSS"],
@@ -1352,9 +1388,9 @@ def test_the_options_of_a_stripe_are_passed_after_its_size(tmp_path):
 def test_every_choice_of_a_stripe_renders_and_runs(tmp_path, kind, flag, offset_type):
     strap = {
         "layer": "m4",
-        "width": 0.5,
-        "pitch": 12,
-        "offset": 1,
+        "width": "0.5 um",
+        "pitch": "12 um",
+        "offset": "1 um",
         "extend": kind,
         "offset_type": offset_type,
     }
@@ -1373,15 +1409,28 @@ def test_a_stripe_of_the_platform_has_no_option(tmp_path):
 @pytest.mark.parametrize(
     "strap",
     [
-        {"layer": "m4", "width": 0, "pitch": 12, "offset": 1},
-        {"layer": "m4", "width": 1, "pitch": 0, "offset": 1},
-        {"layer": "m4", "width": 1, "pitch": 12, "offset": -1},
-        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "spacing": 0},
-        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "number_of_straps": 0},
-        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "extend": "pads"},
-        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "offset_type": "FIRST"},
-        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "starts_with": "POWER"},
-        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "spacing": "2"},
+        {"layer": "m4", "width": "0 um", "pitch": "12 um", "offset": "1 um"},
+        {"layer": "m4", "width": "1 um", "pitch": "0 um", "offset": "1 um"},
+        {"layer": "m4", "width": "1 um", "pitch": "12 um", "offset": "-1 um"},
+        {"layer": "m4", "width": "1 um", "pitch": "12 um", "offset": "1 um", "spacing": "0 um"},
+        {"layer": "m4", "width": "1 um", "pitch": "12 um", "offset": "1 um", "number_of_straps": 0},
+        {"layer": "m4", "width": "1 um", "pitch": "12 um", "offset": "1 um", "extend": "pads"},
+        {
+            "layer": "m4",
+            "width": "1 um",
+            "pitch": "12 um",
+            "offset": "1 um",
+            "offset_type": "FIRST",
+        },
+        {
+            "layer": "m4",
+            "width": "1 um",
+            "pitch": "12 um",
+            "offset": "1 um",
+            "starts_with": "POWER",
+        },
+        {"layer": "m4", "width": "1 um", "pitch": "12 um", "offset": "1 um", "spacing": "2"},
+        {"layer": "m4", "width": 1, "pitch": "12 um", "offset": "1 um"},
     ],
 )
 def test_a_malformed_stripe_is_refused(tmp_path, strap):
@@ -1389,7 +1438,7 @@ def test_a_malformed_stripe_is_refused(tmp_path, strap):
         plan(tmp_path, typed={"pdn.grid": {"straps": [strap]}})
 
 
-RING = {"layers": ["m3", "m4"], "widths": 1, "spacings": 1, "core_offset": 0.5}
+RING = {"layers": ["m3", "m4"], "widths": "1 um", "spacings": "1 um", "core_offset": "0.5 um"}
 
 
 def test_a_ring_surrounds_the_core(tmp_path):
@@ -1404,9 +1453,9 @@ def test_a_ring_surrounds_the_core(tmp_path):
 def test_the_options_of_a_ring_are_passed(tmp_path):
     ring = {
         "layers": ["m3", "m4"],
-        "widths": [1, 2],
-        "spacings": [0.5, 0.75],
-        "core_offset": [1, 2, 3, 4],
+        "widths": ["1 um", "2 um"],
+        "spacings": ["0.5 um", "0.75 um"],
+        "core_offset": ["1 um", "2 um", "3 um", "4 um"],
         "add_connect": True,
         "extend_to_boundary": True,
         "nets": ["VDD"],
@@ -1433,11 +1482,11 @@ def test_the_rings_come_after_the_stripes_and_before_the_connections(tmp_path):
     [
         {**RING, "layers": ["m3"]},
         {**RING, "layers": ["m3", "m4", "m5"]},
-        {**RING, "widths": 0},
-        {**RING, "widths": [1, 2, 3]},
-        {**RING, "spacings": -1},
-        {**RING, "core_offset": [1, 2]},
-        {**RING, "core_offset": -1},
+        {**RING, "widths": "0 um"},
+        {**RING, "widths": ["1 um", "2 um", "3 um"]},
+        {**RING, "spacings": "-1 um"},
+        {**RING, "core_offset": ["1 um", "2 um"]},
+        {**RING, "core_offset": "-1 um"},
         {k: v for k, v in RING.items() if k != "core_offset"},
         {**RING, "pad_offsets": 1},
     ],
@@ -1452,17 +1501,17 @@ def test_a_connection_is_a_pair_of_layers_or_an_object_with_options(tmp_path):
         ["m1", "m3"],
         {
             "layers": ["m3", "m4"],
-            "cut_pitch": [0.2, 0.3],
+            "cut_pitch": ["0.2 um", "0.3 um"],
             "fixed_vias": ["via34"],
             "dont_use_vias": ["bad*"],
             "max_rows": 2,
             "max_columns": 3,
             "ongrid": ["m3"],
             "min_width_layers": ["m2"],
-            "split_cuts": {"m3": 0.38, "m4": 0.5},
+            "split_cuts": {"m3": "0.38 um", "m4": "0.5 um"},
             "split_cuts_staggered": True,
         },
-        {"layers": ["m4", "m5"], "cut_pitch": 0.2},
+        {"layers": ["m4", "m5"], "cut_pitch": "0.2 um"},
     ]
     found = grid_lines(tmp_path, {"grid": {"connects": connects}}, "add_pdn_connect")
     assert found == [
@@ -1486,9 +1535,10 @@ def test_the_connections_of_the_platform_have_no_option(tmp_path):
     [
         ["m1"],
         {"layers": ["m1", "m2"], "max_rows": 0},
-        {"layers": ["m1", "m2"], "cut_pitch": 0},
-        {"layers": ["m1", "m2"], "cut_pitch": [1, 2, 3]},
-        {"layers": ["m1", "m2"], "split_cuts": {"m1": 0}},
+        {"layers": ["m1", "m2"], "cut_pitch": "0 um"},
+        {"layers": ["m1", "m2"], "cut_pitch": ["1 um", "2 um", "3 um"]},
+        {"layers": ["m1", "m2"], "split_cuts": {"m1": "0 um"}},
+        {"layers": ["m1", "m2"], "split_cuts": {"m1": 1}},
         {"layers": ["m1", "m2"], "unknown": 1},
     ],
 )
@@ -1632,11 +1682,11 @@ def test_the_effective_values_are_a_pure_function_of_the_settings_and_the_model(
 
 
 def test_a_grid_of_the_settings_does_not_change_the_platform_or_the_settings(tmp_path):
-    grid = {"straps": [{"layer": "m3", "width": 0.3, "pitch": 4, "offset": 2}]}
+    grid = {"straps": [{"layer": "m3", "width": "0.3 um", "pitch": "4 um", "offset": "2 um"}]}
     flow = place_flow(tmp_path, {"pdn": {"grid": grid}})
     before = flow.platform_model.pdn.model_copy(deep=True)
     values = effective(flow.settings, flow.platform_model)
-    assert values.pdn.straps == [PdnStripe(layer="m3", width=0.3, pitch=4.0, offset=2.0)]
+    assert values.pdn.straps == [PdnStripe(layer="m3", width="0.3 um", pitch="4 um", offset="2 um")]
     assert flow.platform_model.pdn == before
     assert len(flow.settings.pdn.grid.straps) == 1
 
@@ -1775,9 +1825,8 @@ def test_the_settings_replace_the_layers_of_the_pins_and_add_the_distances(tmp_p
     io = {
         "horizontal_layers": ["m2", "m4"],
         "vertical_layers": ["m3"],
-        "min_distance": 4,
-        "min_distance_unit": "tracks",
-        "corner_avoidance": 1.5,
+        "min_distance_tracks": 4,
+        "corner_avoidance": "1.5 um",
     }
     flow = place_flow(tmp_path, {"io": io})
     (line,) = stage(render(flow), "xeda_place_pins")
@@ -1788,13 +1837,18 @@ def test_the_settings_replace_the_layers_of_the_pins_and_add_the_distances(tmp_p
     run_script(flow)
 
 
-def test_the_distance_of_the_pins_in_micrometers_is_a_number_and_in_tracks_a_whole_number(tmp_path):
-    um = place_flow(tmp_path, {"io": {"min_distance": 2.5}})
+def test_the_distance_of_the_pins_is_a_length_or_a_whole_number_of_tracks(tmp_path):
+    um = place_flow(tmp_path, {"io": {"min_distance": "2500 nm"}})
     assert stage(render(um), "xeda_place_pins")[0].endswith("-min_distance 2.5")
-    tracks = place_flow(tmp_path / "t", {"io": {"min_distance": 3, "min_distance_unit": "tracks"}})
-    assert " -min_distance 3 " in stage(render(tracks), "xeda_place_pins")[0] + " "
-    message = refusal(tmp_path / "r", "io.min_distance=2.5", "io.min_distance_unit=tracks")
-    assert "whole number" in message and "io.min_distance" in message
+    tracks = place_flow(tmp_path / "t", {"io": {"min_distance_tracks": 3}})
+    assert (
+        " -min_distance_in_tracks -min_distance 3 "
+        in stage(render(tracks), "xeda_place_pins")[0] + " "
+    )
+    for number, given in enumerate(("io.min_distance_tracks=2.5", "io.min_distance_tracks=-1")):
+        assert "min_distance_tracks" in refusal(tmp_path / f"r{number}", given)
+    message = refusal(tmp_path / "b", "io.min_distance=2 um", "io.min_distance_tracks=3")
+    assert "io.min_distance" in message and "delete one of them" in message
 
 
 def test_the_pins_use_the_plural_flags_and_never_the_obsolete_random_flag(tmp_path):
@@ -1962,7 +2016,7 @@ def test_the_placement_without_pins_takes_only_the_density_the_padding_and_the_s
         tmp_path,
         cell_padding=1,
         random_seed=3,
-        perturb_distance=0.4,
+        perturb_distance="0.4 um",
         bin_grid_count=128,
         incremental=True,
         congestion_heatmap=True,
@@ -2036,7 +2090,7 @@ def test_a_timing_driven_option_needs_the_experiment_it_belongs_to(tmp_path, lea
         ("nesterov.reference_hpwl", -1),
         ("nesterov.overflow", 1.1),
         ("bin_grid_count", 1),
-        ("perturb_distance", -1),
+        ("perturb_distance", "-1 um"),
         ("flop_clustering.tray_weight", -1),
         ("flop_clustering.timing_weight", -0.5),
         ("flop_clustering.max_split_size", -2),
@@ -2134,7 +2188,7 @@ def test_the_options_of_the_whole_placement_come_after_the_modes(tmp_path):
         incremental=True,
         congestion_heatmap=True,
         random_seed=7,
-        perturb_distance=0.25,
+        perturb_distance="0.25 um",
     )
     assert main_placement(flow).endswith(
         '-force_center_initial_place -random_seed "7" -bin_grid_count "128" -incremental '
@@ -2144,32 +2198,47 @@ def test_the_options_of_the_whole_placement_come_after_the_modes(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "micrometers, nanometers", [(0.4, "400.0"), (0, "0.0"), (0.0005, "0.5"), (2, "2000.0")]
+    "length, nanometers, micrometers",
+    [
+        ("0.4 um", "400.0", "0.4"),
+        ("0 um", "0.0", "0.0"),
+        ("0.0005 um", "0.5", "0.0005"),
+        ("2 um", "2000.0", "2.0"),
+        ("500 nm", "500.0", "0.5"),
+        ("1 mm", "1000000.0", "1000.0"),
+    ],
 )
-def test_a_length_in_micrometers_is_written_in_nanometers(micrometers, nanometers):
-    from xeda.flows.openroad.base import to_nanometers
+def test_a_length_is_written_in_the_unit_that_the_command_takes(length, nanometers, micrometers):
+    assert to_nanometers(Length(length)) == nanometers
+    assert to_micrometers(Length(length)) == micrometers
 
-    assert to_nanometers(micrometers) == nanometers
+
+def test_a_list_of_lengths_is_a_list_word():
+    assert to_micrometers([Length("1 um"), Length("2500 nm")]) == "[list 1.0 2.5]"
+    assert to_micrometers((Length("0 um"),)) == "[list 0.0]"
 
 
-@pytest.mark.parametrize("value", ["1.0", None, True, float("nan"), float("inf")])
-def test_text_is_never_converted_as_a_length(value):
-    from xeda.flows.openroad.base import to_nanometers
-
-    with pytest.raises(TypeError):
-        to_nanometers(value)
+@pytest.mark.parametrize("value", [1.0, 5, "1.0", "5 um", None, True, float("nan"), float("inf")])
+def test_only_a_length_is_converted_as_a_length(value):
+    for convert in (to_nanometers, to_micrometers):
+        with pytest.raises(TypeError, match="a length with a unit"):
+            convert(value)
+    with pytest.raises(TypeError, match="a length with a unit"):
+        to_micrometers([Length("1 um"), value])
 
 
 @pytest.mark.parametrize(
-    "micrometers, nanometers", [(0.4, "400.0"), (0, "0.0"), (0.0005, "0.5"), (2, "2000.0")]
+    "perturbation, nanometers",
+    [("0.4 um", "400.0"), ("0 um", "0.0"), ("0.0005 um", "0.5"), ("2 um", "2000.0")],
 )
-def test_the_perturbation_is_given_in_micrometers_and_passed_in_nanometers(
-    tmp_path, micrometers, nanometers
+def test_the_perturbation_is_given_with_a_unit_and_passed_in_nanometers(
+    tmp_path, perturbation, nanometers
 ):
-    flow = gp_flow(tmp_path, perturb_distance=micrometers)
+    flow = gp_flow(tmp_path, perturb_distance=perturbation)
     assert main_placement(flow).endswith(f"-perturb_dist {nanometers}")
     flow.bind_template_values()
-    assert flow.jinja_env.from_string("{{ 0.4|nanometers }}").render() == "400.0"
+    template = flow.jinja_env.from_string("{{ value|nanometers }}|{{ value|micrometers }}")
+    assert template.render(value=Length("0.4 um")) == "400.0|0.4"
     unset = gp_flow(tmp_path / "unset")
     assert "-perturb_dist" not in render(unset)
 
@@ -2284,7 +2353,7 @@ def test_the_resize_stage_repairs_the_design_after_the_placement_and_not_before(
 
 def test_the_repair_of_the_design_follows_its_settings(tmp_path):
     repair = {
-        "max_wire_length": 500,
+        "max_wire_length": "500 um",
         "slew_margin_percent": 10,
         "cap_margin_percent": 5,
         "match_cell_footprint": True,
@@ -2614,7 +2683,7 @@ def test_the_optimizations_of_the_detailed_placement_can_be_switched_off(tmp_pat
 def test_the_legalization_follows_its_options(tmp_path):
     settings = {
         "detailed_placement": {
-            "max_displacement": [300, 40],
+            "max_displacement": ["300 um", "40 um"],
             "legalizer": "negotiation",
             "negotiation": {
                 "site_search_window": 30,
@@ -2792,8 +2861,8 @@ def test_the_metrics_stages_follow_the_stages_in_order(tmp_path):
                 "routability_driven": {"enabled": False},
             },
         },
-        {"io": {"min_distance": 3, "min_distance_unit": "um"}},
-        {"io": {"min_distance": 3, "min_distance_unit": "tracks"}},
+        {"io": {"min_distance": "3 um"}},
+        {"io": {"min_distance_tracks": 3}},
         {"global_placement": {"density": {"mode": "fixed"}}},
         {"global_placement": {"density": {"mode": "uniform"}}},
         {"global_placement": {"density": {"mode": "auto", "headroom": 0.1}}},
@@ -2886,9 +2955,9 @@ def test_an_algorithm_in_capitals_is_refused(tmp_path):
 def test_the_excluded_parts_of_the_edges_are_passed_one_flag_each(tmp_path):
     exclude = [
         {"edge": "top"},
-        {"edge": "right", "begin": 15, "end": 60.5},
-        {"edge": "left", "end": 2},
-        {"edge": "bottom", "begin": 3},
+        {"edge": "right", "begin": "15 um", "end": "60.5 um"},
+        {"edge": "left", "end": "2 um"},
+        {"edge": "bottom", "begin": "3 um"},
     ]
     flow = place_flow(tmp_path, {"io": {"exclude": exclude}})
     (line,) = stage(render(flow), "xeda_place_pins")
@@ -2899,7 +2968,12 @@ def test_the_excluded_parts_of_the_edges_are_passed_one_flag_each(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "begin, end, text", [(0, 5, "0-5"), (0.5, 1e-05 * 3e5, "0.5-3"), (1.25, 100, "1.25-100")]
+    "begin, end, text",
+    [
+        ("0 um", "5 um", "0-5"),
+        ("0.5 um", f"{1e-05 * 3e5} um", "0.5-3"),
+        ("1250 nm", "0.1 mm", "1.25-100"),
+    ],
 )
 def test_an_interval_is_written_in_digits_only(begin, end, text):
     from xeda.flows.openroad.place_groups import EdgeInterval
@@ -2910,8 +2984,8 @@ def test_an_interval_is_written_in_digits_only(begin, end, text):
 @pytest.mark.parametrize(
     "where, item",
     [
-        ("exclude", {"edge": "top", "begin": 5, "end": 5}),
-        ("exclude", {"edge": "top", "begin": 6, "end": 5}),
+        ("exclude", {"edge": "top", "begin": "5 um", "end": "5 um"}),
+        ("exclude", {"edge": "top", "begin": "6 um", "end": "5 um"}),
     ],
 )
 def test_an_interval_begins_before_it_ends(tmp_path, where, item):
@@ -2924,9 +2998,10 @@ def test_an_interval_begins_before_it_ends(tmp_path, where, item):
     [
         {"edge": "up"},
         {"edge": "Top"},
-        {"edge": "top", "begin": -1},
-        {"edge": "top", "end": float("inf")},
-        {"begin": 1},
+        {"edge": "top", "begin": "-1 um"},
+        {"edge": "top", "end": "inf um"},
+        {"edge": "top", "end": 5},
+        {"begin": "1 um"},
         {"edge": "top", "side": "x"},
     ],
 )
@@ -2938,7 +3013,11 @@ def test_a_malformed_excluded_interval_is_refused(tmp_path, item):
 def test_groups_of_pins_are_constraints_of_the_pin_placer_that_come_before_it(tmp_path):
     groups = [
         {"pins": ["q[0]", "q[1]"]},
-        {"pins": ["d*"], "order": True, "region": {"edge": "right", "begin": 1, "end": 4}},
+        {
+            "pins": ["d*"],
+            "order": True,
+            "region": {"edge": "right", "begin": "1 um", "end": "4 um"},
+        },
     ]
     flow, body = io_placement(tmp_path, {"groups": groups})
     assert body == [
@@ -2958,7 +3037,7 @@ def test_groups_of_pins_are_constraints_of_the_pin_placer_that_come_before_it(tm
 def test_pins_chosen_by_name_or_by_direction_are_kept_to_a_part_of_an_edge(tmp_path):
     constraints = [
         {"direction": "input", "region": {"edge": "left"}},
-        {"pins": ["q*"], "region": {"edge": "right", "begin": 0, "end": 5}},
+        {"pins": ["q*"], "region": {"edge": "right", "begin": "0 um", "end": "5 um"}},
     ]
     flow, body = io_placement(tmp_path, {"constraints": constraints})
     assert body[1:3] == [
@@ -3024,8 +3103,8 @@ def test_a_mirrored_pin_comes_with_exactly_one_partner(tmp_path, pairs):
 
 def test_the_shape_of_the_pins_is_set_before_the_pins_are_placed(tmp_path):
     io = {
-        "pin_length": {"horizontal": 0.5, "vertical": 0.6},
-        "pin_extension": {"vertical": 0.1},
+        "pin_length": {"horizontal": "0.5 um", "vertical": "0.6 um"},
+        "pin_extension": {"vertical": "0.1 um"},
         "pin_thickness": {"horizontal": 2, "vertical": 1.5},
     }
     flow, body = io_placement(tmp_path, io)
@@ -3042,9 +3121,9 @@ def test_the_shape_of_the_pins_is_set_before_the_pins_are_placed(tmp_path):
 @pytest.mark.parametrize(
     "key, value",
     [
-        ("io.pin_length.horizontal", 0),
-        ("io.pin_length.vertical", -1),
-        ("io.pin_extension.horizontal", -0.1),
+        ("io.pin_length.horizontal", "0 um"),
+        ("io.pin_length.vertical", "-1 um"),
+        ("io.pin_extension.horizontal", "-0.1 um"),
         ("io.pin_thickness.horizontal", 0.5),
         ("io.pin_thickness.vertical", 0),
     ],
@@ -3061,14 +3140,14 @@ def test_no_pin_command_is_written_when_no_setting_asks_for_it(tmp_path):
 
 
 FIXED_PINS = [
-    {"pin": "clk", "layer": "m3", "x": 0, "y": 3.5},
+    {"pin": "clk", "layer": "m3", "x": "0 um", "y": "3.5 um"},
     {
         "pin": "d[0]",
         "layer": "m4",
-        "x": 1,
-        "y": 0,
-        "width": 0.2,
-        "height": 0.4,
+        "x": "1 um",
+        "y": "0 um",
+        "width": "0.2 um",
+        "height": "0.4 um",
         "snap_to_boundary": True,
         "status": "placed",
     },
@@ -3094,7 +3173,7 @@ def test_the_pins_by_hand_are_placed_before_any_placement(tmp_path):
 
 @pytest.mark.parametrize("status", ["fixed", "placed"])
 def test_every_status_of_a_pin_by_hand_renders_and_runs(tmp_path, status):
-    pins = [{"pin": "clk", "layer": "m3", "x": 0, "y": 3, "status": status}]
+    pins = [{"pin": "clk", "layer": "m3", "x": "0 um", "y": "3 um", "status": status}]
     flow = place_flow(tmp_path, {"io": {"fixed_pins": pins}})
     (line,) = stage(render(flow), "xeda_fixed_pins")
     assert line.endswith("-placed_status") == (status == "placed")
@@ -3138,8 +3217,8 @@ def test_the_pins_by_hand_plan_with_the_pins_that_stay(tmp_path):
 @pytest.mark.parametrize(
     "pin",
     [
-        {"pin": "a", "layer": "m3", "x": 0, "y": 0, "width": 0.2},
-        {"pin": "a", "layer": "m3", "x": 0, "y": 0, "height": 0.2},
+        {"pin": "a", "layer": "m3", "x": "0 um", "y": "0 um", "width": "0.2 um"},
+        {"pin": "a", "layer": "m3", "x": "0 um", "y": "0 um", "height": "0.2 um"},
     ],
 )
 def test_a_pin_by_hand_gives_both_sides_of_its_shape_or_none(tmp_path, pin):
@@ -3150,12 +3229,13 @@ def test_a_pin_by_hand_gives_both_sides_of_its_shape_or_none(tmp_path, pin):
 @pytest.mark.parametrize(
     "pin",
     [
-        {"pin": "a", "layer": "m3", "x": 0},
-        {"pin": "", "layer": "m3", "x": 0, "y": 0},
-        {"pin": "a", "layer": "", "x": 0, "y": 0},
-        {"pin": "a", "layer": "m3", "x": float("nan"), "y": 0},
-        {"pin": "a", "layer": "m3", "x": 0, "y": 0, "width": 0, "height": 1},
-        {"pin": "a", "layer": "m3", "x": 0, "y": 0, "status": "Fixed"},
+        {"pin": "a", "layer": "m3", "x": "0 um"},
+        {"pin": "", "layer": "m3", "x": "0 um", "y": "0 um"},
+        {"pin": "a", "layer": "", "x": "0 um", "y": "0 um"},
+        {"pin": "a", "layer": "m3", "x": "nan um", "y": "0 um"},
+        {"pin": "a", "layer": "m3", "x": 1, "y": "0 um"},
+        {"pin": "a", "layer": "m3", "x": "0 um", "y": "0 um", "width": "0 um", "height": "1 um"},
+        {"pin": "a", "layer": "m3", "x": "0 um", "y": "0 um", "status": "Fixed"},
     ],
 )
 def test_a_malformed_pin_by_hand_is_refused(tmp_path, pin):
@@ -3167,7 +3247,10 @@ def test_the_pins_that_stay_need_a_def_floorplan_or_pins_by_hand(tmp_path):
     message = refusal(tmp_path, "io.flow=fixed")
     assert "io.flow: fixed" in message and "GPL-0326" in message
     assert "floorplan.sizing: def" in message and "io.fixed_pins" in message
-    area = {"floorplan.die_area": [0, 0, 10, 10], "floorplan.core_area": [1, 1, 9, 9]}
+    area = {
+        "floorplan.die_area": ["0 um", "0 um", "10 um", "10 um"],
+        "floorplan.core_area": ["1 um", "1 um", "9 um", "9 um"],
+    }
     assert "floorplan.sizing: area" in refusal(
         tmp_path / "area", "io.flow=fixed", "floorplan.sizing=area", typed=area
     )
@@ -3233,8 +3316,8 @@ def test_the_pins_that_the_flow_places_are_not_checked_before_the_placement(tmp_
         ("groups", [{"pins": ["a"]}]),
         ("constraints", [{"direction": "input", "region": {"edge": "top"}}]),
         ("mirrored_pins", [["a", "b"]]),
-        ("pin_length.horizontal", 0.5),
-        ("pin_extension.vertical", 0.1),
+        ("pin_length.horizontal", "0.5 um"),
+        ("pin_extension.vertical", "0.1 um"),
         ("pin_thickness.vertical", 2),
         ("algorithm", "annealing"),
     ],
@@ -3433,17 +3516,26 @@ def test_arith_swap_needs_the_hierarchy(tmp_path):
         (["floorplan.sizing=def"], None, r"floorplan\.def_file"),
         (
             ["floorplan.core_utilization_percent=40", "floorplan.sizing=area"],
-            {"floorplan.die_area": [0, 0, 10, 10], "floorplan.core_area": [1, 1, 9, 9]},
+            {
+                "floorplan.die_area": ["0 um", "0 um", "10 um", "10 um"],
+                "floorplan.core_area": ["1 um", "1 um", "9 um", "9 um"],
+            },
             r"core_utilization_percent.*sizing: utilization",
         ),
         (
             [],
-            {"floorplan.die_area": [0, 0, 10, 10], "floorplan.core_area": [1, 1, 9, 9]},
+            {
+                "floorplan.die_area": ["0 um", "0 um", "10 um", "10 um"],
+                "floorplan.core_area": ["1 um", "1 um", "9 um", "9 um"],
+            },
             r"die_area.*sizing: area",
         ),
         (
             ["floorplan.sizing=area"],
-            {"floorplan.die_area": [0, 0, 10, 10], "floorplan.core_area": [1, 1, 20, 9]},
+            {
+                "floorplan.die_area": ["0 um", "0 um", "10 um", "10 um"],
+                "floorplan.core_area": ["1 um", "1 um", "20 um", "9 um"],
+            },
             r"core_area.*inside.*die_area",
         ),
         (
@@ -3451,7 +3543,7 @@ def test_arith_swap_needs_the_hierarchy(tmp_path):
             None,
             r"aspect_ratio.*sizing: utilization",
         ),
-        (["tapcell.mode=none", "tapcell.distance=5"], None, r"tapcell\.distance.*no effect"),
+        (["tapcell.mode=none", "tapcell.distance=5 um"], None, r"tapcell\.distance.*no effect"),
         (["pdn.mode=none"], {"pdn.grid": {"power_net": "VDD"}}, r"pdn\.grid.*no effect"),
         (["design.eliminate_dead_logic=maybe"], None, r"eliminate_dead_logic"),
         (
@@ -3525,8 +3617,8 @@ def test_a_launch_removes_the_failed_database_of_an_earlier_run(tmp_path, monkey
     [
         "io.horizontal_layers=m2",
         "io.vertical_layers=m3",
-        "io.min_distance=3",
-        "io.corner_avoidance=1",
+        "io.min_distance=3 um",
+        "io.corner_avoidance=1 um",
         "io.algorithm=annealing",
     ],
 )
@@ -3539,12 +3631,12 @@ def test_a_setting_for_the_placement_of_the_pins_has_no_effect_when_the_pins_sta
 
 def test_a_floorplan_from_a_def_file_refuses_a_setting_for_the_pins(tmp_path):
     def_texts = ["floorplan.sizing=def", "floorplan.def_file=plan.def"]
-    message = refusal(tmp_path, *def_texts, "io.min_distance=3")
+    message = refusal(tmp_path, *def_texts, "io.min_distance=3 um")
     assert "io.min_distance" in message and "floorplan.sizing: def" in message
     plan(
         tmp_path / "again",
         *def_texts,
-        "io.min_distance=3",
+        "io.min_distance=3 um",
         "io.flow=concurrent",
         "global_placement.timing_driven.enabled=false",
         "global_placement.routability_driven.enabled=false",

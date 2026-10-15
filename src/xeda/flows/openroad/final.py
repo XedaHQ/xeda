@@ -18,6 +18,7 @@ from ...flow import Flow, In, Out, describe_results
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import PlatformModel
 from ...tool import NonZeroExitCode, Tool
+from ...units import Length
 from ...utils import replacing_file
 from .base import (
     PLATFORM_ROLES,
@@ -27,6 +28,7 @@ from .base import (
     failure_lines,
     platform_time_unit,
     tcl_number,
+    to_micrometers,
 )
 from .final_groups import (
     DetailedRouteGroup,
@@ -125,6 +127,10 @@ class EffectiveFinal(EffectiveBase):
     #: `ir_drop.nets` in its order, else the power nets and then the ground nets of the platform,
     #: each in the order of the platform.
     supply_voltages: tuple[tuple[str, float], ...]
+    #: Whether the settings change the setup of the analysis, that is the model of the voltage
+    #: sources or the power of an instance. Then the templates define and call the procedure
+    #: `xeda_ir_setup`.
+    ir_setup: bool
     #: The files that the analysis writes for each net besides the error report: `voltage` (the
     #: voltage of each instance), `em` (the current in each segment) and `spice` (the SPICE
     #: netlist of the grid), as the settings switch them on.
@@ -198,7 +204,7 @@ def effective(settings: "Openroad.Settings", model: PlatformModel) -> EffectiveF
     )
     supply = model.supply
     supply_voltages = (
-        tuple((net, float(volts)) for net, volts in settings.ir_drop.nets.items())
+        tuple((net, volts.to("V")) for net, volts in settings.ir_drop.nets.items())
         if settings.ir_drop.nets is not None
         else tuple(
             (net, float(volts))
@@ -233,6 +239,11 @@ def effective(settings: "Openroad.Settings", model: PlatformModel) -> EffectiveF
         rcx_rules=rules[0] if extraction == "rcx" else None,
         ir_drop=settings.ir_drop.enabled,
         supply_voltages=supply_voltages,
+        ir_setup=bool(settings.ir_drop.instance_power)
+        or any(
+            getattr(settings.ir_drop.source, name) is not None
+            for name in type(settings.ir_drop.source).model_fields
+        ),
         ir_drop_kinds=tuple(
             kind
             for kind, on in (
@@ -247,13 +258,13 @@ def effective(settings: "Openroad.Settings", model: PlatformModel) -> EffectiveF
     )
 
 
-def ndr_words(values: Dict[str, float | str]) -> list[str]:
+def ndr_words(values: Dict[str, Length | str]) -> list[str]:
     """Return the widths or the spacings of a non-default rule as the flat list that `create_ndr`
-    reads: a layer or a range of layers, then its value, and so on. A number becomes the Tcl text
-    of the number, and a factor (`*2`) stays as it is."""
+    reads: a layer or a range of layers, then its value, and so on. A length becomes the Tcl text
+    of its number of micrometers, and a factor (`*2`) stays as it is."""
     words: list[str] = []
     for layers, value in values.items():
-        words += [layers, value if isinstance(value, str) else tcl_number(value)]
+        words += [layers, value if isinstance(value, str) else to_micrometers(value)]
     return words
 
 

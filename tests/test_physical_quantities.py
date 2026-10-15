@@ -59,6 +59,7 @@ from .settings_fields import (
     assign,
     fields_of,
     follow,
+    kind_of,
     nest,
     quantity_paths,
     reachable_models,
@@ -567,10 +568,7 @@ DIFFERENT: dict[type, str] = {
 }
 
 
-def _kind_of(path) -> type:
-    last = path[-1]
-    (kind,) = shape_of(last.model.model_fields[last.key].annotation).quantity_types[:1]
-    return kind
+_kind_of = kind_of
 
 
 @pytest.mark.parametrize("field", QUANTITY_FIELDS, ids=QUANTITY_FIELD_IDS)

@@ -2,13 +2,15 @@
    model of the voltage sources and the power of the instances that the settings give. The
    analysis of the final report and the analysis before the decap cells call it. #}
 {% set ir = settings.ir_drop %}
-{% if render_flags(ir.source) or ir.instance_power %}
+{% set src = ir.source %}
+{% set source_words = [("-bump_dx " ~ (src.bump_dx|to("um")|int|tcl_word)) if src.bump_dx is not none else "", ("-bump_dy " ~ (src.bump_dy|to("um")|int|tcl_word)) if src.bump_dy is not none else "", ("-bump_size " ~ (src.bump_size|to("um")|int|tcl_word)) if src.bump_size is not none else "", render_flags(src), ("-external_resistance " ~ (src.external_resistance|ohms|tcl_word)) if src.external_resistance is not none else ""]|select|list %}
+{% if P.ir_setup %}
 proc xeda_ir_setup {} {
-{% if render_flags(ir.source) %}
-    set_pdnsim_source_settings {{ render_flags(ir.source) }}
+{% if source_words %}
+    set_pdnsim_source_settings {{ source_words|join(" ") }}
 {% endif %}
 {% for inst, power in ir.instance_power.items() %}
-    set_pdnsim_inst_power -inst {{ inst|tcl_word }} -power {{ power|tcl_number }}
+    set_pdnsim_inst_power -inst {{ inst|tcl_word }} -power {{ power|watts }}
 {% endfor %}
 }
 {% endif %}

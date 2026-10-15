@@ -161,7 +161,9 @@ def plan(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None, resid
 def refusal(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None, residue=None) -> str:
     with pytest.raises(FlowSettingsException) as error:
         plan(tmp_path, *texts, typed=typed, residue=residue)
-    return " ".join(str(error.value).split())
+    message = " ".join(str(error.value).split())
+    assert "needs a unit" not in message, "the refusal is about a missing unit: " + message
+    return message
 
 
 # ------------------------------------------------------------------------------ the golden
@@ -487,7 +489,7 @@ def test_the_batch_width_and_the_fanout_limit_go_to_the_first_route(tmp_path):
 def test_the_grid_origin_is_given_in_micrometers_to_every_route(tmp_path):
     """The tool takes database units and resets the origin at each call without the flag, and the
     origin shifts the guides that the call saves. So every route gets it."""
-    found = body(tmp_path, {"router": {"grid_origin": [1, 2.5]}})
+    found = body(tmp_path, {"router": {"grid_origin": ["1 um", "2.5 um"]}})
     routes = words(found, "global_route")
     assert len(routes) == 5
     origin = "-grid_origin [list [ord::microns_to_dbu 1.0] [ord::microns_to_dbu 2.5]]"
@@ -505,7 +507,7 @@ def test_the_steiner_alphas_are_set_in_order_before_the_first_route(tmp_path):
                     {"alpha": 0.1, "clock_nets": True},
                     {"alpha": 0.8, "nets": ["a", "b"]},
                     {"alpha": 0.2, "min_fanout": 20},
-                    {"alpha": 0.3, "min_hpwl": 150.5},
+                    {"alpha": 0.3, "min_hpwl": "150.5 um"},
                 ]
             }
         },
@@ -564,8 +566,16 @@ def test_the_region_adjustments_are_set_before_the_first_route_in_order(tmp_path
         {
             "congestion": {
                 "region_adjustments": [
-                    {"region": [0, 0, 10, 12.5], "layer": "m2", "adjustment": 0.5},
-                    {"region": [5, 5, 20, 20], "layer": "m3", "adjustment": 0.25},
+                    {
+                        "region": ["0 um", "0 um", "10 um", "12.5 um"],
+                        "layer": "m2",
+                        "adjustment": 0.5,
+                    },
+                    {
+                        "region": ["5 um", "5 um", "20 um", "20 um"],
+                        "layer": "m3",
+                        "adjustment": 0.25,
+                    },
                 ]
             }
         },
@@ -582,12 +592,12 @@ def test_the_region_adjustments_are_set_before_the_first_route_in_order(tmp_path
 @pytest.mark.parametrize(
     "adjustment",
     [
-        {"region": [0, 0, 10, 10], "layer": "m2", "adjustment": 1.5},
-        {"region": [0, 0, 10, 10], "layer": "m2", "adjustment": -0.1},
-        {"region": [-1, 0, 10, 10], "layer": "m2", "adjustment": 0.5},
-        {"region": [0, 0, 10], "layer": "m2", "adjustment": 0.5},
-        {"region": [0, 0, 10, 10], "layer": "", "adjustment": 0.5},
-        {"region": [0, 0, 10, 10], "layer": "m2"},
+        {"region": ["0 um", "0 um", "10 um", "10 um"], "layer": "m2", "adjustment": 1.5},
+        {"region": ["0 um", "0 um", "10 um", "10 um"], "layer": "m2", "adjustment": -0.1},
+        {"region": ["-1 um", "0 um", "10 um", "10 um"], "layer": "m2", "adjustment": 0.5},
+        {"region": ["0 um", "0 um", "10 um"], "layer": "m2", "adjustment": 0.5},
+        {"region": ["0 um", "0 um", "10 um", "10 um"], "layer": "", "adjustment": 0.5},
+        {"region": ["0 um", "0 um", "10 um", "10 um"], "layer": "m2"},
     ],
     ids=lambda adjustment: json.dumps(adjustment),
 )
@@ -868,13 +878,15 @@ def test_a_method_that_needs_no_diode_still_skips_where_the_platform_has_none(tm
         {"congestion": {"report_step": 0, "critical_nets_percent": 10, "macro_extension": 1}},
         {
             "congestion": {
-                "region_adjustments": [{"region": [0, 0, 10, 10], "layer": "m2", "adjustment": 0.3}]
+                "region_adjustments": [
+                    {"region": ["0 um", "0 um", "10 um", "10 um"], "layer": "m2", "adjustment": 0.3}
+                ]
             }
         },
         {"router": {"seed": 3}},
         {"router": {"engine": "cugr", "resistance_aware": True, "res_aware_nets_percent": 20}},
         {"router": {"resistance_aware": True}},
-        {"router": {"batch_width": 4, "skip_fanout_above": 100, "grid_origin": [0, 1.5]}},
+        {"router": {"batch_width": 4, "skip_fanout_above": 100, "grid_origin": ["0 um", "1.5 um"]}},
         {"router": {"seed": 2, "capacity_perturbation_percent": 3, "perturbation_amount": 2}},
         {"router": {"steiner_alphas": [{"alpha": 0.5}, {"alpha": 0.2, "nets": ["a"]}]}},
         {"router": {"steiner_alphas": [{"alpha": 0.5, "clock_nets": True}]}},
@@ -885,7 +897,7 @@ def test_a_method_that_needs_no_diode_still_skips_where_the_platform_has_none(tm
         {"repair": {"wns_polish": True}},
         {"repair": {"wns_polish": False, "recover_power_percent": 5}},
         {"repair": {"design": {"enabled": False}}},
-        {"repair": {"design": {"max_wire_length": 100, "slew_margin_percent": 10}}},
+        {"repair": {"design": {"max_wire_length": "100 um", "slew_margin_percent": 10}}},
         {"repair": {"design": {"reroute": True}}},
         {"repair": {"timing": {"enabled": False}}},
         {"repair": {"timing": {"fix": "hold", "hold_margin": "0.05 ns", "max_buffer_percent": 10}}},
@@ -1123,7 +1135,7 @@ def test_a_steiner_alpha_with_two_selectors_is_refused_with_the_way_out(tmp_path
         {"alpha": 1.5},
         {"alpha": -0.1},
         {"alpha": 0.5, "min_fanout": -1},
-        {"alpha": 0.5, "min_hpwl": -1.0},
+        {"alpha": 0.5, "min_hpwl": "-1.0 um"},
     ],
     ids=lambda alpha: json.dumps(alpha),
 )
@@ -1137,7 +1149,7 @@ def test_a_region_adjustment_without_area_is_refused_with_the_way_out(tmp_path):
         tmp_path,
         typed={
             "congestion.region_adjustments": [
-                {"region": [5, 5, 5, 20], "layer": "m2", "adjustment": 0.5}
+                {"region": ["5 um", "5 um", "5 um", "20 um"], "layer": "m2", "adjustment": 0.5}
             ]
         },
     )

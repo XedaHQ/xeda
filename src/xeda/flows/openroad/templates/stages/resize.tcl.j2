@@ -17,7 +17,7 @@ proc xeda_resize {} {
     estimate_parasitics -placement
 {% endif %}
 {% if rd.enabled %}
-    repair_design {{ [render_flags(rd), render_flags(resize), "-match_cell_footprint" if rd_footprint else "", "-verbose"]|select|join(" ") }}
+    repair_design {{ [("-max_wire_length " ~ (rd.max_wire_length|micrometers|tcl_word)) if rd.max_wire_length is not none else "", render_flags(rd), render_flags(resize), "-match_cell_footprint" if rd_footprint else "", "-verbose"]|select|join(" ") }}
 {% endif %}
 {% if rt.enabled %}
     estimate_parasitics -placement

@@ -4,7 +4,7 @@
    final stage. The new instances get their power connections from the global connections. #}
 {% set ir = settings.ir_drop %}
 proc xeda_ir_decap {} {
-{% if render_flags(ir.source) or ir.instance_power %}
+{% if P.ir_setup %}
     xeda_ir_setup
 {% endif %}
 {% for net, volts in P.supply_voltages if net == P.decap_net %}

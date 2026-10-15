@@ -9,9 +9,21 @@ import re
 from pathlib import Path
 from typing import Annotated, ClassVar, Literal, Optional, Tuple, Union
 
-from ...dataclass import Field, XedaBaseModel, field_validator, tier
+from ...dataclass import Field, XedaBaseModel, extras, field_validator, tier
 from ...flow.settings_group import Flag, SettingsGroup
-from .groups import differing_leaves
+from ...units import (
+    Bounds,
+    Capacitance,
+    Length,
+    Power,
+    Resistance,
+    Voltage,
+    count,
+    library_units,
+    percent,
+    ratio,
+)
+from .groups import differing_leaves, whole_micrometers
 
 __all__ = [
     "DetailedRouteGroup",
@@ -76,14 +88,14 @@ class DetailedRouteGroup(SettingsGroup):
         le=64,
         description="The most optimization iterations (`-droute_end_iter`). The tool clamps "
         "larger values to 64. The default is the one of OpenROAD-flow-scripts.",
-        json_schema_extra=tier("common"),
+        json_schema_extra=extras(tier("common"), count()),
     )
     reroute_seed: Optional[int] = Field(
         None,
         ge=0,
         description="The seed that shuffles the nets to reroute (`-or_seed`). A developer "
         "option of the router. Unset: no shuffling.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     reroute_swap_factor: Optional[float] = Field(
         None,
@@ -91,14 +103,14 @@ class DetailedRouteGroup(SettingsGroup):
         description="The factor that sets how many swaps the shuffle makes (`-or_k`): the "
         "number of swaps is the factor times the number of nets to reroute. Needs "
         "`reroute_seed`.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     drc_report_step: int = Field(
         5,
         ge=0,
         description="Write a DRC report every this many iterations (`-drc_report_iter_step`). 0 "
         "writes no report during the route. The default is the one of OpenROAD-flow-scripts.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     via_in_pin: Optional[ViaInPin] = Field(
         None,
@@ -119,7 +131,7 @@ class DetailedRouteGroup(SettingsGroup):
         ge=1,
         description="The least number of access points that the router finds for each pin of a "
         "standard cell or a macro (`-min_access_points`). Unset: the default of the router.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     pin_access: bool = Field(
         True,
@@ -159,7 +171,7 @@ class DetailedRouteGroup(SettingsGroup):
         ge=0,
         description="The level of the messages of the router (`-verbose`). The default is the "
         "one of OpenROAD-flow-scripts.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     default_vias: list[Annotated[str, Field(min_length=1)]] = Field(
         [],
@@ -211,10 +223,10 @@ class DetailedRouteGroup(SettingsGroup):
         return []
 
 
-#: A width or spacing of a non-default rule: micrometers, or a factor of the value of the
-#: technology, written `*2`.
+#: A width or spacing of a non-default rule: a length with a unit, or a factor of the value of
+#: the technology, written `*2`.
 NdrValue = Union[
-    Annotated[float, Field(gt=0)],
+    Annotated[Length, Bounds(gt="0 um")],
     Annotated[str, Field(pattern=r"^\*[0-9]+(\.[0-9]+)?$")],
 ]
 
@@ -225,14 +237,14 @@ class NdrRule(XedaBaseModel):
     width: dict[str, NdrValue] = Field(
         {},
         description="The width of the wires, by layer. A key is a layer name or a range "
-        "`first:last` of routing layers. A value is a number in micrometers or a factor of the "
-        "default width, written `*2`. A layer that no key names keeps its default width.",
+        "`first:last` of routing layers. A value is a length with a unit, such as `0.14 um`, or "
+        "a factor of the default width, written `*2`. A layer that no key names keeps its default width.",
     )
     spacing: dict[str, NdrValue] = Field(
         {},
         description="The spacing of the wires, by layer. A key is a layer name or a range "
-        "`first:last` of routing layers. A value is a number in micrometers or a factor of the "
-        "default spacing, written `*2`.",
+        "`first:last` of routing layers. A value is a length with a unit, such as `0.14 um`, or "
+        "a factor of the default spacing, written `*2`.",
     )
     vias: list[Annotated[str, Field(min_length=1)]] = Field(
         [],
@@ -295,7 +307,7 @@ class FinalAntennaGroup(SettingsGroup):
         ge=1,
         description="The most rounds of repair and reroute. The default is the one of "
         "OpenROAD-flow-scripts.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     method: Literal["both", "diode", "jumper"] = Field(
         "both",
@@ -313,7 +325,7 @@ class FinalAntennaGroup(SettingsGroup):
         description="Repair a violation when the antenna ratio comes within this share of its "
         "limit, in percent (`-ratio_margin`). The margin costs area. Unset: the default of the "
         "tool, 0.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), percent()),
     )
     diode_cell: Optional[str] = Field(
         None,
@@ -386,21 +398,21 @@ class ExtractionScale(SettingsGroup):
         None,
         gt=0,
         description="The factor for the resistance of the wires (`-res_factor`). Unset: 1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     cc: Optional[float] = Field(
         None,
         gt=0,
         description="The factor for the coupling capacitance between wires (`-cc_factor`). "
         "Unset: 1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     gnd: Optional[float] = Field(
         None,
         gt=0,
         description="The factor for the capacitance of the wires to the ground "
         "(`-gndc_factor`). Unset: 1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
 
 
@@ -411,7 +423,6 @@ class ExtractionGroup(SettingsGroup):
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
         Flag("corner_index", "-corner", "value"),
         Flag("corner_count", "-corner_cnt", "value"),
-        Flag("max_res", "-max_res", "value"),
         Flag("cc_model", "-cc_model", "value"),
         Flag("context_depth", "-context_depth", "value"),
         Flag("merge_via_res", "-no_merge_via_res", "skip"),
@@ -438,34 +449,32 @@ class ExtractionGroup(SettingsGroup):
         description="The index of the process corner in the rules file "
         "(`define_process_corner -ext_model_index`). The default is the one of "
         "OpenROAD-flow-scripts.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     corner_index: Optional[int] = Field(
         None,
         ge=0,
         description="The corner to extract (`-corner`). Unset: the default of the tool, all.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     corner_count: Optional[int] = Field(
         None,
         ge=1,
         description="The number of corners to extract (`-corner_cnt`). Unset: the default of "
         "the tool, 1.",
+        json_schema_extra=extras(tier("expert"), count()),
+    )
+    max_res: Optional[Annotated[Resistance, Bounds(ge="0 ohm")]] = Field(
+        None,
+        description="The resistors in series merge up to this resistance, a resistance with a "
+        "unit, such as `50 ohm` (`-max_res`). Unset: the default of the tool, 50 ohm.",
         json_schema_extra=tier("expert"),
     )
-    max_res: Optional[float] = Field(
+    coupling_threshold: Optional[Annotated[Capacitance, Bounds(ge="0 fF")]] = Field(
         None,
-        ge=0,
-        description="The resistors in series merge up to this resistance, in ohms "
-        "(`-max_res`). Unset: the default of the tool, 50.",
-        json_schema_extra=tier("expert"),
-    )
-    coupling_threshold: Optional[float] = Field(
-        None,
-        ge=0,
         description="A coupling capacitance below this value counts as a capacitance to the "
-        "ground, in picofarads (`-coupling_threshold`, which takes femtofarads). Unset: the "
-        "default of the tool, 0.0001 pF.",
+        "ground, a capacitance with a unit, such as `0.1 fF` (`-coupling_threshold`). Unset: "
+        "the default of the tool, 0.1 fF.",
         json_schema_extra=tier("advanced"),
     )
     cc_model: Optional[int] = Field(
@@ -473,14 +482,14 @@ class ExtractionGroup(SettingsGroup):
         ge=0,
         description="The number of tracks on each side of a wire that count for its lateral "
         "coupling (`-cc_model`). Unset: the default of the tool, 10.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     context_depth: Optional[int] = Field(
         None,
         ge=0,
         description="The number of layers above and below a wire that count for its capacitance "
         "(`-context_depth`). Unset: the default of the tool, 5.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     lef_values: Literal["none", "res", "rc"] = Field(
         "none",
@@ -508,7 +517,7 @@ class ExtractionGroup(SettingsGroup):
         gt=0,
         description="The version of the extraction model (`-version`): 1.0 or 2.0. Unset: the "
         "default of the tool, 1.0.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     scale: ExtractionScale = Field(
         default_factory=ExtractionScale,
@@ -537,7 +546,7 @@ class TimingReport(SettingsGroup):
         ge=1,
         description="The number of paths to report in each path group (`-group_path_count`). "
         "The default is the one of the tool.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     format: Literal[
         "full",
@@ -599,38 +608,35 @@ class ReportsGroup(SettingsGroup):
     )
 
 
+#: A length of at least 1 um, which must be a whole number of micrometers.
+WholeLength = Annotated[Length, Bounds(ge="1 um")]
+
+
 class IrDropSource(SettingsGroup):
     """The model of the voltage sources of the IR drop analysis (`set_pdnsim_source_settings`).
     The model of bumps and the model of straps read different settings; see `source_type`."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("bump_dx", "-bump_dx", "value"),
-        Flag("bump_dy", "-bump_dy", "value"),
-        Flag("bump_size", "-bump_size", "value"),
         Flag("bump_interval", "-bump_interval", "value"),
         Flag("strap_track_pitch", "-strap_track_pitch", "value"),
-        Flag("external_resistance", "-external_resistance", "value"),
     )
 
-    bump_dx: Optional[int] = Field(
+    bump_dx: Optional[WholeLength] = Field(
         None,
-        ge=1,
-        description="The pitch of the bumps along x, in whole micrometers (`-bump_dx`). Unset: the "
-        "default of the tool, 140.",
+        description="The pitch of the bumps along x, a length with a unit and a whole number of "
+        "micrometers (`-bump_dx`). Unset: the default of the tool, 140 um.",
         json_schema_extra=tier("expert"),
     )
-    bump_dy: Optional[int] = Field(
+    bump_dy: Optional[WholeLength] = Field(
         None,
-        ge=1,
-        description="The pitch of the bumps along y, in whole micrometers (`-bump_dy`). Unset: the "
-        "default of the tool, 140.",
+        description="The pitch of the bumps along y, a length with a unit and a whole number of "
+        "micrometers (`-bump_dy`). Unset: the default of the tool, 140 um.",
         json_schema_extra=tier("expert"),
     )
-    bump_size: Optional[int] = Field(
+    bump_size: Optional[WholeLength] = Field(
         None,
-        ge=1,
-        description="The size of a bump, in whole micrometers (`-bump_size`). Unset: the default of "
-        "the tool, 70.",
+        description="The size of a bump, a length with a unit and a whole number of micrometers "
+        "(`-bump_size`). Unset: the default of the tool, 70 um.",
         json_schema_extra=tier("expert"),
     )
     bump_interval: Optional[int] = Field(
@@ -638,22 +644,28 @@ class IrDropSource(SettingsGroup):
         ge=1,
         description="Fill every this many bumps of the grid (`-bump_interval`), to model the "
         "bumps that signals and other supplies take. Unset: the default of the tool, 3.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     strap_track_pitch: Optional[int] = Field(
         None,
         ge=1,
         description="The pitch of the straps that model the sources, in tracks of the top layer "
         "(`-strap_track_pitch`). Unset: the default of the tool, 10.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
-    external_resistance: Optional[float] = Field(
+    external_resistance: Optional[Annotated[Resistance, Bounds(ge="0 ohm")]] = Field(
         None,
-        ge=0,
         description="The resistance of the package and of the supply network outside the block, "
-        "in ohms (`-external_resistance`). Unset: the default of the tool, 0.",
+        "a resistance with a unit (`-external_resistance`). Unset: the default of the tool, "
+        "0 ohm.",
         json_schema_extra=tier("expert"),
     )
+
+    @field_validator("bump_dx", "bump_dy", "bump_size")
+    @classmethod
+    def _whole_micrometers(cls, value: Optional[Length]) -> Optional[Length]:
+        """Refuse a length that is not a whole number of micrometers."""
+        return None if value is None else whole_micrometers(value)
 
 
 class IrDropDecap(SettingsGroup):
@@ -670,15 +682,15 @@ class IrDropDecap(SettingsGroup):
     target_capacitance: Optional[float] = Field(
         None,
         gt=0,
-        description="The capacitance to insert, in the capacitance unit of the Liberty files "
-        "(`-target_cap`).",
-        json_schema_extra=tier("expert"),
+        description="The capacitance to insert, in the units of the library: the capacitance unit "
+        "of the Liberty files (`-target_cap`).",
+        json_schema_extra=extras(tier("expert"), library_units()),
     )
     cells: dict[Annotated[str, Field(min_length=1)], Annotated[float, Field(gt=0)]] = Field(
         {},
         description="The decap cells to use, by name or glob pattern, each with its capacitance "
-        "in the capacitance unit of the Liberty files (`-cells`).",
-        json_schema_extra=tier("expert"),
+        "in the units of the library: the capacitance unit of the Liberty files (`-cells`).",
+        json_schema_extra=extras(tier("expert"), library_units()),
     )
     net: Optional[str] = Field(
         None,
@@ -722,14 +734,14 @@ class IrDropGroup(SettingsGroup):
         "log says so.",
         json_schema_extra=tier("advanced"),
     )
-    nets: Optional[dict[Annotated[str, Field(min_length=1)], Annotated[float, Field(ge=0)]]] = (
-        Field(
-            None,
-            description="The supply nets to analyze, each with its voltage in volts "
-            "(`set_pdnsim_net_voltage`). The analysis follows the order of the table. Unset: the "
-            "power nets and then the ground nets of the platform, with the voltages that it gives.",
-            json_schema_extra=tier("common"),
-        )
+    nets: Optional[
+        dict[Annotated[str, Field(min_length=1)], Annotated[Voltage, Bounds(ge="0 V")]]
+    ] = Field(
+        None,
+        description="The supply nets to analyze, each with its voltage, a voltage with a "
+        "unit, such as `1.1 V` (`set_pdnsim_net_voltage`). The analysis follows the order of the table. Unset: the "
+        "power nets and then the ground nets of the platform, with the voltages that it gives.",
+        json_schema_extra=tier("common"),
     )
     source_type: Optional[Literal["full", "bumps", "straps"]] = Field(
         None,
@@ -749,13 +761,13 @@ class IrDropGroup(SettingsGroup):
         "of the sources decides.",
         json_schema_extra=tier("expert"),
     )
-    instance_power: dict[Annotated[str, Field(min_length=1)], Annotated[float, Field(ge=0)]] = (
-        Field(
-            {},
-            description="The power of the instances that replaces the computed power, by "
-            "instance name, in watts (`set_pdnsim_inst_power`).",
-            json_schema_extra=tier("expert"),
-        )
+    instance_power: dict[
+        Annotated[str, Field(min_length=1)], Annotated[Power, Bounds(ge="0 W")]
+    ] = Field(
+        {},
+        description="The power of the instances that replaces the computed power, by "
+        "instance name, a power with a unit, such as `2 mW` (`set_pdnsim_inst_power`).",
+        json_schema_extra=tier("expert"),
     )
     instance_voltages: bool = Field(
         False,

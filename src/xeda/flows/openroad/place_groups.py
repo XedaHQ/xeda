@@ -12,10 +12,10 @@ choose between flags or that need the platform.
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, Optional, Tuple, Union
 
-from ...dataclass import Field, XedaBaseModel, tier
+from ...dataclass import Field, XedaBaseModel, extras, field_validator, tier
 from ...flow.settings_group import Flag, SettingsGroup
-from ...units import Time
-from .groups import RepairDesign, RepairTiming, SetupMove, differing_leaves
+from ...units import Bounds, Length, Time, count, library_units, percent, ratio
+from .groups import RepairDesign, RepairTiming, SetupMove, differing_leaves, whole_micrometers
 from .place_pdn import PdnConnect, PdnGrid
 
 __all__ = [
@@ -60,8 +60,10 @@ __all__ = [
 LayerRange = Annotated[str, Field(pattern=r"^[^\s-]+-[^\s-]+$")]
 #: One routing layer or a range of them, as a key of `layer_adjustments`.
 LayerKey = Annotated[str, Field(pattern=r"^\S+$")]
-#: A rectangle: lower-left x, lower-left y, upper-right x, upper-right y, in micrometers.
-Rectangle = tuple[float, float, float, float]
+#: A rectangle: lower-left x, lower-left y, upper-right x, upper-right y.
+Rectangle = tuple[Length, Length, Length, Length]
+#: A length that is larger than 0.
+PositiveLength = Annotated[Length, Bounds(gt="0 um")]
 
 
 class FloorplanRepairTiming(RepairTiming):
@@ -173,8 +175,8 @@ class PlacementBlockage(XedaBaseModel):
     """A region where the placement keeps cells away (`create_blockage`)."""
 
     region: Rectangle = Field(
-        description="The region, in micrometers: lower-left x, lower-left y, upper-right x, "
-        "upper-right y (`-region`)."
+        description="The region, four lengths with units: lower-left x, lower-left y, "
+        "upper-right x, upper-right y (`-region`)."
     )
     soft: bool = Field(
         False,
@@ -185,6 +187,7 @@ class PlacementBlockage(XedaBaseModel):
         None,
         description="The share of the region that cells may fill, in percent (`-max_density`). "
         "It makes the blockage partial. Unset: no cell may enter. Not with `soft`.",
+        json_schema_extra=percent(),
     )
 
 
@@ -193,16 +196,16 @@ class RoutingBlockage(XedaBaseModel):
 
     layer: str = Field(min_length=1, description="The routing layer of the obstruction (`-layer`).")
     region: Rectangle = Field(
-        description="The region, in micrometers: lower-left x, lower-left y, upper-right x, "
-        "upper-right y (`-region`)."
+        description="The region, four lengths with units: lower-left x, lower-left y, "
+        "upper-right x, upper-right y (`-region`)."
     )
 
 
-#: An outline: a rectangle (4 numbers) or a polygon (8 or more numbers, an even count), the
-#: corners as x, y pairs in micrometers.
-Outline = Annotated[list[float], Field(min_length=4)]
+#: An outline: a rectangle (4 lengths) or a polygon (8 or more lengths, an even count), the
+#: corners as x, y pairs.
+Outline = Annotated[list[Length], Field(min_length=4)]
 #: A distance that is not negative.
-Distance = Annotated[float, Field(ge=0)]
+Distance = Annotated[Length, Bounds(ge="0 um")]
 
 
 class FloorplanGroup(SettingsGroup):
@@ -214,7 +217,6 @@ class FloorplanGroup(SettingsGroup):
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
         Flag("additional_sites", "-additional_sites", "list"),
         Flag("flip_sites", "-flip_sites", "list"),
-        Flag("row_gap", "-gap", "value"),
     )
 
     sizing: Literal["utilization", "area", "def"] = Field(
@@ -232,27 +234,27 @@ class FloorplanGroup(SettingsGroup):
         description="The share of the core that the cells fill, in percent (`-utilization`). "
         "OpenROAD-flow-scripts leaves it to the design. The default is a middle value, not a "
         "tuned one. Needs `sizing: utilization`.",
-        json_schema_extra=tier("common"),
+        json_schema_extra=extras(tier("common"), percent()),
     )
     aspect_ratio: float = Field(
         1.0,
         gt=0,
         description="The height of the core divided by its width (`-aspect_ratio`). Needs "
         "`sizing: utilization`.",
-        json_schema_extra=tier("common"),
+        json_schema_extra=extras(tier("common"), ratio()),
     )
     core_margin: Union[Distance, tuple[Distance, Distance, Distance, Distance]] = Field(
-        1.0,
-        description="The space between the core and the die, in micrometers (`-core_space`). "
-        "One distance for all sides, or four: bottom, top, left, right. The default is the one "
-        "of OpenROAD-flow-scripts. Needs `sizing: utilization`.",
+        Length("1 um"),
+        description="The space between the core and the die (`-core_space`), lengths with "
+        "units, such as `1 um`. One distance for all sides, or four: bottom, top, left, right. "
+        "The default is the one of OpenROAD-flow-scripts. Needs `sizing: utilization`.",
         json_schema_extra=tier("common"),
     )
     die_area: Optional[Outline] = Field(
         None,
-        description="The die, in micrometers: a rectangle as 4 numbers (lower-left x, lower-left "
-        "y, upper-right x, upper-right y), or a polygon as 8 or more numbers, the x and y of each "
-        "corner in turn (`-die_area`). Needs `sizing: area`, and `core_area` too. OpenROAD "
+        description="The die, as lengths with units: a rectangle as 4 lengths (lower-left x, "
+        "lower-left y, upper-right x, upper-right y), or a polygon as 8 or more lengths, the x "
+        "and y of each corner in turn (`-die_area`). Needs `sizing: area`, and `core_area` too. OpenROAD "
         "needs both outlines to be polygons or both rectangles. A polygon has limits: the "
         "documentation of the power grid generator (`pdngen`) says it assumes a rectangular "
         "design, and `global_placement -place_ios` does not support a polygon die.",
@@ -260,7 +262,7 @@ class FloorplanGroup(SettingsGroup):
     )
     core_area: Optional[Outline] = Field(
         None,
-        description="The core, in micrometers, written as `die_area` (`-core_area`). A rectangle "
+        description="The core, written as `die_area` (`-core_area`). A rectangle "
         "must lie inside the die. Needs `sizing: area`, and `die_area` too. A polygon has the "
         "limits of `die_area` for `pdngen` and for `global_placement -place_ios`.",
         json_schema_extra=tier("common"),
@@ -299,11 +301,10 @@ class FloorplanGroup(SettingsGroup):
         "area`.",
         json_schema_extra=tier("expert"),
     )
-    row_gap: Optional[float] = Field(
+    row_gap: Optional[PositiveLength] = Field(
         None,
-        gt=0,
-        description="The space between the rows of two power domains, in micrometers (`-gap`). "
-        "Unset: the tool uses 6 times the least height of a site. Needs `sizing: utilization` "
+        description="The space between the rows of two power domains, a length with a unit "
+        "(`-gap`). Unset: the tool uses 6 times the least height of a site. Needs `sizing: utilization` "
         "or `sizing: area`.",
         json_schema_extra=tier("expert"),
     )
@@ -395,8 +396,8 @@ class FloorplanGroup(SettingsGroup):
                 found.append(
                     (
                         f"{key}.{leaf}",
-                        f"`{key}.{leaf}` is a rectangle of 4 numbers or a polygon of 8 or more "
-                        f"numbers in pairs, and it has {len(outline)}: list the x and y of each "
+                        f"`{key}.{leaf}` is a rectangle of 4 lengths or a polygon of 8 or more "
+                        f"lengths in pairs, and it has {len(outline)}: list the x and y of each "
                         "corner",
                     )
                 )
@@ -483,17 +484,14 @@ class RoutingGroup(SettingsGroup):
         description="The share of the routing capacity to keep free, from 0 to 1, by layer or "
         "layer range such as `metal2-metal3` (`set_global_routing_layer_adjustment`). Unset: the "
         "value of the platform.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
 
 
 class TieGroup(SettingsGroup):
     """The tie cells that drive the constant nets."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("separation", "-separation", "value"),
-        Flag("max_fanout", "-max_fanout", "value"),
-    )
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("max_fanout", "-max_fanout", "value"),)
 
     repair_fanout: bool = Field(
         True,
@@ -501,10 +499,9 @@ class TieGroup(SettingsGroup):
         "(`repair_tie_fanout`). OpenROAD-flow-scripts runs it, before the removal of buffers.",
         json_schema_extra=tier("common"),
     )
-    separation: float = Field(
-        0.0,
-        ge=0,
-        description="The distance between a tie cell and its load, in micrometers "
+    separation: Distance = Field(
+        Length("0 um"),
+        description="The distance between a tie cell and its load, a length with a unit "
         "(`repair_tie_fanout -separation`). The default is the one of the tool and of "
         "OpenROAD-flow-scripts. Needs `repair_fanout`.",
         json_schema_extra=tier("advanced"),
@@ -516,7 +513,7 @@ class TieGroup(SettingsGroup):
         "-max_fanout`). Unset: the flag is not passed. OpenROAD v2.0-26132 reads the value and "
         "does not pass it to the repair, so it has no effect there. No upstream issue exists "
         "yet. Needs `repair_fanout`.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     insert_cells: bool = Field(
         False,
@@ -600,11 +597,6 @@ class CornerMastersGroup(SettingsGroup):
 class TapcellGroup(SettingsGroup):
     """The well tap cells and the end cap cells."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("row_min_width", "-row_min_width", "value"),
-        Flag("row_min_height", "-row_min_height", "value"),
-    )
-
     mode: Optional[Literal["tap_endcap", "cut_rows", "none"]] = Field(
         None,
         description="`tap_endcap` places tap cells and end caps (`tapcell`). `cut_rows` cuts the "
@@ -612,10 +604,9 @@ class TapcellGroup(SettingsGroup):
         "the value of the platform.",
         json_schema_extra=tier("common"),
     )
-    distance: Optional[float] = Field(
+    distance: Optional[PositiveLength] = Field(
         None,
-        gt=0,
-        description="The distance between the tap cells in a row, in micrometers "
+        description="The distance between the tap cells in a row, a length with a unit "
         "(`tapcell -distance`). Needs `mode: tap_endcap`. Unset: the value of the platform.",
         json_schema_extra=tier("advanced"),
     )
@@ -633,20 +624,18 @@ class TapcellGroup(SettingsGroup):
         "`mode: tap_endcap` or `mode: cut_rows`. Unset: the value of the platform.",
         json_schema_extra=tier("advanced"),
     )
-    row_min_width: Optional[float] = Field(
+    row_min_width: Optional[Distance] = Field(
         None,
-        ge=0,
-        description="Remove the pieces of a row that are narrower than this, in micrometers "
-        "(`-row_min_width` of `tapcell` and of `cut_rows`). They would be islands that the "
+        description="Remove the pieces of a row that are narrower than this, a length with a "
+        "unit (`-row_min_width` of `tapcell` and of `cut_rows`). They would be islands that the "
         "router cannot reach. Needs `mode: tap_endcap` or `mode: cut_rows`. Unset: the tool "
         "uses twice the width of the end cap, or 0 without an end cap.",
         json_schema_extra=tier("advanced"),
     )
-    row_min_height: Optional[float] = Field(
+    row_min_height: Optional[Distance] = Field(
         None,
-        ge=0,
-        description="The least height of a stack of rows, in micrometers (`-row_min_height` of "
-        "`tapcell` and of `cut_rows`). Needs `mode: tap_endcap` or `mode: cut_rows`. Unset: the "
+        description="The least height of a stack of rows, a length with a unit "
+        "(`-row_min_height` of `tapcell` and of `cut_rows`). Needs `mode: tap_endcap` or `mode: cut_rows`. Unset: the "
         "tool uses twice the height of the end cap plus the height of the tallest cell.",
         json_schema_extra=tier("expert"),
     )
@@ -829,20 +818,23 @@ class EdgeInterval(XedaBaseModel):
         description="The edge of the die. Along `top` and `bottom` the position is x, along "
         "`left` and `right` it is y."
     )
-    begin: Optional[NonNegative] = Field(
+    begin: Optional[Distance] = Field(
         None,
-        description="Where the interval starts, in micrometers. Unset: at the start of the edge.",
+        description="Where the interval starts, a length with a unit. Unset: at the start of "
+        "the edge.",
     )
-    end: Optional[NonNegative] = Field(
-        None, description="Where the interval ends, in micrometers. Unset: at the end of the edge."
+    end: Optional[Distance] = Field(
+        None,
+        description="Where the interval ends, a length with a unit. Unset: at the end of the "
+        "edge.",
     )
 
     def as_region(self) -> str:
         """Return the interval as the pin placer reads it: `top:*`, `left:*-2`, `right:15-60.5`.
         The pin placer reads digits only, so a number has no exponent."""
 
-        def position(value: Optional[float]) -> str:
-            return "*" if value is None else f"{value:.6f}".rstrip("0").rstrip(".")
+        def position(value: Optional[Length]) -> str:
+            return "*" if value is None else f"{value.to('um'):.6f}".rstrip("0").rstrip(".")
 
         if self.begin is None and self.end is None:
             return f"{self.edge}:*"
@@ -894,16 +886,20 @@ class FixedPin(XedaBaseModel):
 
     pin: PinName = Field(description="The name of the pin.")
     layer: str = Field(min_length=1, description="The routing layer of the pin (`-layer`).")
-    x: Finite = Field(description="The x of the center of the pin, in micrometers (`-location`).")
-    y: Finite = Field(description="The y of the center of the pin, in micrometers (`-location`).")
-    width: Optional[Positive] = Field(
+    x: Length = Field(
+        description="The x of the center of the pin, a length with a unit (`-location`)."
+    )
+    y: Length = Field(
+        description="The y of the center of the pin, a length with a unit (`-location`)."
+    )
+    width: Optional[PositiveLength] = Field(
         None,
-        description="The width of the pin shape, in micrometers (`-pin_size`). Give it with "
+        description="The width of the pin shape, a length with a unit (`-pin_size`). Give it with "
         "`height`. Unset: the tool makes the smallest shape that the layer allows.",
     )
-    height: Optional[Positive] = Field(
+    height: Optional[PositiveLength] = Field(
         None,
-        description="The height of the pin shape, in micrometers (`-pin_size`). Give it with "
+        description="The height of the pin shape, a length with a unit (`-pin_size`). Give it with "
         "`width`.",
     )
     snap_to_boundary: bool = Field(
@@ -932,21 +928,21 @@ class AnnealingGroup(SettingsGroup):
     temperature: Optional[Positive] = Field(
         None,
         description="The start temperature (`-temperature`). Unset: the default of the tool, 1.0.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     max_iterations: Optional[int] = Field(
         None,
         ge=1,
         description="The most iterations (`-max_iterations`). Unset: the default of the tool, "
         "2000.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     perturb_per_iter: Optional[int] = Field(
         None,
         ge=1,
         description="The moves that each iteration tries (`-perturb_per_iter`). Unset: the "
         "tool derives the number from the number of pins.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     alpha: Optional[float] = Field(
         None,
@@ -954,27 +950,22 @@ class AnnealingGroup(SettingsGroup):
         le=1,
         description="The factor that lowers the temperature after each iteration, above 0 and "
         "up to 1 (`-alpha`). Unset: the default of the tool, 0.985.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
 
 
 class PinLengthGroup(SettingsGroup):
     """The length of the pin shapes (`set_pin_length`)."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("horizontal", "-hor_length", "value"),
-        Flag("vertical", "-ver_length", "value"),
-    )
-
-    horizontal: Optional[Positive] = Field(
+    horizontal: Optional[PositiveLength] = Field(
         None,
-        description="The length of the pins on the horizontal edges, in micrometers "
+        description="The length of the pins on the horizontal edges, a length with a unit "
         "(`-hor_length`). Unset: the shortest length that meets the minimum area of the layer.",
         json_schema_extra=tier("advanced"),
     )
-    vertical: Optional[Positive] = Field(
+    vertical: Optional[PositiveLength] = Field(
         None,
-        description="The length of the pins on the vertical edges, in micrometers "
+        description="The length of the pins on the vertical edges, a length with a unit "
         "(`-ver_length`). Unset: the shortest length that meets the minimum area of the layer.",
         json_schema_extra=tier("advanced"),
     )
@@ -984,20 +975,15 @@ class PinExtensionGroup(SettingsGroup):
     """How far the pin shapes stick out of the die (`set_pin_length_extension`). A pin may lie
     partly outside the die."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("horizontal", "-hor_extension", "value"),
-        Flag("vertical", "-ver_extension", "value"),
-    )
-
-    horizontal: Optional[NonNegative] = Field(
+    horizontal: Optional[Distance] = Field(
         None,
-        description="The extension of the pins on the horizontal edges, in micrometers "
+        description="The extension of the pins on the horizontal edges, a length with a unit "
         "(`-hor_extension`). Unset: the default of the tool, 0.",
         json_schema_extra=tier("expert"),
     )
-    vertical: Optional[NonNegative] = Field(
+    vertical: Optional[Distance] = Field(
         None,
-        description="The extension of the pins on the vertical edges, in micrometers "
+        description="The extension of the pins on the vertical edges, a length with a unit "
         "(`-ver_extension`). Unset: the default of the tool, 0.",
         json_schema_extra=tier("expert"),
     )
@@ -1018,7 +1004,7 @@ class PinThicknessGroup(SettingsGroup):
         allow_inf_nan=False,
         description="The multiplier for the pins on the horizontal edges (`-hor_multiplier`). "
         "Unset: the default of the tool, 1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     vertical: Optional[float] = Field(
         None,
@@ -1026,7 +1012,7 @@ class PinThicknessGroup(SettingsGroup):
         allow_inf_nan=False,
         description="The multiplier for the pins on the vertical edges (`-ver_multiplier`). "
         "Unset: the default of the tool, 1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
 
 
@@ -1038,8 +1024,6 @@ class IoGroup(SettingsGroup):
     (PPL-0113) and places nothing, so no setting prints them. A layer that is not a routing layer
     of the right direction, or has no tracks, is an error of the tool (PPL-0021, PPL-0023,
     PPL-0045 and PPL-0046), and the tool names the layer."""
-
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("corner_avoidance", "-corner_avoidance", "value"),)
 
     flow: Literal["skip_io_pass", "concurrent", "fixed"] = Field(
         "skip_io_pass",
@@ -1067,25 +1051,24 @@ class IoGroup(SettingsGroup):
         "value of the platform.",
         json_schema_extra=tier("common"),
     )
-    min_distance: Optional[float] = Field(
+    min_distance: Optional[Distance] = Field(
         None,
-        ge=0,
-        description="The smallest distance between two pins, in the unit of `min_distance_unit` "
-        "(`-min_distance`). In tracks it must be a whole number, which is what OpenROAD takes. "
-        "Unset: the default of the tool, 2 tracks.",
+        description="The smallest distance between two pins, a length with a unit "
+        "(`-min_distance`). Not with `min_distance_tracks`. Unset: the default of the tool, 2 "
+        "tracks.",
         json_schema_extra=tier("advanced"),
     )
-    min_distance_unit: Literal["um", "tracks"] = Field(
-        "um",
-        description="The unit of `min_distance`: micrometers or routing tracks "
-        "(`-min_distance_in_tracks`). Needs `min_distance`.",
-        json_schema_extra=tier("advanced"),
-    )
-    corner_avoidance: Optional[float] = Field(
+    min_distance_tracks: Optional[Annotated[int, Field(ge=0)]] = Field(
         None,
-        ge=0,
-        description="The distance that the pins keep from the corners of the die, in "
-        "micrometers (`-corner_avoidance`). Unset: the default of the tool, 0.",
+        description="The smallest distance between two pins, in routing tracks "
+        "(`-min_distance_in_tracks -min_distance`). OpenROAD takes a whole number of tracks. "
+        "Not with `min_distance`. Unset: the default of the tool, 2 tracks.",
+        json_schema_extra=extras(tier("advanced"), count()),
+    )
+    corner_avoidance: Optional[Distance] = Field(
+        None,
+        description="The distance that the pins keep from the corners of the die, a length with "
+        "a unit (`-corner_avoidance`). Unset: the default of the tool, 0.",
         json_schema_extra=tier("advanced"),
     )
     algorithm: Literal["matching", "annealing"] = Field(
@@ -1185,26 +1168,12 @@ class IoGroup(SettingsGroup):
                         "take the layers of the platform",
                     )
                 )
-        if (
-            self.min_distance_unit == "tracks"
-            and self.min_distance is not None
-            and self.min_distance != int(self.min_distance)
-        ):
+        if self.min_distance is not None and self.min_distance_tracks is not None:
             found.append(
                 (
-                    f"{key}.min_distance",
-                    f"`{key}.min_distance` is {self.min_distance} tracks, and OpenROAD takes a "
-                    f"whole number of tracks: give a whole number or set "
-                    f"`{key}.min_distance_unit: um`",
-                )
-            )
-        if self.min_distance_unit != "um" and self.min_distance is None:
-            found.append(
-                (
-                    f"{key}.min_distance_unit",
-                    f"`{key}.min_distance_unit: {self.min_distance_unit}` is the unit of "
-                    f"`{key}.min_distance`, and that is not set: give it or delete "
-                    f"`{key}.min_distance_unit`",
+                    f"{key}.min_distance_tracks",
+                    f"`{key}.min_distance` and `{key}.min_distance_tracks` both give the "
+                    f"smallest distance between two pins: delete one of them",
                 )
             )
         intervals = [
@@ -1272,7 +1241,7 @@ class DensityGroup(SettingsGroup):
         le=1,
         description="The target density, from 0 to 1. Needs `mode: fixed`. Unset: the value of "
         "the platform.",
-        json_schema_extra=tier("common"),
+        json_schema_extra=extras(tier("common"), ratio()),
     )
     headroom: Optional[float] = Field(
         None,
@@ -1280,7 +1249,7 @@ class DensityGroup(SettingsGroup):
         le=0.99,
         description="The share of the free space above the uniform density that the target "
         "adds, from 0 to 0.99. Needs `mode: auto`, and `mode: auto` needs it.",
-        json_schema_extra=tier("common"),
+        json_schema_extra=extras(tier("common"), ratio()),
     )
 
     def problems(self, key: str) -> list[tuple[str, str]]:
@@ -1342,13 +1311,13 @@ class TimingDrivenGroup(SettingsGroup):
         description="The overflows, in percent, at which the placement computes the net weights "
         "again (`-timing_driven_net_reweight_overflow`). Fewer values save run time. Unset: the "
         "default of the tool, 64 and 20.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), percent()),
     )
     net_weight_max: Optional[Positive] = Field(
         None,
         description="The weight of the most critical nets, as a multiple "
         "(`-timing_driven_net_weight_max`). Unset: the default of the tool, 5.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     nets_percent: Optional[float] = Field(
         None,
@@ -1356,7 +1325,7 @@ class TimingDrivenGroup(SettingsGroup):
         le=100,
         description="The share of the nets that get a new weight, in percent "
         "(`-timing_driven_nets_percentage`). Unset: the default of the tool, 10.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), percent()),
     )
     keep_resize_below_overflow: Optional[float] = Field(
         None,
@@ -1366,7 +1335,7 @@ class TimingDrivenGroup(SettingsGroup):
         "the placement stay. Above it, the placement reverts them (`-keep_resize_below_overflow`). "
         "Unset: the default of the tool, 1, which keeps them all. OpenROAD-flow-scripts passes "
         "the value only when you set a variable for it.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     repair_timing: bool = Field(
         False,
@@ -1382,7 +1351,7 @@ class TimingDrivenGroup(SettingsGroup):
         description="The share of the violating endpoints that this repair targets, in percent "
         "(`-timing_driven_repair_tns_end_percent`). Needs `repair_timing`. Unset: the default of "
         "the tool, 1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), percent()),
     )
     virtual_cts: bool = Field(
         False,
@@ -1397,7 +1366,7 @@ class TimingDrivenGroup(SettingsGroup):
         description="The largest insertion delay of the virtual clock tree, as a fraction of "
         "the clock period (`-virtual_cts_max_skew_fraction`). Needs `virtual_cts`. Unset: the "
         "default of the tool, 0.1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
 
     def problems(self, key: str) -> list[tuple[str, str]]:
@@ -1452,7 +1421,7 @@ class RoutabilityDrivenGroup(SettingsGroup):
         None,
         description="The congestion that the mode tries to reach (`-routability_target_rc_metric`). "
         "Raise it if the mode runs too long. Unset: the default of the tool, 1.01.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     check_overflow: Optional[float] = Field(
         None,
@@ -1460,7 +1429,7 @@ class RoutabilityDrivenGroup(SettingsGroup):
         le=1,
         description="The overflow, from 0 to 1, at which the mode starts to check the congestion "
         "(`-routability_check_overflow`). Unset: the default of the tool, 0.3.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     snapshot_overflow: Optional[float] = Field(
         None,
@@ -1468,7 +1437,7 @@ class RoutabilityDrivenGroup(SettingsGroup):
         le=1,
         description="The overflow, from 0 to 1, at which the mode saves a snapshot to revert to "
         "(`-routability_snapshot_overflow`). Unset: the default of the tool, 0.6.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     max_density: Optional[float] = Field(
         None,
@@ -1476,19 +1445,19 @@ class RoutabilityDrivenGroup(SettingsGroup):
         le=1,
         description="The cap on the density in this mode, from 0 to 1 "
         "(`-routability_max_density`). Unset: the default of the tool, 0.99.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     inflation_ratio_coef: Optional[Positive] = Field(
         None,
         description="The strength of the inflation (`-routability_inflation_ratio_coef`). Unset: "
         "the default of the tool, 2.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     max_inflation_ratio: Optional[Positive] = Field(
         None,
         description="The largest inflation of one cell, as a ratio "
         "(`-routability_max_inflation_ratio`). Unset: the default of the tool, 3.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     min_congestion_for_inflation: Optional[float] = Field(
         None,
@@ -1496,19 +1465,19 @@ class RoutabilityDrivenGroup(SettingsGroup):
         le=1,
         description="A tile with less congestion than this, from 0 to 1, does not inflate "
         "(`-routability_min_congestion_for_inflation`). Unset: the default of the tool, 0.95.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     max_inflation_total: Optional[Positive] = Field(
         None,
         description="The most area that the inflation may add, as a fraction of the movable area "
         "(`-routability_max_inflation_total`). Unset: the default of the tool, 0.3.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     net_weight_max: Optional[Positive] = Field(
         None,
         description="The extra wirelength weight of the nets in congested tiles "
         "(`-routability_net_weight_max`). 1 adds none. Unset: the default of the tool, 1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     congested_nets_percent: Optional[float] = Field(
         None,
@@ -1516,7 +1485,7 @@ class RoutabilityDrivenGroup(SettingsGroup):
         le=100,
         description="The share of the nets that get that weight, in percent "
         "(`-routability_congested_nets_percentage`). Unset: the default of the tool, 1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), percent()),
     )
     rc_coefficients: Optional[list[NonNegative]] = Field(
         None,
@@ -1525,7 +1494,7 @@ class RoutabilityDrivenGroup(SettingsGroup):
         description="The weights of the 0.5%, 1%, 2% and 5% most congested tiles in the "
         "average congestion, four numbers (`-routability_rc_coefficients`). Unset: the default "
         "of the tool, 1, 1, 0 and 0.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
 
 
@@ -1551,14 +1520,14 @@ class InitialPlaceGroup(SettingsGroup):
         description="The most iterations of the initial placement (`-initial_place_max_iter`). 0 "
         "skips the initial placement, which `-skip_initial_place` also does. Unset: the default "
         "of the tool, 20.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     max_fanout: Optional[int] = Field(
         None,
         ge=1,
         description="The initial placement ignores the nets with at least this many pins "
         "(`-initial_place_max_fanout`). Unset: the default of the tool, 200.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
 
 
@@ -1588,14 +1557,14 @@ class NesterovGroup(SettingsGroup):
         gt=0,
         description="The smallest factor of the step size of the solver (`-min_phi_coef`). "
         "Useful when the placement diverges. Unset: the default of the tool, 0.95.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     max_phi_coef: Optional[float] = Field(
         None,
         gt=0,
         description="The largest factor of the step size of the solver (`-max_phi_coef`). "
         "Unset: the default of the tool, 1.05.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     init_density_penalty: Optional[float] = Field(
         None,
@@ -1603,21 +1572,22 @@ class NesterovGroup(SettingsGroup):
         le=1e6,
         description="The first weight of the density penalty (`-init_density_penalty`). Tune it "
         "when you start from placed cells. Unset: the default of the tool, 8e-5.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     init_wirelength_coef: Optional[Positive] = Field(
         None,
         description="The first coefficient of the wirelength term (`-init_wirelength_coef`). "
         "Unset: the default of the tool, 0.25.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     reference_hpwl: Optional[NonNegative] = Field(
         None,
         description="The wirelength change that the controller of the density penalty measures "
-        "against, in database units, not micrometers (`-reference_hpwl`). 0 takes it from the "
-        "wirelength of the design. Unset: the default of the tool, 0. The README of OpenROAD "
-        "names 466e6, which is not the value in the source.",
-        json_schema_extra=tier("expert"),
+        "against, in the units of the library: database units, not micrometers "
+        "(`-reference_hpwl`). 0 takes it from the wirelength of the design. Unset: the default "
+        "of the tool, 0. The README of OpenROAD names 466e6, which is not the value in the "
+        "source.",
+        json_schema_extra=extras(tier("expert"), library_units()),
     )
     overflow: Optional[float] = Field(
         None,
@@ -1625,7 +1595,7 @@ class NesterovGroup(SettingsGroup):
         le=1,
         description="The overflow, from 0 to 1, at which the solver stops (`-overflow`). A larger "
         "value runs faster and spreads the cells less. Unset: the default of the tool, 0.1.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     revert_on_divergence: bool = Field(
         True,
@@ -1678,34 +1648,34 @@ class FlopClusteringGroup(SettingsGroup):
     tray_weight: Optional[NonNegative] = Field(
         None,
         description="The weight of the tray (`-tray_weight`). Unset: the default of the tool, 32.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     timing_weight: Optional[NonNegative] = Field(
         None,
         description="The weight of the timing (`-timing_weight`). Unset: the default of the "
         "tool, 0.1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     max_split_size: Optional[int] = Field(
         None,
         ge=-1,
         description="The largest set of flops that the clustering handles at once "
         "(`-max_split_size`). -1 splits nothing. Unset: the default of the tool, 500.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     num_paths: Optional[int] = Field(
         None,
         ge=0,
         description="The number of timing paths that the clustering considers (`-num_paths`). "
         "Unset: the default of the tool, 0.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     clock_power_weight: Optional[NonNegative] = Field(
         None,
         description="The credit for the clock tree power that banking saves (`-clock_power_weight`). "
         "A larger value gives a higher banking ratio. Unset: the default of the tool, 0, which "
         "gives no credit.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
 
 
@@ -1735,7 +1705,7 @@ class GlobalPlacementGroup(SettingsGroup):
         description="The empty sites that each cell keeps on its left and on its right during "
         "the placement (`-pad_left`, `-pad_right`), in sites. The default is the one of "
         "OpenROAD-flow-scripts.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     timing_driven: TimingDrivenGroup = Field(
         default_factory=TimingDrivenGroup,
@@ -1762,7 +1732,7 @@ class GlobalPlacementGroup(SettingsGroup):
         "solver diverge (GPL-0305): 64 bins in each direction does so for a design of 400 cells "
         "on nangate45. The log of the placement shows the ideal count (GPL-0026). Unset: the "
         "tool chooses the number from the design.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     incremental: bool = Field(
         False,
@@ -1781,14 +1751,14 @@ class GlobalPlacementGroup(SettingsGroup):
         None,
         description="The seed that perturbs the cells at the start (`-random_seed`). Different "
         "seeds give different placements. Unset: the default of the tool, 1.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
-    perturb_distance: Optional[NonNegative] = Field(
+    perturb_distance: Optional[Distance] = Field(
         None,
-        description="The radius of the perturbation at the start, in micrometers; 99.5% of the "
-        "offsets fall inside it (`-perturb_dist`, which takes nanometers: the flow converts). 0 "
-        "switches the perturbation off. Unset: the smaller of 0.5 micrometers and one row "
-        "height.",
+        description="The radius of the perturbation at the start, a length with a unit; 99.5% "
+        "of the offsets fall inside it (`-perturb_dist`, which takes nanometers: the flow "
+        "converts). 0 um switches the perturbation off. Unset: the smaller of 0.5 micrometers "
+        "and one row height.",
         json_schema_extra=tier("expert"),
     )
     flop_clustering: FlopClusteringGroup = Field(
@@ -1890,14 +1860,14 @@ class OptConfigGroup(SettingsGroup):
         description="Leave a cell out of the sizing when its area is above this multiple of the "
         "area of the cell it would replace (`-limit_sizing_area`). The area comes from the LEF "
         "files. Unset: no limit.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     limit_sizing_leakage: Optional[Positive] = Field(
         None,
         description="Leave a cell out of the sizing when its leakage power is above this "
         "multiple of the leakage of the cell it would replace (`-limit_sizing_leakage`). The "
         "leakage is that of the corner of the flow. Unset: no limit.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     keep_sizing_site: bool = Field(
         False,
@@ -1918,13 +1888,13 @@ class OptConfigGroup(SettingsGroup):
         description="The ratio of the input pin capacitance to the output load that the first "
         "sizing of the gates keeps (`-set_early_sizing_cap_ratio`). OpenROAD-flow-scripts sets it "
         "from `EARLY_SIZING_CAP_RATIO`. Unset: the default of the tool.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     early_buffer_sizing_cap_ratio: Optional[Positive] = Field(
         None,
         description="The same ratio for the first sizing of the buffers "
         "(`-set_early_buffer_sizing_cap_ratio`). Unset: the default of the tool.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     disable_buffer_pruning: bool = Field(
         False,
@@ -1988,31 +1958,31 @@ class GlobalSizingGroup(SettingsGroup):
         ge=1,
         description="The most outer iterations of the Lagrangian relaxation "
         "(`-max_iterations`). Unset: the default of the tool, 20.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     beta: Optional[Positive] = Field(
         None,
         description="The step size of the update of the multipliers (`-beta`). Unset: the "
         "default of the tool, 0.6.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     mu_exponent: Optional[Positive] = Field(
         None,
         description="The exponent that seeds the multipliers of the endpoints "
         "(`-mu_exponent`). Unset: the default of the tool, 2.0.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     lambda_floor: Optional[Positive] = Field(
         None,
         description="The lowest value of a multiplier, so that an arc that no path uses can "
         "come back (`-lambda_floor`). Unset: the default of the tool, 1e-12.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     timing_bias: Optional[Positive] = Field(
         None,
         description="The balance between the pressure of the timing and the cost of the "
         "leakage, without a unit (`-timing_bias`). Unset: the default of the tool, 64.0.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     budget_safety_factor: Optional[float] = Field(
         None,
@@ -2021,7 +1991,7 @@ class GlobalSizingGroup(SettingsGroup):
         allow_inf_nan=False,
         description="A factor of at most 1 on the budget that each gate gets for sizing down "
         "(`-budget_safety_factor`). Unset: the default of the tool, 1.0.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
 
 
@@ -2070,7 +2040,7 @@ class ResizeGroup(SettingsGroup):
         description="Stop the resizer when the cells fill this share of the core area, in "
         "percent (`-max_utilization`). It acts on `buffer_ports`, `repair_design` and "
         "`repair_timing` of this stage. Unset: no limit.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), percent()),
     )
     opt_config: OptConfigGroup = Field(
         default_factory=OptConfigGroup,
@@ -2123,7 +2093,7 @@ class ArithSwapGroup(SettingsGroup):
         ge=1,
         description="The number of critical paths that the command analyzes to find the modules "
         "to swap (`-path_count`). Unset: the default of the tool, 1000.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     target: Optional[SwapTarget] = Field(
         None,
@@ -2155,13 +2125,13 @@ class GlobalSwapGroup(SettingsGroup):
         ge=1,
         description="The passes of the global swaps (`-passes`). Unset: the default of the "
         "tool, 2.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     tolerance: Optional[NonNegative] = Field(
         None,
         description="The improvement of the wirelength below which a pass ends (`-tolerance`). "
         "Unset: the default of the tool, 0.01.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     tradeoff: Optional[float] = Field(
         None,
@@ -2170,45 +2140,45 @@ class GlobalSwapGroup(SettingsGroup):
         allow_inf_nan=False,
         description="The share of the random moves among the moves of a pass, from 0 to 1 "
         "(`-tradeoff`). Unset: the default of the tool, 0.4.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     area_weight: Optional[NonNegative] = Field(
         None,
         description="The weight of the cell area in the map of the utilization that steers the "
         "swaps (`-area_weight`). Unset: the default of the tool, 0.4.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     pin_weight: Optional[NonNegative] = Field(
         None,
         description="The weight of the pin count in that map (`-pin_weight`). Unset: the "
         "default of the tool, 0.6.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     congestion_weight: Optional[NonNegative] = Field(
         None,
         description="The weight of the congestion that you give (`-congestion_user_weight`). "
         "Unset: the default of the tool, 35.0.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     sampling_moves: Optional[int] = Field(
         None,
         ge=1,
         description="The number of moves that the swaps sample (`-sampling_moves`). Unset: the "
         "default of the tool, 150.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     normalization_interval: Optional[int] = Field(
         None,
         ge=1,
         description="The number of moves between two normalizations of the costs "
         "(`-normalization_interval`). Unset: the default of the tool, 1000.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     profiling_excess: Optional[Positive] = Field(
         None,
         description="The factor on the best wirelength of the profiling pass that sets the "
         "budget of the swaps (`-profiling_excess`). Unset: the default of the tool, 1.1.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     budget_multipliers: Optional[list[Positive]] = Field(
         None,
@@ -2216,7 +2186,7 @@ class GlobalSwapGroup(SettingsGroup):
         description="The factors on the budget of the wirelength, one for each stage of the "
         "swaps (`-budget_multipliers`). Unset: the default of the tool, 1.5, 1.25, 1.1 and "
         "1.04.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
 
 
@@ -2243,7 +2213,7 @@ class ImproveGroup(SettingsGroup):
         description="The farthest that a cell moves in x and in y, as two integers in multiples "
         "of the row height (`-max_displacement`). 0 keeps the limit of the tool for that "
         "direction. The default is the one of OpenROAD-flow-scripts.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     random_seed: Optional[int] = Field(
         None,
@@ -2251,7 +2221,7 @@ class ImproveGroup(SettingsGroup):
         le=2**31 - 1,
         description="The seed of the optimization (`-random_seed`). Unset: the default of the "
         "tool, 1.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     extra_legalization: bool = Field(
         False,
@@ -2283,7 +2253,7 @@ class NegotiationGroup(SettingsGroup):
         description="The base number of sites that a cell may move to the left or to the right "
         "(`-site_search_window`), capped by `max_displacement`. 0 allows no horizontal move. "
         "Unset: the default of the tool, 20.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     row_search_window: Optional[int] = Field(
         None,
@@ -2291,7 +2261,7 @@ class NegotiationGroup(SettingsGroup):
         description="The base number of rows that a cell may move up or down "
         "(`-row_search_window`), capped by `max_displacement`. 0 allows no change of row. "
         "Unset: the default of the tool, 5.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     window_extension: bool = Field(
         True,
@@ -2305,7 +2275,7 @@ class NegotiationGroup(SettingsGroup):
         description="The priority of the cleanup of DRC violations, which grows with each "
         "iteration (`-drc_penalty`). A low value tolerates violations early, while overlaps go. "
         "0 switches off the growing penalty. Unset: the default of the tool, 5.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
 
 
@@ -2324,8 +2294,18 @@ class PaddingOverride(XedaBaseModel):
         description="The instances, each a name or a glob pattern (`-instances`). Give this or "
         "`masters`.",
     )
-    left: int = Field(0, ge=0, description="The empty sites on the left of each cell (`-left`).")
-    right: int = Field(0, ge=0, description="The empty sites on the right of each cell (`-right`).")
+    left: int = Field(
+        0,
+        ge=0,
+        description="The empty sites on the left of each cell (`-left`).",
+        json_schema_extra=count(),
+    )
+    right: int = Field(
+        0,
+        ge=0,
+        description="The empty sites on the right of each cell (`-right`).",
+        json_schema_extra=count(),
+    )
 
 
 class DetailedPlacementGroup(SettingsGroup):
@@ -2335,15 +2315,13 @@ class DetailedPlacementGroup(SettingsGroup):
     internal (`-incremental`, `-quiet`), deprecated (`-disallow_one_site_gaps`) or write a file
     (`-report_file_name`). The flow prints `legalizer` itself, as a flag that takes no value."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("max_displacement", "-max_displacement", "list"),)
-
     cell_padding: int = Field(
         0,
         ge=0,
         description="The empty sites that each cell keeps on its left and on its right during "
         "the legalization (`set_placement_padding -global -left N -right N`), in sites. The "
         "default is the one of OpenROAD-flow-scripts.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     cell_padding_overrides: list[PaddingOverride] = Field(
         [],
@@ -2352,15 +2330,24 @@ class DetailedPlacementGroup(SettingsGroup):
         "`instances`, with `left` and `right`.",
         json_schema_extra=tier("expert"),
     )
-    max_displacement: Optional[list[Annotated[int, Field(ge=0)]]] = Field(
+    max_displacement: Optional[list[Distance]] = Field(
         None,
         min_length=2,
         max_length=2,
-        description="The farthest that a cell moves to find a legal site, as two integers in "
-        "micrometers, for x and y (`-max_displacement`). The tool takes whole micrometers. "
-        "Unset: the default of the tool, which sets no limit of its own.",
+        description="The farthest that a cell moves to find a legal site, as two lengths with "
+        "units, for x and y (`-max_displacement`). The tool takes whole micrometers. Unset: the "
+        "default of the tool, which sets no limit of its own.",
         json_schema_extra=tier("advanced"),
     )
+
+    @field_validator("max_displacement")
+    @classmethod
+    def _whole_micrometers(cls, value: Optional[list[Length]]) -> Optional[list[Length]]:
+        """Refuse a displacement that is not a whole number of micrometers."""
+        for item in value or ():
+            whole_micrometers(item)
+        return value
+
     legalizer: Literal["negotiation", "diamond"] = Field(
         "negotiation",
         description="The engine that legalizes the placement. `negotiation` is the default of "

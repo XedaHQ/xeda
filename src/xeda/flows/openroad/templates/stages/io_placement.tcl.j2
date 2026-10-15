@@ -14,7 +14,7 @@
 {% if io.fixed_pins %}
 proc xeda_fixed_pins {} {
 {% for pin in io.fixed_pins %}
-    {{ ["place_pin -pin_name " ~ (pin.pin|tcl_word), "-layer " ~ (pin.layer|tcl_word), "-location " ~ ([pin.x, pin.y]|tcl_numbers), ("-pin_size " ~ ([pin.width, pin.height]|tcl_numbers)) if pin.width is not none else "", "-force_to_die_boundary" if pin.snap_to_boundary else "", "-placed_status" if pin.status == "placed" else ""]|select|join(" ") }}
+    {{ ["place_pin -pin_name " ~ (pin.pin|tcl_word), "-layer " ~ (pin.layer|tcl_word), "-location " ~ ([pin.x, pin.y]|micrometers), ("-pin_size " ~ ([pin.width, pin.height]|micrometers)) if pin.width is not none else "", "-force_to_die_boundary" if pin.snap_to_boundary else "", "-placed_status" if pin.status == "placed" else ""]|select|join(" ") }}
 {% endfor %}
 }
 {% endif %}
@@ -24,7 +24,7 @@ proc xeda_fixed_pins {} {
 {% set _ = excluded.append("-exclude " ~ (interval.as_region()|tcl_word)) %}
 {% endfor %}
 proc xeda_place_pins {} {
-    {{ ["place_pins", "-hor_layers " ~ (P.io_horizontal|tcl_list), "-ver_layers " ~ (P.io_vertical|tcl_list), "-min_distance_in_tracks" if io.min_distance_unit == "tracks" else "", "-min_distance " ~ ((io.min_distance|int if io.min_distance_unit == "tracks" else io.min_distance)|tcl_number) if io.min_distance is not none else "", render_flags(io), excluded|join(" "), "-annealing" if io.algorithm == "annealing" else ""]|select|join(" ") }}
+    {{ ["place_pins", "-hor_layers " ~ (P.io_horizontal|tcl_list), "-ver_layers " ~ (P.io_vertical|tcl_list), ("-min_distance " ~ (io.min_distance|micrometers)) if io.min_distance is not none else "", ("-min_distance_in_tracks -min_distance " ~ (io.min_distance_tracks|tcl_number)) if io.min_distance_tracks is not none else "", ("-corner_avoidance " ~ (io.corner_avoidance|micrometers|tcl_word)) if io.corner_avoidance is not none else "", excluded|join(" "), "-annealing" if io.algorithm == "annealing" else ""]|select|join(" ") }}
 }
 {% endif %}
 proc xeda_io_placement {} {
@@ -43,11 +43,13 @@ proc xeda_io_placement {} {
 {% endfor %}
     set_io_pin_constraint -mirrored_pins {{ mirrored|tcl_list }}
 {% endif %}
-{% if render_flags(io.pin_length) %}
-    set_pin_length {{ render_flags(io.pin_length) }}
+{% set pin_length = [("-hor_length " ~ (io.pin_length.horizontal|micrometers|tcl_word)) if io.pin_length.horizontal is not none else "", ("-ver_length " ~ (io.pin_length.vertical|micrometers|tcl_word)) if io.pin_length.vertical is not none else ""]|select|list %}
+{% if pin_length %}
+    set_pin_length {{ pin_length|join(" ") }}
 {% endif %}
-{% if render_flags(io.pin_extension) %}
-    set_pin_length_extension {{ render_flags(io.pin_extension) }}
+{% set pin_extension = [("-hor_extension " ~ (io.pin_extension.horizontal|micrometers|tcl_word)) if io.pin_extension.horizontal is not none else "", ("-ver_extension " ~ (io.pin_extension.vertical|micrometers|tcl_word)) if io.pin_extension.vertical is not none else ""]|select|list %}
+{% if pin_extension %}
+    set_pin_length_extension {{ pin_extension|join(" ") }}
 {% endif %}
 {% if render_flags(io.pin_thickness) %}
     set_pin_thick_multiplier {{ render_flags(io.pin_thickness) }}

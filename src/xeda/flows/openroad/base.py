@@ -35,7 +35,7 @@ from ...flow.settings_group import render_flags
 from ...platforms.model import PlatformModel, WireRc
 from ...proc_utils import ProcessTimeout
 from ...tool import NonZeroExitCode, Tool
-from ...units import Quantity, Time, convert_unit
+from ...units import Capacitance, Length, Power, Quantity, Resistance, Time, Voltage, library_units
 from ...utils import tcl_word, unique
 from .groups import FIX_FLAGS, comma_word
 from .metrics import MetricsError, load_metrics
@@ -56,8 +56,12 @@ __all__ = [
     "to_farads",
     "to_femtofarads",
     "to_lib_time",
+    "to_micrometers",
     "to_nanometers",
+    "to_ohms",
     "to_seconds",
+    "to_volts",
+    "to_watts",
 ]
 
 log = logging.getLogger(__name__)
@@ -150,55 +154,61 @@ def to_seconds(time: Any) -> str:
     return tcl_number(_quantity(time, Time).to("s"))
 
 
-def _capacitance(picofarads: Any, unit: str) -> str:
-    """Return a capacitance given in picofarads as a Tcl number of `unit`, with twelve significant
-    digits, so the noise of the conversion does not show. Raise `TypeError` for a value that is
-    no finite number."""
-    if (
-        isinstance(picofarads, bool)
-        or not isinstance(picofarads, (int, float))
-        or not math.isfinite(picofarads)
-    ):
-        raise TypeError(
-            f"expected a finite number of picofarads for a Tcl script, got {picofarads!r}"
-        )
-    converted = convert_unit(picofarads, to_unit=unit, from_unit="picofarad")
-    return tcl_number(float(f"{converted:.12g}"))
-
-
-def to_farads(picofarads: Any) -> str:
-    """Return a capacitance given in picofarads as a Tcl number of farads. A setting for a
-    capacitance is in picofarads on every platform. A few commands of OpenROAD take farads and
+def to_farads(capacitance: Any) -> str:
+    """Return a capacitance as a Tcl number of farads. A few commands of OpenROAD take farads and
     not the unit of the Liberty files (`configure_cts_characterization -max_cap`).
 
-    `0.05 pF` is `5e-14`."""
-    return _capacitance(picofarads, "farad")
+    `0.05 pF` is `5e-14`. The result has twelve significant digits, so the noise of the division
+    does not show."""
+    femtofarads = _quantity(capacitance, Capacitance).to("fF")
+    return tcl_number(float(f"{femtofarads / 1e15:.12g}"))
 
 
-def to_femtofarads(picofarads: Any) -> str:
-    """Return a capacitance given in picofarads as a Tcl number of femtofarads. A few commands of
-    OpenRCX take femtofarads (`extract_parasitics -coupling_threshold`).
+def to_femtofarads(capacitance: Any) -> str:
+    """Return a capacitance as a Tcl number of femtofarads. A few commands of OpenRCX take
+    femtofarads (`extract_parasitics -coupling_threshold`).
 
     `0.0001 pF` is `0.1`."""
-    return _capacitance(picofarads, "femtofarad")
+    return tcl_number(_quantity(capacitance, Capacitance).to("fF"))
 
 
-def to_nanometers(micrometers: Any) -> str:
-    """Return a length given in micrometers as a Tcl number of nanometers. A setting for a
-    distance is in micrometers, and a few commands of OpenROAD take nanometers
+def to_micrometers(length: Any) -> str:
+    """Return a length as a Tcl number of micrometers, which most commands of OpenROAD take. A
+    list or a tuple of lengths gives a Tcl list: `[list 0.0 1.5]`.
+
+    `500 nm` is `0.5`."""
+    if isinstance(length, (list, tuple)):
+        return "[list " + " ".join(to_micrometers(item) for item in length) + "]"
+    return tcl_number(_quantity(length, Length).to("um"))
+
+
+def to_nanometers(length: Any) -> str:
+    """Return a length as a Tcl number of nanometers. A few commands of OpenROAD take nanometers
     (`global_placement -perturb_dist`).
 
-    The result has nine decimals at most, so the noise of the conversion does not show."""
-    if (
-        isinstance(micrometers, bool)
-        or not isinstance(micrometers, (int, float))
-        or not math.isfinite(micrometers)
-    ):
-        raise TypeError(
-            f"expected a finite number of micrometers for a Tcl script, got {micrometers!r}"
-        )
-    converted = convert_unit(micrometers, to_unit="nanometer", from_unit="micrometer")
-    return tcl_number(round(converted, 9))
+    `0.0005 um` is `0.5`."""
+    return tcl_number(_quantity(length, Length).to("nm"))
+
+
+def to_ohms(resistance: Any) -> str:
+    """Return a resistance as a Tcl number of ohms (`extract_parasitics -max_res`).
+
+    `2 kohm` is `2000.0`."""
+    return tcl_number(_quantity(resistance, Resistance).to("ohm"))
+
+
+def to_volts(voltage: Any) -> str:
+    """Return a voltage as a Tcl number of volts (`set_pdnsim_net_voltage -voltage`).
+
+    `900 mV` is `0.9`."""
+    return tcl_number(_quantity(voltage, Voltage).to("V"))
+
+
+def to_watts(power: Any) -> str:
+    """Return a power as a Tcl number of watts (`set_pdnsim_inst_power -power`).
+
+    `2 mW` is `0.002`."""
+    return tcl_number(_quantity(power, Power).to("W"))
 
 
 #: A number of the setting `wire_rc`. `nan` and `inf` are no resistance or capacitance.
@@ -219,11 +229,16 @@ class WireRcSettings(XedaBaseModel):
     )
     layers: Dict[str, tuple[Finite, Finite]] = Field(
         default_factory=dict,
-        description="Resistance and capacitance per micrometer of each layer, in the units of "
-        "the Liberty file. On the command line, give a pair as `resistance,capacitance`.",
+        description="Resistance and capacitance per micrometer of each layer, in the units of the "
+        "library: the units of the Liberty file. On the command line, give a pair as "
+        "`resistance,capacitance`.",
+        json_schema_extra=library_units(),
     )
     vias: Dict[str, Finite] = Field(
-        default_factory=dict, description="Resistance of each via, by via name."
+        default_factory=dict,
+        description="Resistance of each via, by via name, in the units of the library: the "
+        "resistance unit of the Liberty file.",
+        json_schema_extra=library_units(),
     )
 
     @field_validator("layers", mode="before")
@@ -414,11 +429,13 @@ class OpenroadStage(AsicPlatformFlow, Flow):
         return f"{self.name}-failed.odb"
 
     def add_template_helpers(self) -> None:
-        """Add the helpers that the templates of every OpenROAD flow use: `render_flags` (it
-        quotes for Tcl, and its second argument is the `list_word` for a list flag, such as
-        `comma_word`), `comma_word`, `space_word`, `fraction_of`, `fix_flags`, the filters `tcl_number`,
-        `tcl_numbers`, `lib_time`, `seconds`, `farads`, `femtofarads` and `nanometers`,
-        `reports` and `failed_odb`.
+        """Add the helpers that the templates of every OpenROAD flow use. The globals are
+        `render_flags` (it quotes for Tcl, and its second argument is the `list_word` for a list
+        flag, such as `comma_word`), `comma_word`, `space_word`, `fraction_of`, `fix_flags`,
+        `reports` and `failed_odb`. The filters are `tcl_number` and `tcl_numbers` for plain
+        numbers, and one filter for each kind of quantity: `lib_time` and `seconds` for a time,
+        `farads` and `femtofarads` for a capacitance, `micrometers` and `nanometers` for a
+        length, `ohms` for a resistance, `volts` for a voltage and `watts` for a power.
         `init()` calls it.
         Code that renders a template without `init()`, such as a test, can call it."""
         self.add_template_filter("tcl_number", tcl_number, replace_existing=True)
@@ -427,7 +444,11 @@ class OpenroadStage(AsicPlatformFlow, Flow):
         self.add_template_filter("seconds", to_seconds, replace_existing=True)
         self.add_template_filter("farads", to_farads, replace_existing=True)
         self.add_template_filter("femtofarads", to_femtofarads, replace_existing=True)
+        self.add_template_filter("micrometers", to_micrometers, replace_existing=True)
         self.add_template_filter("nanometers", to_nanometers, replace_existing=True)
+        self.add_template_filter("ohms", to_ohms, replace_existing=True)
+        self.add_template_filter("volts", to_volts, replace_existing=True)
+        self.add_template_filter("watts", to_watts, replace_existing=True)
         # one line for each command in a script, with no blank lines from the control statements
         self.jinja_env.trim_blocks = True
         self.jinja_env.lstrip_blocks = True

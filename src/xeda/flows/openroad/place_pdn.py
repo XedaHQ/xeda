@@ -3,38 +3,61 @@
 `pdn.grid` of `openroad_place` has the shape of the grid in the platform model (`Pdn`). It adds
 the options of the OpenROAD commands that the platform does not give: more options for a stripe,
 the rings around the core, and options for the via connections between two layers. A leaf that
-the settings give replaces the same leaf of the platform. The flow turns the stripes and the
-connections of the platform into these classes, so a template reads one shape.
+the settings give replaces the same leaf of the platform. The platform gives its distances as
+plain numbers of micrometers. The flow turns the rails, the stripes and the connections of the
+platform into these classes, which hold lengths with units, so a template reads one shape.
 """
 
 from typing import Annotated, Literal, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel
-from ...platforms.model import Number, Pdn, PdnRail, PdnStrap
+from ...platforms.model import Pdn
+from ...platforms.model import PdnRail as PlatformRail
+from ...platforms.model import PdnStrap
+from ...units import Bounds, Length, count
 
-__all__ = ["PdnConnect", "PdnGrid", "PdnRing", "PdnStripe", "connect_of", "stripe_of"]
+__all__ = [
+    "PdnConnect",
+    "PdnGrid",
+    "PdnRail",
+    "PdnRing",
+    "PdnStripe",
+    "connect_of",
+    "grid_of",
+    "rail_of",
+    "stripe_of",
+]
 
-#: A distance or a size in micrometers that is larger than 0.
-Positive = Annotated[Number, Field(gt=0)]
-#: A distance in micrometers that is not negative.
-Distance = Annotated[Number, Field(ge=0)]
+#: A distance or a size that is larger than 0.
+Positive = Annotated[Length, Bounds(gt="0 um")]
+#: A distance that is not negative.
+Distance = Annotated[Length, Bounds(ge="0 um")]
 #: A value for the first and the second layer of a pair, or one value for both.
 OneOrTwo = Union[Positive, tuple[Positive, Positive]]
 
 Polarity = Literal["power", "ground"]
 
 
-class PdnStripe(PdnStrap):
-    """A stripe of the power grid. `width`, `pitch` and `offset` are in micrometers, and the
-    offset counts from the lower-left corner of the core."""
+class PdnRail(XedaBaseModel):
+    """A rail of the power grid that follows the rows of cells."""
 
-    width: Positive = Field(description="Width of the stripe, in micrometers.")
-    pitch: Positive = Field(description="Pitch of the stripe, in micrometers.")
-    offset: Distance = Field(description="Offset of the stripe, in micrometers.")
+    layer: str = Field(description="Layer of the rail.")
+    width: Positive = Field(description="Width of the rail, a length with a unit.")
+    pitch: Optional[Positive] = Field(None, description="Pitch of the rail, a length with a unit.")
+    offset: Optional[Length] = Field(None, description="Offset of the rail, a length with a unit.")
+
+
+class PdnStripe(XedaBaseModel):
+    """A stripe of the power grid. The offset counts from the lower-left corner of the core."""
+
+    layer: str = Field(description="Layer of the stripe.")
+    width: Positive = Field(description="Width of the stripe, a length with a unit.")
+    pitch: Positive = Field(description="Pitch of the stripe, a length with a unit.")
+    offset: Distance = Field(description="Offset of the stripe, a length with a unit.")
     spacing: Optional[Positive] = Field(
         None,
-        description="Space between the power stripe and the ground stripe of one pitch, in "
-        "micrometers (`-spacing`). Unset: half the pitch.",
+        description="Space between the power stripe and the ground stripe of one pitch, a "
+        "length with a unit (`-spacing`). Unset: half the pitch.",
     )
     offset_type: Optional[Literal["start", "first", "center", "last", "end"]] = Field(
         None,
@@ -56,8 +79,8 @@ class PdnStripe(PdnStrap):
     )
     extend_by: Optional[Distance] = Field(
         None,
-        description="Extend the stripes this far beyond where they would stop, in micrometers "
-        "(`-extend_by`). They never go beyond the boundary of the grid.",
+        description="Extend the stripes this far beyond where they would stop, a length with a "
+        "unit (`-extend_by`). They never go beyond the boundary of the grid.",
     )
     snap_to_grid: bool = Field(
         False, description="Snap the stripes to the routing tracks (`-snap_to_grid`)."
@@ -65,8 +88,9 @@ class PdnStripe(PdnStrap):
     number_of_straps: Optional[int] = Field(
         None,
         ge=1,
-        description="The number of pairs of a power stripe and a ground stripe (`-number_of_straps`). "
-        "Unset: as many as fit.",
+        description="The number of pairs of a power stripe and a ground stripe "
+        "(`-number_of_straps`). Unset: as many as fit.",
+        json_schema_extra=count(),
     )
     nets: list[str] = Field(
         default_factory=list,
@@ -87,16 +111,16 @@ class PdnRing(XedaBaseModel):
         "OpenROAD refuses two layers that run in the same direction."
     )
     widths: OneOrTwo = Field(
-        description="Width of the stripes, in micrometers: one value, or one for each layer "
-        "(`-widths`)."
+        description="Width of the stripes, a length with a unit: one value, or one for each "
+        "layer (`-widths`)."
     )
     spacings: OneOrTwo = Field(
-        description="Space between the power stripe and the ground stripe, in micrometers: one "
-        "value, or one for each layer (`-spacings`)."
+        description="Space between the power stripe and the ground stripe, a length with a "
+        "unit: one value, or one for each layer (`-spacings`)."
     )
     core_offset: Union[Distance, tuple[Distance, Distance, Distance, Distance]] = Field(
-        description="Distance between the ring and the core, in micrometers: one value for all "
-        "sides, or four: left, bottom, right, top (`-core_offsets`)."
+        description="Distance between the ring and the core, a length with a unit: one value "
+        "for all sides, or four: left, bottom, right, top (`-core_offsets`)."
     )
     add_connect: bool = Field(
         False, description="Connect the two layers of the ring with vias (`-add_connect`)."
@@ -126,8 +150,8 @@ class PdnConnect(XedaBaseModel):
     layers: tuple[str, str] = Field(description="The two layers to connect (`-layers`).")
     cut_pitch: Optional[OneOrTwo] = Field(
         None,
-        description="The distance between via cuts when the two layers run in parallel, in "
-        "micrometers: one value, or x and y (`-cut_pitch`).",
+        description="The distance between via cuts when the two layers run in parallel, a "
+        "length with a unit: one value, or x and y (`-cut_pitch`).",
     )
     fixed_vias: list[str] = Field(
         default_factory=list,
@@ -140,10 +164,16 @@ class PdnConnect(XedaBaseModel):
         "(`-dont_use_vias`).",
     )
     max_rows: Optional[int] = Field(
-        None, ge=1, description="The most rows of an array of vias (`-max_rows`)."
+        None,
+        ge=1,
+        description="The most rows of an array of vias (`-max_rows`).",
+        json_schema_extra=count(),
     )
     max_columns: Optional[int] = Field(
-        None, ge=1, description="The most columns of an array of vias (`-max_columns`)."
+        None,
+        ge=1,
+        description="The most columns of an array of vias (`-max_columns`).",
+        json_schema_extra=count(),
     )
     ongrid: list[str] = Field(
         default_factory=list,
@@ -157,7 +187,7 @@ class PdnConnect(XedaBaseModel):
     )
     split_cuts: dict[str, Positive] = Field(
         default_factory=dict,
-        description="Layers that use split cuts, each with its pitch in micrometers "
+        description="Layers that use split cuts, each with its pitch, a length with a unit "
         "(`-split_cuts`).",
     )
     split_cuts_staggered: bool = Field(
@@ -172,10 +202,10 @@ class PdnGrid(Pdn):
     platform. `connects` takes a pair of layers, as the platform gives it, or an object with
     options."""
 
-    rails: list[PdnRail] = Field(
+    rails: list[PdnRail] = Field(  # type: ignore[assignment]
         default_factory=list,
         description="Rails that follow the rows of cells. Each has a layer and a width, and may "
-        "have a pitch and an offset, in micrometers.",
+        "have a pitch and an offset, as lengths with units.",
     )
     straps: list[PdnStripe] = Field(  # type: ignore[assignment]
         default_factory=list, description="Stripes of the grid, with their options."
@@ -196,11 +226,44 @@ class PdnGrid(Pdn):
     )
 
 
-def stripe_of(strap: PdnStrap) -> PdnStripe:
-    """Return `strap` as a stripe with the options unset, or `strap` itself if it is one."""
+def rail_of(rail: Union[PlatformRail, PdnRail]) -> PdnRail:
+    """Return a rail of the platform, whose distances are plain micrometers, as a rail with
+    lengths, or `rail` itself if it is one."""
+    if isinstance(rail, PdnRail):
+        return rail
+    return PdnRail(
+        layer=rail.layer,
+        width=Length.of(rail.width, "um"),
+        pitch=None if rail.pitch is None else Length.of(rail.pitch, "um"),
+        offset=None if rail.offset is None else Length.of(rail.offset, "um"),
+    )
+
+
+def stripe_of(strap: Union[PdnStrap, PdnStripe]) -> PdnStripe:
+    """Return a stripe of the platform, whose distances are plain micrometers, as a stripe with
+    lengths and the options unset, or `strap` itself if it is a stripe."""
     if isinstance(strap, PdnStripe):
         return strap
-    return PdnStripe.model_validate(strap.model_dump())
+    return PdnStripe(
+        layer=strap.layer,
+        width=Length.of(strap.width, "um"),
+        pitch=Length.of(strap.pitch, "um"),
+        offset=Length.of(strap.offset, "um"),
+    )
+
+
+def grid_of(platform: Pdn) -> PdnGrid:
+    """Return the power grid of the platform with its rails and stripes as lengths."""
+    values = {
+        name: getattr(platform, name)
+        for name in Pdn.model_fields
+        if name not in ("rails", "straps")
+    }
+    return PdnGrid(
+        **values,
+        rails=[rail_of(rail) for rail in platform.rails],
+        straps=[stripe_of(strap) for strap in platform.straps],
+    )
 
 
 def connect_of(connect: Union[tuple[str, str], PdnConnect]) -> PdnConnect:

@@ -15,17 +15,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Dict, List, Literal, Optional
 
-from ...dataclass import Field, tier
+from ...dataclass import Field, extras, tier
 from ...design import SourceType
 from ...flow import AsicSynthFlow, Flow, In, Out, describe_results
 from ...flow.asic import AsicPlatformSettings
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import CellPort, PlatformModel, Track
-from ...units import Bounds, Time
+from ...units import Bounds, Time, ratio
 from .base import EffectiveBase, OpenroadStage, base_values, platform_time_unit
 from .groups import differing_leaves
 from .metrics import MetricsError, stage_results
-from .place_pdn import PdnGrid, connect_of, stripe_of
+from .place_pdn import PdnGrid, connect_of, grid_of, stripe_of
 from .place_groups import (
     ArithSwapGroup,
     DesignGroup,
@@ -118,7 +118,7 @@ def _grid(settings: "OpenroadPlace.Settings", model: PlatformModel) -> PdnGrid:
     with the kind of each global connection resolved and every stripe and connection in the one
     shape that the templates read. Raise if the grid cannot be built."""
     given = settings.pdn.grid
-    grid = PdnGrid.model_validate(model.pdn.model_dump())
+    grid = grid_of(model.pdn)
     if given is not None:
         # The settings of a launched flow are validated again, which marks every field of the
         # grid as given. So a leaf counts as given when it holds something.
@@ -268,7 +268,7 @@ def effective(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Effec
     master = settings.tapcell.master or model.tap_cell
     mode = settings.tapcell.mode or ("tap_endcap" if master is not None else "cut_rows")
     given_distance = settings.tapcell.distance
-    distance = given_distance if given_distance is not None else model.tapcell.distance
+    distance = given_distance.to("um") if given_distance is not None else model.tapcell.distance
     if mode == "cut_rows" and settings.tapcell.mode is None:
         for leaf in (
             *(["tapcell.distance"] if given_distance is not None else []),
@@ -357,7 +357,7 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
             lt=1,
             description="The input delay of the generated constraints, as a fraction of the clock "
             "period, from 0 up to but not including 1. Used only when `input_delay` is unset.",
-            json_schema_extra=tier("advanced"),
+            json_schema_extra=extras(tier("advanced"), ratio()),
         )
         output_delay_frac: float = Field(
             0.20,
@@ -366,7 +366,7 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
             description="The output delay of the generated constraints, as a fraction of the "
             "clock period, from 0 up to but not including 1. Used only when `output_delay` is "
             "unset.",
-            json_schema_extra=tier("advanced"),
+            json_schema_extra=extras(tier("advanced"), ratio()),
         )
         input_delay: Optional[Annotated[Time, Bounds(ge="0 ns")]] = Field(
             None,

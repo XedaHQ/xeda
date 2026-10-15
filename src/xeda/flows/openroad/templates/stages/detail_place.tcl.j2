@@ -26,7 +26,7 @@ proc xeda_detail_place {} {
 {% for override in dp.cell_padding_overrides %}
     {{ ["set_placement_padding", ("-masters " ~ (override.masters|tcl_list)) if override.masters else ("-instances " ~ (override.instances|tcl_list)), "-left " ~ (override.left|tcl_number), "-right " ~ (override.right|tcl_number)]|select|join(" ") }}
 {% endfor %}
-    {{ ["detailed_placement", render_flags(dp, space_word), "-use_diamond_legalizer" if dp.legalizer == "diamond" else "", render_flags(dp.negotiation)]|select|join(" ") }}
+    {{ ["detailed_placement", ("-max_displacement " ~ (dp.max_displacement|map("to", "um")|map("int")|join(" ")|tcl_word)) if dp.max_displacement else "", "-use_diamond_legalizer" if dp.legalizer == "diamond" else "", render_flags(dp.negotiation)]|select|join(" ") }}
 {% if dp.improve.enabled %}
     {{ ["improve_placement", render_flags(dp.improve, space_word), ("-global_swap_args " ~ (pairs|join(" ")|tcl_word)) if pairs else "", "-enable_extra_dpl " ~ (dp.improve.extra_legalization|int|tcl_number)]|select|join(" ") }}
 {% endif %}

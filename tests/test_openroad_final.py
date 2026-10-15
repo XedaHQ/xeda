@@ -29,6 +29,7 @@ from xeda.flows.openroad.final import EffectiveFinal, effective
 from xeda.flows.openroad.final_groups import ViaInPin
 from xeda.platforms.model import CellPort
 from xeda.run_dir import RunDirectory
+from xeda.units import Capacitance, Power, Resistance, Voltage
 from xeda.tool import NonZeroExitCode, Tool
 from xeda.utils import ExecutableNotFound
 
@@ -909,7 +910,9 @@ def plan(tmp_path: Path, *texts: str):
 def refusal(tmp_path: Path, *texts: str) -> str:
     with register_openroad_flows(), pytest.raises(FlowSettingsException) as error:
         plan(tmp_path, *texts)
-    return " ".join(str(error.value).split())
+    message = " ".join(str(error.value).split())
+    assert "needs a unit" not in message, "the refusal is about a missing unit: " + message
+    return message
 
 
 def test_the_settings_of_the_first_process_plan_the_four_flows(tmp_path):
@@ -2632,7 +2635,9 @@ def refuse_settings(tmp_path: Path, settings: dict[str, Any]) -> str:
         Openroad.check_settings_supported(
             Openroad.Settings.from_input(given, design_root=tmp_path, runner_cwd=tmp_path)
         )
-    return " ".join(str(raised.value).split())
+    message = " ".join(str(raised.value).split())
+    assert "needs a unit" not in message, "the refusal is about a missing unit: " + message
+    return message
 
 
 def test_the_default_vias_and_the_one_way_layers_are_set_before_the_route_one_command_each(
@@ -2731,8 +2736,8 @@ def test_no_rule_is_created_by_default(tmp_path):
 
 def test_a_rule_creates_the_widths_the_spacings_and_the_vias(tmp_path):
     rule = {
-        "width": {"m2:m3": "*2", "m4": 0.4},
-        "spacing": {"m2": 0.15},
+        "width": {"m2:m3": "*2", "m4": "0.4 um"},
+        "spacing": {"m2": "0.15 um"},
         "vias": ["via23", "via34"],
     }
     assert ndr_lines(tmp_path, {"rules": {"wide": rule}}) == [
@@ -2819,16 +2824,18 @@ def test_the_commands_of_the_rules_run_under_the_fake(tmp_path):
 @pytest.mark.parametrize(
     "value, valid",
     [
-        (0.2, True),
+        ("0.2 um", True),
+        ("200 nm", True),
         ("*2", True),
         ("*1.5", True),
-        ("2", True),
-        (0, False),
-        (-1, False),
+        ("2", False),
+        (0.2, False),
+        ("0 um", False),
+        ("-1 um", False),
         ("x2", False),
     ],
 )
-def test_a_width_is_a_positive_number_or_a_factor(tmp_path, value, valid):
+def test_a_width_is_a_positive_length_or_a_factor(tmp_path, value, valid):
     build = lambda: Openroad.Settings.from_input(  # noqa: E731
         {"ndr": {"rules": {"r": {"width": {"m2": value}}}}}, design_root=tmp_path
     )
@@ -2992,7 +2999,7 @@ def test_the_extraction_has_no_flag_by_default(tmp_path):
     [
         ({"corner_index": 1}, '-corner "1"'),
         ({"corner_count": 2}, '-corner_cnt "2"'),
-        ({"max_res": 20}, '-max_res "20.0"'),
+        ({"max_res": "20 ohm"}, '-max_res "20.0"'),
         ({"cc_model": 4}, '-cc_model "4"'),
         ({"context_depth": 3}, '-context_depth "3"'),
         ({"merge_via_res": False}, "-no_merge_via_res"),
@@ -3008,10 +3015,10 @@ def test_each_option_of_openrcx_prints_its_flag(tmp_path, option, flag):
 
 
 def test_the_coupling_threshold_is_given_in_picofarads_and_printed_in_femtofarads(tmp_path):
-    assert extract_line(tmp_path, {"coupling_threshold": 0.0002}) == (
+    assert extract_line(tmp_path, {"coupling_threshold": "0.0002 pF"}) == (
         "extract_parasitics -coupling_threshold 0.2"
     )
-    assert extract_line(tmp_path / "zero", {"coupling_threshold": 0}) == (
+    assert extract_line(tmp_path / "zero", {"coupling_threshold": "0 pF"}) == (
         "extract_parasitics -coupling_threshold 0.0"
     )
 
@@ -3023,7 +3030,7 @@ def test_the_options_come_in_one_order_the_threshold_and_the_lef_values_first(tm
             "model_version": 1.0,
             "skip_over_cell": True,
             "lef_values": "rc",
-            "coupling_threshold": 0.001,
+            "coupling_threshold": "0.001 pF",
             "corner_count": 1,
         },
     )
@@ -3062,7 +3069,7 @@ def test_the_options_of_openrcx_run_under_the_fake(tmp_path):
                 "method": "rcx",
                 "model_index": 1,
                 "corner_index": 0,
-                "coupling_threshold": 0.0003,
+                "coupling_threshold": "0.0003 pF",
                 "lef_values": "res",
                 "scale": {"res": 2},
             }
@@ -3082,13 +3089,18 @@ def test_the_options_of_openrcx_run_under_the_fake(tmp_path):
     assert adjust == ["adjust_rc", "-res_factor", "2.0"]
 
 
-def test_the_options_of_openrcx_are_the_femtofarad_filter_of_the_base(tmp_path):
-    flow = final_flow(tmp_path)
-    assert flow.jinja_env.filters["femtofarads"](0.0001) == "0.1"
-    with pytest.raises(TypeError):
-        flow.jinja_env.filters["femtofarads"](True)
-    with pytest.raises(TypeError):
-        flow.jinja_env.filters["femtofarads"](float("nan"))
+def test_the_electrical_filters_of_the_base_take_quantities_and_no_plain_number(tmp_path):
+    filters = final_flow(tmp_path).jinja_env.filters
+    assert filters["femtofarads"](Capacitance("0.0001 pF")) == "0.1"
+    assert filters["ohms"](Resistance("2 kohm")) == "2000.0"
+    assert filters["volts"](Voltage("900 mV")) == "0.9"
+    assert filters["watts"](Power("2 mW")) == "0.002"
+    for name in ("femtofarads", "ohms", "volts", "watts"):
+        for value in (True, 1.0, "1", float("nan"), None):
+            with pytest.raises(TypeError):
+                filters[name](value)
+    with pytest.raises(TypeError, match="a resistance with a unit"):
+        filters["ohms"](Capacitance("1 fF"))
 
 
 # ------------------------------------------------------------------------------ the rules file
@@ -3149,7 +3161,7 @@ def test_the_rules_file_of_the_setting_makes_the_automatic_extraction_rcx_at_pla
     settings = Openroad.Settings.from_input(
         {
             **tiny_settings(tiny_store(tmp_path), residue=TINY_OPENROAD_RESIDUE),
-            "extraction": {"rules_file": str(mine), "max_res": 20},
+            "extraction": {"rules_file": str(mine), "max_res": "20 ohm"},
         },
         design_root=tmp_path,
         runner_cwd=tmp_path,
@@ -3161,7 +3173,7 @@ def test_the_rules_file_of_the_setting_makes_the_automatic_extraction_rcx_at_pla
 
 
 def test_an_option_of_openrcx_is_refused_with_an_estimate_that_the_method_chooses(tmp_path):
-    message = refuse_settings(tmp_path, {"extraction": {"method": "estimate", "max_res": 20}})
+    message = refuse_settings(tmp_path, {"extraction": {"method": "estimate", "max_res": "20 ohm"}})
     assert (
         "`extraction.max_res` is an option of OpenRCX and has no effect with "
         "`extraction.method: estimate`: set `extraction.method: rcx` and give the rules, or "
@@ -3193,8 +3205,10 @@ def test_the_options_of_openrcx_plan_where_the_platform_has_rules(tmp_path):
     [
         ("corner_index", -1),
         ("corner_count", 0),
-        ("max_res", -1),
-        ("coupling_threshold", -0.1),
+        ("max_res", "-1 ohm"),
+        ("max_res", 20),
+        ("coupling_threshold", "-0.1 fF"),
+        ("coupling_threshold", 0.1),
         ("model_version", 0),
         ("lef_values", "all"),
     ],
@@ -3437,21 +3451,21 @@ def test_the_defaults_set_the_voltage_and_analyze_each_net_with_an_error_report_
 
 
 def test_the_nets_of_the_setting_replace_the_nets_of_the_platform_in_their_order(tmp_path):
-    found = analysis_lines(tmp_path, {"nets": {"VSS": 0, "VDDA": 0.9}})
+    found = analysis_lines(tmp_path, {"nets": {"VSS": "0 V", "VDDA": "0.9 V"}})
     assert found == [
         'set_pdnsim_net_voltage -net "VSS" -voltage 0.0',
         'analyze_power_grid -net "VSS" -error_file "reports/irdrop_1.rpt"',
         'set_pdnsim_net_voltage -net "VDDA" -voltage 0.9',
         'analyze_power_grid -net "VDDA" -error_file "reports/irdrop_2.rpt"',
     ]
-    flow = final_flow(tmp_path / "e", {"ir_drop": {"nets": {"VSS": 0, "VDDA": 0.9}}})
+    flow = final_flow(tmp_path / "e", {"ir_drop": {"nets": {"VSS": "0 V", "VDDA": "0.9 V"}}})
     values = flow.effective()
     assert values.supply_voltages == (("VSS", 0.0), ("VDDA", 0.9))
     assert values.ir_drop_reports == ("reports/irdrop_1.rpt", "reports/irdrop_2.rpt")
 
 
 def test_the_nets_of_the_setting_give_an_analysis_where_the_platform_gives_none(tmp_path):
-    found = analysis_lines(tmp_path, {"nets": {"VDD": 1.0}}, supply=None)
+    found = analysis_lines(tmp_path, {"nets": {"VDD": "1 V"}}, supply=None)
     assert found == [
         'set_pdnsim_net_voltage -net "VDD" -voltage 1.0',
         'analyze_power_grid -net "VDD" -error_file "reports/irdrop_1.rpt"',
@@ -3460,7 +3474,7 @@ def test_the_nets_of_the_setting_give_an_analysis_where_the_platform_gives_none(
 
 def test_a_negative_voltage_is_refused(tmp_path):
     with pytest.raises(Exception):
-        Openroad.Settings.from_input({"ir_drop": {"nets": {"VDD": -1}}}, design_root=tmp_path)
+        Openroad.Settings.from_input({"ir_drop": {"nets": {"VDD": "-1 V"}}}, design_root=tmp_path)
 
 
 def test_the_model_of_the_sources_is_set_once_before_the_analysis(tmp_path):
@@ -3468,10 +3482,10 @@ def test_the_model_of_the_sources_is_set_once_before_the_analysis(tmp_path):
         tmp_path,
         {
             "source": {
-                "bump_dx": 100,
-                "bump_size": 50,
+                "bump_dx": "100 um",
+                "bump_size": "50 um",
                 "bump_interval": 2,
-                "external_resistance": 0.5,
+                "external_resistance": "0.5 ohm",
             }
         },
     )
@@ -3479,7 +3493,7 @@ def test_the_model_of_the_sources_is_set_once_before_the_analysis(tmp_path):
     script = render_final(
         final_flow(
             tmp_path / "s",
-            {"ir_drop": {"source": {"bump_dx": 100, "strap_track_pitch": 20}}},
+            {"ir_drop": {"source": {"bump_dx": "100 um", "strap_track_pitch": 20}}},
         )
     )
     body = stage(script, "xeda_ir_setup")
@@ -3492,12 +3506,12 @@ def test_the_flags_of_the_model_of_the_sources_follow_the_command(tmp_path):
         {
             "ir_drop": {
                 "source": {
-                    "bump_dx": 1,
-                    "bump_dy": 2,
-                    "bump_size": 3,
+                    "bump_dx": "1 um",
+                    "bump_dy": "2 um",
+                    "bump_size": "3 um",
                     "bump_interval": 4,
                     "strap_track_pitch": 5,
-                    "external_resistance": 6,
+                    "external_resistance": "6 ohm",
                 }
             }
         },
@@ -3510,7 +3524,7 @@ def test_the_flags_of_the_model_of_the_sources_follow_the_command(tmp_path):
 
 
 def test_the_power_of_an_instance_is_set_in_watts_before_the_analysis(tmp_path):
-    flow = final_flow(tmp_path, {"ir_drop": {"instance_power": {"u1": 0.001, "u[2]": 2e-05}}})
+    flow = final_flow(tmp_path, {"ir_drop": {"instance_power": {"u1": "1 mW", "u[2]": "20 uW"}}})
     assert stage(render_final(flow), "xeda_ir_setup") == [
         'set_pdnsim_inst_power -inst "u1" -power 0.001',
         'set_pdnsim_inst_power -inst "u\\[2\\]" -power 2e-05',
@@ -3581,8 +3595,8 @@ def test_the_options_of_the_analysis_run_under_the_fake(tmp_path):
         {
             "ir_drop": {
                 "source_type": "bumps",
-                "source": {"bump_dx": 90},
-                "instance_power": {"u1": 0.5},
+                "source": {"bump_dx": "90 um"},
+                "instance_power": {"u1": "0.5 W"},
                 "instance_voltages": True,
                 "spice": True,
             }
@@ -3603,7 +3617,7 @@ def test_a_file_of_voltage_sources_for_a_net_the_table_leaves_out_is_refused(tmp
     vsrc = tmp_path / "x.loc"
     vsrc.write_text("loc\n")
     message = refuse_settings(
-        tmp_path, {"ir_drop": {"nets": {"VDD": 1.0}, "vsrc_files": {"VSS": str(vsrc)}}}
+        tmp_path, {"ir_drop": {"nets": {"VDD": "1 V"}, "vsrc_files": {"VSS": str(vsrc)}}}
     )
     assert (
         "`ir_drop.vsrc_files` names the net 'VSS', which `ir_drop.nets` does not list: add the "
@@ -3660,7 +3674,7 @@ def test_the_decap_net_of_the_setting_wins_and_gets_the_model_of_the_sources(tmp
         {
             "decap": {**DECAP, "net": "VSS"},
             "source_type": "full",
-            "instance_power": {"u": 1},
+            "instance_power": {"u": "1 W"},
         },
     )
     assert found[:3] == [
@@ -3719,7 +3733,7 @@ def test_an_option_of_the_decap_is_refused_with_the_decap_off(tmp_path):
 
 def test_a_decap_net_that_the_table_leaves_out_is_refused(tmp_path):
     message = refuse_settings(
-        tmp_path, {"ir_drop": {"nets": {"VDD": 1.0}, "decap": {**DECAP, "net": "VSS"}}}
+        tmp_path, {"ir_drop": {"nets": {"VDD": "1 V"}, "decap": {**DECAP, "net": "VSS"}}}
     )
     assert "`ir_drop.decap.net` is 'VSS', which `ir_drop.nets` does not list" in message
 
@@ -3738,7 +3752,7 @@ def test_a_decap_net_that_the_platform_does_not_give_stops_the_run(tmp_path):
 
 def test_decap_cells_with_a_table_of_nets_need_the_net_that_gets_them(tmp_path):
     message = refuse_settings(
-        tmp_path, {"ir_drop": {"nets": {"VDD": 1.0, "VSS": 0.0}, "decap": DECAP}}
+        tmp_path, {"ir_drop": {"nets": {"VDD": "1 V", "VSS": "0 V"}, "decap": DECAP}}
     )
     assert (
         "`ir_drop.decap.enabled` with `ir_drop.nets` needs `ir_drop.decap.net`: name the supply "
@@ -3750,7 +3764,7 @@ def test_decap_cells_with_a_table_of_nets_need_the_net_that_gets_them(tmp_path):
         Openroad.Settings.from_input(
             {
                 **tiny_settings(store, residue=TINY_OPENROAD_RESIDUE),
-                "ir_drop": {"nets": {"VDD": 1.0}, "decap": {**DECAP, "net": "VDD"}},
+                "ir_drop": {"nets": {"VDD": "1 V"}, "decap": {**DECAP, "net": "VDD"}},
             },
             design_root=tmp_path,
             runner_cwd=tmp_path,

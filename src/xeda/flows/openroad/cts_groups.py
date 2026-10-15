@@ -20,9 +20,10 @@ Rules that the tool leaves to itself, and that the groups do not check:
 
 from typing import Annotated, ClassVar, Literal, Optional, Tuple
 
-from ...dataclass import Field, tier
+from ...dataclass import Field, extras, field_validator, tier
 from ...flow.settings_group import Flag, SettingsGroup
-from ...units import Bounds, Time
+from ...units import Bounds, Capacitance, Length, Time, count, ratio
+from .groups import whole_micrometers
 
 __all__ = [
     "BalanceGroup",
@@ -30,16 +31,18 @@ __all__ = [
     "CtsBuffersGroup",
     "CtsTreeGroup",
     "MacroClusteringGroup",
-    "NdrGroup",
+    "CtsNdrGroup",
     "RepairClockNetsGroup",
     "SinkClusteringGroup",
     "WordName",
 ]
 
-#: A number above zero and finite.
-Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 #: A number that is at least zero and finite.
 NonNegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+#: A length above zero.
+PositiveLength = Annotated[Length, Bounds(gt="0 um")]
+#: A length that is at least zero.
+NonNegativeLength = Annotated[Length, Bounds(ge="0 um")]
 #: A name without white space, for a list that the tool splits at white space.
 WordName = Annotated[str, Field(pattern=r"^\S+$")]
 
@@ -148,7 +151,6 @@ class SinkClusteringGroup(SettingsGroup):
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
         Flag("size", "-sink_clustering_size", "value"),
-        Flag("max_diameter", "-sink_clustering_max_diameter", "value"),
         Flag("levels", "-sink_clustering_levels", "value"),
         Flag("buffer_cap_derate", "-sink_buffer_max_cap_derate", "value"),
     )
@@ -165,11 +167,11 @@ class SinkClusteringGroup(SettingsGroup):
         ge=1,
         description="The most sinks in a cluster (`-sink_clustering_size`). Needs `mode: "
         "explicit`.",
-        json_schema_extra=tier("common"),
+        json_schema_extra=extras(tier("common"), count()),
     )
-    max_diameter: Optional[Positive] = Field(
+    max_diameter: Optional[PositiveLength] = Field(
         None,
-        description="The largest diameter of a cluster, in micrometers "
+        description="The largest diameter of a cluster, a length with a unit "
         "(`-sink_clustering_max_diameter`). Needs `mode: explicit`.",
         json_schema_extra=tier("common"),
     )
@@ -179,7 +181,7 @@ class SinkClusteringGroup(SettingsGroup):
         description="Cluster the clusters again, with this many extra levels, when the design "
         "has more than 400 clusters (`-sink_clustering_levels`). Needs clustering: not with "
         "`mode: off`. Unset: no second level.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     buffer_cap_derate: Optional[float] = Field(
         None,
@@ -189,7 +191,7 @@ class SinkClusteringGroup(SettingsGroup):
         "it chooses the root and sink buffers itself, from 0 to 1 (`-sink_buffer_max_cap_derate`)"
         ". A small value favors strong buffers, and 1 applies no derating. Unset: the default of "
         "the tool, 0.01.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
 
     def problems(self, key: str) -> list[tuple[str, str]]:
@@ -228,21 +230,18 @@ class SinkClusteringGroup(SettingsGroup):
 class MacroClusteringGroup(SettingsGroup):
     """The grouping of the macro sinks, which the tool clusters on their own."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("size", "-macro_clustering_size", "value"),
-        Flag("max_diameter", "-macro_clustering_max_diameter", "value"),
-    )
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("size", "-macro_clustering_size", "value"),)
 
     size: Optional[int] = Field(
         None,
         ge=1,
         description="The most macro sinks in a cluster (`-macro_clustering_size`). Unset: the "
         "default of the tool, 4.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
-    max_diameter: Optional[Positive] = Field(
+    max_diameter: Optional[PositiveLength] = Field(
         None,
-        description="The largest diameter of a cluster of macro sinks, in micrometers "
+        description="The largest diameter of a cluster of macro sinks, a length with a unit "
         "(`-macro_clustering_max_diameter`). Unset: the default of the tool, 50.",
         json_schema_extra=tier("advanced"),
     )
@@ -254,8 +253,6 @@ class CtsTreeGroup(SettingsGroup):
     #: The flow prints `-distance_between_buffers` itself, since `style` decides whether the
     #: command gets it.
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("wire_unit", "-wire_unit", "value"),
-        Flag("branch_buffer_distance", "-branching_point_buffers_distance", "value"),
         Flag("clustering_exponent", "-clustering_exponent", "value"),
         Flag("clustering_unbalance_ratio", "-clustering_unbalance_ratio", "value"),
         Flag("static_layers", "-num_static_layers", "value"),
@@ -269,34 +266,40 @@ class CtsTreeGroup(SettingsGroup):
         "`buffer_distance`.",
         json_schema_extra=tier("advanced"),
     )
-    buffer_distance: Optional[Positive] = Field(
+    buffer_distance: Optional[PositiveLength] = Field(
         None,
-        description="The distance between the buffers of a wire, in micrometers "
+        description="The distance between the buffers of a wire, a length with a unit "
         "(`-distance_between_buffers`). Needs `style: simple_segments`.",
         json_schema_extra=tier("common"),
     )
-    branch_buffer_distance: Optional[Positive] = Field(
+    branch_buffer_distance: Optional[PositiveLength] = Field(
         None,
-        description="A branch at least this long gets a buffer at its end point, in "
-        "micrometers (`-branching_point_buffers_distance`). Needs `style: simple_segments`. "
+        description="A branch at least this long gets a buffer at its end point, a length with "
+        "a unit (`-branching_point_buffers_distance`). Needs `style: simple_segments`. "
         "Unset: no buffer at the end of a branch.",
         json_schema_extra=tier("expert"),
     )
-    wire_unit: Optional[int] = Field(
+    wire_unit: Optional[PositiveLength] = Field(
         None,
-        ge=1,
-        description="The shortest wire segment that the characterization tests, in whole "
-        "micrometers (`-wire_unit`). Unset: the tool derives it from the height of the buffer "
-        "that it characterizes.",
+        description="The shortest wire segment that the characterization tests, a length with "
+        "a unit and a whole number of micrometers (`-wire_unit`). Unset: the tool derives it "
+        "from the height of the buffer that it characterizes.",
         json_schema_extra=tier("expert"),
     )
+
+    @field_validator("wire_unit")
+    @classmethod
+    def _wire_unit_in_whole_micrometers(cls, value: Optional[Length]) -> Optional[Length]:
+        """Refuse a wire unit that is not a whole number of micrometers."""
+        return None if value is None else whole_micrometers(value)
+
     clustering_exponent: Optional[int] = Field(
         None,
         ge=0,
         description="The power that the clustering of the sinks (CKMeans) puts on the distance "
         "between a sink and the mean of its cluster (`-clustering_exponent`). Unset: the "
         "default of the tool, 4.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     clustering_unbalance_ratio: Optional[float] = Field(
         None,
@@ -305,14 +308,14 @@ class CtsTreeGroup(SettingsGroup):
         description="The largest share of the sinks that one cluster may take in the clustering "
         "of the sinks, from 0 to 1 (`-clustering_unbalance_ratio`). 0.5 splits the sinks of a "
         "region in two equal halves. Unset: the default of the tool, 0.6.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     static_layers: Optional[int] = Field(
         None,
         ge=0,
         description="The number of top levels of the tree that have fixed buffers "
         "(`-num_static_layers`). Unset: the default of the tool, 0.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     obstruction_aware: bool = Field(
         True,
@@ -360,7 +363,7 @@ class BalanceGroup(SettingsGroup):
         description="The share of the delay buffers that the tool inserts to balance the "
         "latencies of macros and registers (`-delay_buffer_derate`). 1 inserts all of them, and "
         "0 inserts none. Needs `insertion_delay`. Unset: the default of the tool, 1.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
     insertion_delay: bool = Field(
         True,
@@ -391,7 +394,7 @@ class BalanceGroup(SettingsGroup):
         return []
 
 
-class NdrGroup(SettingsGroup):
+class CtsNdrGroup(SettingsGroup):
     """The non-default routing rule (NDR) of the clock nets."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("strategy", "-apply_ndr", "value"),)
@@ -424,10 +427,10 @@ class CharacterizationGroup(SettingsGroup):
         "(`TechChar.cpp`, seen with OpenROAD v2.0-26132-g6b305a712).",
         json_schema_extra=tier("expert"),
     )
-    max_cap: Optional[Positive] = Field(
+    max_cap: Optional[Annotated[Capacitance, Bounds(gt="0 fF")]] = Field(
         None,
-        description="The largest capacitance that the characterization tests, in picofarads "
-        "(`-max_cap`). The flow converts it to farads, which the command takes. Set it with "
+        description="The largest capacitance that the characterization tests, a capacitance "
+        "with a unit, such as `0.1 pF` (`-max_cap`). The flow converts it to farads, which the command takes. Set it with "
         "`max_slew`: see there.",
         json_schema_extra=tier("expert"),
     )
@@ -436,21 +439,19 @@ class CharacterizationGroup(SettingsGroup):
         ge=1,
         description="The number of steps on the slew axis of the characterization "
         "(`-slew_steps`). Unset: the default of the tool, 7. The README of OpenROAD says 12.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     cap_steps: Optional[int] = Field(
         None,
         ge=1,
         description="The number of steps on the capacitance axis of the characterization "
         "(`-cap_steps`). Unset: the default of the tool, 20. The README of OpenROAD says 34.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
 
 
 class RepairClockNetsGroup(SettingsGroup):
     """The buffering of the long wire from the clock port to the root buffer."""
-
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("max_wire_length", "-max_wire_length", "value"),)
 
     when: Literal["off", "in_cts", "after"] = Field(
         "in_cts",
@@ -460,10 +461,10 @@ class RepairClockNetsGroup(SettingsGroup):
         "OpenROAD-flow-scripts.",
         json_schema_extra=tier("common"),
     )
-    max_wire_length: Optional[NonNegative] = Field(
+    max_wire_length: Optional[NonNegativeLength] = Field(
         None,
-        description="Buffer each clock wire that is longer than this length, in micrometers "
-        "(`repair_clock_nets -max_wire_length`). Needs `when: after`: the repair inside "
+        description="Buffer each clock wire that is longer than this length, a length with a "
+        "unit (`repair_clock_nets -max_wire_length`). Needs `when: after`: the repair inside "
         "`clock_tree_synthesis` takes no length. Unset or 0: the length that gives the least "
         "wire delay for the wire RC.",
         json_schema_extra=tier("advanced"),

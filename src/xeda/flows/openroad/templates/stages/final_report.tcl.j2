@@ -10,7 +10,7 @@
 {% set ir = settings.ir_drop %}
 proc xeda_final_report {} {
 {% if P.ir_drop %}
-{% if render_flags(ir.source) or ir.instance_power %}
+{% if P.ir_setup %}
     xeda_ir_setup
 {% endif %}
 {% for net, volts in P.supply_voltages %}
