@@ -250,3 +250,13 @@ The tests of the tool need no ORFS checkout and no tool:
 ```console
 .venv/bin/pytest tests/test_asic_parity.py tests/test_parity_override_sky130hd.py -q
 ```
+
+The opt-in layer `XEDA_TESTS_ASIC_QOR=1` runs the real comparison for the `synthesis`, `pnr` and
+`both` halves of `nangate45` (`gcd`, `aes`, `ibex`, `jpeg`) and `sky130hd` (`gcd`, `ibex`). It
+asserts that each row meets the bar. It needs `XEDA_TESTS_ORFS=<ORFS checkout>`, an `openroad`, and
+a yosys with Tcl and `read_slang` on `PATH`. The checkout holds the platform files, so the layer
+needs no PDK store. One run of ORFS serves all three halves of a design.
+
+Run the layer without `-n`. Each xdist worker has its own run root, so a design would run in ORFS
+once per worker, and the OpenROAD jobs would compete for the cores. A case that misses the bar
+today is an expected failure with the measured numbers in its reason.

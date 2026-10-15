@@ -26,6 +26,8 @@ from xeda.introspect import all_flow_classes
 from xeda.platforms import bundled_platform_names
 from xeda.units import Time
 
+from .tool_utils import AsicQorTools, require_asic_qor
+
 ROOT = Path(__file__).parent.parent
 TOOL = ROOT / "tools" / "asic_parity.py"
 DESIGNS = ROOT / "tools" / "asic_parity" / "designs"
@@ -1473,3 +1475,150 @@ def test_a_reference_with_an_area_of_zero_is_a_problem() -> None:
     reference = row("orfs", finish__design__instance__area__stdcell=0)
     problems = tool.bar_problems(row(), reference)
     assert len(problems) == 1 and "the ORFS row has no area" in problems[0]
+
+
+# ---- the opt-in layer: xeda against ORFS -----------------------------------------------------
+#
+# `XEDA_TESTS_ASIC_QOR=1` runs the tool on real designs. Each case runs one half of one design
+# and asserts the bar of the tool. A session shares one run root, so ORFS runs once for a design.
+
+
+def fake_program(directory: Path, name: str, body: str) -> None:
+    directory.mkdir(exist_ok=True)
+    path = directory / name
+    path.write_text(f"#!/bin/sh\n{body}\n")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
+def qor_environment(
+    monkeypatch, tmp_path: Path, *, openroad: str = "exit 0", yosys: str = "exit 0"
+) -> Path:
+    """Ask for the layer, with a checkout, and with an `openroad` and a `yosys` that run the
+    shell script of the arguments (a program is left out when its script is `None`)."""
+    checkout = tmp_path / "orfs"
+    write(checkout / "flow" / "Makefile")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    if openroad is not None:
+        fake_program(bin_dir, "openroad", openroad)
+    if yosys is not None:
+        fake_program(bin_dir, "yosys", yosys)
+    monkeypatch.setenv("XEDA_TESTS_ASIC_QOR", "1")
+    monkeypatch.setenv("XEDA_TESTS_ORFS", str(checkout))
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
+    return checkout
+
+
+def test_the_qor_layer_skips_without_its_variable(monkeypatch) -> None:
+    monkeypatch.delenv("XEDA_TESTS_ASIC_QOR", raising=False)
+    with pytest.raises(pytest.skip.Exception, match="XEDA_TESTS_ASIC_QOR"):
+        require_asic_qor()
+
+
+def test_the_qor_layer_fails_when_asked_for_and_the_checkout_is_not_given(
+    monkeypatch, tmp_path: Path
+) -> None:
+    qor_environment(monkeypatch, tmp_path)
+    monkeypatch.delenv("XEDA_TESTS_ORFS")
+    with pytest.raises(pytest.fail.Exception, match="XEDA_TESTS_ORFS is not"):
+        require_asic_qor()
+
+
+def test_the_qor_layer_fails_when_the_directory_is_no_checkout(monkeypatch, tmp_path: Path):
+    qor_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("XEDA_TESTS_ORFS", str(tmp_path))
+    with pytest.raises(pytest.fail.Exception, match="no checkout of OpenROAD-flow-scripts"):
+        require_asic_qor()
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        (dict(openroad="exit 3"), "does not run"),
+        (dict(yosys='case "$*" in *-c*) exit 1;; esac'), "Tcl script"),
+        (dict(yosys='case "$*" in *slang*) exit 1;; esac'), "slang plugin"),
+    ],
+)
+def test_the_qor_layer_fails_when_a_tool_does_not_do_what_it_needs(
+    monkeypatch, tmp_path: Path, kwargs: dict, message: str
+) -> None:
+    qor_environment(monkeypatch, tmp_path, **kwargs)
+    with pytest.raises(pytest.fail.Exception, match=message):
+        require_asic_qor()
+
+
+def test_the_qor_layer_fails_when_a_tool_is_missing(monkeypatch, tmp_path: Path) -> None:
+    qor_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    with pytest.raises(pytest.fail.Exception, match="no `openroad` is on PATH"):
+        require_asic_qor()
+    fake_program(tmp_path / "only_openroad", "openroad", "exit 0")
+    monkeypatch.setenv("PATH", str(tmp_path / "only_openroad"))
+    with pytest.raises(pytest.fail.Exception, match="no `yosys` is on PATH"):
+        require_asic_qor()
+
+
+def test_the_qor_layer_returns_the_checkout_and_the_tools(monkeypatch, tmp_path: Path) -> None:
+    checkout = qor_environment(monkeypatch, tmp_path)
+    tools = require_asic_qor()
+    assert tools == AsicQorTools(
+        checkout, tmp_path / "bin" / "openroad", tmp_path / "bin" / "yosys"
+    )
+
+
+#: The designs that the layer compares with ORFS, and the halves of each.
+QOR_DESIGNS = (
+    "nangate45/gcd",
+    "nangate45/aes",
+    "nangate45/ibex",
+    "nangate45/jpeg",
+    "sky130hd/gcd",
+    "sky130hd/ibex",
+)
+#: The cases that miss the bar, by design and half, with the measured numbers. A case in this table
+#: is an expected failure that must fail (`strict`): it does not set the bar, and a case that
+#: passes later has to leave the table.
+KNOWN_MISSES: dict[tuple[str, str], str] = {}
+
+
+def qor_cases() -> list:
+    cases = []
+    for spec in QOR_DESIGNS:
+        for half in tool.HALVES:
+            marks = [pytest.mark.real_tool]
+            if (spec, half) in KNOWN_MISSES:
+                marks.append(pytest.mark.xfail(strict=True, reason=KNOWN_MISSES[spec, half]))
+            cases.append(pytest.param(spec, half, marks=marks, id=f"{spec}-{half}"))
+    return cases
+
+
+@pytest.fixture(scope="session")
+def qor_root(tmp_path_factory) -> Path:
+    """The run root that every case of a session shares, so that ORFS runs once per design."""
+    return tmp_path_factory.mktemp("asic_qor")
+
+
+@pytest.mark.parametrize(("spec", "half"), qor_cases())
+def test_the_flows_of_xeda_meet_the_bar_against_orfs(spec: str, half: str, qor_root: Path):
+    tools = require_asic_qor()
+    code = tool.main(
+        [
+            *("--orfs", str(tools.orfs), "--root", str(qor_root)),
+            *("--openroad", str(tools.openroad), "--yosys", str(tools.yosys)),
+            *("--xeda-yosys", str(tools.yosys), "--yosys-frontend", str(tools.yosys)),
+            *("run", spec, "--half", half),
+        ]
+    )
+    rows = tool.load_rows(qor_root, spec)
+    if half not in rows or "orfs" not in rows:
+        pytest.fail(f"the tool exited with {code} and recorded no row for {spec} {half}")
+    table = tool.render_tables(qor_root, [spec])
+    saved = qor_root / "tables" / f"{spec.replace('/', '_')}.md"
+    saved.parent.mkdir(exist_ok=True)
+    saved.write_text(table, encoding="utf-8")
+    problems = tool.bar_problems(rows[half], rows["orfs"])
+    assert problems == [], (
+        f"{spec} {half} misses the bar:\n  "
+        + "\n  ".join(problems)
+        + (f"\n\n{table}\n(the table is also in {saved})")
+    )
