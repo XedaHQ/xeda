@@ -31,6 +31,10 @@ jobs:
     # Pinned, not ubuntu-latest, like the other jobs.
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    defaults:
+      run:
+        # The steps use Bash: arrays and `set -o pipefail`.
+        shell: bash
     container:
       # openroad/orfs:26Q4-132-g6b305a712
       image: openroad/orfs@sha256:63981d1ac8990a9bee8bf874c95ee2c1ee3fe7b99f57d459282ab8c31a8ed663
