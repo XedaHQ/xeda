@@ -8,9 +8,11 @@ ORFS design it runs xeda and ORFS with equivalent settings, and prints a Markdow
   and route targets. The tool runs it first when `--root` has no such row.
 * The half `synthesis` is xeda's `yosys` flow for the netlist. ORFS places and routes that
   netlist, so the row shows what the xeda synthesis script costs or gains.
-* The half `pnr` is xeda's OpenROAD flows on the netlist of ORFS. The half `both` is the xeda
-  flow chain from the sources. These halves need the OpenROAD flows of xeda, which are not in every
-  xeda version: the tool names the missing flows and stops.
+* The half `pnr` is xeda's OpenROAD flows on the netlist of ORFS: `openroad` with its default
+  producers `openroad_place`, `openroad_cts` and `openroad_grt`. The half `both` is the xeda flow
+  chain from the sources: `yosys`, `openroad_place`, `openroad_cts`, `openroad_grt` and `openroad`.
+  The OpenROAD flows read the constraint file of ORFS as a source of the design. A xeda that lacks
+  these flows stops the tool, which names the missing flows.
 
 The sources, the include directories, the top module, the front end and the constraint file come
 from ORFS (`make print-<VARIABLE>`), so both tools read the same inputs. A design file in
@@ -32,6 +34,7 @@ Each tool runs with a scrubbed environment and its own `HOME` and `TMPDIR` under
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform as host_platform
 import re
@@ -62,7 +65,19 @@ MAKE_VARS = [
     "SYNTH_HDL_FRONTEND", "SYNTH_MINIMUM_KEEP_SIZE", "ADDER_MAP_FILE", "LATCH_MAP_FILE",
     "CLKGATE_MAP_FILE", "LIB_FILES", "DONT_USE_CELLS", "TIEHI_CELL_AND_PORT",
     "TIELO_CELL_AND_PORT", "MIN_BUF_CELL_AND_PORTS", "ABC_DRIVER_CELL", "ABC_LOAD_IN_FF",
+    "CORE_UTILIZATION", "CORE_ASPECT_RATIO", "CORE_MARGIN", "PLACE_DENSITY_LB_ADDON",
+    "TNS_END_PERCENT", "FLOORPLAN_DEF", "PLACE_PINS_ARGS", "FASTROUTE_TCL", "PDN_TCL",
+    "CTS_CLUSTER_SIZE", "CTS_CLUSTER_DIAMETER", "SKIP_INCREMENTAL_REPAIR", "MIN_ROUTING_LAYER",
+    "MAX_ROUTING_LAYER", "ENABLE_PLACE_REPAIR_TIMING", "SKIP_CTS_REPAIR_TIMING",
+    "REMOVE_ABC_BUFFERS",
 ]  # fmt: skip
+#: The variables that a `config.mk` may set although xeda has no setting for them, with the reason
+#: why the result does not depend on them. Any other variable that a `config.mk` sets and that is
+#: not in `MAKE_VARS` stops the tool: someone must map it to a xeda setting or list it here.
+IGNORED_VARIABLES = {
+    "SYNTH_REPEATABLE_BUILD": "it removes paths and times from the debug information of the "
+    "netlist, and the netlist stays the same",
+}
 
 #: The metrics of a result row, by the name that ORFS gives them in its JSON logs. The first group
 #: is what the bar and the table need. The second group is kept when the run gives it.
@@ -97,13 +112,37 @@ WNS_TOLERANCE_NS = 0.015
 AREA_TOLERANCE = 0.02
 _EPSILON = 1e-9
 
+#: The OpenROAD flows of xeda, in the order of the chain.
+OPENROAD_FLOWS = ("openroad_place", "openroad_cts", "openroad_grt", "openroad")
+#: The metrics of a row and the result of the last xeda flow that gives each: the ORFS metric, the
+#: result, and the factor that turns the unit of xeda into the unit of ORFS. xeda reports `Fmax`
+#: in MHz and ORFS in Hz. Both give times in ns, areas in um^2 and power in W. The worst slack is
+#: the result `worst_slack`: the result `wns` stops at zero, and the ORFS metric does not.
+XEDA_RESULTS = (
+    ("finish__timing__setup__ws", "worst_slack", 1),
+    ("finish__timing__setup__tns", "tns", 1),
+    ("finish__timing__hold__ws", "whs", 1),
+    ("finish__timing__hold__tns", "hold_tns", 1),
+    ("finish__design__instance__area__stdcell", "area", 1),
+    ("finish__power__total", "power", 1),
+    ("detailedroute__route__drc_errors", "drc_errors", 1),
+    ("detailedroute__antenna__violating__nets", "antenna_violating_nets", 1),
+    ("finish__timing__fmax", "Fmax", 1_000_000),
+    ("finish__timing__drv__setup_violation_count", "setup_violations", 1),
+    ("finish__design__instance__count__stdcell", "instances", 1),
+    ("finish__design__core__area", "core_area", 1),
+)
+
 #: The flows that a half needs.
 HALF_FLOWS = {
     "synthesis": ("yosys",),
     "pnr": ("openroad",),
     "both": ("yosys", "openroad_place", "openroad_cts", "openroad_grt", "openroad"),
 }
-#: Settings that the tool sets in every flow of the generated design.
+#: Settings that the tool sets in the generated design: the platform in every flow, the clocks in
+#: none (the constraint file of ORFS gives them to the OpenROAD flows, and a second clock on the
+#: same port would replace the first), the hierarchy in the OpenROAD flows, the DEF file of the
+#: floorplan, and the three verdicts of the last flow (the tool judges the numbers itself).
 RESERVED_SETTINGS = (
     "platform",
     "platform_file",
@@ -111,6 +150,12 @@ RESERVED_SETTINGS = (
     "pdk_version",
     "pdk_root",
     "clock",
+    "clocks",
+    "hierarchical",
+    "fail_timing",
+    "fail_drc",
+    "fail_antenna",
+    "floorplan.def_file",
 )
 
 
@@ -265,6 +310,7 @@ class DesignConfig:
     clock_period: str  # a time with a unit, such as `0.25 ns`
     flows: dict[str, dict[str, Any]]  # settings by flow name, as written (dotted keys allowed)
     path: Path
+    hierarchical: bool = False  # OPENROAD_HIERARCHICAL, for every OpenROAD flow
 
     @property
     def platform(self) -> str:
@@ -300,11 +346,35 @@ def expand_dotted(table: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def leaf_paths(table: Mapping[str, Any], prefix: str = "") -> list[str]:
+    """Return the dotted path of each leaf of a nested table. An empty table is a leaf."""
+    found: list[str] = []
+    for key, value in table.items():
+        if isinstance(value, Mapping) and value:
+            found += leaf_paths(value, f"{prefix}{key}.")
+        else:
+            found.append(f"{prefix}{key}")
+    return found
+
+
+def deep_merge(base: Mapping[str, Any], over: Mapping[str, Any]) -> dict[str, Any]:
+    """Return `base` with the tables of `over` merged in. A leaf of `over` wins."""
+    merged = dict(base)
+    for key, value in over.items():
+        if isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def config_from_table(table: Mapping[str, Any], path: Path) -> DesignConfig:
     """Check a design file that is read already and return it."""
-    unknown = sorted(set(table) - {"orfs", "clock", "flows"})
+    unknown = sorted(set(table) - {"orfs", "clock", "hierarchical", "flows"})
     if unknown:
-        raise ParityError(f"{path}: unknown key `{unknown[0]}`; the keys are orfs, clock, flows")
+        raise ParityError(
+            f"{path}: unknown key `{unknown[0]}`; the keys are orfs, clock, hierarchical, flows"
+        )
     spec = table.get("orfs")
     if not isinstance(spec, str) or not re.fullmatch(r"[a-z0-9]+/[A-Za-z0-9_]+", spec):
         raise ParityError(f"{path}: `orfs` must name the ORFS design, such as `nangate45/gcd`")
@@ -324,21 +394,26 @@ def config_from_table(table: Mapping[str, Any], path: Path) -> DesignConfig:
         ) from None
     if not isinstance(clock["port"], str):
         raise ParityError(f"{path}: clock.port must be text")
+    hierarchical = table.get("hierarchical", False)
+    if not isinstance(hierarchical, bool):
+        raise ParityError(f"{path}: `hierarchical` must be true or false")
     flows = table.get("flows")
     if not isinstance(flows, Mapping) or not flows:
         raise ParityError(f"{path}: `flows` must hold the settings of at least one flow")
     for name, settings in flows.items():
         if not isinstance(settings, Mapping):
             raise ParityError(f"{path}: flows.{name} must be a table of settings")
-        taken = [k for k in expand_dotted(settings) if k in RESERVED_SETTINGS]
-        if taken:
-            raise ParityError(f"{path}: flows.{name}.{taken[0]} is set by the tool; delete it")
+        paths = leaf_paths(expand_dotted(settings))
+        for reserved in RESERVED_SETTINGS:
+            if any(leaf == reserved or leaf.startswith(reserved + ".") for leaf in paths):
+                raise ParityError(f"{path}: flows.{name}.{reserved} is set by the tool; delete it")
     return DesignConfig(
         spec=spec,
         clock_port=clock["port"],
         clock_period=period,
         flows={str(name): dict(settings) for name, settings in flows.items()},
         path=path,
+        hierarchical=hierarchical,
     )
 
 
@@ -377,6 +452,7 @@ def sdc_clock_port(text: str) -> Optional[str]:
 class Expectation:
     """The value of a xeda setting that an ORFS variable asks for."""
 
+    flow: str
     setting: str  # dotted name
     expected: Any
     variable: str
@@ -391,7 +467,7 @@ def wrapped_operators(variables: Mapping[str, str]) -> bool:
     )
 
 
-def orfs_expectations(variables: Mapping[str, str]) -> list[Expectation]:
+def yosys_expectations(variables: Mapping[str, str]) -> list[Expectation]:
     """Return what the ORFS variables of a design ask of the settings of the xeda `yosys` flow."""
     get = lambda name: variables.get(name, "").strip()  # noqa: E731
     wrap = wrapped_operators(variables)
@@ -399,15 +475,19 @@ def orfs_expectations(variables: Mapping[str, str]) -> list[Expectation]:
         "SYNTH_WRAPPED_OPERATORS"
     )  # fmt: skip
     found = [
-        Expectation("arithmetic.wrap_operators", wrap, wrap_variable, get(wrap_variable)),
-        Expectation("abc.mapper", "abc_new" if wrap else "abc", wrap_variable, get(wrap_variable)),
+        Expectation("yosys", "arithmetic.wrap_operators", wrap, wrap_variable, get(wrap_variable)),
         Expectation(
+            "yosys", "abc.mapper", "abc_new" if wrap else "abc", wrap_variable, get(wrap_variable)
+        ),
+        Expectation(
+            "yosys",
             "arithmetic.adder_map",
             "platform" if get("ADDER_MAP_FILE") else "none",
             "ADDER_MAP_FILE",
             get("ADDER_MAP_FILE"),
         ),
         Expectation(
+            "yosys",
             "hierarchy.keep_min_cost",
             int(get("SYNTH_MINIMUM_KEEP_SIZE") or 0) if get("SYNTH_HIERARCHICAL") == "1" else None,
             "SYNTH_HIERARCHICAL",
@@ -416,11 +496,16 @@ def orfs_expectations(variables: Mapping[str, str]) -> list[Expectation]:
     ]
     if wrap:
         # ORFS maps with abc_new, which takes no ABC_AREA script, and the passes need Tcl.
-        found.append(Expectation("abc.strategy", "area", wrap_variable, get(wrap_variable)))
-        found.append(Expectation("script_format", "tcl", wrap_variable, get(wrap_variable)))
+        found.append(
+            Expectation("yosys", "abc.strategy", "area", wrap_variable, get(wrap_variable))
+        )
+        found.append(
+            Expectation("yosys", "script_format", "tcl", wrap_variable, get(wrap_variable))
+        )
     else:
         found.append(
             Expectation(
+                "yosys",
                 "abc.strategy",
                 "area" if get("ABC_AREA") == "1" else "speed",
                 "ABC_AREA",
@@ -431,14 +516,137 @@ def orfs_expectations(variables: Mapping[str, str]) -> list[Expectation]:
     # SYNTH_OPERATIONS_ARGS replaces it. Wrapped operators bring their own architectures, and
     # xeda refuses an adder architecture then.
     if wrap:
-        found.append(Expectation("arithmetic.adder_architecture", "yosys", wrap_variable, "1"))
+        found.append(
+            Expectation("yosys", "arithmetic.adder_architecture", "yosys", wrap_variable, "1")
+        )
     elif not get("SYNTH_OPERATIONS_ARGS"):
         found.append(
-            Expectation("arithmetic.adder_architecture", "kogge_stone", "SYNTH_OPERATIONS_ARGS", "")
+            Expectation(
+                "yosys", "arithmetic.adder_architecture", "kogge_stone", "SYNTH_OPERATIONS_ARGS", ""
+            )
         )
     if get("SYNTH_HDL_FRONTEND") == "slang":
-        found.append(Expectation("systemverilog", "slang", "SYNTH_HDL_FRONTEND", "slang"))
+        found.append(Expectation("yosys", "systemverilog", "slang", "SYNTH_HDL_FRONTEND", "slang"))
     return found
+
+
+#: `PLACE_PINS_ARGS` as the shipped designs write it, and the only form that the tool translates.
+_PIN_DISTANCE = re.compile(r"-min_distance\s+(\d+)\s+-min_distance_in_tracks")
+
+
+def openroad_expectations(variables: Mapping[str, str]) -> tuple[list[Expectation], list[str]]:
+    """Return what the ORFS variables of a design ask of the settings of the xeda OpenROAD flows,
+    and the problems with a variable that the tool cannot translate."""
+    from xeda.units import Length
+
+    get = lambda name: variables.get(name, "").strip()  # noqa: E731
+    problems: list[str] = []
+    found: list[Expectation] = []
+
+    def number(name: str, kind: type = float) -> Any:
+        try:
+            return kind(get(name))
+        except ValueError:
+            problems.append(f"{name} is {get(name)!r}, which is not a {kind.__name__}")
+            return None
+
+    def add(flow: str, setting: str, expected: Any, variable: str) -> None:
+        if expected is not None or get(variable) == "":
+            found.append(Expectation(flow, setting, expected, variable, get(variable)))
+
+    place = "openroad_place"
+    if get("FLOORPLAN_DEF"):
+        add(place, "floorplan.sizing", "def", "FLOORPLAN_DEF")
+    elif get("CORE_UTILIZATION"):
+        add(place, "floorplan.sizing", "utilization", "CORE_UTILIZATION")
+        add(
+            place,
+            "floorplan.core_utilization_percent",
+            number("CORE_UTILIZATION"),
+            "CORE_UTILIZATION",
+        )
+        add(place, "floorplan.aspect_ratio", number("CORE_ASPECT_RATIO"), "CORE_ASPECT_RATIO")
+        margin = number("CORE_MARGIN")
+        add(
+            place,
+            "floorplan.core_margin",
+            None if margin is None else Length(f"{margin} um"),
+            "CORE_MARGIN",
+        )
+    else:
+        problems.append(
+            "neither FLOORPLAN_DEF nor CORE_UTILIZATION is set: the tool cannot translate "
+            "another way to size the floorplan"
+        )
+    if get("PLACE_DENSITY_LB_ADDON"):
+        add(place, "global_placement.density.mode", "auto", "PLACE_DENSITY_LB_ADDON")
+        add(
+            place,
+            "global_placement.density.headroom",
+            number("PLACE_DENSITY_LB_ADDON"),
+            "PLACE_DENSITY_LB_ADDON",
+        )
+    else:
+        add(place, "global_placement.density.mode", "fixed", "PLACE_DENSITY_LB_ADDON")
+    tns = number("TNS_END_PERCENT")
+    for flow, setting in (
+        (place, "floorplan.netlist_cleanup.repair.tns_end_percent"),
+        (place, "resize.repair_timing.tns_end_percent"),
+        ("openroad_cts", "repair.tns_end_percent"),
+        ("openroad_grt", "repair.timing.tns_end_percent"),
+    ):
+        add(flow, setting, tns, "TNS_END_PERCENT")
+    pins = get("PLACE_PINS_ARGS")
+    if not pins:
+        add(place, "io.min_distance_tracks", None, "PLACE_PINS_ARGS")
+    elif _PIN_DISTANCE.fullmatch(pins):
+        add(
+            place,
+            "io.min_distance_tracks",
+            int(_PIN_DISTANCE.fullmatch(pins).group(1)),  # type: ignore[union-attr]
+            "PLACE_PINS_ARGS",
+        )
+    else:
+        problems.append(
+            f"PLACE_PINS_ARGS is {pins!r}: the tool cannot translate it, so write the xeda "
+            "settings by hand"
+        )
+    add(
+        place,
+        "floorplan.netlist_cleanup.mode",
+        "remove_buffers" if get("REMOVE_ABC_BUFFERS") == "1" else "repair_timing",
+        "REMOVE_ABC_BUFFERS",
+    )
+    add(
+        place,
+        "resize.repair_timing.enabled",
+        get("ENABLE_PLACE_REPAIR_TIMING") == "1",
+        "ENABLE_PLACE_REPAIR_TIMING",
+    )
+    add(place, "arith_swap.enabled", get("SWAP_ARITH_OPERATORS") == "1", "SWAP_ARITH_OPERATORS")
+    cts = "openroad_cts"
+    size, diameter = get("CTS_CLUSTER_SIZE"), get("CTS_CLUSTER_DIAMETER")
+    add(cts, "sink_clustering.mode", "explicit" if size or diameter else "auto", "CTS_CLUSTER_SIZE")
+    add(
+        cts,
+        "sink_clustering.size",
+        number("CTS_CLUSTER_SIZE", int) if size else None,
+        "CTS_CLUSTER_SIZE",
+    )
+    add(
+        cts,
+        "sink_clustering.max_diameter",
+        Length(f"{diameter} um") if diameter else None,
+        "CTS_CLUSTER_DIAMETER",
+    )
+    add(cts, "repair.enabled", get("SKIP_CTS_REPAIR_TIMING") != "1", "SKIP_CTS_REPAIR_TIMING")
+    add(
+        "openroad_grt",
+        "repair.strategy",
+        "none" if get("SKIP_INCREMENTAL_REPAIR") == "1" else "incremental",
+        "SKIP_INCREMENTAL_REPAIR",
+    )
+    return found, problems
 
 
 def _dotted_get(model: Any, name: str) -> Any:
@@ -447,10 +655,169 @@ def _dotted_get(model: Any, name: str) -> Any:
     return model
 
 
-def design_config_problems(
-    config: DesignConfig, variables: Mapping[str, str], sdc_text: str
+def unknown_variables(config_mk: str) -> list[str]:
+    """Return the variables that a `config.mk` exports and that the tool neither reads nor lists
+    as without effect. A comment line is no assignment."""
+    known = set(MAKE_VARS) | set(IGNORED_VARIABLES)
+    names = re.findall(r"^[ \t]*export[ \t]+([A-Za-z0-9_]+)", config_mk, re.M)
+    return sorted(dict.fromkeys(name for name in names if name not in known))
+
+
+def _inside(path: str, directory: str) -> bool:
+    return Path(path).resolve().is_relative_to(Path(directory).resolve())
+
+
+def design_tcl_texts(variables: Mapping[str, str]) -> dict[str, str]:
+    """Return the text of the Tcl files that the design names itself, by variable. A file of the
+    platform is left out: the platform of xeda holds its values."""
+    texts: dict[str, str] = {}
+    for name in ("FASTROUTE_TCL", "PDN_TCL"):
+        path = variables.get(name, "").strip()
+        if path and not _inside(path, variables.get("PLATFORM_DIR", "")):
+            try:
+                texts[name] = Path(path).read_text(encoding="utf-8")
+            except OSError as error:
+                raise ParityError(f"cannot read {name}: {error}") from None
+    return texts
+
+
+def _tcl_lines(text: str) -> list[str]:
+    stripped = (line.strip() for line in text.splitlines())
+    return [line for line in stripped if line and not line.startswith("#")]
+
+
+_ADJUSTMENT = re.compile(r"set_global_routing_layer_adjustment\s+(\S+)\s+([0-9.]+)")
+_ROUTING_LAYERS = re.compile(
+    r"set_routing_layers\s+-(?:clock|signal)\s+"
+    r"\$::env\(MIN_(?:CLK_)?ROUTING_LAYER\)-\$::env\(MAX_ROUTING_LAYER\)"
+)
+
+
+def fastroute_problems(
+    text: str, variables: Mapping[str, str], layer_adjustments: Any
 ) -> list[str]:
-    """Return the ways in which the design file disagrees with ORFS. Empty means it agrees."""
+    """Return the ways in which the layer adjustments of the settings differ from the file
+    `FASTROUTE_TCL` of the design. The file may set the routing layers of the platform, and it
+    must set one adjustment."""
+    layers = f"{variables.get('MIN_ROUTING_LAYER')}-{variables.get('MAX_ROUTING_LAYER')}"
+    problems: list[str] = []
+    adjustments: dict[str, float] = {}
+    for line in _tcl_lines(text):
+        found = _ADJUSTMENT.fullmatch(line)
+        if found:
+            span = found.group(1).replace(
+                "$::env(MIN_ROUTING_LAYER)-$::env(MAX_ROUTING_LAYER)", layers
+            )
+            adjustments[span] = float(found.group(2))
+        elif not _ROUTING_LAYERS.fullmatch(line):
+            problems.append(
+                f"FASTROUTE_TCL has the line `{line}`, which the tool cannot translate: write "
+                "the xeda settings by hand"
+            )
+    if not adjustments:
+        problems.append("FASTROUTE_TCL sets no layer adjustment")
+    elif dict(layer_adjustments or {}) != adjustments:
+        problems.append(
+            f"flows.openroad_place.routing.layer_adjustments is {dict(layer_adjustments or {})!r}, "
+            f"but FASTROUTE_TCL sets {adjustments!r}"
+        )
+    return problems
+
+
+_STRIPE_FLAG = re.compile(r"-(layer|width|pitch|offset)\s+\{([^}]*)\}")
+_PDN_KNOWN = ("add_global_connection", "global_connect", "set_voltage_domain", "add_pdn_connect")
+
+
+def _stripes(settings: Any) -> list[tuple[str, float, Optional[float], Optional[float]]]:
+    def um(value: Any) -> Optional[float]:
+        return None if value is None else float(value.to("um"))
+
+    return [(s.layer, um(s.width), um(s.pitch), um(s.offset)) for s in settings or []]
+
+
+def pdn_problems(text: str, place: Any) -> list[str]:
+    """Return the ways in which the grid of the settings differs from the file `PDN_TCL` of the
+    design: its rails and straps (the layer, width, pitch and offset of each) and its pins. The
+    global connections, the voltage domain and the connections between layers are those of the
+    platform."""
+    problems: list[str] = []
+    rails: list[tuple[str, float, Optional[float], Optional[float]]] = []
+    straps: list[tuple[str, float, Optional[float], Optional[float]]] = []
+    pins = False
+    for line in _tcl_lines(text):
+        command = line.split()[0]
+        if command == "define_pdn_grid" and "-macro" not in line:
+            pins = "-pins" in line
+        elif command == "add_pdn_stripe":
+            given = dict(_STRIPE_FLAG.findall(line))
+            row = (
+                given.get("layer", ""),
+                float(given.get("width", "nan")),
+                float(given["pitch"]) if "pitch" in given else None,
+                float(given["offset"]) if "offset" in given else None,
+            )
+            (rails if "-followpins" in line else straps).append(row)
+        elif command not in _PDN_KNOWN:
+            problems.append(
+                f"PDN_TCL has the command `{command}`, which the tool cannot translate: write "
+                "the xeda settings by hand"
+            )
+    grid = place.pdn.grid
+    for name, want in (("rails", rails), ("straps", straps)):
+        got = _stripes(getattr(grid, name, None) if grid is not None else None)
+        if len(got) != len(want) or any(
+            a[0] != b[0]
+            or not all(
+                x == y or (x is not None and y is not None and math.isclose(x, y))
+                for x, y in zip(a[1:], b[1:])
+            )
+            for a, b in zip(got, want)
+        ):
+            problems.append(
+                f"flows.openroad_place.pdn.grid.{name} is {got!r}, but PDN_TCL has {want!r} "
+                "(layer, width, pitch and offset in um)"
+            )
+    if place.pdn.block_pins != pins:
+        problems.append(
+            f"flows.openroad_place.pdn.block_pins is {place.pdn.block_pins!r}, but PDN_TCL "
+            f"{'gives' if pins else 'gives no'} `-pins`"
+        )
+    return problems
+
+
+def injected_settings(
+    config: DesignConfig, variables: Mapping[str, str], flow: str
+) -> dict[str, Any]:
+    """Return the settings that the tool sets in `flow`, other than the platform: the hierarchy of
+    the OpenROAD flows, the DEF file of the floorplan, and no verdict in the last flow."""
+    injected: dict[str, Any] = {}
+    if flow in OPENROAD_FLOWS:
+        injected["hierarchical"] = config.hierarchical
+    if flow == "openroad":
+        injected.update(fail_timing=False, fail_drc=False, fail_antenna=False)
+    floorplan_def = variables.get("FLOORPLAN_DEF", "").strip()
+    if flow == "openroad_place" and floorplan_def:
+        injected["floorplan"] = {"def_file": floorplan_def}
+    return injected
+
+
+def flow_classes() -> dict[str, Any]:
+    from xeda.introspect import all_flow_classes
+
+    return {cls.name: cls for cls in all_flow_classes()}
+
+
+def design_config_problems(
+    config: DesignConfig,
+    variables: Mapping[str, str],
+    sdc_text: str,
+    tcl_texts: Optional[Mapping[str, str]] = None,
+) -> list[str]:
+    """Return the ways in which the design file disagrees with ORFS. Empty means it agrees.
+
+    `tcl_texts` holds the text of the Tcl files that the design names (`design_tcl_texts`). The
+    tool checks the settings that a flow ends up with, not only the ones that the file gives, so a
+    flow that the file leaves out must agree with ORFS by its defaults."""
     from xeda.units import Time
 
     problems: list[str] = []
@@ -468,30 +835,52 @@ def design_config_problems(
             f"clock.port is {config.clock_port}, but the constraint file says "
             f"`set clk_port_name {port}`"
         )
-    if "yosys" in config.flows:
-        from xeda.flows import Yosys
-
+    hierarchy = variables.get("OPENROAD_HIERARCHICAL", "").strip()
+    if config.hierarchical != (hierarchy == "1"):
+        problems.append(
+            f"hierarchical is {config.hierarchical!r}, but OPENROAD_HIERARCHICAL = {hierarchy!r} "
+            f"needs {hierarchy == '1'!r}"
+        )
+    classes = flow_classes()
+    settings: dict[str, Any] = {}
+    for flow in ("yosys", *OPENROAD_FLOWS):
+        if flow not in classes or (flow == "yosys" and flow not in config.flows):
+            continue
+        table = deep_merge(
+            injected_settings(config, variables, flow), expand_dotted(config.flows.get(flow, {}))
+        )
         try:
-            settings = Yosys.Settings.from_input(
-                expand_dotted(config.flows["yosys"]), design_root=config.path.parent
+            settings[flow] = classes[flow].Settings.from_input(
+                table, design_root=config.path.parent
             )
         except Exception as error:
-            problems.append(f"flows.yosys does not validate: {error}")
-        else:
-            if variables.get("SYNTH_OPERATIONS_ARGS", "").strip() and not wrapped_operators(
-                variables
-            ):
-                problems.append(
-                    f"SYNTH_OPERATIONS_ARGS is {variables['SYNTH_OPERATIONS_ARGS']!r}: the tool "
-                    "cannot translate it, so write the xeda settings by hand"
-                )
-            for item in orfs_expectations(variables):
-                got = _dotted_get(settings, item.setting)
-                if got != item.expected:
-                    problems.append(
-                        f"{item.setting} is {got!r}, but {item.variable} = {item.value!r} "
-                        f"needs {item.expected!r}"
-                    )
+            problems.append(f"flows.{flow} does not validate: {error}")
+    if "yosys" in settings and variables.get("SYNTH_OPERATIONS_ARGS", "").strip():
+        if not wrapped_operators(variables):
+            problems.append(
+                f"SYNTH_OPERATIONS_ARGS is {variables['SYNTH_OPERATIONS_ARGS']!r}: the tool "
+                "cannot translate it, so write the xeda settings by hand"
+            )
+    expectations = yosys_expectations(variables)
+    openroad, untranslatable = openroad_expectations(variables)
+    problems += untranslatable
+    for item in [*expectations, *openroad]:
+        if item.flow not in settings:
+            continue
+        got = _dotted_get(settings[item.flow], item.setting)
+        if got != item.expected:
+            problems.append(
+                f"flows.{item.flow}.{item.setting} is {got!r}, but {item.variable} = "
+                f"{item.value!r} needs {item.expected!r}"
+            )
+    texts = tcl_texts or {}
+    place = settings.get("openroad_place")
+    if place is not None and "FASTROUTE_TCL" in texts:
+        problems += fastroute_problems(
+            texts["FASTROUTE_TCL"], variables, place.routing.layer_adjustments
+        )
+    if place is not None and "PDN_TCL" in texts:
+        problems += pdn_problems(texts["PDN_TCL"], place)
     return problems
 
 
@@ -528,12 +917,32 @@ def design_sources(variables: Mapping[str, str]) -> list[Any]:
 
 def pinned_files(variables: Mapping[str, str]) -> list[str]:
     """Return the files whose digests pin the sources of a row: the ORFS source files, then every
-    regular file below each include directory, sorted. A header can change, appear or go away
-    without a change of the ORFS commit, so each of them is part of the identity."""
+    regular file below each include directory, sorted, then the floorplan and the Tcl files that
+    the design names. A header can change, appear or go away without a change of the ORFS commit,
+    so each of them is part of the identity."""
     files = words(variables, "VERILOG_FILES")
     for directory in words(variables, "VERILOG_INCLUDE_DIRS"):
         files += [str(path) for path in sorted(Path(directory).rglob("*")) if path.is_file()]
+    for name in ("FLOORPLAN_DEF", "FASTROUTE_TCL", "PDN_TCL"):
+        path = variables.get(name, "").strip()
+        if path and Path(path).is_file():
+            files.append(path)
     return list(dict.fromkeys(files))
+
+
+def platform_settings(
+    config: DesignConfig, *, orfs: Path, orfs_commit: Optional[str], override_file: Path
+) -> dict[str, Any]:
+    """Return the settings that give every flow the platform of ORFS."""
+    settings: dict[str, Any] = {
+        "platform": config.platform,
+        "platform_file": str(override_file),
+        "pdk_provider": "directory",
+        "pdk_root": str(orfs / "flow" / "platforms"),
+    }
+    if orfs_commit:
+        settings["pdk_version"] = orfs_commit
+    return settings
 
 
 def generated_design(
@@ -545,22 +954,22 @@ def generated_design(
     override_file: Path,
     sources: list[Any],
 ) -> dict[str, Any]:
-    """Return the xeda design file that runs `config` on the ORFS inputs."""
-    platform_settings: dict[str, Any] = {
-        "platform": config.platform,
-        "platform_file": str(override_file),
-        "pdk_provider": "directory",
-        "pdk_root": str(orfs / "flow" / "platforms"),
-    }
-    if orfs_commit:
-        platform_settings["pdk_version"] = orfs_commit
+    """Return the xeda design file that runs `config` on the ORFS inputs.
+
+    It configures every flow of the design file and every flow of the whole chain, each with the
+    platform of ORFS and what `injected_settings` gives. It gives no flow a clock: the constraint
+    file of ORFS, a source of the design, gives the clocks to the OpenROAD flows.
+    """
+    platform = platform_settings(
+        config, orfs=orfs, orfs_commit=orfs_commit, override_file=override_file
+    )
+    names = dict.fromkeys([*config.flows, *HALF_FLOWS["both"]])
     flows = {
-        name: {
-            **platform_settings,
-            "clock": {"period": config.clock_period},
-            **expand_dotted(table),
-        }
-        for name, table in config.flows.items()
+        name: deep_merge(
+            {**platform, **injected_settings(config, variables, name)},
+            expand_dotted(config.flows.get(name, {})),
+        )
+        for name in names
     }
     return {
         "name": f"{config.platform}_{config.design}",
@@ -623,7 +1032,7 @@ def read_xeda_results(document: Mapping[str, Any], half: str) -> dict[str, Any]:
     """Return the part of a result row that the `--json` output of a xeda run gives.
 
     The `synthesis` half reads the area and the cell count of the yosys flow. The other halves
-    read the ORFS metric names from the results of the last flow.
+    read the results of the last flow and give them the ORFS metric names (`XEDA_RESULTS`).
     """
     if not document.get("success", False):
         error = document.get("error") or {}
@@ -644,12 +1053,44 @@ def read_xeda_results(document: Mapping[str, Any], half: str) -> dict[str, Any]:
         part["yosys_area"] = results.get("area")
         part["yosys_cells"] = results.get("cells")
         return part
-    found = {**results, **results.get("metrics", {})}
-    missing = [key for key in REQUIRED_METRICS if key not in found]
+    missing = [
+        f"`{key}` ({metric})"
+        for metric, key, _factor in XEDA_RESULTS
+        if metric in REQUIRED_METRICS and key not in results
+    ]
     if missing:
-        raise ParityError(f"the xeda results lack the metrics {', '.join(missing)}")
-    part["metrics"] = {key: found[key] for key in METRIC_KEYS if key in found}
+        raise ParityError(f"the xeda results lack {', '.join(missing)}")
+    part["metrics"] = {
+        metric: results[key] * factor if factor != 1 else results[key]
+        for metric, key, factor in XEDA_RESULTS
+        if key in results
+    }
     return part
+
+
+def node_results(document: Mapping[str, Any], flow: str) -> dict[str, Any]:
+    """Return the area, the cell count and the run time from the results of the flow `flow` in a
+    chain, read from the run directory of its node. Return `{}` when there is no such node or no
+    results file."""
+    for node in document.get("nodes") or []:
+        if node.get("flow") == flow and node.get("run_path"):
+            try:
+                loaded = json.loads((Path(node["run_path"]) / "results.json").read_text())
+            except (OSError, ValueError):
+                return {}
+            return {key: loaded[key] for key in ("area", "cells", "runtime") if key in loaded}
+    return {}
+
+
+def xeda_times(half: str, seconds: float, synthesis_seconds: Optional[float]) -> dict[str, float]:
+    """Return the times of a half that runs the OpenROAD flows: all of `seconds` is place and route
+    time, except the run time of the `yosys` flow in the chain of `both`."""
+    if half == "both" and synthesis_seconds is not None:
+        return {
+            "synthesis_s": round(synthesis_seconds, 1),
+            "pnr_s": round(seconds - synthesis_seconds, 1),
+        }
+    return {"pnr_s": round(seconds, 1)}
 
 
 # ---- ORFS ------------------------------------------------------------------------------------
@@ -1099,8 +1540,16 @@ def resolve_design(ctx: Context, config: DesignConfig) -> OrfsDesign:
 def check_design(design: OrfsDesign) -> None:
     check_flow_names(design.config, registered_flow_names() | set(HALF_FLOWS["both"]))
     problems = design_config_problems(
-        design.config, design.variables, design.sdc.read_text(encoding="utf-8")
+        design.config,
+        design.variables,
+        design.sdc.read_text(encoding="utf-8"),
+        design_tcl_texts(design.variables),
     )
+    problems += [
+        f"{design.config_mk} sets {name}, and the tool does not know it: map it to a xeda setting "
+        "in the design file and in the tool, or list it in IGNORED_VARIABLES"
+        for name in unknown_variables(design.config_mk.read_text(encoding="utf-8"))
+    ]
     if problems:
         raise ParityError(f"{design.config.path} does not match ORFS:\n  " + "\n  ".join(problems))
 
@@ -1354,7 +1803,11 @@ def run_half(
         prepare_home(d / "home")
         row["success"] = run_pnr(ctx, design, d, row)
     else:
+        synthesis = node_results(document, "yosys")
         row["metrics"] = part["metrics"]
+        row["yosys_area"] = synthesis.get("area")
+        row["yosys_cells"] = synthesis.get("cells")
+        row["times"] = xeda_times(half, seconds, synthesis.get("runtime"))
         row["success"] = True
     return write_row(ctx, row)
 

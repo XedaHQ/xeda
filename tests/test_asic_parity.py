@@ -77,6 +77,75 @@ FACTS: dict[str, dict[str, Any]] = {
 }  # fmt: skip
 SPECS = list(FACTS)
 
+#: What `make print-<VARIABLE>` gives for the variables that act in the OpenROAD stages. A design
+#: lists only what differs from `OPENROAD_DEFAULTS`. `fastroute` and `pdn` say whether the design
+#: has its own file (otherwise the variable names the file of the platform).
+OPENROAD_DEFAULTS: dict[str, str] = {
+    "CORE_UTILIZATION": "",
+    "CORE_ASPECT_RATIO": "1.0",
+    "CORE_MARGIN": "1.0",
+    "PLACE_DENSITY_LB_ADDON": "",
+    "TNS_END_PERCENT": "100",
+    "FLOORPLAN_DEF": "",
+    "PLACE_PINS_ARGS": "",
+    "CTS_CLUSTER_SIZE": "",
+    "CTS_CLUSTER_DIAMETER": "",
+    "SKIP_INCREMENTAL_REPAIR": "0",
+    "OPENROAD_HIERARCHICAL": "0",
+    "ENABLE_PLACE_REPAIR_TIMING": "0",
+    "SKIP_CTS_REPAIR_TIMING": "0",
+    "REMOVE_ABC_BUFFERS": "0",
+}
+OPENROAD_FACTS: dict[str, dict[str, Any]] = {
+    "nangate45/gcd": dict(
+        CORE_UTILIZATION="55", PLACE_DENSITY_LB_ADDON="0.20", layers=("metal2", "metal10"),
+        pdn="design",
+    ),
+    "nangate45/aes": dict(
+        FLOORPLAN_DEF="aes_ng45_fp.def", PLACE_DENSITY_LB_ADDON="0.20", SKIP_INCREMENTAL_REPAIR="1",
+        OPENROAD_HIERARCHICAL="1", layers=("metal2", "metal10"),
+    ),
+    "nangate45/ibex": dict(
+        CORE_UTILIZATION="50", PLACE_DENSITY_LB_ADDON="0.20", layers=("metal2", "metal10"),
+    ),
+    "nangate45/jpeg": dict(
+        CORE_UTILIZATION="80", PLACE_DENSITY_LB_ADDON="0.20", layers=("metal2", "metal10"),
+    ),
+    "sky130hd/gcd": dict(
+        CORE_UTILIZATION="38", OPENROAD_HIERARCHICAL="1", layers=("met1", "met5"),
+    ),
+    "sky130hd/aes": dict(
+        CORE_UTILIZATION="35", CORE_ASPECT_RATIO="1", CORE_MARGIN="2", PLACE_DENSITY_LB_ADDON="0.2",
+        PLACE_PINS_ARGS="-min_distance 4 -min_distance_in_tracks", CTS_CLUSTER_SIZE="20",
+        CTS_CLUSTER_DIAMETER="50", OPENROAD_HIERARCHICAL="1", layers=("met1", "met5"),
+        fastroute=0.3,
+    ),
+    "sky130hd/ibex": dict(
+        CORE_UTILIZATION="50", PLACE_DENSITY_LB_ADDON="0.25", CTS_CLUSTER_SIZE="20",
+        CTS_CLUSTER_DIAMETER="50", OPENROAD_HIERARCHICAL="1", layers=("met1", "met5"),
+        fastroute=0.2,
+    ),
+}  # fmt: skip
+
+FASTROUTE_TCL = """set_global_routing_layer_adjustment $::env(MIN_ROUTING_LAYER)-$::env(MAX_ROUTING_LAYER) {value}
+
+set_routing_layers -clock $::env(MIN_CLK_ROUTING_LAYER)-$::env(MAX_ROUTING_LAYER)
+set_routing_layers -signal $::env(MIN_ROUTING_LAYER)-$::env(MAX_ROUTING_LAYER)
+"""
+PDN_TCL = """####################################
+# global connections
+####################################
+add_global_connection -net {VDD} -inst_pattern {.*} -pin_pattern {^VDD$} -power
+global_connect
+set_voltage_domain -name {CORE} -power {VDD} -ground {VSS}
+define_pdn_grid -name {grid} -voltage_domains {CORE}
+add_pdn_stripe -grid {grid} -layer {metal1} -width {0.17} -pitch {2.4} -offset {0} -followpins
+add_pdn_stripe -grid {grid} -layer {metal4} -width {0.48} -pitch {28.0} -offset {2}
+add_pdn_stripe -grid {grid} -layer {metal7} -width {1.40} -pitch {15.0} -offset {2}
+add_pdn_connect -grid {grid} -layers {metal1 metal4}
+add_pdn_connect -grid {grid} -layers {metal4 metal7}
+"""
+
 
 def _skip_without_platform(spec: str) -> None:
     platform = spec.split("/")[0]
@@ -119,7 +188,28 @@ def make_vars(tmp_path: Path, spec: str) -> dict[str, str]:
     sdc = write(orfs / "designs" / platform / design / "constraint.sdc",
                 sdc_text(facts["period"], facts["port"]))  # fmt: skip
     plat_dir = orfs / "platforms" / platform
+    extra = OPENROAD_FACTS[spec]
+    design_dir = orfs / "designs" / platform / design
+    fastroute = plat_dir / "fastroute.tcl"
+    if "fastroute" in extra:
+        fastroute = write(
+            design_dir / "fastroute.tcl", FASTROUTE_TCL.format(value=extra["fastroute"])
+        )
+    pdn = plat_dir / "grid_strategy-M1-M4-M7.tcl"
+    if extra.get("pdn") == "design":
+        pdn = write(design_dir / "grid_strategy-M1-M4-M7.tcl", PDN_TCL)
+    floorplan_def = extra.get("FLOORPLAN_DEF", "")
+    if floorplan_def:
+        floorplan_def = str(write(design_dir / floorplan_def))
+    openroad = {name: extra.get(name, default) for name, default in OPENROAD_DEFAULTS.items()}
+    openroad["FLOORPLAN_DEF"] = floorplan_def
     return {
+        **openroad,
+        "FASTROUTE_TCL": str(fastroute),
+        "PDN_TCL": str(pdn),
+        "MIN_ROUTING_LAYER": extra["layers"][0],
+        "MAX_ROUTING_LAYER": extra["layers"][1],
+        "PLACE_DENSITY": "0.30",
         "PLATFORM": platform,
         "DESIGN_NAME": facts["top"],
         "DESIGN_NICKNAME": design,
@@ -131,7 +221,6 @@ def make_vars(tmp_path: Path, spec: str) -> dict[str, str]:
         "ABC_AREA": facts["abc_area"],
         "SWAP_ARITH_OPERATORS": facts["swap"],
         "SYNTH_HIERARCHICAL": "0",
-        "OPENROAD_HIERARCHICAL": facts["swap"],
         "SYNTH_MINIMUM_KEEP_SIZE": "10000",
         "SYNTH_OPERATIONS_ARGS": "",
         "SYNTH_HDL_FRONTEND": "slang" if facts["slang"] else "",
@@ -140,10 +229,10 @@ def make_vars(tmp_path: Path, spec: str) -> dict[str, str]:
     }  # fmt: skip
 
 
-def settings_of(config, tmp_path: Path, flow: str = "yosys") -> dict[str, Any]:
-    """The settings of `flow` in the generated design file, with the check of the model."""
+def generated_of(config, tmp_path: Path) -> dict[str, Any]:
+    """The design file that the tool generates for `config`."""
     variables = make_vars(tmp_path, config.spec)
-    generated = tool.generated_design(
+    return tool.generated_design(
         config,
         variables,
         orfs=tmp_path / "orfs",
@@ -151,7 +240,17 @@ def settings_of(config, tmp_path: Path, flow: str = "yosys") -> dict[str, Any]:
         override_file=OVERRIDES / f"{config.platform}.yaml",
         sources=tool.design_sources(variables),
     )
-    return generated["flows"][flow]
+
+
+def settings_of(config, tmp_path: Path, flow: str = "yosys") -> dict[str, Any]:
+    """The settings of `flow` in the generated design file."""
+    return generated_of(config, tmp_path)["flows"][flow]
+
+
+def problems_of(config, variables: dict[str, str]) -> list[str]:
+    """How the design file disagrees with the ORFS variables and the files they name."""
+    sdc = Path(variables["SDC_FILE"]).read_text(encoding="utf-8")
+    return tool.design_config_problems(config, variables, sdc, tool.design_tcl_texts(variables))
 
 
 # ---- design files ---------------------------------------------------------------------------
@@ -180,9 +279,7 @@ def test_a_design_file_loads_and_names_registered_flows(spec: str) -> None:
 @pytest.mark.parametrize("spec", SPECS)
 def test_a_design_file_agrees_with_the_orfs_configuration(spec: str, tmp_path: Path) -> None:
     config = tool.load_design_config(tool.design_config_path(spec))
-    variables = make_vars(tmp_path, spec)
-    sdc = Path(variables["SDC_FILE"]).read_text(encoding="utf-8")
-    assert tool.design_config_problems(config, variables, sdc) == []
+    assert problems_of(config, make_vars(tmp_path, spec)) == []
 
 
 @pytest.mark.parametrize("spec", SPECS)
@@ -196,8 +293,7 @@ def test_the_settings_of_a_design_file_validate(spec: str, tmp_path: Path) -> No
     assert settings.pdk_version == "a" * 40
     assert settings.pdk_root == tmp_path / "orfs" / "flow" / "platforms"
     assert settings.platform_file == OVERRIDES / f"{config.platform}.yaml"
-    (clock,) = settings.clocks.values()
-    assert clock.period.to("ns") == pytest.approx(FACTS[spec]["period"])
+    assert settings.clocks == {}, "the constraint file of ORFS gives the clock to every flow"
     Yosys.check_settings_supported(settings)
 
 
@@ -223,6 +319,63 @@ def test_the_generated_design_is_a_valid_design(spec: str, tmp_path: Path) -> No
     listed = [str(s.path) for s in design.rtl.sources]
     for word in variables["VERILOG_FILES"].split():
         assert word in listed
+
+
+@pytest.mark.parametrize("spec", SPECS)
+def test_the_generated_design_configures_every_flow_of_the_chain(spec: str, tmp_path: Path) -> None:
+    config = tool.load_design_config(tool.design_config_path(spec))
+    variables = make_vars(tmp_path, spec)
+    flows = generated_of(config, tmp_path)["flows"]
+    assert set(flows) == {"yosys", *tool.OPENROAD_FLOWS}
+    for name, table in flows.items():
+        assert table["platform"] == config.platform, name
+        assert table["platform_file"] == str(OVERRIDES / f"{config.platform}.yaml"), name
+        assert table["pdk_provider"] == "directory", name
+        assert table["pdk_version"] == "a" * 40, name
+        assert table["pdk_root"] == str(tmp_path / "orfs" / "flow" / "platforms"), name
+        assert "clock" not in table and "clocks" not in table, name
+    hierarchical = variables["OPENROAD_HIERARCHICAL"] == "1"
+    for name in tool.OPENROAD_FLOWS:
+        assert flows[name]["hierarchical"] is hierarchical, name
+    assert "hierarchical" not in flows["yosys"]
+
+
+@pytest.mark.parametrize("spec", SPECS)
+def test_the_last_flow_leaves_the_verdict_to_the_tool(spec: str, tmp_path: Path) -> None:
+    config = tool.load_design_config(tool.design_config_path(spec))
+    flows = generated_of(config, tmp_path)["flows"]
+    for setting in ("fail_timing", "fail_drc", "fail_antenna"):
+        assert flows["openroad"][setting] is False
+        assert all(setting not in flows[name] for name in ("yosys", *tool.OPENROAD_FLOWS[:-1]))
+
+
+def test_a_floorplan_from_a_def_file_takes_the_file_of_orfs(tmp_path: Path) -> None:
+    config = tool.load_design_config(tool.design_config_path("nangate45/aes"))
+    variables = make_vars(tmp_path, "nangate45/aes")
+    place = generated_of(config, tmp_path)["flows"]["openroad_place"]
+    assert place["floorplan"]["sizing"] == "def"
+    assert place["floorplan"]["def_file"] == variables["FLOORPLAN_DEF"]
+    other = generated_of(
+        tool.load_design_config(tool.design_config_path("nangate45/gcd")), tmp_path
+    )
+    assert "def_file" not in other["flows"]["openroad_place"]["floorplan"]
+
+
+@pytest.mark.parametrize("spec", SPECS)
+@pytest.mark.parametrize("flow", tool.OPENROAD_FLOWS)
+def test_the_openroad_settings_of_a_design_file_validate(
+    spec: str, flow: str, tmp_path: Path
+) -> None:
+    _skip_without_platform(spec)
+    from xeda.introspect import all_flow_classes
+
+    cls = next(c for c in all_flow_classes() if c.name == flow)
+    config = tool.load_design_config(tool.design_config_path(spec))
+    table = settings_of(config, tmp_path, flow)
+    settings = cls.Settings.from_input(table, design_root=tmp_path)
+    assert settings.platform == config.platform
+    assert settings.hierarchical is (make_vars(tmp_path, spec)["OPENROAD_HIERARCHICAL"] == "1")
+    cls.check_settings_supported(settings)
 
 
 def test_the_flag_of_each_orfs_variable_reaches_the_settings(tmp_path: Path) -> None:
@@ -285,19 +438,14 @@ def test_the_sources_keep_the_order_of_orfs(tmp_path: Path) -> None:
 
 
 def _config(**given: Any):
-    table = {
-        "orfs": "nangate45/gcd",
-        "clock": {"port": "clk", "period": "0.25 ns"},
-        "flows": {
-            "yosys": {
-                "abc.strategy": "area",
-                "arithmetic.adder_map": "none",
-                "arithmetic.adder_architecture": "kogge_stone",
-            }
-        },
-    }
+    """The design file of `nangate45/gcd`, with the keys of `given` replaced. A `flows` table
+    replaces the tables of the flows that it names and keeps the others."""
+    path = DESIGNS / "nangate45" / "gcd.yaml"
+    table = yaml.safe_load(path.read_text(encoding="utf-8"))
+    flows = {**table["flows"], **given.pop("flows", {})}
     table.update(given)
-    return tool.config_from_table(table, Path("gcd.yaml"))
+    table["flows"] = flows
+    return tool.config_from_table(table, path)
 
 
 def test_a_clock_period_that_differs_from_the_sdc_is_refused(tmp_path: Path) -> None:
@@ -311,7 +459,7 @@ def test_a_clock_period_that_differs_from_the_sdc_is_refused(tmp_path: Path) -> 
 def test_the_clock_period_is_compared_in_one_unit(tmp_path: Path) -> None:
     variables = make_vars(tmp_path, "nangate45/gcd")
     config = _config(clock={"port": "clk", "period": "250 ps"})
-    assert tool.design_config_problems(config, variables, sdc_text(0.25, "clk")) == []
+    assert problems_of(config, variables) == []
 
 
 def test_a_clock_port_that_differs_from_the_sdc_is_refused(tmp_path: Path) -> None:
@@ -364,11 +512,16 @@ def test_the_adder_architecture_of_orfs_is_kogge_stone_unless_operators_are_wrap
         "arithmetic.wrap_operators": True,
         "abc.mapper": "abc_new",
     }
+    # ORFS swaps the wrapped operators in the place and route stages, and that needs the hierarchy
     variables["SWAP_ARITH_OPERATORS"] = "1"
-    assert tool.design_config_problems(_config(flows={"yosys": wrapped}), variables, sdc) == []
-    wrapped["arithmetic.adder_architecture"] = "kogge_stone"
+    variables["OPENROAD_HIERARCHICAL"] = "1"
+    place = {**_config().flows["openroad_place"], "arith_swap.enabled": True}
+    flows = {"yosys": wrapped, "openroad_place": place}
+    config = _config(hierarchical=True, flows=flows)
+    assert tool.design_config_problems(config, variables, sdc) == []
+    flows["yosys"] = {**wrapped, "arithmetic.adder_architecture": "kogge_stone"}
     # xeda refuses the pair itself: ORFS wraps the adders with its own architectures
-    refused = tool.design_config_problems(_config(flows={"yosys": wrapped}), variables, sdc)
+    refused = tool.design_config_problems(_config(hierarchical=True, flows=flows), variables, sdc)
     assert len(refused) == 1 and "adder_architecture" in refused[0]
 
 
@@ -378,10 +531,191 @@ def test_a_flow_that_xeda_does_not_have_is_refused() -> None:
 
 
 def test_a_design_file_with_an_unknown_key_is_refused() -> None:
-    with pytest.raises(tool.ParityError, match="colour"):
+    with pytest.raises(tool.ParityError, match="colour.*orfs, clock, hierarchical, flows"):
         _config(colour="red")
     with pytest.raises(tool.ParityError, match="orfs"):
         tool.config_from_table({"clock": {"port": "c", "period": "1 ns"}}, Path("x.yaml"))
+
+
+# ---- the OpenROAD settings of a design file ----------------------------------------------------
+
+
+def _place(**changes: Any) -> dict[str, Any]:
+    """The `openroad_place` table of the design file of `nangate45/gcd`, with `changes`."""
+    return {**_config().flows["openroad_place"], **changes}
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "words"),
+    [
+        ("CORE_UTILIZATION", "60", ("floorplan.core_utilization_percent", "CORE_UTILIZATION")),
+        ("CORE_ASPECT_RATIO", "2", ("floorplan.aspect_ratio", "CORE_ASPECT_RATIO")),
+        ("CORE_MARGIN", "3", ("floorplan.core_margin", "CORE_MARGIN")),
+        ("PLACE_DENSITY_LB_ADDON", "0.3", ("headroom", "PLACE_DENSITY_LB_ADDON")),
+        ("PLACE_DENSITY_LB_ADDON", "", ("density.mode", "PLACE_DENSITY_LB_ADDON")),
+        ("TNS_END_PERCENT", "50", ("tns_end_percent", "TNS_END_PERCENT")),
+        ("FLOORPLAN_DEF", "/d/fp.def", ("floorplan.sizing", "FLOORPLAN_DEF")),
+        ("PLACE_PINS_ARGS", "-min_distance 4 -min_distance_in_tracks", ("io.", "PLACE_PINS_ARGS")),
+        ("PLACE_PINS_ARGS", "-random", ("PLACE_PINS_ARGS", "by hand")),
+        ("CTS_CLUSTER_SIZE", "20", ("sink_clustering", "CTS_CLUSTER_SIZE")),
+        ("CTS_CLUSTER_DIAMETER", "50", ("sink_clustering", "CTS_CLUSTER_DIAMETER")),
+        ("SKIP_INCREMENTAL_REPAIR", "1", ("repair.strategy", "SKIP_INCREMENTAL_REPAIR")),
+        ("ENABLE_PLACE_REPAIR_TIMING", "1", ("repair_timing.enabled", "ENABLE_PLACE_REPAIR")),
+        ("SKIP_CTS_REPAIR_TIMING", "1", ("repair.enabled", "SKIP_CTS_REPAIR_TIMING")),
+        ("REMOVE_ABC_BUFFERS", "1", ("netlist_cleanup.mode", "REMOVE_ABC_BUFFERS")),
+        ("OPENROAD_HIERARCHICAL", "1", ("hierarchical", "OPENROAD_HIERARCHICAL")),
+    ],
+)
+def test_an_openroad_setting_that_differs_from_the_orfs_variable_is_refused(
+    tmp_path: Path, variable: str, value: str, words: tuple[str, str]
+) -> None:
+    variables = make_vars(tmp_path, "nangate45/gcd")
+    variables[variable] = value
+    problems = " ".join(problems_of(_config(), variables))
+    assert all(word in problems for word in words), problems
+
+
+def test_a_setting_that_agrees_with_orfs_by_its_default_is_not_refused(tmp_path: Path) -> None:
+    """A design file that leaves a setting out gets the default of xeda, and that must equal the
+    value of ORFS. Here the file says nothing about the margin, and ORFS says 1 micrometer."""
+    variables = make_vars(tmp_path, "nangate45/gcd")
+    assert "core_margin" not in str(_config().flows["openroad_place"])
+    assert problems_of(_config(), variables) == []
+    variables["CORE_MARGIN"] = "1"
+    assert problems_of(_config(), variables) == []
+
+
+def test_a_design_file_without_a_table_for_a_flow_is_checked_against_the_defaults(
+    tmp_path: Path,
+) -> None:
+    variables = make_vars(tmp_path, "nangate45/gcd")
+    variables["CTS_CLUSTER_SIZE"] = "20"
+    config = _config(flows={"openroad_cts": {}})
+    problems = " ".join(problems_of(config, variables))
+    assert "sink_clustering" in problems and "CTS_CLUSTER_SIZE" in problems
+
+
+def test_the_hierarchy_of_the_design_file_follows_openroad_hierarchical(tmp_path: Path) -> None:
+    variables = make_vars(tmp_path, "nangate45/aes")
+    config = tool.load_design_config(tool.design_config_path("nangate45/aes"))
+    assert config.hierarchical is True
+    assert problems_of(config, variables) == []
+    problems = problems_of(_aes(hierarchical=False), variables)
+    assert any("hierarchical" in p and "OPENROAD_HIERARCHICAL" in p for p in problems)
+
+
+def _aes(**given: Any):
+    path = DESIGNS / "nangate45" / "aes.yaml"
+    table = yaml.safe_load(path.read_text(encoding="utf-8"))
+    table.update(given)
+    return tool.config_from_table(table, path)
+
+
+def test_the_hierarchy_is_a_boolean_of_the_design_file() -> None:
+    with pytest.raises(tool.ParityError, match="hierarchical"):
+        _config(hierarchical="yes")
+    assert _config().hierarchical is False
+
+
+@pytest.mark.parametrize(
+    ("flow", "setting"),
+    [
+        ("openroad", "fail_timing"),
+        ("openroad", "fail_drc"),
+        ("openroad", "fail_antenna"),
+        ("openroad_place", "hierarchical"),
+        ("openroad_cts", "hierarchical"),
+        ("openroad_place", "floorplan.def_file"),
+    ],
+)
+def test_a_setting_that_the_tool_sets_in_the_openroad_flows_is_refused(
+    flow: str, setting: str
+) -> None:
+    with pytest.raises(tool.ParityError, match=f"flows.{flow}.{re.escape(setting)}.*delete it"):
+        _config(flows={flow: {setting: True}})
+
+
+def test_a_variable_in_config_mk_that_the_tool_does_not_know_is_refused() -> None:
+    text = "export DESIGN_NAME = gcd\nexport CORE_UTILIZATION ?= 55\nexport GPL_FOO := 1\n"
+    assert tool.unknown_variables(text) == ["GPL_FOO"]
+    assert tool.unknown_variables("# export GPL_FOO = 1\nexport TNS_END_PERCENT = 100\n") == []
+
+
+def test_every_variable_that_the_shipped_designs_set_is_known() -> None:
+    """Each variable in a `config.mk` is either mapped to a setting or listed as one with no
+    effect on the result. A new variable in ORFS stops the tool, so that someone maps it."""
+    assert not set(tool.IGNORED_VARIABLES) & set(tool.MAKE_VARS)
+    assert "SYNTH_REPEATABLE_BUILD" in tool.IGNORED_VARIABLES
+    for name in (
+        "CORE_UTILIZATION",
+        "PDN_TCL",
+        "FASTROUTE_TCL",
+        "PLACE_PINS_ARGS",
+        "FLOORPLAN_DEF",
+    ):
+        assert name in tool.MAKE_VARS
+
+
+def test_the_fastroute_file_of_a_design_gives_the_layer_adjustment(tmp_path: Path) -> None:
+    spec = "sky130hd/aes"
+    config = tool.load_design_config(tool.design_config_path(spec))
+    variables = make_vars(tmp_path, spec)
+    assert problems_of(config, variables) == []
+    write(Path(variables["FASTROUTE_TCL"]), FASTROUTE_TCL.format(value=0.5))
+    problems = " ".join(problems_of(config, variables))
+    assert "layer_adjustments" in problems and "FASTROUTE_TCL" in problems and "0.5" in problems
+
+
+def test_a_fastroute_file_with_a_line_the_tool_cannot_translate_is_refused(tmp_path: Path) -> None:
+    spec = "sky130hd/aes"
+    config = tool.load_design_config(tool.design_config_path(spec))
+    variables = make_vars(tmp_path, spec)
+    path = Path(variables["FASTROUTE_TCL"])
+    write(path, path.read_text(encoding="utf-8") + "set_macro_extension 2\n")
+    problems = " ".join(problems_of(config, variables))
+    assert "FASTROUTE_TCL" in problems and "set_macro_extension" in problems
+
+
+def test_the_pdn_file_of_a_design_gives_the_straps(tmp_path: Path) -> None:
+    spec = "nangate45/gcd"
+    config = tool.load_design_config(tool.design_config_path(spec))
+    variables = make_vars(tmp_path, spec)
+    assert problems_of(config, variables) == []
+    path = Path(variables["PDN_TCL"])
+    write(path, path.read_text(encoding="utf-8").replace("{28.0}", "{56.0}"))
+    problems = " ".join(problems_of(config, variables))
+    assert "pdn.grid.straps" in problems and "PDN_TCL" in problems and "metal4" in problems
+
+
+def test_a_pdn_file_with_pins_needs_pins_in_the_design_file(tmp_path: Path) -> None:
+    spec = "nangate45/gcd"
+    config = tool.load_design_config(tool.design_config_path(spec))
+    variables = make_vars(tmp_path, spec)
+    path = Path(variables["PDN_TCL"])
+    write(path, path.read_text(encoding="utf-8").replace(
+        "-voltage_domains {CORE}", "-voltage_domains {CORE} -pins {metal7}"
+    ))  # fmt: skip
+    problems = " ".join(problems_of(config, variables))
+    assert "pdn.block_pins" in problems and "PDN_TCL" in problems
+
+
+def test_a_pdn_file_with_a_command_the_tool_cannot_translate_is_refused(tmp_path: Path) -> None:
+    spec = "nangate45/gcd"
+    config = tool.load_design_config(tool.design_config_path(spec))
+    variables = make_vars(tmp_path, spec)
+    path = Path(variables["PDN_TCL"])
+    write(path, path.read_text(encoding="utf-8") + "add_pdn_ring -grid {grid}\n")
+    problems = " ".join(problems_of(config, variables))
+    assert "PDN_TCL" in problems and "add_pdn_ring" in problems
+
+
+def test_the_grid_of_the_platform_needs_no_setting(tmp_path: Path) -> None:
+    """Where `PDN_TCL` names the file of the platform, the design file says nothing about the
+    grid: xeda takes the grid of the platform."""
+    spec = "nangate45/aes"
+    config = tool.load_design_config(tool.design_config_path(spec))
+    assert "pdn" not in str(config.flows)
+    assert problems_of(config, make_vars(tmp_path, spec)) == []
 
 
 # ---- the processes ---------------------------------------------------------------------------
@@ -413,7 +747,7 @@ def test_the_scrubbed_environment_makes_no_directory(tmp_path: Path) -> None:
     assert (tmp_path / "home" / "tmp").is_dir()
 
 
-def test_the_chosen_yosys_comes_first_on_the_path_of_xeda(tmp_path: Path) -> None:
+def test_the_chosen_yosys_and_openroad_come_first_on_the_path_of_xeda(tmp_path: Path) -> None:
     env = tool.xeda_env(tmp_path, yosys="/opt/cad/bin/yosys", openroad="/opt/OpenROAD/bin/openroad")
     assert env["PATH"].split(os.pathsep)[:2] == ["/opt/cad/bin", "/opt/OpenROAD/bin"]
     assert set(env) == {"PATH", "HOME", "TMPDIR", "QT_QPA_PLATFORM"}
@@ -574,17 +908,108 @@ def test_the_synthesis_results_of_xeda_become_a_row_part() -> None:
     assert part["flow_hash"] == "f" and part["run_path"].endswith("/yosys")
 
 
-def test_the_openroad_results_of_xeda_use_the_orfs_metric_names() -> None:
-    results = {key: 1.0 for key in tool.METRIC_KEYS}
-    document = {"success": True, "results": {"success": True, "runtime": 3.0, **results}}
+#: The results of the last flow of a real run (nangate45 gcd, the chain from the sources), cut
+#: down to the keys that carry a number. `wns` is the worst slack clipped at zero.
+OPENROAD_RESULTS: dict[str, Any] = {
+    "success": True,
+    "runtime": 60.08,
+    "worst_slack": -0.15848,
+    "wns": -0.15848,
+    "tns": -7.03717,
+    "whs": 0.0848803,
+    "hold_tns": 0.0,
+    "Fmax": 2448.1,
+    "area": 976.22,
+    "utilization": 0.731367,
+    "power": 0.00652553,
+    "drc_errors": 0,
+    "antenna_violating_nets": 0,
+    "setup_violations": 86,
+    "instances": 776,
+    "core_area": 1334.79,
+}
+
+
+def test_the_openroad_results_of_xeda_become_the_orfs_metrics() -> None:
+    document = {"success": True, "results": OPENROAD_RESULTS}
     part = tool.read_xeda_results(document, "both")
-    assert part["metrics"] == results
+    assert part["metrics"] == {
+        "finish__timing__setup__ws": -0.15848,
+        "finish__timing__setup__tns": -7.03717,
+        "finish__timing__hold__ws": 0.0848803,
+        "finish__timing__hold__tns": 0.0,
+        "finish__design__instance__area__stdcell": 976.22,
+        "finish__power__total": 0.00652553,
+        "detailedroute__route__drc_errors": 0,
+        "detailedroute__antenna__violating__nets": 0,
+        "finish__timing__fmax": pytest.approx(2448.1e6),
+        "finish__timing__drv__setup_violation_count": 86,
+        "finish__design__instance__count__stdcell": 776,
+        "finish__design__core__area": 1334.79,
+    }
+    assert part["runtime_s"] == 60.08
+    assert tool.read_xeda_results(document, "pnr")["metrics"] == part["metrics"]
 
 
-def test_a_missing_openroad_metric_is_named() -> None:
-    document = {"success": True, "results": {"success": True, "runtime": 3.0}}
-    with pytest.raises(tool.ParityError, match="finish__timing__setup__ws"):
-        tool.read_xeda_results(document, "pnr")
+def test_a_positive_slack_stays_positive_in_the_metrics() -> None:
+    """ORFS reports the worst slack as it is, and the `wns` of xeda stops at zero."""
+    results = {**OPENROAD_RESULTS, "worst_slack": 0.2, "wns": 0.0}
+    part = tool.read_xeda_results({"success": True, "results": results}, "both")
+    assert part["metrics"]["finish__timing__setup__ws"] == 0.2
+
+
+def test_a_result_that_a_run_lacks_leaves_its_optional_metric_out() -> None:
+    results = {k: v for k, v in OPENROAD_RESULTS.items() if k not in ("Fmax", "core_area")}
+    part = tool.read_xeda_results({"success": True, "results": results}, "both")
+    assert "finish__timing__fmax" not in part["metrics"]
+    assert "finish__design__core__area" not in part["metrics"]
+
+
+@pytest.mark.parametrize(
+    ("key", "metric"),
+    [
+        ("worst_slack", "finish__timing__setup__ws"),
+        ("tns", "finish__timing__setup__tns"),
+        ("whs", "finish__timing__hold__ws"),
+        ("hold_tns", "finish__timing__hold__tns"),
+        ("area", "finish__design__instance__area__stdcell"),
+        ("power", "finish__power__total"),
+        ("drc_errors", "detailedroute__route__drc_errors"),
+        ("antenna_violating_nets", "detailedroute__antenna__violating__nets"),
+    ],
+)
+def test_a_missing_required_result_is_named(key: str, metric: str) -> None:
+    results = {k: v for k, v in OPENROAD_RESULTS.items() if k != key}
+    with pytest.raises(tool.ParityError) as error:
+        tool.read_xeda_results({"success": True, "results": results}, "pnr")
+    assert f"`{key}`" in str(error.value) and metric in str(error.value)
+
+
+def test_every_required_metric_has_a_result_of_xeda() -> None:
+    mapped = {metric for metric, _key, _scale in tool.XEDA_RESULTS}
+    assert set(tool.REQUIRED_METRICS) <= mapped
+    assert mapped <= set(tool.METRIC_KEYS)
+
+
+def test_the_results_of_a_node_are_read_from_its_run_directory(tmp_path: Path) -> None:
+    run = tmp_path / "xeda_run" / "d" / "yosys"
+    write(run / "results.json", json.dumps({"area": 506.9, "cells": 357, "runtime": 1.5}))
+    document = {
+        "nodes": [
+            {"node": "yosys", "flow": "yosys", "run_path": str(run)},
+            {"node": "openroad", "flow": "openroad", "run_path": str(tmp_path / "none")},
+        ]
+    }
+    assert tool.node_results(document, "yosys") == {"area": 506.9, "cells": 357, "runtime": 1.5}
+    assert tool.node_results(document, "openroad") == {}, "no results file"
+    assert tool.node_results(document, "openroad_cts") == {}, "no such node"
+    assert tool.node_results({}, "yosys") == {}
+
+
+def test_the_times_of_a_half_split_at_the_synthesis() -> None:
+    assert tool.xeda_times("pnr", 70.0, None) == {"pnr_s": 70.0}
+    assert tool.xeda_times("both", 70.0, 10.0) == {"synthesis_s": 10.0, "pnr_s": 60.0}
+    assert tool.xeda_times("both", 70.0, None) == {"pnr_s": 70.0}
 
 
 def test_a_failed_xeda_run_gives_the_error() -> None:

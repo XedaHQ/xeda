@@ -78,14 +78,42 @@ Each half changes one part of the flow to xeda:
 
 - `synthesis`: xeda's `yosys` flow synthesizes the design sources. ORFS places and routes the
   netlist that xeda writes. The row shows what the xeda synthesis script costs or gains.
-- `pnr`: ORFS's netlist is the input. xeda's `openroad` flow places and routes it with the SDC
-  file of ORFS. The row shows what the xeda place and route flow costs or gains.
+- `pnr`: ORFS's netlist (`1_2_yosys.v` of the reference row) is the input. xeda's `openroad` flow
+  places and routes it, and its default producers run before it: `openroad_place`, `openroad_cts`
+  and `openroad_grt`. The row shows what the xeda place and route flows cost or gain.
 - `both`: xeda's whole chain runs from the design sources: `yosys`, `openroad_place`,
   `openroad_cts`, `openroad_grt` and `openroad`.
 
-The halves `pnr` and `both` need xeda's OpenROAD flows. Before any ORFS run starts, the tool
-checks the flows of the half. When one is missing, it stops with status 3 and a message that names
-the missing flows. The half `synthesis` needs only `yosys`.
+In `pnr` and `both`, the constraint file of ORFS (`SDC_FILE`) is a source of the design. The
+OpenROAD flows read it as it is, so xeda uses the clock, the input and output delays, the clock
+latencies and the virtual clock of ORFS. The tool gives no flow a `clock`: a second clock on the
+same port would replace the clock of the constraint file and drop its latency. The `yosys` flow of
+ORFS uses no clock period either, so its xeda counterpart needs none.
+
+The tool switches off the three verdicts of the last flow (`fail_timing`, `fail_drc` and
+`fail_antenna`). A run that misses timing then still gives its numbers, and the `bar` column says
+which condition it misses. The tool judges the numbers itself.
+
+The results of the last xeda flow become the ORFS metric names of the table:
+
+| xeda result | ORFS metric |
+| --- | --- |
+| `worst_slack` | `finish__timing__setup__ws` |
+| `tns` | `finish__timing__setup__tns` |
+| `whs` | `finish__timing__hold__ws` |
+| `hold_tns` | `finish__timing__hold__tns` |
+| `area` | `finish__design__instance__area__stdcell` |
+| `power` | `finish__power__total` |
+| `drc_errors` | `detailedroute__route__drc_errors` |
+| `antenna_violating_nets` | `detailedroute__antenna__violating__nets` |
+
+The results `Fmax` (MHz in xeda, Hz in ORFS), `setup_violations`, `instances` and `core_area` map
+to optional metrics. A required result that is missing stops the row with an error that names it.
+The area and the cell count of the `both` row come from the `yosys` flow of the chain.
+
+The halves `pnr` and `both` need the OpenROAD flows of xeda. Before any ORFS run starts, the tool
+checks the flows of the half. When one is missing, for example in an older xeda, it stops with
+status 3 and a message that names the missing flows. The half `synthesis` needs only `yosys`.
 
 ## The bar
 
@@ -118,6 +146,9 @@ flows:
   yosys:
     abc.strategy: area  # ABC_AREA = 1
     arithmetic.adder_map: none  # ADDER_MAP_FILE :=  (empty: "Adders degrade GCD")
+  openroad_place:
+    floorplan.core_utilization_percent: 55  # CORE_UTILIZATION = 55
+    global_placement.density.mode: auto  # PLACE_DENSITY_LB_ADDON = 0.20
 ```
 
 The keys are:
@@ -125,15 +156,44 @@ The keys are:
 - `orfs`: the ORFS design, as `<platform>/<design>`. It names the directory under `flow/designs`.
 - `clock`: `port` is the clock port, and `period` is the clock period with a unit, such as
   `0.25 ns`. The period must equal `set clk_period` in the SDC file of ORFS. The port must equal
-  `set clk_port_name` when the SDC file sets it.
-- `flows`: the xeda settings, by flow name. Dotted keys are allowed. Each setting has a comment that
-  names the ORFS variable that it mirrors.
+  `set clk_port_name` when the SDC file sets it. xeda gets the clock from the SDC file, so the tool
+  only compares these two values with it.
+- `hierarchical`: `true` when ORFS sets `OPENROAD_HIERARCHICAL = 1`. The tool gives it to the four
+  OpenROAD flows, which share it. It is `false` when the key is absent.
+- `flows`: the xeda settings, by flow name: `yosys`, `openroad_place`, `openroad_cts`,
+  `openroad_grt` and `openroad`. Dotted keys are allowed. Each setting has a comment that names the
+  ORFS variable that it mirrors.
 
 The tool refuses a design file that disagrees with ORFS. It reads the ORFS variables with
-`make print-<VARIABLE>`. It checks the settings of the `yosys` flow that depend on those variables,
-such as `abc.strategy` and `arithmetic.adder_map`, and the clock against the SDC file. A design file
-must not set `platform`, `platform_file`, `pdk_provider`, `pdk_version`, `pdk_root` or `clock` in a
-flow. The tool sets them.
+`make print-<VARIABLE>`, and it checks the settings that each flow ends up with, the defaults of a
+flow that the file leaves out included:
+
+- `yosys`: `abc.strategy`, `abc.mapper`, `arithmetic.adder_map`, `arithmetic.adder_architecture`,
+  `arithmetic.wrap_operators`, `hierarchy.keep_min_cost`, `script_format` and `systemverilog`,
+  from `ABC_AREA`, `SWAP_ARITH_OPERATORS`, `ADDER_MAP_FILE`, `SYNTH_OPERATIONS_ARGS`,
+  `SYNTH_HIERARCHICAL` and `SYNTH_HDL_FRONTEND`.
+- `openroad_place`: the floorplan (`CORE_UTILIZATION`, `CORE_ASPECT_RATIO`, `CORE_MARGIN`,
+  `FLOORPLAN_DEF`), the placement density (`PLACE_DENSITY_LB_ADDON`), the pin distance
+  (`PLACE_PINS_ARGS`), the repair (`TNS_END_PERCENT`, `ENABLE_PLACE_REPAIR_TIMING`,
+  `REMOVE_ABC_BUFFERS`), and the swap of the arithmetic modules (`SWAP_ARITH_OPERATORS`).
+- `openroad_cts`: the clusters of the sinks (`CTS_CLUSTER_SIZE`, `CTS_CLUSTER_DIAMETER`) and the
+  repair (`TNS_END_PERCENT`, `SKIP_CTS_REPAIR_TIMING`).
+- `openroad_grt`: the repair after the route (`SKIP_INCREMENTAL_REPAIR`, `TNS_END_PERCENT`).
+
+Two Tcl files that a design names itself, `FASTROUTE_TCL` and `PDN_TCL`, have no variable form.
+The tool reads them and compares them with the settings: the layer adjustment with
+`routing.layer_adjustments`, and the rails, the straps and the pins of the power grid with
+`pdn.grid.rails`, `pdn.grid.straps` and `pdn.block_pins`. A line that the tool cannot translate
+stops it. A file of the platform needs no setting: the platform of xeda holds its values.
+
+A `config.mk` that sets a variable which the tool neither reads nor lists in `IGNORED_VARIABLES`
+stops the tool. A new variable in ORFS must be mapped to a xeda setting, or listed with the reason
+why the result does not depend on it. `SYNTH_REPEATABLE_BUILD` is such a variable.
+
+A design file must not set `platform`, `platform_file`, `pdk_provider`, `pdk_version`, `pdk_root`,
+`clock`, `clocks`, `hierarchical`, `floorplan.def_file`, `fail_timing`, `fail_drc` or
+`fail_antenna` in a flow. The tool sets them. With a floorplan from a DEF file
+(`floorplan.sizing: def`), the tool takes the file from `FLOORPLAN_DEF`.
 
 ## Override files
 

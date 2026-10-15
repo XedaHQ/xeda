@@ -9,3 +9,13 @@ flows:
     systemverilog: slang  # SYNTH_HDL_FRONTEND = slang
     abc.strategy: speed  # ABC_AREA unset: ORFS uses its speed script (xeda's default is `area`)
     arithmetic.adder_architecture: kogge_stone  # SYNTH_OPERATIONS_ARGS unset: synth.tcl adds -extra-map lcu_kogge_stone.v
+  openroad_place:
+    floorplan.core_utilization_percent: 50  # CORE_UTILIZATION = 50
+    global_placement.density.mode: auto  # PLACE_DENSITY_LB_ADDON = 0.20
+    global_placement.density.headroom: 0.2  # PLACE_DENSITY_LB_ADDON = 0.20
+    floorplan.netlist_cleanup.repair.tns_end_percent: 100  # TNS_END_PERCENT = 100
+    resize.repair_timing.tns_end_percent: 100  # TNS_END_PERCENT = 100
+  openroad_cts:
+    repair.tns_end_percent: 100  # TNS_END_PERCENT = 100
+  openroad_grt:
+    repair.timing.tns_end_percent: 100  # TNS_END_PERCENT = 100

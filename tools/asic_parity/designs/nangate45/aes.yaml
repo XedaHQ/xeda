@@ -4,6 +4,7 @@ orfs: nangate45/aes
 clock:
   port: clk
   period: 0.82 ns  # constraint.sdc: set clk_period 0.82
+hierarchical: true  # OPENROAD_HIERARCHICAL = 1: every OpenROAD flow reads the hierarchy
 flows:
   yosys:
     script_format: tcl  # SWAP_ARITH_OPERATORS = 1: the wrapping passes need a yosys with Tcl
@@ -15,3 +16,15 @@ flows:
     # SYNTH_HIERARCHICAL is 0, so synthesis flattens (no hierarchy.keep_min_cost).
     # No arithmetic.adder_architecture: the wrapped operators carry their own architectures
     # (SWAP_ARITH_OPERATORS = 1), and the -extra-map of synth.tcl does not apply to them.
+  openroad_place:
+    floorplan.sizing: def  # FLOORPLAN_DEF: the tool gives floorplan.def_file the file of ORFS; CORE_UTILIZATION is unset
+    global_placement.density.mode: auto  # PLACE_DENSITY_LB_ADDON = 0.20
+    global_placement.density.headroom: 0.2  # PLACE_DENSITY_LB_ADDON = 0.20
+    arith_swap.enabled: true  # SWAP_ARITH_OPERATORS = 1: ORFS swaps the wrapped operators after the floorplan and in the resize step
+    floorplan.netlist_cleanup.repair.tns_end_percent: 100  # TNS_END_PERCENT = 100
+    resize.repair_timing.tns_end_percent: 100  # TNS_END_PERCENT = 100
+    # PDN_TCL is the grid of the platform: xeda takes the grid of the platform.
+  openroad_cts:
+    repair.tns_end_percent: 100  # TNS_END_PERCENT = 100
+  openroad_grt:
+    repair.strategy: none  # SKIP_INCREMENTAL_REPAIR = 1
