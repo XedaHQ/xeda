@@ -170,6 +170,73 @@ Select it with the file alone. If you also give ``platform``, it must be the ``n
 
     xeda run yosys design.yaml -s platform_file=mylib.yaml -s pdk_root=/data/pdks
 
+What the OpenROAD flows take from a platform
+============================================
+
+The OpenROAD flows (see :doc:`flows`) read these values and files of the platform. Each value
+has a setting that replaces it for one run. To change it for every run, give a residue file of
+your own (`A platform of your own`_).
+
+.. list-table::
+   :header-rows: 1
+
+   * - Platform value or file
+     - What the flows do with it
+     - The setting that replaces it
+   * - ``files.liberty``, ``files.tech_lef``, ``files.cell_lef``, ``time_unit``
+     - Every process reads them. The flows convert each time to the time unit of the Liberty
+       files.
+     -
+   * - ``site``, ``tracks``
+     - The floorplan makes the rows of this site and the routing tracks.
+     - ``floorplan.site``, ``floorplan.tracks``
+   * - ``tap_cell``, ``endcap_cell``, ``tapcell``
+     - The tap cells and end caps, and the distance between the tap cells.
+     - ``tapcell.master``, ``tapcell.endcap_master``, ``tapcell.distance``
+   * - ``pdn``
+     - The power grid: the supply nets, the rails, the straps and their connections.
+     - ``pdn.grid``
+   * - ``io_layers``
+     - The layers of the pins of the design.
+     - ``io.horizontal_layers``, ``io.vertical_layers``
+   * - ``place_density``
+     - The target density of the global placement.
+     - ``global_placement.density.value``
+   * - ``routing``
+     - The routing layers of the signal and clock nets, and the capacity that the global route
+       keeps free on each layer. The database keeps them for the later flows.
+     - ``routing.signal_layers``, ``routing.clock_layers``, ``routing.layer_adjustments``
+   * - ``wire_rc``
+     - The resistance and capacitance of the wires, for the estimates before the detailed
+       route. Each flow sets them, since the database does not keep them.
+     - ``wire_rc``, leaf by leaf
+   * - ``tie_high``, ``tie_low``
+     - The cells that drive the constant nets.
+     -
+   * - ``dont_use_cells``
+     - The cells that the resizer does not use.
+     - ``dont_use_cells`` adds to them
+   * - ``antenna_cell``, ``diode_usable``
+     - The diode of the antenna repair. Without a usable diode, the flows skip the repair and
+       say so in the log, and the check still runs.
+     - ``antenna.diode_cell``
+   * - ``fill_cells``
+     - The filler cells that the last flow places.
+     - ``fill.cells``
+   * - ``files.rcx_rules``
+     - The rules of OpenRCX. Without them, the last flow estimates the parasitics.
+     - ``extraction.method``
+   * - ``supply``
+     - The voltages of the supply nets for the analysis of the IR drop.
+     - ``ir_drop.nets``
+   * - ``files.cdl``, ``files.gds``, ``files.klayout_tech``
+     - The CDL netlist ``final.cdl``, and the layout ``final.gds`` that KLayout writes with
+       ``write_gds``.
+     -
+
+A setting that is unset takes the value of the platform. A residue file that leaves out a value
+that a flow needs makes the flow fail before OpenROAD starts, and the message names the value.
+
 Providers and layouts
 =====================
 
