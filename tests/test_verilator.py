@@ -181,15 +181,39 @@ def test_a_stop_reaching_the_hooks_directly_is_recorded_once_as_an_error(tmp_pat
     assert not flow.succeeded
 
 
-def test_the_hooks_header_is_included_by_name_not_by_the_run_directory_path(tmp_path):
-    """The compiler flags go through make, which splits them at a space: a path in them breaks
-    a build whose path has one. The model is compiled in `sim_dir`, where the header is."""
+def test_the_hooks_header_reaches_make_by_name_not_by_the_run_directory_path(tmp_path):
+    """make splits the compiler flags and MAKEFILES at a space: a path in them breaks a build
+    whose path has one. make runs in `sim_dir`, where the hooks' files are, so it reads the
+    fragment by name, and the fragment names the header by its own directory. No flag forces the
+    header into the model's compiles."""
     require_verilator()
     flow = _launch(tmp_path, "initial begin #5 $finish; end", {"timing": True})
     assert flow.succeeded
-    makefile = (flow.run_path / flow.settings.sim_dir / "Vtop.mk").read_text()
-    assert "-include xeda_hooks.h" in makefile
+    sim_dir = flow.run_path / flow.settings.sim_dir
+    makefile = (sim_dir / "Vtop.mk").read_text()
+    assert "xeda_hooks.h" not in makefile
     assert str(flow.run_path) not in makefile
+    assert (sim_dir / "xeda_hooks.mk").is_file() and (sim_dir / "xeda_hooks.h").is_file()
+
+
+def test_a_model_compiled_in_parallel_uses_its_precompiled_header_with_the_hooks(tmp_path):
+    """Verilator compiles a large or split model in parallel, each file with a precompiled
+    header that it forces in. GCC uses that header only when no other file is forced in before
+    it, and fails on the header's missing text otherwise. The hooks' declaration therefore goes to
+    verilated.cpp alone (`xeda_hooks.mk`): the model builds, and an `$error` still reaches the
+    hooks through `vl_stop_maybe`."""
+    require_verilator()
+    split = ["--output-split", "1", "--output-split-cfuncs", "1"]
+    flow = _launch(
+        tmp_path,
+        'initial begin #5 $error("e"); #5 $finish; end',
+        {"timing": True, "compile_args": split},
+    )
+    sim_dir = flow.run_path / flow.settings.sim_dir
+    assert "VM_PARALLEL_BUILDS = 1" in (sim_dir / "Vtop_classes.mk").read_text()
+    assert list(sim_dir.glob("Vtop__pch.h.*.gch"))
+    assert flow.results["sim.ended_by"] == "error"
+    assert [event["kind"] for event in flow.results["sim.evidence"]["events"]] == ["error"]
 
 
 def test_a_delay_verilator_ignores_is_warned_about_not_failed(tmp_path, capfd):

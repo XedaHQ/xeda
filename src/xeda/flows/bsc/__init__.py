@@ -35,7 +35,7 @@ from .sim_evidence import (
 )
 from ...tool import Docker, Tool
 from ...units import count
-from ...utils import replacing_copy, replacing_file, tcl_word, unique
+from ...utils import NonZeroExitCode, replacing_copy, replacing_file, tcl_word, unique
 
 log = logging.getLogger(__name__)
 
@@ -129,6 +129,61 @@ class BscTool(Tool):
         + colorama.Style.NORMAL
         + r"\g<2>",
     }
+
+
+#: The number of diagnostic lines that a failed bsc run quotes in the message of the failure.
+DIAGNOSTICS_SHOWN = 5
+#: The log of the compilation of each Bluespec package, and the log of the link. A run that
+#: compiles several packages keeps the log of the last one: the one that failed, if any did.
+COMPILE_LOG = "bsc_compile.log"
+LINK_LOG = "bsc_link.log"
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+#: The lines of the output of bsc, and of Verilator, the C++ compiler, the linker and `make` that
+#: it runs, that say what went wrong: bsc's own `Error:` lines, Verilator's `%Error:` lines, GCC
+#: and Clang diagnostics (`file:1:2: error: ...`, `<command-line>: fatal error: ...`), a linker's
+#: unresolved symbol, and a failed `make` recipe (`make: *** [...] Error 1`, `make[2]: *** ...`).
+#: Verilator's closing count of its errors and make's wait for its other jobs say nothing more.
+_DIAGNOSTIC = re.compile(
+    r"^Error:"
+    r"|^%Error(?:-[A-Z0-9_]+)?:(?! Exiting due to)"
+    r"|: (?:fatal )?error:"
+    r"|undefined reference to "
+    r"|^make(?:\[\d+\])?: \*\*\* (?!Waiting for unfinished jobs)"
+)
+#: bsc and Verilator continue an error on the lines after it, indented: bsc's first line holds only
+#: the position and the code (`Error: "A.bsv", line 5, column 3: (T0043)`).
+_CONTINUED = re.compile(r"^%?Error")
+#: The longest diagnostic quoted, continuation included.
+_DIAGNOSTIC_LENGTH = 300
+
+
+def diagnostic_lines(text: str) -> list[str]:
+    """Return the errors in the output of a bsc run, in the order of the output, each once: one
+    line each, with the indented lines that continue a bsc or Verilator error joined to it.
+
+    The first one is the cause. Whatever follows may be a consequence, and with a parallel `make`
+    it is far from the end of the output. A line that only says that the compiler gave up
+    (`compilation terminated.`) is not one. The result is empty for an output with no error line.
+    """
+    found: list[str] = []
+    continuing = False
+    for raw in text.splitlines():
+        plain = _ANSI_ESCAPE.sub("", raw)
+        line = plain.strip()
+        if continuing and line and plain[:1].isspace():
+            found[-1] = f"{found[-1]} {line}"
+            continue
+        continuing = False
+        if line and _DIAGNOSTIC.search(line):
+            found.append(line)
+            continuing = bool(_CONTINUED.match(line))
+    return list(
+        dict.fromkeys(
+            line if len(line) <= _DIAGNOSTIC_LENGTH else line[: _DIAGNOSTIC_LENGTH - 3] + "..."
+            for line in found
+        )
+    )
 
 
 def _message_list(tags: Sequence[str]) -> str:
@@ -892,8 +947,40 @@ class BscFlow(Flow, metaclass=ABCMeta):
         backend_flag = f"-{backend}"
         for src in sources:
             if src.file != top_file:
-                self.bsc.run(*flags, "-u", backend_flag, src.file)
-        self.bsc.run(*flags, "-u", backend_flag, "-g", top, top_file)
+                self._run_bsc(COMPILE_LOG, *flags, "-u", backend_flag, src.file)
+        self._run_bsc(COMPILE_LOG, *flags, "-u", backend_flag, "-g", top, top_file)
+
+    def _run_bsc(self, log_name: str, *args: Any, env: dict[str, str] | None = None) -> None:
+        """Run bsc with `args` (and `env`), and copy its output to the log `log_name` in the run
+        directory.
+
+        bsc compiles and links through the C++ compiler and `make`, whose errors are far from the
+        end of the output. A failure of bsc therefore quotes the first error lines of the log
+        (`diagnostic_lines`), as the failure of the tool alone does not say what went wrong. A
+        timeout keeps its own words."""
+        log_file = self.run_directory.writable(log_name)
+        try:
+            self.bsc.run(*args, env=env, tee=log_file, merge_stderr=True)
+        except NonZeroExitCode as error:
+            if type(error) is not NonZeroExitCode:
+                raise
+            report = self.report_file(log_file)
+            found = (
+                diagnostic_lines(report.read_text(encoding="utf-8", errors="replace"))
+                if report is not None
+                else []
+            )
+            if not found:
+                raise
+            shown = found[:DIAGNOSTICS_SHOWN]
+            more = (
+                f" (and {len(found) - len(shown)} more in {log_name})"
+                if len(found) > len(shown)
+                else ""
+            )
+            raise NonZeroExitCode(
+                error.command_args, error.exit_code, f"bsc reported: {' | '.join(shown)}{more}"
+            ) from error
 
     def _top_file(self, sources: list[DesignSource], what: str) -> Path:
         """Return the file that holds the top module: the last Bluespec source."""
@@ -1529,6 +1616,7 @@ class BscSim(BscFlow, SimFlow):
         if not bluesim:
             link_files += [src.file for src in self._sources_of(*_VERILOG_TYPES, tb=True)]
         link_flags = self._link_flags(bluesim)
+        link_env: dict[str, str] | None = None
         if bluesim:
             self.copy_from_template("sim_record.h", script_filename="sim_record.h")
             header = self.copy_from_template("bluesim_hooks.h")
@@ -1539,13 +1627,15 @@ class BscSim(BscFlow, SimFlow):
                 link_flags += ["-Xc++", "-I" + str(Path(directory[1]) / "Bluesim")]
             link_flags += ["-Xc++", "-include", "-Xc++", str(header.absolute())]
         elif ss.simulator == "verilator":
-            link_flags += self._build_verilator_hooks()
+            hook_flags, link_env = self._build_verilator_hooks()
+            link_flags += hook_flags
         elif ss.simulator == "iverilog":
             self._build_iverilog_monitor()
         _check_link_paths([*path_flags, *link_flags, executable, *link_files])
         self._compile(backend, sources, tb_top, top_file, flags)
 
-        self.bsc.run(
+        self._run_bsc(
+            LINK_LOG,
             *self._runtime_flags(),
             *path_flags,
             *self._verbosity_flags(),
@@ -1557,6 +1647,7 @@ class BscSim(BscFlow, SimFlow):
             *link_flags,
             *macro_flags,
             *link_files,
+            env=link_env,
         )
         self.artifacts.executable = str(executable)
 
@@ -1760,19 +1851,21 @@ class BscSim(BscFlow, SimFlow):
         tool.require_minimum_version()
         return tool
 
-    def _build_verilator_hooks(self) -> list[str]:
+    def _build_verilator_hooks(self) -> tuple[list[str], dict[str, str]]:
         """Compile the packaged hooks against the headers in the execution environment.
 
-        Return the flags that link the hooks into the model.
+        Return the flags that link the hooks into the model, and the environment of the link:
+        bsc runs make itself, and the environment is the only way to make
+        (`verilator.HOOKS_MAKEFILE`).
         """
-        from ..verilator import HOOK_MACROS
+        from ..verilator import HOOK_MACROS, HOOKS_MAKEFILE
 
         tool = self._verilator()
         configuration = tool.probe_stdout("-V") or ""
         roots = re.findall(r"^\s*VERILATOR_ROOT\s*=\s*(\S.*?)\s*$", configuration, re.MULTILINE)
         if not roots:
             raise FlowSettingsException("Cannot locate VERILATOR_ROOT from verilator -V")
-        for name in ("xeda_hooks.cpp", "xeda_hooks.h"):
+        for name in ("xeda_hooks.cpp", "xeda_hooks.h", HOOKS_MAKEFILE):
             with replacing_file(self.run_directory.writable(name)) as target:
                 target.write(
                     files("xeda.flows.verilator").joinpath("templates/" + name).read_text()
@@ -1792,8 +1885,10 @@ class BscSim(BscFlow, SimFlow):
         flags = ["-Xl", str(obj)]
         for macro in HOOK_MACROS:
             flags += ["-Xv", "-CFLAGS", "-Xv", "-D" + macro]
-        flags += ["-Xv", "-CFLAGS", "-Xv", "-include" + str(self.run_path / "xeda_hooks.h")]
-        return flags
+        # make runs in a directory that bsc names, so the fragment's path is absolute. It takes
+        # no whitespace, which make would split at: `_check_link_paths` refuses the run path
+        # with any (the hooks' object is in it too).
+        return flags, {"MAKEFILES": str(self.run_path / HOOKS_MAKEFILE)}
 
     def _build_iverilog_monitor(self) -> None:
         """Build the VPI registration adapter, with local headers or the container's own."""

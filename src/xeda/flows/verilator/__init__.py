@@ -36,6 +36,10 @@ HOOK_MACROS = (
     "VL_USER_WARN",
     "VL_USER_STOP_MAYBE",
 )
+#: The make fragment that gives verilated.cpp, and nothing else, the declaration in
+#: `xeda_hooks.h` (`templates/xeda_hooks.mk`). make reads it when the environment variable
+#: MAKEFILES names it: Verilator's `--build` and bsc's link step run make themselves.
+HOOKS_MAKEFILE = "xeda_hooks.mk"
 #: An end record's event kinds, as `SimEvent` kinds; `stop_maybe` is classified by its `maybe`.
 _RECORD_EVENT_KINDS = {
     "stop": "stop",
@@ -254,7 +258,9 @@ class Verilator(SimFlow):
         build: bool = Field(
             True,
             description="Compile and link the generated C++ into an executable model. If false, "
-            "Verilator only generates the sources.",
+            "Verilator only generates the sources. To build them, run make in `sim_dir` with the "
+            "environment variable `MAKEFILES=xeda_hooks.mk`, which gives verilated.cpp the "
+            "declaration of Xeda's hooks.",
         )
         vpi: bool = Field(
             False,
@@ -712,11 +718,11 @@ class Verilator(SimFlow):
             args += ["-CFLAGS", " ".join(cflags)]
 
         hooks: list[Any] = []
+        build_env: dict[str, str] | None = None
         if hooked:
             sim_dir.mkdir(parents=True, exist_ok=True)
-            header = self.copy_from_template(
-                "xeda_hooks.h", script_filename=sim_dir / "xeda_hooks.h"
-            )
+            self.copy_from_template("xeda_hooks.h", script_filename=sim_dir / "xeda_hooks.h")
+            self.copy_from_template(HOOKS_MAKEFILE, script_filename=sim_dir / HOOKS_MAKEFILE)
             hooks.append(
                 self.copy_from_template(
                     "xeda_hooks.cpp", script_filename=sim_dir / "xeda_hooks.cpp"
@@ -727,8 +733,8 @@ class Verilator(SimFlow):
             if generated_main:
                 # at exit, the hooks then tell `$finish` from an event queue that ran empty
                 args += ["-CFLAGS", "-DXEDA_VERILATOR_MAIN"]
-            # by name: make splits a flag at a space, and the model is compiled in `sim_dir`
-            args += ["-CFLAGS", f"-include {header.name}"]
+            # by name: make splits MAKEFILES at a space, and runs in `sim_dir`, where the file is
+            build_env = {"MAKEFILES": HOOKS_MAKEFILE}
 
         env: dict[str, str] | None = None
 
@@ -781,7 +787,7 @@ class Verilator(SimFlow):
                     "installation does not support Verilator"
                 )
 
-        verilator.run(*args, *sources, *hooks)
+        verilator.run(*args, *sources, *hooks, env=build_env)
         if ss.random_init:
             # a seed of 0 would ask the model to pick one from the system's random generator
             seed = randint(1, 1 << 31) if ss.random_seed == "random" else ss.random_seed

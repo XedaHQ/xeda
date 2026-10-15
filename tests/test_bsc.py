@@ -25,14 +25,18 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import Bsc, BscSim
 from xeda.flows import bsc as bsc_module
 from xeda.flows.bsc import (
+    DIAGNOSTICS_SHOWN,
+    LINK_LOG,
     MIN_BSC_VERSION,
     BscFlow,
     BscTool,
     _macro_flags,
     _parse_haskell_strings,
+    diagnostic_lines,
 )
+from xeda.proc_utils import ProcessTimeout
 from xeda.run_dir import RunDirectory
-from xeda.utils import WorkingDirectory
+from xeda.utils import NonZeroExitCode, WorkingDirectory
 
 from .tool_utils import (
     require_bluesim,
@@ -40,6 +44,7 @@ from .tool_utils import (
     require_c_toolchain,
     require_iverilog,
     require_verilator,
+    run_report,
 )
 
 # ---------------------------------------------------------------------------------------------
@@ -817,7 +822,7 @@ def test_bluesim_is_handed_no_verilog_search_path(tmp_path, capfd):
     rtl = {"sources": ["rtl/extra.v", "lib/Accum.bsv", "rtl/Top.bsv"], "top": "mkTop"}
     design = _accum_design(root, rtl=rtl)
     flow = _run(BscSim, design, tmp_path / "run", promote_warnings=["ALL"])
-    assert flow.succeeded, capfd.readouterr().out[-3000:]
+    assert flow.succeeded, run_report(flow, capfd.readouterr())
     assert "-vsearch" not in flow._path_flags("sim", tmp_path / "out", design.rtl.sources)
 
 
@@ -851,8 +856,9 @@ def test_verilog_search_paths_reach_the_verilog_link(simulator, tmp_path, capfd)
     flow = _run(
         BscSim, design, tmp_path / "run", simulator=simulator, verilog_search_paths=["vlib"]
     )
-    out = capfd.readouterr().out
-    assert flow is not None and flow.succeeded, out[-2000:]
+    captured = capfd.readouterr()
+    out = captured.out
+    assert flow is not None and flow.succeeded, run_report(flow, captured)
     assert "PASS" in out
 
 
@@ -1114,8 +1120,9 @@ def test_reset_name_and_polarity_reach_the_verilog_simulation(
         reset_prefix="RST",
         positive_reset=positive_reset,
     )
-    out = capfd.readouterr().out
-    assert flow is not None and flow.succeeded, out[-2000:]
+    captured = capfd.readouterr()
+    out = captured.out
+    assert flow is not None and flow.succeeded, run_report(flow, captured)
     verilog = (flow.run_path / "sim_build" / "mkResetTb.v").read_text()
     assert re.search(r"^\s*input\s+RST;", verilog, re.M)
     # the driver takes its polarity from the define the link step is given, the design from
@@ -1174,8 +1181,9 @@ def test_an_imported_c_function_is_linked_into_the_simulation(simulator, tmp_pat
     flow = _run(
         BscSim, design, tmp_path / "run", simulator=simulator, use_dpi=simulator == "verilator"
     )
-    out = capfd.readouterr().out
-    assert flow is not None and flow.succeeded, out[-2000:]
+    captured = capfd.readouterr()
+    out = captured.out
+    assert flow is not None and flow.succeeded, run_report(flow, captured)
     assert "PASS" in out
 
 
@@ -1337,8 +1345,9 @@ def test_imported_verilog_in_a_file_named_otherwise_is_simulated(simulator, tmp_
         tb={"sources": ["Ops.bsv"], "top": "mkOpsTb"},
     )
     flow = _run(BscSim, design, tmp_path / "run", simulator=simulator)
-    out = capfd.readouterr().out
-    assert flow is not None and flow.succeeded, out[-2000:]
+    captured = capfd.readouterr()
+    out = captured.out
+    assert flow is not None and flow.succeeded, run_report(flow, captured)
     assert "PASS" in out
 
 
@@ -1357,8 +1366,9 @@ def test_a_plain_c_function_is_linked_into_the_simulation(simulator, tmp_path, c
     flow = _run(
         BscSim, design, tmp_path / "run", simulator=simulator, use_dpi=simulator == "verilator"
     )
-    out = capfd.readouterr().out
-    assert flow is not None and flow.succeeded, out[-2000:]
+    captured = capfd.readouterr()
+    out = captured.out
+    assert flow is not None and flow.succeeded, run_report(flow, captured)
     assert "PASS" in out
 
 
@@ -1396,3 +1406,136 @@ def test_bsc_sim_time_limit_stops_a_testbench_that_never_finishes(tmp_path):
     )
     assert flow is not None and not flow.succeeded
     assert time.monotonic() - start < 60
+
+
+# ---------------------------------------------------------------------------------------------
+# a failed bsc run says why
+# ---------------------------------------------------------------------------------------------
+
+#: A parallel `make` that fails: the compiler's error is far from the last line of the output.
+LINK_FAILURE = """\
+Verilator C++ model generation...
+g++ -c VmkTbAscon___024root__Slow.cpp
+<command-line>: fatal error: VmkTbAscon__pch.h.slow: No such file or directory
+compilation terminated.
+make: *** [VmkTbAscon.mk:73: VmkTbAscon___024root__Slow.o] Error 1
+<command-line>: fatal error: VmkTbAscon__pch.h.slow: No such file or directory
+compilation terminated.
+make: *** Waiting for unfinished jobs....
+make: Leaving directory '/run/verilator'
+"""
+
+
+def test_the_diagnostic_lines_of_a_failed_link_are_the_errors_each_once():
+    assert diagnostic_lines(LINK_FAILURE) == [
+        "<command-line>: fatal error: VmkTbAscon__pch.h.slow: No such file or directory",
+        "make: *** [VmkTbAscon.mk:73: VmkTbAscon___024root__Slow.o] Error 1",
+    ]
+
+
+def test_the_diagnostic_lines_cover_each_tool_bsc_runs():
+    text = "\n".join(
+        [
+            'Warning: "A.bsv", line 3, column 1: (G0010) a warning',
+            "\x1b[1mfoo.cpp:12:5: error: 'x' was not declared in this scope\x1b[0m",
+            "foo.cpp:12:5: warning: unused variable 'y'",
+            "ld: foo.o: in function `main': undefined reference to `missing'",
+            "collect2: error: ld returned 1 exit status",
+            "make[2]: *** [Makefile:9: all] Error 2",
+            'Error: "B.bsv", line 5, column 3: (T0043)',
+            "  Cannot synthesize `mkB'",
+            "  because of an earlier error.",
+            "Compilation failed",
+            "%Error: top.v:3:4: syntax error, unexpected ')'",
+            "%Error-UNSUPPORTED: top.v:9:1: Unsupported: a construct",
+            "                   : ... note: In instance 'top'",
+            "%Error: Exiting due to 2 error(s)",
+        ]
+    )
+    assert diagnostic_lines(text) == [
+        "foo.cpp:12:5: error: 'x' was not declared in this scope",
+        "ld: foo.o: in function `main': undefined reference to `missing'",
+        "collect2: error: ld returned 1 exit status",
+        "make[2]: *** [Makefile:9: all] Error 2",
+        'Error: "B.bsv", line 5, column 3: (T0043) Cannot synthesize `mkB\' because of an earlier'
+        " error.",
+        "%Error: top.v:3:4: syntax error, unexpected ')'",
+        "%Error-UNSUPPORTED: top.v:9:1: Unsupported: a construct : ... note: In instance 'top'",
+    ]
+
+
+def test_a_long_diagnostic_is_shortened():
+    (line,) = diagnostic_lines('Error: "A.bsv", line 1, column 1: (T0020)\n' + "  word" * 200)
+    assert len(line) == 300 and line.endswith("...")
+
+
+def test_an_output_with_no_error_has_no_diagnostic_lines():
+    assert diagnostic_lines("Warning: something\ncompilation terminated.\n") == []
+    assert diagnostic_lines("") == []
+
+
+class _FailingBsc:
+    """A stand-in for the `bsc` tool whose run writes `output` to its log and fails."""
+
+    def __init__(self, output: str, error: NonZeroExitCode) -> None:
+        self.output = output
+        self.error = error
+        self.calls: list[dict[str, Any]] = []
+
+    def run(self, *args: Any, env: Any, tee: Path, merge_stderr: bool) -> None:
+        self.calls.append({"args": args, "env": env, "tee": tee, "merge_stderr": merge_stderr})
+        tee.write_text(self.output)
+        raise self.error
+
+
+def _failing_flow(tmp_path, monkeypatch, output: str, error: NonZeroExitCode):
+    flow = _flow(BscSim, _accum_design(tmp_path / "d"), tmp_path / "run")
+    stub = _FailingBsc(output, error)
+    monkeypatch.setitem(flow.__dict__, "bsc", stub)
+    return flow, stub
+
+
+def test_a_failed_bsc_run_reports_the_first_errors_of_its_log(tmp_path, monkeypatch):
+    error = NonZeroExitCode(["bsc", "-verilog", "-e", "mkTb"], 2)
+    flow, stub = _failing_flow(tmp_path, monkeypatch, LINK_FAILURE, error)
+    with pytest.raises(NonZeroExitCode) as raised:
+        flow._run_bsc(LINK_LOG, "-verilog", "-e", "mkTb")
+    failure = raised.value
+    assert type(failure) is NonZeroExitCode
+    assert failure.exit_code == 2
+    assert failure.command_args == "bsc -verilog -e mkTb"
+    message = str(failure)
+    assert "VmkTbAscon__pch.h.slow: No such file or directory" in message
+    assert "Error 1" in message
+    assert "more in" not in message
+    assert failure.__cause__ is error
+    # the output was copied to the log in the run directory, with bsc's stderr in it
+    (call,) = stub.calls
+    assert call["tee"] == flow.run_path / LINK_LOG and call["merge_stderr"] is True
+    assert (flow.run_path / LINK_LOG).read_text() == LINK_FAILURE
+
+
+def test_a_failed_bsc_run_with_many_errors_names_the_log(tmp_path, monkeypatch):
+    output = "".join(f"c{n}.cpp:1:1: error: problem {n}\n" for n in range(DIAGNOSTICS_SHOWN + 3))
+    flow, _ = _failing_flow(tmp_path, monkeypatch, output, NonZeroExitCode(["bsc"], 1))
+    with pytest.raises(NonZeroExitCode) as raised:
+        flow._run_bsc(LINK_LOG)
+    message = str(raised.value)
+    assert "problem 0" in message and f"problem {DIAGNOSTICS_SHOWN - 1}" in message
+    assert f"problem {DIAGNOSTICS_SHOWN}" not in message
+    assert f"(and 3 more in {LINK_LOG})" in message
+
+
+@pytest.mark.parametrize(
+    "error",
+    [NonZeroExitCode(["bsc"], 3), ProcessTimeout(["bsc"], 5)],
+    ids=["no-error-line", "timeout"],
+)
+def test_a_failed_bsc_run_keeps_its_own_failure_unless_the_log_names_an_error(
+    error, tmp_path, monkeypatch
+):
+    output = "all quiet\n" if type(error) is NonZeroExitCode else LINK_FAILURE
+    flow, _ = _failing_flow(tmp_path, monkeypatch, output, error)
+    with pytest.raises(NonZeroExitCode) as raised:
+        flow._run_bsc(LINK_LOG)
+    assert raised.value is error

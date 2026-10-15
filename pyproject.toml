@@ -133,6 +133,7 @@ namespaces = false
     "*.lpf",
     "*.lef",
     "*.lib",
+    "*.mk",
     "*.sdc",
     "*.sdf",
     "*.tcl",

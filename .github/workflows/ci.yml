@@ -118,6 +118,8 @@ jobs:
   #     test_pdk_cli
   #   links and resolved paths (a link left at a file that OpenROAD writes; a macOS temporary
   #     directory is behind a link): test_openroad_run_directory, test_fake_openroad
+  #   the host's make (GNU make 3.81 on macOS) reading a fragment named by MAKEFILES:
+  #     test_verilator_hooks_makefile
   macos:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
@@ -165,6 +167,7 @@ jobs:
           tests/test_pdk_cli.py
           tests/test_openroad_run_directory.py
           tests/test_fake_openroad.py
+          tests/test_verilator_hooks_makefile.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only

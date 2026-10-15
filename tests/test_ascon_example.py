@@ -15,6 +15,7 @@ from .tool_utils import (
     require_bsc,
     require_iverilog,
     require_verilator,
+    run_report,
 )
 
 DESIGN_FILE = Path(__file__).parent.parent / "examples" / "bluespec" / "ascon" / "ascon.yaml"
@@ -52,9 +53,9 @@ def test_reference_vectors_pass_for_supported_unroll_factors(
     """Each supported round grouping passes the independent v1.2 reference vectors."""
     require_bluesim()
     flow = _run(_design(ascon128a, unroll_factor), tmp_path)
-    output = capfd.readouterr().out
-    assert flow.succeeded, output[-2000:]
-    assert "PASS:" in output
+    captured = capfd.readouterr()
+    assert flow.succeeded, run_report(flow, captured)
+    assert "PASS:" in captured.out
 
 
 @pytest.mark.parametrize("simulator", ("iverilog", "verilator"))
@@ -66,9 +67,9 @@ def test_ascon128a_unroll4_passes_on_verilog_simulators(simulator: str, tmp_path
         BscSim, _design(True, 4), {"simulator": simulator}
     )
     assert flow is not None
-    output = capfd.readouterr().out
-    assert flow.succeeded, output[-2000:]
-    assert "PASS:" in output
+    captured = capfd.readouterr()
+    assert flow.succeeded, run_report(flow, captured)
+    assert "PASS:" in captured.out
 
 
 def test_ascon128a_testbench_catches_an_injected_bug(tmp_path: Path, capfd):
