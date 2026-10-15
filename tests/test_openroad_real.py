@@ -582,11 +582,11 @@ def test_two_runs_write_the_same_database(tmp_path):
     print("the two databases differ, and their DEF files are equal")
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root writes through file permissions")
 def test_the_chain_writes_nothing_outside_its_run_root(tmp_path, monkeypatch):
-    """With the design, a copy of the PDK store and the home directory read-only, the chain, an
-    unchanged second launch and a rejected launch write nothing outside the run root. The audit
-    hook sees the writes of xeda, and the listing of the tree those of the tools."""
+    """The chain, an unchanged second launch and a rejected launch write nothing outside the run
+    root. The audit hook sees the writes of xeda, and the listing of the tree those of the tools.
+    The design, a copy of the PDK store and the home directory are read-only, but for root, who
+    writes through the permissions: the CI job runs in a container as root."""
     from .test_isolation import World, _freeze, _state, watching
 
     store = require_gcd_tools()
@@ -607,7 +607,9 @@ def test_the_chain_writes_nothing_outside_its_run_root(tmp_path, monkeypatch):
         for name in (*directories, *files)
     }
     modes[parent] = parent.stat().st_mode
-    _freeze(parent, keep=world.root)
+    frozen = os.geteuid() != 0
+    if frozen:
+        _freeze(parent, keep=world.root)
     try:
         with watching(world) as violations:
             runner = DefaultRunner(world.root, display_results=False)
@@ -625,7 +627,7 @@ def test_the_chain_writes_nothing_outside_its_run_root(tmp_path, monkeypatch):
             assert launch(ORFS_PERIOD).outcome == "rejected"
     finally:  # the modes as they were: the store holds executable files
         for path, mode in sorted(modes.items(), key=lambda item: len(item[0].parts)):
-            if not stat.S_ISLNK(mode):
+            if frozen and not stat.S_ISLNK(mode):
                 path.chmod(stat.S_IMODE(mode))
     after = _state(parent, [world.root])
     changed = sorted(k for k in before.keys() | after.keys() if before.get(k) != after.get(k))
