@@ -1846,14 +1846,13 @@ file holds the values of the configuration of OpenROAD-flow-scripts:
       clock.port: clk
     flows:
       yosys:
+        # Shared settings: they reach the four OpenROAD flows along the chain.
         platform: nangate45
         clock.period: 0.65 ns
         # ABC_AREA=1 selects the area script, and the empty ADDER_MAP_FILE leaves the adders to ABC.
         abc.strategy: area
         arithmetic.adder_map: none
       openroad_place:
-        platform: nangate45
-        clock.period: 0.65 ns
         floorplan.core_utilization_percent: 55
         # PLACE_DENSITY_LB_ADDON=0.20 on top of the density that the cells need.
         global_placement.density.mode: auto
@@ -1864,12 +1863,6 @@ file holds the values of the configuration of OpenROAD-flow-scripts:
             - {layer: metal4, width: 0.48 um, pitch: 28 um, offset: 2 um}
             - {layer: metal7, width: 1.40 um, pitch: 15 um, offset: 2 um}
           pin_layers: []
-      openroad_cts:
-        platform: nangate45
-      openroad_grt:
-        platform: nangate45
-      openroad:
-        platform: nangate45
 
 The physical settings take a quantity with its unit (see `Physical quantities and units`_). The
 settings of the old single ``openroad`` flow fail, and each message names its replacement.
