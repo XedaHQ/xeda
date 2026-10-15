@@ -495,12 +495,10 @@ def yosys_expectations(variables: Mapping[str, str]) -> list[Expectation]:
         ),
     ]
     if wrap:
-        # ORFS maps with abc_new, which takes no ABC_AREA script, and the passes need Tcl.
+        # ORFS maps with abc_new, which takes no ABC_AREA script. xeda writes a Tcl script for
+        # the wrapping passes by itself.
         found.append(
             Expectation("yosys", "abc.strategy", "area", wrap_variable, get(wrap_variable))
-        )
-        found.append(
-            Expectation("yosys", "script_format", "tcl", wrap_variable, get(wrap_variable))
         )
     else:
         found.append(

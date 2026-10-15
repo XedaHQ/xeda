@@ -14,9 +14,9 @@ xeda's defaults, and it does not search for settings that give a better result.
 - OpenROAD. Give it with `--openroad` or `$OPENROAD_EXE`, or put `openroad` on `PATH`.
 - A yosys with Tcl, for ORFS. Give it with `--yosys` or `$YOSYS_EXE`, or put `yosys` on `PATH`.
   The yosys from Homebrew has Tcl.
-- A yosys for xeda. Give it with `--xeda-yosys`, or put `yosys` on `PATH`. A design file that sets
-  `script_format: tcl` needs Tcl in this yosys too. The shipped designs with
-  `SWAP_ARITH_OPERATORS = 1` do.
+- A yosys for xeda. Give it with `--xeda-yosys`, or put `yosys` on `PATH`. xeda writes a Tcl
+  script when the settings need one, so the designs with `SWAP_ARITH_OPERATORS = 1` need Tcl in
+  this yosys too.
 - A yosys with `read_slang`, for the canonical RTLIL of a design with the slang front end. Give it
   with `--yosys-frontend`. The default is the yosys for xeda. The `ibex` designs use the slang
   front end, so the yosys for xeda must have `read_slang` for them.
@@ -169,7 +169,7 @@ The tool refuses a design file that disagrees with ORFS. It reads the ORFS varia
 flow that the file leaves out included:
 
 - `yosys`: `abc.strategy`, `abc.mapper`, `arithmetic.adder_map`, `arithmetic.adder_architecture`,
-  `arithmetic.wrap_operators`, `hierarchy.keep_min_cost`, `script_format` and `systemverilog`,
+  `arithmetic.wrap_operators`, `hierarchy.keep_min_cost` and `systemverilog`,
   from `ABC_AREA`, `SWAP_ARITH_OPERATORS`, `ADDER_MAP_FILE`, `SYNTH_OPERATIONS_ARGS`,
   `SYNTH_HIERARCHICAL` and `SYNTH_HDL_FRONTEND`.
 - `openroad_place`: the floorplan (`CORE_UTILIZATION`, `CORE_ASPECT_RATIO`, `CORE_MARGIN`,

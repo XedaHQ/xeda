@@ -391,7 +391,7 @@ def test_the_flag_of_each_orfs_variable_reaches_the_settings(tmp_path: Path) -> 
             settings.abc.mapper,
             settings.arithmetic.adder_map,
             settings.arithmetic.wrap_operators,
-            settings.script_format,
+            Yosys.script_format(settings),
             settings.systemverilog,
             settings.arithmetic.adder_architecture,
         )
@@ -510,7 +510,6 @@ def test_the_adder_architecture_of_orfs_is_kogge_stone_unless_operators_are_wrap
     assert "SYNTH_OPERATIONS_ARGS" in problems[0]
     wrapped = {
         **yosys,
-        "script_format": "tcl",
         "arithmetic.wrap_operators": True,
         "abc.mapper": "abc_new",
     }

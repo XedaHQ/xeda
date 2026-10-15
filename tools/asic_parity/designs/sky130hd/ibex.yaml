@@ -9,7 +9,6 @@ hierarchical: true  # OPENROAD_HIERARCHICAL = 1: every OpenROAD flow reads the h
 flows:
   yosys:
     systemverilog: slang  # SYNTH_HDL_FRONTEND = slang
-    script_format: tcl  # SWAP_ARITH_OPERATORS = 1: the wrapping passes need a yosys with Tcl
     arithmetic.wrap_operators: true  # SWAP_ARITH_OPERATORS = 1
     abc.mapper: abc_new  # SWAP_ARITH_OPERATORS = 1: ORFS maps with abc_new then
     # abc_new takes only `area`. ORFS ignores ABC_AREA (here 0) and ABC_SCRIPT when it swaps.

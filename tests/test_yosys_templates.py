@@ -664,7 +664,7 @@ def test_the_scripts_hand_yosys_the_sources_the_flow_reads_and_no_others(
 
 @pytest.mark.parametrize("script_format", ["ys", "tcl"])
 def test_slang_reads_every_systemverilog_source_in_one_command(
-    tmp_path: Path, script_format: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script_format: Any
 ) -> None:
     """slang elaborates what one `read_slang` reads as one compilation, so a package that one
     file declares is unknown in another file that a second `read_slang` reads. The script gives
@@ -682,7 +682,8 @@ def test_slang_reads_every_systemverilog_source_in_one_command(
     )
     out = tmp_path / "out"
     out.mkdir()
-    script = _render(Yosys, {"script_format": script_format}, out, design)
+    force_script_format(monkeypatch, script_format)
+    script = _render(Yosys, {}, out, design)
     slang = [line for line in script.splitlines() if "read_slang" in line]
     assert len(slang) == 1, slang
     assert slang[0].index("pkg.sv") < slang[0].index("top.sv")
