@@ -612,18 +612,26 @@ class YosysBase(Flow):
         )
 
     def run_yosys(self, *args: Any) -> None:
-        """Run yosys with `args`, and keep its temporary files in the run directory.
+        """Run yosys with `args`, and keep its temporary files and its state in the run directory.
 
         Yosys and the programs it starts make their temporary directories and files where the
-        environment variable `TMPDIR` points, and `abc_new` leaves its directory there. The
-        process gets `TMPDIR` set to `YOSYS_TEMPORARY_DIRECTORY`, a new empty directory in the
-        run directory, which is removed when yosys ends, however it ends. The environment of Xeda
-        itself does not change, and no other tool gets the variable."""
+        environment variable `TMPDIR` points, and `abc_new` leaves its directory there. Yosys also
+        writes the history of its commands in `$XDG_STATE_HOME/yosys`, which is
+        `~/.local/state/yosys` by default, and cuts the file there to its last 100 lines. The
+        process gets both variables set to `YOSYS_TEMPORARY_DIRECTORY`, a new empty directory in
+        the run directory, which is removed when yosys ends, however it ends. The environment of
+        Xeda itself does not change, and no other tool gets the variables."""
         run_directory = self.run_directory
         run_directory.remove(YOSYS_TEMPORARY_DIRECTORY)
         run_directory.writable(YOSYS_TEMPORARY_DIRECTORY).mkdir()
         try:
-            self.yosys.run(*args, env={"TMPDIR": YOSYS_TEMPORARY_DIRECTORY})
+            self.yosys.run(
+                *args,
+                env={
+                    "TMPDIR": YOSYS_TEMPORARY_DIRECTORY,
+                    "XDG_STATE_HOME": YOSYS_TEMPORARY_DIRECTORY,
+                },
+            )
         finally:
             run_directory.remove(YOSYS_TEMPORARY_DIRECTORY)
 

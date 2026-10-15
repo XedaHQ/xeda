@@ -5,7 +5,9 @@ that `TMPDIR` names. `abc_new` never removes its directory `yosys-abc-XXXXXX`, a
 the Liberty reader stays there too. A launch writes nothing outside the run root, and a leftover
 file that `yosys -E` lists as an input makes every launch run again. So the flow gives yosys
 the environment variable `TMPDIR`, set to a relative name of a directory in the run directory,
-and removes that directory when yosys ends. Xeda's own environment does not change.
+and removes that directory when yosys ends. `XDG_STATE_HOME` names the same directory: there
+yosys keeps the history of its commands, which it writes in the home directory of the user
+otherwise. Xeda's own environment does not change.
 """
 
 import contextlib
@@ -82,6 +84,7 @@ def test_the_yosys_call_gets_the_variable_and_no_other_call_does(tmp_path, monke
     executable, env, existed = yosys_calls[0]
     assert executable == "yosys"
     assert env["TMPDIR"] == YOSYS_TEMPORARY_DIRECTORY
+    assert env["XDG_STATE_HOME"] == YOSYS_TEMPORARY_DIRECTORY
     assert existed, "the directory exists, and is empty, when yosys starts"
     assert not (run_dir / YOSYS_TEMPORARY_DIRECTORY).exists()
     # the other calls (the version query) get no environment of their own
@@ -133,6 +136,19 @@ def test_real_yosys_leaves_nothing_in_the_temporary_directory_of_xeda(tmp_path, 
     require_yosys()
     flow, parent = _launch(tmp_path, monkeypatch)
     assert list(parent.iterdir()) == []
+    assert not (flow.run_path / YOSYS_TEMPORARY_DIRECTORY).exists()
+
+
+def test_real_yosys_writes_no_history_in_the_home_directory(tmp_path, monkeypatch):
+    """Yosys keeps the history of its commands in `$XDG_STATE_HOME/yosys`, else in
+    `~/.local/state/yosys`. The run keeps it in the run directory, which it removes."""
+    require_yosys()
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    flow, _ = _launch(tmp_path, monkeypatch)
+    assert list(home.iterdir()) == []
     assert not (flow.run_path / YOSYS_TEMPORARY_DIRECTORY).exists()
 
 
