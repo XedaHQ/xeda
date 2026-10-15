@@ -58,7 +58,7 @@ PNR_TARGETS = ["do-1_synth", "do-floorplan", "do-place", "do-cts", "do-route", "
 MAKE_VARS = [
     "DESIGN_NAME", "DESIGN_NICKNAME", "PLATFORM", "PLATFORM_DIR", "VERILOG_FILES",
     "VERILOG_INCLUDE_DIRS", "SDC_FILE", "ABC_AREA", "SWAP_ARITH_OPERATORS",
-    "SYNTH_WRAPPED_OPERATORS", "SYNTH_HIERARCHICAL", "OPENROAD_HIERARCHICAL",
+    "SYNTH_WRAPPED_OPERATORS", "SYNTH_HIERARCHICAL", "OPENROAD_HIERARCHICAL", "SYNTH_OPERATIONS_ARGS",
     "SYNTH_HDL_FRONTEND", "SYNTH_MINIMUM_KEEP_SIZE", "ADDER_MAP_FILE", "LATCH_MAP_FILE",
     "CLKGATE_MAP_FILE", "LIB_FILES", "DONT_USE_CELLS", "TIEHI_CELL_AND_PORT",
     "TIELO_CELL_AND_PORT", "MIN_BUF_CELL_AND_PORTS", "ABC_DRIVER_CELL", "ABC_LOAD_IN_FF",
@@ -383,10 +383,18 @@ class Expectation:
     value: str
 
 
+def wrapped_operators(variables: Mapping[str, str]) -> bool:
+    """Whether ORFS wraps the operators (`SWAP_ARITH_OPERATORS` or `SYNTH_WRAPPED_OPERATORS`)."""
+    return "1" in (
+        variables.get("SWAP_ARITH_OPERATORS", "").strip(),
+        variables.get("SYNTH_WRAPPED_OPERATORS", "").strip(),
+    )
+
+
 def orfs_expectations(variables: Mapping[str, str]) -> list[Expectation]:
     """Return what the ORFS variables of a design ask of the settings of the xeda `yosys` flow."""
     get = lambda name: variables.get(name, "").strip()  # noqa: E731
-    wrap = "1" in (get("SWAP_ARITH_OPERATORS"), get("SYNTH_WRAPPED_OPERATORS"))
+    wrap = wrapped_operators(variables)
     wrap_variable = "SWAP_ARITH_OPERATORS" if get("SWAP_ARITH_OPERATORS") == "1" else (
         "SYNTH_WRAPPED_OPERATORS"
     )  # fmt: skip
@@ -418,6 +426,15 @@ def orfs_expectations(variables: Mapping[str, str]) -> list[Expectation]:
                 "ABC_AREA",
                 get("ABC_AREA"),
             )
+        )
+    # `synth.tcl` adds `-extra-map lcu_kogge_stone.v` to the `synth` calls unless
+    # SYNTH_OPERATIONS_ARGS replaces it. Wrapped operators bring their own architectures, and
+    # xeda refuses an adder architecture then.
+    if wrap:
+        found.append(Expectation("arithmetic.adder_architecture", "yosys", wrap_variable, "1"))
+    elif not get("SYNTH_OPERATIONS_ARGS"):
+        found.append(
+            Expectation("arithmetic.adder_architecture", "kogge_stone", "SYNTH_OPERATIONS_ARGS", "")
         )
     if get("SYNTH_HDL_FRONTEND") == "slang":
         found.append(Expectation("systemverilog", "slang", "SYNTH_HDL_FRONTEND", "slang"))
@@ -461,6 +478,13 @@ def design_config_problems(
         except Exception as error:
             problems.append(f"flows.yosys does not validate: {error}")
         else:
+            if variables.get("SYNTH_OPERATIONS_ARGS", "").strip() and not wrapped_operators(
+                variables
+            ):
+                problems.append(
+                    f"SYNTH_OPERATIONS_ARGS is {variables['SYNTH_OPERATIONS_ARGS']!r}: the tool "
+                    "cannot translate it, so write the xeda settings by hand"
+                )
             for item in orfs_expectations(variables):
                 got = _dotted_get(settings, item.setting)
                 if got != item.expected:
@@ -731,6 +755,52 @@ def residue_digest(platform: str) -> Optional[str]:
         return None
 
 
+#: The fields of a row that identify its inputs. A saved row is reused only when every one equals
+#: the current value.
+IDENTITY_KEYS = (
+    "orfs_commit",
+    "sources",
+    "platform_residue_sha256",
+    "override_sha256",
+    "design_file_sha256",
+    "tools",
+    "make_vars",
+    "reference_sha256",
+)
+
+
+def row_identity(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the part of a row that says which inputs it came from."""
+    identity = {key: row.get(key) for key in IDENTITY_KEYS}
+    identity["cores"] = (row.get("machine") or {}).get("cores")
+    return identity
+
+
+def _leaves(value: Any, prefix: str) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        found: dict[str, Any] = {}
+        for key, item in value.items():
+            found.update(_leaves(item, f"{prefix}.{key}"))
+        return found
+    return {prefix: value}
+
+
+def stale_reasons(saved: Mapping[str, Any], current: Mapping[str, Any]) -> list[str]:
+    """Return what differs between the inputs of a saved row and the current ones. An empty list
+    means that the saved row is current."""
+    old = {}
+    new = {}
+    for key, value in row_identity(saved).items():
+        old.update(_leaves(value, key))
+    for key, value in row_identity(current).items():
+        new.update(_leaves(value, key))
+    return [
+        f"{name} differs" if name in old and name in new else f"{name} is not in both"
+        for name in sorted(set(old) | set(new))
+        if old.get(name) != new.get(name)
+    ]
+
+
 def result_path(root: Path, spec: str, half: str) -> Path:
     return root / spec / half / "result.json"
 
@@ -764,20 +834,22 @@ def bar_problems(row: Mapping[str, Any], reference: Optional[Mapping[str, Any]])
 
     wns = need("finish__timing__setup__ws")
     ref_wns = _metric(reference, "finish__timing__setup__ws")
-    if wns is not None and ref_wns is not None:
-        if wns < ref_wns - WNS_TOLERANCE_NS - _EPSILON:
-            problems.append(
-                f"WNS {wns:.3f} ns is {(ref_wns - wns) * 1000:.0f} ps below the ORFS WNS "
-                f"{ref_wns:.3f} ns (the limit is {WNS_TOLERANCE_NS * 1000:.0f} ps)"
-            )
+    if ref_wns is None:
+        problems.append("the ORFS row has no WNS (finish__timing__setup__ws)")
+    elif wns is not None and wns < ref_wns - WNS_TOLERANCE_NS - _EPSILON:
+        problems.append(
+            f"WNS {wns:.3f} ns is {(ref_wns - wns) * 1000:.0f} ps below the ORFS WNS "
+            f"{ref_wns:.3f} ns (the limit is {WNS_TOLERANCE_NS * 1000:.0f} ps)"
+        )
     area = need("finish__design__instance__area__stdcell")
     ref_area = _metric(reference, "finish__design__instance__area__stdcell")
-    if area is not None and ref_area:
-        if area > ref_area * (1 + AREA_TOLERANCE) + _EPSILON:
-            problems.append(
-                f"area {area:.1f} um^2 is {(area / ref_area - 1) * 100:+.1f}% against the ORFS "
-                f"area {ref_area:.1f} um^2 (the limit is +{AREA_TOLERANCE * 100:.0f}%)"
-            )
+    if not ref_area:
+        problems.append("the ORFS row has no area (finish__design__instance__area__stdcell)")
+    elif area is not None and area > ref_area * (1 + AREA_TOLERANCE) + _EPSILON:
+        problems.append(
+            f"area {area:.1f} um^2 is {(area / ref_area - 1) * 100:+.1f}% against the ORFS "
+            f"area {ref_area:.1f} um^2 (the limit is +{AREA_TOLERANCE * 100:.0f}%)"
+        )
     drc = need("detailedroute__route__drc_errors")
     if drc:
         problems.append(f"{drc:g} DRC errors")
@@ -1219,6 +1291,8 @@ def run_half(
     )
     fresh_directory(ctx, d)
     row = new_row(ctx, design, half)
+    if half == "pnr":
+        row["reference_sha256"] = sha256_file(result_path(ctx.root, spec, "orfs"))
     try:
         document, seconds = run_xeda(ctx, design, d, plan)
         part = read_xeda_results(document, half)
@@ -1245,11 +1319,34 @@ def run_half(
     return write_row(ctx, row)
 
 
+def recorded_row(
+    ctx: Context, design: OrfsDesign, half: str, force: bool
+) -> Optional[dict[str, Any]]:
+    """Return the saved row of `half` when it came from the current inputs, else `None`.
+
+    The row is current when its tools, sources, platform files, design file, ORFS variables and
+    core count equal the current ones. The `pnr` row also depends on the reference row that gave
+    its netlist. A stale row is reported, and the caller reruns it.
+    """
+    spec = design.config.spec
+    path = result_path(ctx.root, spec, half)
+    if force or not path.is_file():
+        return None
+    saved = json.loads(path.read_text())
+    current = new_row(ctx, design, half)
+    if half == "pnr":
+        reference = result_path(ctx.root, spec, "orfs")
+        current["reference_sha256"] = sha256_file(reference) if reference.is_file() else None
+    reasons = stale_reasons(saved, current)
+    if reasons:
+        shown = "; ".join(reasons[:5]) + ("; ..." if len(reasons) > 5 else "")
+        print(f"{spec} {half}: the saved row is stale ({shown}); running it again", flush=True)
+        return None
+    return saved
+
+
 def ensure_reference(ctx: Context, design: OrfsDesign, force: bool) -> dict[str, Any]:
-    path = result_path(ctx.root, design.config.spec, "orfs")
-    if path.is_file() and not force:
-        return json.loads(path.read_text())
-    return run_reference(ctx, design)
+    return recorded_row(ctx, design, "orfs", force) or run_reference(ctx, design)
 
 
 def command_run(args: argparse.Namespace) -> int:
@@ -1264,8 +1361,7 @@ def command_run(args: argparse.Namespace) -> int:
     reference = ensure_reference(ctx, design, args.force)
     failed = not reference.get("success")
     for half in halves:
-        existing = result_path(ctx.root, config.spec, half)
-        if existing.is_file() and not args.force:
+        if recorded_row(ctx, design, half, args.force) is not None:
             print(f"{config.spec} {half}: recorded already (--force reruns)", flush=True)
             continue
         row = run_half(ctx, design, half, reference)

@@ -13,3 +13,5 @@ flows:
     abc.strategy: area
     # OPENROAD_HIERARCHICAL = 1 acts in the place and route stages, not in synthesis.
     # SYNTH_HIERARCHICAL is 0, so synthesis flattens (no hierarchy.keep_min_cost).
+    # No arithmetic.adder_architecture: the wrapped operators carry their own architectures
+    # (SWAP_ARITH_OPERATORS = 1), and the -extra-map of synth.tcl does not apply to them.

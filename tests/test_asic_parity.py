@@ -133,6 +133,7 @@ def make_vars(tmp_path: Path, spec: str) -> dict[str, str]:
         "SYNTH_HIERARCHICAL": "0",
         "OPENROAD_HIERARCHICAL": facts["swap"],
         "SYNTH_MINIMUM_KEEP_SIZE": "10000",
+        "SYNTH_OPERATIONS_ARGS": "",
         "SYNTH_HDL_FRONTEND": "slang" if facts["slang"] else "",
         "ADDER_MAP_FILE": str(plat_dir / "cells_adders.v") if facts["adder"] else "",
         "DONT_USE_CELLS": "TAPCELL_X1 FILLCELL_X1",
@@ -237,12 +238,16 @@ def test_the_flag_of_each_orfs_variable_reaches_the_settings(tmp_path: Path) -> 
             settings.arithmetic.wrap_operators,
             settings.script_format,
             settings.systemverilog,
+            settings.arithmetic.adder_architecture,
         )
-    assert got["nangate45/gcd"] == ("area", "abc", "none", False, "ys", "slang")
+    assert got["nangate45/gcd"] == ("area", "abc", "none", False, "ys", "slang", "kogge_stone")
     assert got["nangate45/jpeg"][0] == "area"
     assert got["nangate45/ibex"][:5] == ("speed", "abc", "platform", False, "ys")
-    assert got["nangate45/aes"] == ("area", "abc_new", "platform", True, "tcl", "slang")
-    assert got["sky130hd/gcd"] == ("area", "abc_new", "none", True, "tcl", "slang")
+    assert got["nangate45/aes"] == ("area", "abc_new", "platform", True, "tcl", "slang", "yosys")
+    assert got["sky130hd/gcd"] == ("area", "abc_new", "none", True, "tcl", "slang", "yosys")
+    for spec, found in got.items():
+        wrapped = FACTS[spec]["swap"] == "1"
+        assert found[-1] == ("yosys" if wrapped else "kogge_stone"), spec
 
 
 def test_the_design_sources_list_each_file_of_an_include_directory_as_a_header(
@@ -274,7 +279,13 @@ def _config(**given: Any):
     table = {
         "orfs": "nangate45/gcd",
         "clock": {"port": "clk", "period": "0.25 ns"},
-        "flows": {"yosys": {"abc.strategy": "area", "arithmetic.adder_map": "none"}},
+        "flows": {
+            "yosys": {
+                "abc.strategy": "area",
+                "arithmetic.adder_map": "none",
+                "arithmetic.adder_architecture": "kogge_stone",
+            }
+        },
     }
     table.update(given)
     return tool.config_from_table(table, Path("gcd.yaml"))
@@ -314,6 +325,7 @@ def test_a_period_without_a_unit_is_refused() -> None:
         ("ADDER_MAP_FILE", "/p/cells_adders.v", ("arithmetic.adder_map", "ADDER_MAP_FILE")),
         ("SWAP_ARITH_OPERATORS", "1", ("arithmetic.wrap_operators", "SWAP_ARITH_OPERATORS")),
         ("SYNTH_HIERARCHICAL", "1", ("hierarchy.keep_min_cost", "SYNTH_HIERARCHICAL")),
+        ("SYNTH_OPERATIONS_ARGS", "-booth", ("SYNTH_OPERATIONS_ARGS", "by hand")),
     ],
 )
 def test_a_setting_that_differs_from_the_orfs_variable_is_refused(
@@ -325,6 +337,30 @@ def test_a_setting_that_differs_from_the_orfs_variable_is_refused(
     problems = tool.design_config_problems(_config(), variables, sdc)
     assert problems, variable
     assert all(word in " ".join(problems) for word in words)
+
+
+def test_the_adder_architecture_of_orfs_is_kogge_stone_unless_operators_are_wrapped(
+    tmp_path: Path,
+) -> None:
+    variables = make_vars(tmp_path, "nangate45/gcd")
+    sdc = Path(variables["SDC_FILE"]).read_text(encoding="utf-8")
+    yosys = {"abc.strategy": "area", "arithmetic.adder_map": "none"}
+    problems = tool.design_config_problems(_config(flows={"yosys": yosys}), variables, sdc)
+    assert len(problems) == 1
+    assert "arithmetic.adder_architecture" in problems[0] and "kogge_stone" in problems[0]
+    assert "SYNTH_OPERATIONS_ARGS" in problems[0]
+    wrapped = {
+        **yosys,
+        "script_format": "tcl",
+        "arithmetic.wrap_operators": True,
+        "abc.mapper": "abc_new",
+    }
+    variables["SWAP_ARITH_OPERATORS"] = "1"
+    assert tool.design_config_problems(_config(flows={"yosys": wrapped}), variables, sdc) == []
+    wrapped["arithmetic.adder_architecture"] = "kogge_stone"
+    # xeda refuses the pair itself: ORFS wraps the adders with its own architectures
+    refused = tool.design_config_problems(_config(flows={"yosys": wrapped}), variables, sdc)
+    assert len(refused) == 1 and "adder_architecture" in refused[0]
 
 
 def test_a_flow_that_xeda_does_not_have_is_refused() -> None:
@@ -813,3 +849,148 @@ def test_a_directory_outside_the_root_is_never_deleted(tmp_path: Path) -> None:
     with pytest.raises(tool.ParityError, match="not under"):
         tool.fresh_directory(ctx, ctx.root)
     assert precious.exists()
+
+
+# ---- the reference row must be current -----------------------------------------------------
+
+
+def saved_row(**changes: Any) -> dict[str, Any]:
+    """A row with the fields that identify a run."""
+    row = {
+        "orfs_commit": "a" * 40,
+        "sources": {"orfs_commit": "a" * 40, "files": {"gcd.v": "1"}, "sdc": {"c.sdc": "2"}},
+        "platform_residue_sha256": "3",
+        "override_sha256": "4",
+        "design_file_sha256": "5",
+        "tools": {"openroad_sha256": "6", "yosys_orfs": "Yosys 0.69", "xeda": "0.5"},
+        "make_vars": {"ABC_AREA": "1", "SDC_FILE": "/c.sdc"},
+        "machine": {"platform": "macOS", "cores": 4, "cpu_count": 10},
+        "metrics": {"x": 1},
+        "times": {"pnr_s": 1.0},
+    }
+    for key, value in changes.items():
+        row[key] = value
+    return row
+
+
+def test_a_row_of_the_same_inputs_is_current() -> None:
+    other = saved_row(metrics={"x": 2}, times={"pnr_s": 9.0})
+    other["machine"] = {"platform": "Linux", "cores": 4, "cpu_count": 64}
+    assert tool.stale_reasons(saved_row(), other) == []
+
+
+@pytest.mark.parametrize(
+    ("changes", "named"),
+    [
+        ({"orfs_commit": "b" * 40}, "orfs_commit"),
+        ({"sources": {"orfs_commit": "a" * 40, "files": {"gcd.v": "9"}, "sdc": {"c.sdc": "2"}}},
+         "sources.files.gcd.v"),
+        ({"sources": {"orfs_commit": "a" * 40, "files": {"gcd.v": "1"}, "sdc": {"c.sdc": "9"}}},
+         "sources.sdc.c.sdc"),
+        ({"platform_residue_sha256": "9"}, "platform_residue_sha256"),
+        ({"override_sha256": "9"}, "override_sha256"),
+        ({"design_file_sha256": "9"}, "design_file_sha256"),
+        ({"tools": {"openroad_sha256": "9", "yosys_orfs": "Yosys 0.69", "xeda": "0.5"}},
+         "tools.openroad_sha256"),
+        ({"tools": {"openroad_sha256": "6", "yosys_orfs": "Yosys 0.70", "xeda": "0.5"}},
+         "tools.yosys_orfs"),
+        ({"make_vars": {"ABC_AREA": "0", "SDC_FILE": "/c.sdc"}}, "make_vars.ABC_AREA"),
+        ({"machine": {"platform": "macOS", "cores": 8, "cpu_count": 10}}, "cores"),
+        ({"reference_sha256": "9"}, "reference_sha256"),
+    ],
+)  # fmt: skip
+def test_a_changed_input_makes_a_row_stale(changes: dict[str, Any], named: str) -> None:
+    reasons = tool.stale_reasons(saved_row(), saved_row(**changes))
+    assert len(reasons) == 1 and named in reasons[0]
+
+
+def test_a_row_without_the_identity_fields_is_stale() -> None:
+    old = {"metrics": {"x": 1}}
+    reasons = tool.stale_reasons(old, saved_row())
+    assert reasons and "orfs_commit" in " ".join(reasons)
+
+
+def _design(spec: str = "nangate45/gcd"):
+    return types.SimpleNamespace(config=types.SimpleNamespace(spec=spec))
+
+
+def test_a_current_reference_is_reused(tmp_path: Path, monkeypatch, capsys) -> None:
+    ctx = _context(tmp_path)
+    saved = saved_row(success=True, half="orfs", design="nangate45/gcd")
+    write(tool.result_path(tmp_path, "nangate45/gcd", "orfs"), json.dumps(saved))
+    monkeypatch.setattr(tool, "new_row", lambda *args: saved_row())
+    monkeypatch.setattr(tool, "run_reference", lambda *args: pytest.fail("reran"))
+    assert tool.ensure_reference(ctx, _design(), force=False) == saved
+    assert "stale" not in capsys.readouterr().out
+
+
+def test_a_stale_reference_is_rerun_and_the_user_is_told(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    ctx = _context(tmp_path)
+    write(tool.result_path(tmp_path, "nangate45/gcd", "orfs"), json.dumps(saved_row()))
+    monkeypatch.setattr(tool, "new_row", lambda *args: saved_row(orfs_commit="b" * 40))
+    monkeypatch.setattr(tool, "run_reference", lambda *args: {"rerun": True})
+    assert tool.ensure_reference(ctx, _design(), force=False) == {"rerun": True}
+    out = capsys.readouterr().out
+    assert "stale" in out and "orfs_commit" in out
+
+
+def test_force_reruns_a_current_reference(tmp_path: Path, monkeypatch) -> None:
+    ctx = _context(tmp_path)
+    write(tool.result_path(tmp_path, "nangate45/gcd", "orfs"), json.dumps(saved_row()))
+    monkeypatch.setattr(tool, "new_row", lambda *args: saved_row())
+    monkeypatch.setattr(tool, "run_reference", lambda *args: {"rerun": True})
+    assert tool.ensure_reference(ctx, _design(), force=True) == {"rerun": True}
+
+
+def test_a_half_row_is_reused_only_when_current(tmp_path: Path, monkeypatch, capsys) -> None:
+    ctx = _context(tmp_path)
+    write(tool.result_path(tmp_path, "nangate45/gcd", "synthesis"), json.dumps(saved_row()))
+    monkeypatch.setattr(tool, "new_row", lambda *args: saved_row())
+    assert tool.recorded_row(ctx, _design(), "synthesis", force=False) is not None
+    monkeypatch.setattr(tool, "new_row", lambda *args: saved_row(override_sha256="x"))
+    assert tool.recorded_row(ctx, _design(), "synthesis", force=False) is None
+    assert "stale" in capsys.readouterr().out
+    assert tool.recorded_row(ctx, _design(), "pnr", force=False) is None  # nothing recorded
+
+
+def test_the_pnr_row_depends_on_the_reference_row_it_read(tmp_path: Path, monkeypatch) -> None:
+    ctx = _context(tmp_path)
+    write(tool.result_path(tmp_path, "nangate45/gcd", "orfs"), '{"a": 1}\n')
+    digest = tool.sha256_file(tool.result_path(tmp_path, "nangate45/gcd", "orfs"))
+    monkeypatch.setattr(tool, "new_row", lambda *args: saved_row())
+    write(
+        tool.result_path(tmp_path, "nangate45/gcd", "pnr"),
+        json.dumps(saved_row(reference_sha256=digest)),
+    )
+    assert tool.recorded_row(ctx, _design(), "pnr", force=False) is not None
+    write(tool.result_path(tmp_path, "nangate45/gcd", "orfs"), '{"a": 2}\n')
+    assert tool.recorded_row(ctx, _design(), "pnr", force=False) is None
+    # the synthesis half does not read the reference row, so a new reference leaves it current
+    write(tool.result_path(tmp_path, "nangate45/gcd", "synthesis"), json.dumps(saved_row()))
+    assert tool.recorded_row(ctx, _design(), "synthesis", force=False) is not None
+
+
+# ---- a reference without a bar metric ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("key", "word"),
+    [
+        ("finish__timing__setup__ws", "WNS"),
+        ("finish__design__instance__area__stdcell", "area"),
+    ],
+)
+def test_a_reference_without_a_bar_metric_is_a_problem(key: str, word: str) -> None:
+    reference = row("orfs")
+    del reference["metrics"][key]
+    problems = tool.bar_problems(row(), reference)
+    assert len(problems) == 1
+    assert "the ORFS row has no" in problems[0] and word in problems[0] and key in problems[0]
+
+
+def test_a_reference_with_an_area_of_zero_is_a_problem() -> None:
+    reference = row("orfs", finish__design__instance__area__stdcell=0)
+    problems = tool.bar_problems(row(), reference)
+    assert len(problems) == 1 and "the ORFS row has no area" in problems[0]

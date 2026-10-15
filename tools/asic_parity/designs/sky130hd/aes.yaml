@@ -12,3 +12,5 @@ flows:
     # abc_new takes only `area`. ORFS ignores ABC_AREA (here 0) and ABC_SCRIPT when it swaps.
     abc.strategy: area
     # OPENROAD_HIERARCHICAL = 1 acts in the place and route stages, not in synthesis.
+    # No arithmetic.adder_architecture: the wrapped operators carry their own architectures
+    # (SWAP_ARITH_OPERATORS = 1), and the -extra-map of synth.tcl does not apply to them.

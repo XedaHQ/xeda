@@ -13,3 +13,5 @@ flows:
     abc.strategy: area
     arithmetic.adder_map: none  # ADDER_MAP_FILE :=  (empty: "Adders degrade GCD")
     # OPENROAD_HIERARCHICAL = 1 acts in the place and route stages, not in synthesis.
+    # No arithmetic.adder_architecture: the wrapped operators carry their own architectures
+    # (SWAP_ARITH_OPERATORS = 1), and the -extra-map of synth.tcl does not apply to them.

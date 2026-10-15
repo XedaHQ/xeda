@@ -8,3 +8,4 @@ flows:
   yosys:
     systemverilog: slang  # SYNTH_HDL_FRONTEND = slang
     abc.strategy: speed  # ABC_AREA unset: ORFS uses its speed script (xeda's default is `area`)
+    arithmetic.adder_architecture: kogge_stone  # SYNTH_OPERATIONS_ARGS unset: synth.tcl adds -extra-map lcu_kogge_stone.v
