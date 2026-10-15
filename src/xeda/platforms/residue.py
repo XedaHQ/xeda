@@ -211,6 +211,10 @@ class Files(XedaBaseModel):
     cell_lef: list[str] = Field(default_factory=list, description="LEF files of the cells.")
     gds: list[str] = Field(default_factory=list, description="GDS files of the cells.")
     rcx_rules: Optional[str] = Field(None, description="The OpenRCX rules file.")
+    cdl: list[str] = Field(
+        default_factory=list,
+        description="CDL files of the cells (the masters of a circuit description for LVS).",
+    )
     klayout_tech: Optional[str] = Field(None, description="The technology file of KLayout.")
     klayout_layer_props: Optional[str] = Field(
         None, description="The layer properties file of KLayout."

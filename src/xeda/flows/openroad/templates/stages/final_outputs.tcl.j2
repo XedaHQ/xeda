@@ -6,8 +6,11 @@
    equivalence check sees none of them. The parasitics come last: OpenRCX extracts them with the
    rules of the platform and the file is read back, or else OpenROAD estimates them from the
    route. The options of OpenRCX are flags of the extraction, and the factors that scale the
-   result come in a command of their own after it. Only the final stage of the process may set
-   the stage of the metrics here. #}
+   result come in a command of their own after it. The files that need the parasitics follow: the
+   delays in SDF format, then the abstract view of the block, the circuit description where the
+   platform gives the CDL files of its cells, and last the timing model, since it needs the
+   source latency of the clocks at 0. Only the final stage of the process may set the stage of the
+   metrics here. #}
 {% set ext = settings.extraction %}
 {% set scale = settings.extraction.scale %}
 proc xeda_final_outputs {} {
@@ -18,7 +21,7 @@ proc xeda_final_outputs {} {
     write_sdc -no_timestamp {{ outputs.sdc|tcl_word }}
     foreach o [[ord::get_db_block] getObstructions] { odb::dbObstruction_destroy $o }
     write_def {{ outputs.def_file|tcl_word }}
-    write_verilog {{ outputs.netlist|tcl_word }} -remove_cells [xeda_physical_only_masters]
+    write_verilog {{ outputs.netlist|tcl_word }}{% if settings.netlist_power_pins %} -include_pwr_gnd{% endif %} -remove_cells [xeda_physical_only_masters]
 {% if P.extraction == "rcx" %}
     define_process_corner -ext_model_index {{ ext.model_index|tcl_number }} X
     set_extraction_rules_file {{ P.rcx_rules|tcl_word }}
@@ -30,5 +33,14 @@ proc xeda_final_outputs {} {
     read_spef {{ outputs.spef|tcl_word }}
 {% else %}
     estimate_parasitics -global_routing
+{% endif %}
+    write_sdf -no_timestamp {{ outputs.sdf|tcl_word }}
+    write_abstract_lef -bloat_occupied_layers {{ outputs.abstract_lef|tcl_word }}
+{% if outputs.cdl is not none %}
+    write_cdl -masters {{ P.cdl_masters|tcl_list }} {{ outputs.cdl|tcl_word }}
+{% endif %}
+{% if settings.write_timing_model %}
+    set_clock_latency -source 0 [all_clocks]
+    write_timing_model {{ outputs.timing_model|tcl_word }}
 {% endif %}
 }

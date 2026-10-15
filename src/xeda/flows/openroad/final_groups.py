@@ -22,6 +22,8 @@ __all__ = [
     "IrDropGroup",
     "NdrGroup",
     "NdrRule",
+    "ReportsGroup",
+    "TimingReport",
     "ViaInPin",
 ]
 
@@ -507,6 +509,89 @@ class ExtractionGroup(SettingsGroup):
     scale: ExtractionScale = Field(
         default_factory=ExtractionScale,
         description="The factors that scale the extracted parasitics.",
+    )
+
+
+class TimingReport(SettingsGroup):
+    """The report of the timing paths (`report_checks`), which the flow writes to
+    `reports/timing.rpt`."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("paths", "-group_path_count", "value"),
+        Flag("format", "-format", "value"),
+        Flag("fields", "-fields", "list"),
+        Flag("unconstrained", "-unconstrained", "switch"),
+    )
+
+    enabled: bool = Field(
+        True,
+        description="Write the report of the timing paths. OpenROAD-flow-scripts does it.",
+        json_schema_extra=tier("advanced"),
+    )
+    paths: int = Field(
+        1,
+        ge=1,
+        description="The number of paths to report in each path group (`-group_path_count`). "
+        "The default is the one of the tool.",
+        json_schema_extra=tier("advanced"),
+    )
+    format: Literal[
+        "full",
+        "full_clock",
+        "full_clock_expanded",
+        "short",
+        "end",
+        "slack_only",
+        "summary",
+        "json",
+    ] = Field(
+        "full_clock_expanded",
+        description="How the report shows a path (`-format`). The default is the one of "
+        "OpenROAD-flow-scripts. With `json` the report ignores `fields`.",
+        json_schema_extra=tier("advanced"),
+    )
+    fields: list[
+        Literal["capacitance", "slew", "fanout", "input_pins", "net", "src_attr", "variation"]
+    ] = Field(
+        ["slew", "capacitance", "input_pins", "net", "fanout"],
+        description="The columns that the report adds to a path (`-fields`). The default is the "
+        "one of OpenROAD-flow-scripts.",
+        json_schema_extra=tier("expert"),
+    )
+    unconstrained: bool = Field(
+        True,
+        description="Report the paths without a constraint too (`-unconstrained`). "
+        "OpenROAD-flow-scripts does it.",
+        json_schema_extra=tier("advanced"),
+    )
+
+
+class ReportsGroup(SettingsGroup):
+    """The text reports of the final process, which the flow writes under `reports/`. They never
+    fail a run. A change of a report setting runs the flow again."""
+
+    timing: TimingReport = Field(
+        default_factory=TimingReport,
+        description="The report of the timing paths, `reports/timing.rpt`.",
+    )
+    clock_skew: bool = Field(
+        True,
+        description="Report the clock skew (`report_clock_skew`) in `reports/clock_skew.rpt` and "
+        "put the skew of the setup and hold checks in the results. OpenROAD-flow-scripts can "
+        "switch it off since it can take long on a large design.",
+        json_schema_extra=tier("advanced"),
+    )
+    power: bool = Field(
+        True,
+        description="Write the power report (`report_power`) to `reports/power.rpt`. The total "
+        "power in the results does not depend on it.",
+        json_schema_extra=tier("common"),
+    )
+    check_setup: bool = Field(
+        False,
+        description="Write the sanity checks of the constraints (`check_setup -verbose`) to "
+        "`reports/check_setup.rpt`.",
+        json_schema_extra=tier("advanced"),
     )
 
 

@@ -845,6 +845,10 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     "set_pdnsim_net_voltage",
     "analyze_power_grid",
     "report_cell_usage",
+    "set_clock_latency",
+    "report_checks",
+    "report_clock_skew",
+    "report_power",
     # images (OpenROAD with a graphical interface)
     "ord::openroad_gui_compiled",
     "ord::dbu_to_microns",

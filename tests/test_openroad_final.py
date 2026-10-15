@@ -879,7 +879,12 @@ def test_the_reports_and_the_working_files_have_fixed_names():
         "maze": "reports/maze.log",
         "guide_coverage": "reports/guide_coverage.csv",
         "antennas": "reports/antennas.rpt",
+        "timing": "reports/timing.rpt",
+        "clock_skew": "reports/clock_skew.rpt",
+        "power": "reports/power.rpt",
+        "check_setup": "reports/check_setup.rpt",
     }
+    assert Openroad.route_reports == ("drc", "maze", "guide_coverage", "antennas")
     assert Openroad.metrics_files == ("metrics_route.json", "metrics_final.json")
     assert Openroad.working_files == {"odb": "route.odb", "sdc": "route.sdc"}
     for name in (*Openroad.reports.values(), *Openroad.working_files.values()):
@@ -1165,12 +1170,14 @@ def test_the_defaults_write_the_outputs_and_extract_the_parasitics_as_openroad_f
         "extract_parasitics",
         'write_spef "@RUN@/final.spef"',
         'read_spef "@RUN@/final.spef"',
+        'write_sdf -no_timestamp "@RUN@/final.sdf"',
+        'write_abstract_lef -bloat_occupied_layers "@RUN@/final.lef"',
     ]
 
 
 def test_a_platform_without_rules_estimates_the_parasitics_from_the_route(tmp_path):
     found = outputs_body(tmp_path, rules=False)
-    assert found[-1] == "estimate_parasitics -global_routing"
+    assert "estimate_parasitics -global_routing" in found
     assert not [line for line in found if line.split()[0] in ("write_spef", "read_spef")]
     assert not words(found, "extract_parasitics")
     assert not words(found, "set_extraction_rules_file")
@@ -1178,7 +1185,7 @@ def test_a_platform_without_rules_estimates_the_parasitics_from_the_route(tmp_pa
 
 def test_the_estimate_can_be_chosen_on_a_platform_that_has_rules(tmp_path):
     found = outputs_body(tmp_path, {"extraction": {"method": "estimate"}})
-    assert found[-1] == "estimate_parasitics -global_routing"
+    assert "estimate_parasitics -global_routing" in found
     assert "extract_parasitics" not in found
 
 
@@ -1190,8 +1197,10 @@ def test_the_outputs_of_the_second_process_are_the_declared_files_of_the_run_dir
     assert flow.outputs.sdc == run / "final.sdc"
     assert flow.outputs.def_file == run / "final.def"
     assert flow.outputs.netlist == run / "final.v"
+    assert flow.outputs.sdf == run / "final.sdf"
+    assert flow.outputs.abstract_lef == run / "final.lef"
     assert flow.outputs.spef == run / "final.spef"
-    assert flow.outputs.gds is None
+    assert (flow.outputs.gds, flow.outputs.cdl, flow.outputs.timing_model) == (None, None, None)
 
 
 def test_no_parasitics_file_is_declared_when_the_extraction_is_an_estimate(tmp_path):
@@ -1258,10 +1267,15 @@ def test_the_defaults_run_the_commands_of_the_second_process_in_order(tmp_path):
         "extract_parasitics",
         "write_spef",
         "read_spef",
+        "write_sdf",
+        "write_abstract_lef",
         "set_pdnsim_net_voltage",
         "analyze_power_grid",
         "set_pdnsim_net_voltage",
         "analyze_power_grid",
+        "report_checks",
+        "report_clock_skew",
+        "report_power",
         "report_cell_usage",
         "report_tns_metric",
         "report_tns_metric",
@@ -1284,12 +1298,23 @@ def test_the_second_process_sets_the_stage_of_the_metrics_to_finish(tmp_path):
 # ------------------------------------------------------------------------------ the report
 
 
+#: The text reports that the final process writes by default, in order.
+TEXT_REPORTS = [
+    'report_checks -path_delay min_max -group_path_count "1" -format "full_clock_expanded" '
+    '-fields [list "slew" "capacitance" "input_pins" "net" "fanout"] -unconstrained '
+    '> "reports/timing.rpt"',
+    'report_clock_skew > "reports/clock_skew.rpt"',
+    'report_power > "reports/power.rpt"',
+]
+
+
 def test_the_report_analyzes_each_supply_net_then_reports_the_cells_and_the_metrics(tmp_path):
     assert report_body(tmp_path) == [
         'set_pdnsim_net_voltage -net "VDD" -voltage 1.1',
         'analyze_power_grid -net "VDD" -error_file "reports/irdrop_1.rpt"',
         'set_pdnsim_net_voltage -net "VSS" -voltage 0.0',
         'analyze_power_grid -net "VSS" -error_file "reports/irdrop_2.rpt"',
+        *TEXT_REPORTS,
         "report_cell_usage",
         "xeda_metrics 1 1",
     ]
@@ -1297,6 +1322,7 @@ def test_the_report_analyzes_each_supply_net_then_reports_the_cells_and_the_metr
 
 def test_the_analysis_of_the_ir_drop_can_be_switched_off(tmp_path):
     assert report_body(tmp_path, {"ir_drop": {"enabled": False}}) == [
+        *TEXT_REPORTS,
         "report_cell_usage",
         "xeda_metrics 1 1",
     ]
@@ -1305,6 +1331,7 @@ def test_the_analysis_of_the_ir_drop_can_be_switched_off(tmp_path):
 def test_a_platform_that_gives_no_voltage_skips_the_analysis_and_says_so(tmp_path):
     assert report_body(tmp_path, supply=None) == [
         'puts "xeda: no supply net has a voltage; IR drop analysis skipped"',
+        *TEXT_REPORTS,
         "report_cell_usage",
         "xeda_metrics 1 1",
     ]
@@ -1448,10 +1475,15 @@ def test_the_second_process_makes_every_file_it_writes_ready_first(tmp_path, mon
             "final.sdc",
             "final.def",
             "final.v",
+            "final.sdf",
+            "final.lef",
             "final.spef",
             "counter.totCap",
             "reports/irdrop_1.rpt",
             "reports/irdrop_2.rpt",
+            "reports/timing.rpt",
+            "reports/clock_skew.rpt",
+            "reports/power.rpt",
             "openroad-failed.odb",
         ]
     )
@@ -3165,3 +3197,197 @@ def test_a_value_outside_the_range_of_openrcx_is_refused(tmp_path, leaf, value):
 def test_a_factor_of_the_scale_is_positive(tmp_path, leaf, value):
     with pytest.raises(Exception):
         Openroad.Settings.from_input({"extraction": {"scale": {leaf: value}}}, design_root=tmp_path)
+
+
+# ============================================================================== more outputs
+
+
+def test_the_delays_and_the_abstract_view_come_after_the_parasitics(tmp_path):
+    found = outputs_body(tmp_path)
+    order = [line.split()[0] for line in found]
+    assert order.index("read_spef") < order.index("write_sdf") < order.index("write_abstract_lef")
+    estimated = [line.split()[0] for line in outputs_body(tmp_path / "e", rules=False)]
+    assert estimated.index("estimate_parasitics") < estimated.index("write_sdf")
+
+
+def test_the_sdf_has_no_date_and_the_abstract_view_bloats_the_layers_it_occupies(tmp_path):
+    found = outputs_body(tmp_path)
+    assert 'write_sdf -no_timestamp "@RUN@/final.sdf"' in found
+    assert 'write_abstract_lef -bloat_occupied_layers "@RUN@/final.lef"' in found
+
+
+def test_the_netlist_has_no_power_pins_unless_asked(tmp_path):
+    plain = outputs_body(tmp_path)
+    assert 'write_verilog "@RUN@/final.v" -remove_cells [xeda_physical_only_masters]' in plain
+    found = outputs_body(tmp_path / "pins", {"netlist_power_pins": True})
+    assert (
+        'write_verilog "@RUN@/final.v" -include_pwr_gnd -remove_cells [xeda_physical_only_masters]'
+        in found
+    )
+
+
+def test_the_files_of_the_platform_make_the_circuit_description(tmp_path):
+    flow = final_flow(tmp_path)
+    cdl = flow.platform_model.files["liberty"][0].with_name("tiny.cdl")
+    cdl.write_text("* cdl\n")
+    flow.platform_model = flow.platform_model.model_copy(
+        update={"files": {**flow.platform_model.files, "cdl": [cdl]}}
+    )
+    flow.set_final_outputs()
+    assert flow.outputs.cdl == Path(flow.run_path) / "final.cdl"
+    script = tokens(tmp_path, render_driver(flow, "openroad_final"))
+    assert 'write_cdl -masters [list "@STORE@/tiny/tiny.cdl"] "@RUN@/final.cdl"' in [
+        tokens(tmp_path, line) for line in lines(script)
+    ]
+
+
+def test_a_platform_without_cdl_files_writes_no_circuit_description(tmp_path):
+    flow = final_flow(tmp_path)
+    flow.set_final_outputs()
+    assert flow.outputs.cdl is None
+    assert "write_cdl" not in render_final(flow)
+
+
+def test_the_timing_model_comes_last_with_the_source_latency_at_zero(tmp_path):
+    found = outputs_body(tmp_path, {"write_timing_model": True})
+    assert found[-2:] == [
+        "set_clock_latency -source 0 [all_clocks]",
+        'write_timing_model "@RUN@/final.lib"',
+    ]
+    assert "write_timing_model" not in " ".join(outputs_body(tmp_path / "default"))
+    flow = final_flow(tmp_path / "flow", {"write_timing_model": True})
+    flow.set_final_outputs()
+    assert flow.outputs.timing_model == Path(flow.run_path) / "final.lib"
+
+
+def test_the_timing_model_is_an_output_only_with_its_switch():
+    from xeda.flow.io import declared_outputs
+
+    outputs = declared_outputs(Openroad)
+    assert outputs["timing_model"].enabled_by == "write_timing_model"
+    assert outputs["timing_model"].types == (SourceType.Liberty,)
+    assert (outputs["sdf"].types, outputs["sdf"].enabled_by) == ((SourceType.Sdf,), None)
+    assert (outputs["abstract_lef"].types, outputs["abstract_lef"].enabled_by) == (
+        (SourceType.Data,),
+        None,
+    )
+    assert (outputs["cdl"].types, outputs["cdl"].enabled_by) == ((SourceType.Cdl,), None)
+
+
+def test_the_new_outputs_are_made_ready_before_openroad_starts(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    flow = final_flow(tmp_path, {"write_timing_model": True})
+    in_run_directory(flow, monkeypatch)
+    ready = ready_files(flow, monkeypatch)
+    assert {"final.sdf", "final.lef", "final.lib"} <= set(ready)
+    assert "final.cdl" not in ready
+
+
+def test_the_files_the_new_outputs_name_are_written_under_the_fake(tmp_path, monkeypatch):
+    flow = run_both(tmp_path, monkeypatch, {"write_timing_model": True})
+    for name in ("final.sdf", "final.lef", "final.lib"):
+        assert (Path(flow.run_path) / name).is_file(), name
+
+
+# ============================================================================== the text reports
+
+
+def test_each_report_is_written_to_a_file_of_a_fixed_name(tmp_path):
+    found = report_body(tmp_path, {"reports": {"check_setup": True}})
+    assert 'check_setup -verbose > "reports/check_setup.rpt"' in found
+    assert found.index('report_power > "reports/power.rpt"') < found.index(
+        'check_setup -verbose > "reports/check_setup.rpt"'
+    )
+    assert found.index('check_setup -verbose > "reports/check_setup.rpt"') < found.index(
+        "report_cell_usage"
+    )
+
+
+def test_the_clock_skew_report_off_leaves_out_the_report_and_the_metrics_of_the_skew(tmp_path):
+    found = report_body(tmp_path, {"reports": {"clock_skew": False}})
+    assert 'report_clock_skew > "reports/clock_skew.rpt"' not in found
+    assert found[-1] == "xeda_metrics 1 0"
+    calls = run_final_script(final_flow(tmp_path / "run", {"reports": {"clock_skew": False}}))
+    assert "report_clock_skew_metric" not in [call[0] for call in calls]
+    assert "report_clock_skew" not in [call[0] for call in calls]
+
+
+def test_the_power_report_off_keeps_the_power_metric(tmp_path):
+    found = report_body(tmp_path, {"reports": {"power": False}})
+    assert not any(line.startswith("report_power") for line in found)
+    calls = run_final_script(final_flow(tmp_path / "run", {"reports": {"power": False}}))
+    assert "report_power_metric" in [call[0] for call in calls]
+
+
+def test_the_timing_report_follows_its_options(tmp_path):
+    found = report_body(
+        tmp_path,
+        {
+            "reports": {
+                "timing": {
+                    "paths": 5,
+                    "format": "summary",
+                    "fields": ["net", "fanout"],
+                    "unconstrained": False,
+                }
+            }
+        },
+    )
+    assert (
+        'report_checks -path_delay min_max -group_path_count "5" -format "summary" '
+        '-fields [list "net" "fanout"] > "reports/timing.rpt"'
+    ) in found
+
+
+def test_the_timing_report_off_writes_no_file(tmp_path):
+    found = report_body(tmp_path, {"reports": {"timing": {"enabled": False}}})
+    assert not any(line.startswith("report_checks") for line in found)
+    flow = final_flow(tmp_path / "flow", {"reports": {"timing": {"enabled": False}}})
+    assert "reports/timing.rpt" not in flow.final_report_files(flow.settings.reports)
+
+
+def test_the_reports_the_settings_switch_on_are_the_files_the_process_makes_ready(
+    tmp_path, monkeypatch
+):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    flow = final_flow(
+        tmp_path,
+        {"reports": {"clock_skew": False, "power": False, "check_setup": True}},
+    )
+    in_run_directory(flow, monkeypatch)
+    ready = ready_files(flow, monkeypatch)
+    assert {"reports/timing.rpt", "reports/check_setup.rpt"} <= set(ready)
+    assert not {"reports/clock_skew.rpt", "reports/power.rpt"} & set(ready)
+
+
+def test_the_first_process_makes_no_report_of_the_second_ready(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    flow = route_flow(tmp_path)
+    in_run_directory(flow, monkeypatch)
+    ready: list[str] = []
+    guard = flow._guard_write
+
+    def record(path):
+        ready.append(str(flow._relative_to_run(path)))
+        return guard(path)
+
+    monkeypatch.setattr(flow, "_guard_write", record)
+    flow.run_route()
+    assert not {"reports/timing.rpt", "reports/power.rpt"} & set(ready)
+
+
+@pytest.mark.parametrize(
+    "leaf, value",
+    [("paths", 0), ("format", "table"), ("fields", ["name"])],
+)
+def test_a_value_outside_the_timing_report_is_refused(tmp_path, leaf, value):
+    with pytest.raises(Exception):
+        Openroad.Settings.from_input({"reports": {"timing": {leaf: value}}}, design_root=tmp_path)
+
+
+def test_an_option_of_the_timing_report_is_refused_with_the_report_off(tmp_path):
+    message = refuse_settings(tmp_path, {"reports": {"timing": {"enabled": False, "paths": 3}}})
+    assert "`reports.timing.paths` has no effect while `reports.timing.enabled` is false" in message

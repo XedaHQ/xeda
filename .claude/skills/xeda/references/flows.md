@@ -327,7 +327,7 @@ Detail-route a globally routed design with OpenROAD, then write the final output
 
 Required settings: `platform`
 
-21 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
+24 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
 
 Group `detailed_route`: `detailed_route.end_iteration`; 17 more: `xeda list-settings openroad --tier expert --json`
 
@@ -338,6 +338,8 @@ Group `antenna`: no common settings; 5 more: `xeda list-settings openroad --tier
 Group `fill`: `fill.cells`; 3 more: `xeda list-settings openroad --tier expert --json`
 
 Group `extraction`: `extraction.method`; 15 more: `xeda list-settings openroad --tier expert --json`
+
+Group `reports`: `reports.power`; 7 more: `xeda list-settings openroad --tier expert --json`
 
 Group `ir_drop`: no common settings; 1 more: `xeda list-settings openroad --tier expert --json`
 

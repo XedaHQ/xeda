@@ -36,6 +36,7 @@ from .final_groups import (
     GdsGroup,
     IrDropGroup,
     NdrGroup,
+    ReportsGroup,
     ViaInPin,
 )
 from .groups import differing_leaves
@@ -99,6 +100,9 @@ class EffectiveFinal(EffectiveBase):
     #: The voltage of each supply net that the platform gives, in volts: the power nets, then the
     #: ground nets, each in the order of the platform.
     supply_voltages: tuple[tuple[str, float], ...]
+    #: The CDL files of the cells that the platform gives. With none, the flow writes no circuit
+    #: description.
+    cdl_masters: tuple[Path, ...]
 
     @property
     def supply_nets(self) -> tuple[str, ...]:
@@ -157,6 +161,7 @@ def effective(settings: "Openroad.Settings", model: PlatformModel) -> EffectiveF
             for nets in (supply.power_nets, supply.ground_nets)
             for net, volts in nets.items()
         ),
+        cdl_masters=tuple(model.files.get("cdl", [])),
     )
 
 
@@ -262,7 +267,14 @@ class Openroad(OpenroadStage):
         "maze": "reports/maze.log",
         "guide_coverage": "reports/guide_coverage.csv",
         "antennas": "reports/antennas.rpt",
+        "timing": "reports/timing.rpt",
+        "clock_skew": "reports/clock_skew.rpt",
+        "power": "reports/power.rpt",
+        "check_setup": "reports/check_setup.rpt",
     }
+    #: The reports of the first process, by key of `reports`. The second process writes the others
+    #: that the settings switch on.
+    route_reports: ClassVar[tuple[str, ...]] = ("drc", "maze", "guide_coverage", "antennas")
     #: The files that the first process writes for the process after it, by role: the database and
     #: its SDC file. They are no declared outputs; the flow writes its outputs at the end.
     working_files: ClassVar[Dict[str, str]] = {"odb": "route.odb", "sdc": "route.sdc"}
@@ -273,7 +285,13 @@ class Openroad(OpenroadStage):
         "sdc": "final.sdc",
         "def_file": "final.def",
         "netlist": "final.v",
+        "sdf": "final.sdf",
+        "abstract_lef": "final.lef",
     }
+    #: The files of the second process that exist only where a setting or the platform asks for
+    #: them, by output name: the circuit description (the platform has CDL files) and the timing
+    #: model (`write_timing_model`).
+    optional_files: ClassVar[Dict[str, str]] = {"cdl": "final.cdl", "timing_model": "final.lib"}
     #: The parasitics file that the second process writes when OpenRCX extracts them.
     spef_file: ClassVar[str] = "final.spef"
     #: The images of the third process, in the directory `images` of the run directory.
@@ -298,6 +316,20 @@ class Openroad(OpenroadStage):
             "directory. It needs an OpenROAD build that includes the GUI, and the Qt platform "
             "plugin `offscreen`. OpenROAD v2.0-26132-g6b305a712 on macOS has no such plugin and stops "
             "with GUI-0077.",
+            json_schema_extra=tier("advanced"),
+        )
+        netlist_power_pins: bool = Field(
+            False,
+            description="Write the power and ground pins in the netlist `netlist` "
+            "(`write_verilog -include_pwr_gnd`). A netlist for LVS needs them, and a simulation "
+            "does not.",
+            json_schema_extra=tier("advanced"),
+        )
+        write_timing_model: bool = Field(
+            False,
+            description="Write a Liberty timing model of the routed design as `timing_model` "
+            "(`write_timing_model`), for the timing analysis of a design that uses the block. "
+            "The command sets the source latency of the clocks to 0 first.",
             json_schema_extra=tier("advanced"),
         )
         fail_timing: bool = Field(
@@ -334,6 +366,10 @@ class Openroad(OpenroadStage):
         extraction: ExtractionGroup = Field(
             default_factory=ExtractionGroup,
             description="The extraction of the parasitics of the routed design.",
+        )
+        reports: ReportsGroup = Field(
+            default_factory=ReportsGroup,
+            description="The text reports of the final process.",
         )
         ir_drop: IrDropGroup = Field(
             default_factory=IrDropGroup,
@@ -378,6 +414,26 @@ class Openroad(OpenroadStage):
             SourceType.VerilogNetlist,
             description="The gate-level Verilog netlist of the routed design, without "
             "physical-only cells.",
+        )
+        sdf: Path = Out(
+            SourceType.Sdf,
+            description="The delays of the routed design in SDF format, from the final "
+            "parasitics.",
+        )
+        abstract_lef: Path = Out(
+            SourceType.Data,
+            description="The abstract LEF view of the routed design, with the layers that it "
+            "occupies bloated, for a design that uses the block.",
+        )
+        cdl: Path | None = Out(
+            SourceType.Cdl,
+            description="The circuit description of the routed design for LVS, written when the "
+            "platform gives the CDL files of its cells.",
+        )
+        timing_model: Path | None = Out(
+            SourceType.Liberty,
+            enabled_by="write_timing_model",
+            description="The Liberty timing model of the routed design.",
         )
         spef: Path | None = Out(
             SourceType.Spef,
@@ -462,8 +518,9 @@ class Openroad(OpenroadStage):
     def platform_roles(self) -> tuple[str, ...]:
         """The roles of the platform files that the flow opens: those of every OpenROAD flow, the
         rules file of OpenRCX when the extraction is `rcx` and no setting gives another rules
-        file, and the technology file of KLayout and the GDSII files with `write_gds`. It follows the settings and the residue file of the
-        platform, so a dry run, which builds no platform model, gets the same roles as a run."""
+        file, the CDL files of the platform, and the technology file of KLayout and the GDSII files
+        with `write_gds`. It follows the settings and the residue file of the platform, so a dry
+        run, which builds no platform model, gets the same roles as a run."""
         settings = self.settings
         assert isinstance(settings, self.Settings)
         residue = settings.residue()
@@ -473,7 +530,7 @@ class Openroad(OpenroadStage):
             has_rules=bool(residue.files.rcx_rules) or given_rules is not None,
             platform=residue.name,
         )
-        roles: tuple[str, ...] = PLATFORM_ROLES
+        roles: tuple[str, ...] = (*PLATFORM_ROLES, "cdl")
         if extraction == "rcx" and given_rules is None:
             roles = (*roles, "rcx_rules")
         if settings.write_gds:
@@ -527,7 +584,7 @@ class Openroad(OpenroadStage):
             "metrics_route.json",
             [
                 *self.working_files.values(),
-                *self.reports.values(),
+                *(self.reports[name] for name in self.route_reports),
                 *drc_iteration_reports(settings.detailed_route, self.reports["drc"]),
                 *snapshot_files(settings.detailed_route),
                 self.failed_odb,
@@ -535,18 +592,34 @@ class Openroad(OpenroadStage):
         )
 
     def set_final_outputs(self) -> None:
-        """Name the declared outputs: `final.odb`, `final.sdc`, `final.def` and `final.v`, which
-        the second process writes, `final.spef` when OpenRCX extracts the parasitics, and
-        `final.gds` with `write_gds`, which KLayout writes. All are files of the run directory.
-        `run_final()` calls it before it renders the driver."""
+        """Name the declared outputs: `final.odb`, `final.sdc`, `final.def`, `final.v`, `final.sdf`
+        and `final.lef`, which the second process writes, `final.spef` when OpenRCX extracts the
+        parasitics, `final.cdl` when the platform gives CDL files, `final.lib` with
+        `write_timing_model`, and `final.gds` with `write_gds`, which KLayout writes. All are
+        files of the run directory. `run_final()` calls it before it renders the driver."""
         run_path = Path(self.run_path)
         for name, file in self.final_files.items():
             setattr(self.outputs, name, run_path / file)
-        extracted = self.effective().extraction == "rcx"
+        values = self.effective()
+        extracted = values.extraction == "rcx"
         setattr(self.outputs, "spef", run_path / self.spef_file if extracted else None)
         settings = self.settings
         assert isinstance(settings, self.Settings)
         setattr(self.outputs, "gds", run_path / self.gds_file if settings.write_gds else None)
+        wanted = {"cdl": bool(values.cdl_masters), "timing_model": settings.write_timing_model}
+        for name, file in self.optional_files.items():
+            setattr(self.outputs, name, run_path / file if wanted[name] else None)
+
+    def final_report_files(self, reports: ReportsGroup) -> list[str]:
+        """Return the reports that the second process writes with these settings, in the order of
+        `reports`: the timing paths, the clock skew, the power and the check of the setup."""
+        wanted = {
+            "timing": reports.timing.enabled,
+            "clock_skew": reports.clock_skew,
+            "power": reports.power,
+            "check_setup": reports.check_setup,
+        }
+        return [self.reports[name] for name, on in wanted.items() if on]
 
     def run_final(self) -> None:
         """Run the second process: it reads `route.odb` and `route.sdc`, writes the final
@@ -559,9 +632,16 @@ class Openroad(OpenroadStage):
         directory, whether the process succeeded or not."""
         self.set_final_outputs()
         values = self.effective()
+        settings = self.settings
+        assert isinstance(settings, self.Settings)
         writes: list[str | Path] = [
-            *(getattr(self.outputs, name) for name in self.final_files),
+            *(
+                getattr(self.outputs, name)
+                for name in (*self.final_files, *self.optional_files)
+                if getattr(self.outputs, name) is not None
+            ),
             *values.ir_drop_reports,
+            *self.final_report_files(settings.reports),
         ]
         extracted = values.extraction == "rcx"
         top = self.design.rtl.top

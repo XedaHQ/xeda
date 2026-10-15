@@ -107,6 +107,10 @@ def test_the_last_flow_declares_its_files():
         "sdc": ((SourceType.OpenroadSdcRouted,), None),
         "def_file": ((SourceType.Def,), None),
         "netlist": ((SourceType.VerilogNetlist,), None),
+        "sdf": ((SourceType.Sdf,), None),
+        "abstract_lef": ((SourceType.Data,), None),
+        "cdl": ((SourceType.Cdl,), None),
+        "timing_model": ((SourceType.Liberty,), "write_timing_model"),
         "spef": ((SourceType.Spef,), None),
         "gds": ((SourceType.Gds,), "write_gds"),
     }

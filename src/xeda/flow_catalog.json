@@ -122,6 +122,10 @@
       "netlist": [
         "openroad_place"
       ],
+      "sdf": [],
+      "abstract_lef": [],
+      "cdl": [],
+      "timing_model": [],
       "spef": [],
       "gds": []
     }

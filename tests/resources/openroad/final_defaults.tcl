@@ -90,12 +90,17 @@ proc xeda_final_outputs {} {
     extract_parasitics
     write_spef "@RUN@/final.spef"
     read_spef "@RUN@/final.spef"
+    write_sdf -no_timestamp "@RUN@/final.sdf"
+    write_abstract_lef -bloat_occupied_layers "@RUN@/final.lef"
 }
 proc xeda_final_report {} {
     set_pdnsim_net_voltage -net "VDD" -voltage 1.1
     analyze_power_grid -net "VDD" -error_file "reports/irdrop_1.rpt"
     set_pdnsim_net_voltage -net "VSS" -voltage 0.0
     analyze_power_grid -net "VSS" -error_file "reports/irdrop_2.rpt"
+    report_checks -path_delay min_max -group_path_count "1" -format "full_clock_expanded" -fields [list "slew" "capacitance" "input_pins" "net" "fanout"] -unconstrained > "reports/timing.rpt"
+    report_clock_skew > "reports/clock_skew.rpt"
+    report_power > "reports/power.rpt"
     report_cell_usage
     xeda_metrics 1 1
 }

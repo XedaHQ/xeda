@@ -1,7 +1,10 @@
 {# The report of the final stage. The analysis of the IR drop comes first: for each supply net
    that has a voltage, it sets the voltage, then analyzes the grid of that net and writes a report
-   with a fixed, numbered name. The analysis only reports. The count of the cells by type follows,
-   so that the metrics of the design area, which come last, are the ones that stay in the file. #}
+   with a fixed, numbered name. The analysis only reports. The text reports follow, each to a file
+   of a fixed name and only when its setting asks for it. The count of the cells by type follows,
+   so that the metrics of the design area, which come last, are the ones that stay in the file.
+   The metrics ask for the clock skew only when the report of the skew is on. #}
+{% set rep = settings.reports %}
 proc xeda_final_report {} {
 {% if P.ir_drop %}
 {% for net, volts in P.supply_voltages %}
@@ -11,6 +14,18 @@ proc xeda_final_report {} {
     puts "xeda: no supply net has a voltage; IR drop analysis skipped"
 {% endfor %}
 {% endif %}
+{% if rep.timing.enabled %}
+    report_checks -path_delay min_max {{ render_flags(rep.timing) }} > {{ reports.timing|tcl_word }}
+{% endif %}
+{% if rep.clock_skew %}
+    report_clock_skew > {{ reports.clock_skew|tcl_word }}
+{% endif %}
+{% if rep.power %}
+    report_power > {{ reports.power|tcl_word }}
+{% endif %}
+{% if rep.check_setup %}
+    check_setup -verbose > {{ reports.check_setup|tcl_word }}
+{% endif %}
     report_cell_usage
-    xeda_metrics 1 1
+    xeda_metrics 1 {{ 1 if rep.clock_skew else 0 }}
 }

@@ -107,8 +107,8 @@ The keys are:
 ``files``
     The files of the platform by role, as paths relative to the directory of the platform in the
     store. The roles are ``liberty`` (a table: corner, then the files of that corner), ``tech_lef``,
-    ``cell_lef``, ``gds``, ``rcx_rules``, ``klayout_tech``, ``klayout_layer_props``, ``latch_map``,
-    ``clkgate_map`` and ``adder_map``. A role that holds one file is a string, and a role that
+    ``cell_lef``, ``gds``, ``rcx_rules``, ``cdl``, ``klayout_tech``, ``klayout_layer_props``,
+    ``latch_map``, ``clkgate_map`` and ``adder_map``. A role that holds one file is a string, and a role that
     holds several files is a list.
 
 ``values``
