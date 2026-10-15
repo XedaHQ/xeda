@@ -492,6 +492,17 @@ def test_the_exclude_list_refuses_a_variable_other_than_the_three(
     assert "config.tcl:1" in message and variable in message
 
 
+def test_the_exclude_list_refuses_a_variable_that_an_earlier_line_set(tmp_path: Path) -> None:
+    """Another key of the reader may be set, but the path expands the three variables only."""
+    config = (
+        "set ::env(PLACE_SITE) core\n"
+        'set ::env(DRC_EXCLUDE_CELL_LIST) "$::env(PDK_ROOT)/$::env(PDK)/$::env(PLACE_SITE).cells"\n'
+    )
+    directory, _, files = exclude_store(tmp_path, config=config, cells=None)
+    message = refusal(read_open_pdks_config, files, directory, "lib1")
+    assert "config.tcl:2" in message and "PLACE_SITE" in message
+
+
 def test_the_library_is_known_only_when_the_provider_gives_it(tmp_path: Path) -> None:
     directory, _, files = exclude_store(tmp_path)
     message = refusal(read_open_pdks_config, files, directory)

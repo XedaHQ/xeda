@@ -326,6 +326,10 @@ TCL_ALIASES = {
     **{f"FP_PDN_{key}": f"PDN_{key}" for key in PDN_KEYS},
 }
 
+#: The variables that a key with a path may read, and the keys that have a path.
+PDK_VARIABLES = frozenset(("PDK_ROOT", "PDK", "STD_CELL_LIBRARY"))
+PATH_KEYS = frozenset(("DRC_EXCLUDE_CELL_LIST",))
+
 #: The two keys that hold a table, which the IHP files fill with `dict set`.
 TCL_TABLES = ("LAYERS_RC", "VIAS_R")
 
@@ -468,7 +472,7 @@ class _TclReader:
             return
         if not rest:
             raise _Invalid(f"`set ::env({key})` has no value")
-        value = self.value(key, rest)
+        value = self.value(key, rest, PDK_VARIABLES if key in PATH_KEYS else None)
         self.env[key] = value
         main = TCL_ALIASES.get(key, key)
         try:
@@ -477,8 +481,9 @@ class _TclReader:
             raise _Invalid(f"`{key}` {error}") from None
         self.entries[main] = _Entry(path, number, key, converted)
 
-    def value(self, key: str, rest: str) -> str:
-        """Return the value that the text after `set ::env(KEY)` stands for."""
+    def value(self, key: str, rest: str, allowed: Optional[frozenset[str]] = None) -> str:
+        """Return the value that the text after `set ::env(KEY)` stands for. `allowed` limits the
+        variables that the value may read."""
         if rest.startswith('"'):
             end = 1
             while end < len(rest) and rest[end] != '"':
@@ -491,7 +496,7 @@ class _TclReader:
             if end == len(rest):
                 raise _Invalid(f"`{key}` has a value with no closing double quote")
             raw, tail = rest[1:end], rest[end + 1 :]
-            text = self.substitute(raw)
+            text = self.substitute(raw, allowed)
         elif rest.startswith("{"):
             end = rest.find("}")
             if end < 0:
@@ -511,16 +516,21 @@ class _TclReader:
             for char in '[]"{}\\':
                 if char in raw:
                     raise _Invalid(f"`{key}` has a `{char}` in a bare value")
-            text = self.substitute(raw)
+            text = self.substitute(raw, allowed)
         if not TCL_TAIL.fullmatch(tail):
             raise _Invalid(
                 f"`set ::env({key})` takes one value, but the line goes on: `{tail.strip()}`"
             )
         return text
 
-    def substitute(self, raw: str) -> str:
+    def substitute(self, raw: str, allowed: Optional[frozenset[str]] = None) -> str:
         def replace(found: "re.Match[str]") -> str:
             name = found.group(1) or found.group(2)
+            if allowed is not None and name not in allowed:
+                raise _Invalid(
+                    f"`$::env({name})` is not one of {', '.join(sorted(allowed))}: the path of "
+                    "a list expands only these variables"
+                )
             if name not in self.env:
                 raise _Invalid(
                     f"`$::env({name})` refers to a key that no earlier line or file of the keys "
