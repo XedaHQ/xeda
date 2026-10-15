@@ -72,6 +72,7 @@ FAKED = {
     "dc",
     "diamond_synth",
     "modelsim",
+    "openroad",
     "openroad_cts",
     "openroad_grt",
     "openroad_place",
@@ -119,6 +120,7 @@ SQRT_NETLIST_DESIGN = (
 DESIGNS = {
     "bsc": GCD_DESIGN,
     "bsc_sim": GCD_DESIGN,
+    "openroad": SQRT_NETLIST_DESIGN,
     "openroad_cts": SQRT_NETLIST_DESIGN,
     "openroad_grt": SQRT_NETLIST_DESIGN,
     "openroad_place": SQRT_NETLIST_DESIGN,
@@ -162,7 +164,7 @@ LOCATED = {
     "bsc_sim": {"vcd": "bsc_sim.vcd"},
 }
 #: The flows that read the values of OpenROAD from the platform
-OPENROAD_FLOWS = {"openroad_cts", "openroad_grt", "openroad_place"}
+OPENROAD_FLOWS = {"openroad", "openroad_cts", "openroad_grt", "openroad_place"}
 #: The flows the resolver refuses in the sweep's world, with what its refusal says: the sweep's
 #: testbench is cocotb's, and `vivado_postsynth_sim`, which `vivado_power` reads, cannot run it.
 UNPLANNABLE = {

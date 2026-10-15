@@ -6,16 +6,27 @@ templates read as `P`. It reads nothing else.
 """
 
 import logging
+import re
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
-from typing import ClassVar, Dict, Optional
+from typing import ClassVar, Dict, List, Optional
 
 from ...dataclass import Field, tier
 from ...design import SourceType
 from ...flow import Flow, In, Out, describe_results
-from ...flow.flow import FlowSettingsException
+from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import PlatformModel
-from .base import PLATFORM_ROLES, EffectiveBase, OpenroadStage, base_values, platform_time_unit
+from ...tool import NonZeroExitCode, Tool
+from ...utils import replacing_file
+from .base import (
+    PLATFORM_ROLES,
+    EffectiveBase,
+    OpenroadStage,
+    base_values,
+    failure_lines,
+    platform_time_unit,
+)
 from .final_groups import (
     DetailedRouteGroup,
     ExtractionGroup,
@@ -25,6 +36,7 @@ from .final_groups import (
     IrDropGroup,
     ViaInPin,
 )
+from .groups import differing_leaves
 from .metrics import MetricsError, final_results
 
 __all__ = [
@@ -36,6 +48,21 @@ __all__ = [
 ]
 
 log = logging.getLogger(__name__)
+
+#: The roles of the platform files that the merge of the layout reads: the technology file of
+#: KLayout, which names how it reads the DEF and the LEF files, and the GDSII files of the cells.
+GDS_ROLES = ("klayout_tech", "gds")
+#: The images that the image process saves, by file name in the directory `images`. Each name is
+#: fixed, since a name from a net or a clock would reach the file system from the design.
+IMAGE_NAMES = (
+    "final_all",
+    "final_routing",
+    "final_placement",
+    "final_clocks",
+    "final_resizer",
+    "final_congestion",
+    "final_worst_path",
+)
 
 
 @dataclass(frozen=True)
@@ -218,6 +245,12 @@ class Openroad(OpenroadStage):
     }
     #: The parasitics file that the second process writes when OpenRCX extracts them.
     spef_file: ClassVar[str] = "final.spef"
+    #: The images of the third process, in the directory `images` of the run directory.
+    image_files: ClassVar[tuple[str, ...]] = tuple(f"images/{name}.webp" for name in IMAGE_NAMES)
+    #: The GDSII file that KLayout writes with `write_gds`, and the technology file that the flow
+    #: writes for it, from the technology file of the platform.
+    gds_file: ClassVar[str] = "final.gds"
+    klayout_tech_file: ClassVar[str] = "klayout.lyt"
 
     class Settings(OpenroadStage.Settings):
         """The settings of the last flow."""
@@ -231,7 +264,9 @@ class Openroad(OpenroadStage):
         save_images: bool = Field(
             False,
             description="Save images of the routed design in the directory `images` of the run "
-            "directory. It needs an OpenROAD build that includes the GUI.",
+            "directory. It needs an OpenROAD build that includes the GUI, and the Qt platform "
+            "plugin `offscreen`. OpenROAD v2.0-26132-g6b305a712 on macOS has no such plugin and stops "
+            "with GUI-0077.",
             json_schema_extra=tier("advanced"),
         )
         fail_timing: bool = Field(
@@ -324,26 +359,50 @@ class Openroad(OpenroadStage):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse `extraction.method: rcx` on a platform that gives no OpenRCX rules. This reads
-        the residue files only."""
+        """Refuse what the groups cannot judge alone: `extraction.method: rcx` on a platform that
+        gives no OpenRCX rules, a setting of the layout file without `write_gds`, and `write_gds`
+        on a platform that gives no KLayout technology file or no GDSII files. This reads the
+        residue files only."""
         super().check_settings_supported(settings)
         if not isinstance(settings, cls.Settings):
             return
+        problems: List[tuple[Optional[str], Optional[str], Optional[str], Optional[str]]] = []
+        if not settings.write_gds:
+            for leaf in differing_leaves(settings.gds, "gds"):
+                problems.append(
+                    (
+                        leaf,
+                        f"`{leaf}` has no effect with `write_gds: false`: set `write_gds: true` "
+                        f"or delete `{leaf}`",
+                        None,
+                        "value_error",
+                    )
+                )
+        if problems:
+            raise FlowSettingsError(problems, cls.Settings)
         if settings.platform is None and settings.platform_file is None:
             return  # the missing platform is reported with the other required settings
+        residue = settings.residue()
+        if settings.write_gds:
+            missing = [role for role in GDS_ROLES if not getattr(residue.files, role)]
+            if missing:
+                raise FlowSettingsException(
+                    f"the platform {residue.name!r} gives no {' and no '.join(missing)}, which "
+                    "`write_gds` needs to merge the layout: add them to `files` in its residue "
+                    "file (`platform_file`), or set `write_gds: false`"
+                )
         resolve_extraction(
             settings.extraction.method,
-            has_rules=bool(settings.residue().files.rcx_rules),
-            platform=settings.residue().name,
+            has_rules=bool(residue.files.rcx_rules),
+            platform=residue.name,
         )
 
     @property
-    def platform_roles(self) -> tuple[str, ...]:  # type: ignore[override]
-        """The roles of the platform files that the flow opens: those of every OpenROAD flow, and
-        the rules file of OpenRCX when the extraction is `rcx`. It follows the settings and the
-        residue file of the platform, so a dry run, which builds no platform model, gets the same
-        roles as a run. (The base class holds the roles in a class variable; this flow computes
-        them.)"""
+    def platform_roles(self) -> tuple[str, ...]:
+        """The roles of the platform files that the flow opens: those of every OpenROAD flow, the
+        rules file of OpenRCX when the extraction is `rcx`, and the technology file of KLayout and
+        the GDSII files with `write_gds`. It follows the settings and the residue file of the
+        platform, so a dry run, which builds no platform model, gets the same roles as a run."""
         settings = self.settings
         assert isinstance(settings, self.Settings)
         residue = settings.residue()
@@ -352,15 +411,22 @@ class Openroad(OpenroadStage):
             has_rules=bool(residue.files.rcx_rules),
             platform=residue.name,
         )
-        return (*PLATFORM_ROLES, "rcx_rules") if extraction == "rcx" else PLATFORM_ROLES
+        roles: tuple[str, ...] = PLATFORM_ROLES
+        if extraction == "rcx":
+            roles = (*roles, "rcx_rules")
+        if settings.write_gds:
+            roles = (*roles, *GDS_ROLES)
+        return roles
 
     # --- the values of the templates ----------------------------------------------------------
 
     def add_template_helpers(self) -> None:
-        """Add the helpers of every OpenROAD flow, and `working_files`, the names of the files
-        that the first process writes for the second."""
+        """Add the helpers of every OpenROAD flow, `working_files`, the names of the files that
+        the first process writes for the second, and `image_files`, the names of the images."""
         super().add_template_helpers()
-        self.jinja_env.globals.update(working_files=dict(self.working_files))
+        self.jinja_env.globals.update(
+            working_files=dict(self.working_files), image_files=list(self.image_files)
+        )
 
     def effective(self) -> EffectiveFinal:
         """Return the values that the templates read as `P`. It runs after `prepare_inputs()`."""
@@ -391,14 +457,18 @@ class Openroad(OpenroadStage):
         )
 
     def set_final_outputs(self) -> None:
-        """Name the declared outputs that the second process writes: `final.odb`, `final.sdc`,
-        `final.def`, `final.v`, and `final.spef` when OpenRCX extracts the parasitics. All are
-        files of the run directory. `run_final()` calls it before it renders the driver."""
+        """Name the declared outputs: `final.odb`, `final.sdc`, `final.def` and `final.v`, which
+        the second process writes, `final.spef` when OpenRCX extracts the parasitics, and
+        `final.gds` with `write_gds`, which KLayout writes. All are files of the run directory.
+        `run_final()` calls it before it renders the driver."""
         run_path = Path(self.run_path)
         for name, file in self.final_files.items():
             setattr(self.outputs, name, run_path / file)
         extracted = self.effective().extraction == "rcx"
         setattr(self.outputs, "spef", run_path / self.spef_file if extracted else None)
+        settings = self.settings
+        assert isinstance(settings, self.Settings)
+        setattr(self.outputs, "gds", run_path / self.gds_file if settings.write_gds else None)
 
     def run_final(self) -> None:
         """Run the second process: it reads `route.odb` and `route.sdc`, writes the final
@@ -429,9 +499,119 @@ class Openroad(OpenroadStage):
                 self.run_directory.remove(totcap)
 
     def _run_processes(self) -> None:
-        """Run the first process, then the second. `run()` runs the flow with this method."""
+        """Run the first process, then the second."""
         self.run_route()
         self.run_final()
+
+    def run_images(self) -> None:
+        """Run the third process: it reads the final database and saves the images of the routed
+        design in the directory `images` of the run directory. The process gets the environment
+        variable `QT_QPA_PLATFORM=offscreen`, so that it needs no display, and the other processes
+        do not. It stops with an error when this OpenROAD has no graphical interface, and the
+        run fails then and leaves no trace."""
+        self.set_final_outputs()
+        self.run_openroad(
+            "openroad_images",
+            "metrics_images.json",
+            self.image_files,
+            env={"QT_QPA_PLATFORM": "offscreen"},
+        )
+
+    def klayout(self) -> Tool:
+        """Return the `klayout` tool of this flow."""
+        tool = getattr(self, "_klayout_tool", None)
+        if tool is None:
+            tool = self._klayout_tool = Tool("klayout", self, version_flag="-v")
+        return tool
+
+    def write_klayout_tech(self) -> Path:
+        """Write the technology file of KLayout into the run directory and return its path.
+
+        The file is the one of the platform with its list of LEF files replaced by the technology
+        LEF file and the LEF files of the cells, as absolute paths. KLayout reads the DEF file of
+        the routed design with these. Raise `FlowSettingsException` if the file of the platform
+        has no list of LEF files to replace."""
+        model = self.platform_model
+        assert model is not None, "prepare_inputs() builds the platform model"
+        template = model.files["klayout_tech"][0]
+        values = self.effective()
+        lefs = [*([values.tech_lef] if values.tech_lef is not None else []), *values.cell_lefs]
+        text, replaced = re.subn(
+            r"<lef-files>.*?</lef-files>",
+            lambda _: "".join(f"<lef-files>{lef}</lef-files>" for lef in lefs),
+            template.read_text(),
+        )
+        if not replaced:
+            raise FlowSettingsException(
+                f"the KLayout technology file {template} of the platform {model.name!r} has no "
+                "`<lef-files>` element, so KLayout cannot read the LEF files with the DEF file: "
+                "add the element to the file, or set `write_gds: false`"
+            )
+        path = self.run_directory.writable(self.klayout_tech_file)
+        with replacing_file(path) as handle:
+            handle.write(text)
+        return path
+
+    def run_gds(self) -> None:
+        """Merge the routed design with the GDSII files of the cells into the layout
+        `final.gds`, with KLayout and the script `data/def2stream.py`. The script reads the DEF
+        file `final.def` with the technology file that `write_klayout_tech()` wrote. It fails
+        when a cell of the design has no GDSII cell or a cell has no parent. Raise
+        `ExecutableNotFound` when KLayout is not installed."""
+        settings = self.settings
+        assert isinstance(settings, self.Settings)
+        self.set_final_outputs()
+        model = self.platform_model
+        assert model is not None, "prepare_inputs() builds the platform model"
+        top = self.design.rtl.top
+        assert top, "the design names its top module"
+        seal_ring = settings.gds.seal_ring
+        technology = self.write_klayout_tech()
+        output = self._guard_write(self.gds_file)
+        log_file = self.run_directory.writable("klayout.log")
+        script = Path(str(resources.files("xeda.flows.openroad").joinpath("data", "def2stream.py")))
+        names = {
+            "design_name": top,
+            "in_def": getattr(self.outputs, "def_file"),
+            "in_files": "\n".join(str(path) for path in model.files["gds"]),
+            "seal_file": "" if seal_ring is None else seal_ring,
+            "out_file": output,
+            "tech_file": technology,
+            "layer_map": "",
+            "allow_empty": "",
+        }
+        defines: List[str] = []
+        for name, value in names.items():
+            defines += ["-rd", f"{name}={value}"]
+        try:
+            self.klayout().run(
+                "-zz",
+                *defines,
+                "-r",
+                script,
+                tee=log_file,
+                merge_stderr=True,
+            )
+        except NonZeroExitCode as error:
+            report = self.report_file(log_file)
+            found = failure_lines(report.read_text(errors="replace")) if report else []
+            message = f"{self.name}: KLayout stopped while it merged the layout"
+            raise NonZeroExitCode(
+                error.command_args,
+                error.exit_code,
+                f"{message}; see klayout.log" + (": " + " | ".join(found) if found else ""),
+            ) from None
+
+    def run(self) -> None:
+        """Run the processes of the flow: the detailed route and the final outputs, then the
+        images with `save_images`, then the merge of the layout with `write_gds`."""
+        settings = self.settings
+        assert isinstance(settings, self.Settings)
+        self._run_processes()
+        if settings.save_images:
+            self.run_images()
+        if settings.write_gds:
+            self.run_gds()
 
     # --- the results --------------------------------------------------------------------------
 

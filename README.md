@@ -198,6 +198,10 @@ generated scripts, reports and the effective settings are in the run root, `xeda
     It writes the database and its SDC file, with propagated clocks
   - `openroad_grt`: pin access, global route, repair of the design, the timing and the antenna
     violations. It writes the database, its SDC file and the route guides
+  - `openroad`: detailed route, antenna repair and filler cells of the globally routed database,
+    then the final database, SDC file, DEF file, netlist and parasitics, with the timing, power
+    and IR drop report. It checks timing, design rule violations and antenna violations. It can
+    also merge the GDSII layout with KLayout and save images of the design
 - Synopsys Design Compiler
   - `dc`: ASIC logic synthesis
 - Synopsys VCS simulator

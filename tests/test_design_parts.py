@@ -47,9 +47,9 @@ RTL, BOTH = frozenset({"rtl"}), frozenset({"rtl", "tb"})
 
 #: The values every flow takes: the flows that read no testbench, and those that do.
 RTL_FLOWS = (
-    "dc diamond_synth fpga_pack ghdl_synth ise_synth nextpnr openfpgaloader openroad_cts "
-    "openroad_grt openroad_place quartus vivado_alt_synth vivado_impl vivado_power "
-    "vivado_synth yosys yosys_fpga"
+    "dc diamond_synth fpga_pack ghdl_synth ise_synth nextpnr openfpgaloader openroad "
+    "openroad_cts openroad_grt openroad_place quartus vivado_alt_synth vivado_impl "
+    "vivado_power vivado_synth yosys yosys_fpga"
 ).split()
 RTL_AND_TB_FLOWS = (
     "bsc bsc_sim ghdl_sim modelsim nvc vcs verilator vivado_postsynth_sim vivado_project "
@@ -735,6 +735,21 @@ def tb_reads(cls: type[Flow]) -> list[str]:
         ("yosys", {"yosys_synth.ys", "read_files.ys", "post_rtl.ys", "write_netlist.ys"}),
         ("yosys_fpga", {"read_files.ys"}),
         ("dc", {"dc_script.tcl", "constraints.sdc"}),
+        (
+            "openroad",
+            {
+                "drivers/openroad_route.tcl.j2",
+                "drivers/openroad_final.tcl.j2",
+                "drivers/openroad_images.tcl.j2",
+                "restart.tcl.j2",
+                "procs.tcl.j2",
+                "stages/detail_route.tcl.j2",
+                "stages/fillcell.tcl.j2",
+                "stages/final_outputs.tcl.j2",
+                "stages/final_report.tcl.j2",
+                "stages/images.tcl.j2",
+            },
+        ),
         (
             "openroad_cts",
             {

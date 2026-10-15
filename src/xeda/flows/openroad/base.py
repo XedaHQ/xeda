@@ -270,9 +270,6 @@ class OpenroadStage(AsicPlatformFlow, Flow):
         "file, give it as `flows.{flow}.platform`",
     }
 
-    #: The roles of the platform files that the flow opens. `prepare_inputs()` registers these
-    #: files and `locate_prepared_inputs()` returns them, in this order.
-    platform_roles: ClassVar[tuple[str, ...]] = PLATFORM_ROLES
     #: The names of the metrics files that the flow's processes write, in the run directory.
     metrics_files: ClassVar[tuple[str, ...]] = ()
     #: The report files that the flow's scripts write, by key: a fixed name under `reports/`.
@@ -333,6 +330,15 @@ class OpenroadStage(AsicPlatformFlow, Flow):
             )
 
     # --- the files of the platform ------------------------------------------------------------
+
+    @property
+    def platform_roles(self) -> tuple[str, ...]:
+        """The roles of the platform files that the flow opens. `prepare_inputs()` registers
+        these files and `locate_prepared_inputs()` returns them, in this order. A flow that opens
+        more files for some settings overrides the property. It reads only the settings and the
+        residue file of the platform, so a dry run, which builds no platform model, gets the same
+        roles as a run."""
+        return PLATFORM_ROLES
 
     def prepare_inputs(self) -> None:
         """Find the files of the platform and build the platform model."""

@@ -6,11 +6,10 @@ verdicts come from the metrics of both.
 
 The tests render the driver script of each process for the `tiny` platform and compare it with a
 golden file. They run the rendered script under the fake OpenROAD, so a command that the OpenROAD
-command list does not know fails the test. The flow has no `run()` yet, so it is not registered:
-the tests run it through a class that calls the processes.
+command list does not know fails the test.
 """
 
-import functools
+import contextlib
 import json
 import os
 import re
@@ -22,16 +21,17 @@ import yaml
 
 from xeda import Design
 from xeda.design import SourceType
-from xeda.flow import FlowSettingsException, registered_flows
+from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
+from xeda import tool as tool_module
 from xeda.flows.openroad import Openroad, OpenroadStage, base, final
 from xeda.flows.openroad.final import EffectiveFinal, effective
 from xeda.flows.openroad.final_groups import ViaInPin
 from xeda.platforms.model import CellPort
 from xeda.run_dir import RunDirectory
 from xeda.tool import NonZeroExitCode, Tool
+from xeda.utils import ExecutableNotFound
 
-from .flow_registry import preserved_flow_registry
 from .openroad_utils import (
     openroad_design,
     openroad_settings,
@@ -51,35 +51,39 @@ TEMPLATES = Path(base.__file__).parent / "templates"
 # ------------------------------------------------------------------------------ helpers
 
 
-@functools.cache
-def runnable_openroad() -> type[Openroad]:
-    """Return a class of the flow that runs both processes, under the name `openroad`.
-
-    The flow has no `run()` yet, so Xeda keeps it out of the registry and no test can build it.
-    The class registers while it is made, and the registry is as it was after."""
-    with preserved_flow_registry():
-
-        class Openroad(final.Openroad):  # type: ignore[no-redef]
-            """The processes of the last flow."""
-
-            def run(self) -> None:
-                self._run_processes()
-
-    return Openroad
-
-
 RCX_RULES = "tiny.rcx"
+#: The GDSII file and the KLayout technology file of a platform that has the layout files. The
+#: technology file lists one LEF file, as the file of a platform does.
+GDS_FILE = "tiny.gds"
+KLAYOUT_TECH = "tiny.lyt"
+KLAYOUT_TECH_TEXT = (
+    '<?xml version="1.0" encoding="utf-8"?>\n'
+    "<technology>\n"
+    " <name>tiny</name>\n"
+    " <reader-options>\n"
+    "  <lefdef>\n"
+    "   <lef-files>./tiny.lef</lef-files>\n"
+    "  </lefdef>\n"
+    " </reader-options>\n"
+    "</technology>\n"
+)
 #: The voltages of the supply nets of a platform that gives them: the power net and the ground net.
 SUPPLY = {"power_nets": {"VDD": 1.1}, "ground_nets": {"VSS": 0.0}}
 
 
-def variant_residue(tmp_path: Path, *, rules: bool, supply: dict[str, Any] | None) -> Path:
+def variant_residue(
+    tmp_path: Path, *, rules: bool, supply: dict[str, Any] | None, layout: bool = False
+) -> Path:
     """Return a copy of the residue file of the `tiny` platform that names the OpenRCX rules file
-    `tiny.rcx` (with `rules`) and gives the voltages of the supply nets (`supply`, the leaves of
-    `supply` of the platform model)."""
+    `tiny.rcx` (with `rules`), names the GDSII file and the KLayout technology file (with
+    `layout`), and gives the voltages of the supply nets (`supply`, the leaves of `supply` of the
+    platform model)."""
     data = yaml.safe_load(TINY_OPENROAD_RESIDUE.read_text())
     if rules:
         data["files"]["rcx_rules"] = RCX_RULES
+    if layout:
+        data["files"]["gds"] = [GDS_FILE]
+        data["files"]["klayout_tech"] = KLAYOUT_TECH
     if supply:
         data["values"]["supply"] = supply
     path = tmp_path / "residue" / "tiny_openroad.yaml"
@@ -96,6 +100,7 @@ def route_flow(
     launched: bool = False,
     rules: bool = False,
     supply: dict[str, Any] | None = None,
+    layout: bool = False,
 ) -> Openroad:
     """Return the flow on the `tiny` platform, ready to render: its run directory is
     `tmp_path/work`, its database and SDC file are in `tmp_path/inputs`, and `prepare_inputs()`
@@ -104,14 +109,18 @@ def route_flow(
     `settings` are nested settings (a group is a dictionary). `model` replaces fields of the
     platform model after `prepare_inputs()`. A flow built without a launcher deletes nothing in
     its run directory; with `launched`, the run directory is one that a launcher chose, under
-    `tmp_path/xeda_run`. With `rules`, the platform names an OpenRCX rules file, and with `supply`
-    it gives the voltages of its supply nets (`variant_residue`)."""
+    `tmp_path/xeda_run`. With `rules`, the platform names an OpenRCX rules file, with `layout`
+    it names the GDSII and KLayout files, and with `supply` it gives the voltages of its supply
+    nets (`variant_residue`)."""
     store = tiny_store(tmp_path, "store")
     residue = TINY_OPENROAD_RESIDUE
-    if rules or supply:
-        residue = variant_residue(tmp_path, rules=rules, supply=supply)
+    if rules or supply or layout:
+        residue = variant_residue(tmp_path, rules=rules, supply=supply, layout=layout)
         if rules:
             (store / "tiny" / RCX_RULES).write_text("rules\n")
+        if layout:
+            (store / "tiny" / GDS_FILE).write_bytes(b"gds\n")
+            (store / "tiny" / KLAYOUT_TECH).write_text(KLAYOUT_TECH_TEXT)
     design = Design.from_file(openroad_design(tmp_path / "design"))
     given = {**tiny_settings(store, residue=residue), **(settings or {})}
     run_path = tmp_path / "work"
@@ -121,9 +130,8 @@ def route_flow(
         run_path = run_root / "counter" / "openroad"
         run_directory = RunDirectory.claimed(run_path, run_root)
     run_path.mkdir(parents=True, exist_ok=True)
-    cls = runnable_openroad()
-    flow = cls(
-        cls.Settings.from_input(given, design_root=design.design_root, runner_cwd=tmp_path),
+    flow = Openroad(
+        Openroad.Settings.from_input(given, design_root=design.design_root, runner_cwd=tmp_path),
         design,
         run_path,
         run_directory=run_directory,
@@ -630,12 +638,20 @@ def in_run_directory(flow: Openroad, monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the tool of `flow` in the run directory of the flow. The launcher changes into that
     directory before it runs a flow; a test leaves its own directory as it is."""
     execute = Tool.execute
+    replacing = tool_module.replacing_file
 
     def execute_in_run_directory(self: Tool, *args: Any, **kwargs: Any) -> Any:
         kwargs.setdefault("cwd", flow.run_path)
         return execute(self, *args, **kwargs)
 
+    @contextlib.contextmanager
+    def replacing_in_run_directory(path: Any, *args: Any, **kwargs: Any) -> Any:
+        """`Tool.run` writes `env.sh` beside the process, which is the run directory."""
+        with replacing(Path(flow.run_path) / path, *args, **kwargs) as handle:
+            yield handle
+
     monkeypatch.setattr(Tool, "execute", execute_in_run_directory)
+    monkeypatch.setattr(tool_module, "replacing_file", replacing_in_run_directory)
 
 
 def run_route(
@@ -862,11 +878,6 @@ def test_the_reports_and_the_working_files_have_fixed_names():
     assert Openroad.working_files == {"odb": "route.odb", "sdc": "route.sdc"}
     for name in (*Openroad.reports.values(), *Openroad.working_files.values()):
         assert not Path(name).is_absolute() and ".." not in Path(name).parts
-
-
-def test_the_flow_is_not_registered_until_it_can_run_every_process():
-    assert "openroad" not in registered_flows and "Openroad" not in registered_flows
-    assert issubclass(Openroad, OpenroadStage)
 
 
 def test_the_prepared_inputs_are_the_files_that_the_dry_run_locates(tmp_path):
@@ -1980,3 +1991,495 @@ def test_the_refusal_of_rcx_comes_from_the_class_without_a_platform_model(tmp_pa
     )
     with pytest.raises(FlowSettingsException, match="extraction.method"):
         Openroad.check_settings_supported(settings)
+
+
+# ============================================================================== the images
+#
+# The third process runs only with `save_images`. It restarts from the final database, loads the
+# parasitics of the final report, and saves the images in the graphical interface.
+
+GOLDEN_IMAGES = Path(__file__).parent / "resources" / "openroad" / "images_defaults.tcl"
+IMAGES = [
+    "images/final_all.webp",
+    "images/final_routing.webp",
+    "images/final_placement.webp",
+    "images/final_clocks.webp",
+    "images/final_resizer.webp",
+    "images/final_congestion.webp",
+    "images/final_worst_path.webp",
+]
+
+
+def images_flow(tmp_path: Path, settings: dict[str, Any] | None = None, **kwargs: Any) -> Openroad:
+    return final_flow(tmp_path, {"save_images": True, **(settings or {})}, **kwargs)
+
+
+def render_images(flow: Openroad) -> str:
+    flow.set_final_outputs()
+    return render_driver(flow, "openroad_images")
+
+
+def run_images_script(flow: Openroad) -> list[list[str]]:
+    """Run the image driver under the fake OpenROAD; the files it reads exist."""
+    require_tclsh()
+    text = render_images(flow)
+    run_dir = Path(flow.run_path)
+    for name in ("final.odb", "final.sdc", "final.spef"):
+        (run_dir / name).write_text(f"{name}\n")
+    (run_dir / "images").mkdir(exist_ok=True)
+    done = run_fake_openroad(run_dir, text, driver="openroad_images")
+    assert done.returncode == 0, done.stderr + done.stdout
+    return fake_calls(run_dir)
+
+
+def test_the_image_driver_renders_the_golden_script(tmp_path):
+    script = tokens(tmp_path, render_images(images_flow(tmp_path)))
+    assert script == GOLDEN_IMAGES.read_text()
+
+
+def test_the_image_driver_stops_first_when_this_openroad_has_no_gui(tmp_path):
+    """The check comes before anything is read, so a build without the interface fails at once."""
+    found = lines(render_images(images_flow(tmp_path)))
+    assert found[:3] == [
+        "if {![ord::openroad_gui_compiled]} {",
+        'error "this OpenROAD has no GUI; set save_images: false"',
+        "}",
+    ]
+    assert found[3].startswith("read_liberty ")
+
+
+def test_the_image_driver_reads_the_final_database_and_the_parasitics_of_the_report(tmp_path):
+    found = [tokens(tmp_path, line) for line in lines(render_images(images_flow(tmp_path)))]
+    assert 'read_db "@RUN@/final.odb"' in found
+    assert 'read_sdc "@RUN@/final.sdc"' in found
+    assert 'read_spef "@RUN@/final.spef"' in found
+    assert "estimate_parasitics -global_routing" not in found
+    estimated = lines(render_images(images_flow(tmp_path / "e", rules=False)))
+    assert "estimate_parasitics -global_routing" in estimated
+    assert not any(line.startswith("read_spef") for line in estimated)
+
+
+def test_the_images_are_saved_in_the_interface_at_fixed_names(tmp_path):
+    calls = run_images_script(images_flow(tmp_path))
+    assert [call for call in calls if call[0] == "gui::show"] == [
+        ["gui::show", "xeda_images", "false"]
+    ]
+    saved = [call[-1] for call in calls if call[0] == "save_image"]
+    assert saved == IMAGES
+    order = [call[0] for call in calls]
+    assert order.index("gui::show") < order.index("save_image")
+    assert (
+        order.count("gui::save_display_controls")
+        == order.count("gui::restore_display_controls")
+        == 1
+    )
+
+
+def test_an_image_name_is_fixed_and_no_name_of_the_design_is_in_it(tmp_path):
+    assert list(Openroad.image_files) == IMAGES
+    for name in IMAGES:
+        assert re.fullmatch(r"images/[a-z_]+\.webp", name)
+
+
+def test_the_image_process_runs_with_the_offscreen_platform_and_the_others_do_not(
+    tmp_path, monkeypatch
+):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_OPENROAD_TOP", "counter")
+    flow = images_flow(tmp_path)
+    in_run_directory(flow, monkeypatch)
+    started: list[tuple[str, Any]] = []
+    execute = Tool.execute
+
+    def record(self: Tool, executable: str, *args: Any, **kwargs: Any) -> Any:
+        if executable == "openroad" and str(args[-1]).endswith(".tcl"):
+            started.append((Path(args[-1]).name, kwargs.get("env")))
+        return execute(self, executable, *args, **kwargs)
+
+    monkeypatch.setattr(Tool, "execute", record)
+    flow.run()
+    assert started == [
+        ("openroad_route.tcl", None),
+        ("openroad_final.tcl", None),
+        ("openroad_images.tcl", {"QT_QPA_PLATFORM": "offscreen"}),
+    ]
+    run_dir = Path(flow.run_path)
+    assert (run_dir / "env.sh").read_text() == 'export QT_QPA_PLATFORM="offscreen"'
+    for name in IMAGES:
+        assert (run_dir / name).is_file(), name
+    assert (run_dir / "openroad_images.log").is_file()
+    assert not (run_dir / "openroad-failed.odb").exists()
+
+
+def test_the_image_process_makes_every_file_it_writes_ready_first(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    flow = images_flow(tmp_path)
+    in_run_directory(flow, monkeypatch)
+    ready: list[str] = []
+    guard = flow._guard_write
+
+    def record(path):
+        ready.append(str(flow._relative_to_run(path)))
+        return guard(path)
+
+    monkeypatch.setattr(flow, "_guard_write", record)
+    run_dir = Path(flow.run_path)
+    flow.set_final_outputs()
+    for name in ("final.odb", "final.sdc", "final.spef"):
+        (run_dir / name).write_text(f"{name}\n")
+    flow.run_images()
+    assert sorted(ready) == sorted(["metrics_images.json", *IMAGES])
+    assert (run_dir / "images").is_dir()
+
+
+def test_a_run_without_save_images_starts_no_third_process(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_OPENROAD_TOP", "counter")
+    flow = final_flow(tmp_path)
+    in_run_directory(flow, monkeypatch)
+    flow.run()
+    run_dir = Path(flow.run_path)
+    assert (run_dir / "final.odb").is_file()
+    assert not (run_dir / "openroad_images.tcl").exists()
+    assert not (run_dir / "images").exists()
+    assert not (run_dir / "env.sh").exists()
+
+
+def test_the_image_commands_are_in_the_command_list():
+    from .tool_utils import OPENROAD_COMMANDS
+
+    for command in ("gui::show", "save_image", "ord::openroad_gui_compiled", "select"):
+        assert command in OPENROAD_COMMANDS
+
+
+# ============================================================================== the GDS merge
+#
+# With `write_gds`, KLayout merges the routed design with the GDSII files of the cells into
+# `final.gds`. A fake `klayout` records its command line.
+
+FAKE_KLAYOUT = """#!/bin/sh
+case "$1" in -v|-V) echo "KLayout 0.30.12"; exit 0;; esac
+printf '%s\\n' "$@" > klayout.args
+out=
+while [ "$#" -gt 0 ]; do
+  case "$1" in out_file=*) out="${1#out_file=}";; esac
+  shift
+done
+if [ -n "$KLAYOUT_FAKE_ERROR" ]; then echo "$KLAYOUT_FAKE_ERROR"; exit 1; fi
+if [ -n "$out" ]; then echo gds > "$out"; fi
+"""
+
+
+def fake_klayout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Put a fake `klayout` first on `PATH`. It records its arguments in `klayout.args` of the
+    working directory and writes the file that `out_file` names. When `KLAYOUT_FAKE_ERROR` is set,
+    it prints that text and fails."""
+    binary = tmp_path / "klayout_bin"
+    binary.mkdir()
+    script = binary / "klayout"
+    script.write_text(FAKE_KLAYOUT)
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", str(binary) + os.pathsep + os.environ.get("PATH", ""))
+
+
+def gds_flow(tmp_path: Path, settings: dict[str, Any] | None = None, **kwargs: Any) -> Openroad:
+    return final_flow(tmp_path, {"write_gds": True, **(settings or {})}, layout=True, **kwargs)
+
+
+def run_gds(tmp_path: Path, monkeypatch, settings: dict[str, Any] | None = None, **kwargs: Any):
+    """Run the merge of a flow whose processes have run: the DEF file exists."""
+    fake_klayout(tmp_path, monkeypatch)
+    flow = gds_flow(tmp_path, settings, **kwargs)
+    in_run_directory(flow, monkeypatch)
+    flow.set_final_outputs()
+    Path(flow.run_path, "final.def").write_text("VERSION 5.8 ;\n")
+    flow.run_gds()
+    return flow
+
+
+def klayout_arguments(flow: Openroad) -> list[str]:
+    return (Path(flow.run_path) / "klayout.args").read_text().splitlines()
+
+
+def test_the_merge_runs_klayout_with_the_names_that_the_script_reads(tmp_path, monkeypatch):
+    flow = run_gds(tmp_path, monkeypatch)
+    run_dir = Path(flow.run_path)
+    gds = flow.platform_model.files["gds"][0]
+    script = Path(final.__file__).parent / "data" / "def2stream.py"
+    assert klayout_arguments(flow) == [
+        "-zz",
+        "-rd",
+        "design_name=counter",
+        "-rd",
+        f"in_def={run_dir}/final.def",
+        "-rd",
+        f"in_files={gds}",
+        "-rd",
+        "seal_file=",
+        "-rd",
+        f"out_file={run_dir}/final.gds",
+        "-rd",
+        f"tech_file={run_dir}/klayout.lyt",
+        "-rd",
+        "layer_map=",
+        "-rd",
+        "allow_empty=",
+        "-r",
+        str(script),
+    ]
+    assert (run_dir / "final.gds").is_file()
+    assert flow.outputs.gds == run_dir / "final.gds"
+    assert script.is_file()
+
+
+def test_the_technology_file_lists_the_lef_files_of_the_platform_as_absolute_paths(
+    tmp_path, monkeypatch
+):
+    flow = run_gds(tmp_path, monkeypatch)
+    text = (Path(flow.run_path) / "klayout.lyt").read_text()
+    values = flow.effective()
+    expected = "".join(
+        f"<lef-files>{lef}</lef-files>" for lef in (values.tech_lef, *values.cell_lefs)
+    )
+    assert expected in text
+    assert "./tiny.lef" not in text
+    assert text.count("<lef-files>") == 1 + len(values.cell_lefs)
+    assert all(Path(lef).is_absolute() for lef in (values.tech_lef, *values.cell_lefs))
+    # the rest of the file is the file of the platform
+    assert text.replace(expected, "<lef-files>./tiny.lef</lef-files>") == KLAYOUT_TECH_TEXT
+
+
+def test_a_technology_file_without_the_list_of_lef_files_is_refused_with_the_way_out(
+    tmp_path, monkeypatch
+):
+    fake_klayout(tmp_path, monkeypatch)
+    flow = gds_flow(tmp_path)
+    flow.platform_model.files["klayout_tech"][0].write_text("<technology/>\n")
+    in_run_directory(flow, monkeypatch)
+    flow.set_final_outputs()
+    with pytest.raises(FlowSettingsException, match="no `<lef-files>` element"):
+        flow.run_gds()
+    assert not (Path(flow.run_path) / "klayout.args").exists()
+
+
+def test_a_seal_ring_goes_to_the_merge(tmp_path, monkeypatch):
+    ring = tmp_path / "ring.gds"
+    ring.write_bytes(b"ring\n")
+    flow = run_gds(tmp_path, monkeypatch, {"gds": {"seal_ring": str(ring)}})
+    assert f"seal_file={ring}" in klayout_arguments(flow)
+
+
+def test_the_merge_makes_every_file_it_writes_ready_first(tmp_path, monkeypatch):
+    fake_klayout(tmp_path, monkeypatch)
+    flow = gds_flow(tmp_path)
+    in_run_directory(flow, monkeypatch)
+    ready: list[str] = []
+    guard = flow._guard_write
+
+    def record(path):
+        ready.append(str(flow._relative_to_run(path)))
+        return guard(path)
+
+    monkeypatch.setattr(flow, "_guard_write", record)
+    flow.set_final_outputs()
+    Path(flow.run_path, "final.def").write_text("VERSION 5.8 ;\n")
+    flow.run_gds()
+    assert "final.gds" in ready
+
+
+def test_a_link_at_the_name_of_the_layout_is_replaced_and_not_followed(tmp_path, monkeypatch):
+    fake_klayout(tmp_path, monkeypatch)
+    flow = gds_flow(tmp_path, launched=True)
+    in_run_directory(flow, monkeypatch)
+    flow.set_final_outputs()
+    run_dir = Path(flow.run_path)
+    (run_dir / "final.def").write_text("VERSION 5.8 ;\n")
+    victim = tmp_path / "victim.gds"
+    victim.write_text("keep\n")
+    (run_dir / "final.gds").symlink_to(victim)
+    flow.run_gds()
+    assert victim.read_text() == "keep\n"
+    assert (run_dir / "final.gds").is_file() and not (run_dir / "final.gds").is_symlink()
+
+
+def test_a_failed_merge_reports_the_errors_of_the_script(tmp_path, monkeypatch):
+    monkeypatch.setenv("KLAYOUT_FAKE_ERROR", "[ERROR] LEF Cell 'X' has no matching GDS/OAS cell.")
+    with pytest.raises(NonZeroExitCode) as raised:
+        run_gds(tmp_path, monkeypatch)
+    message = str(raised.value)
+    assert "KLayout stopped while it merged the layout; see klayout.log" in message
+    assert "[ERROR] LEF Cell 'X' has no matching GDS/OAS cell." in message
+
+
+def test_a_missing_klayout_is_a_tool_error(tmp_path, monkeypatch):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    flow = gds_flow(tmp_path)
+    in_run_directory(flow, monkeypatch)
+    flow.set_final_outputs()
+    Path(flow.run_path, "final.def").write_text("VERSION 5.8 ;\n")
+    monkeypatch.setenv("PATH", str(empty))
+    with pytest.raises(ExecutableNotFound):
+        flow.run_gds()
+
+
+def test_the_run_merges_the_layout_after_the_images(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_OPENROAD_TOP", "counter")
+    fake_klayout(tmp_path, monkeypatch)
+    flow = gds_flow(tmp_path, {"save_images": True})
+    in_run_directory(flow, monkeypatch)
+    flow.run()
+    run_dir = Path(flow.run_path)
+    assert (run_dir / "images" / "final_all.webp").is_file()
+    assert (run_dir / "final.gds").is_file()
+    assert (run_dir / "openroad_images.log").stat().st_mtime_ns <= (
+        run_dir / "klayout.log"
+    ).stat().st_mtime_ns
+
+
+def test_a_run_without_write_gds_starts_no_klayout(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_OPENROAD_TOP", "counter")
+    fake_klayout(tmp_path, monkeypatch)
+    flow = final_flow(tmp_path, layout=True)
+    in_run_directory(flow, monkeypatch)
+    flow.run()
+    run_dir = Path(flow.run_path)
+    assert flow.outputs.gds is None
+    assert not (run_dir / "klayout.args").exists() and not (run_dir / "klayout.lyt").exists()
+
+
+# ------------------------------------------------------------------------------ the files
+
+
+@pytest.mark.parametrize("write_gds", [False, True])
+@pytest.mark.parametrize("rules", [False, True])
+def test_the_files_the_flow_opens_follow_the_extraction_and_write_gds(tmp_path, write_gds, rules):
+    """The dry run, which builds no platform model, finds the same files as the run."""
+    flow = route_flow(tmp_path, {"write_gds": write_gds}, layout=True, rules=rules)
+    assert flow.locate_prepared_inputs() == flow.implicit_inputs
+    names = [path.name for path in flow.implicit_inputs]
+    assert (GDS_FILE in names and KLAYOUT_TECH in names) is write_gds
+    assert (RCX_RULES in names) is rules
+
+
+def test_the_roles_are_a_property_of_the_flow_and_not_a_class_attribute():
+    assert isinstance(OpenroadStage.__dict__["platform_roles"], property)
+    assert isinstance(Openroad.__dict__["platform_roles"], property)
+    assert OpenroadStage.platform_roles.fget is not Openroad.platform_roles.fget
+
+
+def test_the_assets_of_the_merge_are_package_resources():
+    from importlib import resources
+
+    for name in ("def2stream.py", "NOTICE.md"):
+        assert resources.files("xeda.flows.openroad").joinpath("data", name).is_file(), name
+
+
+# ------------------------------------------------------------------------------ the planning
+
+
+def plan_gds(tmp_path: Path, *texts: str, layout: bool = True):
+    """Plan `openroad` on the platform with the layout files (without them with `layout=False`)."""
+    store = tmp_path / "store"
+    if not store.exists():
+        tiny_store(tmp_path)
+        (store / "tiny" / GDS_FILE).write_bytes(b"gds\n")
+        (store / "tiny" / KLAYOUT_TECH).write_text(KLAYOUT_TECH_TEXT)
+    residue = variant_residue(tmp_path, rules=False, supply=None, layout=True)
+    settings = {"platform_file": str(residue)}
+    given = dict(
+        text.split("=", 1)
+        for text in [*openroad_settings(store, **(settings if layout else {})), *texts]
+    )
+    return DefaultRunner(tmp_path / "run", display_results=False).plan(
+        "openroad", openroad_design(tmp_path / "design"), flow_settings=given
+    )
+
+
+def test_a_setting_of_the_layout_file_without_write_gds_is_refused_with_the_way_out(tmp_path):
+    ring = tmp_path / "ring.gds"
+    ring.write_bytes(b"ring\n")
+    with pytest.raises(FlowSettingsException) as raised:
+        plan_gds(tmp_path, f"gds.seal_ring={ring}")
+    message = " ".join(str(raised.value).split())
+    assert (
+        "`gds.seal_ring` has no effect with `write_gds: false`: set `write_gds: true` or delete "
+        "`gds.seal_ring`" in message
+    )
+
+
+def test_a_setting_of_the_layout_file_with_write_gds_plans(tmp_path):
+    ring = tmp_path / "ring.gds"
+    ring.write_bytes(b"ring\n")
+    planned = plan_gds(tmp_path, "write_gds=true", f"gds.seal_ring={ring}")
+    assert planned.nodes[-1].name == "openroad"
+
+
+def test_write_gds_on_a_platform_without_the_layout_files_is_refused_with_the_way_out(tmp_path):
+    with pytest.raises(FlowSettingsException) as raised:
+        plan_gds(tmp_path, "write_gds=true", layout=False)
+    message = " ".join(str(raised.value).split())
+    assert (
+        "the platform 'tiny' gives no klayout_tech and no gds, which `write_gds` needs to merge "
+        "the layout: add them to `files` in its residue file (`platform_file`), or set "
+        "`write_gds: false`" in message
+    )
+
+
+def test_write_gds_changes_the_identity_of_the_last_flow_only(tmp_path):
+    off = plan_gds(tmp_path)
+    on = plan_gds(tmp_path, "write_gds=true")
+    assert [node.name for node in on.nodes] == [node.name for node in off.nodes]
+    same = [a.flowrun_hash == b.flowrun_hash for a, b in zip(off.nodes, on.nodes)]
+    assert same == [True, True, True, False]
+
+
+# ------------------------------------------------------------------------------ the assets
+
+
+ASSETS = Path(final.__file__).parent / "data"
+ORFS_COMMIT = "6b305a712966be72d8908695c04398acdbe273ca"
+
+
+def test_the_merge_script_names_its_source_in_the_first_line():
+    first = (ASSETS / "def2stream.py").read_text().splitlines()[0]
+    assert first == (
+        "# Source: https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts/blob/"
+        f"{ORFS_COMMIT}/flow/util/def2stream.py; license: BSD-3-Clause (see NOTICE.md)"
+    )
+
+
+def test_the_notice_holds_the_license_and_names_the_file_and_the_changes():
+    notice = (ASSETS / "NOTICE.md").read_text()
+    assert "def2stream.py" in notice
+    assert ORFS_COMMIT in notice
+    assert "BSD 3-Clause" in notice
+    assert "Copyright (c) 2018-2023, The Regents of the University of California" in notice
+    assert "Redistribution and use in source and binary forms, with or without" in notice
+    assert "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS" in notice
+    assert "OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE." in notice
+
+
+def test_the_merge_script_reads_no_environment_variable():
+    """Every input of the merge is a name that KLayout defines on its command line."""
+    text = (ASSETS / "def2stream.py").read_text()
+    assert "environ" not in text and "getenv" not in text
+
+
+def test_the_packaging_selects_the_assets_of_the_merge():
+    import tomllib
+
+    repo = Path(__file__).parent.parent
+    setuptools = tomllib.loads((repo / "pyproject.toml").read_text())["tool"]["setuptools"]
+    include = setuptools["package-data"]["xeda.flows.openroad"]
+    from fnmatch import fnmatchcase
+
+    for relative in ("data/def2stream.py", "data/NOTICE.md"):
+        assert any(fnmatchcase(relative, pattern) for pattern in include), relative

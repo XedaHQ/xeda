@@ -158,7 +158,12 @@ def test_the_default_netlists_are_refused_with_the_settings_to_write(flow, tmp_p
 CONSUMERS = {
     "yosys_fpga+nextpnr": ["flows.nextpnr.fpga=" + ECP5, "flows.yosys_fpga.netlist_json="],
     "yosys+openroad_place": ["flows.yosys.netlist_json="],
+    "yosys+openroad": ["flows.yosys.netlist_json="],
 }
+
+#: The flow that takes the netlist when the chain ends in a later flow: the placement takes it, and
+#: the flows after it run between.
+TAKES_THE_NETLIST = {"openroad": "openroad_place"}
 
 
 @pytest.mark.parametrize("chain", CONSUMERS)
@@ -185,7 +190,8 @@ def test_a_flow_that_takes_the_netlist_cannot_follow_a_stopped_synthesis(
         )
     assert result.exit_code != 0 and document["success"] is False
     message = document["error"]["message"]
-    assert f"{stopped}.netlist is required by {consumer}" in message
+    taker = TAKES_THE_NETLIST.get(consumer, consumer)
+    assert f"{stopped}.netlist is required by {taker}" in message
     assert f"a flow that takes the netlist cannot follow a stopped {stopped}" in message
     assert "to null" not in message, "the circular advice"
 

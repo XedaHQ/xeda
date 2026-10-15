@@ -238,6 +238,7 @@ def declaring_flows():
 def test_the_relations_exist_in_the_flows_that_declare_them():
     found = {(flow.name, declaration.name) for flow, declaration in declaring_flows()}
     assert found == {
+        ("openroad", "sdc"),
         ("openroad_cts", "sdc"),
         ("openroad_grt", "sdc"),
         ("vivado_postsynth_sim", "netlist"),
@@ -284,13 +285,10 @@ def test_list_flows_shows_the_relation():
 
 
 def test_list_flows_shows_a_paired_relation():
-    from .openroad_utils import register_openroad_flows
-
-    with register_openroad_flows():
-        inputs = {item["name"]: item for item in flow_info("openroad_cts")["inputs"]}
-        assert inputs["sdc"]["same_producer_as"] == "odb" and inputs["sdc"]["paired"] is True
-        assert inputs["odb"]["paired"] is False
-        assert "same producer as odb, paired" in flow_chain_cells(flow_info("openroad_cts"))[0]
+    inputs = {item["name"]: item for item in flow_info("openroad_cts")["inputs"]}
+    assert inputs["sdc"]["same_producer_as"] == "odb" and inputs["sdc"]["paired"] is True
+    assert inputs["odb"]["paired"] is False
+    assert "same producer as odb, paired" in flow_chain_cells(flow_info("openroad_cts"))[0]
     assert all(item["paired"] is False for item in flow_info("vivado_postsynth_sim")["inputs"])
 
 

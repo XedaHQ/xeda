@@ -243,7 +243,7 @@ Reports: `Fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_vio
 
 ### `openroad_place`
 
-*runs first: `yosys` | can follow: `yosys` | can be followed by: `openroad_cts`, `openroad_grt` (through `openroad_cts`)*
+*runs first: `yosys` | can follow: `openroad`, `yosys` | can be followed by: `openroad_cts`, `openroad` (through `openroad_cts`, `openroad_grt`), `openroad_grt` (through `openroad_cts`)*
 
 Read a gate-level netlist, then floorplan, place and optimize it with OpenROAD. One OpenROAD process loads the Liberty and LEF files of the platform, the netlist and the constraints. It makes the floorplan, places the tap cells and builds the power grid, places the pins and the cells globally, optimizes the design, and legalizes the placement. It writes the database `place.odb` and the constraints `place.sdc`. The constraints are the SDC files of the design, then the clocks that the `clocks` setting gives, then `sdc_files`. The routing layers, the capacity of each layer and the cells that the resizer must not touch stay in the database, so the flows after this one keep them. These settings belong to this flow.
 
@@ -287,7 +287,7 @@ Reports no results beyond the keys every flow reports.
 
 ### `yosys`
 
-*can be followed by: `openroad_place`, `openroad_cts` (through `openroad_place`), `openroad_grt` (through `openroad_place`, `openroad_cts`)*
+*can be followed by: `openroad_place`, `openroad` (through `openroad_place`, `openroad_cts`, `openroad_grt`), `openroad_cts` (through `openroad_place`), `openroad_grt` (through `openroad_place`, `openroad_cts`)*
 
 Synthesize a design with Yosys to a standard-cell, gate or LUT netlist.
 
@@ -319,9 +319,33 @@ Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc
 
 Reports: `modules`
 
+### `openroad`
+
+*runs first: `openroad_grt` | can follow: `openroad_grt`, `openroad_cts` (through `openroad_grt`), `openroad_place` (through `openroad_cts`, `openroad_grt`), `yosys` (through `openroad_place`, `openroad_cts`, `openroad_grt`) | can be followed by: `openroad_place`*
+
+Detail-route a globally routed design with OpenROAD, then write the final outputs. The flow runs OpenROAD in two processes, and in a third one only with `save_images`. The first process reads the database of the global route and its SDC file. It routes the design in detail, then repairs the antenna violations of the route with diodes and routes the changed nets again, until no violation is left or the iterations end. Last it places the filler cells. It writes the working database `route.odb`, its SDC file `route.sdc`, and the reports of the route: the design rule violations, the log of the maze router and the antenna violations. The second process reads these two files and writes the final database, the SDC file, the DEF file, the gate-level netlist without physical-only cells and, where OpenRCX extracts them, the parasitics. It reports the timing, the power, the area and the IR drop. The third process saves images of the routed design. With `write_gds`, KLayout writes the GDSII layout from the DEF file. The routing layers and the layer adjustments stay in the database from `openroad_place`. The wire RC and the cells that the resizer must not use are no part of the database. Each process sets them again from the platform and the settings.
+
+Required settings: `platform`
+
+20 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
+
+Group `detailed_route`: `detailed_route.end_iteration`; 5 more: `xeda list-settings openroad --tier expert --json`
+
+Group `antenna`: no common settings; 2 more: `xeda list-settings openroad --tier expert --json`
+
+Group `fill`: `fill.cells`
+
+Group `extraction`: `extraction.method`
+
+Group `ir_drop`: no common settings; 1 more: `xeda list-settings openroad --tier expert --json`
+
+Group `gds`: no common settings; 1 more: `xeda list-settings openroad --tier expert --json`
+
+Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `setup_violations`, `hold_violations`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `max_slew_violations`, `max_cap_violations`, `max_fanout_violations`, `core_area`, `die_area`, `power_internal`, `power_switching`, `power_leakage`, `drc_errors`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `wirelength`, `vias`, `instances`, `fill_cells`, `tap_cells`, `warnings`, `errors`, `parasitics`, `platform`
+
 ### `openroad_cts`
 
-*runs first: `openroad_place` | can follow: `openroad_place`, `yosys` (through `openroad_place`) | can be followed by: `openroad_grt`*
+*runs first: `openroad_place` | can follow: `openroad_place`, `yosys` (through `openroad_place`) | can be followed by: `openroad_grt`, `openroad` (through `openroad_grt`)*
 
 Build the clock tree of a placed design with OpenROAD and repair its timing. One OpenROAD process loads the Liberty files of the platform, the placed database and its SDC file. It repairs the clock inverters, builds the clock tree, legalizes the placement and repairs the timing with the clocks propagated. It writes the database `cts.odb` and the constraints `cts.sdc`. The clock tree changes the constraints: the clocks are propagated in `cts.sdc`. The wire RC and the cells that the resizer must not use are no part of the database. The process sets them again from the platform and the settings `wire_rc` and `dont_use_cells`.
 
@@ -345,7 +369,7 @@ Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `utilization`, `power`, `ar
 
 ### `openroad_grt`
 
-*runs first: `openroad_cts` | can follow: `openroad_cts`, `openroad_place` (through `openroad_cts`), `yosys` (through `openroad_place`, `openroad_cts`)*
+*runs first: `openroad_cts` | can follow: `openroad_cts`, `openroad_place` (through `openroad_cts`), `yosys` (through `openroad_place`, `openroad_cts`) | can be followed by: `openroad`*
 
 Globally route a design that has a clock tree with OpenROAD and repair its timing. One OpenROAD process loads the Liberty files of the platform, the database of the clock tree and its SDC file. It finds the access points of the pins and routes the design globally. It repairs the design and the timing with the parasitics of the route, and routes again the nets that each repair changes. It repairs the antenna violations with diodes where the platform has a diode that the router can use. It writes the database `grt.odb`, the constraints `grt.sdc` and the route guides `grt.guide`. The routing layers and the layer adjustments stay in the database from `openroad_place`. The wire RC, the seed of the router and the cells that the resizer must not use are no part of the database. The process sets them again from the platform and the settings.
 
@@ -353,16 +377,16 @@ Required settings: `platform`
 
 15 flow-specific settings (plus the common ones): `xeda list-settings openroad_grt --json`
 
-Group `pin_access`: no common settings; 2 more: `xeda list-settings openroad_grt --tier expert --json`
+Group `pin_access`: no common settings; 6 more: `xeda list-settings openroad_grt --tier expert --json`
 
-Group `congestion`: `congestion.iterations`, `congestion.allow`
+Group `congestion`: `congestion.iterations`, `congestion.allow`; 4 more: `xeda list-settings openroad_grt --tier expert --json`
 
-Group `router`: no common settings; 2 more: `xeda list-settings openroad_grt --tier expert --json`
+Group `router`: no common settings; 11 more: `xeda list-settings openroad_grt --tier expert --json`
 
 Group `legalize`: no common settings; 1 more: `xeda list-settings openroad_grt --tier expert --json`
 
 Group `repair`: `repair.strategy`, `repair.design.enabled`, `repair.timing.enabled`, `repair.timing.fix`, `repair.timing.setup_margin`, `repair.timing.hold_margin`; 28 more: `xeda list-settings openroad_grt --tier expert --json`
 
-Group `antenna`: `antenna.repair`; 2 more: `xeda list-settings openroad_grt --tier expert --json`
+Group `antenna`: `antenna.repair`; 4 more: `xeda list-settings openroad_grt --tier expert --json`
 
 Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `global_route_wirelength`, `global_route_vias`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `platform`

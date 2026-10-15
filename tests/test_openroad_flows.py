@@ -7,8 +7,6 @@ that the flow before it wrote. Both come from one producer, or both from the des
 
 import json
 import os
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +16,7 @@ from click.testing import CliRunner
 from xeda import Design
 from xeda.cli import cli
 from xeda.design import SourceType
-from xeda.flow import FlowSettingsException, registered_flows
+from xeda.flow import FlowSettingsException
 from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
 
@@ -28,9 +26,17 @@ from .openroad_utils import (
     openroad_settings,
     register_openroad_flows,
 )
-from .test_openroad_final import RCX_RULES, SUPPLY, runnable_openroad, variant_residue
+from .test_openroad_final import (
+    GDS_FILE,
+    KLAYOUT_TECH,
+    KLAYOUT_TECH_TEXT,
+    RCX_RULES,
+    SUPPLY,
+    fake_klayout,
+    variant_residue,
+)
 from .tiny_platform import TINY_RESIDUE, tiny_store
-from .tool_utils import require_tclsh, use_fake_openroad
+from .tool_utils import fake_returns, require_tclsh, use_fake_openroad
 
 CTS_PAIR = [("cts.odb", "OpenroadDbCts"), ("cts.sdc", "OpenroadSdcCts")]
 
@@ -116,21 +122,6 @@ def test_every_declaration_has_a_description():
 def test_the_flows_read_no_source_but_their_declared_inputs():
     for flow in OPENROAD_FLOWS:
         assert flow.reads_sources is None
-
-
-def test_a_flow_that_is_not_complete_is_not_registered_by_importing_the_flows():
-    """The skeletons stay unregistered until each flow can run, whatever imports `xeda.flows`.
-    `openroad_place`, `openroad_cts` and `openroad_grt` run, so they are registered; `openroad`
-    is not."""
-    code = (
-        "import xeda.flows, xeda.flow as f; "
-        "print(sorted(name for name in f.registered_flows if 'openroad' in name.lower()))"
-    )
-    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert done.stdout.strip() == (
-        "['OpenroadCts', 'OpenroadGrt', 'OpenroadPlace', "
-        "'openroad_cts', 'openroad_grt', 'openroad_place']"
-    )
 
 
 # ------------------------------------------------------------------------------ the default edges
@@ -364,9 +355,7 @@ def test_a_platform_without_lef_files_is_refused_at_planning(tmp_path):
 
 # ============================================================================== the whole chain
 #
-# The four flows run one after the other under the fake OpenROAD. The last flow, `openroad`, has
-# no `run()` yet, so it is not registered; the tests register a class of it that runs both of its
-# processes (`runnable_openroad`).
+# The four flows run one after the other under the fake OpenROAD.
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
 CLOCK = {"flows.openroad_place.clocks.clk.period": "5"}
@@ -379,22 +368,28 @@ NAMES = ("openroad_place", "openroad_cts", "openroad_grt", "openroad")
 
 @pytest.fixture
 def chain(monkeypatch):
-    """The four flows, the last one runnable, and the fake OpenROAD on the path."""
+    """The fake OpenROAD on the path."""
     require_tclsh()
     use_fake_openroad(monkeypatch)
-    cls = runnable_openroad()
-    registered_flows[cls.name] = (cls.__module__, cls)
 
 
-def chain_settings(tmp_path: Path, *given: str, rcx: bool = False, **named) -> list[str]:
+def chain_settings(
+    tmp_path: Path, *given: str, rcx: bool = False, layout: bool = False, **named
+) -> list[str]:
     """The settings of a launch on the `tiny` platform. With `rcx`, the platform has the rules of
-    OpenRCX and the voltages of its supply nets."""
+    OpenRCX and the voltages of its supply nets, and with `layout` it has the GDSII file and the
+    KLayout technology file."""
     store = tmp_path / "store"
     if not store.exists():
         tiny_store(tmp_path)
-    if rcx:
-        residue = variant_residue(tmp_path, rules=True, supply=SUPPLY)
-        (store / "tiny" / RCX_RULES).write_text("rules\n")
+    if rcx or layout:
+        supply = SUPPLY if rcx else None
+        residue = variant_residue(tmp_path, rules=rcx, supply=supply, layout=layout)
+        if rcx:
+            (store / "tiny" / RCX_RULES).write_text("rules\n")
+        if layout:
+            (store / "tiny" / GDS_FILE).write_bytes(b"gds\n")
+            (store / "tiny" / KLAYOUT_TECH).write_text(KLAYOUT_TECH_TEXT)
         named = {"platform_file": str(residue), **named}
     return [*openroad_settings(store, **{**CLOCK, **named}), *given]
 
@@ -453,6 +448,103 @@ def xeda_run(tmp_path: Path, *settings: str) -> tuple[Any, dict]:
 
 def states(document: dict) -> list[tuple[str, str]]:
     return [(node["flow"], node["state"]) for node in document["nodes"]]
+
+
+# ------------------------------------------------------------------------------ the command line
+
+
+@pytest.mark.parametrize("request_text", ["openroad", "yosys+openroad"])
+def test_the_command_line_plans_the_five_nodes_of_the_whole_chain(tmp_path, request_text):
+    """`xeda run openroad` and `xeda run yosys+openroad` plan synthesis and the four OpenROAD
+    flows, each node on the declared edges, and run nothing."""
+    store = tiny_store(tmp_path)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "run",
+            request_text,
+            str(openroad_design(tmp_path / "design", rtl=True)),
+            "--run-root",
+            str(tmp_path / "xeda_run"),
+            "-s",
+            *openroad_settings(store, **CLOCK),
+            "--dry-run",
+            "--json",
+        ],
+    )
+    document = json.loads(result.stdout)
+    assert result.exit_code == 0 and document["success"] is True, document.get("error")
+    nodes = document["plan"]["nodes"]
+    assert [node["flow"] for node in nodes] == ["yosys", *NAMES]
+    assert [(node["name"], [item["name"] for item in node["inputs"]]) for node in nodes] == [
+        ("yosys", []),
+        ("openroad_place", ["netlist", "sdc"]),
+        ("openroad_cts", ["odb", "sdc"]),
+        ("openroad_grt", ["odb", "sdc"]),
+        ("openroad", ["odb", "sdc"]),
+    ]
+    assert not (tmp_path / "xeda_run").exists()
+
+
+# ------------------------------------------------------------------------------ the optional steps
+
+
+def test_the_images_and_the_layout_are_written_only_when_asked_for(tmp_path, monkeypatch, chain):
+    fake_klayout(tmp_path, monkeypatch)
+    _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false", layout=True)
+    assert flow is not None and flow.succeeded
+    last = run_dir(tmp_path)
+    for name in ("images", "env.sh", "openroad_images.tcl", "klayout.lyt", "klayout.args"):
+        assert not (last / name).exists(), name
+    assert "gds" not in flow.results["outputs"]
+
+
+def test_the_images_are_saved_by_the_third_process_of_the_last_flow(tmp_path, monkeypatch, chain):
+    _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false", "save_images=true")
+    assert flow is not None and flow.succeeded
+    last = run_dir(tmp_path)
+    assert (last / "env.sh").read_text() == 'export QT_QPA_PLATFORM="offscreen"'
+    assert sorted(path.name for path in (last / "images").iterdir()) == sorted(
+        f"final_{view}.webp"
+        for view in ("all", "routing", "placement", "clocks", "resizer", "congestion", "worst_path")
+    )
+    for earlier in ("openroad_place", "openroad_cts", "openroad_grt"):
+        assert not (run_dir(tmp_path, earlier) / "env.sh").exists()
+
+
+def test_a_build_without_the_gui_fails_the_run_and_leaves_no_trace(tmp_path, monkeypatch, chain):
+    fake_returns(monkeypatch, {("ord::openroad_gui_compiled",): "0"})
+    _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false", "save_images=true")
+    failed_without_trace(tmp_path, flow)
+    results = json.loads((run_dir(tmp_path) / "results.json").read_text())
+    assert "this OpenROAD has no GUI; set save_images: false" in results["error"]["message"]
+    assert (run_dir(tmp_path, "openroad_grt") / "trace.json").is_file()
+    assert list((run_dir(tmp_path) / "images").glob("*.webp")) == []
+
+
+def test_the_layout_is_an_output_when_write_gds_is_on(tmp_path, monkeypatch, chain):
+    fake_klayout(tmp_path, monkeypatch)
+    _, _, _, flow = launch(
+        tmp_path, monkeypatch, "fail_timing=false", "write_gds=true", layout=True
+    )
+    assert flow is not None and flow.succeeded
+    last = run_dir(tmp_path)
+    assert flow.outputs.gds == last / "final.gds"
+    assert (last / "final.gds").is_file()
+    assert flow.results["outputs"]["gds"]["path"] == str(last / "final.gds")
+
+
+def test_a_failed_merge_fails_the_run_with_no_trace_and_names_the_errors(
+    tmp_path, monkeypatch, chain
+):
+    fake_klayout(tmp_path, monkeypatch)
+    monkeypatch.setenv("KLAYOUT_FAKE_ERROR", "[ERROR] Found orphan cell 'X'")
+    _, _, _, flow = launch(
+        tmp_path, monkeypatch, "fail_timing=false", "write_gds=true", layout=True
+    )
+    failed_without_trace(tmp_path, flow)
+    results = json.loads((run_dir(tmp_path) / "results.json").read_text())
+    assert "[ERROR] Found orphan cell 'X'" in results["error"]["message"]
 
 
 # ------------------------------------------------------------------------------ a failed stage

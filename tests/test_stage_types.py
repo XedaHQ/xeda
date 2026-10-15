@@ -34,7 +34,7 @@ from xeda.flows import (
 )
 from xeda.introspect import all_flow_classes
 
-from .openroad_utils import openroad_settings, register_openroad_flows
+from .openroad_utils import openroad_settings
 from .tiny_platform import tiny_store
 from .test_tool_input_equivalence import (
     VIVADO_SETTINGS,
@@ -66,8 +66,7 @@ def test_a_standard_cell_netlist_chains_into_the_placement():
 def test_a_standard_cell_netlist_still_chains_into_the_last_openroad_flow():
     """The request passes through the flows between the two ends: the placement, the clock tree
     and the global route run in between."""
-    with register_openroad_flows():
-        validate_chain(parse_request("yosys+openroad").elements)
+    validate_chain(parse_request("yosys+openroad").elements)
 
 
 def test_an_explicit_binding_of_the_wrong_kind_to_an_openroad_flow_is_refused_naming_the_types(
@@ -75,7 +74,7 @@ def test_an_explicit_binding_of_the_wrong_kind_to_an_openroad_flow_is_refused_na
 ):
     write_vivado_design(tmp_path)
     store = tiny_store(tmp_path)
-    with register_openroad_flows(), pytest.raises(FlowSettingsException) as error:
+    with pytest.raises(FlowSettingsException) as error:
         DefaultRunner(tmp_path / "run", display_results=False).plan(
             "openroad_place",
             tmp_path / "design.yaml",
@@ -276,13 +275,6 @@ REVIEWED_EDGES = {
     ("vivado_impl", "netlist", "vivado_postsynth_sim", "netlist"),
     ("vivado_impl", "netlist_timing", "vivado_postsynth_sim", "netlist_timing"),
     ("vivado_impl", "checkpoint_route", "vivado_power", "checkpoint"),
-}
-
-
-#: The edges that the OpenROAD flows add, which the sweep reports once the flows are registered.
-#: The flows are not registered yet, so the plain sweep does not see them. They move into
-#: `REVIEWED_EDGES` when the flows register.
-OPENROAD_REVIEWED_EDGES = {
     # the routed netlist is a standard-cell netlist, so the placement flow takes it too; placing
     # it again needs an explicit binding
     ("openroad", "netlist", "openroad_place", "netlist"),
@@ -345,16 +337,8 @@ def test_every_netlist_or_checkpoint_edge_is_declared_or_reviewed():
     )
 
 
-def test_the_openroad_flows_open_no_edge_beyond_the_reviewed_ones():
-    with register_openroad_flows():
-        edges = fitting_edges()
-    assert {edge for edge in edges if "openroad" in edge[0] or "openroad" in edge[2]}, "no edge"
-    assert undocumented(edges) == REVIEWED_EDGES | OPENROAD_REVIEWED_EDGES
-
-
 def test_the_openroad_stages_hand_each_other_their_own_database_and_sdc():
-    with register_openroad_flows():
-        edges = fitting_edges()
+    edges = fitting_edges()
     assert {edge for edge in edges if "openroad" in edge[0] and edge[2].startswith("openroad")} == {
         ("openroad_place", "odb", "openroad_cts", "odb"),
         ("openroad_place", "sdc", "openroad_cts", "sdc"),
@@ -376,8 +360,7 @@ def test_the_sweep_finds_an_edge_a_wrong_type_would_open_for_the_openroad_flows(
             outputs["netlist"] = replace(outputs["netlist"], types=(SourceType.VerilogNetlist,))
         return outputs
 
-    with register_openroad_flows():
-        opened = undocumented(fitting_edges(typed_as_before)) - REVIEWED_EDGES
+    opened = undocumented(fitting_edges(typed_as_before)) - REVIEWED_EDGES
     assert ("vivado_synth", "netlist", "openroad_place", "netlist") in opened
 
 

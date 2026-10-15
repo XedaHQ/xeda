@@ -109,12 +109,30 @@
       "": []
     }
   },
+  "openroad": {
+    "aliases": [],
+    "class_name": "Openroad",
+    "followers": {
+      "": [
+        "openroad_place"
+      ],
+      "odb": [],
+      "sdc": [],
+      "def_file": [],
+      "netlist": [
+        "openroad_place"
+      ],
+      "spef": [],
+      "gds": []
+    }
+  },
   "openroad_cts": {
     "aliases": [],
     "class_name": "OpenroadCts",
     "followers": {
       "": [
-        "openroad_grt"
+        "openroad_grt",
+        "openroad"
       ],
       "odb": [
         "openroad_grt"
@@ -122,15 +140,28 @@
       "sdc": [
         "openroad_grt"
       ]
+    },
+    "routes": {
+      "": {
+        "openroad": [
+          "openroad_grt"
+        ]
+      }
     }
   },
   "openroad_grt": {
     "aliases": [],
     "class_name": "OpenroadGrt",
     "followers": {
-      "": [],
-      "odb": [],
-      "sdc": [],
+      "": [
+        "openroad"
+      ],
+      "odb": [
+        "openroad"
+      ],
+      "sdc": [
+        "openroad"
+      ],
       "guides": []
     }
   },
@@ -140,6 +171,7 @@
     "followers": {
       "": [
         "openroad_cts",
+        "openroad",
         "openroad_grt"
       ],
       "odb": [
@@ -151,6 +183,10 @@
     },
     "routes": {
       "": {
+        "openroad": [
+          "openroad_cts",
+          "openroad_grt"
+        ],
         "openroad_grt": [
           "openroad_cts"
         ]
@@ -280,17 +316,24 @@
     "followers": {
       "": [
         "openroad_place",
+        "openroad",
         "openroad_cts",
         "openroad_grt"
       ],
       "netlist": [
         "openroad_place",
+        "openroad",
         "openroad_cts",
         "openroad_grt"
       ]
     },
     "routes": {
       "": {
+        "openroad": [
+          "openroad_place",
+          "openroad_cts",
+          "openroad_grt"
+        ],
         "openroad_cts": [
           "openroad_place"
         ],
@@ -300,6 +343,11 @@
         ]
       },
       "netlist": {
+        "openroad": [
+          "openroad_place",
+          "openroad_cts",
+          "openroad_grt"
+        ],
         "openroad_cts": [
           "openroad_place"
         ],

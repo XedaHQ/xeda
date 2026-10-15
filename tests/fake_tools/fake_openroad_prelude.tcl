@@ -13,6 +13,7 @@
 # other command is a Tcl error ("invalid command name"), as it is in OpenROAD. A command records
 # itself, raises an error if `XEDA_FAKE_TOOL_FAIL` (a Tcl list of command names) names it, and
 # returns what `XEDA_FAKE_TOOL_RETURNS` (a Tcl dictionary) says, or else its value below.
+# `gui::show` also runs its first argument as a script, as the interface does.
 # `extract_parasitics` also writes `<top>.totCap` in the working directory when the environment
 # variable `XEDA_FAKE_OPENROAD_TOP` names the top module: the files of OpenRCX that some versions
 # leave there. The fake has no design, so it cannot know the name by itself.
@@ -158,6 +159,8 @@ proc __command {name args} {
     if {$name in $::__readers} { __read $name {*}$args }
     if {[dict exists $::__writers $name]} { __write $name {*}$args }
     if {$name eq "extract_parasitics"} { __write_totcap }
+    # The graphical interface runs the script it is given, in the same interpreter.
+    if {$name eq "gui::show"} { uplevel #0 [lindex $args 0] }
     __returned [list $name {*}$args] [expr {[dict exists $::__defaults $name] ? [dict get $::__defaults $name] : ""}]
 }
 
