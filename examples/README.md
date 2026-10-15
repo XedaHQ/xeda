@@ -4,8 +4,11 @@ Each example has a design file that says what to build. The flows you run on it 
 the commands below from the directory of the example. Add `--dry-run` to any `xeda run` command to
 see the plan without starting a tool.
 
-The cocotb testbenches need `pip install -r examples/requirements.txt`, which you run from the
-root of the repository. A flow needs its own tool: GHDL, NVC, Verilator, Yosys, nextpnr, Vivado and so on.
+The cocotb testbenches need the Python packages of the dependency group `examples`. From the root
+of the repository, `uv sync` installs them, and so does `pip install --group examples` (pip 25.1 or
+newer). On Python 3.15, pip needs `COCOTB_IGNORE_PYTHON_REQUIRES=1` to build cocotb: see
+"Development" in the main README. A flow needs its own tool: GHDL, NVC, Verilator, Yosys, nextpnr,
+Vivado and so on.
 
 ## VHDL
 

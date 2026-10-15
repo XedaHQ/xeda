@@ -231,6 +231,12 @@ uv run pytest tests/ -n auto  # one worker per CPU, several times faster
 uv run pytest -n auto -m "python_compat and not real_tool"  # faster cross-version check
 ```
 
+`uv sync` installs xeda in editable mode, with the dependency group `dev` of `pyproject.toml`. This
+group includes the group `test` (pytest and the packages of the tests), the group `examples` (the
+Python packages of the cocotb testbenches of the examples, which the tests run) and the quality
+tools. The dependency groups are not part of the published package: `pip install xeda` installs
+none of them.
+
 The marked command runs the compatibility cases that CI runs on Python 3.11 through 3.14. CI runs
 the full tool-backed suite on Python 3.15, and one Verilator cocotb smoke test on Python 3.11. The
 other pytest commands run every test.
@@ -239,17 +245,17 @@ Bare `tox` runs those compatibility checks, the full Python 3.15 suite and the q
 run the full test suite on every supported Python version, use
 `tox -e py311,py312,py313,py314,py315`.
 
-An editable pip installation also works if `uv` is not available.
-
-Cocotb 2.1.0, an optional dependency of the example designs, supports Python through 3.14. On
-Python 3.15, its upstream `setup.py` rejects a source build unless you set
-`COCOTB_IGNORE_PYTHON_REQUIRES=1`. To install the optional example dependencies, run:
+An editable pip installation also works if `uv` is not available. pip 25.1 or newer installs the
+dependency groups:
 
 ```bash
-COCOTB_IGNORE_PYTHON_REQUIRES=1 python -m pip install -r examples/requirements.txt
+COCOTB_IGNORE_PYTHON_REQUIRES=1 python -m pip install --editable . --group dev
 ```
 
-This overrides the build-time version check of cocotb. It does not add upstream support for
+Cocotb 2.1.0 supports Python through 3.14, and it has no wheel for Python 3.15. On Python 3.15, its
+upstream `setup.py` rejects a source build unless `COCOTB_IGNORE_PYTHON_REQUIRES=1` is set.
+`uv sync` sets this variable for the build of cocotb, and so does the `py315` environment of tox.
+It overrides the build-time version check of cocotb. It does not add upstream support for
 Python 3.15.
 
 Do not edit `CHANGELOG.md` to record a change. Add one file to `changelog.d/` for each change
