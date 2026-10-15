@@ -36,5 +36,5 @@ proc xeda_final_report {} {
     check_setup -verbose > {{ reports.check_setup|tcl_word }}
 {% endif %}
     report_cell_usage
-    xeda_metrics 1 {{ 1 if rep.clock_skew else 0 }}
+    xeda_metrics 1 {{ rep.clock_skew|int }}
 }
