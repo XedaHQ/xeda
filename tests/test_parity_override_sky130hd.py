@@ -174,7 +174,7 @@ def test_the_model_takes_the_cells_and_the_settings_from_config_mk(bundled, pari
     assert model.fill_cells[:2] == ["sky130_fd_sc_hd__fill_1", "sky130_fd_sc_hd__fill_2"]
     assert (model.routing.min_layer, model.routing.max_layer) == ("met1", "met5")
     assert model.routing.clock_min_layer == "met3"
-    for key in ("min_buffer", "dont_use_cells", "match_cell_footprint", "place_density"):
+    for key in ("min_buffer", "dont_use_cells", "match_cell_footprint"):
         assert model.sources[key] == "upstream", key
     assert model.files["tech_lef"] == [orfs / "sky130hd" / "lef" / "sky130_fd_sc_hd.tlef"]
     assert model.files["cell_lef"] == [orfs / "sky130hd" / "lef" / "sky130_fd_sc_hd_merged.lef"]

@@ -27,6 +27,8 @@ files:
   latch_map: libs.tech/openlane/sky130_fd_sc_hd/latch_map.v
   adder_map: libs.tech/openlane/sky130_fd_sc_hd/fa_map.v
 values:
+  # open_pdks has no placement density; this is PLACE_DENSITY of OpenROAD-flow-scripts.
+  place_density: 0.6
   # GRT_LAYER_ADJUSTMENTS is "0.99,0,0,0,0,0": li1, met1, ..., met5 in the order of the tech LEF.
   # A zero asks for no adjustment, which is the default, so only li1 is written.
   routing: {layer_adjustments: {li1: 0.99}}

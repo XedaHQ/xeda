@@ -25,6 +25,10 @@ Xeda ships a Yosys techmap file (`*.v`) in a platform directory only when the so
 platform lacks it. Such a file is a copy from its source and keeps its license header.
 `nangate45` has none: its techmap files stay in the PDK store.
 
+`sky130hd/platform.yaml` takes one value from the directory `flow/platforms/sky130hd` of
+OpenROAD-flow-scripts: the target density of global placement (`PLACE_DENSITY` of `config.mk`),
+which `open_pdks` does not give.
+
 OpenROAD-flow-scripts publishes its build and run scripts under the BSD 3-Clause License. The
 license text follows. It applies to the build and run scripts of OpenROAD-flow-scripts, which are
 the source of these values and file names. It does not apply to the tools or to the platform

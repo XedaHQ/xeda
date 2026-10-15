@@ -206,6 +206,20 @@ def test_a_flip_flop_is_found_in_a_liberty_file(tmp_path):
     assert liberty_flop([liberty], ["DFF_X1"]) is None
 
 
+def test_a_flip_flop_with_its_clock_first_is_found(tmp_path):
+    """sky130 writes `clocked_on` before `next_state` in the `ff` group."""
+    liberty = tmp_path / "cells.lib"
+    liberty.write_text(
+        'cell ("sky130_fd_sc_hd__dfxtp_1") {\n'
+        '  ff ("IQ","IQ_N") {\n    clocked_on : "CLK";\n    next_state : "D";\n  }\n'
+        '  pin ("CLK") { direction : "input"; clock : "true"; }\n'
+        '  pin ("D") { direction : "input"; }\n'
+        '  pin ("Q") { direction : "output"; function : "IQ"; }\n'
+        "}\n"
+    )
+    assert liberty_flop([liberty], []) == ("sky130_fd_sc_hd__dfxtp_1", "D", "CLK", "Q")
+
+
 def test_the_help_of_a_command_lists_its_flags():
     text = (
         "repair_timing [-setup] [-hold] [-recover_power percent]\n"
@@ -323,14 +337,16 @@ def liberty_flop(files: list[Path], dont_use: list[str]) -> tuple[str, str, str,
         text = liberty.read_text()
         parts = re.split(r"^\s*cell\s*\(\s*\"?([\w$.]+)\"?\s*\)", text, flags=re.M)
         for name, body in zip(parts[1::2], parts[2::2]):
-            group = re.search(
-                r'ff\s*\(\s*"?(\w+)"?\s*,\s*"?\w+"?\s*\)\s*\{[^}]*?'
-                r'next_state\s*:\s*"(\w+)"\s*;\s*clocked_on\s*:\s*"(\w+)"',
-                body,
-            )
+            # the attributes of the `ff` group come in any order (sky130 gives the clock first)
+            group = re.search(r'ff\s*\(\s*"?(\w+)"?\s*,\s*"?\w+"?\s*\)\s*\{([^}]*)\}', body)
             if group is None or name in dont_use:
                 continue
-            state, data, clock = group.groups()
+            state, attributes = group.groups()
+            data_found = re.search(r'next_state\s*:\s*"(\w+)"\s*;', attributes)
+            clock_found = re.search(r'clocked_on\s*:\s*"(\w+)"\s*;', attributes)
+            if data_found is None or clock_found is None:
+                continue
+            data, clock = data_found.group(1), clock_found.group(1)
             pins = re.split(r"\bpin\s*\(", body)[1:]
             for pin in pins:
                 named = re.match(r'\s*"?(\w+)"?\s*\)', pin)
