@@ -570,13 +570,15 @@ class Time(
         "ps": _power(-3),
         "ns": Fraction(1),
         "us": _power(3),
+        "\u00b5s": _power(3),
         "ms": _power(6),
         "s": _power(9),
         "min": 60 * _power(9),
         "h": 3600 * _power(9),
     },
 ):
-    """A duration. The canonical unit is `ns`."""
+    """A duration. The canonical unit is `ns`. The micro sign spelling `\u00b5s` (U+00B5) is
+    accepted too."""
 
     __slots__ = ()
 

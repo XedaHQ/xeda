@@ -35,7 +35,7 @@
 | `` `10` needs a unit, such as `10 ns`: a bare number does not mean anything `` | A setting of a kind (`time`, `frequency`, `capacitance`, ...) needs a unit: `clock.period: 10 ns`, `-s clock.period=10ns`. `list-settings` shows the kind as the `type`. See "Units" in `design-file.md`. |
 | `` `5 MHz` is a frequency, not a time `` | The unit is of another kind. Use a unit of the kind that the message names. |
 | `` unit `ff` in `3.9 ff`: units are case-sensitive, did you mean `fF`? `` | Write the unit as the message says (`MHz`, not `mhz`). |
-| `` unknown unit `nanoseconds` in `10 nanoseconds`: a time takes one of fs, ps, ns, us, ms, s, min, h `` | Use one of the units listed. A spelled-out name is refused. |
+| `` unknown unit `nanoseconds` in `10 nanoseconds`: a time takes one of fs, ps, ns, us, µs, ms, s, min, h `` | Use one of the units listed. A spelled-out name is refused. |
 | `` cannot read `fast` as a time: write one number and one unit, such as `10 ns` `` | The text is not one number and one unit (a word, `5 ns * 2`, `1_000 ns`). |
 | `must be greater than 0 ns, got -1 ns` | The value is outside the limit of the setting. |
 | `Input should be a valid number, unable to parse string as a number` | The setting still takes a plain number (`timeout` in s, `hold_detour_max` in ns; `freq` of `openfpgaloader` is an integer in Hz). Remove the unit. |

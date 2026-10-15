@@ -51,6 +51,7 @@ TABLE: dict[type[Quantity], list[tuple[str, float]]] = {
         ("ps", 2.5e-3),
         ("ns", 2.5),
         ("us", 2500.0),
+        ("µs", 2500.0),
         ("ms", 2.5e6),
         ("s", 2.5e9),
         ("min", 150e9),
@@ -341,6 +342,21 @@ def test_the_greek_mu_is_refused_and_the_message_names_the_character_to_use() ->
         assert "did you mean `\u00b5m` (the micro sign, U+00B5) or `um`?" in message
         assert "U+03BC" in message
     assert Length("5 \u00b5m") == Length("5 um")
+    with pytest.raises(QuantityError) as raised:
+        Time("5 \u03bcs")
+    assert "did you mean `\u00b5s` (the micro sign, U+00B5) or `us`?" in str(raised.value)
+
+
+def test_a_time_takes_the_micro_sign_as_a_length_does() -> None:
+    """Each kind that takes a `u` prefix takes the micro sign too."""
+    assert Time("2 \u00b5s") == Time("2 us") == Time("2000 ns")
+    assert str(Time("2 \u00b5s")) == "2000 ns"
+    for cls in (Time, Length):
+        assert all(
+            unit.replace("u", "\u00b5", 1) in cls.units
+            for unit in cls.units
+            if unit.startswith("u")
+        )
 
 
 def test_the_miscased_spellings_include_the_micro_sign_variants() -> None:
@@ -351,7 +367,7 @@ def test_the_miscased_spellings_include_the_micro_sign_variants() -> None:
 def test_an_unknown_unit_names_the_units_of_the_kind() -> None:
     message = _problem("5 parsec")
     assert "parsec" in message
-    assert "fs, ps, ns, us, ms, s, min, h" in message
+    assert "fs, ps, ns, us, µs, ms, s, min, h" in message
     assert "nanoseconds" in _problem("5 nanoseconds")
 
 
@@ -601,7 +617,7 @@ def test_the_json_schema_names_the_kind() -> None:
         assert found[0]["type"] == "string"
         assert found[0]["x-xeda-quantity"] == "time"
         assert "10 ns" in found[0]["description"]
-        assert "fs, ps, ns, us, ms, s, min, h" in found[0]["description"]
+        assert "fs, ps, ns, us, µs, ms, s, min, h" in found[0]["description"]
     assert props["many"]["type"] == "array"
     assert props["named"]["type"] == "object"
     assert {"type": "null"} in props["opt"]["anyOf"]

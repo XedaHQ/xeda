@@ -127,7 +127,7 @@ case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
 
 | Kind | Units | `settings.json` writes |
 | --- | --- | --- |
-| time | `fs`, `ps`, `ns`, `us`, `ms`, `s`, `min`, `h` | `ns` |
+| time | `fs`, `ps`, `ns`, `us`, `µs` (micro sign, U+00B5), `ms`, `s`, `min`, `h` | `ns` |
 | frequency | `Hz`, `kHz`, `MHz`, `GHz` | `MHz` |
 | capacitance | `fF`, `pF`, `nF` | `fF` |
 | length | `nm`, `um`, `mm`, `µm` (micro sign, U+00B5) | `um` |

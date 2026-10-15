@@ -279,7 +279,7 @@ in the unit of the last column, whatever unit you wrote: ``10000 ps`` becomes ``
      - Units
      - Unit in ``settings.json``
    * - time
-     - ``fs``, ``ps``, ``ns``, ``us``, ``ms``, ``s``, ``min``, ``h``
+     - ``fs``, ``ps``, ``ns``, ``us``, ``µs``, ``ms``, ``s``, ``min``, ``h``
      - ``ns``
    * - frequency
      - ``Hz``, ``kHz``, ``MHz``, ``GHz``
@@ -299,8 +299,8 @@ in the unit of the last column, whatever unit you wrote: ``10000 ps`` becomes ``
 
 Units are case-sensitive, as in SI: ``MHz`` is megahertz, and ``mHz`` is millihertz. A unit in the
 wrong case is an error that names the right spelling. Xeda takes only the units in the table. A
-spelled-out name such as ``nanoseconds`` is an error that lists the units of the kind. A time has
-no ``µs``: write ``us``.
+spelled-out name such as ``nanoseconds`` is an error that lists the units of the kind. A unit
+with the prefix ``u`` (micro) can also be written with the micro sign (U+00B5): ``µs`` is ``us``.
 
 Two spellings of one value are the same value. ``10 ns``, ``10000 ps`` and ``0.01 us`` are the
 same time. Runs that differ only in such a spelling have the same identity, so Xeda reuses the
@@ -340,7 +340,7 @@ A unit that is not in the table, as in ``clock.period: 10 nanoseconds``:
 
 .. code-block:: text
 
-    unknown unit `nanoseconds` in `10 nanoseconds`: a time takes one of fs, ps, ns, us, ms, s, min, h
+    unknown unit `nanoseconds` in `10 nanoseconds`: a time takes one of fs, ps, ns, us, µs, ms, s, min, h
 
 A value outside the limits of the setting, as in ``clock.period: -1 ns``:
 
