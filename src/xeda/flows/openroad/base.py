@@ -459,7 +459,7 @@ class OpenroadStage(AsicPlatformFlow, Flow):
             comma_word=comma_word,
             space_word=space_word,
             fraction_of=fraction_of,
-            fix_flags=FIX_FLAGS,
+            fix_flags=dict(FIX_FLAGS),  # a copy: a flow shares no mutable object
             reports=dict(self.reports),
             failed_odb=self.failed_odb,
         )
