@@ -13,6 +13,9 @@
 if {[catch {
     xeda_final_outputs
     xeda_final_report
+{% if settings.write_timing_model %}
+    xeda_timing_model
+{% endif %}
 } message options]} {
     catch { write_db {{ failed_odb|tcl_word }} }
     return -options $options $message

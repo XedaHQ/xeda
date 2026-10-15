@@ -3297,13 +3297,21 @@ def test_a_platform_without_cdl_files_writes_no_circuit_description(tmp_path):
     assert "write_cdl" not in render_final(flow)
 
 
-def test_the_timing_model_comes_last_with_the_source_latency_at_zero(tmp_path):
-    found = outputs_body(tmp_path, {"write_timing_model": True})
-    assert found[-2:] == [
+def test_the_timing_model_comes_after_the_reports_with_the_source_latency_at_zero(tmp_path):
+    """The model needs the source latency of the clocks at 0. The reports and the verdict read the
+    constraints of the design, so the model comes after them."""
+    assert final_body(tmp_path, "xeda_timing_model", {"write_timing_model": True}) == [
         "set_clock_latency -source 0 [all_clocks]",
         'write_timing_model "@RUN@/final.lib"',
     ]
-    assert "write_timing_model" not in " ".join(outputs_body(tmp_path / "default"))
+    body = " ".join(outputs_body(tmp_path / "outputs", {"write_timing_model": True}))
+    assert "set_clock_latency" not in body and "write_timing_model" not in body
+    driver = render_final(final_flow(tmp_path / "driver", {"write_timing_model": True}))
+    calls = [line.strip() for line in driver.splitlines()]
+    report = calls.index("xeda_final_report")
+    assert calls[report + 1] == "xeda_timing_model"
+    default = render_final(final_flow(tmp_path / "default"))
+    assert "xeda_timing_model" not in default and "write_timing_model" not in default
     flow = final_flow(tmp_path / "flow", {"write_timing_model": True})
     flow.set_final_outputs()
     assert flow.outputs.timing_model == Path(flow.run_path) / "final.lib"

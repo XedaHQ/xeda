@@ -7,10 +7,11 @@
    rules of the platform and the file is read back, or else OpenROAD estimates them from the
    route. The options of OpenRCX are flags of the extraction, and the factors that scale the
    result come in a command of their own after it. The files that need the parasitics follow: the
-   delays in SDF format, then the abstract view of the block, the circuit description where the
-   platform gives the CDL files of its cells, and last the timing model, since it needs the
-   source latency of the clocks at 0. Only the final stage of the process may set the stage of the
-   metrics here. #}
+   delays in SDF format, then the abstract view of the block, and the circuit description where the
+   platform gives the CDL files of its cells. The timing model has a procedure of its own, which
+   the driver runs after the reports: it sets the source latency of the clocks to 0, and the
+   reports and the verdict must read the constraints of the design. Only the final stage of the
+   process may set the stage of the metrics here. #}
 {% set ext = settings.extraction %}
 {% set scale = settings.extraction.scale %}
 proc xeda_final_outputs {} {
@@ -39,8 +40,10 @@ proc xeda_final_outputs {} {
 {% if outputs.cdl is not none %}
     write_cdl -masters {{ P.cdl_masters|tcl_list }} {{ outputs.cdl|tcl_word }}
 {% endif %}
+}
 {% if settings.write_timing_model %}
+proc xeda_timing_model {} {
     set_clock_latency -source 0 [all_clocks]
     write_timing_model {{ outputs.timing_model|tcl_word }}
-{% endif %}
 }
+{% endif %}

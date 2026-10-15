@@ -532,7 +532,8 @@ class Openroad(OpenroadStage):
             False,
             description="Write a Liberty timing model of the routed design as `timing_model` "
             "(`write_timing_model`), for the timing analysis of a design that uses the block. "
-            "The command sets the source latency of the clocks to 0 first.",
+            "After the reports, the flow sets the source latency of the clocks to 0 and writes "
+            "the model, so the reports and the verdict read the constraints of the design.",
             json_schema_extra=tier("advanced"),
         )
         fail_timing: bool = Field(
