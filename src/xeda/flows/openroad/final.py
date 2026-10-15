@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from typing import ClassVar, Dict, List, Optional
+from xml.sax.saxutils import escape as xml_escape
 
 from ...dataclass import Field, tier
 from ...design import SourceType
@@ -895,9 +896,10 @@ class Openroad(OpenroadStage):
         """Write the technology file of KLayout into the run directory and return its path.
 
         The file is the one of the platform with its list of LEF files replaced by the technology
-        LEF file and the LEF files of the cells, as absolute paths. KLayout reads the DEF file of
-        the routed design with these. Raise `FlowSettingsException` if the file of the platform
-        has no list of LEF files to replace."""
+        LEF file and the LEF files of the cells, as absolute paths. Each path is escaped as XML
+        text, so a path with `&` or `<` stays one element. KLayout reads the DEF file of the
+        routed design with these. Raise `FlowSettingsException` if the file of the platform has
+        no list of LEF files to replace."""
         model = self.platform_model
         assert model is not None, "prepare_inputs() builds the platform model"
         template = model.files["klayout_tech"][0]
@@ -905,7 +907,7 @@ class Openroad(OpenroadStage):
         lefs = [*([values.tech_lef] if values.tech_lef is not None else []), *values.cell_lefs]
         text, replaced = re.subn(
             r"<lef-files>.*?</lef-files>",
-            lambda _: "".join(f"<lef-files>{lef}</lef-files>" for lef in lefs),
+            lambda _: "".join(f"<lef-files>{xml_escape(str(lef))}</lef-files>" for lef in lefs),
             template.read_text(),
         )
         if not replaced:

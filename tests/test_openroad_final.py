@@ -10,11 +10,13 @@ command list does not know fails the test.
 """
 
 import contextlib
+import dataclasses
 import json
 import os
 import re
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 import pytest
 import yaml
@@ -2303,6 +2305,26 @@ def test_the_technology_file_lists_the_lef_files_of_the_platform_as_absolute_pat
     assert all(Path(lef).is_absolute() for lef in (values.tech_lef, *values.cell_lefs))
     # the rest of the file is the file of the platform
     assert text.replace(expected, "<lef-files>./tiny.lef</lef-files>") == KLAYOUT_TECH_TEXT
+
+
+def test_the_technology_file_escapes_the_lef_paths_as_xml_text(tmp_path, monkeypatch):
+    """A path with `&` or `<` is valid on disk; the element of the technology file holds it as
+    escaped text, and an XML parser reads back the path itself."""
+    fake_klayout(tmp_path, monkeypatch)
+    flow = gds_flow(tmp_path)
+    odd = tmp_path / "cells & <macros>" / "cells.lef"
+    computed = flow.effective
+
+    def effective_with_an_odd_path() -> Any:
+        return dataclasses.replace(computed(), cell_lefs=(odd,))
+
+    monkeypatch.setattr(flow, "effective", effective_with_an_odd_path)
+    in_run_directory(flow, monkeypatch)
+    flow.set_final_outputs()
+    path = flow.write_klayout_tech()
+    lefs = [element.text for element in ElementTree.parse(path).iter("lef-files")]
+    assert lefs[-1] == str(odd)
+    assert "&amp; &lt;macros&gt;" in path.read_text()
 
 
 def test_a_technology_file_without_the_list_of_lef_files_is_refused_with_the_way_out(
