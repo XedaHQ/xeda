@@ -44,6 +44,7 @@ __all__ = [
     "require_nextpnr_ecp5",
     "require_nvc",
     "require_nvc_evidence",
+    "require_openroad",
     "require_tclsh",
     "require_verilator",
     "require_vivado",
@@ -1030,6 +1031,8 @@ def fake_calls(run_dir: Path, elements: bool = False) -> List[List[str]]:
 #   XEDA_TESTS_EXTERNAL=1  bsc flows on external repositories (tests/test_bsc_external.py), with
 #     XEDA_TESTS_EXTERNAL_SLOW=1 for its slowest test too
 #   XEDA_TESTS_OPENXC7=1  FPGA builds by the real openXC7 1.0 toolchain (tests/test_openxc7_real.py)
+#   XEDA_TESTS_OPENROAD=1  the OpenROAD flows run by a real `openroad`
+#     (tests/test_openroad_real.py); the tests that load a platform need the PDK store below too
 #   XEDA_TESTS_YOSYS_TCL=1  Tcl scripts run by a real `yosys` with Tcl support: the one on PATH
 #     (tests/test_yosys_asic_tcl.py). Most builds of OSS CAD Suite have none.
 #   XEDA_TESTS_PDK_ROOT=<directory>  each bundled platform against its real PDK files, in a PDK
@@ -1089,6 +1092,39 @@ def require_openxc7() -> Path:
         if probe is not None and not _command_succeeds(probe):
             pytest.fail(f"XEDA_TESTS_OPENXC7 is set, but `{' '.join(probe)}` fails")
     return prefix
+
+
+@lru_cache(maxsize=None)
+def _probe_openroad(path_variable: str) -> bool:
+    """Run `openroad -version` and then a one-line script the way the flows start the tool
+    (`-no_init -no_splash -exit`), in a temporary directory. The cache key is the value of `PATH`,
+    so a different `PATH` finds a different `openroad`."""
+    if not _command_succeeds(["openroad", "-version"]):
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "probe.tcl"
+        script.write_text("puts xeda_probe\n")
+        return _command_succeeds(
+            ["openroad", "-no_init", "-no_splash", "-exit", str(script)], cwd=tmp
+        )
+
+
+def require_openroad() -> Path:
+    """Run the OpenROAD flows against the real tool only when asked (`XEDA_TESTS_OPENROAD=1`: a
+    chain of the flows takes minutes), and then insist on an `openroad` on `PATH` that runs.
+    Return its path. Its own variable, not `XEDA_TESTS_REQUIRE_TOOLS`: the tox legs of CI require
+    the general tools and have no OpenROAD."""
+    if not _opted_in("XEDA_TESTS_OPENROAD"):
+        pytest.skip("set XEDA_TESTS_OPENROAD=1 to run the tests that run OpenROAD")
+    found = shutil.which("openroad")
+    if found is None:
+        pytest.fail("XEDA_TESTS_OPENROAD is set, but no `openroad` is on PATH")
+    if not _probe_openroad(os.environ.get("PATH", "")):
+        pytest.fail(
+            f"XEDA_TESTS_OPENROAD is set, but the `openroad` on PATH ({found}) does not run: "
+            "`openroad -version` or a script with `-no_init -no_splash -exit` fails"
+        )
+    return Path(found)
 
 
 @lru_cache(maxsize=None)
