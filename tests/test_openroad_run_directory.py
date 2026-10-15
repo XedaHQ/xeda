@@ -95,6 +95,30 @@ def test_a_link_at_a_written_name_is_replaced_by_a_regular_file(launched):
     assert list(outside_dir.iterdir()) == []
 
 
+def test_a_link_at_the_name_of_a_numbered_report_is_removed(launched):
+    """Every few iterations, the global router writes `probe-<n>.rpt` beside `probe.rpt`, and
+    the detailed router `probe.rpt-<n>.rpt`. A link that an earlier tool left at such a name is
+    removed before the process starts, and an entry of another name stays."""
+    numbered = ("probe-5.rpt", "probe.rpt-10.rpt")
+    targets = {name: launched.outside_file(name) for name in numbered}
+
+    def leave_links(flow) -> None:
+        reports = flow.run_path / "reports"
+        reports.mkdir(exist_ok=True)
+        for name, target in targets.items():
+            (reports / name).symlink_to(target)
+        (reports / "probe-old.rpt").write_text("kept\n")
+
+    launched.probes.netlist.before_run = leave_links
+    flow = launched.launch()
+    assert flow is not None and flow.succeeded
+    reports = launched.run_directory() / "reports"
+    for name in numbered:
+        assert not (reports / name).is_symlink() and not (reports / name).exists(), name
+    assert [target.read_text() for target in targets.values()] == ["outside\n"] * 2
+    assert (reports / "probe-old.rpt").read_text() == "kept\n"
+
+
 def test_a_link_at_the_name_of_the_failed_database_is_replaced_by_a_regular_file(
     launched, monkeypatch
 ):

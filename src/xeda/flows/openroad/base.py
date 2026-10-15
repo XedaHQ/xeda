@@ -524,6 +524,26 @@ class OpenroadStage(AsicPlatformFlow, Flow):
                 self.run_directory.writable(parent).mkdir(exist_ok=True)
         return self.run_directory.writable(relative)
 
+    def _numbered_reports(self, writes: Sequence[str | os.PathLike]) -> List[Path]:
+        """Return the numbered copies of the reports in `writes` that an earlier run left.
+
+        Every few iterations, the global router writes `<name>-<n>.rpt` beside a report
+        `<name>.rpt`, and the detailed router writes `<name>.rpt-<n>.rpt`. The names depend on
+        the iterations that the process reaches, so they cannot be listed before it starts. Only
+        an entry that exists can be a link, so the entries that exist are the ones to make
+        ready. Call it after the listed writes are ready: then no directory above is a link."""
+        found: List[Path] = []
+        for path in writes:
+            relative = self._relative_to_run(path)
+            directory = Path(self.run_path) / relative.parent
+            if relative.suffix != ".rpt" or directory.is_symlink() or not directory.is_dir():
+                continue
+            stems = "|".join(re.escape(name) for name in (relative.stem, relative.name))
+            numbered = re.compile(f"(?:{stems})-[0-9]+\\.rpt")
+            with os.scandir(directory) as entries:
+                found += [relative.parent / e.name for e in entries if numbered.fullmatch(e.name)]
+        return found
+
     def run_openroad(
         self,
         driver: str,
@@ -537,12 +557,15 @@ class OpenroadStage(AsicPlatformFlow, Flow):
         `metrics` is the file that OpenROAD writes its metrics to, and `writes` lists the other
         files that the script writes (databases, SDC files, reports, the failed database). Xeda
         makes each of them ready before OpenROAD starts (`_guard_write`), since the tool follows
-        a link that it finds at one of those names. The script is `<driver>.tcl` and the log is
+        a link that it finds at one of those names. The numbered copies of a report that the
+        routers write are made ready too (`_numbered_reports`). The script is `<driver>.tcl` and the log is
         `<driver>.log`, both in the run directory. The log goes through `utils.live_log`, so
         OpenROAD's own `-log` is not used."""
         self.remove_failed_odb()
         self.bind_template_values()
         for path in (metrics, *writes):
+            self._guard_write(path)
+        for path in self._numbered_reports(writes):
             self._guard_write(path)
         script = self.copy_from_template(
             f"drivers/{driver}.tcl.j2",
