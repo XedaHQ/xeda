@@ -277,6 +277,9 @@ setundef -zero
 setundef -one
 {%- endif %}
 {%- if abc_new %}
+{%- if asic.abc_new_default_script %}
+scratchpad -set abc9.script {{asic.abc_new_default_script|tcl_word}}
+{%- endif %}
 abc_new{% if asic.abc_new_script %} -script {{asic.abc_new_script|tcl_word}}{% endif %}
 {%- else %}
 abc{% if asic.abc_script %} -script {{asic.abc_script|path}}{% endif %}

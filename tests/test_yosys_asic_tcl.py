@@ -281,15 +281,28 @@ def test_abc_new_maps_with_the_script_file_written_for_it_given_with_script(tmp_
     assert (run_dir / "abc_speed_gia_only.script").is_file()
 
 
-def test_wrapped_operators_keep_the_script_they_carry_so_abc_new_gets_no_script_option(
+def test_wrapped_operators_keep_the_script_they_carry_and_the_rest_gets_the_gia_only_script(
     tmp_path, monkeypatch
 ):
     """A `-script` replaces the script that each wrapped operator carries in its `abc9_script`
-    attribute, so wrapping gives `abc_new` none, and writes no script file."""
+    attribute, so wrapping gives `abc_new` none. The rest of the design maps with the gia-only
+    script, set as the default of `abc_new` (`abc9.script`) before it runs, as
+    OpenROAD-flow-scripts does. Without it, yosys drops its own default script when a path in
+    the arguments contains `-script` (YosysHQ/yosys#6320), and ABC maps to LUTs."""
     run_dir, calls = _render(tmp_path, monkeypatch, **WRAPPED)
     (abc_new,) = _words(calls, "abc_new")
-    assert "-script" not in abc_new and not _words(calls, "scratchpad")
-    assert not (run_dir / ABC_NEW_SCRIPT).exists()
+    assert "-script" not in abc_new
+    scratchpad = ["scratchpad", "-set", "abc9.script", ABC_NEW_SCRIPT]
+    assert _segment(calls, scratchpad, 2) == [scratchpad, abc_new]
+    assert (run_dir / ABC_NEW_SCRIPT).read_text() == ABC_SPEED_GIA_ONLY
+
+
+def test_a_script_of_the_user_replaces_the_scripts_of_wrapped_operators_too(tmp_path, monkeypatch):
+    script = tmp_path / "mine.abc"
+    script.write_text("&st\n&nf\n")
+    _, calls = _render(tmp_path, monkeypatch, abc_script=str(script), **WRAPPED)
+    (abc_new,) = _words(calls, "abc_new")
+    assert abc_new[1:3] == ["-script", str(script)] and not _words(calls, "scratchpad")
 
 
 def test_abc_new_alone_keeps_the_rest_of_the_mapping(tmp_path, monkeypatch):
