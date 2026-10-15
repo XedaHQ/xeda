@@ -1744,8 +1744,10 @@ OpenROAD process and hands an OpenROAD database (``.odb``) and an SDC file to th
 
 ``yosys`` is the default producer of the netlist, so ``xeda run openroad`` and
 ``xeda run yosys+openroad`` plan the same five flows. A changed setting of a late flow reruns only
-that flow and the flows after it. Every flow needs a ``platform`` (see :doc:`platforms`), and the
-PDK files of the platform must be in the PDK store (``xeda pdk install nangate45``).
+that flow and the flows after it. A shared setting, such as ``wire_rc`` or ``platform``, belongs to
+every flow of the chain, so its change reruns all of them. Every flow needs a ``platform`` (see
+:doc:`platforms`), and the PDK files of the platform must be in the PDK store
+(``xeda pdk install nangate45``).
 
 The flows follow the order of the stages of OpenROAD-flow-scripts. Where a setting has the default
 of OpenROAD-flow-scripts, of the tool or of the platform, its description says so. Run

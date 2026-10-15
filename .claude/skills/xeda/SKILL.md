@@ -263,13 +263,14 @@ constraints, programming) and for `vivado_impl`.
 ASIC place and route: `xeda run openroad design.yaml` plans `yosys`, `openroad_place`,
 `openroad_cts`, `openroad_grt` and `openroad`, one OpenROAD process each. Every flow needs
 `platform`, and the PDK files must be installed (`xeda pdk path <platform> --json`). A changed
-setting of a late flow reruns only that flow and the ones after it. The database carries the
-routing layers, the layer adjustments, `resize.opt_config`, `resize.global_sizing` and
-`design.dont_touch`: set them under `flows.openroad_place` only. Physical settings take units
-(`clock.period: 0.65 ns`, `floorplan.core_margin: 2 um`). `openroad` rejects a negative slack
-(`fail_timing`), design rule violations (`fail_drc`) and antenna violations left after the repair
-(`fail_antenna`), all on by default: `FlowFailed` with `ReportedFailure`, reported again without a
-tool run until something changes. A failed stage leaves `<flow>-failed.odb` in its run directory.
+setting of a late flow reruns only that flow and the ones after it; a shared setting (`wire_rc`,
+`platform`) reruns every flow. The database carries the routing layers, the layer adjustments,
+`resize.opt_config`, `resize.global_sizing` and `design.dont_touch`: set them under
+`flows.openroad_place` only. Physical settings take units (`clock.period: 0.65 ns`,
+`floorplan.core_margin: 2 um`). `openroad` rejects a negative slack (`fail_timing`), design rule
+violations (`fail_drc`) and antenna violations left after the repair (`fail_antenna`), all on by
+default: `FlowFailed` with `ReportedFailure`, reported again without a tool run until something
+changes. A failed stage leaves `<flow>-failed.odb` in its run directory.
 `examples/asic/gcd/gcd.yaml` is a working design file for nangate45.
 
 ## Results
