@@ -509,10 +509,15 @@ def words(variables: Mapping[str, str], name: str) -> list[str]:
 
 def design_sources(variables: Mapping[str, str]) -> list[Any]:
     """Return the `rtl.sources` of the design: the ORFS source files in their order, then each
-    file of an include directory as a header (xeda finds the `-I` directories from the headers)."""
+    file of an include directory as a header (xeda finds the `-I` directories from the headers).
+    With the slang front end, every ORFS source file is SystemVerilog, since ORFS reads all of
+    them with one `read_slang`."""
     files = words(variables, "VERILOG_FILES")
     listed = {str(Path(f).resolve()) for f in files}
     sources: list[Any] = list(files)
+    if variables.get("SYNTH_HDL_FRONTEND") == "slang":
+        # ORFS gives every file to one `read_slang`, the Verilog files too
+        sources = [{"file": f, "type": "SystemVerilog"} for f in files]
     for directory in words(variables, "VERILOG_INCLUDE_DIRS"):
         for path in sorted(Path(directory).iterdir()):
             kind = _HEADER_TYPES.get(path.suffix)

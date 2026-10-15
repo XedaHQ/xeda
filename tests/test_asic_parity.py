@@ -255,10 +255,8 @@ def test_the_design_sources_list_each_file_of_an_include_directory_as_a_header(
 ) -> None:
     ibex = make_vars(tmp_path, "nangate45/ibex")
     sources = tool.design_sources(ibex)
-    typed = {Path(s["file"]).name: s["type"] for s in sources if isinstance(s, dict)}
-    assert typed == {"prim_assert_dummy_macros.svh": "SVHeader", "prim_assert.sv": "SVHeader"}
-    plain = [s for s in sources if isinstance(s, str)]
-    assert plain == ibex["VERILOG_FILES"].split()
+    headers = {Path(s["file"]).name: s["type"] for s in sources if s["type"].endswith("Header")}
+    assert headers == {"prim_assert_dummy_macros.svh": "SVHeader", "prim_assert.sv": "SVHeader"}
     jpeg = tool.design_sources(make_vars(tmp_path, "nangate45/jpeg"))
     assert [(Path(s["file"]).name, s["type"]) for s in jpeg if isinstance(s, dict)] == [
         ("dct_cos_table.v", "VerilogHeader")
@@ -268,11 +266,22 @@ def test_the_design_sources_list_each_file_of_an_include_directory_as_a_header(
     )
 
 
+def test_with_the_slang_front_end_every_orfs_source_is_systemverilog(tmp_path: Path) -> None:
+    """ORFS gives every file of `VERILOG_FILES` to one `read_slang`, the Verilog files too
+    (ibex's `prim_clock_gating.v`, which a SystemVerilog module instantiates). xeda reads every
+    SystemVerilog source in one `read_slang`, so each file is typed `SystemVerilog`."""
+    ibex = make_vars(tmp_path, "nangate45/ibex")
+    listed = [s for s in tool.design_sources(ibex) if not s["type"].endswith("Header")]
+    assert [s["file"] for s in listed] == ibex["VERILOG_FILES"].split()
+    assert {s["type"] for s in listed} == {"SystemVerilog"}
+    assert any(s["file"].endswith("prim_clock_gating.v") for s in listed)
+
+
 def test_the_sources_keep_the_order_of_orfs(tmp_path: Path) -> None:
     variables = make_vars(tmp_path, "nangate45/ibex")
     variables["VERILOG_FILES"] = " ".join(reversed(variables["VERILOG_FILES"].split()))
-    plain = [s for s in tool.design_sources(variables) if isinstance(s, str)]
-    assert plain == variables["VERILOG_FILES"].split()
+    listed = [s["file"] for s in tool.design_sources(variables) if s["type"] == "SystemVerilog"]
+    assert listed == variables["VERILOG_FILES"].split()
 
 
 def _config(**given: Any):
