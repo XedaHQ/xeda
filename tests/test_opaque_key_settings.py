@@ -706,6 +706,27 @@ ORDINARY_DICTIONARIES = {
     "module name: nested by design",
     "xeda.flows.vivado.vivado_synth.RunOptions.steps": "step names, then `ARGS` and `TCL` tables: "
     "`synth.steps.SYNTH_DESIGN.ARGS.MAX_BRAM` is a path into them by design",
+    "xeda.flows.openroad.base.WireRcSettings.layers": "routing layer names, which have no dots",
+    "xeda.flows.openroad.base.WireRcSettings.vias": "via names of the technology LEF file, which "
+    "have no dots",
+    "xeda.flows.openroad.final_groups.IrDropDecap.cells": "decap cell names, which have no dots",
+    "xeda.flows.openroad.final_groups.IrDropGroup.instance_power": "instance names. A name that "
+    "a flattened hierarchy gives holds dots and cannot be given yet: the opaque keys of a nested "
+    "group are not supported",
+    "xeda.flows.openroad.final_groups.IrDropGroup.nets": "supply net names, such as `VDD`, which "
+    "have no dots",
+    "xeda.flows.openroad.final_groups.IrDropGroup.vsrc_files": "supply net names, such as `VDD`, "
+    "which have no dots",
+    "xeda.flows.openroad.final_groups.NdrGroup.assignments": "net names. A name that a flattened "
+    "hierarchy gives holds dots and cannot be given yet: the opaque keys of a nested group are "
+    "not supported",
+    "xeda.flows.openroad.final_groups.NdrGroup.rules": "names of the rules, which the user picks",
+    "xeda.flows.openroad.final_groups.NdrRule.spacing": "routing layer names, which have no dots",
+    "xeda.flows.openroad.final_groups.NdrRule.width": "routing layer names, which have no dots",
+    "xeda.flows.openroad.place_groups.RoutingGroup.layer_adjustments": "routing layer names or "
+    "ranges such as `metal2-metal3`, which have no dots",
+    "xeda.flows.openroad.place_pdn.PdnConnect.split_cuts": "routing layer names, which have no "
+    "dots",
 }
 
 
