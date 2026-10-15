@@ -444,7 +444,7 @@ def test_each_platform_floorplans_a_four_cell_netlist(name, tmp_path):
 # ---------------------------------------------------------------------------- gcd through the chain
 
 #: The design `gcd` of OpenROAD-flow-scripts on nangate45, with the settings of its configuration.
-GCD_DESIGN = Path(__file__).parent / "resources" / "openroad" / "gcd_nangate45.yaml"
+GCD_DESIGN = Path(__file__).parent.parent / "examples" / "asic" / "gcd" / "gcd.yaml"
 #: The clock period of the ORFS configuration, which these flows do not meet on gcd.
 ORFS_PERIOD = "0.25ns"
 
@@ -592,9 +592,7 @@ def test_the_chain_writes_nothing_outside_its_run_root(tmp_path, monkeypatch):
     store = require_gcd_tools()
     parent = tmp_path / "world"
     work = parent / "work"
-    (work / "gcd").mkdir(parents=True)
-    shutil.copy(GCD_DESIGN, work / GCD_DESIGN.name)
-    shutil.copy(GCD_DESIGN.parent / "gcd" / "gcd.v", work / "gcd" / "gcd.v")
+    shutil.copytree(GCD_DESIGN.parent, work)
     pdks = parent / "pdks"
     shutil.copytree(store, pdks, symlinks=True)
     home = parent / "home"
