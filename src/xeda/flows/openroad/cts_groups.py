@@ -22,6 +22,7 @@ from typing import Annotated, ClassVar, Literal, Optional, Tuple
 
 from ...dataclass import Field, tier
 from ...flow.settings_group import Flag, SettingsGroup
+from ...units import Bounds, Time
 
 __all__ = [
     "BalanceGroup",
@@ -414,10 +415,10 @@ class CharacterizationGroup(SettingsGroup):
         Flag("cap_steps", "-cap_steps", "value"),
     )
 
-    max_slew: Optional[Positive] = Field(
+    max_slew: Optional[Annotated[Time, Bounds(gt="0 ns")]] = Field(
         None,
-        description="The largest slew that the characterization tests, in nanoseconds "
-        "(`-max_slew`). The flow converts it to seconds, which the command takes. Set it with "
+        description="The largest slew that the characterization tests, a time with a unit, such "
+        "as `250 ps` (`-max_slew`). The flow converts it to seconds, which the command takes. Set it with "
         "`max_cap`: the tool uses the limits only when both are set, and takes both from the "
         "Liberty files when one is missing. It ignores a single limit without a message "
         "(`TechChar.cpp`, seen with OpenROAD v2.0-26132-g6b305a712).",

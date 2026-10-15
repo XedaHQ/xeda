@@ -18,7 +18,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Dict, List, Optional, Sequence
+from typing import Annotated, Any, ClassVar, Dict, List, Optional, Sequence, TypeVar
 
 from ...dataclass import (
     Field,
@@ -35,7 +35,7 @@ from ...flow.settings_group import render_flags
 from ...platforms.model import PlatformModel, WireRc
 from ...proc_utils import ProcessTimeout
 from ...tool import NonZeroExitCode, Tool
-from ...units import Time, convert_unit
+from ...units import Quantity, Time, convert_unit
 from ...utils import tcl_word, unique
 from .groups import FIX_FLAGS, comma_word
 from .metrics import MetricsError, load_metrics
@@ -61,6 +61,8 @@ __all__ = [
 ]
 
 log = logging.getLogger(__name__)
+
+Q = TypeVar("Q", bound=Quantity)
 
 #: The roles of the platform files that every OpenROAD process opens: the Liberty files of the
 #: corner and, to read a netlist or a database, the LEF files.
@@ -110,17 +112,24 @@ _LIBERTY_TIME_UNIT = re.compile(
 )
 
 
+def _quantity(value: Any, kind: type[Q]) -> Q:
+    """Return `value` if it is a quantity of the type `kind`. A plain number has no unit, so a
+    script never gets one from a setting: this is a bug of the caller."""
+    if not isinstance(value, kind):
+        raise TypeError(
+            f"expected a {kind.kind} with a unit, such as `{kind.example}`, for a Tcl script, "
+            f"got {value!r}"
+        )
+    return value
+
+
 def to_lib_time(time: Any, unit: str) -> str:
     """Return the time `time` as a Tcl number of the time `unit` of the Liberty files (`1ns`,
     `1ps`, `10ps`). A setting for a time has a unit of its own (`5 ns`, `250 ps`), and a command
     of OpenROAD takes the unit of the Liberty files.
 
-    A plain number of nanoseconds is still accepted for the settings that are not times with
-    units yet. The result has nine decimals at most: `0.25 ns` is `250.0` in `1ps`."""
-    if isinstance(time, (int, float)) and not isinstance(time, bool) and math.isfinite(time):
-        time = Time.of(time, "ns")
-    if not isinstance(time, Time):
-        raise TypeError(f"expected a time for a Tcl script, got {time!r}")
+    `0.25 ns` is `250.0` in `1ps`. The result has nine decimals at most."""
+    time = _quantity(time, Time)
     found = _LIBERTY_TIME_UNIT.fullmatch(unit)
     scale = float(found["scale"]) if found is not None and found["scale"] else 1.0
     if found is None or scale <= 0:
@@ -133,23 +142,12 @@ def fraction_of(time: Time, fraction: float) -> Time:
     return Time.of(fraction * time.to("ns"), "ns")
 
 
-def to_seconds(nanoseconds: Any) -> str:
-    """Return a time given in nanoseconds as a Tcl number of seconds. A setting for a time is in
-    nanoseconds on every platform. A few commands of OpenROAD take seconds and not the unit of
-    the Liberty files (`set_global_sizing_config -setup_slack_margin`).
+def to_seconds(time: Any) -> str:
+    """Return a time as a Tcl number of seconds. A few commands of OpenROAD take seconds and not
+    the unit of the Liberty files (`set_global_sizing_config -setup_slack_margin`).
 
-    The result has twelve significant digits, so the noise of the conversion does not show:
     `0.25 ns` is `2.5e-10`."""
-    if (
-        isinstance(nanoseconds, bool)
-        or not isinstance(nanoseconds, (int, float))
-        or not math.isfinite(nanoseconds)
-    ):
-        raise TypeError(
-            f"expected a finite number of nanoseconds for a Tcl script, got {nanoseconds!r}"
-        )
-    converted = convert_unit(nanoseconds, to_unit="second", from_unit="nanosecond")
-    return tcl_number(float(f"{converted:.12g}"))
+    return tcl_number(_quantity(time, Time).to("s"))
 
 
 def _capacitance(picofarads: Any, unit: str) -> str:

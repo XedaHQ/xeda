@@ -14,6 +14,7 @@ from typing import Annotated, Any, ClassVar, Literal, Optional, Tuple, Union
 
 from ...dataclass import Field, XedaBaseModel, tier
 from ...flow.settings_group import Flag, SettingsGroup
+from ...units import Time
 from .groups import RepairDesign, RepairTiming, SetupMove, differing_leaves
 from .place_pdn import PdnConnect, PdnGrid
 
@@ -1974,12 +1975,12 @@ class GlobalSizingGroup(SettingsGroup):
         "(`-include_clock_network`). Off, it leaves them alone.",
         json_schema_extra=tier("expert"),
     )
-    setup_slack_margin: Optional[Finite] = Field(
+    setup_slack_margin: Optional[Time] = Field(
         None,
-        description="The worst setup slack at which the global sizing stops, as a time in "
-        "nanoseconds (`-setup_slack_margin`). The command takes seconds, and not the time unit "
-        "of the Liberty files as the margins of `repair_timing` do, so the flow converts the "
-        "value. Unset: 0.",
+        description="The worst setup slack at which the global sizing stops, a time with a "
+        "unit, such as `50 ps` (`-setup_slack_margin`). The command takes seconds, and not the "
+        "time unit of the Liberty files as the margins of `repair_timing` do, so the flow "
+        "converts the value. Unset: 0.",
         json_schema_extra=tier("expert"),
     )
     max_iterations: Optional[int] = Field(
@@ -2132,12 +2133,12 @@ class ArithSwapGroup(SettingsGroup):
         "lists them as not available yet. Unset: `setup`.",
         json_schema_extra=tier("advanced"),
     )
-    slack_threshold: Optional[Finite] = Field(
+    slack_threshold: Optional[Time] = Field(
         None,
-        description="The paths with a slack up to this value count as critical, as a time in "
-        "nanoseconds (`-slack_threshold`). The flow converts it to the time unit of the Liberty "
-        "files. A positive value adds paths with a little positive slack. Unset: the default "
-        "of the tool, 0.",
+        description="The paths with a slack up to this value count as critical, a time with a "
+        "unit, such as `50 ps` (`-slack_threshold`). The flow converts it to the time unit of "
+        "the Liberty files. A positive value adds paths with a little positive slack. Unset: "
+        "the default of the tool, 0.",
         json_schema_extra=tier("advanced"),
     )
 

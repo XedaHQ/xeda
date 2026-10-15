@@ -669,7 +669,7 @@ def test_the_repair_of_the_timing_follows_its_settings(tmp_path):
             "repair": {
                 "timing": {
                     "fix": "setup",
-                    "setup_margin": 0.1,
+                    "setup_margin": "0.1 ns",
                     "tns_end_percent": 50,
                     "last_gasp": False,
                     "sequence": ["unbuffer", "sizeup"],
@@ -684,7 +684,7 @@ def test_the_repair_of_the_timing_follows_its_settings(tmp_path):
 
 
 def test_the_repair_margins_are_written_in_the_time_unit_of_the_platform(tmp_path):
-    flow = grt_flow(tmp_path, {"repair": {"timing": {"setup_margin": 0.25}}})
+    flow = grt_flow(tmp_path, {"repair": {"timing": {"setup_margin": "0.25 ns"}}})
     flow.platform_model = flow.platform_model.model_copy(update={"time_unit": "1ps"})
     found = stage(render(flow))
     assert "-setup_margin 250.0 -hold_margin 0.0" in words(found, "repair_timing")[0]
@@ -742,7 +742,7 @@ def test_the_polish_of_the_worst_slack_follows_the_setting_then_the_platform_the
 def test_the_polish_keeps_the_setup_margin_and_the_footprint(tmp_path):
     found = body(
         tmp_path,
-        {"repair": {"wns_polish": True, "timing": {"setup_margin": 0.1}}},
+        {"repair": {"wns_polish": True, "timing": {"setup_margin": "0.1 ns"}}},
         model={"match_cell_footprint": True},
     )
     assert (
@@ -888,7 +888,7 @@ def test_a_method_that_needs_no_diode_still_skips_where_the_platform_has_none(tm
         {"repair": {"design": {"max_wire_length": 100, "slew_margin_percent": 10}}},
         {"repair": {"design": {"reroute": True}}},
         {"repair": {"timing": {"enabled": False}}},
-        {"repair": {"timing": {"fix": "hold", "hold_margin": 0.05, "max_buffer_percent": 10}}},
+        {"repair": {"timing": {"fix": "hold", "hold_margin": "0.05 ns", "max_buffer_percent": 10}}},
         {"repair": {"timing": {"phases": ["WNS", "REROUTE"]}}},
         {"antenna": {"repair": False}},
         {"antenna": {"iterations": 1, "diode_cell": "DIODE_X1"}},
@@ -1055,7 +1055,7 @@ def test_a_valid_set_of_settings_plans_the_three_flows(tmp_path):
     "texts, expected",
     [
         (
-            ["repair.strategy=none", "repair.timing.setup_margin=0.1"],
+            ["repair.strategy=none", "repair.timing.setup_margin=0.1 ns"],
             "`repair.timing.setup_margin` has no effect with `repair.strategy: none`",
         ),
         (

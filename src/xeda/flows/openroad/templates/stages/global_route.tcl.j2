@@ -69,7 +69,7 @@ proc xeda_global_route {} {
     estimate_parasitics -global_routing
 {% endif %}
 {% if P.wns_polish %}
-    repair_timing {{ ["-setup", "-sequence \"vt_swap reroute\"", "-skip_last_gasp", "-repair_tns 0", "-setup_margin " ~ (rt.setup_margin|lib_time) if rt.setup_margin else "", "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
+    repair_timing {{ ["-setup", "-sequence \"vt_swap reroute\"", "-skip_last_gasp", "-repair_tns 0", "-setup_margin " ~ (rt.setup_margin|lib_time) if (rt.setup_margin|to("ns")) != 0 else "", "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
 {% elif rep.recover_power_percent is not none %}
     {{ ["global_route -start_incremental", allow, origin]|select|join(" ") }}
     repair_timing {{ ["-recover_power " ~ (rep.recover_power_percent|tcl_number), "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}

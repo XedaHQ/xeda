@@ -414,7 +414,7 @@ def test_without_the_repair_of_the_timing_the_stage_checks_the_placement_once(tm
 def test_the_repair_follows_its_settings(tmp_path):
     repair = {
         "fix": "hold",
-        "hold_margin": 0.02,
+        "hold_margin": "0.02 ns",
         "match_cell_footprint": True,
     }
     line = command(body(tmp_path, {"repair": repair}), "repair_timing")
@@ -448,7 +448,7 @@ def test_the_phases_of_the_repair_are_words_with_spaces_between_them(tmp_path):
 def test_the_repair_margins_are_written_in_the_time_unit_of_the_platform(
     tmp_path, unit, setup, hold
 ):
-    repair = {"setup_margin": 0.05, "hold_margin": 0.02}
+    repair = {"setup_margin": "0.05 ns", "hold_margin": "0.02 ns"}
     flow = cts_flow(tmp_path, {"repair": repair}, model={"time_unit": unit})
     line = command(stage(render(flow)), "repair_timing")
     assert f"-setup_margin {setup} -hold_margin {hold}" in line
@@ -614,10 +614,10 @@ def test_the_default_stage_has_no_configuration_call(tmp_path):
     [
         ({"slew_steps": 5}, '-slew_steps "5"'),
         ({"cap_steps": 12}, '-cap_steps "12"'),
-        ({"max_slew": 0.25}, "-max_slew 2.5e-10"),
+        ({"max_slew": "0.25 ns"}, "-max_slew 2.5e-10"),
         ({"max_cap": 0.05}, "-max_cap 5e-14"),
         (
-            {"max_slew": 0.2, "max_cap": 0.1, "slew_steps": 7, "cap_steps": 20},
+            {"max_slew": "0.2 ns", "max_cap": 0.1, "slew_steps": 7, "cap_steps": 20},
             '-max_slew 2e-10 -max_cap 1e-13 -slew_steps "7" -cap_steps "20"',
         ),
     ],
@@ -636,7 +636,9 @@ def test_the_characterization_of_the_buffers_is_configured_before_the_tree(
 
 @pytest.mark.parametrize("unit", ["1ns", "1ps"])
 def test_the_characterization_takes_seconds_whatever_the_unit_of_the_platform(tmp_path, unit):
-    flow = cts_flow(tmp_path, {"characterization": {"max_slew": 0.1}}, model={"time_unit": unit})
+    flow = cts_flow(
+        tmp_path, {"characterization": {"max_slew": "0.1 ns"}}, model={"time_unit": unit}
+    )
     found = stage(render(flow))
     assert command(found, "configure_cts_characterization") == (
         "configure_cts_characterization -max_slew 1e-10"
@@ -711,7 +713,7 @@ def test_the_standalone_repair_of_the_clock_nets_takes_a_wire_length(tmp_path, r
         {"tree": {"static_layers": 1, "obstruction_aware": False}},
         {"balance": {"delay_buffer_derate": 0.5, "dummy_load": False}},
         {"balance": {"insertion_delay": False}},
-        {"characterization": {"max_slew": 0.2, "max_cap": 0.1}},
+        {"characterization": {"max_slew": "0.2 ns", "max_cap": 0.1}},
         {"characterization": {"slew_steps": 5, "cap_steps": 10}},
         {"clock_nets": ["clk"]},
         {"skip_nets": ["rst"]},
@@ -884,7 +886,7 @@ def test_a_netlist_source_of_the_design_displaces_the_synthesis(tmp_path):
             "`tree.style: simple_segments` needs `tree.buffer_distance`",
         ),
         (
-            ["repair.enabled=false", "repair.setup_margin=0.1"],
+            ["repair.enabled=false", "repair.setup_margin=0.1 ns"],
             "`repair.setup_margin` has no effect while `repair.enabled` is false",
         ),
         (

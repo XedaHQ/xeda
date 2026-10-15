@@ -16,6 +16,7 @@ from xeda.flow.settings_group import SettingsGroup, render_flags
 from xeda.flow_runner.settings_layers import compose_flow_settings
 from xeda.flows.openroad import OpenroadCts, OpenroadGrt, OpenroadPlace
 from xeda.flows.openroad import groups
+from xeda.units import Quantity, Time
 from xeda.utils import tcl_word
 
 from .openroad_utils import OPENROAD_FLOWS
@@ -131,7 +132,10 @@ def test_the_last_gasp_that_is_off_prints_its_skip_flag():
 
 def test_the_values_of_repair_timing_print_with_their_flags():
     timing = groups.RepairTiming(
-        setup_margin=0.25, hold_margin=0.5, tns_end_percent=40, max_buffer_percent=30
+        setup_margin=Time("0.25 ns"),
+        hold_margin=Time("0.5 ns"),
+        tns_end_percent=40,
+        max_buffer_percent=30,
     )
     words = render(timing)
     assert '-repair_tns "40.0"' in words and '-max_buffer_percent "30.0"' in words
@@ -173,23 +177,29 @@ def test_repair_timing_refuses_a_limit_out_of_range(name, value):
         groups.RepairTiming(**{name: value})
 
 
-def test_the_margins_are_in_nanoseconds_and_the_template_renders_them():
-    """A margin is in nanoseconds on every platform, so a design file means the same on a ps
-    platform and a ns platform. `render_flags` prints values as given, so the margins have no
-    flag: the template converts them to the time unit of the Liberty files."""
+def test_the_margins_are_times_with_units_and_the_template_renders_them():
+    """A margin is a time with a unit, so a design file means the same on a ps platform and a ns
+    platform. `render_flags` prints values as given, so the margins have no flag: the template
+    converts them to the time unit of the Liberty files."""
     printed = {flag.field for flag in groups.RepairTiming.FLAGS}
     assert not printed & {"setup_margin", "hold_margin"}
-    timing = groups.RepairTiming(setup_margin=0.25, hold_margin=0.5)
+    timing = groups.RepairTiming(setup_margin=Time("0.25 ns"), hold_margin=Time("0.5 ns"))
     assert "_margin" not in render(timing)
     for name in ("setup_margin", "hold_margin"):
-        description = groups.RepairTiming.model_fields[name].description
-        assert ", in nanoseconds." in description or " in nanoseconds." in description
+        assert "a time with a unit" in groups.RepairTiming.model_fields[name].description
 
 
-def test_no_time_value_of_a_group_is_printed_by_render_flags():
-    """A time leaf is in nanoseconds. Only the template can convert it, so no group prints one."""
-    from xeda.flow.settings_group import SettingsGroup
+def holds_quantity(annotation) -> bool:
+    """Whether the annotation is a quantity type, or has one inside (an `Optional`, an
+    `Annotated`, a `list` or a `tuple` of it)."""
+    if isinstance(annotation, type) and issubclass(annotation, Quantity):
+        return True
+    return any(holds_quantity(inner) for inner in get_args(annotation))
 
+
+def test_no_quantity_of_a_group_is_printed_by_render_flags():
+    """A quantity has a unit of its own. Only the template can convert it to the unit that the
+    tool takes, so no group prints one."""
     seen = set()
 
     def walk(group_class):
@@ -198,8 +208,7 @@ def test_no_time_value_of_a_group_is_printed_by_render_flags():
         seen.add(group_class)
         printed = {flag.field for flag in group_class.FLAGS}
         for name, info in group_class.model_fields.items():
-            text = (info.description or "").lower()
-            if "nanosecond" in text:
+            if holds_quantity(info.annotation):
                 assert name not in printed, f"{group_class.__qualname__}.{name}"
             inner = info.annotation
             if isinstance(inner, type) and issubclass(inner, SettingsGroup):
@@ -223,8 +232,8 @@ def test_a_move_or_phase_that_the_tool_does_not_know_is_refused_before_any_proce
 @pytest.mark.parametrize(
     "name, value",
     [
-        ("setup_margin", -0.1),
-        ("hold_margin", -1),
+        ("setup_margin", "-0.1 ns"),
+        ("hold_margin", "-1 ns"),
         ("tns_end_percent", -1),
         ("tns_end_percent", 100.5),
         ("max_buffer_percent", 101),
@@ -344,7 +353,7 @@ def refusal_cases() -> Sequence[tuple[str, tuple[str, ...], str]]:
         ),
         (
             "a power recovery with a margin",
-            ("repair.recover_power_percent=20", "repair.setup_margin=0.1"),
+            ("repair.recover_power_percent=20", "repair.setup_margin=0.1 ns"),
             "so `repair.setup_margin` has no effect",
         ),
         (
@@ -409,7 +418,7 @@ def refusal_cases() -> Sequence[tuple[str, tuple[str, ...], str]]:
         ),
         (
             "a hold setting with fix: setup",
-            ("repair.fix=setup", "repair.hold_margin=0.1"),
+            ("repair.fix=setup", "repair.hold_margin=0.1 ns"),
             "`repair.hold_margin` repairs hold, and `repair.fix` is `setup`",
         ),
         (
@@ -445,7 +454,7 @@ def test_repair_design_may_not_reroute_before_the_global_route():
 
 
 def test_the_setup_margin_stays_allowed_with_fix_hold():
-    assert problems(OpenroadCts, "repair.fix=hold", "repair.setup_margin=0.1") == []
+    assert problems(OpenroadCts, "repair.fix=hold", "repair.setup_margin=0.1 ns") == []
 
 
 def test_the_reroute_move_and_phase_are_allowed_after_global_routing():
@@ -477,7 +486,7 @@ def test_two_groups_with_a_problem_each_give_two_problems_in_one_error():
 
 
 def test_a_leaf_that_changed_in_a_disabled_repair_is_refused_naming_the_leaf():
-    message = refused(OpenroadCts, "repair.enabled=false", "repair.setup_margin=0.1")
+    message = refused(OpenroadCts, "repair.enabled=false", "repair.setup_margin=0.1 ns")
     assert "`repair.setup_margin` has no effect while `repair.enabled` is false" in message
 
 
@@ -507,7 +516,7 @@ def test_the_call_sites_of_repair_timing_have_their_own_defaults():
 
 
 def test_a_leaf_changed_in_a_repair_that_is_off_is_refused_naming_the_leaf():
-    message = refused(OpenroadPlace, "resize.repair_timing.setup_margin=0.1")
+    message = refused(OpenroadPlace, "resize.repair_timing.setup_margin=0.1 ns")
     assert (
         "`resize.repair_timing.setup_margin` has no effect while "
         "`resize.repair_timing.enabled` is false" in message
@@ -516,7 +525,7 @@ def test_a_leaf_changed_in_a_repair_that_is_off_is_refused_naming_the_leaf():
         problems(
             OpenroadPlace,
             "resize.repair_timing.enabled=true",
-            "resize.repair_timing.setup_margin=0.1",
+            "resize.repair_timing.setup_margin=0.1 ns",
         )
         == []
     )
@@ -533,7 +542,7 @@ def test_a_leaf_of_the_cleanup_repair_has_no_effect_without_the_repair_mode(mode
     found = problems(
         OpenroadPlace,
         f"floorplan.netlist_cleanup.mode={mode}",
-        "floorplan.netlist_cleanup.repair.setup_margin=0.1",
+        "floorplan.netlist_cleanup.repair.setup_margin=0.1 ns",
         "floorplan.netlist_cleanup.repair.moves.gate_cloning=false",
     )
     assert [key for key, _ in found] == [
@@ -548,7 +557,7 @@ def test_a_disabled_cleanup_repair_reports_each_leaf_once():
         OpenroadPlace,
         "floorplan.netlist_cleanup.mode=none",
         "floorplan.netlist_cleanup.repair.enabled=false",
-        "floorplan.netlist_cleanup.repair.setup_margin=0.1",
+        "floorplan.netlist_cleanup.repair.setup_margin=0.1 ns",
     )
     assert sorted(key for key, _ in found) == [
         "floorplan.netlist_cleanup.repair.enabled",
@@ -812,7 +821,7 @@ def test_the_groups_of_the_placement_accept_their_combinations():
         {"detailed_placement.cell_padding_overrides": [{"masters": ["A"], "top": 1}]},
         "arith_swap.target=Setup",
         "arith_swap.target=speed",
-        {"arith_swap.slack_threshold": float("nan")},
+        {"arith_swap.slack_threshold": "nan ns"},
         {"detailed_placement.improve.max_displacement": [5]},
         {"detailed_placement.improve.max_displacement": [5, -1]},
         "detailed_placement.check=warn",
@@ -820,7 +829,7 @@ def test_the_groups_of_the_placement_accept_their_combinations():
         "tapcell.mode=welltap",
         "input_delay_frac=1",
         "output_delay_frac=-0.1",
-        "input_delay=-1",
+        "input_delay=-1 ns",
     ],
 )
 def test_the_placement_settings_refuse_a_value_out_of_range(item):
@@ -928,7 +937,7 @@ def test_the_flags_of_the_swap_of_arithmetic_modules():
         "arith_swap.enabled=true",
         "arith_swap.path_count=50",
         "arith_swap.target=area",
-        "arith_swap.slack_threshold=0.1",
+        "arith_swap.slack_threshold=0.1 ns",
     ).arith_swap
     # the flow prints the slack threshold itself: it is a time, and the tool takes the unit of
     # the Liberty files
@@ -1180,7 +1189,7 @@ def test_the_global_route_groups_render_their_flags():
         "congestion.iterations=50",
         "congestion.allow=true",
         "antenna.iterations=3",
-        "repair.timing.setup_margin=0.1",
+        "repair.timing.setup_margin=0.1 ns",
     )
     assert render(grt.congestion) == (
         '-congestion_iterations "50" -congestion_report_iter_step "5" -allow_congestion'
@@ -1188,7 +1197,7 @@ def test_the_global_route_groups_render_their_flags():
     assert render(OpenroadGrt.Settings().congestion) == '-congestion_report_iter_step "5"'
     assert render(grt.antenna) == '-iterations "3"'
     assert render(grt.repair.timing) == '-repair_tns "100.0"'
-    assert grt.repair.timing.setup_margin == 0.1
+    assert grt.repair.timing.setup_margin == Time("0.1 ns")
     assert problems(OpenroadGrt, "repair.wns_polish=false", "repair.recover_power_percent=10") == []
 
 

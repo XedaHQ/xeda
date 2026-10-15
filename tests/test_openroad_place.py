@@ -154,21 +154,6 @@ def refusal(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None) ->
 
 
 @pytest.mark.parametrize(
-    "unit, value, text",
-    [
-        ("1ns", 0.25, "0.25"),
-        ("1ns", 5, "5.0"),
-        ("1ps", 0.25, "250.0"),
-        ("1ps", 0.1, "100.0"),
-        ("10ps", 2.5, "250.0"),
-        ("1ps", 0.0, "0.0"),
-    ],
-)
-def test_a_time_in_nanoseconds_is_written_in_the_unit_of_the_library(unit, value, text):
-    assert to_lib_time(value, unit) == text
-
-
-@pytest.mark.parametrize(
     "unit, time, text",
     [
         ("1ns", "0.25 ns", "0.25"),
@@ -195,25 +180,31 @@ def test_a_fraction_of_a_time_is_a_time(period, fraction, text):
     assert to_lib_time(fraction_of(Time(period), fraction), "1ns") == text
 
 
-@pytest.mark.parametrize("value", ["1.0", None, True, float("nan"), float("inf")])
-def test_text_is_never_converted_as_a_time(value):
-    with pytest.raises(TypeError):
+@pytest.mark.parametrize("value", [1.0, 5, "1.0", "5 ns", None, True, float("nan"), float("inf")])
+def test_only_a_time_is_converted_as_a_time(value):
+    with pytest.raises(TypeError, match="a time with a unit"):
         to_lib_time(value, "1ns")
 
 
 @pytest.mark.parametrize(
-    "nanoseconds, text",
-    [(0.25, "2.5e-10"), (0.1, "1e-10"), (5, "5e-09"), (0.0, "0.0"), (-0.3, "-3e-10")],
+    "time, text",
+    [
+        ("0.25 ns", "2.5e-10"),
+        ("0.1 ns", "1e-10"),
+        ("5 ns", "5e-09"),
+        ("0 ns", "0.0"),
+        ("-0.3 ns", "-3e-10"),
+        ("250 ps", "2.5e-10"),
+        ("0.5 us", "5e-07"),
+    ],
 )
-def test_a_time_in_nanoseconds_is_written_in_seconds_where_the_command_takes_seconds(
-    nanoseconds, text
-):
-    assert to_seconds(nanoseconds) == text
+def test_a_time_is_written_in_seconds_where_the_command_takes_seconds(time, text):
+    assert to_seconds(Time(time)) == text
 
 
-@pytest.mark.parametrize("value", ["1.0", None, True, float("nan"), float("inf")])
-def test_text_is_never_converted_as_a_time_in_seconds(value):
-    with pytest.raises(TypeError):
+@pytest.mark.parametrize("value", [1.0, "1.0", "5 ns", None, True, float("nan"), float("inf")])
+def test_only_a_time_is_converted_as_a_time_in_seconds(value):
+    with pytest.raises(TypeError, match="a time with a unit"):
         to_seconds(value)
 
 
@@ -221,7 +212,11 @@ def test_text_is_never_converted_as_a_time_in_seconds(value):
 def test_the_template_filter_uses_the_time_unit_of_the_platform(tmp_path, unit, text):
     flow = place_flow(tmp_path, model={"time_unit": unit})
     flow.bind_template_values()
-    assert flow.jinja_env.from_string("{{ 0.25|lib_time }}").render() == text
+    template = flow.jinja_env.from_string("{{ value|lib_time }}")
+    assert template.render(value=Time("0.25 ns")) == text
+    assert template.render(value=Time("250 ps")) == text
+    with pytest.raises(TypeError, match="a time with a unit"):
+        template.render(value=0.25)
 
 
 def test_a_list_of_numbers_is_a_list_word_made_from_numbers(tmp_path):
@@ -835,7 +830,9 @@ def test_the_netlist_cleanup_repairs_setup_without_parasitics(tmp_path):
 
 def test_the_repair_margins_are_written_in_the_time_unit_of_the_platform(tmp_path):
     settings = {
-        "floorplan": {"netlist_cleanup": {"repair": {"setup_margin": 0.05, "hold_margin": 0.02}}}
+        "floorplan": {
+            "netlist_cleanup": {"repair": {"setup_margin": "0.05 ns", "hold_margin": "0.02 ns"}}
+        }
     }
     for unit, setup, hold in (("1ns", "0.05", "0.02"), ("1ps", "50.0", "20.0")):
         flow = place_flow(tmp_path / unit, settings, model={"time_unit": unit})
@@ -986,7 +983,7 @@ def test_the_swap_of_arithmetic_modules_runs_with_the_defaults_of_the_tool(tmp_p
 
 
 def test_the_options_of_the_swap_reach_both_calls_of_the_command(tmp_path):
-    swap = {"enabled": True, "path_count": 200, "target": "area", "slack_threshold": 0.05}
+    swap = {"enabled": True, "path_count": 200, "target": "area", "slack_threshold": "0.05 ns"}
     flow = place_flow(tmp_path, {"hierarchical": True, "arith_swap": swap})
     script = render(flow)
     expected = 'replace_arith_modules -path_count "200" -target "area" -slack_threshold 0.05'
@@ -1008,7 +1005,7 @@ def test_the_options_of_the_swap_reach_both_calls_of_the_command(tmp_path):
 
 @pytest.mark.parametrize("unit, text", [("1ns", "0.05"), ("1ps", "50.0"), ("10ps", "5.0")])
 def test_the_slack_threshold_of_the_swap_is_in_the_time_unit_of_the_library(tmp_path, unit, text):
-    swap = {"enabled": True, "slack_threshold": 0.05}
+    swap = {"enabled": True, "slack_threshold": "0.05 ns"}
     flow = place_flow(
         tmp_path, {"hierarchical": True, "arith_swap": swap}, model={"time_unit": unit}
     )
@@ -2317,7 +2314,7 @@ def test_the_repair_of_the_timing_after_the_placement_is_off_by_default_and_esti
         tmp_path / "on",
         {
             "resize": {
-                "repair_timing": {"enabled": True, "setup_margin": 0.05, "tns_end_percent": 50}
+                "repair_timing": {"enabled": True, "setup_margin": "0.05 ns", "tns_end_percent": 50}
             }
         },
         model={"time_unit": "1ps"},
@@ -2478,7 +2475,7 @@ def test_the_sizing_options_are_set_before_any_command_that_sizes(tmp_path):
             "global_sizing": {
                 "presize_mode": "max_size_min_vt",
                 "include_clock_network": True,
-                "setup_slack_margin": 0.25,
+                "setup_slack_margin": "0.25 ns",
                 "max_iterations": 9,
                 "beta": 0.5,
             },
@@ -2516,7 +2513,7 @@ def test_the_sizing_options_are_set_before_any_command_that_sizes(tmp_path):
 def test_the_margin_of_the_global_sizing_is_in_seconds_whatever_the_unit_of_the_library(
     tmp_path, unit
 ):
-    settings = {"resize": {"global_sizing": {"setup_slack_margin": 0.1}}}
+    settings = {"resize": {"global_sizing": {"setup_slack_margin": "0.1 ns"}}}
     flow = place_flow(tmp_path, settings, model={"time_unit": unit})
     body = stage(render(flow), "xeda_floorplan")
     assert "set_global_sizing_config -setup_slack_margin 1e-10" in body
@@ -3290,12 +3287,11 @@ def test_the_period_of_the_clock_is_written_whatever_unit_the_setting_has(tmp_pa
     assert 'set_input_delay 1.0 -clock "clk" $non_clock_inputs' in found
 
 
+@pytest.mark.parametrize("given", ["250 ps", "0.25 ns", "0.00025 us"])
 @pytest.mark.parametrize("unit, delay", [("1ns", "0.25"), ("1ps", "250.0")])
-def test_a_delay_in_picoseconds_is_converted_to_the_time_unit_of_the_platform(
-    tmp_path, unit, delay
-):
+def test_a_delay_is_converted_to_the_time_unit_of_the_platform(tmp_path, unit, delay, given):
     flow = place_flow(
-        tmp_path, {"input_delay": 250, "output_delay": 250}, model={"time_unit": unit}
+        tmp_path, {"input_delay": given, "output_delay": given}, model={"time_unit": unit}
     )
     found = sdc_lines(flow)
     assert f'set_input_delay {delay} -clock "clk" $non_clock_inputs' in found
@@ -3304,7 +3300,7 @@ def test_a_delay_in_picoseconds_is_converted_to_the_time_unit_of_the_platform(
 
 def test_an_absolute_delay_wins_over_the_fraction_of_the_clock(tmp_path):
     flow = place_flow(
-        tmp_path, {"input_delay": 100, "input_delay_frac": 0.5, "output_delay_frac": 0.1}
+        tmp_path, {"input_delay": "100 ps", "input_delay_frac": 0.5, "output_delay_frac": 0.1}
     )
     found = sdc_lines(flow)
     assert 'set_input_delay 0.1 -clock "clk" $non_clock_inputs' in found

@@ -13,7 +13,7 @@ settings nor the platform give is an error that names where to give it, before O
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Annotated, Dict, List, Literal, Optional
 
 from ...dataclass import Field, tier
 from ...design import SourceType
@@ -21,6 +21,7 @@ from ...flow import AsicSynthFlow, Flow, In, Out, describe_results
 from ...flow.asic import AsicPlatformSettings
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import CellPort, PlatformModel, Track
+from ...units import Bounds, Time
 from .base import EffectiveBase, OpenroadStage, base_values, platform_time_unit
 from .groups import differing_leaves
 from .metrics import MetricsError, stage_results
@@ -367,20 +368,18 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
             "unset.",
             json_schema_extra=tier("advanced"),
         )
-        input_delay: Optional[float] = Field(
+        input_delay: Optional[Annotated[Time, Bounds(ge="0 ns")]] = Field(
             None,
-            ge=0,
-            description="The input delay of the generated constraints, in picoseconds. The flow "
-            "converts it to the time unit of the platform. It takes precedence over "
-            "`input_delay_frac`.",
+            description="The input delay of the generated constraints, a time with a unit, such "
+            "as `100 ps`. The flow converts it to the time unit of the platform. It takes "
+            "precedence over `input_delay_frac`.",
             json_schema_extra=tier("advanced"),
         )
-        output_delay: Optional[float] = Field(
+        output_delay: Optional[Annotated[Time, Bounds(ge="0 ns")]] = Field(
             None,
-            ge=0,
-            description="The output delay of the generated constraints, in picoseconds. The flow "
-            "converts it to the time unit of the platform. It takes precedence over "
-            "`output_delay_frac`.",
+            description="The output delay of the generated constraints, a time with a unit, such "
+            "as `100 ps`. The flow converts it to the time unit of the platform. It takes "
+            "precedence over `output_delay_frac`.",
             json_schema_extra=tier("advanced"),
         )
         sdc_files: list[Path] = Field(
