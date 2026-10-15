@@ -110,8 +110,9 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
 - Add the class to the import list and to `__all__` in `xeda/flows/__init__.py`
   (`tests/test_flow_registry.py`). After a change to flows, aliases, I/O or `action_reason`, run
   `python tools/generate_flow_catalog.py` and commit the catalog (`tests/test_flow_catalog.py`).
-- OpenROAD flows: one process per flow; state the `.odb` stores has one owner (`openroad_place`);
-  the restart header re-applies the rest (`tests/test_openroad_templates.py`).
+- OpenROAD flows: every OpenROAD process (`openroad` runs two or three) starts from a `.odb`; state
+  the `.odb` stores has one owner (`openroad_place`); the restart header of each process re-applies
+  the rest (`tests/test_openroad_templates.py`).
 - Each flow needs its own docstring, a `results_description` from `describe_results(...)` (`{}`
   if none) and `description=` on every settings field (`tests/test_documentation.py`).
 - A flow that reads design sources declares `reads_sources` and iterates `sources_read()`

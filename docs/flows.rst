@@ -1735,12 +1735,16 @@ nested tables and dotted keys.
 OpenROAD place and route
 ========================
 
-Four flows take a gate-level netlist through OpenROAD to a routed design. Each flow runs its own
-OpenROAD process and hands an OpenROAD database (``.odb``) and an SDC file to the next one:
+Four flows take a gate-level netlist through OpenROAD to a routed design. Each flow hands an
+OpenROAD database (``.odb``) and an SDC file to the next one:
 
 .. code-block:: text
 
     yosys -> openroad_place -> openroad_cts -> openroad_grt -> openroad
+
+``openroad_place``, ``openroad_cts`` and ``openroad_grt`` each run one OpenROAD process.
+``openroad`` runs two: the first routes the design in detail, and the second writes the final
+outputs. With ``save_images``, a third process saves the images of the routed design.
 
 ``yosys`` is the default producer of the netlist, so ``xeda run openroad`` and
 ``xeda run yosys+openroad`` plan the same five flows. A changed setting of a late flow reruns only
