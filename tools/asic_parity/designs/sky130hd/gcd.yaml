@@ -1,0 +1,15 @@
+# gcd.yaml
+# The xeda settings that match flow/designs/sky130hd/gcd/config.mk of OpenROAD-flow-scripts.
+orfs: sky130hd/gcd
+clock:
+  port: clk
+  period: 1.1 ns  # constraint.sdc: set clk_period 1.1
+flows:
+  yosys:
+    script_format: tcl  # SWAP_ARITH_OPERATORS = 1: the wrapping passes need a yosys with Tcl
+    arithmetic.wrap_operators: true  # SWAP_ARITH_OPERATORS = 1
+    abc.mapper: abc_new  # SWAP_ARITH_OPERATORS = 1: ORFS maps with abc_new then
+    # abc_new takes only `area`. ORFS ignores ABC_AREA (here 0) and ABC_SCRIPT when it swaps.
+    abc.strategy: area
+    arithmetic.adder_map: none  # ADDER_MAP_FILE :=  (empty: "Adders degrade GCD")
+    # OPENROAD_HIERARCHICAL = 1 acts in the place and route stages, not in synthesis.

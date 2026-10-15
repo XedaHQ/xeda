@@ -1,0 +1,10 @@
+# ibex.yaml
+# The xeda settings that match flow/designs/nangate45/ibex/config.mk of OpenROAD-flow-scripts.
+orfs: nangate45/ibex
+clock:
+  port: clk_i
+  period: 2.2 ns  # constraint.sdc: set clk_period 2.2
+flows:
+  yosys:
+    systemverilog: slang  # SYNTH_HDL_FRONTEND = slang
+    abc.strategy: speed  # ABC_AREA unset: ORFS uses its speed script (xeda's default is `area`)

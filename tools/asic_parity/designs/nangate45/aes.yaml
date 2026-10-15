@@ -1,0 +1,15 @@
+# aes.yaml
+# The xeda settings that match flow/designs/nangate45/aes/config.mk of OpenROAD-flow-scripts.
+orfs: nangate45/aes
+clock:
+  port: clk
+  period: 0.82 ns  # constraint.sdc: set clk_period 0.82
+flows:
+  yosys:
+    script_format: tcl  # SWAP_ARITH_OPERATORS = 1: the wrapping passes need a yosys with Tcl
+    arithmetic.wrap_operators: true  # SWAP_ARITH_OPERATORS = 1
+    abc.mapper: abc_new  # SWAP_ARITH_OPERATORS = 1: ORFS maps with abc_new then
+    # abc_new takes only `area`. ORFS ignores ABC_AREA (here 0) and ABC_SCRIPT when it swaps.
+    abc.strategy: area
+    # OPENROAD_HIERARCHICAL = 1 acts in the place and route stages, not in synthesis.
+    # SYNTH_HIERARCHICAL is 0, so synthesis flattens (no hierarchy.keep_min_cost).

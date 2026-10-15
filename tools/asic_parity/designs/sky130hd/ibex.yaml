@@ -1,0 +1,17 @@
+# ibex.yaml
+# The xeda settings that match flow/designs/sky130hd/ibex/config.mk of OpenROAD-flow-scripts.
+# This design needs a yosys that has both Tcl (operator wrapping) and read_slang.
+orfs: sky130hd/ibex
+clock:
+  port: clk_i
+  period: 8.0 ns  # constraint.sdc: set clk_period 8.0
+flows:
+  yosys:
+    systemverilog: slang  # SYNTH_HDL_FRONTEND = slang
+    script_format: tcl  # SWAP_ARITH_OPERATORS = 1: the wrapping passes need a yosys with Tcl
+    arithmetic.wrap_operators: true  # SWAP_ARITH_OPERATORS = 1
+    abc.mapper: abc_new  # SWAP_ARITH_OPERATORS = 1: ORFS maps with abc_new then
+    # abc_new takes only `area`. ORFS ignores ABC_AREA (here 0) and ABC_SCRIPT when it swaps.
+    abc.strategy: area
+    arithmetic.adder_map: none  # ADDER_MAP_FILE :=  ("Adders degrade ibex setup repair")
+    # OPENROAD_HIERARCHICAL = 1 acts in the place and route stages, not in synthesis.

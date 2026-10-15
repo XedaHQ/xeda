@@ -1,0 +1,9 @@
+# jpeg.yaml
+# The xeda settings that match flow/designs/nangate45/jpeg/config.mk of OpenROAD-flow-scripts.
+orfs: nangate45/jpeg
+clock:
+  port: clk
+  period: 1.0 ns  # constraint.sdc: set clk_period 1.0
+flows:
+  yosys:
+    abc.strategy: area  # ABC_AREA = 1

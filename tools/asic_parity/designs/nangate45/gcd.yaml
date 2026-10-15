@@ -1,0 +1,10 @@
+# gcd.yaml
+# The xeda settings that match flow/designs/nangate45/gcd/config.mk of OpenROAD-flow-scripts.
+orfs: nangate45/gcd
+clock:
+  port: clk
+  period: 0.25 ns  # constraint.sdc: set clk_period 0.25
+flows:
+  yosys:
+    abc.strategy: area  # ABC_AREA = 1
+    arithmetic.adder_map: none  # ADDER_MAP_FILE :=  (empty: "Adders degrade GCD")
