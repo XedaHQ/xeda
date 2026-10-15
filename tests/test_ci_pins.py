@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 
+from xeda.platforms import bundled_platform_names
 from xeda.yaml_loader import load_yaml
 
 ROOT = Path(__file__).parent.parent
@@ -1633,11 +1634,13 @@ def test_every_action_of_the_openroad_job_names_a_version():
 
 
 def test_the_openroad_job_has_no_pin_of_the_platform_files_of_its_own():
-    """The PDK files come from `xeda pdk install nangate45`, at the version that the platform
-    file of the checkout pins, so the job tests the installer and cannot disagree with the pin."""
+    """The PDK files come from `xeda pdk install`, one call for each platform of
+    `XEDA_TESTS_PLATFORMS`, at the version that the platform file of the checkout pins, so the job
+    tests the installer and cannot disagree with the pin."""
     text = OPENROAD_WORKFLOW.read_text(encoding="utf-8")
     install = openroad_step("xeda pdk install")["run"]
-    assert re.search(r'xeda pdk install nangate45 --root "\$RUNNER_TEMP/pdk"', install)
+    assert "for platform in ${XEDA_TESTS_PLATFORMS//,/ }; do" in install
+    assert re.search(r'xeda pdk install "\$platform" --root "\$RUNNER_TEMP/pdk"', install)
     assert "--version" not in install and "--provider" not in install
     assert "--platform-file" not in install
     assert "ORFS_PLATFORM_REV" not in text
@@ -1652,7 +1655,8 @@ def test_the_openroad_job_runs_the_real_tool_tests_with_every_layer_switched_on(
     environment = job["env"]
     assert environment["XEDA_TESTS_OPENROAD"] == "1"
     assert environment["XEDA_TESTS_REQUIRE_TOOLS"] == "1"
-    assert environment["XEDA_TESTS_PLATFORMS"] == "nangate45"
+    # every bundled platform, so a platform that xeda ships is tested with its real PDK files
+    assert environment["XEDA_TESTS_PLATFORMS"].split(",") == bundled_platform_names()
     run = openroad_step("Run the OpenROAD tests")["run"]
     assert 'XEDA_TESTS_PDK_ROOT="$RUNNER_TEMP/pdk"' in run
     # the store the install step fills is the store the tests read
