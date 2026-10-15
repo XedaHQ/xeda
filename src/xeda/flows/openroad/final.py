@@ -14,7 +14,7 @@ from typing import ClassVar, Dict, List, Optional
 
 from ...dataclass import Field, tier
 from ...design import SourceType
-from ...flow import Flow, In, Out, describe_results
+from ...flow import Flow, In, NoReplacement, Out, describe_results
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import PlatformModel
 from ...tool import NonZeroExitCode, Tool
@@ -404,6 +404,107 @@ class Openroad(OpenroadStage):
 
     class Settings(OpenroadStage.Settings):
         """The settings of the last flow."""
+
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **OpenroadStage.Settings.removed_settings,
+            # the settings of the old flow that moved to `openroad_place`
+            "multi_corner": NoReplacement("multi-corner analysis is not supported"),
+            "input_delay_frac": "`flows.openroad_place.input_delay_frac`",
+            "output_delay_frac": "`flows.openroad_place.output_delay_frac`",
+            "input_delay": "`flows.openroad_place.input_delay`, a time with its unit, such as "
+            "`100 ps`",
+            "output_delay": "`flows.openroad_place.output_delay`, a time with its unit, such as "
+            "`100 ps`",
+            "sdc_files": "`flows.openroad_place.sdc_files`",
+            "core_utilization": "`flows.openroad_place.floorplan.core_utilization_percent`",
+            "core_aspect_ratio": "`flows.openroad_place.floorplan.aspect_ratio`",
+            "core_margin": "`flows.openroad_place.floorplan.core_margin`",
+            "core_area": "`flows.openroad_place.floorplan.core_area`, with "
+            "`flows.openroad_place.floorplan.sizing` set to `area`",
+            "die_area": "`flows.openroad_place.floorplan.die_area`, with "
+            "`flows.openroad_place.floorplan.sizing` set to `area`",
+            "floorplan_def": "`flows.openroad_place.floorplan.def_file`, with "
+            "`flows.openroad_place.floorplan.sizing` set to `def`",
+            "io_constraints": "`flows.openroad_place.io.constraints`",
+            "place_density": "`flows.openroad_place.global_placement.density.value`, with "
+            "`flows.openroad_place.global_placement.density.mode` set to `fixed`",
+            "place_density_lb_addon": "`flows.openroad_place.global_placement.density.headroom`, "
+            "with `flows.openroad_place.global_placement.density.mode` set to `auto`",
+            "place_pins_args": "the typed fields of `flows.openroad_place.io`, such as "
+            "`flows.openroad_place.io.min_distance`",
+            "global_placement_args": "the typed fields of `flows.openroad_place.global_placement`, "
+            "such as `flows.openroad_place.global_placement.timing_driven`",
+            "min_phi_coef": "`flows.openroad_place.global_placement.nesterov.min_phi_coef`",
+            "max_phi_coef": "`flows.openroad_place.global_placement.nesterov.max_phi_coef`",
+            "gpl_timing_driven": "`flows.openroad_place.global_placement.timing_driven.enabled`",
+            "gpl_routability_driven": "`flows.openroad_place.global_placement.routability_driven"
+            ".enabled`",
+            "tie_separation": "`flows.openroad_place.tie.separation`",
+            "global_routing_layer_adjustment": "`flows.openroad_place.routing.layer_adjustments`",
+            "io_place_random": NoReplacement("`place_pins -random` is obsolete in OpenROAD"),
+            "update_sdc_margin": NoReplacement("Xeda no longer writes a tuning SDC"),
+            "results_dir": NoReplacement(
+                "each flow writes its files at fixed names in its run directory"
+            ),
+            "write_metrics": NoReplacement(
+                "each flow writes its files at fixed names in its run directory and reads its "
+                "own metrics"
+            ),
+            "exit": NoReplacement("the flow always exits OpenROAD when its script ends"),
+            "gui": NoReplacement("the flow runs OpenROAD in batch mode"),
+            "copy_platform_files": NoReplacement(
+                "the flow reads the platform files where they are installed"
+            ),
+            "extra_liberty_files": NoReplacement("macros are not supported yet"),
+            "rtlmp_flow": NoReplacement("macros are not supported yet"),
+            "rtlmp_config_file": NoReplacement("macros are not supported yet"),
+            "macro_placement_file": NoReplacement("macros are not supported yet"),
+            "macro_wrappers": NoReplacement("macros are not supported yet"),
+            "footprint": NoReplacement("pad rings are not supported yet"),
+            "footprint_def": NoReplacement("pad rings are not supported yet"),
+            "footprint_tcl": NoReplacement("pad rings are not supported yet"),
+            "sig_map_file": NoReplacement("pad rings are not supported yet"),
+            "floorplan_tcl": NoReplacement("Tcl hooks are not supported"),
+            "post_pdn_tcl": NoReplacement("Tcl hooks are not supported"),
+            "post_detailed_route_tcl": NoReplacement("Tcl hooks are not supported"),
+            "make_tracks_tcl": NoReplacement("the platform gives the routing tracks"),
+            "resynth_for_timing": NoReplacement("OpenROAD-flow-scripts removed resynthesis"),
+            "resynth_for_area": NoReplacement("OpenROAD-flow-scripts removed resynthesis"),
+            "db_process_node": NoReplacement("the platform gives the process node"),
+            "density_fill": NoReplacement("density fill is not supported yet"),
+            # the settings of the old flow that moved to `openroad_cts`, `openroad_grt` and
+            # `openroad`
+            "hold_slack_margin": "`flows.openroad_cts.repair.hold_margin`, or "
+            "`flows.openroad_grt.repair.timing.hold_margin`",
+            "setup_slack_margin": "`flows.openroad_cts.repair.setup_margin`, or "
+            "`flows.openroad_grt.repair.timing.setup_margin`",
+            "cts_buf_distance": "`flows.openroad_cts.tree.buffer_distance`, with "
+            "`flows.openroad_cts.tree.style` set to `simple_segments`",
+            "cts_cluster_size": "`flows.openroad_cts.sink_clustering.size`, with "
+            "`flows.openroad_cts.sink_clustering.mode` set to `explicit`",
+            "cts_cluster_diameter": "`flows.openroad_cts.sink_clustering.max_diameter`, with "
+            "`flows.openroad_cts.sink_clustering.mode` set to `explicit`",
+            "congestion_iterations": "`flows.openroad_grt.congestion.iterations`",
+            "repair_antennas": "`flows.openroad_grt.antenna.repair` and "
+            "`flows.openroad.antenna.repair`",
+            "detailed_route_or_seed": "`flows.openroad.detailed_route.reroute_seed`",
+            "detailed_route_or_k": "`flows.openroad.detailed_route.reroute_swap_factor`",
+            "detailed_route_additional_args": "`flows.openroad.detailed_route.extra_args`",
+            "disable_via_gen": "`flows.openroad.detailed_route.via_generation`, set to `false`",
+            "repair_pdn_via_layer": "`flows.openroad.detailed_route.repair_pdn_vias_layer`",
+            "final_irdrop_analysis": "`flows.openroad.ir_drop.enabled`",
+            "generate_gds": "`flows.openroad.write_gds`",
+            "gds_seal_file": "`flows.openroad.gds.seal_ring`",
+            "write_cdl": NoReplacement(
+                "the flow writes `final.cdl` when the platform has CDL files"
+            ),
+            "cdl_masters_file": NoReplacement("the platform gives the CDL files of its cells"),
+            # the settings of the old flow that moved to `yosys`
+            "blocks": "`flows.yosys.black_box`",
+            "optimize": "`flows.yosys.abc.strategy`",
+            "abc_driver_cell": "`flows.yosys.abc.driver_cell`",
+            "abc_load_in_ff": "`flows.yosys.abc.load`",
+        }
 
         write_gds: bool = Field(
             False,
