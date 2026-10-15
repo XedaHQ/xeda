@@ -870,8 +870,10 @@ def test_a_directory_outside_the_root_is_never_deleted(tmp_path: Path) -> None:
 def saved_row(**changes: Any) -> dict[str, Any]:
     """A row with the fields that identify a run."""
     row = {
+        "success": True,
         "orfs_commit": "a" * 40,
         "sources": {"orfs_commit": "a" * 40, "files": {"gcd.v": "1"}, "sdc": {"c.sdc": "2"}},
+        "xeda_sha256": "7",
         "platform_residue_sha256": "3",
         "override_sha256": "4",
         "design_file_sha256": "5",
@@ -966,6 +968,32 @@ def test_a_half_row_is_reused_only_when_current(tmp_path: Path, monkeypatch, cap
     assert tool.recorded_row(ctx, _design(), "synthesis", force=False) is None
     assert "stale" in capsys.readouterr().out
     assert tool.recorded_row(ctx, _design(), "pnr", force=False) is None  # nothing recorded
+
+
+def test_a_failed_row_is_run_again(tmp_path: Path, monkeypatch, capsys) -> None:
+    """A failure may come from a defect that a later xeda fixes, so a failed row is never
+    reused, even when its inputs are the same."""
+    ctx = _context(tmp_path)
+    failed = saved_row(success=False)
+    write(tool.result_path(tmp_path, "nangate45/gcd", "synthesis"), json.dumps(failed))
+    monkeypatch.setattr(tool, "new_row", lambda *args: saved_row(success=False))
+    assert tool.recorded_row(ctx, _design(), "synthesis", force=False) is None
+    assert "failed" in capsys.readouterr().out
+
+
+def test_a_change_of_xeda_makes_a_half_row_stale() -> None:
+    assert tool.stale_reasons(saved_row(), saved_row(xeda_sha256="8")) == ["xeda_sha256 differs"]
+
+
+def test_the_digest_of_a_package_covers_its_files_and_skips_the_byte_code(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    write(package / "a.py", "A = 1\n")
+    write(package / "templates" / "t.tcl", "puts 1\n")
+    digest = tool.package_sha256(package)
+    write(package / "__pycache__" / "a.cpython-314.pyc", "junk")
+    assert tool.package_sha256(package) == digest
+    write(package / "templates" / "t.tcl", "puts 2\n")
+    assert tool.package_sha256(package) != digest
 
 
 def test_the_pnr_row_depends_on_the_reference_row_it_read(tmp_path: Path, monkeypatch) -> None:

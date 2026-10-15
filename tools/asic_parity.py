@@ -776,7 +776,28 @@ IDENTITY_KEYS = (
     "tools",
     "make_vars",
     "reference_sha256",
+    "xeda_sha256",
 )
+
+
+def package_sha256(directory: Path) -> str:
+    """Return one sha256 digest of every file of a package directory, names and contents, with
+    the byte code left out. It pins the code of xeda, whose version string does not change with
+    an edit of an editable install."""
+    digest = hashlib.sha256()
+    for path in sorted(directory.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts or path.suffix == ".pyc":
+            continue
+        digest.update(path.relative_to(directory).as_posix().encode() + b"\0")
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def xeda_sha256() -> str:
+    """Return the digest of the xeda package that the halves run."""
+    import xeda
+
+    return package_sha256(Path(xeda.__file__).parent)
 
 
 def row_identity(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -1136,6 +1157,8 @@ def new_row(ctx: Context, design: OrfsDesign, half: str) -> dict[str, Any]:
         "platform_residue_sha256": residue_digest(config.platform),
         "override_sha256": sha256_file(override) if override.is_file() else None,
         "design_file_sha256": sha256_file(config.path),
+        # the ORFS row does not depend on xeda, so a change of xeda does not rerun it
+        "xeda_sha256": None if half == "orfs" else xeda_sha256(),
         "sources": {
             "orfs_commit": commit,
             **source_pins(ctx.orfs, files, design.sdc),
@@ -1334,15 +1357,19 @@ def recorded_row(
 ) -> Optional[dict[str, Any]]:
     """Return the saved row of `half` when it came from the current inputs, else `None`.
 
-    The row is current when its tools, sources, platform files, design file, ORFS variables and
-    core count equal the current ones. The `pnr` row also depends on the reference row that gave
-    its netlist. A stale row is reported, and the caller reruns it.
+    The row is current when it passed and its tools, sources, platform files, design file, ORFS
+    variables and core count equal the current ones. A half row also depends on the code of xeda,
+    and the `pnr` row on the reference row that gave its netlist. A failed or stale row is
+    reported, and the caller reruns it.
     """
     spec = design.config.spec
     path = result_path(ctx.root, spec, half)
     if force or not path.is_file():
         return None
     saved = json.loads(path.read_text())
+    if not saved.get("success"):
+        print(f"{spec} {half}: the saved row failed; running it again", flush=True)
+        return None
     current = new_row(ctx, design, half)
     if half == "pnr":
         reference = result_path(ctx.root, spec, "orfs")

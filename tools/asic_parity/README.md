@@ -51,10 +51,11 @@ Commands:
 
 - `run <platform>/<design> --half {synthesis,pnr,both}` runs ORFS when `--root` has no ORFS row,
   then runs each named half, then prints the table. Give `--half` more than once for several
-  halves. A half whose saved row is current is skipped. A row is current when the inputs that it
-  records are unchanged: the tools, the source files, the platform and override files, the design
-  file, the ORFS variables and the core count. The `pnr` row also depends on the ORFS row. A stale
-  row runs again, and the tool prints what changed. With `--force`, every row of the command runs
+  halves. A half whose saved row is current is skipped. A row is current when it passed and the
+  inputs that it records are unchanged: the tools, the source files, the platform and override
+  files, the design file, the ORFS variables and the core count. A half row also records a digest
+  of the code of xeda, and the `pnr` row depends on the ORFS row. A failed or stale row runs
+  again, and the tool prints why. With `--force`, every row of the command runs
   again, the ORFS row too.
 - `table [<platform>/<design> ...]` prints the table of the recorded rows. With no design, it prints
   every design under `--root`. It needs no ORFS checkout and no tool.
