@@ -1,10 +1,14 @@
 """A removed setting is an error that names what replaced it, for every flow."""
 
 import re
+from typing import get_args
 
 import pytest
+from pydantic import BaseModel
 
-from xeda.flow import FlowSettingsError, registered_flows
+from xeda.flow import Flow, FlowSettingsError, registered_flows
+from xeda.flow.flow import removed_message
+from xeda.flows import Openroad
 
 FLOWS = sorted({cls for _, cls in registered_flows.values()}, key=lambda c: c.name)
 
@@ -328,3 +332,165 @@ def test_clock_period_was_removed_at_every_origin(tmp_path, monkeypatch, origin)
         else:
             runner.plan("vivado_synth", design, flow_settings=base)
     assert not (tmp_path / "run").exists()
+
+
+# ----------------------------------------------------------------------- the old `openroad`
+
+#: Every field of the settings class of the old `openroad` flow, in its order. The new `openroad`
+#: keeps `platform`, `corner`, `dont_use_cells` and `save_images`; the others are removed.
+OLD_OPENROAD_FIELDS = (
+    "platform",
+    "corner",
+    "multi_corner",
+    "input_delay_frac",
+    "output_delay_frac",
+    "input_delay",
+    "output_delay",
+    "core_utilization",
+    "core_aspect_ratio",
+    "core_margin",
+    "core_area",
+    "die_area",
+    "sdc_files",
+    "io_constraints",
+    "results_dir",
+    "write_metrics",
+    "exit",
+    "gui",
+    "copy_platform_files",
+    "extra_liberty_files",
+    "floorplan_def",
+    "floorplan_tcl",
+    "resynth_for_timing",
+    "resynth_for_area",
+    "rtlmp_flow",
+    "io_place_random",
+    "place_density",
+    "place_density_lb_addon",
+    "dont_use_cells",
+    "place_pins_args",
+    "global_placement_args",
+    "min_phi_coef",
+    "max_phi_coef",
+    "congestion_iterations",
+    "global_routing_layer_adjustment",
+    "repair_antennas",
+    "update_sdc_margin",
+    "detailed_route_or_seed",
+    "detailed_route_or_k",
+    "db_process_node",
+    "detailed_route_additional_args",
+    "post_detailed_route_tcl",
+    "gpl_routability_driven",
+    "gpl_timing_driven",
+    "macro_placement_file",
+    "post_pdn_tcl",
+    "make_tracks_tcl",
+    "footprint",
+    "footprint_def",
+    "footprint_tcl",
+    "gds_seal_file",
+    "sig_map_file",
+    "density_fill",
+    "rtlmp_config_file",
+    "macro_wrappers",
+    "cdl_masters_file",
+    "hold_slack_margin",
+    "setup_slack_margin",
+    "cts_buf_distance",
+    "cts_cluster_size",
+    "cts_cluster_diameter",
+    "tie_separation",
+    "final_irdrop_analysis",
+    "disable_via_gen",
+    "repair_pdn_via_layer",
+    "write_cdl",
+    "save_images",
+    "generate_gds",
+)
+
+#: Entries of the old `openroad` class for the settings that moved to `yosys`. They are not
+#: fields of its own settings class, but the old flow refused them with a message that names
+#: `yosys`, so the new flow keeps that message.
+OLD_OPENROAD_YOSYS_ENTRIES = ("blocks", "optimize", "abc_driver_cell", "abc_load_in_ff")
+
+OPENROAD_FLOW = Openroad
+#: The removed settings of `openroad` that this flow refuses, in the order of the old class.
+OPENROAD_REMOVED_NAMES = tuple(
+    name
+    for name in (*OLD_OPENROAD_FIELDS, *OLD_OPENROAD_YOSYS_ENTRIES)
+    if name not in OPENROAD_FLOW.Settings.model_fields
+)
+#: A reference to a setting of another flow or of this flow, written in backticks.
+FLOW_PATH = re.compile(r"`flows\.(\w+)((?:\.\w+)+)`")
+
+
+def _model_in(annotation):
+    """Return the settings model in a type annotation, or None when it has none."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    for argument in get_args(annotation):
+        model = _model_in(argument)
+        if model is not None:
+            return model
+    return None
+
+
+def _setting_exists(model, dotted: str) -> bool:
+    """Return True when the dotted name is a field of the settings model, or of the group it
+    names."""
+    current = model
+    parts = dotted.split(".")
+    for position, part in enumerate(parts):
+        field = current.model_fields.get(part)
+        if field is None:
+            return False
+        if position < len(parts) - 1:
+            current = _model_in(field.annotation)
+            if current is None:
+                return False
+    return True
+
+
+def test_openroad_removed_settings_are_the_old_fields_it_lost_and_the_yosys_entries():
+    own = set(vars(OPENROAD_FLOW.Settings).get("removed_settings", {}))
+    own -= set(Flow.Settings.removed_setting_replacements())
+    lost = {name for name in OLD_OPENROAD_FIELDS if name not in OPENROAD_FLOW.Settings.model_fields}
+    assert own == lost | set(OLD_OPENROAD_YOSYS_ENTRIES)
+
+
+@pytest.mark.parametrize("name", OPENROAD_REMOVED_NAMES)
+def test_openroad_refuses_an_old_setting_and_names_its_replacement(name, tmp_path):
+    replacement = OPENROAD_FLOW.Settings.removed_setting_replacements()[name]
+    with pytest.raises(FlowSettingsError) as refused:
+        OPENROAD_FLOW.Settings.from_input({name: True}, design_root=tmp_path, runner_cwd=tmp_path)
+    assert removed_message(name, replacement, True) in str(refused.value)
+
+
+def test_openroad_replacements_name_settings_that_exist():
+    missing = []
+    for name in OPENROAD_REMOVED_NAMES:
+        replacement = OPENROAD_FLOW.Settings.removed_setting_replacements()[name]
+        for flow, dotted in FLOW_PATH.findall(replacement):
+            model = registered_flows[flow][1].Settings
+            if not _setting_exists(model, dotted[1:]):
+                missing.append(f"{name}: flows.{flow}{dotted}")
+    assert not missing
+
+
+def test_openroad_input_delay_names_the_time_with_its_unit(tmp_path):
+    with pytest.raises(FlowSettingsError) as refused:
+        OPENROAD_FLOW.Settings.from_input({"input_delay": 100}, design_root=tmp_path)
+    assert (
+        "`input_delay` was removed: use `flows.openroad_place.input_delay`, a time with its unit, "
+        "such as `100 ps`"
+    ) in str(refused.value)
+
+
+def test_openroad_core_utilization_names_the_percent_setting(tmp_path):
+    with pytest.raises(FlowSettingsError) as refused:
+        OPENROAD_FLOW.Settings.from_input({"core_utilization": 40.0}, design_root=tmp_path)
+    assert (
+        "`core_utilization` was removed: use "
+        "`flows.openroad_place.floorplan.core_utilization_percent`"
+    ) in str(refused.value)

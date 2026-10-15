@@ -116,6 +116,8 @@ jobs:
   #   store paths behind links, which the PDK providers stat: test_pdk_providers
   #   file locks (flock) of the PDK install lock, and a rename of a directory into the PDK store:
   #     test_pdk_cli
+  #   links and resolved paths (a link left at a file that OpenROAD writes; a macOS temporary
+  #     directory is behind a link): test_openroad_run_directory, test_fake_openroad
   macos:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
@@ -161,6 +163,8 @@ jobs:
           tests/test_locator_settings.py
           tests/test_pdk_providers.py
           tests/test_pdk_cli.py
+          tests/test_openroad_run_directory.py
+          tests/test_fake_openroad.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only

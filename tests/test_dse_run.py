@@ -21,6 +21,8 @@ from click.testing import CliRunner
 
 from xeda import Design
 from xeda.cli import cli
+from xeda.flow import FlowSettingsException
+from xeda.flow_runner.chains import parse_request
 from xeda.flows import VivadoSynth
 from xeda.flow_runner.dse.dse_runner import Dse, Optimizer, _variation_delta
 from xeda.flow_runner.dse.fmax import FmaxOptimizer
@@ -737,3 +739,109 @@ def test_a_search_gets_the_same_outcomes_when_it_replays_the_rejections_of_the_f
     assert first.optimizer.best is not None and second.optimizer.best is not None
     assert second.optimizer.best.results["period"] == first.optimizer.best.results["period"] == 10.0
     assert _as_json(second.optimizer.best.results) == _as_json(first.optimizer.best.results)
+
+
+OPENROAD_DSE_REFUSAL = (
+    "Fmax exploration of the OpenROAD flows is not supported yet: the clock is a setting of "
+    "openroad_place, which the optimizer does not reach. Run `xeda dse` on `yosys`, or vary "
+    "`flows.openroad_place.clocks` yourself."
+)
+
+
+class _ClockWritingOptimizer(_DeclaredOptimizer):
+    """An optimizer that, like the Fmax search, puts candidate periods into the clocks."""
+
+    writes_clocks = True
+
+
+def test_dse_refuses_the_openroad_flows_before_any_worker(tmp_path):
+    from xeda.flows.openroad import OpenroadPlace
+
+    from .flow_registry import preserved_flow_registry
+    from .openroad_utils import openroad_design, register_openroad_flows
+
+    design = openroad_design(tmp_path / "design")
+
+    def renamed_place():
+        # Refused by class, not by the text of the flow name.
+        class RenamedPlace(OpenroadPlace):
+            pass
+
+        return RenamedPlace
+
+    with register_openroad_flows(), preserved_flow_registry():
+        requests = [
+            "openroad",
+            "openroad_place",
+            "openroad_place+openroad_cts+openroad_grt+openroad",
+            parse_request("openroad_place+openroad_cts"),
+            renamed_place(),
+        ]
+        for request in requests:
+            runner = Dse(
+                _ClockWritingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1
+            )
+            with pytest.raises(FlowSettingsException) as refused:
+                runner.run(request, design)
+            assert str(refused.value) == OPENROAD_DSE_REFUSAL
+        # The refusal also holds for a caller that has a design and goes to `run_flow` directly.
+        runner = Dse(
+            _ClockWritingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1
+        )
+        with pytest.raises(FlowSettingsException, match="Fmax exploration of the OpenROAD flows"):
+            runner.run_flow("openroad", Design.from_file(design))
+    assert not (tmp_path / "run").exists()
+
+
+def test_dse_does_not_refuse_an_optimizer_that_leaves_the_clocks_alone_on_an_openroad_flow(
+    tmp_path,
+):
+    from .openroad_utils import openroad_design, register_openroad_flows
+
+    design = openroad_design(tmp_path / "design")
+    with register_openroad_flows():
+        for request in ("openroad_place", "openroad"):
+            runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={})
+            try:
+                runner.run(request, design)
+            except Exception as error:  # it may fail later, for other reasons
+                assert OPENROAD_DSE_REFUSAL not in str(error)
+
+
+def test_dse_of_the_command_line_refuses_the_openroad_flows(tmp_path):
+    from .openroad_utils import openroad_design, register_openroad_flows
+
+    design = openroad_design(tmp_path / "design")
+    with register_openroad_flows():
+        result = CliRunner().invoke(
+            cli,
+            [
+                "dse",
+                "openroad_place",
+                "--design",
+                str(design),
+                "--init-freq-low",
+                "100",
+                "--init-freq-high",
+                "300",
+                "--json",
+            ],
+        )
+    assert result.exit_code != 0
+    document = json.loads(result.stdout)
+    assert document["success"] is False
+    assert OPENROAD_DSE_REFUSAL in document["error"]["message"]
+
+
+def test_dse_does_not_refuse_a_flow_that_is_not_an_openroad_flow(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
+    runner = Dse(_ClockWritingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
+    assert (
+        runner.run(
+            _DseLeaf,
+            design,
+            flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}},
+        )
+        is not None
+    )

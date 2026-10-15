@@ -295,6 +295,7 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
                 "producer": d.producer,
                 "output": d.output,
                 "same_producer_as": d.same_producer_as,
+                "paired": d.paired,
                 "via": d.via,
                 "description": d.description,
             }
@@ -331,6 +332,7 @@ def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
         if item["same_producer_as"]:
             related = f"; same producer as {item['same_producer_as']}"
             related += f" via {item['via']}" if item["via"] else ""
+            related += ", paired" if item["paired"] else ""
         takes.append(f"{name} ({kinds(item)}{related})")
     makes = []
     for item in info["outputs"]:

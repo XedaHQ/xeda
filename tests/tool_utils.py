@@ -28,6 +28,7 @@ from typing import Any, List, Optional, Sequence
 import pytest
 
 __all__ = [
+    "OPENROAD_COMMANDS",
     "fake_calls",
     "fake_returns",
     "require_bluesim",
@@ -43,6 +44,7 @@ __all__ = [
     "require_nextpnr_ecp5",
     "require_nvc",
     "require_nvc_evidence",
+    "require_openroad",
     "require_tclsh",
     "require_verilator",
     "require_vivado",
@@ -51,6 +53,7 @@ __all__ = [
     "require_yosys_ghdl_plugin",
     "require_yosys_tcl",
     "use_fake_asic_tools",
+    "use_fake_openroad",
     "use_fake_tools",
     "yosys_json_attribute_holders",
     "checkout_work_dir",
@@ -700,6 +703,198 @@ def use_fake_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ.get("PATH", ""))
 
 
+# ---------------------------------------------------------------------------------------------
+# The fake OpenROAD (`tests/fake_tools/openroad`) runs the Tcl that the OpenROAD flows render,
+# under `tclsh`, after `fake_openroad_prelude.tcl`. The prelude defines one command for each
+# name of `OPENROAD_COMMANDS` and nothing else, so a command that is not in the list is a Tcl
+# error (`invalid command name`), and `fake_calls` fails the test. The real-tool tests compare
+# the same list with the `help` of the installed OpenROAD.
+# ---------------------------------------------------------------------------------------------
+
+#: Every OpenROAD command that a template may emit, grouped by the stage that first needs it. A
+#: template that emits a command which is not here adds it here.
+OPENROAD_COMMANDS: tuple[str, ...] = (
+    # restart header: libraries, design, constraints, layer and wire parasitics, dont-use cells
+    "read_liberty",
+    "read_lef",
+    "read_verilog",
+    "link_design",
+    "read_db",
+    "read_sdc",
+    "set_layer_rc",
+    "set_wire_rc",
+    "set_dont_use",
+    # metrics and queries that the helper procedures use
+    "utl::set_metrics_stage",
+    "report_tns_metric",
+    "report_worst_slack_metric",
+    "report_fmax_metric",
+    "report_clock_skew_metric",
+    "report_erc_metrics",
+    "report_power_metric",
+    "report_design_area_metrics",
+    "report_units_metric",
+    "get_lib_cell",
+    "get_cells",
+    "get_property",
+    "get_name",
+    "ord::get_db",
+    "ord::get_db_block",
+    "odb::dbObstruction_destroy",
+    # floorplan
+    "eliminate_dead_logic",
+    "report_design_area",
+    "check_setup",
+    "initialize_floorplan",
+    "read_def",
+    "make_tracks",
+    "set_global_routing_layer_adjustment",
+    "set_routing_layers",
+    "set_dont_touch",
+    "unset_dont_touch",
+    "set_opt_config",
+    "set_global_sizing_config",
+    "repair_tie_fanout",
+    "insert_tiecells",
+    "create_blockage",
+    "create_obstruction",
+    "replace_arith_modules",
+    "remove_buffers",
+    # tap cells and power grid
+    "tapcell",
+    "cut_rows",
+    "add_global_connection",
+    "global_connect",
+    "set_voltage_domain",
+    "define_pdn_grid",
+    "add_pdn_stripe",
+    "add_pdn_ring",
+    "check_power_grid",
+    "add_pdn_connect",
+    "pdngen",
+    # global placement and pin placement
+    "gpl::get_global_placement_uniform_density",
+    "global_placement",
+    "all_pins_placed",
+    "place_pin",
+    "place_pins",
+    "set_io_pin_constraint",
+    "set_pin_length",
+    "set_pin_length_extension",
+    "set_pin_thick_multiplier",
+    "set_simulated_annealing",
+    "placement_cluster",
+    "cluster_flops",
+    "buffer_ports",
+    "estimate_parasitics",
+    # resizing and detailed placement
+    "repair_design",
+    "repair_timing",
+    "report_floating_nets",
+    "set_placement_padding",
+    "detailed_placement",
+    "improve_placement",
+    "optimize_mirroring",
+    "balance_row_usage",
+    "check_placement",
+    # clock tree synthesis
+    "repair_clock_inverters",
+    "clock_tree_synthesis",
+    "set_cts_config",
+    "configure_cts_characterization",
+    "report_cts",
+    "repair_clock_nets",
+    # global route
+    "pin_access",
+    "set_global_routing_random",
+    "set_macro_extension",
+    "set_global_routing_region_adjustment",
+    "set_routing_alpha",
+    "set_nets_to_route",
+    "ord::microns_to_dbu",
+    "global_route",
+    "set_propagated_clock",
+    "all_clocks",
+    "repair_antennas",
+    "check_antennas",
+    "write_guides",
+    # detailed route and fill
+    "detailed_route",
+    "detailed_route_set_default_via",
+    "detailed_route_set_unidirectional_layer",
+    "create_ndr",
+    "assign_ndr",
+    "set_debug_level",
+    "grt::have_routes",
+    "design_is_routed",
+    "filler_placement",
+    # final outputs and report
+    "write_db",
+    "write_sdc",
+    "write_def",
+    "write_verilog",
+    "write_cdl",
+    "write_sdf",
+    "write_abstract_lef",
+    "write_timing_model",
+    "define_process_corner",
+    "set_extraction_rules_file",
+    "extract_parasitics",
+    "adjust_rc",
+    "write_spef",
+    "read_spef",
+    "set_pdnsim_net_voltage",
+    "analyze_power_grid",
+    "set_pdnsim_source_settings",
+    "set_pdnsim_inst_power",
+    "write_pg_spice",
+    "insert_decap",
+    "report_cell_usage",
+    "set_clock_latency",
+    "report_checks",
+    "report_clock_skew",
+    "report_power",
+    # images (OpenROAD with a graphical interface)
+    "ord::openroad_gui_compiled",
+    "ord::dbu_to_microns",
+    "gui::show",
+    "gui::save_display_controls",
+    "gui::restore_display_controls",
+    "gui::select_marker_category",
+    "gui::clear_highlights",
+    "gui::clear_selections",
+    "gui::fit",
+    "gui::set_display_controls",
+    "gui::set_heatmap",
+    "gui::show_widget",
+    "gui::hide_widget",
+    "gui::select_clockviewer_clock",
+    "gui::show_worst_path",
+    "get_clocks",
+    "get_scenes",
+    "select",
+    "save_image",
+    "save_clocktree_image",
+)
+
+
+def use_fake_openroad(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Put the fake OpenROAD, with the other fake tools, first on PATH for the rest of the test.
+
+    The fake runs the Tcl script it is given under `tclsh` (`require_tclsh`) and records the
+    commands in `fake_openroad.calls` in its working directory (`fake_calls`). Without `tclsh`
+    it runs nothing, as the other Tcl fakes do. `XEDA_FAKE_TOOL_FAIL`, `XEDA_FAKE_TOOL_RETURNS`
+    (`fake_returns`) and `XEDA_FAKE_OPENROAD_METRICS` (the directory of the recorded metrics
+    files) change what it does."""
+    fake = FAKE_TOOLS_DIR / "openroad"
+    assert (
+        fake.is_file()
+        and fake.resolve() == (FAKE_TOOLS_DIR / "fake_tool.py").resolve()
+        and os.access(fake, os.X_OK)
+    ), f"missing or incorrect fake openroad: {fake}"
+    use_fake_tools(monkeypatch)
+
+
 def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
     """Install a tiny openXC7 prefix in test scratch space and select only fake FPGA tools.
 
@@ -836,6 +1031,8 @@ def fake_calls(run_dir: Path, elements: bool = False) -> List[List[str]]:
 #   XEDA_TESTS_EXTERNAL=1  bsc flows on external repositories (tests/test_bsc_external.py), with
 #     XEDA_TESTS_EXTERNAL_SLOW=1 for its slowest test too
 #   XEDA_TESTS_OPENXC7=1  FPGA builds by the real openXC7 1.0 toolchain (tests/test_openxc7_real.py)
+#   XEDA_TESTS_OPENROAD=1  the OpenROAD flows run by a real `openroad`
+#     (tests/test_openroad_real.py); the tests that load a platform need the PDK store below too
 #   XEDA_TESTS_YOSYS_TCL=1  Tcl scripts run by a real `yosys` with Tcl support: the one on PATH
 #     (tests/test_yosys_asic_tcl.py). Most builds of OSS CAD Suite have none.
 #   XEDA_TESTS_PDK_ROOT=<directory>  each bundled platform against its real PDK files, in a PDK
@@ -895,6 +1092,39 @@ def require_openxc7() -> Path:
         if probe is not None and not _command_succeeds(probe):
             pytest.fail(f"XEDA_TESTS_OPENXC7 is set, but `{' '.join(probe)}` fails")
     return prefix
+
+
+@lru_cache(maxsize=None)
+def _probe_openroad(path_variable: str) -> bool:
+    """Run `openroad -version` and then a one-line script the way the flows start the tool
+    (`-no_init -no_splash -exit`), in a temporary directory. The cache key is the value of `PATH`,
+    so a different `PATH` finds a different `openroad`."""
+    if not _command_succeeds(["openroad", "-version"]):
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "probe.tcl"
+        script.write_text("puts xeda_probe\n")
+        return _command_succeeds(
+            ["openroad", "-no_init", "-no_splash", "-exit", str(script)], cwd=tmp
+        )
+
+
+def require_openroad() -> Path:
+    """Run the OpenROAD flows against the real tool only when asked (`XEDA_TESTS_OPENROAD=1`: a
+    chain of the flows takes minutes), and then insist on an `openroad` on `PATH` that runs.
+    Return its path. Its own variable, not `XEDA_TESTS_REQUIRE_TOOLS`: the tox legs of CI require
+    the general tools and have no OpenROAD."""
+    if not _opted_in("XEDA_TESTS_OPENROAD"):
+        pytest.skip("set XEDA_TESTS_OPENROAD=1 to run the tests that run OpenROAD")
+    found = shutil.which("openroad")
+    if found is None:
+        pytest.fail("XEDA_TESTS_OPENROAD is set, but no `openroad` is on PATH")
+    if not _probe_openroad(os.environ.get("PATH", "")):
+        pytest.fail(
+            f"XEDA_TESTS_OPENROAD is set, but the `openroad` on PATH ({found}) does not run: "
+            "`openroad -version` or a script with `-no_init -no_splash -exit` fails"
+        )
+    return Path(found)
 
 
 @lru_cache(maxsize=None)

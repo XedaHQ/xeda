@@ -7,12 +7,12 @@ of pint. The evaluator would accept anything it can compute as a clock (`"5 ns *
 `"(100)mHz"`), and malformed text would escape as a traceback instead of a field error. Xeda
 asks pint only to convert a number from one known unit to another.
 
-The setting types of flows are the classes `Time`, `Frequency`, `Capacitance`, `Length`, `Voltage`
-and `Resistance`. A value of such a type is a number with a unit, written as text (`10 ns`). A
-bare number is refused: it does not say what it measures. A quantity keeps its value in the
-canonical unit of its kind, exactly as the text says it, so `10000 ps`, `0.01 us` and `10 ns` are
-one value. It has no arithmetic and no `float()`. Code that needs a number asks for the unit it
-wants: `period.to("ns")`.
+The setting types of flows are the classes `Time`, `Frequency`, `Capacitance`, `Length`, `Voltage`,
+`Resistance` and `Power`. A value of such a type is a number with a unit, written as text
+(`10 ns`). A bare number is refused: it does not say what it measures. A quantity keeps its value
+in the canonical unit of its kind, exactly as the text says it, so `10000 ps`, `0.01 us` and
+`10 ns` are one value. It has no arithmetic and no `float()`. Code that needs a number asks for
+the unit it wants: `period.to("ns")`.
 """
 
 import decimal
@@ -644,6 +644,25 @@ class Resistance(
     __slots__ = ()
 
 
+class Power(
+    Quantity,
+    kind="power",
+    canonical_unit="W",
+    example="2 mW",
+    factors={
+        "nW": _power(-9),
+        "uW": _power(-6),
+        "\u00b5W": _power(-6),
+        "mW": _power(-3),
+        "W": Fraction(1),
+    },
+):
+    """A power. The canonical unit is `W`. The micro sign spelling `\u00b5W` (U+00B5) is accepted
+    too."""
+
+    __slots__ = ()
+
+
 class Bounds:
     """Limits on a quantity, as metadata of an annotation:
 
@@ -797,6 +816,7 @@ __all__ = [
     "Length",
     "MEASURES",
     "MEASURE_KEY",
+    "Power",
     "Quantity",
     "QuantityError",
     "QUANTITY_KEY",

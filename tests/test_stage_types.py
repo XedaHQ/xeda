@@ -34,6 +34,8 @@ from xeda.flows import (
 )
 from xeda.introspect import all_flow_classes
 
+from .openroad_utils import openroad_settings
+from .tiny_platform import tiny_store
 from .test_tool_input_equivalence import (
     VIVADO_SETTINGS,
     write_vivado_design,
@@ -50,6 +52,39 @@ def refused(request: str) -> str:
 
 
 # ------------------------------------------------------------------------------ the two chains
+
+
+def test_a_vivado_netlist_does_not_chain_into_an_asic_flow():
+    message = refused("vivado_synth.netlist+openroad_place")
+    assert "FpgaNetlist" in message and "VerilogNetlist" in message
+
+
+def test_a_standard_cell_netlist_chains_into_the_placement():
+    validate_chain(parse_request("yosys+openroad_place").elements)
+
+
+def test_a_standard_cell_netlist_still_chains_into_the_last_openroad_flow():
+    """The request passes through the flows between the two ends: the placement, the clock tree
+    and the global route run in between."""
+    validate_chain(parse_request("yosys+openroad").elements)
+
+
+def test_an_explicit_binding_of_the_wrong_kind_to_an_openroad_flow_is_refused_naming_the_types(
+    tmp_path,
+):
+    write_vivado_design(tmp_path)
+    store = tiny_store(tmp_path)
+    with pytest.raises(FlowSettingsException) as error:
+        DefaultRunner(tmp_path / "run", display_results=False).plan(
+            "openroad_place",
+            tmp_path / "design.yaml",
+            flow_settings=[
+                *openroad_settings(store),
+                *VIVADO_SETTINGS,
+                "inputs.netlist=vivado_synth.netlist",
+            ],
+        )
+    assert "VerilogNetlist" in str(error.value) and "FpgaNetlist" in str(error.value)
 
 
 def test_a_vivado_netlist_does_not_chain_into_a_json_netlist_flow():
@@ -180,6 +215,20 @@ def test_the_stage_types_are_given_by_type_only_and_a_checkpoint_suffix_asks_for
         assert DesignSource({"file": str(path), "type": member.name}).type is member
 
 
+def test_the_openroad_types_are_given_by_type_only_and_an_odb_suffix_asks_for_one(tmp_path):
+    for member in (*OPENROAD_DBS, *OPENROAD_SDCS):
+        assert member in TYPE_ONLY
+        assert member not in set(SOURCE_SUFFIXES.values())
+    assert "odb" not in SOURCE_SUFFIXES
+    assert set(AMBIGUOUS_SUFFIXES["odb"]) == OPENROAD_DBS
+    path = tmp_path / "top.odb"
+    path.write_text("x\n")
+    with pytest.raises(ValueError, match=r"`\.odb` names several kinds of file"):
+        DesignSource(path)
+    for member in OPENROAD_DBS:
+        assert DesignSource({"file": str(path), "type": member.name}).type is member
+
+
 # ------------------------------------------------------------------------------ the sweep
 
 NETLIST_KINDS = frozenset(
@@ -193,6 +242,24 @@ NETLIST_KINDS = frozenset(
     }
 )
 CHECKPOINT_KINDS = frozenset({SourceType.Checkpoint, *CHECKPOINTS})
+#: The OpenROAD databases and the SDC files that a stage writes with its database. Each stage has
+#: its own member of both, so a database or an SDC file fits the next stage only.
+OPENROAD_DBS = frozenset(
+    {
+        SourceType.OpenroadDbPlaced,
+        SourceType.OpenroadDbCts,
+        SourceType.OpenroadDbGlobalRouted,
+        SourceType.OpenroadDbRouted,
+    }
+)
+OPENROAD_SDCS = frozenset(
+    {
+        SourceType.OpenroadSdcPlaced,
+        SourceType.OpenroadSdcCts,
+        SourceType.OpenroadSdcGlobalRouted,
+        SourceType.OpenroadSdcRouted,
+    }
+)
 
 #: Edges between two netlists or two checkpoints that a consumer does not declare as its default
 #: wiring but takes all the same, each with why it is right (or a known limit). The default
@@ -208,6 +275,9 @@ REVIEWED_EDGES = {
     ("vivado_impl", "netlist", "vivado_postsynth_sim", "netlist"),
     ("vivado_impl", "netlist_timing", "vivado_postsynth_sim", "netlist_timing"),
     ("vivado_impl", "checkpoint_route", "vivado_power", "checkpoint"),
+    # the routed netlist is a standard-cell netlist, so the placement flow takes it too; placing
+    # it again needs an explicit binding
+    ("openroad", "netlist", "openroad_place", "netlist"),
 }
 
 
@@ -217,6 +287,10 @@ def kind_of(types) -> str | None:
         return "netlist"
     if members and members <= CHECKPOINT_KINDS:
         return "checkpoint"
+    if members and members <= OPENROAD_DBS:
+        return "database"
+    if members and members <= OPENROAD_SDCS:
+        return "stage_sdc"
     return None
 
 
@@ -261,6 +335,33 @@ def test_every_netlist_or_checkpoint_edge_is_declared_or_reviewed():
         "wiring has to be reviewed (add it to REVIEWED_EDGES with the reason), and a reviewed edge "
         f"that no longer exists has to go: {sorted(undocumented(edges) ^ REVIEWED_EDGES)}"
     )
+
+
+def test_the_openroad_stages_hand_each_other_their_own_database_and_sdc():
+    edges = fitting_edges()
+    assert {edge for edge in edges if "openroad" in edge[0] and edge[2].startswith("openroad")} == {
+        ("openroad_place", "odb", "openroad_cts", "odb"),
+        ("openroad_place", "sdc", "openroad_cts", "sdc"),
+        ("openroad_cts", "odb", "openroad_grt", "odb"),
+        ("openroad_cts", "sdc", "openroad_grt", "sdc"),
+        ("openroad_grt", "odb", "openroad", "odb"),
+        ("openroad_grt", "sdc", "openroad", "sdc"),
+        ("openroad", "netlist", "openroad_place", "netlist"),
+    }
+
+
+def test_the_sweep_finds_an_edge_a_wrong_type_would_open_for_the_openroad_flows():
+    """The oracle's teeth: with the netlist of `vivado_synth` typed as a standard-cell netlist,
+    the sweep reports it as an undocumented input of `openroad_place`."""
+
+    def typed_as_before(flow):
+        outputs = declared_outputs(flow)
+        if flow is VivadoSynth:
+            outputs["netlist"] = replace(outputs["netlist"], types=(SourceType.VerilogNetlist,))
+        return outputs
+
+    opened = undocumented(fitting_edges(typed_as_before)) - REVIEWED_EDGES
+    assert ("vivado_synth", "netlist", "openroad_place", "netlist") in opened
 
 
 def test_the_sweep_finds_an_edge_a_wrong_type_would_open():

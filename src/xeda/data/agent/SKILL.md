@@ -1,6 +1,6 @@
 ---
 name: xeda
-description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis (yosys, Design Compiler) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`FlowSettingsError`, `DesignValidationError`, `ExecutableNotFound`, `NonZeroExitCode`, `FlowFailed`).
+description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis and place and route (yosys, Design Compiler, OpenROAD) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`FlowSettingsError`, `DesignValidationError`, `ExecutableNotFound`, `NonZeroExitCode`, `FlowFailed`).
 ---
 
 # Driving Xeda
@@ -169,6 +169,10 @@ Run the flow you want. Its default producers run first:
 | `vivado_impl` | `yosys_fpga` (`netlist_edif`) |
 | `vivado_power` | `vivado_postsynth_sim`, `vivado_synth` |
 | `vivado_postsynth_sim` | `vivado_synth` |
+| `openroad` | `openroad_grt` (`odb`, `sdc`) |
+| `openroad_grt` | `openroad_cts` (`odb`, `sdc`) |
+| `openroad_cts` | `openroad_place` (`odb`, `sdc`) |
+| `openroad_place` | `yosys` (`netlist`) |
 
 A source of the input's type replaces the producer: a `JsonNetlist` source skips `yosys_fpga` for
 `nextpnr`. Set a producer's settings under `flows.<producer>`.
@@ -241,12 +245,13 @@ the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings that fix it.
 
 Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
 `platform`, `corner`, `dont_use_cells`, `platform_file`, `pdk_provider`, `pdk_version`,
-`pdk_root`, where both nodes declare them) must agree. `platform` is a bundled name;
-`platform_file` and `pdk_root` compare by resolved path; an unset `pdk_provider` or `pdk_version`
-is filled in from the platform before hashing. Disjoint leaves combine; two values for one leaf
-fail and name both origins. A command-line leaf
-(`-s fpga.part=...` or `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group. A shared
-setting written under a flow that is not in the run reaches no node.
+`pdk_root`, `hierarchical`, `wire_rc`, where both nodes declare them) must agree. `platform` is a
+bundled name; `platform_file` and `pdk_root` compare by resolved path; an unset `pdk_provider` or
+`pdk_version` is filled in from the platform before hashing. `hierarchical` and `wire_rc` are the
+OpenROAD flows' (the database stores neither). Disjoint leaves combine; two values for one leaf
+fail and name both origins. A command-line leaf (`-s fpga.part=...` or
+`-s flows.yosys_fpga.fpga.part=...`) wins for the connected group. A shared setting written under
+a flow that is not in the run reaches no node.
 
 Do not suggest a chain through `bsc` (`bsc+yosys_fpga`) or an `inputs.design` binding: `bsc`
 declares no I/O, and Xeda refuses both. `vivado_synth+openfpgaloader` is a valid chain that
@@ -254,6 +259,21 @@ programs hardware: plan it with `--dry-run` only, and end other build checks at 
 
 Open `references/fpga-flows.md` for the open-source FPGA flow (yosys, nextpnr, openXC7, boards, pin
 constraints, programming) and for `vivado_impl`.
+
+ASIC place and route: `xeda run openroad design.yaml` plans `yosys`, `openroad_place`,
+`openroad_cts`, `openroad_grt` and `openroad`. The first three run one OpenROAD process each;
+`openroad` runs two (detailed route, final outputs), and a third with `save_images`. Every flow
+needs `platform`, and the PDK files must be installed (`xeda pdk path <platform> --json`). A changed
+setting of a late flow reruns only that flow and the ones after it; a shared setting (`wire_rc`,
+`platform`) reruns every flow. The database carries the routing layers, the layer adjustments,
+`resize.opt_config`, `resize.global_sizing` and `design.dont_touch`: set them under
+`flows.openroad_place` only. Physical settings take units (`clock.period: 0.65 ns`,
+`floorplan.core_margin: 2 um`). `openroad` rejects a negative slack (`fail_timing`), design rule
+violations (`fail_drc`) and antenna violations left after the repair (`fail_antenna`), all on by
+default: `FlowFailed` with `ReportedFailure`, reported again without a tool run until something
+changes. A failed stage leaves `<flow>-failed.odb` in its run directory.
+`examples/sv/fifo/fifo.xeda.yaml` is a working design file for nangate45: its `flows.yosys`
+section sets `platform`, `clock.period` and the SystemVerilog front end.
 
 ## Results
 

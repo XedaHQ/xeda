@@ -1,0 +1,66 @@
+{# The detailed route and the repair of the antenna violations after it. The router follows the
+   route guides of the database, and the database carries the routing layers and the layer
+   adjustments of the placement, so this stage sets none. The settings of the router that the
+   database does not keep come first: the default vias, the layers with one direction, the
+   non-default rules and the nets that follow them, and the debug level of the snapshots. The
+   router takes every option as a flag of the command: the seed, the swap factor and the range of
+   the layers where a via may sit inside a pin. `detailed_route` does not accept
+   `-bottom_routing_layer` and `-top_routing_layer`. The arguments are one list, so the routes of
+   the antenna loop get the same ones. The loop repairs the violations, routes again when the
+   repair changed the design, and repeats while violations are left, at most
+   `antenna.reroute_iterations` times. It needs a diode that the router can use.
+   `-allow_congestion` belongs to the global route, so no command here gets it. #}
+{% set route = settings.detailed_route %}
+{% set ndr = settings.ndr %}
+{% set ant = settings.antenna %}
+{% set via = P.via_in_pin %}
+proc xeda_detail_route {} {
+    xeda_stage detailedroute
+    if {![grt::have_routes]} {
+        error "xeda: the database has no global routes"
+    }
+    set_propagated_clock [all_clocks]
+{% for via_name in route.default_vias %}
+    detailed_route_set_default_via {{ via_name|tcl_word }}
+{% endfor %}
+{% for layer in route.unidirectional_layers %}
+    detailed_route_set_unidirectional_layer {{ layer|tcl_word }}
+{% endfor %}
+{% for name, rule in ndr.rules.items() %}
+    create_ndr -name {{ name|tcl_word }}{% if rule.spacing %} -spacing {{ ndr_words(rule.spacing)|tcl_list }}{% endif %}{% if rule.width %} -width {{ ndr_words(rule.width)|tcl_list }}{% endif %}{% if rule.vias %} -via {{ rule.vias|tcl_list }}{% endif %}
+
+{% endfor %}
+{% for net, rule_name in ndr.assignments.items() %}
+    assign_ndr -ndr {{ rule_name|tcl_word }} -net {{ net|tcl_word }}
+{% endfor %}
+{% if ndr.clock_rule %}
+    assign_ndr -ndr {{ ndr.clock_rule|tcl_word }} -all_clocks
+{% endif %}
+{% if route.snapshots %}
+    set_debug_level DRT snapshot 1
+{% endif %}
+    set route_args [list {{ ["-output_drc " ~ (reports.drc|tcl_word), "-output_maze " ~ (reports.maze|tcl_word), "-output_guide_coverage " ~ (reports.guide_coverage|tcl_word), ("-via_in_pin_bottom_layer " ~ (via.bottom|tcl_word) ~ " -via_in_pin_top_layer " ~ (via.top|tcl_word)) if via is not none else "", render_flags(route)]|select|join(" ") }}]
+    detailed_route {*}$route_args
+{% if ant.repair %}
+{% if P.diode_usable %}
+    set pass 1
+    if {[{{ ["repair_antennas", (P.diode_cell|tcl_word) if P.diode_cell else "", render_flags(ant), "-diode_only" if ant.method == "diode" else ("-jumper_only" if ant.method == "jumper" else "")]|select|join(" ") }}]} {
+        detailed_route {*}$route_args
+    }
+    while {[check_antennas] && $pass < {{ ant.reroute_iterations|tcl_number }}} {
+        {{ ["repair_antennas", (P.diode_cell|tcl_word) if P.diode_cell else "", render_flags(ant), "-diode_only" if ant.method == "diode" else ("-jumper_only" if ant.method == "jumper" else "")]|select|join(" ") }}
+        detailed_route {*}$route_args
+        incr pass
+    }
+{% else %}
+    puts "xeda: the platform has no usable antenna diode; antenna repair skipped"
+{% endif %}
+{% endif %}
+    check_antennas -report_file {{ reports.antennas|tcl_word }}
+{% if route.require_routed %}
+    if {![design_is_routed]} {
+        error "xeda: the design has unrouted nets"
+    }
+{% endif %}
+    report_design_area
+}

@@ -1,0 +1,59 @@
+{# The power grid. The pitch of the stripes must fit the die: a platform pitch for a large block
+   leaves a small block without power, so `pdn.grid` can replace it. `check_power_grid` stops on a
+   design without pads unless it gets `-dont_require_terminals`, and OpenROAD-flow-scripts does
+   not run it, so the check is off unless `pdn.check` asks for it. #}
+{% set dsn = settings.design %}
+{% set pdn = settings.pdn %}
+{# A flag that takes a length, or a list of lengths for a pair of layers or sides, gets the word of
+   the filter `micrometers`. #}
+proc xeda_pdn {} {
+    xeda_stage pdn
+{% if pdn.mode == "generated" %}
+{% if dsn.dont_touch %}
+    # A global connection skips an instance that is marked do not touch, and the instance would
+    # stay without power. The floorplan marked the instances, so unmark them here, connect, and
+    # mark them again.
+{% for name in dsn.dont_touch %}
+    unset_dont_touch {{ name|tcl_word }}
+{% endfor %}
+{% endif %}
+{% for connection in P.pdn.global_connects %}
+    add_global_connection -net {{ connection.net|tcl_word }}{{ " -inst_pattern " ~ (connection.inst_pattern|tcl_word) if connection.inst_pattern != ".*" else "" }} -pin_pattern {{ connection.pin_pattern|tcl_word }} {{ "-power" if connection.kind == "power" else "-ground" }}
+{% endfor %}
+    global_connect
+{% for name in dsn.dont_touch %}
+    set_dont_touch {{ name|tcl_word }}
+{% endfor %}
+    {{ ["set_voltage_domain -name CORE", "-power " ~ (P.pdn.power_net|tcl_word), "-ground " ~ (P.pdn.ground_net|tcl_word), ("-secondary_power " ~ (pdn.secondary_power|tcl_list)) if pdn.secondary_power else ""]|select|join(" ") }}
+    {{ ["define_pdn_grid -name grid -voltage_domains CORE", ("-pins " ~ (P.pdn.pin_layers|tcl_list)) if P.pdn.pin_layers else "", ("-starts_with " ~ (P.pdn.starts_with|upper)) if P.pdn.starts_with else ""]|select|join(" ") }}
+{% for rail in P.pdn.rails %}
+    add_pdn_stripe -grid grid -layer {{ rail.layer|tcl_word }} -width {{ rail.width|micrometers }}{{ " -pitch " ~ (rail.pitch|micrometers) if rail.pitch is not none else "" }}{{ " -offset " ~ (rail.offset|micrometers) if rail.offset is not none else "" }} -followpins
+{% endfor %}
+{% for strap in P.pdn.straps %}
+    {{ ["add_pdn_stripe -grid grid", "-layer " ~ (strap.layer|tcl_word), "-width " ~ (strap.width|micrometers), "-pitch " ~ (strap.pitch|micrometers), "-offset " ~ (strap.offset|micrometers), ("-spacing " ~ (strap.spacing|micrometers)) if strap.spacing is not none else "", ("-offset_type " ~ (strap.offset_type|upper)) if strap.offset_type else "", ("-starts_with " ~ (strap.starts_with|upper)) if strap.starts_with else "", ({"core_ring": "-extend_to_core_ring", "boundary": "-extend_to_boundary"}[strap.extend]) if strap.extend else "", ("-extend_by " ~ (strap.extend_by|micrometers)) if strap.extend_by is not none else "", "-snap_to_grid" if strap.snap_to_grid else "", ("-number_of_straps " ~ (strap.number_of_straps|tcl_number)) if strap.number_of_straps is not none else "", ("-nets " ~ (strap.nets|tcl_list)) if strap.nets else "", "-allow_out_of_core" if strap.allow_out_of_core else ""]|select|join(" ") }}
+{% endfor %}
+{% for ring in P.pdn.rings %}
+    {{ ["add_pdn_ring -grid grid", "-layers " ~ (ring.layers|tcl_list), "-widths " ~ (ring.widths|micrometers), "-spacings " ~ (ring.spacings|micrometers), "-core_offsets " ~ (ring.core_offset|micrometers), "-add_connect" if ring.add_connect else "", "-extend_to_boundary" if ring.extend_to_boundary else "", ("-nets " ~ (ring.nets|tcl_list)) if ring.nets else "", ("-starts_with " ~ (ring.starts_with|upper)) if ring.starts_with else "", "-allow_out_of_die" if ring.allow_out_of_die else ""]|select|join(" ") }}
+{% endfor %}
+{% for connect in P.pdn.connects %}
+{% set cuts = [] %}
+{% for layer, pitch in connect.split_cuts.items() %}
+{% set _ = cuts.extend([layer|tcl_word, pitch|micrometers]) %}
+{% endfor %}
+    {{ ["add_pdn_connect -grid grid", "-layers " ~ (connect.layers|tcl_list), ("-cut_pitch " ~ (connect.cut_pitch|micrometers)) if connect.cut_pitch is not none else "", ("-fixed_vias " ~ (connect.fixed_vias|tcl_list)) if connect.fixed_vias else "", ("-dont_use_vias " ~ (connect.dont_use_vias|tcl_list)) if connect.dont_use_vias else "", ("-max_rows " ~ (connect.max_rows|tcl_number)) if connect.max_rows is not none else "", ("-max_columns " ~ (connect.max_columns|tcl_number)) if connect.max_columns is not none else "", ("-ongrid " ~ (connect.ongrid|tcl_list)) if connect.ongrid else "", ("-min_width_layers " ~ (connect.min_width_layers|tcl_list)) if connect.min_width_layers else "", ("-split_cuts [list " ~ (cuts|join(" ")) ~ "]") if cuts else "", "-split_cuts_staggered" if connect.split_cuts_staggered else ""]|select|join(" ") }}
+{% endfor %}
+    {{ ["pdngen", render_flags(pdn)]|select|join(" ") }}
+{% if pdn.check.mode != "off" %}
+{% for net in [P.pdn.power_net, P.pdn.ground_net] %}
+{% set command = ["check_power_grid -net " ~ (net|tcl_word), render_flags(pdn.check)]|select|join(" ") %}
+{% if pdn.check.mode == "warn" %}
+    if {[catch { {{ command|trim }} } message]} {
+        puts "xeda: warning: the check of the power grid failed: $message"
+    }
+{% else %}
+    {{ command|trim }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endif %}
+}

@@ -1,0 +1,21 @@
+{# The driver of the third process of openroad, which runs only with `save_images`. It reads the
+   final database and its SDC file, loads the parasitics of the final report, and saves the images
+   of the routed design. The graphical interface renders the images, so the first lines stop the
+   process, with the way out, when this OpenROAD was built without it. That is a tool error: the
+   run fails and leaves no trace. The process changes nothing in the database, so a failure writes
+   no failed database. #}
+if {![ord::openroad_gui_compiled]} {
+    error "this OpenROAD has no GUI; set save_images: false"
+}
+{% set restart = "database" %}
+{% set database_file = outputs.odb %}
+{% set sdc_files = [outputs.sdc] %}
+{% include "restart.tcl.j2" %}
+{% include "procs.tcl.j2" %}
+{% include "stages/images.tcl.j2" %}
+{% if P.extraction == "rcx" %}
+read_spef {{ outputs.spef|tcl_word }}
+{% else %}
+estimate_parasitics -global_routing
+{% endif %}
+gui::show "xeda_images" false

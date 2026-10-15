@@ -1,0 +1,93 @@
+{# The global route: the pin access, the route, and the repair of the design and the timing with
+   the parasitics of the route. A repair changes the netlist or moves cells, so an incremental
+   route follows it and routes only the nets that changed. The restart header has already set the
+   cells that must not be used. The database carries the routing layers and the layer
+   adjustments of the placement, so this stage sets none. The seed, the weights of the Steiner
+   tree builder, the halo around macros, the cuts in the capacity of a region and the nets to
+   route are router state, which the database does not store, so they come before the first
+   route. `-grid_origin` goes to every route, because each call resets the origin to 0 0 unless
+   it gets the flag, and the origin shifts the guides that a route saves. `-allow_congestion` goes to every route and to the antenna repair:
+   a call without it routes a congested design harder and then fails on it. A flag of the
+   resistance-aware router stays in the routes that end an increment. `repair_timing` reads the
+   moves of `-sequence` and the names of `-phases` as words with spaces between them; it does
+   not split `-phases` at a comma. #}
+{% set pin = settings.pin_access %}
+{% set cong = settings.congestion %}
+{% set router = settings.router %}
+{% set rep = settings.repair %}
+{% set rd = rep.design %}
+{% set rt = rep.timing %}
+{% set ant = settings.antenna %}
+{% set rd_footprint = P.match_cell_footprint if rd.match_cell_footprint is none else rd.match_cell_footprint %}
+{% set rt_footprint = P.match_cell_footprint if rt.match_cell_footprint is none else rt.match_cell_footprint %}
+{% set allow = "-allow_congestion" if cong.allow else "" %}
+{% set wire_length = ("-max_wire_length " ~ (rd.max_wire_length|micrometers|tcl_word)) if rd.max_wire_length is not none else "" %}
+{% set aware = "-resistance_aware" if router.resistance_aware else "" %}
+{% set origin = ("-grid_origin [list [ord::microns_to_dbu " ~ (router.grid_origin[0]|micrometers) ~ "] [ord::microns_to_dbu " ~ (router.grid_origin[1]|micrometers) ~ "]]") if router.grid_origin else "" %}
+{% set default_iterations = "" if cong.iterations is not none else "-congestion_iterations " ~ ((10 if router.engine == "cugr" else 30)|tcl_word) %}
+{% set legalization = ["detailed_placement", ("-max_displacement " ~ (settings.legalize.max_displacement|map("to", "um")|map("int")|join(" ")|tcl_word)) if settings.legalize.max_displacement else "", "-use_diamond_legalizer" if settings.legalize.legalizer == "diamond" else ""]|select|list %}
+proc xeda_global_route {} {
+    xeda_stage globalroute
+{% if pin.enabled %}
+    {{ ["pin_access", render_flags(pin), ("-via_in_pin_bottom_layer " ~ (pin.via_in_pin.bottom|tcl_word) ~ " -via_in_pin_top_layer " ~ (pin.via_in_pin.top|tcl_word)) if pin.via_in_pin else ""]|select|join(" ") }}
+{% endif %}
+{% if cong.macro_extension is not none %}
+    set_macro_extension {{ cong.macro_extension|tcl_number }}
+{% endif %}
+{% for cut in cong.region_adjustments %}
+    set_global_routing_region_adjustment {{ cut.region|micrometers }} -layer {{ cut.layer|tcl_word }} -adjustment {{ cut.adjustment|tcl_number }}
+{% endfor %}
+{% for alpha in router.steiner_alphas %}
+{% set selector = [] %}
+{% for net in alpha.nets or [] %}
+{% set _ = selector.append("-net " ~ (net|tcl_word)) %}
+{% endfor %}
+    {{ ["set_routing_alpha", alpha.alpha|tcl_number, selector|join(" "), ("-min_fanout " ~ (alpha.min_fanout|tcl_number)) if alpha.min_fanout is not none else "", ("-min_hpwl " ~ (alpha.min_hpwl|micrometers)) if alpha.min_hpwl is not none else "", "-clock_nets" if alpha.clock_nets else ""]|select|join(" ") }}
+{% endfor %}
+{% if router.seed is not none %}
+    {{ ["set_global_routing_random -seed " ~ (router.seed|tcl_number), ("-capacities_perturbation_percentage " ~ (router.capacity_perturbation_percent|tcl_number)) if router.capacity_perturbation_percent is not none else "", ("-perturbation_amount " ~ (router.perturbation_amount|tcl_number)) if router.perturbation_amount is not none else ""]|select|join(" ") }}
+{% endif %}
+{% if router.only_nets %}
+    set_nets_to_route {{ router.only_nets|tcl_list }}
+{% endif %}
+    {{ ["global_route", "-congestion_report_file " ~ (reports.congestion|tcl_word), default_iterations, render_flags(cong), "-verbose", "-use_cugr" if router.engine == "cugr" else "", render_flags(router), origin]|select|join(" ") }}
+    set_placement_padding -global -left {{ settings.legalize.cell_padding|tcl_number }} -right {{ settings.legalize.cell_padding|tcl_number }}
+    set_propagated_clock [all_clocks]
+    estimate_parasitics -global_routing
+{% if rep.strategy == "incremental" %}
+{% if rd.enabled %}
+    repair_design {{ [wire_length, render_flags(rd), "-match_cell_footprint" if rd_footprint else "", "-verbose"]|select|join(" ") }}
+    {{ ["global_route -start_incremental", allow, origin]|select|join(" ") }}
+    {{ legalization|join(" ") }}
+    {{ ["global_route -end_incremental", allow, aware, origin, "-congestion_report_file " ~ (reports.post_repair_design|tcl_word)]|select|join(" ") }}
+    estimate_parasitics -global_routing
+{% endif %}
+{% if rt.enabled %}
+    repair_timing {{ [fix_flags[rt.fix], "-setup_margin " ~ (rt.setup_margin|lib_time), "-hold_margin " ~ (rt.hold_margin|lib_time), render_flags(rt, space_word), render_flags(rt.moves), "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
+    {{ ["global_route -start_incremental", allow, origin]|select|join(" ") }}
+    {{ legalization|join(" ") }}
+    check_placement -verbose
+    {{ ["global_route -end_incremental", allow, aware, origin, "-congestion_report_file " ~ (reports.post_repair_timing|tcl_word)]|select|join(" ") }}
+    estimate_parasitics -global_routing
+{% endif %}
+{% if P.wns_polish %}
+    repair_timing {{ ["-setup", "-sequence \"vt_swap reroute\"", "-skip_last_gasp", "-repair_tns 0", "-setup_margin " ~ (rt.setup_margin|lib_time) if (rt.setup_margin|to("ns")) != 0 else "", "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
+{% elif rep.recover_power_percent is not none %}
+    {{ ["global_route -start_incremental", allow, origin]|select|join(" ") }}
+    repair_timing {{ ["-recover_power " ~ (rep.recover_power_percent|tcl_number), "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
+    {{ ["global_route -end_incremental", allow, aware, origin, "-congestion_report_file " ~ (reports.post_recover_power|tcl_word)]|select|join(" ") }}
+{% endif %}
+{% endif %}
+{% if ant.repair %}
+{% if P.diode_usable %}
+    {{ ["repair_antennas", (P.diode_cell|tcl_word) if P.diode_cell else "", render_flags(ant), "-diode_only" if ant.method == "diode" else ("-jumper_only" if ant.method == "jumper" else ""), "-allow_congestion" if cong.allow else ""]|select|join(" ") }}
+    check_placement -verbose
+{% else %}
+    puts "xeda: the platform has no usable antenna diode; antenna repair skipped"
+{% endif %}
+{% endif %}
+    check_antennas -report_file {{ reports.antennas|tcl_word }}
+    estimate_parasitics -global_routing
+    xeda_metrics 1 1
+    write_guides {{ outputs.guides|tcl_word }}
+}

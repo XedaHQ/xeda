@@ -1,0 +1,49 @@
+# The restart header. Every OpenROAD process starts with it, because the database stores the
+# design and the options that openroad_place set, and none of the following.
+#
+# The driver sets two variables before it includes this file:
+#   restart    "netlist" to read a netlist, or "database" to read the database of the flow before
+#   sdc_files  the SDC files to read, in order
+{# A driver may set a third variable, `database_file`: the database to read when `restart` is
+   "database". Without it, the process reads the input `odb`. The second process of `openroad`
+   reads the database that its first process wrote, which is no input. #}
+{% for liberty in P.liberty %}
+read_liberty {{ liberty|tcl_word }}
+{% endfor %}
+{% if restart == "netlist" %}
+{% if P.tech_lef is not none %}
+read_lef {{ P.tech_lef|tcl_word }}
+{% endif %}
+{% for lef in P.cell_lefs %}
+read_lef {{ lef|tcl_word }}
+{% endfor %}
+read_verilog {{ inputs.netlist|tcl_word }}
+# The source file names stay out of the database, so it does not depend on where the files were.
+link_design {% if settings.hierarchical %}-hier {% endif %}-omit_filename_prop {{ design.rtl.top|tcl_word }}
+{% elif restart == "database" %}
+read_db {% if settings.hierarchical %}-hier {% endif %}{{ database_file|default(inputs.odb)|tcl_word }}
+{% else %}
+{{ restart_must_be_netlist_or_database }}
+{% endif %}
+{% for sdc in sdc_files %}
+read_sdc {{ sdc|tcl_word }}
+{% endfor %}
+# The wire RC is no part of the database. The choice of the layers sets the parasitics that the
+# estimates use, so it sets what the repair commands decide.
+{% for layer, rc in P.wire_rc.layers.items() %}
+set_layer_rc -layer {{ layer|tcl_word }} -resistance {{ rc[0]|tcl_number }} -capacitance {{ rc[1]|tcl_number }}
+{% endfor %}
+{% for via, resistance in P.wire_rc.vias.items() %}
+set_layer_rc -via {{ via|tcl_word }} -resistance {{ resistance|tcl_number }}
+{% endfor %}
+{% if P.wire_rc.signal_layer is not none %}
+set_wire_rc -signal -layer {{ P.wire_rc.signal_layer|tcl_word }}
+{% endif %}
+{% if P.wire_rc.clock_layer is not none %}
+set_wire_rc -clock -layer {{ P.wire_rc.clock_layer|tcl_word }}
+{% endif %}
+{% if P.dont_use %}
+# The command takes one argument that is a list. Call it before any command that resizes,
+# places or builds a clock tree.
+set_dont_use {{ P.dont_use|tcl_list }}
+{% endif %}

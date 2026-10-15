@@ -117,7 +117,8 @@ the same rule:
   on the ``timing_sim`` setting of that flow. ``vivado_power`` itself has no ``timing_sim`` setting
   (see :ref:`the functional alternative <power-activity>`).
 
-The ``openroad`` flow was removed. New OpenROAD flows replace it in a later release.
+The single ``openroad`` flow was replaced by four flows (see `OpenROAD place and route`_). Each
+setting that the old flow had fails and names its replacement.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its producers. When ``nextpnr`` is the requested flow, ``-s flows.nextpnr.seed=2`` and
@@ -224,7 +225,7 @@ without a unit is an error. It means nothing: ``5`` can be 5 ns, 5 ps or 5 MHz. 
 the unit. A few settings do not follow this rule yet. The last part of this section lists them.
 
 Each such setting has a *kind*. The kind is what the setting measures: a time, a frequency, a
-capacitance, a length, a voltage or a resistance. The kind decides which units the setting takes.
+capacitance, a length, a voltage, a resistance or a power. The kind decides which units the setting takes.
 ``clock.period`` is a time, ``clock.freq`` is a frequency, and ``abc.load`` of ``yosys`` is a
 capacitance. ``xeda list-settings <flow>`` shows the kind of a setting in its type column: ``time``
 and not ``string``. The JSON output shows it too (see :ref:`machine-readable-settings`).
@@ -296,6 +297,9 @@ in the unit of the last column, whatever unit you wrote: ``10000 ps`` becomes ``
    * - resistance
      - ``ohm``, ``kohm``, ``Mohm``
      - ``ohm``
+   * - power
+     - ``nW``, ``uW``, ``mW``, ``W``, and ``µW`` with the micro sign (U+00B5)
+     - ``W``
 
 Units are case-sensitive, as in SI: ``MHz`` is megahertz, and ``mHz`` is millihertz. A unit in the
 wrong case is an error that names the right spelling. Xeda takes only the units in the table. A
@@ -555,13 +559,18 @@ those checked records, for producers that ran now and producers that Xeda reused
 
 Along a declared edge, shared settings (``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
 ``prjxray_db``, ``platform``, ``corner``, ``dont_use_cells``, ``platform_file``, ``pdk_provider``,
-``pdk_version`` and ``pdk_root``) must agree where both endpoints declare them. A ``platform`` is
+``pdk_version``, ``pdk_root``, ``hierarchical`` and ``wire_rc``) must agree where both endpoints
+declare them. A ``platform`` is
 the name of a bundled platform. ``platform_file`` and ``pdk_root`` are paths: Xeda compares them by
 the resolved path, and a relative path is relative to the design root. Xeda compares a ``corner``
 by its name. When ``pdk_provider`` or ``pdk_version`` is unset, Xeda fills it in from the platform
 before it hashes any node, so the version of the PDK is part of the identity of every node in the
 group. ``pdk_root`` is not. It tells where the files are, and the same files in another place are
-the same run. A leaf given on one node applies to both, and disjoint leaves combine. Different
+the same run. ``hierarchical`` and ``wire_rc`` belong to the OpenROAD flows only: an OpenROAD
+database stores neither the way it was read nor the wire resistance and capacitance, so every flow
+of a chain must use the same values. Xeda compares ``wire_rc`` leaf by leaf (``wire_rc.signal_layer``,
+``wire_rc.layers.metal2``). A leaf given on one node applies to both, and disjoint leaves
+combine. Different
 values for the same leaf fail before anything runs, and the error names both files and sections.
 An example is ``flows.nextpnr.fpga.part`` in a project and ``flows.yosys_fpga.fpga.part`` in a
 design. A command-line leaf (``-s fpga.part=...`` or ``-s flows.yosys_fpga.fpga.part=...``) wins
@@ -1723,6 +1732,151 @@ nested tables and dotted keys.
         techmap_files:
           - path: maps/cells.v
             when: pre_dff
+
+OpenROAD place and route
+========================
+
+Four flows take a gate-level netlist through OpenROAD to a routed design. Each flow hands an
+OpenROAD database (``.odb``) and an SDC file to the next one:
+
+.. code-block:: text
+
+    yosys -> openroad_place -> openroad_cts -> openroad_grt -> openroad
+
+``openroad_place``, ``openroad_cts`` and ``openroad_grt`` each run one OpenROAD process.
+``openroad`` runs two: the first routes the design in detail, and the second writes the final
+outputs. With ``save_images``, a third process saves the images of the routed design.
+
+``yosys`` is the default producer of the netlist, so ``xeda run openroad`` and
+``xeda run yosys+openroad`` plan the same five flows. A changed setting of a late flow reruns only
+that flow and the flows after it. A shared setting, such as ``wire_rc`` or ``platform``, belongs to
+every flow of the chain, so its change reruns all of them. Every flow needs a ``platform`` (see
+:doc:`platforms`), and the PDK files of the platform must be in the PDK store
+(``xeda pdk install nangate45``).
+
+The flows follow the order of the stages of OpenROAD-flow-scripts. Where a setting has the default
+of OpenROAD-flow-scripts, of the tool or of the platform, its description says so. Run
+``xeda list-settings <flow> --tier common`` for the settings that most designs change, and
+``xeda list-settings <flow>`` for all of them.
+
+The flows
+---------
+
+``openroad_place``
+    Reads the netlist and the constraints. It makes the floorplan, places the tap cells, builds
+    the power grid, places the pins and the cells, optimizes the design and legalizes the
+    placement. It writes ``place.odb`` and ``place.sdc``. Its groups are ``design``,
+    ``floorplan``, ``tapcell``, ``pdn``, ``io``, ``global_placement``, ``resize``, ``arith_swap``,
+    ``detailed_placement``, ``routing`` and ``tie``. The constraints are the SDC files of the
+    design, then the clocks of ``clocks`` (or ``clock.period``), then ``sdc_files``.
+``openroad_cts``
+    Builds the clock tree, legalizes the placement and repairs the timing with propagated clocks.
+    It writes ``cts.odb`` and ``cts.sdc``. Its groups are ``buffers``, ``sink_clustering``,
+    ``macro_clustering``, ``tree``, ``balance``, ``ndr``, ``characterization``,
+    ``repair_clock_nets``, ``legalize`` and ``repair``.
+``openroad_grt``
+    Routes the design globally, repairs the design and the timing with the parasitics of the
+    route, and repairs the antenna violations where the platform has a diode that the router can
+    use. It writes ``grt.odb``, ``grt.sdc`` and the route guides ``grt.guide``. Its groups are
+    ``pin_access``, ``congestion``, ``router``, ``legalize``, ``repair`` and ``antenna``.
+``openroad``
+    Routes the design in detail, repairs the antenna violations of the route, places the filler
+    cells, and writes and reports the final design. Its groups are ``detailed_route``, ``ndr``,
+    ``antenna``, ``fill``, ``extraction``, ``reports``, ``ir_drop`` and ``gds``.
+
+Settings that travel in the database
+------------------------------------
+
+The database keeps the routing layers (``routing.signal_layers``, ``routing.clock_layers``), the
+layer adjustments (``routing.layer_adjustments``), the limits of the sizing
+(``resize.opt_config``), the options of the global sizing (``resize.global_sizing``) and the
+cells that the resizer must not touch (``design.dont_touch``). These settings belong to
+``openroad_place`` only. A change of one of them reruns ``openroad_place`` and every flow after
+it.
+
+The database keeps neither the wire resistance and capacitance nor the way it was read.
+``wire_rc`` and ``hierarchical`` are therefore settings of every OpenROAD flow, and they must agree
+along the chain (see `Producers and consumers`_). ``wire_rc`` replaces the wire RC of the platform
+layer by layer. ``dont_use_cells`` adds to the cells that the platform excludes.
+
+The verdict of the last flow
+----------------------------
+
+``openroad`` judges the routed design with three checks, all on by default:
+
+``fail_timing``
+    A negative setup or hold slack rejects the run.
+``fail_drc``
+    A design rule violation that the detailed route leaves rejects the run.
+``fail_antenna``
+    An antenna violation that remains after the repair rejects the run.
+
+One rejection names every check that failed. The run keeps its outputs and its trace, and the next
+launch reports the same rejection again without running OpenROAD, until a setting, an input or
+the outputs change. A check that you switch off does not reject the run, but its value must still
+be in the metrics: a missing or malformed value fails the run.
+
+``openroad_place`` stops on an illegal placement (``detailed_placement.check: fail``, as
+OpenROAD-flow-scripts does). Set it to ``report`` to print the violations and go on.
+
+Outputs and results
+-------------------
+
+``openroad`` writes ``final.odb``, ``final.sdc``, ``final.def``, the netlist ``final.v`` without
+physical-only cells, ``final.sdf``, the abstract ``final.lef``, ``final.cdl`` when the platform
+gives CDL files, and ``final.spef`` when OpenRCX extracts the parasitics
+(``extraction.method``). ``write_timing_model`` adds the Liberty model ``final.lib``, and
+``write_gds`` adds the layout ``final.gds``, which KLayout writes from the DEF file and the GDSII
+files of the platform. ``save_images`` saves images of the routed design. The results hold the
+slack, the area, the power and the counts of the violations. The IR drop of each supply net is in
+a report in the directory ``reports`` of the run directory.
+
+When a stage fails, its process writes the database of that moment as ``<flow>-failed.odb`` in
+the run directory, for example ``openroad_cts-failed.odb``. Open it in OpenROAD to see where the
+stage stopped. The flow deletes it before its next process starts.
+
+Example
+-------
+
+The FIFO in ``examples/sv/fifo`` has one design file for a simulation, for FPGA synthesis and for
+the ASIC chain. The section ``flows.verilator`` configures the simulation, and the section
+``flows.yosys_fpga`` configures the FPGA synthesis. The section ``flows.yosys`` holds the settings
+that reach the four OpenROAD flows. Every other setting keeps its default:
+
+.. code-block:: yaml
+
+    # openroad-fifo.yaml: the design file examples/sv/fifo/fifo.xeda.yaml.
+    name: fifo
+    description: FIFO in SystemVerilog with a SystemVerilog testbench
+    rtl:
+      sources:
+        - "fifo.sv"
+      top: fifo
+      clock.port: clk
+    tb:
+      sources:
+        - "fifo_tb.sv"
+      top: fifo_tb
+      # The testbench writes dump.vcd when DUMP_VCD is defined.
+      defines.DUMP_VCD: null
+    flows:
+      verilator:
+        timing: true
+        vcd: true
+      # FPGA synthesis for a Xilinx 7-series part: `xeda run yosys_fpga fifo.xeda.yaml`.
+      yosys_fpga:
+        fpga.part: xc7a100tftg256-2L
+        clock.period: 5 ns
+      # ASIC place and route on nangate45: `xeda run yosys+openroad fifo.xeda.yaml`.
+      yosys:
+        # Shared settings: they reach the four OpenROAD flows along the chain.
+        platform: nangate45
+        clock.period: 0.8 ns
+        # Yosys reads SystemVerilog with the slang plugin by default, and not every Yosys build has it.
+        systemverilog: default
+
+The physical settings take a quantity with its unit (see `Physical quantities and units`_). The
+settings of the old single ``openroad`` flow fail, and each message names its replacement.
 
 Bluespec
 ========

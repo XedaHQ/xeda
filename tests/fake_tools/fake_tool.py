@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from time import sleep
@@ -46,7 +47,9 @@ def write_file(path, data):
 
 
 # The commands of the tool a script runs are recorded, not run: `unknown` catches every command
-# tclsh does not know. The recording goes to `fake_<tool>.calls` in the working directory (the
+# tclsh does not know. (The fake OpenROAD is the exception: it defines exactly the commands of
+# `OPENROAD_COMMANDS`, has no `unknown`, and runs `fake_openroad_prelude.tcl` instead of this
+# recorder. See `run_openroad`.) The recording goes to `fake_<tool>.calls` in the working directory (the
 # run directory), one `CALL <n>` line per command followed by its `ARG` lines -- and `ELEM` lines
 # for the files of an argument that is a TCL list (`[list "a b.v"]`). The commands named in
 # `XEDA_FAKE_TOOL_FAIL` (a TCL list) raise a TCL error after being recorded, and
@@ -800,6 +803,85 @@ def run_tcl(
     ).returncode
 
 
+OPENROAD_PRELUDE = Path(__file__).parent.absolute() / "fake_openroad_prelude.tcl"
+OPENROAD_METRICS_DIR = (
+    Path(__file__).parent.parent.absolute() / "resources" / "openroad" / "metrics"
+)
+
+
+def openroad_commands() -> tuple[str, ...]:
+    """The commands the fake OpenROAD defines: `OPENROAD_COMMANDS`, the one list of them."""
+    tests_dir = str(Path(__file__).parent.parent.absolute())
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from tool_utils import OPENROAD_COMMANDS  # pylint: disable=import-outside-toplevel
+
+    return OPENROAD_COMMANDS
+
+
+def run_openroad(*, script: str | None = None, metrics: str | None = None, **_options: Any) -> int:
+    """Run `script` under tclsh after the prelude of the fake OpenROAD, in the working directory.
+
+    The commands are recorded in `fake_openroad.calls`. A Tcl error, such as a command that
+    OpenROAD does not have, fails the tool. When the script has ended, whatever the way, the
+    recorded metrics of the driver (the script's name without `.tcl`) are copied to `metrics`,
+    from `XEDA_FAKE_OPENROAD_METRICS` or else from `tests/resources/openroad/metrics/`. Without
+    tclsh the script is not run, unless `XEDA_TESTS_REQUIRE_TOOLS` asks for every tool a test
+    uses."""
+    status = 0
+    if script:
+        tclsh = shutil.which("tclsh")
+        if tclsh is None:
+            if os.environ.get("XEDA_TESTS_REQUIRE_TOOLS", "").lower() in ("1", "true", "yes", "on"):
+                print(
+                    "fake tool: tclsh is needed to run the TCL script, and XEDA_TESTS_REQUIRE_TOOLS is set"
+                )
+                return 1
+            return 0
+        here = os.getcwd()
+        roots = sorted(
+            {here, os.path.realpath(here), os.path.realpath(here).removeprefix("/private")},
+            key=len,
+            reverse=True,
+        )
+        calls = Path(here) / "fake_openroad.calls"
+        if not calls.resolve().is_relative_to(Path(here).resolve()):
+            print(f"fake openroad: {calls} leads outside the working directory", file=sys.stderr)
+            return 1
+        command = [
+            tclsh,
+            str(OPENROAD_PRELUDE),
+            str(calls),
+            str(Path(script).absolute()),
+            _tcl_list(roots),
+            _tcl_list(openroad_commands()),
+        ]
+        status = subprocess.run(command, check=False).returncode
+    if metrics:
+        directory = os.environ.get("XEDA_FAKE_OPENROAD_METRICS")
+        recorded = (
+            Path(directory) if directory else OPENROAD_METRICS_DIR
+        ) / f"{Path(script or '').stem}.json"
+        if script and recorded.is_file():
+            target = Path(metrics).resolve()
+            if not target.is_relative_to(Path.cwd().resolve()):
+                print(
+                    f"fake openroad: the metrics file {metrics} is outside the working "
+                    "directory; the fake OpenROAD does not write it",
+                    file=sys.stderr,
+                )
+                return 1
+            shutil.copyfile(recorded, target)
+    return status
+
+
+def _tcl_list(words: Any) -> str:
+    """The words as a Tcl list. None of them holds a brace or a backslash."""
+    words = list(words)
+    assert not any(set("{}\\") & set(word) for word in words), words
+    return " ".join("{" + word + "}" for word in words)
+
+
 class RunTcl:
     """Execute the TCL script a fake tool is handed, taken from the named option or argument
     (`transform` extracts it, e.g. from `vsim -do "do x.tcl"`)."""
@@ -971,6 +1053,20 @@ fake_tools: Dict[str, FakeTool] = dict(
             "-output_log_file": dict(type=click.Path()),
         },
         execute_=RunTcl("dc_shell", "f"),
+    ),
+    openroad=FakeTool(
+        version="2.0-26132-g6b305a712",
+        version_template="OpenROAD v{version}",
+        version_options=["-version"],
+        options={
+            "-no_init": None,
+            "-no_splash": None,
+            "-exit": None,
+            "-threads": dict(type=str),
+            "-metrics": dict(type=click.Path()),
+        },
+        arguments={"script": dict(required=False, type=click.Path(exists=True))},
+        execute_=run_openroad,
     ),
     diamondc=FakeTool(
         version="3.13.0.56.2",

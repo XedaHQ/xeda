@@ -1,4 +1,4 @@
-# platform.yaml (nangate45): values from OpenROAD-flow-scripts, see ../NOTICE.md
+# nangate45: values from OpenROAD-flow-scripts, see ../NOTICE.md
 name: nangate45
 description: FreePDK45 with the Nangate Open Cell Library
 providers:
@@ -13,6 +13,7 @@ files:
   cell_lef: [lef/NangateOpenCellLibrary.macro.mod.lef]
   gds: [gds/NangateOpenCellLibrary.gds]
   rcx_rules: rcx_patterns.rules
+  cdl: [cdl/NangateOpenCellLibrary.cdl]
   klayout_tech: FreePDK45.lyt
   klayout_layer_props: FreePDK45.lyp
   latch_map: cells_latch.v

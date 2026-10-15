@@ -103,7 +103,8 @@ from the producer of an input of the flow that makes the ``same_producer_as`` in
 the ``checkpoint`` of ``vivado_power`` comes from the synthesis whose ``netlist_timing`` the
 simulation behind ``activity`` read. Both keys are ``null`` for most inputs. Only generated inputs,
 those with a producer in the plan, are compared. An input that comes from a source you list, or that
-is absent, is not.
+is absent, is not. With ``paired`` true, the two inputs also cannot mix the two origins: both come
+from sources you list, or both from one producer.
 
 For example, ``nextpnr`` declares the input ``netlist`` of type ``JsonNetlist``, with the default
 producer ``yosys_fpga`` and its output ``netlist``. Sources of an accepted type displace that
@@ -205,7 +206,7 @@ under the name that you can type as ``-s <name>=<value>``:
 * ``type`` is a short rendering for people and agents, and it is not JSON Schema. An optional
   setting reads as its underlying type (``integer``), while ``json_schema`` carries the literal
   ``anyOf: [..., {"type": "null"}]`` that pydantic emits. A quantity reads as its kind (``time``,
-  ``frequency``, ``capacitance``, ``length``, ``voltage`` or ``resistance``; see :ref:`quantities`).
+  ``frequency``, ``capacitance``, ``length``, ``voltage``, ``resistance`` or ``power``; see :ref:`quantities`).
   In ``json_schema``, a quantity is ``"type": "string"`` with the kind in the key
   ``x-xeda-quantity``. The schema separates a number from text, and it cannot check the unit in the
   text.

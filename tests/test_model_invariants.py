@@ -17,7 +17,7 @@ from xeda.flow import FlowSettingsError
 from xeda.tool import Tool
 from xeda.utils import dump_json, semantic_hash
 
-from .settings_fields import assign, dotted, follow, shape_of
+from .settings_fields import assign, dotted, follow, kind_of
 from .settings_samples import (
     PROBES,
     QUANTITY_FIELD_IDS,
@@ -159,11 +159,7 @@ def test_settings_reload_unchanged_from_their_settings_json(cls, tmp_path):
 # ---------------------------------------------------------------------------------------------
 
 
-def _kind_of(path):
-    """The quantity class that the field at `path` holds."""
-    last = path[-1]
-    (kind,) = shape_of(last.model.model_fields[last.key].annotation).quantity_types
-    return kind
+_kind_of = kind_of
 
 
 def _example_of(path) -> str:

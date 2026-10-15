@@ -42,10 +42,10 @@ reads. A leaf `p.q.leaf` is read when:
   does not go into sub-groups, so a call on `p` does not read the leaves of `p.q`; or
 * the chain `settings.p.q.leaf` appears in the code (as a chain of attributes) or in a template,
   outside a comment. A chain that goes on past the leaf (`settings.p.q.leaf.x`) reads it too; or
-* a template alias stands for the start of the chain. `{% set gp = settings.p %}` in any template
-  of the flow makes `gp.q.leaf` and `render_flags(gp.q, ...)` count as `settings.p.q.leaf` and
-  `render_flags(settings.p.q, ...)` in every template of the flow. The rule is simple and
-  conservative: it ignores where the name is set and which names are set again.
+* a template alias stands for the start of the chain. `{% set gp = settings.p %}` makes
+  `gp.q.leaf` and `render_flags(gp.q, ...)` count as `settings.p.q.leaf` and
+  `render_flags(settings.p.q, ...)` from there to the end of that template, and in the templates it
+  includes. Another template may use the same name for another group.
 
 Code does not follow an alias: `gp = ss.global_placement` followed by `gp.leaf` is no read. Code
 reads the leaf of a group by its whole chain, or has `render_flags` print the group.
@@ -418,27 +418,54 @@ def template_group_reads(templates: Iterable[tuple[str, str]]) -> tuple[set[str]
     (`settings.p.q.leaf` gives `p`, `p.q` and `p.q.leaf`) and of the groups that a `render_flags`
     call renders (`render_flags(settings.p.q, ...)` gives `p.q`).
 
-    A `{% set name = settings.path %}` in a template makes `name.rest` and `render_flags(name`
-    stand for `settings.path.rest` in every template of the flow. A name that stands for another
-    name resolves too. That is a simple and conservative rule: it does not look at where a
-    template sets the name or at which names it sets again."""
-    texts = [_uncommented(name, text) for name, text in templates]
-    #: the settings path that each name stands for: the empty path for the settings themselves
-    roots: dict[str, str] = {expression: "" for expression in SETTINGS_EXPRESSIONS}
+    A `{% set name = settings.path %}` makes `name.rest` and `render_flags(name` stand for
+    `settings.path.rest` from there to the end of the template that sets it, and in the templates
+    that one includes (`{% include "name" %}`, and `{% include step + "tail" %}` for the
+    templates that end in `tail`), with the names as they are at the include. Another template does not see the name, and a template that
+    sets the name again gives it the new path from there on. A name that stands for another name
+    resolves too. Each template is read once alone, and once for every template that includes it,
+    with the names of that template."""
+    texts = {name: _uncommented(name, text) for name, text in templates}
     dotted = r"\w+(?:\s*\.\s*\w+)*"
     assignment = re.compile(rf"{{%-?\s*set\s+(\w+)\s*=\s*({dotted})\s*-?%}}")
+    literal = re.compile(r"""{%-?\s*include\s+['"]([^'"]+)['"](?!\s*[~+])""")
+    computed = re.compile(r"""{%-?\s*include\s+\w+\s*\+\s*['"]([^'"]+)['"]""")
+    tail = r"(?:\s*\.\s*\w+)*"
+    chains: set[str] = set()
+    rendered: set[str] = set()
 
     def path_of(text: str) -> list[str]:
         return [part.strip() for part in text.split(".")]
 
-    def resolve(root: str, rest: list[str]) -> str:
+    def resolve(roots: dict[str, str], root: str, rest: list[str]) -> str:
         return ".".join([*filter(None, [roots[root]]), *rest])
 
-    changed = True
-    while changed:
-        changed = False
-        for text in texts:
-            for alias, value in assignment.findall(text):
+    def read(chunk: str, roots: dict[str, str]) -> None:
+        names = "|".join(re.escape(root) for root in sorted(roots, key=len, reverse=True))
+        chain = re.compile(rf"(?<![\w.])({names})({tail})(?!\w)")
+        render = re.compile(rf"\brender_flags\s*\(\s*({names})({tail})(?!\w)")
+        for root, rest in chain.findall(chunk):
+            full = resolve(roots, root, path_of(rest.strip(". ")) if rest.strip() else [])
+            full_path = full.split(".")
+            chains.update(
+                ".".join(full_path[: n + 1]) for n in range(len(full_path)) if full_path[0]
+            )
+        for root, rest in render.findall(chunk):
+            group = resolve(roots, root, path_of(rest.strip(". ")) if rest.strip() else [])
+            if group:
+                rendered.add(group)
+
+    events = re.compile(f"{assignment.pattern}|{literal.pattern}|{computed.pattern}")
+
+    def scan(name: str, inherited: dict[str, str], above: tuple[str, ...]) -> None:
+        text = texts[name]
+        roots = dict(inherited)
+        position = 0
+        for match in events.finditer(text):
+            read(text[position : match.start()], roots)
+            position = match.end()
+            alias, value, target, ending = match.groups()
+            if alias is not None:
                 if alias in SETTINGS_EXPRESSIONS:
                     continue
                 first, *rest = path_of(value)
@@ -446,25 +473,22 @@ def template_group_reads(templates: Iterable[tuple[str, str]]) -> tuple[set[str]
                 for root in sorted(roots, key=len, reverse=True):
                     words = root.split(".")
                     if [first, *rest][: len(words)] == words:
-                        resolved = resolve(root, [*rest][len(words) - 1 :])
-                        if roots.get(alias) != resolved:
-                            roots[alias] = resolved
-                            changed = True
+                        roots[alias] = resolve(roots, root, [*rest][len(words) - 1 :])
                         break
-    names = "|".join(re.escape(root) for root in sorted(roots, key=len, reverse=True))
-    tail = r"(?:\s*\.\s*\w+)*"
-    chain = re.compile(rf"(?<![\w.])({names})({tail})(?!\w)")
-    render = re.compile(rf"\brender_flags\s*\(\s*({names})({tail})(?!\w)")
-    chains: set[str] = set()
-    rendered: set[str] = set()
-    for text in texts:
-        for root, rest in chain.findall(text):
-            full = resolve(root, path_of(rest.strip(". ")) if rest.strip() else []).split(".")
-            chains |= {".".join(full[: n + 1]) for n in range(len(full)) if full[0]}
-        for root, rest in render.findall(text):
-            group = resolve(root, path_of(rest.strip(". ")) if rest.strip() else [])
-            if group:
-                rendered.add(group)
+                else:
+                    roots.pop(alias, None)  # the name stands for something else from here on
+                continue
+            # an include reads its template with the names as they are here; one that loops
+            # back is no new text to read
+            found = [target] if target is not None else [n for n in texts if n.endswith(ending)]
+            for included in found:
+                if included in texts and included not in above:
+                    scan(included, roots, (*above, name))
+        read(text[position:], roots)
+
+    base = {expression: "" for expression in SETTINGS_EXPRESSIONS}
+    for name in texts:
+        scan(name, base, (name,))
     return chains, rendered
 
 
@@ -1181,7 +1205,7 @@ GROUP_TEMPLATES = [
 # settings.p.q.in_tcl_comment
 """,
     ),
-    ("defs.tcl", "{% set ar = settings.alias_rendered %}"),
+    ("defs.tcl", "{% set ar = settings.alias_rendered %}{% include 'use.tcl' %}"),
     ("use.tcl", "{{ render_flags(ar, tcl_word) }}"),
 ]
 
@@ -1289,6 +1313,76 @@ def test_a_template_alias_of_an_alias_stands_for_the_whole_path() -> None:
     templates = [("t.tcl", "{% set a = settings.g %}{% set b = a %}{{ b.y }}")]
     reads = _group_reads("class ToyGroups(Flow): pass", templates)
     assert unread_in(_OneGroup, reads) == ["g.x"]
+
+
+def test_two_templates_may_bind_the_same_alias_to_different_groups() -> None:
+    """An alias belongs to the template that sets it. The scan ends, and each read counts for the
+    group that its own template bound the alias to."""
+    templates = [
+        ("a.tcl", "{% set rt = settings.first %}{{ rt.x }}"),
+        ("b.tcl", "{% set rt = settings.second.inner %}{{ render_flags(rt, q) }}{{ rt.y }}"),
+    ]
+    chains, rendered = template_group_reads(templates)
+    assert chains == {
+        "first",
+        "first.x",
+        "second",
+        "second.inner",
+        "second.inner.y",
+    }
+    assert rendered == {"second.inner"}
+
+
+def test_an_alias_is_not_visible_in_a_template_that_the_setting_template_does_not_include() -> None:
+    templates = [
+        ("sets.tcl", "{% set gp = settings.g %}{{ gp.x }}"),
+        ("other.tcl", "{{ gp.y }}"),
+    ]
+    chains, _ = template_group_reads(templates)
+    assert chains == {"g", "g.x"}
+
+
+def test_an_alias_is_visible_in_the_templates_that_the_setting_template_includes() -> None:
+    templates = [
+        ("driver.tcl", "{% set gp = settings.g %}{% include 'stages/one.tcl' %}"),
+        ("stages/one.tcl", '{{ gp.x }}{% include "stages/two.tcl" %}'),
+        ("stages/two.tcl", "{{ render_flags(gp.h, q) }}"),
+    ]
+    chains, rendered = template_group_reads(templates)
+    assert chains == {"g", "g.x", "g.h"}
+    assert rendered == {"g.h"}
+
+
+def test_an_alias_set_again_in_a_template_stands_for_the_last_binding_from_there_on() -> None:
+    templates = [
+        ("t.tcl", "{% set a = settings.one %}{{ a.x }}{% set a = settings.two %}{{ a.y }}"),
+    ]
+    chains, _ = template_group_reads(templates)
+    assert chains == {"one", "one.x", "two", "two.y"}
+
+
+def test_an_alias_set_in_an_included_template_does_not_reach_the_including_template() -> None:
+    templates = [
+        ("driver.tcl", "{% include 'stage.tcl' %}{{ gp.z }}"),
+        ("stage.tcl", "{% set gp = settings.g %}{{ gp.x }}"),
+    ]
+    chains, _ = template_group_reads(templates)
+    assert chains == {"g", "g.x"}
+
+
+def test_an_included_template_sees_the_names_as_they_are_at_the_include() -> None:
+    """A name that the including template sets again after the include does not change what the
+    included template reads."""
+    templates = [
+        (
+            "driver.tcl",
+            "{% set gp = settings.first %}{% include 'child.tcl' %}"
+            "{% set gp = settings.second %}{{ gp.y }}",
+        ),
+        ("child.tcl", "{{ gp.x }}"),
+    ]
+    chains, _ = template_group_reads(templates)
+    assert chains == {"first", "first.x", "second", "second.y"}
 
 
 def test_a_group_added_to_a_real_flow_is_reported_by_its_leaves() -> None:

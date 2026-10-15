@@ -190,6 +190,18 @@ generated scripts, reports and the effective settings are in the run root, `xeda
   major manufacturers
   - `openfpgaloader`: loads a bitstream onto the board: the one that `fpga_pack` builds after
     `yosys_fpga` and `nextpnr`, or a bitstream source. It is the only flow that touches hardware
+- [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD) open-source ASIC place and route
+  - `openroad_place`: floorplan, power grid, placement and timing repair of the gate-level
+    netlist that `yosys` writes for a standard-cell platform, with the constraints of the design
+    and its clocks. It writes the placed database and its SDC file
+  - `openroad_cts`: clock tree synthesis, legalization and timing repair of the placed database.
+    It writes the database and its SDC file, with propagated clocks
+  - `openroad_grt`: pin access, global route, repair of the design, the timing and the antenna
+    violations. It writes the database, its SDC file and the route guides
+  - `openroad`: detailed route, antenna repair and filler cells of the globally routed database,
+    then the final database, SDC file, DEF file, netlist and parasitics, with the timing, power
+    and IR drop report. It checks timing, design rule violations and antenna violations. It can
+    also merge the GDSII layout with KLayout and save images of the design
 - Synopsys Design Compiler
   - `dc`: ASIC logic synthesis
 - Synopsys VCS simulator

@@ -422,6 +422,45 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         1,
         "looks for the PDK files in the store on disk",
     ),
+    "xeda.flows.openroad.final:Openroad.prepare_inputs": (
+        1,
+        "needs the rules file of `extraction.rules_file` on disk",
+    ),
+    "xeda.flows.openroad.place:OpenroadPlace.prepare_inputs": (
+        1,
+        "needs the DEF file of `floorplan.def_file` on disk",
+    ),
+    "xeda.flows.openroad.place:effective": (
+        6,
+        "judges a value that a stage needs and the platform model lacks (the site, the tracks, "
+        "the tie cells, the tap cell and its distance, a layer of the routing), and a tap cell "
+        "option that the mode of the platform does not use; the model is built from the PDK "
+        "files on disk, which the configuration of the PDK may complete",
+    ),
+    "xeda.flows.openroad.place:_grid": (
+        3,
+        "judges the power grid of the platform model (the power nets, the rails and straps, the "
+        "kind of a global connection); the model is built from the PDK files on disk",
+    ),
+    "xeda.flows.openroad.place:_density": (
+        1,
+        "needs the density of the platform model, which the configuration of the PDK may give",
+    ),
+    "xeda.flows.openroad.place:_io_layers": (
+        1,
+        "needs the layers of the pins of the platform model, which the configuration of the PDK "
+        "may give",
+    ),
+    "xeda.flows.openroad.place:_layer_adjustments": (
+        1,
+        "needs the routing layers of the platform model, which the configuration of the PDK "
+        "may give",
+    ),
+    "xeda.flows.openroad.grt:effective": (
+        1,
+        "judges a power recovery against the polish of the platform model, which the "
+        "configuration of the PDK may give; planning judges the residue files",
+    ),
     "xeda.flows.nextpnr:Nextpnr._xilinx_layout_and_selection": (
         1,
         "needs `nextpnr-himbaechel` on PATH",

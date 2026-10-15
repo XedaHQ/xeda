@@ -1,0 +1,12 @@
+{# The tap cells and the end caps. `tapcell` places both. `cut_rows` cuts the rows around the
+   obstructions and places the end caps only. #}
+{% set tap = settings.tapcell %}
+{% set row_words = [("-row_min_width " ~ (tap.row_min_width|micrometers|tcl_word)) if tap.row_min_width is not none else "", ("-row_min_height " ~ (tap.row_min_height|micrometers|tcl_word)) if tap.row_min_height is not none else ""]|select|join(" ") %}
+proc xeda_tapcell {} {
+    xeda_stage tapcell
+{% if P.tapcell_mode == "tap_endcap" %}
+    {{ ["tapcell -distance " ~ (P.tap_distance|tcl_number), "-tapcell_master " ~ (P.tap_master|tcl_word), ("-endcap_master " ~ (P.endcap_master|tcl_word)) if P.endcap_master else "", row_words, render_flags(tap.nwell_masters), render_flags(tap.corner_masters)]|select|join(" ") }}
+{% elif P.tapcell_mode == "cut_rows" %}
+    {{ ["cut_rows", ("-endcap_master " ~ (P.endcap_master|tcl_word)) if P.endcap_master else "", row_words]|select|join(" ") }}
+{% endif %}
+}

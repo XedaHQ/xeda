@@ -667,11 +667,22 @@ class SourceType(str, Enum):
     # and `VerilogNetlist` is a standard-cell netlist. `FpgaTimingNetlist` is the timing netlist
     # of the same design, simulated with an SDF. A checkpoint is written at several stages, and
     # only the stage says what reads it. So no flow takes `Checkpoint` (no stage), and `.dcp`
-    # names no type.
+    # names no type. An OpenROAD database (`.odb`) and the SDC that a stage writes with it are
+    # a pair per stage (placed, clock tree, global routed, routed). So no flow takes `Odb`, and
+    # `.odb` names no type. The SDC of a stage needs its own type, because clock tree synthesis
+    # changes the SDC, and a design's `.sdc` file must never stand in for it.
     FpgaNetlist = "FpgaNetlist"
     SynthCheckpoint = "SynthCheckpoint"
     RoutedCheckpoint = "RoutedCheckpoint"
     FpgaTimingNetlist = "FpgaTimingNetlist"
+    OpenroadDbPlaced = "OpenroadDbPlaced"
+    OpenroadDbCts = "OpenroadDbCts"
+    OpenroadDbGlobalRouted = "OpenroadDbGlobalRouted"
+    OpenroadDbRouted = "OpenroadDbRouted"
+    OpenroadSdcPlaced = "OpenroadSdcPlaced"
+    OpenroadSdcCts = "OpenroadSdcCts"
+    OpenroadSdcGlobalRouted = "OpenroadSdcGlobalRouted"
+    OpenroadSdcRouted = "OpenroadSdcRouted"
 
     def __str__(self) -> str:
         return str(self.name)
@@ -749,7 +760,6 @@ SOURCE_SUFFIXES: dict[str, SourceType] = {
     "fsdb": SourceType.Fsdb,
     "lib": SourceType.Liberty,
     "def": SourceType.Def,
-    "odb": SourceType.Odb,
     "gds": SourceType.Gds,
     "cdl": SourceType.Cdl,
     "c": SourceType.C,
@@ -768,6 +778,12 @@ AMBIGUOUS_SUFFIXES: dict[str, tuple[SourceType, ...]] = {
     "cfg": (SourceType.EcpConfig,),
     "config": (SourceType.EcpConfig,),
     "dcp": (SourceType.SynthCheckpoint, SourceType.RoutedCheckpoint),
+    "odb": (
+        SourceType.OpenroadDbPlaced,
+        SourceType.OpenroadDbCts,
+        SourceType.OpenroadDbGlobalRouted,
+        SourceType.OpenroadDbRouted,
+    ),
 }
 
 #: Members that no suffix infers. They come from an explicit `type` or from a declared output.
@@ -784,6 +800,15 @@ TYPE_ONLY: frozenset[SourceType] = frozenset(
         SourceType.Checkpoint,
         SourceType.SynthCheckpoint,
         SourceType.RoutedCheckpoint,
+        SourceType.Odb,
+        SourceType.OpenroadDbPlaced,
+        SourceType.OpenroadDbCts,
+        SourceType.OpenroadDbGlobalRouted,
+        SourceType.OpenroadDbRouted,
+        SourceType.OpenroadSdcPlaced,
+        SourceType.OpenroadSdcCts,
+        SourceType.OpenroadSdcGlobalRouted,
+        SourceType.OpenroadSdcRouted,
     }
 )
 

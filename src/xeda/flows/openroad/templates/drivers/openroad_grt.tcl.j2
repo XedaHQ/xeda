@@ -1,0 +1,16 @@
+{# The driver of openroad_grt: it reads the database of the clock tree and its SDC file, then runs
+   the global route stage. A stage that fails leaves the database of that moment in the failed
+   database, and the error ends the process. #}
+{% set restart = "database" %}
+{% set sdc_files = [inputs.sdc] %}
+{% include "restart.tcl.j2" %}
+{% include "procs.tcl.j2" %}
+{% include "stages/global_route.tcl.j2" %}
+if {[catch {
+    xeda_global_route
+} message options]} {
+    catch { write_db {{ failed_odb|tcl_word }} }
+    return -options $options $message
+}
+write_db {{ outputs.odb|tcl_word }}
+write_sdc -no_timestamp {{ outputs.sdc|tcl_word }}

@@ -33,9 +33,9 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
   fails a test that changes a file in the checkout.
 - Real-tool tests skip when the tool is missing (`require_*` in `tests/tool_utils.py`);
   `XEDA_TESTS_REQUIRE_TOOLS=1` (set in CI) makes a skip fail. Opt-in layers: `XEDA_TESTS_VIVADO`,
-  `XEDA_TESTS_DOCKER`, `XEDA_TESTS_EXTERNAL`, `XEDA_TESTS_OPENXC7`, `XEDA_TESTS_YOSYS_TCL` (a
-  yosys with Tcl), `XEDA_TESTS_PDK_ROOT` (a PDK store) with `XEDA_TESTS_PLATFORMS` (the bundled
-  platforms it holds).
+  `XEDA_TESTS_DOCKER`, `XEDA_TESTS_EXTERNAL`, `XEDA_TESTS_OPENXC7`, `XEDA_TESTS_OPENROAD`,
+  `XEDA_TESTS_YOSYS_TCL` (a yosys with Tcl), `XEDA_TESTS_PDK_ROOT` (a PDK store) with
+  `XEDA_TESTS_PLATFORMS` (the bundled platforms it holds).
 - `pytest &` in a non-interactive shell ignores SIGINT: a test that interrupts a tool sets
   `DEFAULT_SIGINT` (`tests/test_proc_utils.py`) and waits for a ready signal, never a sleep.
 
@@ -100,8 +100,8 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
   (`bindings.node_identity`). A producer's settings never depend on which consumer asked.
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`,
   `prjxray_db`, `platform`, `corner`, `dont_use_cells`, `platform_file`, `pdk_provider`,
-  `pdk_version` and `pdk_root` (`SHARED_SETTINGS`) must agree where both endpoints declare them.
-  Keep these names first, in order (`tests/test_documentation.py`).
+  `pdk_version`, `pdk_root`, `hierarchical` and `wire_rc` (`SHARED_SETTINGS`) must agree where both
+  endpoints declare them. Keep these names first, in order (`tests/test_documentation.py`).
 - YAML snippets in `docs/` and the skill run as tests (`tests/test_chain_documentation.py`); a
   new snippet is YAML that starts with `# <name>.yaml`.
 
@@ -110,6 +110,9 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
 - Add the class to the import list and to `__all__` in `xeda/flows/__init__.py`
   (`tests/test_flow_registry.py`). After a change to flows, aliases, I/O or `action_reason`, run
   `python tools/generate_flow_catalog.py` and commit the catalog (`tests/test_flow_catalog.py`).
+- OpenROAD flows: every OpenROAD process (`openroad` runs two or three) starts with the restart
+  header; state the `.odb` stores has one owner (`openroad_place`); the header re-applies the rest
+  (`tests/test_openroad_templates.py`).
 - Each flow needs its own docstring, a `results_description` from `describe_results(...)` (`{}`
   if none) and `description=` on every settings field (`tests/test_documentation.py`).
 - A flow that reads design sources declares `reads_sources` and iterates `sources_read()`

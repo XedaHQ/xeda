@@ -353,10 +353,15 @@ def test_every_shared_setting_has_one_type_in_every_flow_that_declares_it():
     assert not retyped
 
 
-def test_corner_and_dont_use_cells_are_yosys_s_alone():
-    """Containment: `yosys` is the only flow that declares `corner` or `dont_use_cells`, so no
-    edge of the product flows can carry them to another flow."""
+def test_corner_and_dont_use_cells_belong_to_the_asic_platform_flows_alone():
+    """Containment: `yosys` and the OpenROAD flows (ASIC platform flows) are the only flows that
+    declare `corner` or `dont_use_cells`, so no edge of the product flows can carry them to
+    another flow."""
+    from xeda.flows.openroad import OpenroadStage
+
     flows = _product_flows()
+    asic = {"yosys"} | {flow for flow, cls in flows.items() if issubclass(cls, OpenroadStage)}
+    assert "openroad_place" in asic
     for name in ("corner", "dont_use_cells"):
         holders = {flow for flow, cls in flows.items() if name in cls.Settings.model_fields}
-        assert holders == {"yosys"}, name
+        assert holders == asic, name

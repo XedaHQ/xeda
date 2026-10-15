@@ -1,0 +1,45 @@
+{# The legalization and the optimization of the placement. The commands take a displacement as
+   one argument that holds a list. `improve_placement` reads the environment variable
+   `ENABLE_EXTRA_DPL` when it gets no value for the extra legalization, so it always gets one.
+   Its global swaps take their options as one list of pairs. `check_placement` raises an error when a check
+   fails (the installed OpenROAD reports DPL-0033 and prints the violations before). With `check:
+   report` the script catches that error and goes on; with `check: fail` the error stops it. #}
+{% set dp = settings.detailed_placement %}
+{% set swap = dp.improve.global_swap %}
+{% set pairs = [] %}
+{% if swap.passes is not none %}{% set _ = pairs.extend(["-passes", swap.passes|tcl_number]) %}{% endif %}
+{% if swap.tolerance is not none %}{% set _ = pairs.extend(["-tolerance", swap.tolerance|tcl_number]) %}{% endif %}
+{% if swap.tradeoff is not none %}{% set _ = pairs.extend(["-tradeoff", swap.tradeoff|tcl_number]) %}{% endif %}
+{% if swap.area_weight is not none %}{% set _ = pairs.extend(["-area_weight", swap.area_weight|tcl_number]) %}{% endif %}
+{% if swap.pin_weight is not none %}{% set _ = pairs.extend(["-pin_weight", swap.pin_weight|tcl_number]) %}{% endif %}
+{% if swap.congestion_weight is not none %}{% set _ = pairs.extend(["-congestion_user_weight", swap.congestion_weight|tcl_number]) %}{% endif %}
+{% if swap.sampling_moves is not none %}{% set _ = pairs.extend(["-sampling_moves", swap.sampling_moves|tcl_number]) %}{% endif %}
+{% if swap.normalization_interval is not none %}{% set _ = pairs.extend(["-normalization_interval", swap.normalization_interval|tcl_number]) %}{% endif %}
+{% if swap.profiling_excess is not none %}{% set _ = pairs.extend(["-profiling_excess", swap.profiling_excess|tcl_number]) %}{% endif %}
+{% if swap.budget_multipliers is not none %}{% set _ = pairs.extend(["-budget_multipliers", "{" ~ (swap.budget_multipliers|map("tcl_number")|join(" ")) ~ "}"]) %}{% endif %}
+proc xeda_detail_place {} {
+    xeda_stage detailedplace
+{% if dp.balance_rows %}
+    balance_row_usage
+{% endif %}
+    set_placement_padding -global -left {{ dp.cell_padding|tcl_number }} -right {{ dp.cell_padding|tcl_number }}
+{% for override in dp.cell_padding_overrides %}
+    {{ ["set_placement_padding", ("-masters " ~ (override.masters|tcl_list)) if override.masters else ("-instances " ~ (override.instances|tcl_list)), "-left " ~ (override.left|tcl_number), "-right " ~ (override.right|tcl_number)]|select|join(" ") }}
+{% endfor %}
+    {{ ["detailed_placement", ("-max_displacement " ~ (dp.max_displacement|map("to", "um")|map("int")|join(" ")|tcl_word)) if dp.max_displacement else "", "-use_diamond_legalizer" if dp.legalizer == "diamond" else "", render_flags(dp.negotiation)]|select|join(" ") }}
+{% if dp.improve.enabled %}
+    {{ ["improve_placement", render_flags(dp.improve, space_word), ("-global_swap_args " ~ (pairs|join(" ")|tcl_word)) if pairs else "", "-enable_extra_dpl " ~ (dp.improve.extra_legalization|int|tcl_number)]|select|join(" ") }}
+{% endif %}
+{% if dp.mirroring %}
+    optimize_mirroring
+{% endif %}
+{% if dp.check == "fail" %}
+    check_placement -verbose
+{% else %}
+    if {[catch {check_placement -verbose} message]} {
+        puts "xeda: check_placement found violations ($message), and the flow goes on"
+    }
+{% endif %}
+    estimate_parasitics -placement
+    xeda_metrics 1 0
+}

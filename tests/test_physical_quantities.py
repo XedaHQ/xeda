@@ -40,6 +40,7 @@ from xeda.units import (
     Capacitance,
     Frequency,
     Length,
+    Power,
     Resistance,
     Time,
     Voltage,
@@ -58,6 +59,7 @@ from .settings_fields import (
     assign,
     fields_of,
     follow,
+    kind_of,
     nest,
     quantity_paths,
     reachable_models,
@@ -553,6 +555,7 @@ EQUIVALENT: dict[type, tuple[str, ...]] = {
     Length: ("3 um", "3000 nm", "0.003 mm"),
     Voltage: ("1.2 V", "1200 mV"),
     Resistance: ("5 ohm", "0.005 kohm"),
+    Power: ("2 mW", "0.002 W", "2000 uW"),
 }
 DIFFERENT: dict[type, str] = {
     Time: "11 ns",
@@ -561,13 +564,11 @@ DIFFERENT: dict[type, str] = {
     Length: "4 um",
     Voltage: "1.3 V",
     Resistance: "6 ohm",
+    Power: "3 mW",
 }
 
 
-def _kind_of(path) -> type:
-    last = path[-1]
-    (kind,) = shape_of(last.model.model_fields[last.key].annotation).quantity_types[:1]
-    return kind
+_kind_of = kind_of
 
 
 @pytest.mark.parametrize("field", QUANTITY_FIELDS, ids=QUANTITY_FIELD_IDS)
@@ -624,10 +625,11 @@ def _quantities() -> list:
         Length("3000 nm"),
         Voltage("1200 mV"),
         Resistance("0.005 kohm"),
+        Power("2000 uW"),
     ]
 
 
-CANONICAL = ["10 ns", "100 MHz", "2 fF", "3 um", "1.2 V", "5 ohm"]
+CANONICAL = ["10 ns", "100 MHz", "2 fF", "3 um", "1.2 V", "5 ohm", "0.002 W"]
 
 
 def _in_plain_containers() -> dict:

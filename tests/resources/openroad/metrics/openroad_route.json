@@ -1,0 +1,23 @@
+{
+  "detailedroute__antenna__violating__nets": 0,
+  "detailedroute__antenna__violating__pins": 0,
+  "detailedroute__route__drc_errors": 0,
+  "detailedroute__route__drc_errors__iter:0": 66,
+  "detailedroute__route__drc_errors__iter:1": 6,
+  "detailedroute__route__drc_errors__iter:2": 15,
+  "detailedroute__route__drc_errors__iter:3": 0,
+  "detailedroute__route__net": 602,
+  "detailedroute__route__net__special": 2,
+  "detailedroute__route__vias": 3073,
+  "detailedroute__route__vias__multicut": 0,
+  "detailedroute__route__vias__singlecut": 3073,
+  "detailedroute__route__wirelength": 3599,
+  "detailedroute__route__wirelength__iter:0": 3676,
+  "detailedroute__route__wirelength__iter:1": 3611,
+  "detailedroute__route__wirelength__iter:2": 3604,
+  "detailedroute__route__wirelength__iter:3": 3599,
+  "fillcell__design__violations": 0,
+  "fillcell__flow__errors__count": 0,
+  "fillcell__flow__warnings__count": 0,
+  "fillcell__flow__warnings__type_count": 0
+}

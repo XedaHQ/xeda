@@ -12,6 +12,8 @@ log = logging.getLogger(__name__)
 
 
 class FmaxOptimizer(Optimizer):
+    writes_clocks = True
+
     default_variations: Dict[str, Dict[str, List[Any]]] = {
         "vivado_synth": {
             # "synth.steps.synth_design.args.flatten_hierarchy": [

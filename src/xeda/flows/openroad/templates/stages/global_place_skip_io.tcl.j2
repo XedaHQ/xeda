@@ -1,0 +1,15 @@
+{# The first placement: the cells without the pins. It gives the pin placer the positions of the
+   cells it connects to. It is skipped when the pins come from the floorplan (a DEF file or pins
+   that are placed already), and with the other ways to place the pins. As in OpenROAD-flow-scripts
+   it takes the density, the padding and the seed. The perturbation goes with the seed, since
+   both set how the cells start. Every other leaf of the global placement acts on the main
+   placement. #}
+{% set gp = settings.global_placement %}
+proc xeda_global_place_skip_io {} {
+    xeda_stage globalplace_skip_io
+{% if settings.io.flow == "skip_io_pass" and settings.floorplan.sizing != "def" %}
+    if {![all_pins_placed]} {
+        {{ ["global_placement -skip_io -density [xeda_density]", "-pad_left " ~ (gp.cell_padding|tcl_number), "-pad_right " ~ (gp.cell_padding|tcl_number), ("-random_seed " ~ (gp.random_seed|tcl_word)) if gp.random_seed is not none else "", ("-perturb_dist " ~ (gp.perturb_distance|nanometers)) if gp.perturb_distance is not none else ""]|select|join(" ") }}
+    }
+{% endif %}
+}

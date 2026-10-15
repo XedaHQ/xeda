@@ -11,6 +11,10 @@ The rule compares the files that Xeda generates. An input comes from a set of pr
 and two related inputs agree when they come from the same nodes. A file the user lists in the
 design's sources is the user's own choice, so an input that comes from a source, or from nothing
 (an optional input that is absent), is not compared.
+
+A `paired` relation adds one rule. Its inputs are files that one producer wrote together (the
+database and the SDC of an OpenROAD stage), so they must not mix a listed file with a generated
+one. Both come from the design's sources, or both from one producer node.
 """
 
 from __future__ import annotations
@@ -191,6 +195,50 @@ def _message(graph: Graph, node: Node, declaration: InputDeclaration, theirs: Or
     return f"{head}, but " + "; ".join(states) + "." + _advice(graph, node, declaration)
 
 
+def _paired_message(node: Node, names: list[str]) -> str:
+    """Return the refusal of a paired relation that mixes listed files and generated ones."""
+    head = (
+        f"{node.cls.name}: " + " and ".join(f"`{name}`" for name in names) + " are written "
+        "together, so both must come from the design's sources or both from one producer, but "
+        + "; ".join(_said(node, name) for name in names)
+        + "."
+    )
+    generated = [name for name in names if _origin(node, name) is not None]
+    producers = {origin for name in generated if (origin := _origin(node, name))}
+    advice = ""
+    if len(producers) == 1 and len(next(iter(producers))) == 1:
+        (producer,) = next(iter(producers))
+        moves = [
+            move
+            for name in names
+            if _origin(node, name) is None and (move := _binding(node, name, producer)) is not None
+        ]
+        if moves:
+            advice = f" To use `{producer}` for both, add `-s {' '.join(moves)}`."
+    steps = [
+        (
+            f"remove the binding of `{name}` and give it as a typed source of the design"
+            if _explicit(node, name)
+            else f"list `{name}` as a typed source of the design too"
+        )
+        for name in generated
+    ]
+    return head + advice + " Or " + ", and ".join(steps) + "."
+
+
+def _check_paired(node: Node, declaration: InputDeclaration) -> None:
+    """Refuse a paired relation whose inputs mix a source and a producer."""
+    assert declaration.same_producer_as is not None
+    names = [declaration.same_producer_as, *_related(node, declaration)]
+    origins = {
+        node.inputs[name].origin
+        for name in names
+        if name in node.inputs and node.inputs[name].origin in ("source", "producer")
+    }
+    if len(origins) > 1:
+        raise FlowSettingsException(_paired_message(node, names))
+
+
 def check_related_inputs(nodes: Iterable[Node]) -> None:
     """Refuse a graph in which two related inputs of a node come from different producers.
 
@@ -205,6 +253,8 @@ def check_related_inputs(nodes: Iterable[Node]) -> None:
                 names = [declaration.same_producer_as, *_related(node, declaration)]
                 if len({origin for name in names if (origin := _origin(node, name))}) > 1:
                     raise FlowSettingsException(_message(graph, node, declaration, frozenset()))
+                if declaration.paired:
+                    _check_paired(node, declaration)
                 continue
             mine = _origin(node, declaration.name)
             theirs = _followed(graph, node, declaration)

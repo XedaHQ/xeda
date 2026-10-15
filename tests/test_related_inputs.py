@@ -22,7 +22,7 @@ from xeda.flow.io import declared_inputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.settings_layers import registered_flow
 from xeda.flows import VivadoPostsynthSim, VivadoPower
-from xeda.introspect import all_flow_classes, flow_info
+from xeda.introspect import all_flow_classes, flow_chain_cells, flow_info
 
 from .flow_registry import preserved_flow_registry
 from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
@@ -238,6 +238,9 @@ def declaring_flows():
 def test_the_relations_exist_in_the_flows_that_declare_them():
     found = {(flow.name, declaration.name) for flow, declaration in declaring_flows()}
     assert found == {
+        ("openroad", "sdc"),
+        ("openroad_cts", "sdc"),
+        ("openroad_grt", "sdc"),
         ("vivado_postsynth_sim", "netlist"),
         ("vivado_postsynth_sim", "sdf"),
         ("vivado_power", "checkpoint"),
@@ -281,6 +284,14 @@ def test_list_flows_shows_the_relation():
     }
 
 
+def test_list_flows_shows_a_paired_relation():
+    inputs = {item["name"]: item for item in flow_info("openroad_cts")["inputs"]}
+    assert inputs["sdc"]["same_producer_as"] == "odb" and inputs["sdc"]["paired"] is True
+    assert inputs["odb"]["paired"] is False
+    assert "same producer as odb, paired" in flow_chain_cells(flow_info("openroad_cts"))[0]
+    assert all(item["paired"] is False for item in flow_info("vivado_postsynth_sim")["inputs"])
+
+
 def test_without_the_declaration_the_resolver_accepts_the_mix(tmp_path, monkeypatch):
     """The refusal comes from the declaration alone: with the relation removed from the flow's
     inputs, the same plan passes."""
@@ -314,6 +325,11 @@ def declare(**kwargs):
             "declares one too",
         ),
         ({"a": declare(via="b"), "b": declare()}, "needs `same_producer_as`"),
+        ({"a": declare(paired=True)}, "`paired` and needs `same_producer_as`"),
+        (
+            {"a": declare(same_producer_as="b", via="c", paired=True), "b": declare()},
+            "`paired` and names `via`",
+        ),
         (
             {"a": declare(same_producer_as="b", via="c"), "b": declare()},
             "needs a default `producer`",
@@ -329,6 +345,51 @@ def test_a_malformed_relation_is_refused_when_the_flow_is_defined(inputs, messag
             (Flow,),
             {"__doc__": "Refused.", "run": lambda self: None, "Inputs": model},
         )
+
+
+def _flow_with(inputs, annotations):
+    model = type("Inputs", (Flow.Inputs,), {**inputs, "__annotations__": annotations})
+    return type(
+        "_Paired", (Flow,), {"__doc__": "Pairs.", "run": lambda self: None, "Inputs": model}
+    )
+
+
+@pytest.mark.parametrize(
+    ("inputs", "annotations", "absent"),
+    [
+        (
+            {"a": declare(same_producer_as="b", paired=True), "b": declare()},
+            {"a": Path | None, "b": Path},
+            "a",
+        ),
+        (
+            {"a": declare(same_producer_as="b", paired=True), "b": declare()},
+            {"a": Path, "b": Path | None},
+            "b",
+        ),
+        (
+            {"a": declare(same_producer_as="b", paired=True, optional=True), "b": declare()},
+            {"a": list[Path], "b": Path},
+            "a",
+        ),
+        (
+            {"a": declare(same_producer_as="b", paired=True), "b": declare(optional=True)},
+            {"a": Path, "b": list[Path]},
+            "b",
+        ),
+    ],
+)
+def test_a_pair_cannot_have_an_input_that_can_be_absent(inputs, annotations, absent):
+    with pytest.raises(TypeError, match=rf"`{absent}` .*can be absent") as error:
+        _flow_with(inputs, annotations)
+    assert "`paired`" in str(error.value)
+
+
+def test_a_pair_of_required_inputs_is_accepted():
+    _flow_with(
+        {"a": declare(same_producer_as="b", paired=True), "b": declare()},
+        {"a": Path, "b": Path},
+    )
 
 
 def test_the_documented_alternative_synthesis_power_report_plans(tmp_path):

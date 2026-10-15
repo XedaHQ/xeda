@@ -29,6 +29,7 @@ from xeda.units import (
     Length,
     Quantity,
     QuantityError,
+    Power,
     Resistance,
     Time,
     Voltage,
@@ -62,6 +63,7 @@ TABLE: dict[type[Quantity], list[tuple[str, float]]] = {
     Length: [("nm", 2.5e-3), ("um", 2.5), ("µm", 2.5), ("mm", 2500.0)],
     Voltage: [("mV", 2.5e-3), ("V", 2.5)],
     Resistance: [("ohm", 2.5), ("kohm", 2500.0), ("Mohm", 2.5e6)],
+    Power: [("nW", 2.5e-9), ("uW", 2.5e-6), ("µW", 2.5e-6), ("mW", 2.5e-3), ("W", 2.5)],
 }
 KINDS = {
     Time: ("time", "ns"),
@@ -70,6 +72,7 @@ KINDS = {
     Length: ("length", "um"),
     Voltage: ("voltage", "V"),
     Resistance: ("resistance", "ohm"),
+    Power: ("power", "W"),
 }
 CASES = [(cls, unit, mag) for cls, rows in TABLE.items() for unit, mag in rows]
 

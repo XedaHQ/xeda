@@ -43,6 +43,7 @@ NARROWED = {
     },
     "fpga_pack": {SourceType.EcpConfig, SourceType.IceAsc, SourceType.Fasm},
     "openfpgaloader": {SourceType.Bitstream},
+    "openroad_place": {SourceType.Sdc, SourceType.VerilogNetlist},
     "vivado_power": {SourceType.Saif, SourceType.RoutedCheckpoint},
 }
 

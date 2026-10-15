@@ -120,7 +120,9 @@ def switch_problems(cls: type[Flow]) -> list[str]:
             try:
                 cls.enable_output(settings, name, design_name="design")
             except ValueError as error:
-                if not setting:
+                # an optional output with no `enabled_by` (a file of the platform's, say) is
+                # refused by design: a consumer cannot switch it on
+                if not setting and declaration.enabled_by is not None:
                     problems.append(
                         f"{where}: cannot be switched on from minimal settings: {error}"
                     )

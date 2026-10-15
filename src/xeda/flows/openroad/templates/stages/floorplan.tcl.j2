@@ -1,0 +1,105 @@
+{# The floorplan: the size of the die, the tracks, the routing layers, the tie cells and the cleanup
+   of the netlist. The routing layers and the capacity of each layer stay in the database, so no
+   later flow sets them again. The limits of the sizing and the options of the global sizing stay
+   there too. They come first, so that every command that sizes sees them, and the netlist
+   cleanup is the first one. The commands take the booleans as `true` or `false`, and the margin
+   of the global sizing in seconds. #}
+{% set dsn = settings.design %}
+{% set fp = settings.floorplan %}
+{% set oc = settings.resize.opt_config %}
+{% set gs = settings.resize.global_sizing %}
+{% set opt_words = [render_flags(oc), "-keep_sizing_site true" if oc.keep_sizing_site else "", "-keep_sizing_vt true" if oc.keep_sizing_vt else "", "-disable_buffer_pruning true" if oc.disable_buffer_pruning else ""]|select|list %}
+{% set sizing_words = [render_flags(gs), "-include_clock_network true" if gs.include_clock_network else "", ("-setup_slack_margin " ~ (gs.setup_slack_margin|seconds)) if gs.setup_slack_margin is not none else ""]|select|list %}
+{% set repair = settings.floorplan.netlist_cleanup.repair %}
+{% set footprint = P.match_cell_footprint if repair.match_cell_footprint is none else repair.match_cell_footprint %}
+proc xeda_floorplan {} {
+    xeda_stage synth
+{% if opt_words %}
+    set_opt_config {{ opt_words|join(" ") }}
+{% endif %}
+{% if sizing_words %}
+    set_global_sizing_config {{ sizing_words|join(" ") }}
+{% endif %}
+{% if dsn.eliminate_dead_logic %}
+    eliminate_dead_logic
+{% endif %}
+    report_design_area
+    report_design_area_metrics
+    xeda_stage floorplan
+{% if fp.check_setup %}
+    check_setup
+{% endif %}
+{% if fp.sizing == "def" %}
+    read_def -floorplan_initialize {{ floorplan_def|tcl_word }}
+{% else %}
+{% if fp.sizing == "utilization" %}
+    # The utilization is that of the netlist as it is now. The repairs below and the tap cells add
+    # area, so the utilization after the placement is higher than this value.
+{% set size = ["-utilization " ~ (fp.core_utilization_percent|tcl_number), "-aspect_ratio " ~ (fp.aspect_ratio|tcl_number), "-core_space " ~ (fp.core_margin|micrometers)] %}
+{% else %}
+{% set size = ["-die_area " ~ (fp.die_area|micrometers), "-core_area " ~ (fp.core_area|micrometers)] %}
+{% endif %}
+{# The options of the rows follow the site: the parity is a flag that takes capitals. #}
+    {{ (["initialize_floorplan"] + size + ["-site " ~ (P.site|tcl_word), ("-row_parity " ~ (fp.row_parity|upper)) if fp.row_parity != "none" else "", render_flags(fp), ("-gap " ~ (fp.row_gap|micrometers|tcl_word)) if fp.row_gap is not none else ""])|select|join(" ") }}
+{% endif %}
+{% if P.tracks %}
+{# The tracks are platform data. A platform may give one grid to several layers, which a bare
+   `make_tracks` does not make. #}
+{% for layer, track in P.tracks.items() %}
+{% set words = ["make_tracks", layer|tcl_word] %}
+{% if track.x %}
+{% set _ = words.extend(["-x_offset", track.x[0]|tcl_number, "-x_pitch", track.x[1]|tcl_number]) %}
+{% endif %}
+{% if track.y %}
+{% set _ = words.extend(["-y_offset", track.y[0]|tcl_number, "-y_pitch", track.y[1]|tcl_number]) %}
+{% endif %}
+    {{ words|join(" ") }}
+{% endfor %}
+{% else %}
+    make_tracks
+{% endif %}
+{% for layers, adjustment in P.layer_adjustments.items() %}
+    set_global_routing_layer_adjustment {{ layers|tcl_word }} {{ adjustment|tcl_number }}
+{% endfor %}
+{% if P.clock_layers is not none %}
+    set_routing_layers -clock {{ P.clock_layers|tcl_word }}
+{% endif %}
+{% if P.signal_layers is not none %}
+    set_routing_layers -signal {{ P.signal_layers|tcl_word }}
+{% endif %}
+{% for name in dsn.dont_touch %}
+    set_dont_touch {{ name|tcl_word }}
+{% endfor %}
+{% for blockage in fp.placement_blockages %}
+    {{ ["create_blockage -region " ~ (blockage.region|micrometers), ("-max_density " ~ (blockage.max_density_percent|tcl_number)) if blockage.max_density_percent is not none else "", "-soft" if blockage.soft else ""]|select|join(" ") }}
+{% endfor %}
+{% for obstruction in fp.routing_blockages %}
+    create_obstruction -layer {{ obstruction.layer|tcl_word }} -region {{ obstruction.region|micrometers }}
+{% endfor %}
+{% if settings.tie.insert_cells %}
+    # The command takes the master and the port, without the library. The repair of the fanout
+    # below splits the cells that this inserts.
+    insert_tiecells {{ (P.tie_low.cell ~ "/" ~ P.tie_low.port)|tcl_word }} -prefix TIE_ZERO_
+    insert_tiecells {{ (P.tie_high.cell ~ "/" ~ P.tie_high.port)|tcl_word }} -prefix TIE_ONE_
+{% endif %}
+{% if settings.tie.repair_fanout %}
+    # The synthesis puts the tie cells in the netlist. Each load gets its own copy of the tie
+    # cell. The repair comes before any removal of buffers, since one tie cell can drive buffers
+    # that drive many loads.
+    {{ ["repair_tie_fanout -separation " ~ (settings.tie.separation|micrometers|tcl_word), render_flags(settings.tie), "[xeda_tie_pin " ~ (P.tie_low.cell|tcl_word) ~ " " ~ (P.tie_low.port|tcl_word) ~ "]"]|select|join(" ") }}
+    {{ ["repair_tie_fanout -separation " ~ (settings.tie.separation|micrometers|tcl_word), render_flags(settings.tie), "[xeda_tie_pin " ~ (P.tie_high.cell|tcl_word) ~ " " ~ (P.tie_high.port|tcl_word) ~ "]"]|select|join(" ") }}
+{% endif %}
+{% if settings.arith_swap.enabled %}
+    {{ ["replace_arith_modules", render_flags(settings.arith_swap), ("-slack_threshold " ~ (settings.arith_swap.slack_threshold|lib_time)) if settings.arith_swap.slack_threshold is not none else ""]|select|join(" ") }}
+{% endif %}
+{# The planning refuses `mode: repair_timing` with the repair switched off, so `enabled` is true here. #}
+{% if fp.netlist_cleanup.mode == "repair_timing" and repair.enabled %}
+    # The repair runs before the placement, with no parasitics: the wires cost nothing. Do not add
+    # `estimate_parasitics` here, since that changes what the repair decides.
+    repair_timing {{ [fix_flags[repair.fix], "-setup_margin " ~ (repair.setup_margin|lib_time), "-hold_margin " ~ (repair.hold_margin|lib_time), render_flags(repair, space_word), render_flags(repair.moves), "-match_cell_footprint" if footprint else "", "-verbose"]|select|join(" ") }}
+{% elif fp.netlist_cleanup.mode == "remove_buffers" %}
+    remove_buffers
+{% endif %}
+    report_units_metric
+    xeda_metrics 0 0
+}

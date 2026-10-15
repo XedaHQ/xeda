@@ -1,0 +1,49 @@
+{# The final outputs, in the order of the final stage of OpenROAD-flow-scripts. The clocks are
+   propagated and the cells that the repair added are connected to the power grid before anything
+   is written. The database and the SDC file go first. Then the routing obstructions go, so that
+   the DEF file holds none, and the DEF file and the netlist follow. The netlist leaves out the
+   masters that only occupy the layout (fill, tap and end cap cells), so that a simulation or an
+   equivalence check sees none of them. The parasitics come last: OpenRCX extracts them with the
+   rules of the platform and the file is read back, or else OpenROAD estimates them from the
+   route. The options of OpenRCX are flags of the extraction, and the factors that scale the
+   result come in a command of their own after it. The files that need the parasitics follow: the
+   delays in SDF format, then the abstract view of the block, and the circuit description where the
+   platform gives the CDL files of its cells. The timing model has a procedure of its own, which
+   the driver runs after the reports: it sets the source latency of the clocks to 0, and the
+   reports and the verdict must read the constraints of the design. Only the final stage of the
+   process may set the stage of the metrics here. #}
+{% set ext = settings.extraction %}
+{% set scale = settings.extraction.scale %}
+proc xeda_final_outputs {} {
+    xeda_stage finish
+    set_propagated_clock [all_clocks]
+    global_connect
+    write_db {{ outputs.odb|tcl_word }}
+    write_sdc -no_timestamp {{ outputs.sdc|tcl_word }}
+    foreach o [[ord::get_db_block] getObstructions] { odb::dbObstruction_destroy $o }
+    write_def {{ outputs.def_file|tcl_word }}
+    write_verilog {{ outputs.netlist|tcl_word }}{% if settings.netlist_power_pins %} -include_pwr_gnd{% endif %} -remove_cells [xeda_physical_only_masters]
+{% if P.extraction == "rcx" %}
+    define_process_corner -ext_model_index {{ ext.model_index|tcl_number }} X
+    set_extraction_rules_file {{ P.rcx_rules|tcl_word }}
+    {{ ["extract_parasitics", ("-coupling_threshold " ~ (ext.coupling_threshold|femtofarads)) if ext.coupling_threshold is not none else "", "-lef_res" if ext.lef_values == "res" else ("-lef_rc" if ext.lef_values == "rc" else ""), render_flags(ext), ("-max_res " ~ (ext.max_res|ohms|tcl_word)) if ext.max_res is not none else ""]|select|join(" ") }}
+{% if scale.res is not none or scale.cc is not none or scale.gnd is not none %}
+    {{ ["adjust_rc", render_flags(scale)]|select|join(" ") }}
+{% endif %}
+    write_spef {{ outputs.spef|tcl_word }}
+    read_spef {{ outputs.spef|tcl_word }}
+{% else %}
+    estimate_parasitics -global_routing
+{% endif %}
+    write_sdf -no_timestamp {{ outputs.sdf|tcl_word }}
+    write_abstract_lef -bloat_occupied_layers {{ outputs.abstract_lef|tcl_word }}
+{% if outputs.cdl is not none %}
+    write_cdl -masters {{ P.cdl_masters|tcl_list }} {{ outputs.cdl|tcl_word }}
+{% endif %}
+}
+{% if settings.write_timing_model %}
+proc xeda_timing_model {} {
+    set_clock_latency -source 0 [all_clocks]
+    write_timing_model {{ outputs.timing_model|tcl_word }}
+}
+{% endif %}

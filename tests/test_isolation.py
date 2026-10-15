@@ -38,7 +38,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
 
 from .settings_samples import flow_classes, minimal_settings
-from .tiny_platform import tiny_settings, tiny_store
+from .tiny_platform import TINY_OPENROAD_RESIDUE, TINY_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import (
     FAKE_TOOLS_DIR,
     require_bluesim,
@@ -72,6 +72,10 @@ FAKED = {
     "dc",
     "diamond_synth",
     "modelsim",
+    "openroad",
+    "openroad_cts",
+    "openroad_grt",
+    "openroad_place",
 } | FPGA_FAKED
 #: the design most flows run: sqrt, with its cocotb testbench
 SQRT_DESIGN = (
@@ -102,7 +106,25 @@ SQRT_VERILOG_DESIGN = (
     {"sources": ["sqrt_stand_in.v"], "top": "sqrt_stand_in", "clock": {"port": "clk"}},
     SQRT_DESIGN[1],
 )
-DESIGNS = {"bsc": GCD_DESIGN, "bsc_sim": GCD_DESIGN}
+#: a gate-level netlist for `openroad_place`, which reads one and runs no synthesis; the flows
+#: after it start from its database
+SQRT_NETLIST = "module sqrt_stand_in(input clk); endmodule\n"
+SQRT_NETLIST_DESIGN = (
+    {
+        "sources": [{"file": "sqrt_stand_in_netlist.v", "type": "VerilogNetlist"}],
+        "top": "sqrt_stand_in",
+        "clock": {"port": "clk"},
+    },
+    SQRT_DESIGN[1],
+)
+DESIGNS = {
+    "bsc": GCD_DESIGN,
+    "bsc_sim": GCD_DESIGN,
+    "openroad": SQRT_NETLIST_DESIGN,
+    "openroad_cts": SQRT_NETLIST_DESIGN,
+    "openroad_grt": SQRT_NETLIST_DESIGN,
+    "openroad_place": SQRT_NETLIST_DESIGN,
+}
 DESIGNS.update(
     (cls.name, SQRT_VERILOG_DESIGN)
     for cls, _ in flow_classes()
@@ -141,6 +163,8 @@ LOCATED = {
     "ghdl_synth": {"verilog_output": "sqrt.v"},
     "bsc_sim": {"vcd": "bsc_sim.vcd"},
 }
+#: The flows that read the values of OpenROAD from the platform
+OPENROAD_FLOWS = {"openroad", "openroad_cts", "openroad_grt", "openroad_place"}
 #: The flows the resolver refuses in the sweep's world, with what its refusal says: the sweep's
 #: testbench is cocotb's, and `vivado_postsynth_sim`, which `vivado_power` reads, cannot run it.
 UNPLANNABLE = {
@@ -214,6 +238,7 @@ def _world(parent: Path) -> World:
         shutil.copy(SQRT / name, work / name)
     (work / "tb_sqrt_plain.vhdl").write_text(PLAIN_TB)
     (work / "sqrt_stand_in.v").write_text(SQRT_VERILOG)
+    (work / "sqrt_stand_in_netlist.v").write_text(SQRT_NETLIST)
     for part in ("rtl", "tb"):
         shutil.copytree(GCD / part, work / part)
     for name in CANARIES:
@@ -232,7 +257,8 @@ def sweep_settings(flow_class, world: World) -> dict:
     world holds."""
     settings = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
     if "platform" in settings:
-        settings.update(tiny_settings(world.pdk_store), platform="tiny")
+        residue = TINY_OPENROAD_RESIDUE if flow_class.name in OPENROAD_FLOWS else TINY_RESIDUE
+        settings.update(tiny_settings(world.pdk_store, residue=residue), platform="tiny")
     return settings
 
 

@@ -46,6 +46,12 @@ OLD_SHA256 = "4e69030f3a28cb819192a3780e20fd174ff7caf30cacf1cdbf2195cce913a933"
 NEW_SHA256 = "ab" * 32
 OLD_COMMIT = "efe9e07330e88434a831f2c52bee72739da0f0a5"
 NEW_COMMIT = "1234567890abcdef1234567890abcdef12345678"
+OLD_ORFS_TAG = "26Q4-132-g6b305a712"
+OLD_ORFS_DIGEST = "63981d1ac8990a9bee8bf874c95ee2c1ee3fe7b99f57d459282ab8c31a8ed663"
+NEW_ORFS_TAG = "26Q4-145-g08ddc64f8"
+NEW_ORFS_DIGEST = "cd" * 32
+OLD_UV = "0.12.23"
+NEW_UV = "0.13.1"
 
 CI_TEXT = f"""\
 jobs:
@@ -83,6 +89,26 @@ jobs:
       RECIPE: "1"
 """
 
+ORFS_TEXT = f"""\
+jobs:
+  tests:
+    container:
+      # openroad/orfs:{OLD_ORFS_TAG}
+      image: openroad/orfs@sha256:{OLD_ORFS_DIGEST}
+      options: --user root
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          version: "1999-01-01"
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "{OLD_UV}"
+          enable-cache: false
+      - uses: some/other-action@v1
+        with:
+          version: "2030.1.1"
+"""
+
 
 TARBALL_SIZE = 123_456_789
 
@@ -112,13 +138,60 @@ def bsc(tag: str, asset: dict[str, Any] | None = None, **flags: bool) -> dict[st
     return release(tag, tarball, **flags)
 
 
+AMD64_IMAGE = {
+    "architecture": "amd64",
+    "os": "linux",
+    "status": "active",
+    "digest": f"sha256:{'ee' * 32}",  # the manifest of the image, not the digest of the tag
+}
+
+
+def uv_release(tag: Any, linux: bool = True, **flags: bool) -> dict[str, Any]:
+    """A uv release: its Linux archive is what `setup-uv` downloads."""
+    names = ["uv-aarch64-apple-darwin.tar.gz"]
+    if linux:
+        names.append("uv-x86_64-unknown-linux-gnu.tar.gz")
+    return release(tag, *names, **flags)
+
+
+def orfs_tag(
+    name: Any, digest: Any = NEW_ORFS_DIGEST, images: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """A tag as Docker Hub lists it: its own digest (that of the index, which `docker pull`
+    records) and its images. `digest` is hexadecimal, or any other value for a bad answer."""
+    listed = f"sha256:{digest}" if isinstance(digest, str) and len(digest) == 64 else digest
+    return {"name": name, "digest": listed, "images": [AMD64_IMAGE] if images is None else images}
+
+
+def orfs_answer(*tags: dict[str, Any]) -> dict[str, Any]:
+    return {"count": len(tags), "next": None, "previous": None, "results": list(tags)}
+
+
 class Upstream:
-    """What GitHub says, and the digest of the tarball, for the functions that ask."""
+    """What GitHub and Docker Hub say, and the digest of the tarball, for the functions that
+    ask."""
 
     def __init__(
-        self, oss_cad_releases, bsc_releases, installer_sha, sha256=NEW_SHA256, comparison="ahead"
+        self,
+        oss_cad_releases,
+        bsc_releases,
+        installer_sha,
+        sha256=NEW_SHA256,
+        comparison="ahead",
+        orfs_tags=None,
+        uv_releases=None,
     ):
         self.answers = {
+            f"/repos/{pins.UV_REPOSITORY}/releases?per_page=30": (
+                uv_releases
+                if uv_releases is not None
+                else [uv_release(NEW_UV), uv_release("0.13.0"), uv_release(OLD_UV)]
+            ),
+            pins.ORFS_TAGS_URL: (
+                orfs_tags
+                if orfs_tags is not None
+                else orfs_answer(orfs_tag(NEW_ORFS_TAG), orfs_tag(OLD_ORFS_TAG, OLD_ORFS_DIGEST))
+            ),
             f"/repos/{pins.OSS_CAD_REPOSITORY}/releases?per_page=30": oss_cad_releases,
             f"/repos/{pins.BSC_REPOSITORY}/releases?per_page=30": bsc_releases,
             f"/repos/{pins.INSTALLER_REPOSITORY}/commits/main": {"sha": installer_sha},
@@ -149,7 +222,13 @@ def newer_upstream(**changes) -> Upstream:
 
 
 def current_upstream() -> Upstream:
-    return Upstream([oss_cad("2026-09-15")], [bsc("2026.07.1")], OLD_COMMIT)
+    return Upstream(
+        [oss_cad("2026-09-15")],
+        [bsc("2026.07.1")],
+        OLD_COMMIT,
+        orfs_tags=orfs_answer(orfs_tag(OLD_ORFS_TAG, OLD_ORFS_DIGEST)),
+        uv_releases=[uv_release(OLD_UV)],
+    )
 
 
 def pin(kind: str):
@@ -172,9 +251,14 @@ def test_the_workflow_files_of_the_repository_hold_pins_the_script_reads(pin_):
     elif pin_.kind == "bsc":
         version, sha256 = pins.read_bsc(text)
         assert pins.BSC_TAG.fullmatch(version) and pins.SHA256.fullmatch(sha256)
-    else:
-        assert pin_.kind == "installer"
+    elif pin_.kind == "installer":
         assert pins.COMMIT.fullmatch(pins.read_installer(text))
+    elif pin_.kind == "orfs":
+        tag, digest = pins.read_orfs_image(text)
+        assert pins.ORFS_TAG.fullmatch(tag) and pins.SHA256.fullmatch(digest)
+    else:
+        assert pin_.kind == "uv"
+        assert pins.UV_TAG.fullmatch(pins.read_uv(text))
 
 
 def test_ci_downloads_the_bsc_tarball_from_the_address_the_script_hashes():
@@ -190,6 +274,8 @@ def test_each_pin_is_read():
     assert pins.read_oss_cad(CI_TEXT) == "2026-09-15"
     assert pins.read_bsc(CI_TEXT) == ("2026.07.1", OLD_SHA256)
     assert pins.read_installer(OPENXC7_TEXT) == OLD_COMMIT
+    assert pins.read_orfs_image(ORFS_TEXT) == (OLD_ORFS_TAG, OLD_ORFS_DIGEST)
+    assert pins.read_uv(ORFS_TEXT) == OLD_UV
 
 
 def test_the_oss_cad_pin_is_the_version_of_its_own_step_and_no_other():
@@ -229,6 +315,61 @@ def test_the_oss_cad_pin_is_the_version_of_its_own_step_and_no_other():
         ),
         pytest.param(OPENXC7_TEXT + OPENXC7_TEXT, "installer", "INSTALLER_REV", id="rev twice"),
         pytest.param(
+            ORFS_TEXT.replace(f"@sha256:{OLD_ORFS_DIGEST}", f":{OLD_ORFS_TAG}"),
+            "orfs",
+            "image",
+            id="image by tag",
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(OLD_ORFS_DIGEST, OLD_ORFS_DIGEST.upper()),
+            "orfs",
+            "image",
+            id="image digest in upper case",
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(OLD_ORFS_DIGEST, OLD_ORFS_DIGEST[:-1]), "orfs", "image", id="short"
+        ),
+        pytest.param(
+            ORFS_TEXT.replace("openroad/orfs@", "openroad/other@"),
+            "orfs",
+            "image",
+            id="other image",
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(f"# openroad/orfs:{OLD_ORFS_TAG}\n      ", ""),
+            "orfs",
+            "image",
+            id="no tag",
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(OLD_ORFS_TAG, "latest"), "orfs", "image", id="tag of another form"
+        ),
+        pytest.param(ORFS_TEXT + ORFS_TEXT, "orfs", "image", id="image twice"),
+        pytest.param(ORFS_TEXT.replace("setup-uv", "setup-pdm"), "uv", "step", id="uv step"),
+        pytest.param(ORFS_TEXT.replace(f'"{OLD_UV}"', OLD_UV), "uv", "version", id="uv no quotes"),
+        pytest.param(
+            ORFS_TEXT.replace(f'"{OLD_UV}"', '"latest"'), "uv", "version", id="uv not a version"
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(f'"{OLD_UV}"', '"0.12"'), "uv", "version", id="uv two numbers"
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(f'"{OLD_UV}"', f'"{OLD_UV}rc1"'), "uv", "version", id="uv rc"
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(f'"{OLD_UV}"', f'"{OLD_UV}"'.translate(ARABIC_INDIC)),
+            "uv",
+            "version",
+            id="uv other digits",
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(f'          version: "{OLD_UV}"\n', ""),
+            "uv",
+            "version",
+            id="no uv version",
+        ),
+        pytest.param(ORFS_TEXT + ORFS_TEXT, "uv", "step", id="uv step twice"),
+        pytest.param(
             CI_TEXT.replace('"2026-09-15"', '"2026-09-15"'.translate(ARABIC_INDIC)),
             "oss",
             "version",
@@ -237,7 +378,13 @@ def test_the_oss_cad_pin_is_the_version_of_its_own_step_and_no_other():
     ],
 )
 def test_a_pin_in_another_format_is_an_error_not_a_guess(text, reader, message):
-    read = {"oss": pins.read_oss_cad, "bsc": pins.read_bsc, "installer": pins.read_installer}
+    read = {
+        "oss": pins.read_oss_cad,
+        "bsc": pins.read_bsc,
+        "installer": pins.read_installer,
+        "orfs": pins.read_orfs_image,
+        "uv": pins.read_uv,
+    }
     with pytest.raises(pins.PinError, match=message):
         read[reader](text)
 
@@ -252,6 +399,24 @@ def test_replacing_a_pin_changes_that_line_and_no_other():
     assert rewritten.replace("2026.10", "2026.07.1").replace(NEW_SHA256, OLD_SHA256) == CI_TEXT
     rewritten = pins.write_installer(OPENXC7_TEXT, NEW_COMMIT)
     assert rewritten.replace(NEW_COMMIT, OLD_COMMIT) == OPENXC7_TEXT
+    rewritten = pins.write_uv(ORFS_TEXT, NEW_UV)
+    assert pins.read_uv(rewritten) == NEW_UV
+    assert rewritten.replace(NEW_UV, OLD_UV) == ORFS_TEXT
+    rewritten = pins.write_orfs_image(ORFS_TEXT, NEW_ORFS_TAG, NEW_ORFS_DIGEST)
+    assert pins.read_orfs_image(rewritten) == (NEW_ORFS_TAG, NEW_ORFS_DIGEST)
+    assert (
+        rewritten.replace(NEW_ORFS_TAG, OLD_ORFS_TAG).replace(NEW_ORFS_DIGEST, OLD_ORFS_DIGEST)
+        == ORFS_TEXT
+    )
+
+
+def test_the_uv_pin_is_the_version_of_its_own_step_and_no_other():
+    """The `version` of another action, before or after the step, is not the pin."""
+    own = f'          version: "{OLD_UV}"\n'
+    assert pins.read_uv(ORFS_TEXT) == OLD_UV  # another step follows the pin, with its own version
+    with pytest.raises(pins.PinError, match="version"):
+        pins.read_uv(ORFS_TEXT.replace(own, ""))
+    assert pins.write_uv(ORFS_TEXT, NEW_UV).count('"2030.1.1"') == 1
 
 
 def test_replacing_a_pin_keeps_the_quotes_and_the_line_endings():
@@ -259,6 +424,10 @@ def test_replacing_a_pin_keeps_the_quotes_and_the_line_endings():
     rewritten = pins.write_installer(text, NEW_COMMIT)
     assert rewritten == text.replace(OLD_COMMIT, NEW_COMMIT)
     assert f'INSTALLER_REV: "{NEW_COMMIT}"\r\n' in rewritten
+    text = ORFS_TEXT.replace("\n", "\r\n")
+    rewritten = pins.write_orfs_image(text, NEW_ORFS_TAG, NEW_ORFS_DIGEST)
+    assert f"image: openroad/orfs@sha256:{NEW_ORFS_DIGEST}\r\n" in rewritten
+    assert f"# openroad/orfs:{NEW_ORFS_TAG}\r\n" in rewritten
 
 
 # ----------------------------------------------------------------- what GitHub answers
@@ -362,12 +531,145 @@ def test_an_installer_commit_is_taken_whole():
     assert pins.installer_head({"sha": NEW_COMMIT}) == NEW_COMMIT
 
 
+@pytest.mark.parametrize(
+    "tag",
+    ["26Q4-132-g6b305a712", "25Q1-0-g0000000", "26Q3-705-g" + "a" * 40],
+)
+def test_an_orfs_tag_has_a_year_a_quarter_a_count_and_a_commit(tag):
+    assert pins.ORFS_TAG.fullmatch(tag)
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        "latest",
+        "26Q4-145",
+        "26Q4-145-g08ddc6",  # a short commit
+        "26Q4-145-gXYZXYZXYZ",
+        "26q4-145-g08ddc64f8",
+        "26Q5-145-g08ddc64f8",
+        "26Q0-145-g08ddc64f8",
+        "2026Q4-145-g08ddc64f8",
+        "26Q4-145-g08DDC64F8",
+        "v26Q4-145-g08ddc64f8",
+        "26Q4-145-g08ddc64f8-debug",
+        "26Q4-145-g08ddc64f8\n",
+        "26Q4-145-g" + "a" * 41,
+        "26Q4-14\u0665-g08ddc64f8",  # an Arabic-Indic digit
+        None,
+        7,
+    ],
+)
+def test_a_tag_of_another_form_is_ignored(tag):
+    answer = orfs_answer(orfs_tag(tag), orfs_tag(OLD_ORFS_TAG, OLD_ORFS_DIGEST))
+    assert pins.newest_orfs(answer) == pins.OrfsImage(OLD_ORFS_TAG, OLD_ORFS_DIGEST)
+
+
+def test_the_newest_orfs_tag_is_chosen_by_number_not_by_text():
+    """A year, a quarter and a count, as numbers: `26Q4-9` is older than `26Q4-100`, and a quarter
+    of the year before is older than every quarter of this one, whatever order Docker Hub lists
+    the tags in."""
+    tags = ["26Q4-9-g0000009", "26Q4-100-g0000100", "26Q3-705-g0007050", "25Q4-9999-g0099990"]
+    expected = pins.OrfsImage("26Q4-100-g0000100", NEW_ORFS_DIGEST)
+    assert pins.newest_orfs(orfs_answer(*map(orfs_tag, tags))) == expected
+    assert pins.newest_orfs(orfs_answer(*map(orfs_tag, reversed(tags)))) == expected
+
+
+def test_the_orfs_digest_is_the_one_of_the_tag_not_the_one_of_its_image():
+    """What `docker pull` records and `image@sha256:` takes, for the platform of the runner."""
+    answer = orfs_answer(orfs_tag(NEW_ORFS_TAG, "ab" * 32))
+    assert pins.newest_orfs(answer).digest == "ab" * 32
+
+
+@pytest.mark.parametrize(
+    "images",
+    [
+        pytest.param([], id="none"),
+        pytest.param([{**AMD64_IMAGE, "architecture": "arm64"}], id="arm64 only"),
+        pytest.param([{**AMD64_IMAGE, "os": "windows"}], id="another system"),
+        pytest.param([{**AMD64_IMAGE, "status": "inactive"}], id="inactive"),
+        pytest.param([{k: v for k, v in AMD64_IMAGE.items() if k != "status"}], id="no status"),
+        pytest.param(["amd64"], id="not described"),
+    ],
+)
+def test_a_tag_without_an_amd64_image_is_not_pinned(images):
+    answer = orfs_answer(
+        orfs_tag(NEW_ORFS_TAG, images=images), orfs_tag(OLD_ORFS_TAG, OLD_ORFS_DIGEST)
+    )
+    assert pins.newest_orfs(answer) == pins.OrfsImage(OLD_ORFS_TAG, OLD_ORFS_DIGEST)
+    with pytest.raises(pins.PinError, match="amd64"):
+        pins.newest_orfs(orfs_answer(orfs_tag(NEW_ORFS_TAG, images=images)))
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [[], {}, {"results": None}, {"results": "x"}, {"results": [1]}, {"message": "rate limit"}, "x"],
+)
+def test_an_orfs_answer_that_is_no_list_of_tags_is_an_error(answer):
+    with pytest.raises(pins.PinError):
+        pins.newest_orfs(answer)
+
+
+@pytest.mark.parametrize(
+    "digest",
+    [
+        None,
+        "",
+        "sha256:" + "AB" * 32,
+        "sha256:abc",
+        "sha512:" + "ab" * 64,
+        7,
+    ],
+)
+def test_an_orfs_tag_with_a_bad_digest_is_an_error(digest):
+    with pytest.raises(pins.PinError, match="digest"):
+        pins.newest_orfs(orfs_answer(orfs_tag(NEW_ORFS_TAG, digest)))
+
+
+def test_the_newest_uv_release_has_the_linux_archive_the_action_downloads():
+    answer = [
+        uv_release("0.12.9"),
+        uv_release("0.13.2", linux=False),  # no archive for Linux
+        uv_release("0.13.3", draft=True),
+        uv_release("0.13.4", prerelease=True),
+        uv_release("0.13.5rc1"),  # not a release number
+        uv_release("v0.13.6"),
+        uv_release("0.13.1"),
+        uv_release("0.12.24"),
+    ]
+    assert pins.newest_uv(answer) == "0.13.1"
+
+
+def test_uv_releases_are_ordered_as_numbers_not_as_text():
+    assert pins.newest_uv([uv_release("0.9.30"), uv_release("0.12.2"), uv_release("0.12.10")]) == (
+        "0.12.10"
+    )
+    assert pins.newest_uv([uv_release("1.0.0"), uv_release("0.99.99")]) == "1.0.0"
+
+
+def test_a_uv_tag_written_with_other_digits_is_no_release_tag():
+    other = "0.13.1".translate(ARABIC_INDIC)
+    assert pins.newest_uv([uv_release("0.12.23"), uv_release(other)]) == "0.12.23"
+    assert not pins.UV_TAG.fullmatch(other)
+
+
+@pytest.mark.parametrize("answer", [[], {"message": "rate limit"}, "text", [1], [release("0.1.0")]])
+def test_no_usable_uv_release_is_an_error(answer):
+    with pytest.raises(pins.PinError):
+        pins.newest_uv(answer)
+
+
 # ----------------------------------------------------------- finding and applying updates
 
 
 def test_nothing_is_updated_when_upstream_is_where_the_pins_are():
     upstream = current_upstream()
-    for kind, text in (("oss_cad", CI_TEXT), ("bsc", CI_TEXT), ("installer", OPENXC7_TEXT)):
+    for kind, text in (
+        ("oss_cad", CI_TEXT),
+        ("bsc", CI_TEXT),
+        ("installer", OPENXC7_TEXT),
+        ("orfs", ORFS_TEXT),
+    ):
         assert pins.find_update(pin(kind), text, upstream.fetch, upstream.digest) is None
     assert upstream.downloads == []
 
@@ -450,6 +752,62 @@ def test_a_newer_installer_commit_is_an_update_with_a_compare_link():
     assert pins.apply_update(OPENXC7_TEXT, update) == OPENXC7_TEXT.replace(OLD_COMMIT, NEW_COMMIT)
 
 
+def test_a_newer_uv_is_an_update_with_its_links():
+    upstream = newer_upstream()
+    update = pins.find_update(pin("uv"), ORFS_TEXT, upstream.fetch, upstream.digest)
+    assert (update.old, update.new) == (OLD_UV, NEW_UV)
+    assert dict(update.links) == {
+        "release": f"https://github.com/astral-sh/uv/releases/tag/{NEW_UV}",
+        "compare": f"https://github.com/astral-sh/uv/compare/{OLD_UV}...{NEW_UV}",
+    }
+    assert pins.apply_update(ORFS_TEXT, update) == pins.write_uv(ORFS_TEXT, NEW_UV)
+    assert pins.read_orfs_image(pins.apply_update(ORFS_TEXT, update))[0] == OLD_ORFS_TAG
+
+
+def test_uv_never_moves_back_and_a_pin_at_the_newest_is_not_an_update():
+    for releases in ([uv_release("0.12.22"), uv_release("0.9.30")], [uv_release(OLD_UV)]):
+        upstream = newer_upstream(uv_releases=releases)
+        assert pins.find_update(pin("uv"), ORFS_TEXT, upstream.fetch, upstream.digest) is None
+
+
+def test_a_uv_pin_is_compared_with_the_releases_by_number_not_by_text():
+    text = ORFS_TEXT.replace(OLD_UV, "0.9.30")  # older than 0.12.2
+    upstream = newer_upstream(uv_releases=[uv_release("0.12.2")])
+    update = pins.find_update(pin("uv"), text, upstream.fetch, upstream.digest)
+    assert update is not None and update.new == "0.12.2"
+
+
+def test_a_newer_orfs_image_is_an_update_with_its_links():
+    upstream = newer_upstream()
+    update = pins.find_update(pin("orfs"), ORFS_TEXT, upstream.fetch, upstream.digest)
+    assert (update.old, update.new, update.sha256) == (OLD_ORFS_TAG, NEW_ORFS_TAG, NEW_ORFS_DIGEST)
+    assert dict(update.links) == {
+        "image": f"https://hub.docker.com/r/openroad/orfs/tags?name={NEW_ORFS_TAG}",
+        "compare": "https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts/compare/"
+        "6b305a712...08ddc64f8",
+    }
+    rewritten = pins.apply_update(ORFS_TEXT, update)
+    assert pins.read_orfs_image(rewritten) == (NEW_ORFS_TAG, NEW_ORFS_DIGEST)
+    assert upstream.downloads == []  # an image is not downloaded to take its digest
+
+
+def test_an_orfs_image_never_moves_back():
+    older = orfs_answer(orfs_tag("26Q4-130-g479d02aae"), orfs_tag("26Q3-705-gecb3cfdeb"))
+    upstream = newer_upstream(orfs_tags=older)
+    assert pins.find_update(pin("orfs"), ORFS_TEXT, upstream.fetch, upstream.digest) is None
+    # the pinned tag again, with another digest (a tag moved): not an update either
+    same = orfs_answer(orfs_tag(OLD_ORFS_TAG, "ab" * 32))
+    upstream = newer_upstream(orfs_tags=same)
+    assert pins.find_update(pin("orfs"), ORFS_TEXT, upstream.fetch, upstream.digest) is None
+
+
+def test_an_orfs_pin_is_compared_with_the_tags_by_number_not_by_text():
+    text = ORFS_TEXT.replace(OLD_ORFS_TAG, "26Q4-99-g0000099")  # older than 26Q4-100
+    upstream = newer_upstream(orfs_tags=orfs_answer(orfs_tag("26Q4-100-g0000100")))
+    update = pins.find_update(pin("orfs"), text, upstream.fetch, upstream.digest)
+    assert update is not None and update.new == "26Q4-100-g0000100"
+
+
 @pytest.mark.parametrize("status", ["behind", "diverged"])
 def test_an_installer_head_that_is_not_ahead_of_the_pin_is_no_update_and_is_warned_about(status):
     """A rewritten `main` would otherwise stall the pin with no sign of it."""
@@ -506,7 +864,7 @@ def test_a_run_leaves_a_bsc_without_a_published_digest_and_goes_on_with_the_othe
         log=log.append,
         warn=warnings.append,
     )
-    assert [u.pin.kind for u in updates] == ["oss_cad", "installer"]
+    assert [u.pin.kind for u in updates] == ["oss_cad", "installer", "orfs", "uv"]
     assert pins.read_bsc((tmp_path / pins.CI).read_text()) == ("2026.07.1", OLD_SHA256)
     assert warnings == [f"{BSC_WITHOUT_DIGEST} (the pin stays at 2026.07.1)"]
     assert not any("Bluespec" in line and "up to date" in line for line in log)
@@ -618,12 +976,65 @@ def test_an_empty_download_is_an_error(monkeypatch):
         pins.download_digest(URL, 0, BODY_SHA256)
 
 
+# ------------------------------------------------------------ the lookups of GitHub and Docker Hub
+
+
+def request_made_for(monkeypatch, path: str, token: str | None):
+    requests = []
+
+    def urlopen(request, timeout):
+        requests.append(request)
+        return Response(b"{}", {})
+
+    monkeypatch.setattr(pins.urllib.request, "urlopen", urlopen)
+    assert pins.upstream_fetcher(token)(path) == {}
+    (request,) = requests
+    return request
+
+
+def test_a_github_path_goes_to_the_api_with_the_token(monkeypatch):
+    request = request_made_for(monkeypatch, "/repos/a/b/releases", "secret")
+    assert request.full_url == "https://api.github.com/repos/a/b/releases"
+    assert request.get_header("Authorization") == "Bearer secret"
+
+
+def test_the_tags_of_docker_hub_are_asked_for_without_the_token_of_github(monkeypatch):
+    """The token is for GitHub. Docker Hub gets the address and no credentials."""
+    request = request_made_for(monkeypatch, pins.ORFS_TAGS_URL, "secret")
+    assert request.full_url == pins.ORFS_TAGS_URL
+    assert not any("secret" in value for _, value in request.header_items())
+    assert request.get_header("Authorization") is None
+
+
+def test_the_tag_list_asks_docker_hub_for_the_newest_tags_of_the_orfs_image():
+    assert pins.ORFS_TAGS_URL == (
+        "https://hub.docker.com/v2/repositories/openroad/orfs/tags"
+        "?page_size=100&ordering=last_updated"
+    )
+
+
+@pytest.mark.parametrize(
+    "path", ["https://example.org/tags", "http://hub.docker.com/v2/x", "repos/a/b", ""]
+)
+def test_an_address_that_is_neither_github_nor_docker_hub_is_refused(monkeypatch, path):
+    monkeypatch.setattr(
+        pins.urllib.request, "urlopen", lambda request, timeout: pytest.fail("a request was made")
+    )
+    with pytest.raises(ValueError, match="address"):
+        pins.upstream_fetcher("secret")(path)
+
+
 # ------------------------------------------------------------------ the files of a checkout
 
 
-def write_checkout(root: Path, ci: str | None = CI_TEXT, openxc7: str | None = OPENXC7_TEXT):
+def write_checkout(
+    root: Path,
+    ci: str | None = CI_TEXT,
+    openxc7: str | None = OPENXC7_TEXT,
+    orfs: str | None = ORFS_TEXT,
+):
     (root / ".github" / "workflows").mkdir(parents=True)
-    for path, text in ((pins.CI, ci), (pins.OPENXC7, openxc7)):
+    for path, text in ((pins.CI, ci), (pins.OPENXC7, openxc7), (pins.ORFS, orfs)):
         if text is not None:
             (root / path).write_text(text, encoding="utf-8")
 
@@ -642,7 +1053,7 @@ def test_a_dry_run_finds_every_update_and_writes_nothing(tmp_path):
     upstream = newer_upstream()
     log: list[str] = []
     updates = pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=True, log=log.append)
-    assert [u.pin.kind for u in updates] == ["oss_cad", "bsc", "installer"]
+    assert [u.pin.kind for u in updates] == ["oss_cad", "bsc", "installer", "orfs", "uv"]
     assert contents(tmp_path) == before
     assert any("2026-09-15 -> 2026-10-07" in line for line in log)
     assert any(NEW_SHA256 in line for line in log)
@@ -657,6 +1068,9 @@ def test_a_run_writes_the_pins_and_only_the_pins(tmp_path):
         pins.write_oss_cad(CI_TEXT, "2026-10-07"), "2026.10", NEW_SHA256
     )
     assert after[str(pins.OPENXC7)] == OPENXC7_TEXT.replace(OLD_COMMIT, NEW_COMMIT)
+    assert after[str(pins.ORFS)] == pins.write_uv(
+        pins.write_orfs_image(ORFS_TEXT, NEW_ORFS_TAG, NEW_ORFS_DIGEST), NEW_UV
+    )
     # a second run finds nothing more to do
     again = pins.run(
         tmp_path,
@@ -669,18 +1083,23 @@ def test_a_run_writes_the_pins_and_only_the_pins(tmp_path):
 
 
 def test_a_file_that_does_not_exist_has_no_pin_to_update(tmp_path):
-    write_checkout(tmp_path, openxc7=None)
+    write_checkout(tmp_path, openxc7=None, orfs=None)
     log: list[str] = []
     upstream = newer_upstream()
     updates = pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=True, log=log.append)
     assert [u.pin.kind for u in updates] == ["oss_cad", "bsc"]
     assert any("openxc7.yml" in line and "does not exist" in line for line in log)
+    assert any("openroad.yml" in line and "does not exist" in line for line in log)
 
 
-def test_a_file_without_its_pin_is_an_error(tmp_path):
-    write_checkout(tmp_path, openxc7="jobs: {}\n")
+@pytest.mark.parametrize(
+    "files, message",
+    [({"openxc7": "jobs: {}\n"}, "INSTALLER_REV"), ({"orfs": "jobs: {}\n"}, "image")],
+)
+def test_a_file_without_its_pin_is_an_error(tmp_path, files, message):
+    write_checkout(tmp_path, **files)
     upstream = newer_upstream()
-    with pytest.raises(pins.PinError, match="INSTALLER_REV"):
+    with pytest.raises(pins.PinError, match=message):
         pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=True, log=lambda line: None)
 
 
@@ -691,7 +1110,7 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
     upstream = newer_upstream()
     updates = [
         pins.find_update(p, text, upstream.fetch, upstream.digest)
-        for p, text in zip(pins.PINS, (CI_TEXT, CI_TEXT, OPENXC7_TEXT))
+        for p, text in zip(pins.PINS, (CI_TEXT, CI_TEXT, OPENXC7_TEXT, ORFS_TEXT, ORFS_TEXT))
     ]
     title, body = pins.pull_request_text(updates)
     message = pins.commit_message(updates)
@@ -700,6 +1119,8 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
         "OSS CAD Suite: 2026-09-15 -> 2026-10-07",
         "Bluespec Compiler (bsc): 2026.07.1 -> 2026.10",
         "openXC7 toolchain installer: efe9e07 -> 1234567",
+        f"ORFS image for the OpenROAD tests: {OLD_ORFS_TAG} -> {NEW_ORFS_TAG}",
+        f"uv: {OLD_UV} -> {NEW_UV}",
     ):
         assert line in message
     assert "`2026-09-15` | `2026-10-07`" in body
@@ -708,8 +1129,13 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
         "https://github.com/YosysHQ/oss-cad-suite-build/releases/tag/2026-10-07",
         "https://github.com/B-Lang-org/bsc/releases/tag/2026.10",
         f"https://github.com/openXC7/toolchain-installer/compare/{OLD_COMMIT}...{NEW_COMMIT}",
+        f"https://hub.docker.com/r/openroad/orfs/tags?name={NEW_ORFS_TAG}",
+        f"https://github.com/astral-sh/uv/releases/tag/{NEW_UV}",
     ):
         assert url in body
+    assert f"`{OLD_UV}` | `{NEW_UV}`" in body
+    assert f"`{OLD_ORFS_TAG}` | `{NEW_ORFS_TAG}`" in body
+    assert f"`sha256:{NEW_ORFS_DIGEST}`" in body and "providers.orfs.version" in body
     assert f"`{NEW_SHA256}`" in body and "bsc-2026.10-ubuntu-24.04.tar.gz" in body
     assert "GitHub lists the same digest" in body
     for text in (title, body, message):
@@ -729,11 +1155,17 @@ def test_the_text_lists_the_pins_that_stayed_and_why():
 
 
 def test_the_text_names_only_the_tools_that_changed():
-    upstream = newer_upstream(bsc_releases=[bsc("2026.07.1")], installer_sha=OLD_COMMIT)
+    upstream = newer_upstream(
+        bsc_releases=[bsc("2026.07.1")],
+        installer_sha=OLD_COMMIT,
+        orfs_tags=orfs_answer(orfs_tag(OLD_ORFS_TAG, OLD_ORFS_DIGEST)),
+        uv_releases=[uv_release(OLD_UV)],
+    )
     update = pins.find_update(pin("oss_cad"), CI_TEXT, upstream.fetch, upstream.digest)
     _, body = pins.pull_request_text([update])
     assert "OSS CAD Suite" in body
     assert "bsc" not in body and "installer" not in body and "SHA-256" not in body
+    assert "orfs" not in body.lower() and "sha256:" not in body and "uv" not in body
 
 
 # ------------------------------------------------------------------------ the warnings
@@ -768,7 +1200,7 @@ def command(tmp_path, monkeypatch):
     """`main` on a checkout of old pins, with GitHub and the download replaced."""
     write_checkout(tmp_path)
     upstream = newer_upstream()
-    monkeypatch.setattr(pins, "github_fetcher", lambda token: upstream.fetch)
+    monkeypatch.setattr(pins, "upstream_fetcher", lambda token: upstream.fetch)
     monkeypatch.setattr(pins, "download_digest", upstream.digest)
     monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
     return tmp_path
@@ -799,7 +1231,7 @@ def test_the_command_tells_the_pull_request_which_pin_stayed(tmp_path, monkeypat
     """The run's log says it, and so does the pull request that the other pins make."""
     write_checkout(tmp_path)
     upstream = newer_upstream(bsc_releases=[bsc("2026.10", {"digest": None}), bsc("2026.07.1")])
-    monkeypatch.setattr(pins, "github_fetcher", lambda token: upstream.fetch)
+    monkeypatch.setattr(pins, "upstream_fetcher", lambda token: upstream.fetch)
     monkeypatch.setattr(pins, "download_digest", upstream.digest)
     monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
@@ -814,7 +1246,7 @@ def test_the_command_tells_the_pull_request_which_pin_stayed(tmp_path, monkeypat
 def test_the_command_reports_no_change_to_the_workflow(tmp_path, monkeypatch, capsys):
     write_checkout(tmp_path)
     upstream = current_upstream()
-    monkeypatch.setattr(pins, "github_fetcher", lambda token: upstream.fetch)
+    monkeypatch.setattr(pins, "upstream_fetcher", lambda token: upstream.fetch)
     monkeypatch.setattr(pins, "download_digest", upstream.digest)
     output = tmp_path / "github-output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
@@ -826,7 +1258,7 @@ def test_the_command_reports_no_change_to_the_workflow(tmp_path, monkeypatch, ca
 def test_the_command_fails_with_a_message_when_a_pin_cannot_be_read(tmp_path, monkeypatch, capsys):
     write_checkout(tmp_path, ci=CI_TEXT.replace('"2026.07.1"', "2026.07.1"))
     upstream = newer_upstream()
-    monkeypatch.setattr(pins, "github_fetcher", lambda token: upstream.fetch)
+    monkeypatch.setattr(pins, "upstream_fetcher", lambda token: upstream.fetch)
     assert pins.main(["--root", str(tmp_path), "--dry-run"]) == 1
     assert "BSC_VERSION" in capsys.readouterr().err
 
@@ -839,7 +1271,7 @@ def test_the_command_fails_with_a_message_when_github_cannot_be_reached(
     def unreachable(path):
         raise OSError("no network")
 
-    monkeypatch.setattr(pins, "github_fetcher", lambda token: unreachable)
+    monkeypatch.setattr(pins, "upstream_fetcher", lambda token: unreachable)
     assert pins.main(["--root", str(tmp_path), "--dry-run"]) == 1
     assert "no network" in capsys.readouterr().err
 
@@ -1143,3 +1575,177 @@ def test_the_pull_request_lookup_ignores_the_pull_requests_of_forks(listed, expe
         check=True,
     )
     assert answer.stdout.strip() == expected
+
+
+# ------------------------------------------------------------- the workflow of the OpenROAD job
+
+OPENROAD_WORKFLOW = ROOT / pins.ORFS
+
+
+def openroad_workflow() -> dict[str, Any]:
+    return load_yaml(OPENROAD_WORKFLOW)
+
+
+def openroad_job() -> dict[str, Any]:
+    jobs = openroad_workflow()["jobs"]
+    assert list(jobs) == ["tests"]
+    return jobs["tests"]
+
+
+def openroad_step(text: str) -> dict[str, Any]:
+    """The only step whose name or command holds `text`."""
+    found = [
+        step
+        for step in openroad_job()["steps"]
+        if text in step.get("name", "") or text in step.get("run", "")
+    ]
+    assert len(found) == 1, f"{len(found)} steps hold {text!r}"
+    return found[0]
+
+
+def test_the_openroad_job_runs_in_the_image_that_the_script_pins():
+    """The `image` line is the pin the script reads and writes, and it names the image by its
+    digest: a tag on Docker Hub can move."""
+    tag, digest = pins.read_orfs_image(OPENROAD_WORKFLOW.read_text(encoding="utf-8"))
+    assert openroad_job()["container"]["image"] == f"openroad/orfs@sha256:{digest}"
+    assert pins.ORFS_TAG.fullmatch(tag)
+
+
+def test_the_openroad_job_is_one_pinned_job_that_only_reads():
+    document = openroad_workflow()
+    job = openroad_job()
+    assert document["permissions"] == {"contents": "read"} and "permissions" not in job
+    assert job["runs-on"] == "ubuntu-24.04"  # not ubuntu-latest
+    assert job["timeout-minutes"] == 45
+    triggers = document["on"]
+    assert set(triggers) == {"push", "pull_request", "workflow_dispatch"}
+    for event in ("push", "pull_request"):
+        assert triggers[event] == {"branches": ["main", "release/*"]}
+
+
+def test_every_action_of_the_openroad_job_names_a_version():
+    uses = [step["uses"] for step in openroad_job()["steps"] if "uses" in step]
+    assert uses, "the job uses no action"
+    for used in uses:
+        assert re.fullmatch(r"[\w.-]+/[\w.-]+@v[0-9][\w.]*", used), used
+    checkout = next(step for step in openroad_job()["steps"] if "checkout" in step.get("uses", ""))
+    assert checkout["with"]["fetch-depth"] == 0  # xeda's version comes from the git tags
+
+
+def test_the_openroad_job_has_no_pin_of_the_platform_files_of_its_own():
+    """The PDK files come from `xeda pdk install nangate45`, at the version that the platform
+    file of the checkout pins, so the job tests the installer and cannot disagree with the pin."""
+    text = OPENROAD_WORKFLOW.read_text(encoding="utf-8")
+    install = openroad_step("xeda pdk install")["run"]
+    assert re.search(r'xeda pdk install nangate45 --root "\$RUNNER_TEMP/pdk"', install)
+    assert "--version" not in install and "--provider" not in install
+    assert "--platform-file" not in install
+    assert "ORFS_PLATFORM_REV" not in text
+    assert not re.search(r"\bgit (clone|fetch|init|sparse-checkout)\b", text)
+    # the only digest and commit in the file are the image's own
+    assert not re.search(r"\b[0-9a-f]{40}\b", text)  # no commit
+    assert len(re.findall(r"\b[0-9a-f]{64}\b", text)) == 1  # the digest of the image
+
+
+def test_the_openroad_job_runs_the_real_tool_tests_with_every_layer_switched_on():
+    job = openroad_job()
+    environment = job["env"]
+    assert environment["XEDA_TESTS_OPENROAD"] == "1"
+    assert environment["XEDA_TESTS_REQUIRE_TOOLS"] == "1"
+    assert environment["XEDA_TESTS_PLATFORMS"] == "nangate45"
+    run = openroad_step("Run the OpenROAD tests")["run"]
+    assert 'XEDA_TESTS_PDK_ROOT="$RUNNER_TEMP/pdk"' in run
+    # the store the install step fills is the store the tests read
+    assert '--root "$RUNNER_TEMP/pdk"' in openroad_step("xeda pdk install")["run"]
+    for test_file in (
+        "tests/test_openroad_real.py",
+        "tests/test_platform_conformance.py",
+        "tests/test_yosys_asic.py",
+        "tests/test_yosys_asic_tcl.py",
+    ):
+        assert test_file in run
+    assert "-rs" in run and "--junitxml" in run
+
+
+def test_the_openroad_job_runs_the_tcl_tests_of_yosys_only_when_the_probe_passed():
+    probe = openroad_step("Check whether yosys runs a Tcl script")["run"]
+    assert 'yosys -q -c "$RUNNER_TEMP/probe.tcl"' in probe  # as tests/tool_utils.py asks it
+    assert probe.count('echo "XEDA_TESTS_YOSYS_TCL=1" >> "$GITHUB_ENV"') == 1
+    assert "XEDA_TESTS_YOSYS_TCL" not in openroad_job()["env"]
+    run = openroad_step("Run the OpenROAD tests")["run"]
+    guarded = re.search(
+        r'if \[ "\$\{XEDA_TESTS_YOSYS_TCL:-\}" = 1 \]; then\n\s+files\+=\(tests/test_yosys_asic_tcl.py\)',
+        run,
+    )
+    assert guarded and run.count("test_yosys_asic_tcl.py") == 1
+
+
+def test_the_openroad_job_puts_the_tools_of_the_image_first_and_its_own_python_last():
+    """The yosys that OpenROAD-flow-scripts builds, not the one in /usr/local/bin, and the
+    tools run `python3` of the image, not the venv's."""
+    path = openroad_step("Put the tools of the image on PATH")["run"]
+    assert '"$ORFS_INSTALL/OpenROAD/bin" >> "$GITHUB_PATH"' in path
+    assert '"$ORFS_INSTALL/yosys/bin" >> "$GITHUB_PATH"' in path
+    assert openroad_job()["env"]["ORFS_INSTALL"] == "/OpenROAD-flow-scripts/tools/install"
+    for step in openroad_job()["steps"]:
+        for line in step.get("run", "").splitlines():
+            if "venv/bin" in line and "python" not in line:
+                assert line.strip() == 'export PATH="$PATH:$RUNNER_TEMP/venv/bin"', line
+
+
+SKIP_CHECK = re.search(
+    r"<<'PY'\n(?P<code>.*?)\nPY\n?", openroad_step("Run the OpenROAD tests")["run"], re.DOTALL
+)
+
+
+def junit(*cases: tuple[str, str | None]) -> str:
+    """A JUnit report: each case is a name and the reason for which it skipped, or None."""
+    body = "".join(
+        f'<testcase classname="tests.test_x" name="{name}">'
+        + (f'<skipped type="pytest.skip" message="{reason}"/>' if reason is not None else "")
+        + "</testcase>"
+        for name, reason in cases
+    )
+    return (
+        f'<?xml version="1.0"?><testsuites><testsuite name="pytest">{body}</testsuite></testsuites>'
+    )
+
+
+def skip_check(tmp_path: Path, report: str, allowed: str | None = None):
+    assert SKIP_CHECK, "the test step has no check of the skipped tests"
+    path = tmp_path / "report.xml"
+    path.write_text(report, encoding="utf-8")
+    environment = {"PATH": "/usr/bin:/bin"}
+    if allowed is not None:
+        environment["ALLOWED_SKIPS"] = allowed
+    return subprocess.run(
+        [sys.executable, "-I", "-", str(path)],
+        input=SKIP_CHECK["code"],
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+
+def test_the_job_passes_when_no_test_skipped(tmp_path):
+    result = skip_check(tmp_path, junit(("test_a", None), ("test_b", None)))
+    assert result.returncode == 0, result.stderr
+
+
+def test_the_job_fails_when_a_test_skipped(tmp_path):
+    result = skip_check(tmp_path, junit(("test_a", None), ("test_b", "set XEDA_TESTS_OPENROAD=1")))
+    assert result.returncode != 0
+    assert "test_b" in result.stderr and "XEDA_TESTS_OPENROAD" in result.stderr
+
+
+def test_the_job_fails_when_no_test_ran(tmp_path):
+    assert skip_check(tmp_path, junit()).returncode != 0
+
+
+def test_a_skip_that_the_probe_allowed_does_not_fail_the_job_and_another_does(tmp_path):
+    allowed = "this yosys has no TCL support"
+    tcl = ("test_tcl", "this yosys has no TCL support")
+    assert skip_check(tmp_path, junit(("test_a", None), tcl), allowed).returncode == 0
+    other = ("test_b", "set XEDA_TESTS_OPENROAD=1")
+    result = skip_check(tmp_path, junit(tcl, other), allowed)
+    assert result.returncode != 0 and "test_b" in result.stderr and "test_tcl" not in result.stderr
