@@ -28,7 +28,7 @@ from .tool_utils import (
     run_outputs_state,
 )
 
-ABC_NEW = {"script_format": "tcl", "abc": {"mapper": "abc_new"}}
+ABC_NEW = {"abc": {"mapper": "abc_new"}}
 WRAPPED = {**ABC_NEW, "arithmetic": {"wrap_operators": True}}
 
 

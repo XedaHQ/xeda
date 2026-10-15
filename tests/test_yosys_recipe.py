@@ -37,7 +37,8 @@ PARTS: dict[str, "str | dict[str, str]"] = {
     "gowin": {"vendor": "gowin", "family": "gowin", "device": "GW1N-9"},
 }
 BY_TARGET = pytest.mark.parametrize("target", sorted(PARTS), ids=sorted(PARTS))
-BY_FORMAT = pytest.mark.parametrize("script_format", ["ys", "tcl"])
+#: `yosys_fpga` writes a `.ys` script: it has no setting that needs a Tcl script.
+BY_FORMAT = pytest.mark.parametrize("script_format", ["ys"])
 
 #: What the mode needs written besides `synth_pass_only`: it reads the sources as a bare
 #: `yosys <files>` does, so xeda's own reader choices (`-sv` on a `.v` source, and the slang
@@ -126,7 +127,7 @@ def test_synth_pass_only_renders_the_pass_and_nothing_but_the_pass(
     enough to change the netlist by a cell. The reads here are the design's own source and
     nothing else, exactly as the command line would read it.
     """
-    run_path = _launch(tmp_path, PARTS[target], synth_pass_only=True, script_format=script_format)
+    run_path = _launch(tmp_path, PARTS[target], synth_pass_only=True)
     synth = {
         "xilinx": "synth_xilinx",
         "ecp5": "synth_ecp5",
@@ -150,7 +151,7 @@ def test_the_default_recipe_still_runs_every_step_xeda_adds(
     tmp_path, toolchain, target, script_format
 ):
     """The teeth: a mode that quietly did nothing would pass the test above on its own."""
-    run_path = _launch(tmp_path, PARTS[target], script_format=script_format)
+    run_path = _launch(tmp_path, PARTS[target])
     commands = _commands(run_path, script_format)
     assert set(commands) >= {"hierarchy", "check", "proc", "opt_clean", "scratchpad"}
     # the libraries the pass reads in its `begin` step, read early so xeda's own passes resolve
@@ -193,7 +194,7 @@ def test_xilinx_flattens_by_default_except_under_synth_pass_only(
     settings: dict[str, Any] = {"synth_pass_only": pass_only}
     if flatten is not None:
         settings["flatten"] = flatten
-    run_path = _launch(tmp_path, PARTS["xilinx"], script_format=script_format, **settings)
+    run_path = _launch(tmp_path, PARTS["xilinx"], **settings)
     assert _flattening(run_path, script_format) == expected
 
 
@@ -205,13 +206,9 @@ def test_an_unset_flatten_on_xilinx_renders_exactly_the_script_of_flatten_true(
     xeda's own step, before the RTL outputs, and again with `-flatten` on the pass. An unset
     `flatten` is that run, not a flatter one or a sparser one."""
     name = f"yosys_fpga_synth.{script_format}"
-    unset = (_launch(tmp_path, PARTS["xilinx"], script_format=script_format) / name).read_text()
-    flat = (
-        _launch(tmp_path, PARTS["xilinx"], script_format=script_format, flatten=True) / name
-    ).read_text()
-    kept = (
-        _launch(tmp_path, PARTS["xilinx"], script_format=script_format, flatten=False) / name
-    ).read_text()
+    unset = (_launch(tmp_path, PARTS["xilinx"]) / name).read_text()
+    flat = (_launch(tmp_path, PARTS["xilinx"], flatten=True) / name).read_text()
+    kept = (_launch(tmp_path, PARTS["xilinx"], flatten=False) / name).read_text()
     assert unset == flat
     assert unset != kept
 
@@ -222,7 +219,7 @@ def test_the_other_targets_leave_flattening_to_their_pass_by_default(
     tmp_path, toolchain, script_format, target
 ):
     """Those passes flatten on their own, so an unset `flatten` adds nothing of xeda's."""
-    run_path = _launch(tmp_path, PARTS[target], script_format=script_format)
+    run_path = _launch(tmp_path, PARTS[target])
     assert _flattening(run_path, script_format) == {"xeda": False, "pass": False, "pass_off": False}
 
 
@@ -282,7 +279,6 @@ def test_a_verilog_lib_naming_the_passs_own_library_adds_no_read_however_it_is_s
         tmp_path,
         PARTS[target],
         synth_pass_only=mode,
-        script_format=script_format,
         verilog_lib=[_spellings(tmp_path, library.path)[spelling] for library in libraries],
     )
     reads = _commands(run_path, script_format).count("read_verilog")
@@ -306,7 +302,6 @@ def test_a_verilog_lib_that_is_not_the_passs_library_is_still_read(
         tmp_path,
         PARTS["xilinx"],
         synth_pass_only=True,
-        script_format=script_format,
         verilog_lib=[str(copy), str(own)],
     )
     assert _commands(run_path, script_format).count("read_verilog") == 3
@@ -384,12 +379,10 @@ def test_synth_pass_only_leaves_abc9_the_script_and_the_delay_the_pass_gives_it(
     A constrained clock is a timing constraint, not a request for a scratchpad tweak, so it is
     not an error -- pass-only mode simply does not supply the implicit ABC9 delay.
     """
-    run_path = _launch(tmp_path, PARTS["xilinx"], synth_pass_only=True, script_format=script_format)
+    run_path = _launch(tmp_path, PARTS["xilinx"], synth_pass_only=True)
     # on the commands, not on the script's text: a source path may spell any word at all
     assert "scratchpad" not in _commands(run_path, script_format)
-    default = _launch(
-        tmp_path, PARTS["xilinx"], script_format=script_format, netlist_json="other.json"
-    )
+    default = _launch(tmp_path, PARTS["xilinx"], netlist_json="other.json")
     text = (default / f"yosys_fpga_synth.{script_format}").read_text()
     assert "scratchpad -copy abc9.script.flow3 abc9.script" in text
     assert "scratchpad -set abc9.D " in text
@@ -637,7 +630,7 @@ def test_the_full_recipe_renders_its_reader_flags_exactly_as_before(
     """The mode off: `read_verilog_flags` is rendered as it always was, default or given."""
     for flags, shown in ((None, "-sv"), (["-noautowire", "-sv"], "-noautowire -sv")):
         settings = {} if flags is None else {"read_verilog_flags": flags}
-        run_path = _launch(tmp_path, PARTS["xilinx"], script_format=script_format, **settings)
+        run_path = _launch(tmp_path, PARTS["xilinx"], **settings)
         text = (run_path / f"yosys_fpga_synth.{script_format}").read_text()
         (line,) = [ln for ln in text.splitlines() if "read_verilog -defer" in ln]
         assert f"read_verilog -defer {shown} " in " ".join(line.split()), line
@@ -668,7 +661,6 @@ def test_a_systemverilog_source_still_reads_as_read_verilog_sv_under_the_mode(
             "clock": {"period": "5 ns"},
             "synth_pass_only": True,
             "systemverilog": "default",
-            "script_format": script_format,
             **PASS_ONLY_READER,
         },
     )
@@ -715,7 +707,6 @@ def test_the_reader_follows_the_sources_type_not_its_suffix(
             "clock": {"period": "5 ns"},
             "synth_pass_only": True,
             "systemverilog": "default",
-            "script_format": script_format,
             **PASS_ONLY_READER,
         },
     )
@@ -903,7 +894,7 @@ def test_the_mode_keeps_the_commands_that_cannot_move_a_cell(tmp_path, toolchain
     `check_assert` can still fail a run that `yosys -p synth_<target>` alone would not; that is
     the safer default and it changes no output.
     """
-    run_path = _launch(tmp_path, PARTS["xilinx"], synth_pass_only=True, script_format=script_format)
+    run_path = _launch(tmp_path, PARTS["xilinx"], synth_pass_only=True)
     text = (run_path / f"yosys_fpga_synth.{script_format}").read_text()
     assert "check  -assert" in text.replace("\t", " ")
     assert _commands(run_path, script_format).count("tee") == 2  # `check` and `stat`
@@ -930,7 +921,6 @@ def test_a_designs_parameters_still_reach_yosys_under_the_mode(tmp_path, toolcha
             "clock": {"period": "5 ns"},
             "synth_pass_only": True,
             **PASS_ONLY_READER,
-            "script_format": script_format,
         },
     )
     assert flow is not None
@@ -1012,7 +1002,6 @@ def test_an_explicit_abc9_script_is_honored_in_either_recipe(
         PARTS["xilinx"],
         synth_pass_only=mode,
         abc9_script=script,
-        script_format=script_format,
     )
     text = (path / f"yosys_fpga_synth.{script_format}").read_text()
     assert f"scratchpad -copy abc9.script.{script} abc9.script" in text

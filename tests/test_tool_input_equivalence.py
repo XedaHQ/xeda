@@ -182,6 +182,11 @@ REVIEWED_DELTAS: dict[str, dict[tuple[str, ...] | str, str]] = {
         f"{_POWER}/results/sim.*": "the producer checks simulation evidence before "
         "activity hand-over; power reports only its own metrics",
     },
+    "yosys_asic": {
+        "nodes/*/effective_flow_settings/script_format": "Xeda selects the format of the script "
+        "from the settings, and no setting chooses it; the script and the commands that run it "
+        "are compared",
+    },
 }
 
 #: Where a conversion moved a file without changing it: in what is observed, each name is

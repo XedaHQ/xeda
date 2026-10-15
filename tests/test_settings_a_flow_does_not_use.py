@@ -203,7 +203,7 @@ def test_vivado_alt_synth_writes_a_power_estimate_when_asked(power, tmp_path, mo
 def test_yosys_fpga_splits_nets_the_way_it_is_asked(tmp_path) -> None:
     from .test_yosys_templates import _fpga_settings, _render
 
-    for script_format, command in (("ys", "splitnets"), ("tcl", "yosys splitnets")):
+    for script_format, command in (("ys", "splitnets"),):
         for flags, expected in (
             ({"splitnets_driver": True, "splitnets_ports": True}, " -driver -ports"),
             ({}, ""),
@@ -212,7 +212,7 @@ def test_yosys_fpga_splits_nets_the_way_it_is_asked(tmp_path) -> None:
             root.mkdir()
             script = _render(
                 YosysFpga,
-                _fpga_settings(script_format=script_format, splitnets=True, **flags),
+                _fpga_settings(splitnets=True, **flags),
                 root,
             )
             assert re.search(rf"^{command}{expected}$", script, re.MULTILINE), script
@@ -285,9 +285,9 @@ FORMER_FIELDS = {
     "yosys": {
         *("abc_driver_cell", "abc_load_in_ff", "adder_map", "clockgate_map", "dff_liberty"),
         *("dff_library", "hilomap", "insbuf", "merge_libs_to", "netlist_verilog_extmem"),
-        *("optimize", "other_maps", "retime"),
+        *("optimize", "other_maps", "retime", "script_format"),
     },
-    "yosys_fpga": {"netlist_verilog_extmem", "nosynth"},
+    "yosys_fpga": {"netlist_verilog_extmem", "nosynth", "script_format"},
     "yosys_sim": {
         *("abc_constr", "abc_dff", "abc_flags", "abc_script", "json_netlist", "ltp", "netlist"),
         *("netlist_attrs", "netlist_blackboxes", "netlist_dec", "netlist_expr", "netlist_graph"),
@@ -296,6 +296,7 @@ FORMER_FIELDS = {
         *("netlist_verilog_extmem", "netlist_verilog_flags", "noabc", "nosynth"),
         *("optimization_flags", "post_synth_opt", "post_synth_rename", "retime", "rmports"),
         *("splitnets", "splitnets_driver", "splitnets_ports", "sta", "synth_flags", "write_blif"),
+        "script_format",
     },
     "vivado_project": {
         *("analyze_flags", "cocotb", "debug_traces", "elab_debug", "elab_flags", "fail_severity"),
@@ -380,8 +381,9 @@ def test_vivado_project_refuses_every_setting_of_a_simulation() -> None:
 # ------------------------------------------- what a removal message names reaches the tool
 
 
-@pytest.mark.parametrize("flow_class", [Yosys, YosysFpga])
-@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize(
+    "flow_class, script_format", [(Yosys, "ys"), (Yosys, "tcl"), (YosysFpga, "ys")]
+)
 def test_netlist_verilog_flags_reach_write_verilog(flow_class, script_format, tmp_path) -> None:
     """The message of the removed `netlist_verilog_extmem` names `netlist_verilog_flags`."""
     from .test_yosys_templates import _asic_settings, _fpga_settings, _render
@@ -389,7 +391,7 @@ def test_netlist_verilog_flags_reach_write_verilog(flow_class, script_format, tm
     make = _asic_settings if flow_class is Yosys else _fpga_settings
     script = _render(
         flow_class,
-        make(script_format=script_format, netlist_verilog_flags=["-extmem"]),
+        make(netlist_verilog_flags=["-extmem"]),
         tmp_path,
     )
     assert re.search(r"^(yosys )?write_verilog -extmem\b", script, re.MULTILINE), script

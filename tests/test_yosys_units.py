@@ -196,7 +196,6 @@ def test_the_delay_target_is_the_d_flag_in_picoseconds(
 def test_the_auto_delay_target_takes_the_derated_clock_period(tmp_path, monkeypatch, script_format):
     given = _tiny(
         tmp_path,
-        script_format=script_format,
         abc={"delay_target": "auto", "clock_derating": 0.1},
     )
     given["clock"] = {"period": "2.5 ns"}

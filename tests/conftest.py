@@ -232,3 +232,16 @@ def programmer_guard(
     yield guard
     guard.check()
     assert not guard.reached(), "the test started openFPGALoader without the fake toolchain"
+
+
+@pytest.fixture(autouse=True)
+def _the_script_format_parameter_forces_the_format(request, monkeypatch):
+    """Xeda selects the format of a yosys script from the settings. A test with a parameter
+    named `script_format` (`ys` or `tcl`) checks the template set of that format, for the same
+    settings: every yosys flow writes a script of that format in the test."""
+    callspec = getattr(request.node, "callspec", None)
+    script_format = callspec.params.get("script_format") if callspec is not None else None
+    if script_format is not None:
+        from .yosys_format import force_script_format
+
+        force_script_format(monkeypatch, script_format)

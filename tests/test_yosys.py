@@ -210,7 +210,6 @@ def test_yosys_synthesizes_with_spaces_in_every_path(script_format, tmp_path):
         # quoting: the one input that must live at a path without one
         "abc_script": str(_write(tmp_path / "abc" / "map.abc", "strash\nmap\n")),
         **SPACED_OUTPUTS,
-        "script_format": script_format,
     }
     assert set(SPACED_INPUTS) <= set(settings)
     settings = _nested(settings)
@@ -252,9 +251,7 @@ def _synthesize_src_design(flow_cls, script_format, tmp_path, **settings):
     design = Design(
         name="src-attributes", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
     )
-    flow = DefaultRunner(tmp_path / "run").run_flow(
-        flow_cls, design, {"script_format": script_format, **settings}
-    )
+    flow = DefaultRunner(tmp_path / "run").run_flow(flow_cls, design, settings)
     assert flow is not None and flow.succeeded
     return flow
 
@@ -289,7 +286,7 @@ def test_yosys_keeps_src_attributes_when_asked(script_format, tmp_path):
     assert "src =" in (flow.run_path / "netlist.v").read_text()
 
 
-@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize("script_format", ["ys"])  # `yosys_fpga` writes no Tcl script
 @pytest.mark.parametrize("keep_src", [False, True], ids=["strip-src", "keep-src"])
 def test_yosys_fpga_json_netlist_follows_netlist_src_attrs(keep_src, script_format, tmp_path):
     """FPGA synthesis writes the target's library cells into the JSON netlist as boxes, each
@@ -538,7 +535,6 @@ def test_yosys_writes_its_json_with_whitebox_library_cells_in_the_design(
     )
     design = Design(name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
     settings = {
-        "script_format": script_format,
         "verilog_lib": [library],
         "flatten": False,
         "rtl_json": "rtl.json",
@@ -634,7 +630,6 @@ def test_yosys_reads_every_input_by_its_own_name(script_format, tmp_path):
         ),
         "abc_script": str(with_decoy(root / "map" / "abc[1].abc", "strash\nmap\n")),
         "netlist_verilog": "net[1].v",
-        "script_format": script_format,
     }
     assert set(SPACED_INPUTS) <= set(settings)
     settings = _nested(settings)

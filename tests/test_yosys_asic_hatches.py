@@ -343,7 +343,6 @@ def test_the_flags_reach_the_slang_reader_before_the_source(tmp_path, script_for
         {
             "systemverilog": "slang",
             "gates": ["AND"],
-            "script_format": script_format,
             "read_systemverilog_flags": ["--ignore-timing", "--compat=vcs"],
         },
         run,
@@ -362,7 +361,7 @@ def test_no_flags_leave_the_slang_line_as_it_was(tmp_path, script_format):
     run.mkdir()
     script = _render(
         Yosys,
-        {"systemverilog": "slang", "gates": ["AND"], "script_format": script_format},
+        {"systemverilog": "slang", "gates": ["AND"]},
         run,
         design=_sv_design(tmp_path / "design"),
     )

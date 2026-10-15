@@ -227,7 +227,6 @@ def test_every_liberty_file_is_read_and_mapped_to_and_the_dont_use_cells_are_wor
         **_stage_platform(tmp_path, platform_s),
         "clock": {"period": "2 ns"},
         "dont_use_cells": own,
-        "script_format": script_format,
     }
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
     libs = sorted(str(p) for p in (tmp_path / "store" / "tiny").glob("*.lib"))
@@ -722,7 +721,7 @@ def test_the_liberty_mapping_runs_the_commands_in_the_order_of_openroad_flow_scr
     Liberty files, the design, the coarse and the fine part of `synth` without `abc`, the
     mapping of adders and latches, `dfflibmap`, `abc` with the script `abc.strategy` selects, and the
     check that every cell is mapped. Then the netlist is written."""
-    given = _tiny(tmp_path, abc={"strategy": strategy}, script_format=script_format)
+    given = _tiny(tmp_path, abc={"strategy": strategy})
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
     commands = _commands(run_dir, script_format, tmp_path)
     expected = _expected_order(given, tmp_path / "design", strategy, TINY_DONT_USE)
@@ -741,9 +740,7 @@ def test_the_liberty_mapping_reads_the_liberty_files_once_and_before_the_design(
     marks them, and the generic read of the reader template is not repeated. `sequential.dff_liberty`, when
     given, is read the same way."""
     shutil.copy(TINY / "tiny.lib", tmp_path / "dff.lib")
-    given = _tiny(
-        tmp_path, sequential={"dff_liberty": str(tmp_path / "dff.lib")}, script_format=script_format
-    )
+    given = _tiny(tmp_path, sequential={"dff_liberty": str(tmp_path / "dff.lib")})
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
     commands = _commands(run_dir, script_format, tmp_path)
     names = [call[0] for call in commands]
@@ -779,7 +776,6 @@ def test_a_dont_use_name_reaches_both_commands_as_one_word_with_its_pattern_char
     `dfflibmap` and on `abc`. Yosys reads `*`, `?` and `[...]` in a word as a pattern, so the
     word keeps them as given. In a Tcl script they reach yosys as the same word."""
     given = _tiny(tmp_path, dont_use_cells=[*DONT_USE_NAMES, TINY_DONT_USE[0]])
-    given["script_format"] = script_format
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
     commands = _commands(run_dir, script_format, tmp_path)
     for command in ("dfflibmap", "abc"):
@@ -1041,7 +1037,7 @@ def test_real_yosys_maps_a_counter_with_an_adder_and_constant_outputs(
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
         Yosys,
         _counter_design(tmp_path / "design"),
-        _tiny(tmp_path, abc={"strategy": strategy}, script_format=script_format),
+        _tiny(tmp_path, abc={"strategy": strategy}),
     )
     assert flow.succeeded
     netlist = (flow.run_path / "netlist.v").read_text()

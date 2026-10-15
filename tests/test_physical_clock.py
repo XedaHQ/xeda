@@ -288,7 +288,8 @@ def test_settings_json_writes_a_period_as_text_and_reads_it_back_with_the_same_i
 # ------------------------------------------------------------------------- run identity
 
 #: The digests that the clock settings had when they were plain numbers (`10.0`, `2.5`, ...).
-#: An unchanged clock keeps its run identity, whatever unit it is written in.
+#: An unchanged clock keeps its run identity, whatever unit it is written in. The digests of the
+#: yosys flows changed once more when their setting `script_format` was removed.
 IDENTITY_PINS = [
     pytest.param(
         VivadoSynth,
@@ -301,7 +302,7 @@ IDENTITY_PINS = [
         YosysFpga,
         "yosys_fpga",
         {"fpga.part": "xc7a100tcsg324-1", "clock.freq": "125 MHz"},
-        "e5f5e3e3fad06722a6a8ffcdd3487297cfa3b174b0f03a8c2946420bd14a32ec",
+        "c198e8be903e03680398ca23e735a956546cbfe08c9468011859086839b1a3a2",
         id="yosys_fpga",
     ),
     pytest.param(
@@ -330,7 +331,7 @@ IDENTITY_PINS = [
         Yosys,
         "yosys",
         {"platform": "nangate45", "clock.period": "2.5 ns"},
-        "a618718bb12497019a265744b02048aaa06f1ad1d64405fc96df8c4beefad78d",
+        "76cdee59359d9b28d4c40942d1202c60304e297b9ed8341d37db1e383ff762c3",
         id="yosys",
     ),
 ]
@@ -356,7 +357,7 @@ def test_the_same_clock_in_another_unit_has_the_same_identity():
     assert (
         flowrun_hash("yosys", in_ps, "pin")
         == flowrun_hash("yosys", in_ns, "pin")
-        == "a618718bb12497019a265744b02048aaa06f1ad1d64405fc96df8c4beefad78d"
+        == "76cdee59359d9b28d4c40942d1202c60304e297b9ed8341d37db1e383ff762c3"
     )
 
 

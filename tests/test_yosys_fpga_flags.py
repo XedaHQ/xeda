@@ -587,13 +587,11 @@ module top(input clk, input a, output q);
 endmodule
 """
 
-#: Every target with `flatten` unset, and both values of it on a Xilinx and on another target;
-#: all in a `.ys` script, and three targets in a `.tcl` one.
-RTL_CASES = (
-    [(target, None, "ys") for target in TARGETS]
-    + [(target, flatten, "ys") for target in ("xilinx", "ecp5") for flatten in (True, False)]
-    + [(target, None, "tcl") for target in ("xilinx", "ecp5", "gw1n")]
-)
+#: Every target with `flatten` unset, and both values of it on a Xilinx and on another target, in
+#: the `.ys` script that `yosys_fpga` writes.
+RTL_CASES = [(target, None, "ys") for target in TARGETS] + [
+    (target, flatten, "ys") for target in ("xilinx", "ecp5") for flatten in (True, False)
+]
 
 
 @pytest.mark.parametrize(
@@ -627,7 +625,6 @@ def test_the_rtl_outputs_hold_only_the_designs_modules(target, flatten, script_f
         "rtl_json": "rtl.json",
         "rtl_verilog": "rtl.v",
         "rtl_graph": "rtl.dot",
-        "script_format": script_format,
     }
     if flatten is not None:
         settings["flatten"] = flatten

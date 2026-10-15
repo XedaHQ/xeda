@@ -6,11 +6,11 @@ import re
 from functools import cached_property
 from glob import escape as glob_escape
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple
 
 from ...dataclass import WORKING, Field, deliverable, field_validator
 from ...design import LANGUAGE_TYPES, SourceType
-from ...flow import Flow, FlowException, FlowSettingsError, FlowSettingsException
+from ...flow import Flow, FlowException, FlowSettingsError, FlowSettingsException, NoReplacement
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
 from ...utils import ToolException, hierarchical_merge, tcl_word, unique
@@ -236,16 +236,17 @@ class YosysBase(Flow):
     reads_sources = READ_SOURCE_TYPES
 
     class Settings(Flow.Settings):
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **Flow.Settings.removed_settings,
+            "script_format": NoReplacement(
+                "Xeda selects the format of the script: a Tcl script only when a setting needs one"
+            ),
+        }
         log_file: Optional[Path] = Field(
             Path("yosys.log"),
             description="File yosys writes its full log to, relative to the run directory. "
             "Set to null to log only to the console.",
             json_schema_extra=WORKING,
-        )
-        script_format: Literal["ys", "tcl"] = Field(
-            "ys",
-            description="Format of the generated yosys script. Every yosys build accepts `ys`. "
-            "`tcl` needs a build with Tcl support (for example, the OSS CAD Suite has none).",
         )
         plugins: List[str] = Field(
             [],
@@ -432,17 +433,30 @@ class YosysBase(Flow):
                         value[attr] = format_attribute_value(attr_val)
             return value
 
+    @classmethod
+    def script_format(cls, settings: "YosysBase.Settings") -> Literal["ys", "tcl"]:
+        """Return the format of the script for `settings`: `tcl` when a setting needs a Tcl
+        script (`tcl_reasons`), else `ys`, which every yosys build runs. It reads only the
+        settings, so planning, the identity and the rendering agree."""
+        return "tcl" if cls.tcl_reasons(settings) else "ys"
+
+    @classmethod
+    def tcl_reasons(cls, settings: "YosysBase.Settings") -> List[str]:
+        """Return the names of the settings that need a Tcl script. A flow without such
+        settings needs none."""
+        return []
+
     @property
     def script_ext(self) -> str:
         """The extension of the script template to render (`.ys` or `.tcl`)."""
         assert isinstance(self.settings, self.Settings)
-        return "." + self.settings.script_format
+        return "." + type(self).script_format(self.settings)
 
     @property
     def script_flag(self) -> str:
         """The yosys option that runs the generated script."""
         assert isinstance(self.settings, self.Settings)
-        return "-s" if self.settings.script_format == "ys" else "-c"
+        return "-s" if type(self).script_format(self.settings) == "ys" else "-c"
 
     def add_template_helpers(self) -> None:
         """Add the filters and globals that every yosys template uses.
@@ -451,7 +465,7 @@ class YosysBase(Flow):
         test, can call it to get all of them.
         """
         assert isinstance(self.settings, self.Settings)
-        tcl = self.settings.script_format == "tcl"
+        tcl = type(self).script_format(self.settings) == "tcl"
         # values are stored canonically (unescaped); escape them for the script language
         self.add_template_filter("esc", tcl_escape if tcl else ys_escape, replace_existing=True)
         # Every path a template emits goes through one of these filters: `read_path` for a file

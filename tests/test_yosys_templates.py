@@ -23,6 +23,7 @@ from xeda.flows import Yosys, YosysFpga, YosysSim
 from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS, process_parameters
 
 from .tool_utils import require_tclsh
+from .yosys_format import force_script_format
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -90,6 +91,14 @@ def _asic_settings(**kw: Any) -> dict[str, Any]:
     return dict(clock={"period": "5 ns"}, set_attribute=ATTRS, **kw)
 
 
+#: Each flow with each format it writes: only `yosys` has settings that need a Tcl script.
+FLOW_FORMATS = pytest.mark.parametrize(
+    "flow_cls, script_format",
+    [(Yosys, "ys"), (Yosys, "tcl"), (YosysFpga, "ys")],
+    ids=["yosys-ys", "yosys-tcl", "yosys_fpga-ys"],
+)
+
+
 @pytest.mark.parametrize(
     "flow_cls, settings",
     [(Yosys, _asic_settings()), (YosysFpga, _fpga_settings())],
@@ -128,9 +137,8 @@ def _library_reads(script: str, library: str) -> list[int]:
 
 
 @pytest.mark.parametrize("flow_cls", [YosysFpga], ids=["yosys_fpga"])
-@pytest.mark.parametrize("script_format", ["ys", "tcl"])
-def test_fpga_primitive_libraries_precede_hierarchy(flow_cls, script_format, tmp_path):
-    script = _render(flow_cls, _fpga_settings(script_format=script_format), tmp_path)
+def test_fpga_primitive_libraries_precede_hierarchy(flow_cls, tmp_path):
+    script = _render(flow_cls, _fpga_settings(), tmp_path)
     xtra = _library_reads(script, "+/xilinx/cells_xtra.v")
     sim = _library_reads(script, "+/xilinx/cells_sim.v")
     hierarchy = _command_lines(script, "hierarchy -check")
@@ -166,11 +174,10 @@ def test_fpga_primitive_libraries_follow_the_target(fpga, expected):
     assert [library.path for library in settings.primitive_libraries()] == expected
 
 
-@pytest.mark.parametrize("flow_cls", [Yosys, YosysFpga], ids=["yosys", "yosys_fpga"])
-@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@FLOW_FORMATS
 def test_yosys_library_pseudo_paths_keep_yosys_prefix(flow_cls, script_format, tmp_path):
     settings = _asic_settings if flow_cls is Yosys else _fpga_settings
-    settings = settings(verilog_lib=["+/xilinx/cells_sim.v"], script_format=script_format)
+    settings = settings(verilog_lib=["+/xilinx/cells_sim.v"])
     script = _render(flow_cls, settings, tmp_path)
     assert (
         sum("read_verilog -lib" in line and "cells_sim.v" in line for line in script.splitlines())
@@ -193,15 +200,13 @@ def _command_lines(script: str, command: str) -> list[int]:
 
 
 BOTH_FLOWS = pytest.mark.parametrize("flow_cls", [Yosys, YosysFpga], ids=["yosys", "yosys_fpga"])
-BOTH_FORMATS = pytest.mark.parametrize("script_format", ["ys", "tcl"])
 
 
 def _settings_for(flow_cls, **kw: Any) -> dict[str, Any]:
     return (_fpga_settings if flow_cls is YosysFpga else _asic_settings)(**kw)
 
 
-@BOTH_FLOWS
-@BOTH_FORMATS
+@FLOW_FORMATS
 def test_template_unsets_attributes_before_each_netlist(
     flow_cls, script_format, tmp_path: Path
 ) -> None:
@@ -209,7 +214,6 @@ def test_template_unsets_attributes_before_each_netlist(
     themselves -- library boxes (`=*`) included -- before *any* netlist is written."""
     settings = _settings_for(
         flow_cls,
-        script_format=script_format,
         write_blif="netlist.blif",
         netlist_unset_attributes=["keep"],
         netlist_src_attrs=False,  # the default of `yosys`; `yosys_fpga` keeps `src`
@@ -225,12 +229,9 @@ def test_template_unsets_attributes_before_each_netlist(
             assert lines[0] < first_write, f"{unset!r} comes after a netlist write"
 
 
-@BOTH_FLOWS
-@BOTH_FORMATS
+@FLOW_FORMATS
 def test_template_writes_json_without_verilog(flow_cls, script_format, tmp_path: Path) -> None:
-    settings = _settings_for(
-        flow_cls, script_format=script_format, netlist_verilog=None, netlist_src_attrs=False
-    )
+    settings = _settings_for(flow_cls, netlist_verilog=None, netlist_src_attrs=False)
     script = _render(flow_cls, settings, tmp_path)
     (json_write,) = _command_lines(script, "write_json")
     for unset in ("setattr -unset src =*", "setattr -mod -unset src =*"):
@@ -239,15 +240,12 @@ def test_template_writes_json_without_verilog(flow_cls, script_format, tmp_path:
     assert not _command_lines(script, "write_verilog")
 
 
-@BOTH_FORMATS
-def test_a_flat_xilinx_synthesis_writes_its_edif_netlist_with_bus_ranges(
-    script_format, tmp_path: Path
-) -> None:
+def test_a_flat_xilinx_synthesis_writes_its_edif_netlist_with_bus_ranges(tmp_path: Path) -> None:
     """`write_edif -pvector bra` writes every bus with its range. Without it a bus is written as
     plain bits, which Vivado reads in the opposite order (member 0 is the most significant bit of
     a yosys bus) and says nothing about. The EDIF is a netlist like the others: attributes are
     gone before it is written."""
-    settings = _fpga_settings(script_format=script_format, netlist_unset_attributes=["keep"])
+    settings = _fpga_settings(netlist_unset_attributes=["keep"])
     script = _render(YosysFpga, settings, tmp_path)
     (write,) = _command_lines(script, "write_edif")
     assert re.fullmatch(
@@ -327,19 +325,26 @@ def test_ys_leaves_plugin_and_flag_args_unquoted(tmp_path: Path) -> None:
             assert '"' not in line, f"ghdl plugin does not strip quotes: {line!r}"
 
 
-def test_tcl_template_keeps_legacy_escaping(tmp_path: Path) -> None:
-    script = _render(YosysFpga, _fpga_settings(script_format="tcl"), tmp_path)
+def test_tcl_template_keeps_legacy_escaping(tmp_path: Path, monkeypatch) -> None:
+    force_script_format(monkeypatch, "tcl")
+    script = _render(Yosys, _asic_settings(), tmp_path)
     assert 'chparam -set G_STR \\"abcd\\"' in script
     assert 'setattr -set keep \\"true\\" top' in script
     assert "chparam -set G_BITVECTOR 7'b0101001" in script
 
 
-def test_script_format_selects_template_and_flag(tmp_path: Path) -> None:
+def test_the_settings_select_the_template_and_the_flag(tmp_path: Path) -> None:
+    """A setting that needs a Tcl script selects the `.tcl` template and `-c`. Without one, every
+    flow writes a `.ys` script, which yosys runs with `-s`."""
     design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
-    ys = YosysFpga(YosysFpga.Settings(**_fpga_settings()), design, tmp_path)
-    tcl = YosysFpga(YosysFpga.Settings(**_fpga_settings(script_format="tcl")), design, tmp_path)
-    assert (ys.script_ext, ys.script_flag) == (".ys", "-s")
-    assert (tcl.script_ext, tcl.script_flag) == (".tcl", "-c")
+    plain = Yosys(Yosys.Settings(**_asic_settings()), design, tmp_path)
+    wrapped = Yosys(
+        Yosys.Settings(**_asic_settings(arithmetic={"wrap_operators": True})), design, tmp_path
+    )
+    fpga = YosysFpga(YosysFpga.Settings(**_fpga_settings()), design, tmp_path)
+    assert (plain.script_ext, plain.script_flag) == (".ys", "-s")
+    assert (wrapped.script_ext, wrapped.script_flag) == (".tcl", "-c")
+    assert (fpga.script_ext, fpga.script_flag) == (".ys", "-s")
 
 
 def test_stop_after_rtl_omits_synthesis(tmp_path: Path) -> None:
@@ -363,16 +368,19 @@ def test_every_rtl_json_is_written_from_the_selected_modules() -> None:
         assert "write_json -selected " in writes[0], f"{template.name}: {writes[0]}"
 
 
-@pytest.mark.parametrize("script_format", ["ys", "tcl"])
 @pytest.mark.parametrize(
-    "flow_cls, settings",
-    [(Yosys, _asic_settings), (YosysFpga, _fpga_settings)],
-    ids=["yosys_synth", "yosys_fpga_synth"],
+    "flow_cls, settings, script_format",
+    [
+        (Yosys, _asic_settings, "ys"),
+        (Yosys, _asic_settings, "tcl"),
+        (YosysFpga, _fpga_settings, "ys"),
+    ],
+    ids=["yosys_synth-ys", "yosys_synth-tcl", "yosys_fpga_synth-ys"],
 )
 def test_the_rendered_rtl_json_is_written_from_the_selected_modules(
     flow_cls, settings, script_format, tmp_path: Path
 ) -> None:
-    script = _render(flow_cls, settings(rtl_json="rtl.json", script_format=script_format), tmp_path)
+    script = _render(flow_cls, settings(rtl_json="rtl.json"), tmp_path)
     assert re.search(r'^(yosys )?write_json -selected "?rtl\.json"?$', script, re.MULTILINE), script
 
 
@@ -383,7 +391,7 @@ def test_the_synthesis_flow_makes_library_whiteboxes_blackboxes_before_its_netli
     """The FPGA passes end with `blackbox =A:whitebox`, so no whitebox is left to `write_json`;
     `synth` does not, so the generic flow does it itself, before it writes any netlist, when a
     Verilog library (`verilog_lib`) may have left some. Without one the script is as it was."""
-    settings = {"netlist_json": "netlist.json", "script_format": script_format}
+    settings = {"netlist_json": "netlist.json"}
     script = _render(
         Yosys, _asic_settings(verilog_lib=["+/xilinx/cells_sim.v"], **settings), tmp_path
     )
@@ -417,14 +425,21 @@ RTL_CASES = [
     for outputs in itertools.product((False, True), repeat=len(RTL_FILES))
     for stop in ((None,) if flow == "yosys_sim" else (None, "rtl"))
 ]
-RTL_IDS = [
-    f"{flow}-{''.join(letter if on else '-' for letter, on in zip('jvg', outputs))}-{stop or 'full'}"
+#: Each case with each format that its flow writes: only `yosys` writes a Tcl script.
+RTL_FORMAT_CASES = [
+    (flow, outputs, stop, script_format)
     for flow, outputs, stop in RTL_CASES
+    for script_format in (("ys", "tcl") if flow == "yosys" else ("ys",))
+]
+RTL_IDS = [
+    f"{flow}-{''.join(letter if on else '-' for letter, on in zip('jvg', outputs))}"
+    f"-{stop or 'full'}-{script_format}"
+    for flow, outputs, stop, script_format in RTL_FORMAT_CASES
 ]
 
 
-def _rtl_script(flow: str, outputs, stop, script_format: str, tmp_path: Path) -> str:
-    settings: dict[str, Any] = {"script_format": script_format}
+def _rtl_script(flow: str, outputs, stop, tmp_path: Path) -> str:
+    settings: dict[str, Any] = {}
     settings.update({name: RTL_FILES[name] for name, on in zip(RTL_FILES, outputs) if on})
     if stop:
         settings["stop_after"] = stop
@@ -439,8 +454,7 @@ def _enabled(outputs) -> list[str]:
     return [name for name, on in zip(RTL_FILES, outputs) if on]
 
 
-@pytest.mark.parametrize("script_format", ["ys", "tcl"])
-@pytest.mark.parametrize("flow,outputs,stop", RTL_CASES, ids=RTL_IDS)
+@pytest.mark.parametrize("flow,outputs,stop,script_format", RTL_FORMAT_CASES, ids=RTL_IDS)
 def test_each_rtl_command_is_a_line_of_its_own(
     flow, outputs, stop, script_format, tmp_path: Path
 ) -> None:
@@ -448,7 +462,7 @@ def test_each_rtl_command_is_a_line_of_its_own(
     its last command without a newline then joined it to the next command: `write_verilog
     "rtl.v"yosys opt_clean -purge`. Each command is a whole line. A script that stops after the
     RTL has no `exit` in either format: it omits what follows."""
-    script = _rtl_script(flow, outputs, stop, script_format, tmp_path)
+    script = _rtl_script(flow, outputs, stop, tmp_path)
     lines = [line.strip() for line in script.splitlines()]
     prefix = "(?:yosys )?" if script_format == "tcl" else ""
     for name in _enabled(outputs):
@@ -471,9 +485,20 @@ foreach call $::calls {puts [join [linsert $call 0 CALL] \x1f]}
 """
 
 
-@pytest.mark.parametrize("flow,outputs,stop", RTL_CASES, ids=RTL_IDS)
+#: The cases of the flow that writes a Tcl script.
+TCL_RTL_CASES = [case for case in RTL_CASES if case[0] == "yosys"]
+
+
+@pytest.mark.parametrize(
+    "flow,outputs,stop",
+    TCL_RTL_CASES,
+    ids=[
+        f"{flow}-{''.join('jvg'[i] if on else '-' for i, on in enumerate(outputs))}-{stop or 'full'}"
+        for flow, outputs, stop in TCL_RTL_CASES
+    ],
+)
 def test_the_tcl_script_hands_yosys_each_rtl_command_and_stops_where_it_should(
-    flow, outputs, stop, tmp_path: Path
+    flow, outputs, stop, tmp_path: Path, monkeypatch
 ) -> None:
     """The `.tcl` script runs under `tclsh`, which parses it as yosys' TCL does: a glued command
     is a syntax error (`extra characters after close-quote`) or a command name that does not
@@ -481,7 +506,8 @@ def test_the_tcl_script_hands_yosys_each_rtl_command_and_stops_where_it_should(
     the script ends with them when `stop_after` asks for it, and only then."""
     require_tclsh()
     script = tmp_path / "script.tcl"
-    script.write_text(_rtl_script(flow, outputs, stop, "tcl", tmp_path))
+    force_script_format(monkeypatch, "tcl")
+    script.write_text(_rtl_script(flow, outputs, stop, tmp_path))
     harness = tmp_path / "harness.tcl"
     harness.write_text(TCL_HARNESS)
     result = subprocess.run(
@@ -534,7 +560,7 @@ def test_a_source_name_with_pattern_characters_reaches_yosys_escaped(
     root.mkdir()
     (root / "top[1].v").write_text("module top; endmodule\n")
     design = Design(name="d", design_root=root, rtl={"sources": ["top[1].v"], "top": "top"})
-    flow = Yosys(Yosys.Settings(script_format=script_format), design, tmp_path)
+    flow = Yosys(Yosys.Settings(), design, tmp_path)
     flow.init()
     script = (
         tmp_path
@@ -583,8 +609,7 @@ def _vhdl_design(root: Path, *others: str) -> Design:
     )
 
 
-@BOTH_FLOWS
-@BOTH_FORMATS
+@FLOW_FORMATS
 @pytest.mark.parametrize("after", ["top.sdc", "pins.lpf", "rom.mem", "defs.vh"])
 def test_a_file_listed_after_a_vhdl_top_that_holds_no_design_unit_does_not_make_it_verilog(
     flow_cls, script_format, after, tmp_path: Path
@@ -594,7 +619,7 @@ def test_a_file_listed_after_a_vhdl_top_that_holds_no_design_unit_does_not_make_
     parametric". The top is the last source in a hardware language that the flow reads, not the
     last one listed: a constraint file, a memory image or a header is no top."""
     design = _vhdl_design(tmp_path / "d", after)
-    settings = _settings_for(flow_cls, script_format=script_format)
+    settings = _settings_for(flow_cls)
     script = _render(flow_cls, settings, tmp_path, design)
     assert "ghdl" in script
     assert "chparam" not in script
@@ -615,8 +640,7 @@ def test_a_verilog_top_listed_after_a_vhdl_file_still_gets_chparam(flow_cls, tmp
     assert "chparam -set W 5 top" in _render(flow_cls, _settings_for(flow_cls), tmp_path, design)
 
 
-@BOTH_FLOWS
-@BOTH_FORMATS
+@FLOW_FORMATS
 def test_the_scripts_hand_yosys_the_sources_the_flow_reads_and_no_others(
     flow_cls, script_format, tmp_path: Path, monkeypatch
 ) -> None:
@@ -632,9 +656,7 @@ def test_the_scripts_hand_yosys_the_sources_the_flow_reads_and_no_others(
         name="top", design_root=root, rtl={"sources": names, "top": "top", "clock": "clk"}
     )
     monkeypatch.setattr(flow_cls, "reads_sources", frozenset({SourceType.Verilog}))
-    script = _render(
-        flow_cls, _settings_for(flow_cls, script_format=script_format), tmp_path, design
-    )
+    script = _render(flow_cls, _settings_for(flow_cls), tmp_path, design)
     assert "top.v" in script
     for passed_over in ("defs.vh", "pkg.sv", "inv.vhd", "ghdl", " -I"):
         assert passed_over not in script, passed_over
