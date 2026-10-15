@@ -1027,17 +1027,17 @@ def test_a_launch_reports_the_recorded_metrics_of_the_clock_tree(tmp_path, monke
     _, _, _, flow = launch(tmp_path, monkeypatch)
     results = json.loads((Path(flow.run_path) / "results.json").read_text())
     assert results["success"] is True
-    assert results["worst_slack"] == pytest.approx(-0.156732)
-    assert results["wns"] == pytest.approx(-0.156732)
-    assert results["tns"] == pytest.approx(-6.82817)
-    assert results["whs"] == pytest.approx(0.0808695)
+    assert results["worst_slack"] == pytest.approx(-0.247236)
+    assert results["wns"] == pytest.approx(-0.247236)
+    assert results["tns"] == pytest.approx(-10.8545)
+    assert results["whs"] == pytest.approx(0.0135501)
     assert results["hold_tns"] == 0
-    assert results["Fmax"] == pytest.approx(2458.62)
-    assert results["area"] == pytest.approx(880.194)
-    assert results["utilization"] == pytest.approx(0.812822)
-    assert results["power"] == pytest.approx(0.00656573)
-    assert results["clock_skew_setup"] == pytest.approx(0.00135155)
-    assert results["clock_skew_hold"] == pytest.approx(0.00135155)
+    assert results["Fmax"] == pytest.approx(2011.12)
+    assert results["area"] == pytest.approx(742.938)
+    assert results["utilization"] == pytest.approx(0.852564)
+    assert results["power"] == pytest.approx(0.00523808)
+    assert results["clock_skew_setup"] == pytest.approx(0.00116677)
+    assert results["clock_skew_hold"] == pytest.approx(0.00116677)
     assert results["platform"]["name"] == "tiny"
 
 

@@ -4,8 +4,9 @@ It stands in for OpenROAD in tests that render a driver script and need a run to
 exactly the commands of `tool_utils.OPENROAD_COMMANDS`: a command outside that list is a Tcl
 error, so a typo, or a command that OpenROAD lacks, fails a test and never passes silently.
 
-The recorded metrics in `tests/resources/openroad/metrics/` are the metrics of a real OpenROAD
-run of the gcd design on nangate45, split by stage prefix: one file for each driver script.
+The recorded metrics in `tests/resources/openroad/metrics/` are the metrics files of a real xeda
+run of the gcd design on nangate45 (`tests/resources/openroad/gcd_nangate45.yaml`) at the 0.25 ns
+clock of its ORFS configuration, which misses timing: one file for each driver script.
 """
 
 import json
@@ -336,7 +337,8 @@ def test_the_recorded_metrics(driver):
         "openroad_final": {"finish"},
     }[driver]
     assert {key.split("__")[0] for key in metrics} <= stages | {"run"}
-    assert any(key.startswith("run__") for key in metrics)
+    # the first process writes the units of the platform, once for the chain
+    assert any(key.startswith("run__") for key in metrics) is (driver == "openroad_place")
     assert all(isinstance(value, (int, float, str)) for value in metrics.values())
     text = (METRICS_DIR / f"{driver}.json").read_text()
     assert text == json.dumps(metrics, indent=2, sort_keys=True) + "\n"
@@ -346,13 +348,11 @@ def test_the_recorded_metrics_hold_the_values_of_the_real_run():
     def load(driver: str) -> dict:
         return json.loads((METRICS_DIR / f"{driver}.json").read_text())
 
-    assert load("openroad_final")["finish__timing__setup__ws"] == -0.158984
-    assert load("openroad_final")["finish__design__instance__area__stdcell"] == 907.592
-    # the stages split the run: no key but the run's own is in two files
+    assert load("openroad_final")["finish__timing__setup__ws"] == -0.244411
+    assert load("openroad_final")["finish__design__instance__area__stdcell"] == 773.528
+    # the stages split the run: no key is in two files
     keys = [set(load(driver)) for driver in DRIVERS]
-    shared = set.intersection(*keys)
-    assert shared and all(key.startswith("run__") for key in shared)
-    assert sum(len(k) for k in keys) - len(shared) * (len(keys) - 1) == len(set().union(*keys))
+    assert sum(len(k) for k in keys) == len(set().union(*keys))
     assert os.path.isfile(PRELUDE)
 
 

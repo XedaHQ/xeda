@@ -37,10 +37,10 @@ def test_a_duplicate_key_keeps_the_last_value(tmp_path):
     (`json.load` keeps it)."""
     path = tmp_path / "metrics.json"
     path.write_text(
-        '{"finish__design__instance__area": 1082.89, "other": 1, '
-        '"finish__design__instance__area": 907.592}'
+        '{"finish__design__instance__area": 871.416, "other": 1, '
+        '"finish__design__instance__area": 773.528}'
     )
-    assert load_metrics(path)["finish__design__instance__area"] == 907.592
+    assert load_metrics(path)["finish__design__instance__area"] == 773.528
 
 
 def test_a_file_that_is_not_a_json_object_is_refused(tmp_path):
@@ -80,7 +80,7 @@ def test_number_refuses_what_is_not_a_finite_number(tmp_path, text, shown):
 
 def test_number_reads_integers_and_floats():
     assert number({"a": 3}, "a", file=Path("m.json")) == 3.0
-    assert number({"a": -0.158984}, "a", file=Path("m.json")) == -0.158984
+    assert number({"a": -0.244411}, "a", file=Path("m.json")) == -0.244411
     assert isinstance(number({"a": 3}, "a", file=Path("m.json")), float)
 
 
@@ -111,23 +111,23 @@ def test_the_detailed_placement_stage_of_the_recorded_run():
     results = stage_results(
         metrics, "detailedplace", time_unit="1ns", file=METRICS / "openroad_place.json"
     )
-    assert results["worst_slack"] == pytest.approx(-0.154591)
-    assert results["wns"] == pytest.approx(-0.154591)
-    assert results["tns"] == pytest.approx(-6.68972)
-    assert results["whs"] == pytest.approx(0.0846505)
+    assert results["worst_slack"] == pytest.approx(-0.1835)
+    assert results["wns"] == pytest.approx(-0.1835)
+    assert results["tns"] == pytest.approx(-7.7916)
+    assert results["whs"] == pytest.approx(0.0846772)
     assert results["hold_tns"] == 0
-    assert results["Fmax"] == pytest.approx(2471.63)
-    assert results["area"] == pytest.approx(807.044)
-    assert results["utilization"] == pytest.approx(0.745271)
-    assert results["power"] == pytest.approx(0.00524598)
+    assert results["Fmax"] == pytest.approx(2306.81)
+    assert results["area"] == pytest.approx(657.02)
+    assert results["utilization"] == pytest.approx(0.753968)
+    assert results["power"] == pytest.approx(0.00388374)
     assert "clock_skew_setup" not in results  # the stage does not report the skew
 
 
 def test_the_clock_tree_stage_reports_the_skew():
     metrics = recorded("openroad_cts")
     results = stage_results(metrics, "cts", time_unit="1ns", file=METRICS / "openroad_cts.json")
-    assert results["clock_skew_setup"] == pytest.approx(0.00135155)
-    assert results["clock_skew_hold"] == pytest.approx(0.00135155)
+    assert results["clock_skew_setup"] == pytest.approx(0.00116677)
+    assert results["clock_skew_hold"] == pytest.approx(0.00116677)
 
 
 def test_the_wns_is_never_positive():
@@ -209,12 +209,12 @@ def last_flow() -> dict:
 
 def test_the_last_flow_takes_the_slack_from_the_final_file_and_the_counts_from_the_route_file():
     results = last_flow()
-    assert results["worst_slack"] == pytest.approx(-0.158984)
-    assert results["whs"] == pytest.approx(0.0812396)
+    assert results["worst_slack"] == pytest.approx(-0.244411)
+    assert results["whs"] == pytest.approx(0.0159159)
     assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
-    assert results["wirelength"] == 4229 and results["vias"] == 3747
-    assert results["area"] == pytest.approx(907.592)
-    assert results["Fmax"] == pytest.approx(2445.08)
+    assert results["wirelength"] == 3599 and results["vias"] == 3073
+    assert results["area"] == pytest.approx(773.528)
+    assert results["Fmax"] == pytest.approx(2022.61)
 
 
 def test_a_verdict_key_that_is_missing_is_named_with_its_file():
@@ -235,12 +235,18 @@ def test_a_verdict_key_that_is_missing_is_named_with_its_file():
 
 
 def test_the_diodes_of_a_route_that_did_not_repair_are_left_out():
+    """The diode of nangate45 is not usable, so the recorded route skipped the repair."""
     route, final = recorded("openroad_route"), recorded("openroad_final")
-    del route["detailedroute__antenna_diodes_count"]
+    assert "detailedroute__antenna_diodes_count" not in route
     results = final_results(
         route, final, time_unit="1ns", route_file=Path("r.json"), final_file=Path("f.json")
     )
     assert "antenna_diodes" not in results and results["antenna_violating_pins"] == 0
+    route["detailedroute__antenna_diodes_count"] = 3
+    results = final_results(
+        route, final, time_unit="1ns", route_file=Path("r.json"), final_file=Path("f.json")
+    )
+    assert results["antenna_diodes"] == 3
 
 
 def test_a_key_of_the_wrong_file_is_not_the_value():
@@ -250,4 +256,4 @@ def test_a_key_of_the_wrong_file_is_not_the_value():
     results = final_results(
         route, final, time_unit="1ns", route_file=Path("r.json"), final_file=Path("f.json")
     )
-    assert results["drc_errors"] == 0 and results["worst_slack"] == pytest.approx(-0.158984)
+    assert results["drc_errors"] == 0 and results["worst_slack"] == pytest.approx(-0.244411)

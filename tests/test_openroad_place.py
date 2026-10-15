@@ -3829,15 +3829,15 @@ def test_a_launch_runs_the_commands_in_order_and_reports_the_recorded_metrics(
     assert (run_dir / "place.odb").is_file() and (run_dir / "place.sdc").is_file()
     results = json.loads((run_dir / "results.json").read_text())
     assert results["success"] is True
-    assert results["worst_slack"] == pytest.approx(-0.154591)
-    assert results["wns"] == pytest.approx(-0.154591)
-    assert results["tns"] == pytest.approx(-6.68972)
-    assert results["whs"] == pytest.approx(0.0846505)
+    assert results["worst_slack"] == pytest.approx(-0.1835)
+    assert results["wns"] == pytest.approx(-0.1835)
+    assert results["tns"] == pytest.approx(-7.7916)
+    assert results["whs"] == pytest.approx(0.0846772)
     assert results["hold_tns"] == 0
-    assert results["Fmax"] == pytest.approx(2471.63)
-    assert results["area"] == pytest.approx(807.044)
-    assert results["utilization"] == pytest.approx(0.745271)
-    assert results["power"] == pytest.approx(0.00524598)
+    assert results["Fmax"] == pytest.approx(2306.81)
+    assert results["area"] == pytest.approx(657.02)
+    assert results["utilization"] == pytest.approx(0.753968)
+    assert results["power"] == pytest.approx(0.00388374)
     assert results["platform"]["name"] == "tiny"
 
 

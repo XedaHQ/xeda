@@ -611,16 +611,16 @@ def test_the_results_of_the_chain_are_the_recorded_metrics(tmp_path, monkeypatch
     _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false")
     assert flow is not None and flow.succeeded
     results = flow.results
-    assert results["worst_slack"] == pytest.approx(-0.158984)
-    assert results["wns"] == pytest.approx(-0.158984)
-    assert results["tns"] == pytest.approx(-6.83992)
-    assert results["whs"] == pytest.approx(0.0812396)
-    assert results["Fmax"] == pytest.approx(2445.08)
-    assert results["area"] == pytest.approx(907.592)
-    assert results["utilization"] == pytest.approx(0.838123)
-    assert results["power"] == pytest.approx(0.00685844)
+    assert results["worst_slack"] == pytest.approx(-0.244411)
+    assert results["wns"] == pytest.approx(-0.244411)
+    assert results["tns"] == pytest.approx(-10.9686)
+    assert results["whs"] == pytest.approx(0.0159159)
+    assert results["Fmax"] == pytest.approx(2022.61)
+    assert results["area"] == pytest.approx(773.528)
+    assert results["utilization"] == pytest.approx(0.887668)
+    assert results["power"] == pytest.approx(0.00566387)
     assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
-    assert results["instances"] == 716 and results["fill_cells"] == 286
+    assert results["instances"] == 576 and results["fill_cells"] == 186
     assert results["parasitics"] == "estimate" and results["platform"]["name"] == "tiny"
     persisted = json.loads((run_dir(tmp_path) / "results.json").read_text())
     assert persisted["worst_slack"] == results["worst_slack"]
@@ -680,7 +680,7 @@ def test_a_timing_miss_rejects_the_run_and_the_next_launch_reports_it_again(
 ):
     runner, design, settings, first = launch(tmp_path, monkeypatch)
     assert first is not None and first.outcome == "rejected" and not first.succeeded
-    assert "timing not met" in first.rejection and "-0.158984" in first.rejection
+    assert "timing not met" in first.rejection and "-0.244411" in first.rejection
     last = run_dir(tmp_path)
     assert (last / "trace.json").is_file(), "a rejection keeps its trace"
     persisted = json.loads((last / "results.json").read_text())

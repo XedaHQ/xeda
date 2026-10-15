@@ -1288,21 +1288,22 @@ def test_a_launch_reports_the_recorded_metrics_of_the_global_route(tmp_path, mon
     _, _, _, flow = launch(tmp_path, monkeypatch)
     results = json.loads((Path(flow.run_path) / "results.json").read_text())
     assert results["success"] is True
-    assert results["worst_slack"] == pytest.approx(-0.161303)
-    assert results["wns"] == pytest.approx(-0.161303)
-    assert results["tns"] == pytest.approx(-6.94357)
-    assert results["whs"] == pytest.approx(0.0784382)
+    assert results["worst_slack"] == pytest.approx(-0.247746)
+    assert results["wns"] == pytest.approx(-0.247746)
+    assert results["tns"] == pytest.approx(-11.083)
+    assert results["whs"] == pytest.approx(0.0142931)
     assert results["hold_tns"] == 0
-    assert results["Fmax"] == pytest.approx(2431.3)
-    assert results["area"] == pytest.approx(907.592)
-    assert results["utilization"] == pytest.approx(0.838123)
-    assert results["power"] == pytest.approx(0.00692755)
-    assert results["clock_skew_setup"] == pytest.approx(0.00152963)
-    assert results["global_route_wirelength"] == 7677
-    assert results["global_route_vias"] == 1079
+    assert results["Fmax"] == pytest.approx(2009.06)
+    assert results["area"] == pytest.approx(773.528)
+    assert results["utilization"] == pytest.approx(0.887668)
+    assert results["power"] == pytest.approx(0.00571903)
+    assert results["clock_skew_setup"] == pytest.approx(0.00201635)
+    assert results["global_route_wirelength"] == 6506
+    assert results["global_route_vias"] == 1097
     assert results["antenna_violating_nets"] == 0
     assert results["antenna_violating_pins"] == 0
-    assert results["antenna_diodes"] == 0
+    # the diode of nangate45 is not usable: the recorded run skipped the repair
+    assert "antenna_diodes" not in results
     assert results["platform"]["name"] == "tiny"
 
 

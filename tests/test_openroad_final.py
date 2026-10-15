@@ -1670,37 +1670,36 @@ def test_the_results_are_the_recorded_values_of_the_real_run(tmp_path):
     assert ok
     results = flow.results
     expected = {
-        "worst_slack": -0.158984,
-        "wns": -0.158984,
-        "tns": -6.83992,
-        "whs": 0.0812396,
+        "worst_slack": -0.244411,
+        "wns": -0.244411,
+        "tns": -10.9686,
+        "whs": 0.0159159,
         "hold_tns": 0,
-        "Fmax": 2445.08,
-        "setup_violations": 50,
+        "Fmax": 2022.61,
+        "setup_violations": 88,
         "hold_violations": 0,
         "max_slew_violations": 0,
         "max_cap_violations": 0,
         "max_fanout_violations": 0,
-        "clock_skew_setup": 0.00118418,
-        "clock_skew_hold": 0.00118418,
-        "area": 907.592,
-        "utilization": 0.838123,
-        "core_area": 1082.89,
-        "die_area": 1285.22,
-        "power": 0.00685844,
-        "power_internal": 0.0037208,
-        "power_switching": 0.00311359,
-        "power_leakage": 2.40525e-05,
+        "clock_skew_setup": 0.00138606,
+        "clock_skew_hold": 0.00138606,
+        "area": 773.528,
+        "utilization": 0.887668,
+        "core_area": 871.416,
+        "die_area": 1019.52,
+        "power": 0.00566387,
+        "power_internal": 0.00339365,
+        "power_switching": 0.00224974,
+        "power_leakage": 2.04825e-05,
         "drc_errors": 0,
         "antenna_violating_nets": 0,
         "antenna_violating_pins": 0,
-        "antenna_diodes": 0,
-        "wirelength": 4229,
-        "vias": 3747,
-        "instances": 716,
-        "fill_cells": 286,
-        "tap_cells": 46,
-        "warnings": 31,
+        "wirelength": 3599,
+        "vias": 3073,
+        "instances": 576,
+        "fill_cells": 186,
+        "tap_cells": 42,
+        "warnings": 0,
         "errors": 0,
     }
     for name, value in expected.items():
@@ -1712,8 +1711,8 @@ def test_the_area_is_the_area_of_the_standard_cells_and_not_the_duplicated_total
     """OpenROAD writes `finish__design__instance__area` twice, with the area of all the cells and
     then of the standard cells. The result is read from the key that is written once."""
     flow, _ = parsed(tmp_path)
-    assert flow.results["area"] == 907.592
-    assert flow.results["area"] != 1082.89
+    assert flow.results["area"] == 773.528
+    assert flow.results["area"] != 871.416
 
 
 def test_the_counts_are_whole_numbers(tmp_path):
@@ -1745,11 +1744,11 @@ def test_the_results_name_the_extraction_and_the_platform(tmp_path):
 def test_the_times_convert_from_the_liberty_unit_to_nanoseconds(tmp_path):
     flow, ok = parsed(tmp_path, model={"time_unit": "1ps"})
     assert ok
-    assert flow.results["worst_slack"] == pytest.approx(-0.158984e-3)
-    assert flow.results["whs"] == pytest.approx(0.0812396e-3)
-    assert flow.results["tns"] == pytest.approx(-6.83992e-3)
-    assert flow.results["clock_skew_setup"] == pytest.approx(0.00118418e-3)
-    assert flow.results["Fmax"] == pytest.approx(2445.08)  # a frequency has no Liberty unit
+    assert flow.results["worst_slack"] == pytest.approx(-0.244411e-3)
+    assert flow.results["whs"] == pytest.approx(0.0159159e-3)
+    assert flow.results["tns"] == pytest.approx(-10.9686e-3)
+    assert flow.results["clock_skew_setup"] == pytest.approx(0.00138606e-3)
+    assert flow.results["Fmax"] == pytest.approx(2022.61)  # a frequency has no Liberty unit
 
 
 def test_the_wns_is_zero_when_the_slack_is_positive(tmp_path):
@@ -1774,15 +1773,17 @@ def test_a_result_that_no_verdict_reads_and_that_is_absent_is_left_out(tmp_path)
     assert ok
     for result in optional.values():
         assert result not in flow.results, result
-    assert flow.results["worst_slack"] == -0.158984
+    assert flow.results["worst_slack"] == -0.244411
 
 
 def test_the_diodes_of_a_route_that_skipped_the_repair_are_left_out(tmp_path):
-    flow, ok = parsed(
-        tmp_path, route=metrics_text("route", detailedroute__antenna_diodes_count=REMOVE)
-    )
+    """The recorded route skipped the repair: the diode of nangate45 is not usable."""
+    flow, ok = parsed(tmp_path / "skipped")
     assert ok and "antenna_diodes" not in flow.results
     assert flow.results["antenna_violating_nets"] == 0
+    repaired = metrics_text("route", detailedroute__antenna_diodes_count=3)
+    flow, ok = parsed(tmp_path / "repaired", route=repaired)
+    assert ok and flow.results["antenna_diodes"] == 3
 
 
 def test_the_wirelength_and_the_vias_of_the_route_are_left_out_when_absent(tmp_path):
@@ -1890,7 +1891,7 @@ def test_each_verdict_value_is_read_from_the_file_of_the_process_that_writes_it(
     wrong_route = metrics_text("route", **{SETUP: -9.0, HOLD: -9.0})
     flow, ok = parsed(tmp_path, route=wrong_route, final=wrong_final)
     assert ok
-    assert flow.results["drc_errors"] == 0 and flow.results["worst_slack"] == -0.158984
+    assert flow.results["drc_errors"] == 0 and flow.results["worst_slack"] == -0.244411
 
 
 # ------------------------------------------------------------------------------ the verdict
@@ -1907,10 +1908,10 @@ def test_a_negative_setup_slack_rejects_the_run_with_the_default_checks(tmp_path
     flow, ok = judge(tmp_path)
     assert ok is False
     assert flow.rejection is not None
-    assert "timing" in flow.rejection and "-0.158984" in flow.rejection
+    assert "timing" in flow.rejection and "-0.244411" in flow.rejection
     assert flow.results["error"]["type"] == "ReportedFailure"
     assert flow.rejection in flow.results["error"]["message"]
-    assert flow.results["worst_slack"] == -0.158984, "the numbers stay in the results"
+    assert flow.results["worst_slack"] == -0.244411, "the numbers stay in the results"
 
 
 def test_a_negative_hold_slack_rejects_the_run(tmp_path):
@@ -1926,7 +1927,7 @@ def test_a_zero_slack_meets_timing(tmp_path):
 def test_a_timing_miss_does_not_reject_the_run_when_the_check_is_off(tmp_path):
     flow, ok = judge(tmp_path, {"fail_timing": False})
     assert ok is True and flow.rejection is None
-    assert flow.results["worst_slack"] == -0.158984 and flow.results["wns"] == -0.158984
+    assert flow.results["worst_slack"] == -0.244411 and flow.results["wns"] == -0.244411
 
 
 def test_design_rule_violations_reject_the_run(tmp_path):
@@ -1970,7 +1971,7 @@ def test_every_failed_judgment_is_named_in_the_one_rejection(tmp_path):
     launch."""
     flow, ok = judge(tmp_path, **{"route:" + DRC: 5, "route:" + ANTENNA: 2})
     assert ok is False
-    for cause in ("-0.158984", "5", "design rule", "2", "antenna"):
+    for cause in ("-0.244411", "5", "design rule", "2", "antenna"):
         assert cause in flow.rejection, cause
     assert flow.results["error"]["message"] == f"`{flow.name}` reported failure: {flow.rejection}"
 
