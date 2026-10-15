@@ -641,6 +641,19 @@ def test_the_source_pins_digest_each_file_by_its_path_in_the_checkout(tmp_path: 
     assert pins["sdc"] == {"flow/designs/p/constraint.sdc": hashlib.sha256(b"s").hexdigest()}
 
 
+def test_the_pinned_files_include_every_file_of_an_include_directory(tmp_path: Path) -> None:
+    """A header can change without a change of the ORFS commit (a local edit), so every file of
+    an include directory is part of the identity of a row, whatever its suffix."""
+    top = write(tmp_path / "src" / "top.v", "module top; endmodule\n")
+    include = tmp_path / "include"
+    header = write(include / "defs.vh", "`define A 1\n")
+    data = write(include / "table.txt", "1\n")
+    variables = {"VERILOG_FILES": str(top), "VERILOG_INCLUDE_DIRS": str(include)}
+    assert tool.pinned_files(variables) == [str(top), str(header), str(data)]
+    added = write(include / "more.vh", "`define B 2\n")
+    assert str(added) in tool.pinned_files(variables)
+
+
 def test_the_residue_digest_is_that_of_the_bundled_file() -> None:
     from importlib import resources
 
