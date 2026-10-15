@@ -7,7 +7,7 @@ have no `run()` yet, so no test here runs one: planning and rendering need only 
 """
 
 from collections.abc import Sequence
-from typing import Any, get_args
+from typing import Any, Optional, get_args
 
 import pytest
 
@@ -255,10 +255,26 @@ def test_repair_design_prints_its_margins_and_the_template_prints_its_wire_lengt
     assert design.max_wire_length == Length("0.3 mm")
 
 
-def test_repair_design_prints_its_switches():
-    assert render(groups.RepairDesign(pre_placement=True)) == (
-        '-slew_margin "0.0" -cap_margin "0.0" -pre_placement'
+def test_the_range_of_layers_for_a_via_in_a_pin_is_one_shared_group():
+    from xeda.flows.openroad import final_groups, grt_groups
+
+    assert groups.ViaInPin.__module__ == "xeda.flows.openroad.groups"
+    assert "ViaInPin" in groups.__all__ and "ViaInPin" not in final_groups.__all__
+    assert grt_groups.PinAccessGroup.model_fields["via_in_pin"].annotation == (
+        Optional[groups.ViaInPin]
     )
+    assert final_groups.DetailedRouteGroup.model_fields["via_in_pin"].annotation == (
+        Optional[groups.ViaInPin]
+    )
+
+
+def test_repair_design_has_no_switch_for_the_run_before_the_placement():
+    assert "pre_placement" not in groups.RepairDesign.model_fields
+    with pytest.raises(Exception, match="pre_placement"):
+        groups.RepairDesign(pre_placement=True)
+
+
+def test_repair_design_prints_its_switches():
     assert render(groups.RepairDesign(reroute=True)) == (
         '-slew_margin "0.0" -cap_margin "0.0" -reroute'
     )
@@ -747,8 +763,8 @@ PLACE_REFUSALS = [
     ),
     (
         "resize.repair_design.enabled=false",
-        "resize.repair_design.pre_placement=true",
-        "`resize.repair_design.pre_placement` has no effect while "
+        "resize.repair_design.reroute=true",
+        "`resize.repair_design.reroute` has no effect while "
         "`resize.repair_design.enabled` is false",
     ),
 ]

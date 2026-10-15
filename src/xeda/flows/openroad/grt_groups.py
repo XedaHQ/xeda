@@ -7,10 +7,9 @@ route, and the repair of the antenna violations.
 from typing import Annotated, ClassVar, Literal, Optional, Tuple
 
 from ...dataclass import Field, XedaBaseModel, extras, tier
-from ...units import Bounds, Length, count, percent, ratio
 from ...flow.settings_group import Flag, SettingsGroup
-from .final_groups import ViaInPin
-from .groups import RepairDesign, RepairTiming, differing_leaves
+from ...units import Bounds, Length, count, percent, ratio
+from .groups import RepairDesign, RepairTiming, ViaInPin, differing_leaves
 
 __all__ = [
     "AntennaGroup",

@@ -26,7 +26,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda import tool as tool_module
 from xeda.flows.openroad import Openroad, OpenroadStage, base, final
 from xeda.flows.openroad.final import EffectiveFinal, effective
-from xeda.flows.openroad.final_groups import ViaInPin
+from xeda.flows.openroad.groups import ViaInPin
 from xeda.platforms.model import CellPort
 from xeda.run_dir import RunDirectory
 from xeda.units import Capacitance, Power, Resistance, Voltage

@@ -11,7 +11,7 @@ resolves it first, and the template prints the result.
 
 from typing import Annotated, Any, ClassVar, Literal, Optional, Sequence, Tuple
 
-from ...dataclass import Field, extras, tier
+from ...dataclass import Field, XedaBaseModel, extras, tier
 from ...flow.settings_group import Flag, SettingsGroup
 from ...units import Bounds, Length, Time, count, percent
 from ...utils import tcl_word
@@ -26,6 +26,7 @@ __all__ = [
     "RepairTiming",
     "SEQUENCE_PHASES",
     "SetupMove",
+    "ViaInPin",
     "comma_word",
     "differing_leaves",
     "whole_micrometers",
@@ -135,6 +136,22 @@ def differing_leaves(group: SettingsGroup, key: str) -> list[str]:
         elif value != original:
             found.append(f"{key}.{name}")
     return found
+
+
+class ViaInPin(XedaBaseModel):
+    """The range of layers where a via may sit inside a pin. `pin_access` and `detailed_route`
+    must get the same range."""
+
+    bottom: str = Field(
+        min_length=1,
+        description="The lowest layer where a via may sit inside a pin "
+        "(`-via_in_pin_bottom_layer`).",
+    )
+    top: str = Field(
+        min_length=1,
+        description="The highest layer where a via may sit inside a pin "
+        "(`-via_in_pin_top_layer`).",
+    )
 
 
 class RepairMoves(SettingsGroup):
@@ -482,7 +499,6 @@ class RepairDesign(SettingsGroup):
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
         Flag("slew_margin_percent", "-slew_margin", "value"),
         Flag("cap_margin_percent", "-cap_margin", "value"),
-        Flag("pre_placement", "-pre_placement", "switch"),
         Flag("reroute", "-reroute", "switch"),
     )
     ALLOWS_REROUTE: ClassVar[bool] = False
@@ -519,15 +535,6 @@ class RepairDesign(SettingsGroup):
         description="Swap a cell only for a cell with the same footprint in the Liberty file "
         "(`-match_cell_footprint`). Unset: the value of the platform.",
         json_schema_extra=tier("advanced"),
-    )
-    pre_placement: bool = Field(
-        False,
-        description="Run an initial round of sizing and buffering that does not need a placement "
-        "(`-pre_placement`). A flow calls the repair after the placement, with the parasitics "
-        "that it estimates from the placement, and then the tool stops with EST-0104 "
-        "`inconsistent parasitics state`. It was seen with the image "
-        "`openroad/orfs:26Q4-132-g6b305a712` and with a local build, on a small design.",
-        json_schema_extra=tier("expert"),
     )
     reroute: bool = Field(
         False,

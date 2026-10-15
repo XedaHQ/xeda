@@ -23,7 +23,7 @@ from ...units import (
     percent,
     ratio,
 )
-from .groups import differing_leaves, whole_micrometers
+from .groups import ViaInPin, differing_leaves, whole_micrometers
 
 __all__ = [
     "DetailedRouteGroup",
@@ -40,24 +40,7 @@ __all__ = [
     "NdrRule",
     "ReportsGroup",
     "TimingReport",
-    "ViaInPin",
 ]
-
-
-class ViaInPin(XedaBaseModel):
-    """The range of layers where a via may sit inside a pin. `pin_access` and `detailed_route`
-    must get the same range."""
-
-    bottom: str = Field(
-        min_length=1,
-        description="The lowest layer where a via may sit inside a pin "
-        "(`-via_in_pin_bottom_layer`).",
-    )
-    top: str = Field(
-        min_length=1,
-        description="The highest layer where a via may sit inside a pin "
-        "(`-via_in_pin_top_layer`).",
-    )
 
 
 class DetailedRouteGroup(SettingsGroup):

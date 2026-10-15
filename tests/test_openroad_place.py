@@ -2435,10 +2435,11 @@ def test_the_utilization_limit_reaches_every_command_of_the_resizer_in_the_resiz
     run_script(flow, script)
 
 
-def test_the_repair_of_the_design_gets_its_switches(tmp_path):
-    settings = {"resize": {"repair_design": {"pre_placement": True}}}
-    body = stage(render(place_flow(tmp_path, settings)), "xeda_resize")
-    assert 'repair_design -slew_margin "0.0" -cap_margin "0.0" -pre_placement -verbose' in body
+def test_no_repair_of_the_design_runs_before_the_placement(tmp_path):
+    """OpenROAD stops with EST-0104 on `repair_design -pre_placement` after a placement, and the
+    flow calls the repair after the placement only, so there is no setting for the flag."""
+    message = refusal(tmp_path, "resize.repair_design.pre_placement=true")
+    assert "pre_placement" in message and "Extra inputs are not permitted" in message
 
 
 def test_the_repair_of_the_timing_gets_its_limits_and_switches(tmp_path):

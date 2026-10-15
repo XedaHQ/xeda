@@ -39,9 +39,8 @@ from .final_groups import (
     IrDropGroup,
     NdrGroup,
     ReportsGroup,
-    ViaInPin,
 )
-from .groups import differing_leaves
+from .groups import ViaInPin, differing_leaves
 from .metrics import MetricsError, final_results
 
 __all__ = [
