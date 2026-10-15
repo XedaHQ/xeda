@@ -188,7 +188,7 @@ def test_the_defaults_route_and_repair_as_openroad_flow_scripts_does(tmp_path):
         "xeda_stage globalroute",
         "pin_access",
         'global_route -congestion_report_file "reports/congestion.rpt" '
-        '-congestion_iterations "30" -congestion_report_iter_step 5 -verbose',
+        '-congestion_iterations "30" -congestion_report_iter_step "5" -verbose',
         "set_placement_padding -global -left 0 -right 0",
         "set_propagated_clock [all_clocks]",
         "estimate_parasitics -global_routing",
@@ -446,6 +446,61 @@ def test_the_congestion_settings_reach_the_first_route(tmp_path):
     assert '-congestion_iterations "50"' in first and "-allow_congestion" in first
 
 
+def test_the_report_step_and_the_share_of_critical_nets_reach_the_first_route(tmp_path):
+    found = body(tmp_path, {"congestion": {"report_step": 0, "critical_nets_percent": 12.5}})
+    first, *incremental = words(found, "global_route")
+    assert '-congestion_report_iter_step "0"' in first
+    assert '-critical_nets_percentage "12.5"' in first
+    assert not [line for line in incremental if "critical" in line or "iter_step" in line]
+    assert "-critical_nets_percentage" not in words(body(tmp_path / "none"), "global_route")[0]
+
+
+def test_the_macro_extension_is_set_before_the_first_route_and_not_by_default(tmp_path):
+    found = body(tmp_path, {"congestion": {"macro_extension": 2}})
+    assert "set_macro_extension 2" in found
+    assert found.index("set_macro_extension 2") < found.index(words(found, "global_route")[0])
+    assert not words(body(tmp_path / "none"), "set_macro_extension")
+
+
+def test_the_region_adjustments_are_set_before_the_first_route_in_order(tmp_path):
+    """The database does not store them, so this flow sets them."""
+    found = body(
+        tmp_path,
+        {
+            "congestion": {
+                "region_adjustments": [
+                    {"region": [0, 0, 10, 12.5], "layer": "m2", "adjustment": 0.5},
+                    {"region": [5, 5, 20, 20], "layer": "m3", "adjustment": 0.25},
+                ]
+            }
+        },
+    )
+    lines_set = words(found, "set_global_routing_region_adjustment")
+    assert lines_set == [
+        'set_global_routing_region_adjustment [list 0.0 0.0 10.0 12.5] -layer "m2" -adjustment 0.5',
+        'set_global_routing_region_adjustment [list 5.0 5.0 20.0 20.0] -layer "m3" -adjustment 0.25',
+    ]
+    assert found.index(lines_set[1]) < found.index(words(found, "global_route")[0])
+    assert not words(body(tmp_path / "none"), "set_global_routing_region_adjustment")
+
+
+@pytest.mark.parametrize(
+    "adjustment",
+    [
+        {"region": [0, 0, 10, 10], "layer": "m2", "adjustment": 1.5},
+        {"region": [0, 0, 10, 10], "layer": "m2", "adjustment": -0.1},
+        {"region": [-1, 0, 10, 10], "layer": "m2", "adjustment": 0.5},
+        {"region": [0, 0, 10], "layer": "m2", "adjustment": 0.5},
+        {"region": [0, 0, 10, 10], "layer": "", "adjustment": 0.5},
+        {"region": [0, 0, 10, 10], "layer": "m2"},
+    ],
+    ids=lambda adjustment: json.dumps(adjustment),
+)
+def test_a_region_adjustment_out_of_range_is_refused(adjustment):
+    with pytest.raises(ValueError):
+        OpenroadGrt.Settings(congestion={"region_adjustments": [adjustment]})
+
+
 def test_the_decision_to_allow_congestion_reaches_every_route_and_the_antenna_repair(tmp_path):
     """A call without the flag routes a congested design harder and then fails on it."""
     found = body(tmp_path, {"congestion": {"allow": True}})
@@ -666,6 +721,12 @@ def test_the_iterations_of_the_antenna_repair_follow_the_settings(tmp_path):
         {"pin_access": {"process_node": "node"}},
         {"congestion": {"iterations": 10}},
         {"congestion": {"allow": True}},
+        {"congestion": {"report_step": 0, "critical_nets_percent": 10, "macro_extension": 1}},
+        {
+            "congestion": {
+                "region_adjustments": [{"region": [0, 0, 10, 10], "layer": "m2", "adjustment": 0.3}]
+            }
+        },
         {"router": {"seed": 3}},
         {"router": {"extra_args": ["-use_cugr"]}},
         {"router": {"extra_args": ["-resistance_aware", "-res_aware_nets_percentage", "20"]}},

@@ -799,10 +799,15 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     # clock tree synthesis
     "repair_clock_inverters",
     "clock_tree_synthesis",
+    "set_cts_config",
+    "configure_cts_characterization",
+    "report_cts",
     "repair_clock_nets",
     # global route
     "pin_access",
     "set_global_routing_random",
+    "set_macro_extension",
+    "set_global_routing_region_adjustment",
     "global_route",
     "set_propagated_clock",
     "all_clocks",
@@ -834,6 +839,7 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     # images (OpenROAD with a graphical interface)
     "ord::openroad_gui_compiled",
     "ord::dbu_to_microns",
+    "gui::show",
     "gui::save_display_controls",
     "gui::restore_display_controls",
     "gui::select_marker_category",

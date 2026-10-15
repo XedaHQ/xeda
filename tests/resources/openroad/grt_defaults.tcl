@@ -79,7 +79,7 @@ proc xeda_physical_only_masters {} {
 proc xeda_global_route {} {
     xeda_stage globalroute
     pin_access
-    global_route -congestion_report_file "reports/congestion.rpt" -congestion_iterations "30" -congestion_report_iter_step 5 -verbose
+    global_route -congestion_report_file "reports/congestion.rpt" -congestion_iterations "30" -congestion_report_iter_step "5" -verbose
     set_placement_padding -global -left 0 -right 0
     set_propagated_clock [all_clocks]
     estimate_parasitics -global_routing

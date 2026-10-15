@@ -1174,8 +1174,12 @@ def test_the_global_route_groups_render_their_flags():
         "antenna.iterations=3",
         "repair.timing.setup_margin=0.1",
     )
-    assert render(grt.congestion) == '-congestion_iterations "50" -allow_congestion'
-    assert render(OpenroadGrt.Settings().congestion) == '-congestion_iterations "30"'
+    assert render(grt.congestion) == (
+        '-congestion_iterations "50" -congestion_report_iter_step "5" -allow_congestion'
+    )
+    assert render(OpenroadGrt.Settings().congestion) == (
+        '-congestion_iterations "30" -congestion_report_iter_step "5"'
+    )
     assert render(grt.antenna) == '-iterations "3"'
     assert render(grt.repair.timing) == '-repair_tns "100.0"'
     assert grt.repair.timing.setup_margin == 0.1
@@ -1186,6 +1190,10 @@ def test_the_global_route_groups_render_their_flags():
     "item",
     [
         "congestion.iterations=0",
+        "congestion.report_step=-1",
+        "congestion.critical_nets_percent=101",
+        "congestion.critical_nets_percent=-1",
+        "congestion.macro_extension=-1",
         "router.seed=0",
         "repair.strategy=full",
         "repair.recover_power_percent=0",

@@ -24,10 +24,16 @@ proc xeda_global_route {} {
 {% if pin.enabled %}
     {{ ["pin_access", render_flags(pin), ("-via_in_pin_bottom_layer " ~ (pin.via_in_pin.bottom|tcl_word) ~ " -via_in_pin_top_layer " ~ (pin.via_in_pin.top|tcl_word)) if pin.via_in_pin else ""]|select|join(" ") }}
 {% endif %}
+{% if cong.macro_extension is not none %}
+    set_macro_extension {{ cong.macro_extension|tcl_number }}
+{% endif %}
+{% for cut in cong.region_adjustments %}
+    set_global_routing_region_adjustment {{ cut.region|tcl_numbers }} -layer {{ cut.layer|tcl_word }} -adjustment {{ cut.adjustment|tcl_number }}
+{% endfor %}
 {% if router.seed is not none %}
     set_global_routing_random -seed {{ router.seed|tcl_number }}
 {% endif %}
-    {{ ["global_route", "-congestion_report_file " ~ (reports.congestion|tcl_word), render_flags(cong), "-congestion_report_iter_step 5", "-verbose", render_flags(router)]|select|join(" ") }}
+    {{ ["global_route", "-congestion_report_file " ~ (reports.congestion|tcl_word), render_flags(cong), "-verbose", render_flags(router)]|select|join(" ") }}
     set_placement_padding -global -left {{ settings.legalize.cell_padding|tcl_number }} -right {{ settings.legalize.cell_padding|tcl_number }}
     set_propagated_clock [all_clocks]
     estimate_parasitics -global_routing

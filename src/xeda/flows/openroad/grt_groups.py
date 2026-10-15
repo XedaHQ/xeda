@@ -4,9 +4,9 @@ The groups follow the commands of the flow: the pin access, `global_route`, the 
 route, and the repair of the antenna violations.
 """
 
-from typing import ClassVar, Literal, Optional, Tuple
+from typing import Annotated, ClassVar, Literal, Optional, Tuple
 
-from ...dataclass import Field, tier
+from ...dataclass import Field, XedaBaseModel, tier
 from ...flow.settings_group import Flag, SettingsGroup
 from .final_groups import ViaInPin
 from .groups import RepairDesign, RepairTiming, differing_leaves
@@ -17,8 +17,12 @@ __all__ = [
     "GrtRepairGroup",
     "GrtRepairTiming",
     "PinAccessGroup",
+    "RegionAdjustment",
     "RouterGroup",
 ]
+
+#: A coordinate that is finite and not negative.
+NonNegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 
 
 class GrtRepairTiming(RepairTiming):
@@ -87,11 +91,29 @@ class PinAccessGroup(SettingsGroup):
     )
 
 
+class RegionAdjustment(XedaBaseModel):
+    """A cut in the routing capacity of one layer inside a region
+    (`set_global_routing_region_adjustment`)."""
+
+    region: Tuple[NonNegative, NonNegative, NonNegative, NonNegative] = Field(
+        description="The region, in micrometers: lower-left x, lower-left y, upper-right x, "
+        "upper-right y. It must lie inside the die."
+    )
+    layer: str = Field(min_length=1, description="The routing layer of the cut (`-layer`).")
+    adjustment: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] = Field(
+        description="The share of the routing tracks that the router may not use, from 0 to 1 "
+        "(`-adjustment`)."
+    )
+
+
 class CongestionGroup(SettingsGroup):
-    """The options of `global_route` that decide how it removes congestion."""
+    """The options of `global_route` that decide how it removes congestion. The layer
+    adjustments are no setting here: the database holds the ones of `openroad_place`."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
         Flag("iterations", "-congestion_iterations", "value"),
+        Flag("report_step", "-congestion_report_iter_step", "value"),
+        Flag("critical_nets_percent", "-critical_nets_percentage", "value"),
         Flag("allow", "-allow_congestion", "switch"),
     )
 
@@ -102,12 +124,45 @@ class CongestionGroup(SettingsGroup):
         "The default is the one of OpenROAD-flow-scripts. The tool uses 50.",
         json_schema_extra=tier("common"),
     )
+    report_step: int = Field(
+        5,
+        ge=0,
+        description="Write the congestion report every this many iterations "
+        "(`-congestion_report_iter_step`). 0 writes it at the end only. The default is the one "
+        "of OpenROAD-flow-scripts. The tool uses 0.",
+        json_schema_extra=tier("expert"),
+    )
     allow: bool = Field(
         False,
         description="Finish the route when overflow remains, and write the result "
         "(`-allow_congestion`). The flow gives the flag to every incremental route and to "
         "`repair_antennas` too.",
         json_schema_extra=tier("common"),
+    )
+    critical_nets_percent: Optional[float] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="The share of the nets with the worst slack that the router routes first "
+        "when it removes overflow, in percent (`-critical_nets_percentage`). The router "
+        "estimates the slack from the parasitics of its own route. Unset: the default of the "
+        "tool.",
+        json_schema_extra=tier("advanced"),
+    )
+    macro_extension: Optional[int] = Field(
+        None,
+        ge=0,
+        description="The halo around each macro in which the router reduces the capacity, in "
+        "global routing cells (`set_macro_extension`). Unset: the default of the tool, 0. The "
+        "database does not store it.",
+        json_schema_extra=tier("advanced"),
+    )
+    region_adjustments: list[RegionAdjustment] = Field(
+        [],
+        description="Cuts in the routing capacity of one layer in a region, which spread the "
+        "routes away from it (`set_global_routing_region_adjustment`). The flow sets them in "
+        "this process, since the database does not store them.",
+        json_schema_extra=tier("advanced"),
     )
 
 
