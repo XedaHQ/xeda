@@ -23,13 +23,22 @@ from xeda.units import (
     Frequency,
     Length,
     Quantity,
+    Power,
     Resistance,
     Time,
     Voltage,
 )
 
 FLOWS_RST = Path(__file__).parent.parent / "docs/flows.rst"
-KINDS: tuple[type[Quantity], ...] = (Time, Frequency, Capacitance, Length, Voltage, Resistance)
+KINDS: tuple[type[Quantity], ...] = (
+    Time,
+    Frequency,
+    Capacitance,
+    Length,
+    Voltage,
+    Resistance,
+    Power,
+)
 
 
 def _section() -> str:

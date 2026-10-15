@@ -94,6 +94,7 @@ PROBES: List[Any] = [
     "3 um",
     "1.2 V",
     "5 ohm",
+    "2 mW",
     Time("10 ns"),
 ]
 

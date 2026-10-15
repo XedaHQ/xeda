@@ -206,7 +206,7 @@ under the name that you can type as ``-s <name>=<value>``:
 * ``type`` is a short rendering for people and agents, and it is not JSON Schema. An optional
   setting reads as its underlying type (``integer``), while ``json_schema`` carries the literal
   ``anyOf: [..., {"type": "null"}]`` that pydantic emits. A quantity reads as its kind (``time``,
-  ``frequency``, ``capacitance``, ``length``, ``voltage`` or ``resistance``; see :ref:`quantities`).
+  ``frequency``, ``capacitance``, ``length``, ``voltage``, ``resistance`` or ``power``; see :ref:`quantities`).
   In ``json_schema``, a quantity is ``"type": "string"`` with the kind in the key
   ``x-xeda-quantity``. The schema separates a number from text, and it cannot check the unit in the
   text.

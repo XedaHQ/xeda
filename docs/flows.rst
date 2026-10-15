@@ -224,7 +224,7 @@ without a unit is an error. It means nothing: ``5`` can be 5 ns, 5 ps or 5 MHz. 
 the unit. A few settings do not follow this rule yet. The last part of this section lists them.
 
 Each such setting has a *kind*. The kind is what the setting measures: a time, a frequency, a
-capacitance, a length, a voltage or a resistance. The kind decides which units the setting takes.
+capacitance, a length, a voltage, a resistance or a power. The kind decides which units the setting takes.
 ``clock.period`` is a time, ``clock.freq`` is a frequency, and ``abc.load`` of ``yosys`` is a
 capacitance. ``xeda list-settings <flow>`` shows the kind of a setting in its type column: ``time``
 and not ``string``. The JSON output shows it too (see :ref:`machine-readable-settings`).
@@ -296,6 +296,9 @@ in the unit of the last column, whatever unit you wrote: ``10000 ps`` becomes ``
    * - resistance
      - ``ohm``, ``kohm``, ``Mohm``
      - ``ohm``
+   * - power
+     - ``nW``, ``uW``, ``mW``, ``W``, and ``µW`` with the micro sign (U+00B5)
+     - ``W``
 
 Units are case-sensitive, as in SI: ``MHz`` is megahertz, and ``mHz`` is millihertz. A unit in the
 wrong case is an error that names the right spelling. Xeda takes only the units in the table. A

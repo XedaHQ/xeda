@@ -121,7 +121,7 @@ fraction) and `port`.
 ## Units
 
 A setting whose `type` in `xeda list-settings <flow> --json` is a kind (`time`, `frequency`,
-`capacitance`, `length`, `voltage`, `resistance`) holds a quantity: one number, an optional space
+`capacitance`, `length`, `voltage`, `resistance`, `power`) holds a quantity: one number, an optional space
 and one unit, and nothing else (`5 ns * 2` is an error). A bare number is an error. Units are
 case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
 
@@ -133,6 +133,7 @@ case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
 | length | `nm`, `um`, `mm`, `µm` (micro sign, U+00B5) | `um` |
 | voltage | `mV`, `V` | `V` |
 | resistance | `ohm`, `kohm`, `Mohm` | `ohm` |
+| power | `nW`, `uW`, `µW` (micro sign, U+00B5), `mW`, `W` | `W` |
 
 - Write `clock.period: 2.5 ns` in YAML, `"2.5 ns"` as a string in TOML and JSON, and
   `-s clock.period=2.5ns` on the command line (no space, so no quotes; with a space, quote the
