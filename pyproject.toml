@@ -77,9 +77,35 @@ changelog = "https://github.com/XedaHQ/xeda/blob/dev/CHANGELOG.md"
 [project.scripts]
 xeda = "xeda.cli:cli"
 
+# Dependency groups are not part of the published package: `pip install xeda` installs none of
+# them. `uv sync` installs `dev`, which includes the others; the test environments of tox install
+# `test` and `examples`.
 [dependency-groups]
+# What the test suite needs.
+test = ["pytest>=9.1.1", "pytest-xdist", "jsonschema"]
+# What the cocotb testbenches of the examples need. The suite runs them.
+examples = [
+    "cocotb~=2.1.0",
+    "cocotb-coverage~=2.0",
+    "setuptools>=84.0",
+    "cocolight @ git+https://github.com/kammoh/cocolight.git",
+]
 # black >= 26.10.1 is the first release that knows the py314 target set in [tool.black].
-dev = ["pytest", "pytest-xdist", "jsonschema", "mypy", "black>=26.10.1", "isort", "pylint", "tox", "ruff>=0.17.0"]
+dev = [
+    { include-group = "test" },
+    { include-group = "examples" },
+    "mypy",
+    "black>=26.10.1",
+    "isort",
+    "pylint",
+    "tox>=4.22",
+    "ruff>=0.17.0",
+]
+
+[tool.uv]
+# cocotb 2.1.0 has no wheel for Python 3.15, and the setup.py of its source distribution refuses
+# Python 3.15 unless this variable is set. tox sets it in [testenv:py315].
+extra-build-variables = { cocotb = { COCOTB_IGNORE_PYTHON_REQUIRES = "1" } }
 
 [build-system]
 requires = ["setuptools>=77", "wheel>=0.48.0", "setuptools_scm[toml]>=10.3.4"]
