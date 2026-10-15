@@ -747,6 +747,8 @@ def tb_reads(cls: type[Flow]) -> list[str]:
                 "stages/fillcell.tcl.j2",
                 "stages/final_outputs.tcl.j2",
                 "stages/final_report.tcl.j2",
+                "stages/ir_decap.tcl.j2",
+                "stages/ir_setup.tcl.j2",
                 "stages/images.tcl.j2",
             },
         ),

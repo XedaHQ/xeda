@@ -1,0 +1,14 @@
+{# The setup of the IR drop analysis, as a procedure that exists only when a setting needs it: the
+   model of the voltage sources and the power of the instances that the settings give. The
+   analysis of the final report and the analysis before the decap cells call it. #}
+{% set ir = settings.ir_drop %}
+{% if render_flags(ir.source) or ir.instance_power %}
+proc xeda_ir_setup {} {
+{% if render_flags(ir.source) %}
+    set_pdnsim_source_settings {{ render_flags(ir.source) }}
+{% endif %}
+{% for inst, power in ir.instance_power.items() %}
+    set_pdnsim_inst_power -inst {{ inst|tcl_word }} -power {{ power|tcl_number }}
+{% endfor %}
+}
+{% endif %}

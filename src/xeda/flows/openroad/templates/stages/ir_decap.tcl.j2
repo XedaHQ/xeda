@@ -1,0 +1,16 @@
+{# The decoupling capacitors, in the first process, before the filler cells, so that the filler
+   cells fill what the decap cells leave. The command inserts the cells where the IR drop of a net
+   is worst, so the net is analyzed first, with the same model of the sources as the report of the
+   final stage. The new instances get their power connections from the global connections. #}
+{% set ir = settings.ir_drop %}
+proc xeda_ir_decap {} {
+{% if render_flags(ir.source) or ir.instance_power %}
+    xeda_ir_setup
+{% endif %}
+{% for net, volts in P.supply_voltages if net == P.decap_net %}
+    set_pdnsim_net_voltage -net {{ net|tcl_word }} -voltage {{ volts|tcl_number }}
+    {{ ["analyze_power_grid -net " ~ (net|tcl_word), ("-source_type " ~ (ir.source_type|upper|tcl_word)) if ir.source_type else "", ("-vsrc " ~ (ir.vsrc_files[net]|tcl_word)) if net in ir.vsrc_files else ""]|select|join(" ") }}
+{% endfor %}
+    insert_decap -target_cap {{ ir.decap.target_capacitance|tcl_number }} -cells {{ decap_words(ir.decap.cells)|tcl_list }} -net {{ P.decap_net|tcl_word }}
+    global_connect
+}

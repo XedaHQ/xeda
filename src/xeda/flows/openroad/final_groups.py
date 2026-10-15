@@ -19,7 +19,9 @@ __all__ = [
     "FillGroup",
     "FinalAntennaGroup",
     "GdsGroup",
+    "IrDropDecap",
     "IrDropGroup",
+    "IrDropSource",
     "NdrGroup",
     "NdrRule",
     "ReportsGroup",
@@ -595,6 +597,118 @@ class ReportsGroup(SettingsGroup):
     )
 
 
+class IrDropSource(SettingsGroup):
+    """The model of the voltage sources of the IR drop analysis (`set_pdnsim_source_settings`).
+    The model of bumps and the model of straps read different settings; see `source_type`."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("bump_dx", "-bump_dx", "value"),
+        Flag("bump_dy", "-bump_dy", "value"),
+        Flag("bump_size", "-bump_size", "value"),
+        Flag("bump_interval", "-bump_interval", "value"),
+        Flag("strap_track_pitch", "-strap_track_pitch", "value"),
+        Flag("external_resistance", "-external_resistance", "value"),
+    )
+
+    bump_dx: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The pitch of the bumps along x, in whole micrometers (`-bump_dx`). Unset: the "
+        "default of the tool, 140.",
+        json_schema_extra=tier("expert"),
+    )
+    bump_dy: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The pitch of the bumps along y, in whole micrometers (`-bump_dy`). Unset: the "
+        "default of the tool, 140.",
+        json_schema_extra=tier("expert"),
+    )
+    bump_size: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The size of a bump, in whole micrometers (`-bump_size`). Unset: the default of "
+        "the tool, 70.",
+        json_schema_extra=tier("expert"),
+    )
+    bump_interval: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Fill every this many bumps of the grid (`-bump_interval`), to model the "
+        "bumps that signals and other supplies take. Unset: the default of the tool, 3.",
+        json_schema_extra=tier("expert"),
+    )
+    strap_track_pitch: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The pitch of the straps that model the sources, in tracks of the top layer "
+        "(`-strap_track_pitch`). Unset: the default of the tool, 10.",
+        json_schema_extra=tier("expert"),
+    )
+    external_resistance: Optional[float] = Field(
+        None,
+        ge=0,
+        description="The resistance of the package and of the supply network outside the block, "
+        "in ohms (`-external_resistance`). Unset: the default of the tool, 0.",
+        json_schema_extra=tier("expert"),
+    )
+
+
+class IrDropDecap(SettingsGroup):
+    """The decoupling capacitors that the flow inserts where the IR drop is worst
+    (`insert_decap`). The flow inserts them after the route and before it places the filler
+    cells, so the filler cells fill what is left, and the outputs hold the cells."""
+
+    enabled: bool = Field(
+        False,
+        description="Insert decoupling capacitor cells at the worst IR drop of a supply net. It "
+        "needs `target_capacitance` and `cells`.",
+        json_schema_extra=tier("expert"),
+    )
+    target_capacitance: Optional[float] = Field(
+        None,
+        gt=0,
+        description="The capacitance to insert, in the capacitance unit of the Liberty files "
+        "(`-target_cap`).",
+        json_schema_extra=tier("expert"),
+    )
+    cells: dict[Annotated[str, Field(min_length=1)], Annotated[float, Field(gt=0)]] = Field(
+        {},
+        description="The decap cells to use, by name or glob pattern, each with its capacitance "
+        "in the capacitance unit of the Liberty files (`-cells`).",
+        json_schema_extra=tier("expert"),
+    )
+    net: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="The supply net that gets the cells (`-net`). It is one of the nets of the "
+        "analysis, and it is required when `ir_drop.nets` gives the nets. Unset: the first power "
+        "net of the platform.",
+        json_schema_extra=tier("expert"),
+    )
+
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse a capacitor without a capacitance to insert or without a cell."""
+        found = []
+        if self.target_capacitance is None:
+            found.append(
+                (
+                    f"{key}.target_capacitance",
+                    f"`{key}.enabled` needs `{key}.target_capacitance`: give the capacitance to "
+                    f"insert or set `{key}.enabled: false`",
+                )
+            )
+        if not self.cells:
+            found.append(
+                (
+                    f"{key}.cells",
+                    f"`{key}.enabled` needs `{key}.cells`: give the decap cells with their "
+                    f"capacitances or set `{key}.enabled: false`",
+                )
+            )
+        return found
+
+
 class IrDropGroup(SettingsGroup):
     """The analysis of the IR drop of the power grid."""
 
@@ -606,6 +720,98 @@ class IrDropGroup(SettingsGroup):
         "log says so.",
         json_schema_extra=tier("advanced"),
     )
+    nets: Optional[dict[Annotated[str, Field(min_length=1)], Annotated[float, Field(ge=0)]]] = (
+        Field(
+            None,
+            description="The supply nets to analyze, each with its voltage in volts "
+            "(`set_pdnsim_net_voltage`). The analysis follows the order of the table. Unset: the "
+            "power nets and then the ground nets of the platform, with the voltages that it gives.",
+            json_schema_extra=tier("common"),
+        )
+    )
+    source_type: Optional[Literal["full", "bumps", "straps"]] = Field(
+        None,
+        description="How the analysis models the voltage sources (`-source_type`). `full` takes "
+        "every node of the top layer as a source, `bumps` models a grid of bumps, and `straps` "
+        "models the sources as straps. Unset: the default of the tool, `bumps`.",
+        json_schema_extra=tier("expert"),
+    )
+    source: IrDropSource = Field(
+        default_factory=IrDropSource,
+        description="The geometry and the resistance of the voltage sources.",
+    )
+    vsrc_files: dict[Annotated[str, Field(min_length=1)], Path] = Field(
+        {},
+        description="A file with the places of the voltage sources of a net, by net name "
+        "(`-vsrc`). A relative path is relative to the design root. Unset for a net: the model "
+        "of the sources decides.",
+        json_schema_extra=tier("expert"),
+    )
+    instance_power: dict[Annotated[str, Field(min_length=1)], Annotated[float, Field(ge=0)]] = (
+        Field(
+            {},
+            description="The power of the instances that replaces the computed power, by "
+            "instance name, in watts (`set_pdnsim_inst_power`).",
+            json_schema_extra=tier("expert"),
+        )
+    )
+    instance_voltages: bool = Field(
+        False,
+        description="Write the voltage of each instance for each net, as a CSV file "
+        "`reports/irdrop_voltage_<n>.csv` (`-voltage_file`). Here `<n>` counts the nets from 1 "
+        "in the order of the analysis.",
+        json_schema_extra=tier("expert"),
+    )
+    electromigration: bool = Field(
+        False,
+        description="Report the current in each segment of the power grid for each net, as "
+        "`reports/irdrop_em_<n>.csv` (`-enable_em`, `-em_outfile`).",
+        json_schema_extra=tier("expert"),
+    )
+    spice: bool = Field(
+        False,
+        description="Write the SPICE netlist of the power grid of each net, as "
+        "`reports/irdrop_spice_<n>.sp` (`write_pg_spice`).",
+        json_schema_extra=tier("expert"),
+    )
+    decap: IrDropDecap = Field(
+        default_factory=IrDropDecap,
+        description="The decoupling capacitors to insert at the worst IR drop.",
+    )
+
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse a file of voltage sources or a capacitor for a net that the table `nets`
+        leaves out, since the analysis does not run on that net, and cells without a net where
+        the table says nothing of the power nets."""
+        if self.nets is None:
+            return []
+        found = [
+            (
+                f"{key}.vsrc_files",
+                f"`{key}.vsrc_files` names the net {net!r}, which `{key}.nets` does not list: "
+                f"add the net to `{key}.nets` or delete its file",
+            )
+            for net in self.vsrc_files
+            if net not in self.nets
+        ]
+        if self.decap.enabled and self.decap.net is None:
+            found.append(
+                (
+                    f"{key}.decap.net",
+                    f"`{key}.decap.enabled` with `{key}.nets` needs `{key}.decap.net`: name the "
+                    "supply net that gets the cells, since the table does not say which nets are "
+                    "power nets",
+                )
+            )
+        if self.decap.net is not None and self.decap.net not in self.nets:
+            found.append(
+                (
+                    f"{key}.decap.net",
+                    f"`{key}.decap.net` is {self.decap.net!r}, which `{key}.nets` does not "
+                    f"list: add the net to `{key}.nets` or delete `{key}.decap.net`",
+                )
+            )
+        return found
 
 
 class GdsGroup(SettingsGroup):

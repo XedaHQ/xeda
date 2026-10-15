@@ -341,7 +341,7 @@ Group `extraction`: `extraction.method`; 15 more: `xeda list-settings openroad -
 
 Group `reports`: `reports.power`; 7 more: `xeda list-settings openroad --tier expert --json`
 
-Group `ir_drop`: no common settings; 1 more: `xeda list-settings openroad --tier expert --json`
+Group `ir_drop`: `ir_drop.nets`; 17 more: `xeda list-settings openroad --tier expert --json`
 
 Group `gds`: no common settings; 1 more: `xeda list-settings openroad --tier expert --json`
 

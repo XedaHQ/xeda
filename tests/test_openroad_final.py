@@ -3391,3 +3391,356 @@ def test_a_value_outside_the_timing_report_is_refused(tmp_path, leaf, value):
 def test_an_option_of_the_timing_report_is_refused_with_the_report_off(tmp_path):
     message = refuse_settings(tmp_path, {"reports": {"timing": {"enabled": False, "paths": 3}}})
     assert "`reports.timing.paths` has no effect while `reports.timing.enabled` is false" in message
+
+
+# ============================================================================== the IR drop options
+
+
+def analysis_lines(tmp_path: Path, ir_drop: dict[str, Any] | None = None, **kwargs: Any):
+    """The lines of the stage of the final report that set up and run the IR drop analysis."""
+    found = report_body(tmp_path, {"ir_drop": ir_drop or {}}, **kwargs)
+    return [
+        line
+        for line in found
+        if line.startswith(
+            (
+                "xeda_ir_setup",
+                "set_pdnsim",
+                "analyze_power_grid",
+                "write_pg_spice",
+                "puts",
+            )
+        )
+    ]
+
+
+def test_the_defaults_set_the_voltage_and_analyze_each_net_with_an_error_report_only(tmp_path):
+    assert analysis_lines(tmp_path) == [
+        'set_pdnsim_net_voltage -net "VDD" -voltage 1.1',
+        'analyze_power_grid -net "VDD" -error_file "reports/irdrop_1.rpt"',
+        'set_pdnsim_net_voltage -net "VSS" -voltage 0.0',
+        'analyze_power_grid -net "VSS" -error_file "reports/irdrop_2.rpt"',
+    ]
+    assert "xeda_ir_setup" not in render_final(final_flow(tmp_path / "d"))
+
+
+def test_the_nets_of_the_setting_replace_the_nets_of_the_platform_in_their_order(tmp_path):
+    found = analysis_lines(tmp_path, {"nets": {"VSS": 0, "VDDA": 0.9}})
+    assert found == [
+        'set_pdnsim_net_voltage -net "VSS" -voltage 0.0',
+        'analyze_power_grid -net "VSS" -error_file "reports/irdrop_1.rpt"',
+        'set_pdnsim_net_voltage -net "VDDA" -voltage 0.9',
+        'analyze_power_grid -net "VDDA" -error_file "reports/irdrop_2.rpt"',
+    ]
+    flow = final_flow(tmp_path / "e", {"ir_drop": {"nets": {"VSS": 0, "VDDA": 0.9}}})
+    values = flow.effective()
+    assert values.supply_voltages == (("VSS", 0.0), ("VDDA", 0.9))
+    assert values.ir_drop_reports == ("reports/irdrop_1.rpt", "reports/irdrop_2.rpt")
+
+
+def test_the_nets_of_the_setting_give_an_analysis_where_the_platform_gives_none(tmp_path):
+    found = analysis_lines(tmp_path, {"nets": {"VDD": 1.0}}, supply=None)
+    assert found == [
+        'set_pdnsim_net_voltage -net "VDD" -voltage 1.0',
+        'analyze_power_grid -net "VDD" -error_file "reports/irdrop_1.rpt"',
+    ]
+
+
+def test_a_negative_voltage_is_refused(tmp_path):
+    with pytest.raises(Exception):
+        Openroad.Settings.from_input({"ir_drop": {"nets": {"VDD": -1}}}, design_root=tmp_path)
+
+
+def test_the_model_of_the_sources_is_set_once_before_the_analysis(tmp_path):
+    found = analysis_lines(
+        tmp_path,
+        {
+            "source": {
+                "bump_dx": 100,
+                "bump_size": 50,
+                "bump_interval": 2,
+                "external_resistance": 0.5,
+            }
+        },
+    )
+    assert found[0] == "xeda_ir_setup"
+    script = render_final(
+        final_flow(
+            tmp_path / "s",
+            {"ir_drop": {"source": {"bump_dx": 100, "strap_track_pitch": 20}}},
+        )
+    )
+    body = stage(script, "xeda_ir_setup")
+    assert body == ['set_pdnsim_source_settings -bump_dx "100" -strap_track_pitch "20"']
+
+
+def test_the_flags_of_the_model_of_the_sources_follow_the_command(tmp_path):
+    flow = final_flow(
+        tmp_path,
+        {
+            "ir_drop": {
+                "source": {
+                    "bump_dx": 1,
+                    "bump_dy": 2,
+                    "bump_size": 3,
+                    "bump_interval": 4,
+                    "strap_track_pitch": 5,
+                    "external_resistance": 6,
+                }
+            }
+        },
+    )
+    (setup,) = stage(render_final(flow), "xeda_ir_setup")
+    assert setup == (
+        'set_pdnsim_source_settings -bump_dx "1" -bump_dy "2" -bump_size "3" '
+        '-bump_interval "4" -strap_track_pitch "5" -external_resistance "6.0"'
+    )
+
+
+def test_the_power_of_an_instance_is_set_in_watts_before_the_analysis(tmp_path):
+    flow = final_flow(tmp_path, {"ir_drop": {"instance_power": {"u1": 0.001, "u[2]": 2e-05}}})
+    assert stage(render_final(flow), "xeda_ir_setup") == [
+        'set_pdnsim_inst_power -inst "u1" -power 0.001',
+        'set_pdnsim_inst_power -inst "u\\[2\\]" -power 2e-05',
+    ]
+
+
+@pytest.mark.parametrize("source_type", ["full", "bumps", "straps"])
+def test_the_source_type_goes_to_every_analysis_in_capitals(tmp_path, source_type):
+    found = analysis_lines(tmp_path, {"source_type": source_type})
+    analyses = [line for line in found if line.startswith("analyze_power_grid")]
+    assert len(analyses) == 2
+    assert all(f'-source_type "{source_type.upper()}"' in line for line in analyses)
+
+
+def test_a_file_of_voltage_sources_goes_to_the_analysis_of_its_net_only(tmp_path):
+    vsrc = tmp_path / "vdd.loc"
+    vsrc.write_text("loc\n")
+    found = analysis_lines(tmp_path, {"vsrc_files": {"VDD": str(vsrc)}})
+    analyses = [line for line in found if line.startswith("analyze_power_grid")]
+    assert f'-vsrc "{vsrc}"' in analyses[0] and "-vsrc" not in analyses[1]
+
+
+def test_the_voltages_of_the_instances_and_the_currents_are_numbered_files(tmp_path):
+    found = analysis_lines(tmp_path, {"instance_voltages": True, "electromigration": True})
+    analyses = [line for line in found if line.startswith("analyze_power_grid")]
+    assert analyses[1] == (
+        'analyze_power_grid -net "VSS" -error_file "reports/irdrop_2.rpt" '
+        '-voltage_file "reports/irdrop_voltage_2.csv" '
+        '-enable_em -em_outfile "reports/irdrop_em_2.csv"'
+    )
+
+
+def test_the_spice_netlist_of_each_net_is_a_numbered_file(tmp_path):
+    vsrc = tmp_path / "vdd.loc"
+    vsrc.write_text("loc\n")
+    found = analysis_lines(
+        tmp_path, {"spice": True, "source_type": "straps", "vsrc_files": {"VDD": str(vsrc)}}
+    )
+    spice = [line for line in found if line.startswith("write_pg_spice")]
+    assert spice == [
+        f'write_pg_spice -net "VDD" -vsrc "{vsrc}" -source_type "STRAPS" '
+        '"reports/irdrop_spice_1.sp"',
+        'write_pg_spice -net "VSS" -source_type "STRAPS" "reports/irdrop_spice_2.sp"',
+    ]
+
+
+def test_the_files_of_the_analysis_are_the_ones_the_process_makes_ready(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    flow = final_flow(
+        tmp_path,
+        {"ir_drop": {"instance_voltages": True, "electromigration": True, "spice": True}},
+    )
+    in_run_directory(flow, monkeypatch)
+    ready = ready_files(flow, monkeypatch)
+    expected = {
+        f"reports/irdrop_{kind}{n}.{ext}"
+        for kind, ext in (("", "rpt"), ("voltage_", "csv"), ("em_", "csv"), ("spice_", "sp"))
+        for n in (1, 2)
+    }
+    assert expected <= set(ready)
+    assert flow.effective().ir_drop_files[:2] == ("reports/irdrop_1.rpt", "reports/irdrop_2.rpt")
+
+
+def test_the_options_of_the_analysis_run_under_the_fake(tmp_path):
+    flow = final_flow(
+        tmp_path,
+        {
+            "ir_drop": {
+                "source_type": "bumps",
+                "source": {"bump_dx": 90},
+                "instance_power": {"u1": 0.5},
+                "instance_voltages": True,
+                "spice": True,
+            }
+        },
+    )
+    names_ = [call[0] for call in run_final_script(flow)]
+    assert names_.count("analyze_power_grid") == 2 and names_.count("write_pg_spice") == 2
+    assert names_.index("set_pdnsim_source_settings") < names_.index("set_pdnsim_net_voltage")
+    assert names_.index("set_pdnsim_inst_power") < names_.index("analyze_power_grid")
+
+
+def test_an_option_of_the_analysis_is_refused_with_the_analysis_off(tmp_path):
+    message = refuse_settings(tmp_path, {"ir_drop": {"enabled": False, "spice": True}})
+    assert "`ir_drop.spice` has no effect while `ir_drop.enabled` is false" in message
+
+
+def test_a_file_of_voltage_sources_for_a_net_the_table_leaves_out_is_refused(tmp_path):
+    vsrc = tmp_path / "x.loc"
+    vsrc.write_text("loc\n")
+    message = refuse_settings(
+        tmp_path, {"ir_drop": {"nets": {"VDD": 1.0}, "vsrc_files": {"VSS": str(vsrc)}}}
+    )
+    assert (
+        "`ir_drop.vsrc_files` names the net 'VSS', which `ir_drop.nets` does not list: add the "
+        "net to `ir_drop.nets` or delete its file" in message
+    )
+
+
+def test_a_file_of_voltage_sources_for_a_net_the_platform_does_not_give_stops_the_run(tmp_path):
+    vsrc = tmp_path / "x.loc"
+    vsrc.write_text("loc\n")
+    flow = final_flow(tmp_path, {"ir_drop": {"vsrc_files": {"VDDX": str(vsrc)}}})
+    with pytest.raises(FlowSettingsException) as raised:
+        flow.effective()
+    assert (
+        "`ir_drop.vsrc_files` names the net 'VDDX', which the analysis does not cover (the nets "
+        "are VDD, VSS)" in str(raised.value)
+    )
+
+
+# ------------------------------------------------------------------------------ the decap cells
+
+
+DECAP = {"enabled": True, "target_capacitance": 5.0, "cells": {"DECAP_X*": 0.5, "DECAP_X1": 1}}
+
+
+def decap_flow(tmp_path: Path, ir_drop: dict[str, Any] | None = None, **kwargs: Any) -> Openroad:
+    return route_flow(
+        tmp_path, {"ir_drop": {"decap": DECAP, **(ir_drop or {})}}, supply=SUPPLY, **kwargs
+    )
+
+
+def decap_body(tmp_path: Path, ir_drop: dict[str, Any] | None = None) -> list[str]:
+    return stage(render(decap_flow(tmp_path, ir_drop)), "xeda_ir_decap")
+
+
+def test_no_decap_cell_is_inserted_and_no_stage_exists_by_default(tmp_path):
+    for script in (render(route_flow(tmp_path)), render_final(final_flow(tmp_path / "f"))):
+        assert "xeda_ir_decap" not in script and "insert_decap" not in script
+
+
+def test_the_decap_cells_go_in_after_the_analysis_of_the_net_with_the_global_connections(tmp_path):
+    body = [tokens(tmp_path, line) for line in decap_body(tmp_path)]
+    assert body == [
+        'set_pdnsim_net_voltage -net "VDD" -voltage 1.1',
+        'analyze_power_grid -net "VDD"',
+        'insert_decap -target_cap 5.0 -cells [list "DECAP_X*" "0.5" "DECAP_X1" "1.0"] -net "VDD"',
+        "global_connect",
+    ]
+
+
+def test_the_decap_net_of_the_setting_wins_and_gets_the_model_of_the_sources(tmp_path):
+    found = decap_body(
+        tmp_path,
+        {
+            "decap": {**DECAP, "net": "VSS"},
+            "source_type": "full",
+            "instance_power": {"u": 1},
+        },
+    )
+    assert found[:3] == [
+        "xeda_ir_setup",
+        'set_pdnsim_net_voltage -net "VSS" -voltage 0.0',
+        'analyze_power_grid -net "VSS" -source_type "FULL"',
+    ]
+    assert found[-2] == (
+        'insert_decap -target_cap 5.0 -cells [list "DECAP_X*" "0.5" "DECAP_X1" "1.0"] -net "VSS"'
+    )
+    # no setup procedure exists where no setting needs one
+    assert "xeda_ir_setup" not in render(decap_flow(tmp_path / "again", {"source_type": "full"}))
+
+
+def test_the_decap_cells_are_inserted_before_the_filler_cells_and_the_outputs(tmp_path):
+    calls = [call[0] for call in run_script(decap_flow(tmp_path))]
+    assert calls.index("detailed_route") < calls.index("analyze_power_grid")
+    assert calls.index("analyze_power_grid") < calls.index("insert_decap")
+    assert calls.index("insert_decap") < calls.index("filler_placement")
+    assert calls.index("filler_placement") < calls.index("write_db")
+
+
+def test_the_driver_calls_the_decap_stage_between_the_route_and_the_filler(tmp_path):
+    body = lines(render(decap_flow(tmp_path)))
+    start = body.index("if {[catch {")
+    assert body[start : start + 4] == [
+        "if {[catch {",
+        "xeda_detail_route",
+        "xeda_ir_decap",
+        "xeda_fillcell",
+    ]
+
+
+def test_the_decap_stage_is_in_the_first_process_only(tmp_path):
+    flow = decap_flow(tmp_path)
+    assert "insert_decap" not in render_final(flow)
+    assert "insert_decap" in render(flow)
+
+
+def test_a_decap_without_a_capacitance_or_a_cell_is_refused_with_the_way_out(tmp_path):
+    message = refuse_settings(tmp_path, {"ir_drop": {"decap": {"enabled": True}}})
+    assert (
+        "`ir_drop.decap.enabled` needs `ir_drop.decap.target_capacitance`: give the capacitance "
+        "to insert or set `ir_drop.decap.enabled: false`" in message
+    )
+    assert "`ir_drop.decap.enabled` needs `ir_drop.decap.cells`" in message
+
+
+def test_an_option_of_the_decap_is_refused_with_the_decap_off(tmp_path):
+    message = refuse_settings(tmp_path, {"ir_drop": {"decap": {"target_capacitance": 2.0}}})
+    assert (
+        "`ir_drop.decap.target_capacitance` has no effect while `ir_drop.decap.enabled` is false"
+        in message
+    )
+
+
+def test_a_decap_net_that_the_table_leaves_out_is_refused(tmp_path):
+    message = refuse_settings(
+        tmp_path, {"ir_drop": {"nets": {"VDD": 1.0}, "decap": {**DECAP, "net": "VSS"}}}
+    )
+    assert "`ir_drop.decap.net` is 'VSS', which `ir_drop.nets` does not list" in message
+
+
+def test_a_decap_net_that_the_platform_does_not_give_stops_the_run(tmp_path):
+    flow = decap_flow(tmp_path, {"decap": {**DECAP, "net": "VDDX"}})
+    with pytest.raises(FlowSettingsException) as raised:
+        flow.effective()
+    assert "`ir_drop.decap` needs the net 'VDDX', which the analysis does not cover" in str(
+        raised.value
+    )
+    flow = route_flow(tmp_path / "none", {"ir_drop": {"decap": DECAP}})
+    with pytest.raises(FlowSettingsException):
+        flow.effective()
+
+
+def test_decap_cells_with_a_table_of_nets_need_the_net_that_gets_them(tmp_path):
+    message = refuse_settings(
+        tmp_path, {"ir_drop": {"nets": {"VDD": 1.0, "VSS": 0.0}, "decap": DECAP}}
+    )
+    assert (
+        "`ir_drop.decap.enabled` with `ir_drop.nets` needs `ir_drop.decap.net`: name the supply "
+        "net that gets the cells" in message
+    )
+    # naming the net is all that the rule asks for
+    store = tiny_store(tmp_path, "ok_store")
+    Openroad.check_settings_supported(
+        Openroad.Settings.from_input(
+            {
+                **tiny_settings(store, residue=TINY_OPENROAD_RESIDUE),
+                "ir_drop": {"nets": {"VDD": 1.0}, "decap": {**DECAP, "net": "VDD"}},
+            },
+            design_root=tmp_path,
+            runner_cwd=tmp_path,
+        )
+    )

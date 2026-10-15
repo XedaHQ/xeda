@@ -1,15 +1,24 @@
-{# The report of the final stage. The analysis of the IR drop comes first: for each supply net
-   that has a voltage, it sets the voltage, then analyzes the grid of that net and writes a report
-   with a fixed, numbered name. The analysis only reports. The text reports follow, each to a file
-   of a fixed name and only when its setting asks for it. The count of the cells by type follows,
-   so that the metrics of the design area, which come last, are the ones that stay in the file.
-   The metrics ask for the clock skew only when the report of the skew is on. #}
+{# The report of the final stage. The analysis of the IR drop comes first: it sets the model of the
+   sources and the power of the instances that the settings give, then for each supply net it sets
+   the voltage and analyzes the grid of that net, with an error report of a fixed, numbered name
+   and the files that the settings ask for. The analysis only reports. The text reports follow,
+   each to a file of a fixed name and only when its setting asks for it. The count of the cells by
+   type follows, so that the metrics of the design area, which come last, are the ones that stay
+   in the file. The metrics ask for the clock skew only when the report of the skew is on. The
+   procedure `xeda_ir_setup`, which exists only when a setting needs it, sets up the analysis. #}
 {% set rep = settings.reports %}
+{% set ir = settings.ir_drop %}
 proc xeda_final_report {} {
 {% if P.ir_drop %}
+{% if render_flags(ir.source) or ir.instance_power %}
+    xeda_ir_setup
+{% endif %}
 {% for net, volts in P.supply_voltages %}
     set_pdnsim_net_voltage -net {{ net|tcl_word }} -voltage {{ volts|tcl_number }}
-    analyze_power_grid -net {{ net|tcl_word }} -error_file {{ P.ir_drop_reports[loop.index0]|tcl_word }}
+    {{ ["analyze_power_grid -net " ~ (net|tcl_word), "-error_file " ~ (P.ir_drop_file("error", loop.index)|tcl_word), ("-source_type " ~ (ir.source_type|upper|tcl_word)) if ir.source_type else "", ("-vsrc " ~ (ir.vsrc_files[net]|tcl_word)) if net in ir.vsrc_files else "", ("-voltage_file " ~ (P.ir_drop_file("voltage", loop.index)|tcl_word)) if ir.instance_voltages else "", ("-enable_em -em_outfile " ~ (P.ir_drop_file("em", loop.index)|tcl_word)) if ir.electromigration else ""]|select|join(" ") }}
+{% if ir.spice %}
+    {{ ["write_pg_spice -net " ~ (net|tcl_word), ("-vsrc " ~ (ir.vsrc_files[net]|tcl_word)) if net in ir.vsrc_files else "", ("-source_type " ~ (ir.source_type|upper|tcl_word)) if ir.source_type else "", P.ir_drop_file("spice", loop.index)|tcl_word]|select|join(" ") }}
+{% endif %}
 {% else %}
     puts "xeda: no supply net has a voltage; IR drop analysis skipped"
 {% endfor %}

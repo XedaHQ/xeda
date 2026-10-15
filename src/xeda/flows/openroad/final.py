@@ -46,6 +46,7 @@ __all__ = [
     "EffectiveFinal",
     "Openroad",
     "drc_iteration_reports",
+    "decap_words",
     "effective",
     "ndr_words",
     "resolve_extraction",
@@ -57,6 +58,14 @@ log = logging.getLogger(__name__)
 #: The roles of the platform files that the merge of the layout reads: the technology file of
 #: KLayout, which names how it reads the DEF and the LEF files, and the GDSII files of the cells.
 GDS_ROLES = ("klayout_tech", "gds")
+#: The files of the IR drop analysis for the net number `n`, by kind. Each name is fixed, and
+#: numbered from 1 in the order of the nets, since the name of a net would reach the file system.
+IR_DROP_FILES = {
+    "error": "reports/irdrop_{n}.rpt",
+    "voltage": "reports/irdrop_voltage_{n}.csv",
+    "em": "reports/irdrop_em_{n}.csv",
+    "spice": "reports/irdrop_spice_{n}.sp",
+}
 #: The images that the image process saves, by file name in the directory `images`. Each name is
 #: fixed, since a name from a net or a clock would reach the file system from the design.
 IMAGE_NAMES = (
@@ -97,9 +106,16 @@ class EffectiveFinal(EffectiveBase):
     #: Whether the flow analyzes the IR drop (the setting `ir_drop.enabled`). With no supply net
     #: that has a voltage, there is nothing to analyze.
     ir_drop: bool
-    #: The voltage of each supply net that the platform gives, in volts: the power nets, then the
-    #: ground nets, each in the order of the platform.
+    #: The voltage of each supply net that the analysis covers, in volts: the nets of the setting
+    #: `ir_drop.nets` in its order, else the power nets and then the ground nets of the platform,
+    #: each in the order of the platform.
     supply_voltages: tuple[tuple[str, float], ...]
+    #: The files that the analysis writes for each net besides the error report: `voltage` (the
+    #: voltage of each instance), `em` (the current in each segment) and `spice` (the SPICE
+    #: netlist of the grid), as the settings switch them on.
+    ir_drop_kinds: tuple[str, ...]
+    #: The supply net that gets the decap cells, or `None` when the setting `ir_drop.decap` is off.
+    decap_net: Optional[str]
     #: The CDL files of the cells that the platform gives. With none, the flow writes no circuit
     #: description.
     cdl_masters: tuple[Path, ...]
@@ -109,14 +125,33 @@ class EffectiveFinal(EffectiveBase):
         """The names of the supply nets that have a voltage, in the order of `supply_voltages`."""
         return tuple(net for net, _ in self.supply_voltages)
 
+    @staticmethod
+    def ir_drop_file(kind: str, number: int) -> str:
+        """Return the name of the file of `kind` (`error`, `voltage`, `em` or `spice`) for the
+        net number `number`, counted from 1 in the order of `supply_nets`. The names do not come
+        from the names of the nets."""
+        return IR_DROP_FILES[kind].format(n=number)
+
     @property
     def ir_drop_reports(self) -> tuple[str, ...]:
-        """The reports of the IR drop analysis: one for each supply net, `reports/irdrop_<n>.rpt`
-        with `n` counted from 1 in the order of `supply_nets`. None if the analysis is off. The
-        names do not come from the names of the nets."""
+        """The error reports of the IR drop analysis: one for each supply net,
+        `reports/irdrop_<n>.rpt`. None if the analysis is off."""
+        return self.ir_drop_files_of("error")
+
+    def ir_drop_files_of(self, kind: str) -> tuple[str, ...]:
+        """The files of `kind` for all the nets, or none if the analysis is off."""
         if not self.ir_drop:
             return ()
-        return tuple(f"reports/irdrop_{number}.rpt" for number, _ in enumerate(self.supply_nets, 1))
+        return tuple(
+            self.ir_drop_file(kind, number) for number, _ in enumerate(self.supply_nets, 1)
+        )
+
+    @property
+    def ir_drop_files(self) -> tuple[str, ...]:
+        """Every file of the IR drop analysis, for all the nets: the error reports first."""
+        return tuple(
+            name for kind in ("error", *self.ir_drop_kinds) for name in self.ir_drop_files_of(kind)
+        )
 
 
 def resolve_extraction(method: str, *, has_rules: bool, platform: str) -> str:
@@ -147,6 +182,32 @@ def effective(settings: "Openroad.Settings", model: PlatformModel) -> EffectiveF
         settings.extraction.method, has_rules=bool(rules), platform=model.name
     )
     supply = model.supply
+    supply_voltages = (
+        tuple((net, float(volts)) for net, volts in settings.ir_drop.nets.items())
+        if settings.ir_drop.nets is not None
+        else tuple(
+            (net, float(volts))
+            for nets in (supply.power_nets, supply.ground_nets)
+            for net, volts in nets.items()
+        )
+    )
+    covered = [net for net, _ in supply_voltages]
+    for net in settings.ir_drop.vsrc_files:
+        if settings.ir_drop.enabled and net not in covered:
+            raise FlowSettingsException(
+                f"`ir_drop.vsrc_files` names the net {net!r}, which the analysis does not cover "
+                f"(the nets are {', '.join(covered) or 'none'}): name a net of the analysis, "
+                "or give the nets with `ir_drop.nets`"
+            )
+    decap_net = None
+    if settings.ir_drop.enabled and settings.ir_drop.decap.enabled:
+        decap_net = settings.ir_drop.decap.net or (next(iter(supply.power_nets), None))
+        if decap_net not in covered:
+            raise FlowSettingsException(
+                f"`ir_drop.decap` needs the net {decap_net!r}, which the analysis does not cover "
+                f"(the nets are {', '.join(covered) or 'none'}): name a net of the analysis with "
+                "`ir_drop.decap.net`, or give the nets with `ir_drop.nets`"
+            )
     return EffectiveFinal(
         **base_values(settings, model),
         diode_cell=given_diode or (model.antenna_cell.cell if model.antenna_cell else None),
@@ -156,11 +217,17 @@ def effective(settings: "Openroad.Settings", model: PlatformModel) -> EffectiveF
         extraction=extraction,
         rcx_rules=rules[0] if extraction == "rcx" else None,
         ir_drop=settings.ir_drop.enabled,
-        supply_voltages=tuple(
-            (net, float(volts))
-            for nets in (supply.power_nets, supply.ground_nets)
-            for net, volts in nets.items()
+        supply_voltages=supply_voltages,
+        ir_drop_kinds=tuple(
+            kind
+            for kind, on in (
+                ("voltage", settings.ir_drop.instance_voltages),
+                ("em", settings.ir_drop.electromigration),
+                ("spice", settings.ir_drop.spice),
+            )
+            if on
         ),
+        decap_net=decap_net,
         cdl_masters=tuple(model.files.get("cdl", [])),
     )
 
@@ -172,6 +239,15 @@ def ndr_words(values: Dict[str, float | str]) -> list[str]:
     words: list[str] = []
     for layers, value in values.items():
         words += [layers, value if isinstance(value, str) else tcl_number(value)]
+    return words
+
+
+def decap_words(cells: Dict[str, float]) -> list[str]:
+    """Return the decap cells as the flat list that `insert_decap -cells` reads: a cell name or a
+    pattern, then its capacitance, and so on. A capacitance becomes the Tcl text of the number."""
+    words: list[str] = []
+    for cell, capacitance in cells.items():
+        words += [cell, tcl_number(capacitance)]
     return words
 
 
@@ -560,6 +636,7 @@ class Openroad(OpenroadStage):
             working_files=dict(self.working_files),
             image_files=list(self.image_files),
             ndr_words=ndr_words,
+            decap_words=decap_words,
         )
 
     def effective(self) -> EffectiveFinal:
@@ -640,7 +717,7 @@ class Openroad(OpenroadStage):
                 for name in (*self.final_files, *self.optional_files)
                 if getattr(self.outputs, name) is not None
             ),
-            *values.ir_drop_reports,
+            *values.ir_drop_files,
             *self.final_report_files(settings.reports),
         ]
         extracted = values.extraction == "rcx"
