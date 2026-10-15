@@ -33,7 +33,7 @@ needs_tclsh = pytest.mark.skipif(
     not shutil.which("tclsh"), reason="the fake Vivado runs the TCL it is handed under tclsh"
 )
 
-SYNTHESIS = {"fpga": PART, "clock": {"period": 5.5}}
+SYNTHESIS = {"fpga": PART, "clock": {"period": "5.5 ns"}}
 PRODUCT_NAMES = {name for cls, name in flow_classes() if cls.__module__.startswith("xeda.")} & {
     cls.name for _, cls in registered_flows.values()
 }
@@ -409,7 +409,7 @@ def test_yosys_passes_dff_to_abc_by_abc_dff_and_has_no_dff_for_synth(tmp_path) -
 
 def test_yosys_fpga_stops_after_the_rtl_stage_when_no_netlist_is_asked_for() -> None:
     """The message of the removed `nosynth` names `stop_after: rtl` with the netlist off."""
-    base = {"fpga": {"part": "xc7a100tcsg324-1"}, "clock": {"period": 5.0}, "stop_after": "rtl"}
+    base = {"fpga": {"part": "xc7a100tcsg324-1"}, "clock": {"period": "5 ns"}, "stop_after": "rtl"}
     with pytest.raises(FlowSettingsException, match="netlist_json"):
         YosysFpga.check_settings_supported(YosysFpga.Settings.from_input(base))
     YosysFpga.check_settings_supported(

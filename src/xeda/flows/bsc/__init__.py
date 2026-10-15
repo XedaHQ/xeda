@@ -34,6 +34,7 @@ from .sim_evidence import (
     xsim_evidence,
 )
 from ...tool import Docker, Tool
+from ...units import count
 from ...utils import replacing_copy, replacing_file, tcl_word, unique
 
 log = logging.getLogger(__name__)
@@ -582,6 +583,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             gt=0,
             description="Warn each time elaboration has unfolded this many more function calls "
             "(`-steps-warn-interval`; bsc's own default is 100000).",
+            json_schema_extra=count(),
         )
         steps_max_intervals: int = Field(
             6_000_000,
@@ -589,6 +591,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             description="Give up elaborating after this many `steps_warn_interval` warnings "
             "(`-steps-max-intervals`; bsc's own default is 10). The default only stops runaway "
             "elaborations, since large designs legitimately take many steps.",
+            json_schema_extra=count(),
         )
         haskell_runtime_flags: list[str] = Field(
             [],
@@ -1311,6 +1314,7 @@ class BscSim(BscFlow, SimFlow):
             description="Stop a Bluesim simulation after this many measured rising clock edges. "
             "The evidence script of Xeda confirms the count and the final time. A finish before the limit is "
             "also valid.",
+            json_schema_extra=count(),
         )
         system_verilog_tasks: bool = Field(
             True,
@@ -1335,6 +1339,7 @@ class BscSim(BscFlow, SimFlow):
             gt=0,
             description="Number of C++ files compiled at once when linking a Bluesim model "
             "(`-parallel-sim-link`). Defaults to `ncpus` when that is set, otherwise 1.",
+            json_schema_extra=count(),
         )
         c_flags: list[str] = Field(
             [], description="Arguments for the C compiler (`-Xc`), one per item."

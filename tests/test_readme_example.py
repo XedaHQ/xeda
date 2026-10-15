@@ -48,7 +48,7 @@ def test_the_comparison_sees_a_difference_between_the_copy_and_the_file(tmp_path
     assert "clock.port: clk" in readme
     changed = readme.replace("clock.port: clk", "clock.port: clock", 1)
     assert printed_example(changed, tmp_path) != load_yaml(EXAMPLE)
-    dropped = readme.replace("    clock.period: 5.0\n", "", 1)
+    dropped = readme.replace("    clock.period: 5 ns\n", "", 1)
     assert printed_example(dropped, tmp_path) != load_yaml(EXAMPLE)
 
 

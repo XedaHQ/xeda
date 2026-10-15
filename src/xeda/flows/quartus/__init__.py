@@ -10,6 +10,7 @@ from ...design import SourceType
 from ...flow import FpgaSynthFlow, describe_results, NoReplacement
 from ...tool import Docker, Tool
 from ...types import PathLike
+from ...units import count, ratio
 from ...utils import try_convert_to_primitives
 
 log = logging.getLogger(__name__)
@@ -106,7 +107,9 @@ class Quartus(FpgaSynthFlow):
         }
         # Intel part numbers (`fpga.part`) come in many formats.
         # See: https://www.intel.com/content/dam/www/central-libraries/us/en/documents/product-catalog.pdf
-        seed: Optional[int] = Field(None, description="Value of the Quartus `SEED` assignment.")
+        seed: Optional[int] = Field(
+            None, description="Value of the Quartus `SEED` assignment.", json_schema_extra=count()
+        )
         optimization_mode: Literal[
             "BALANCED",
             "HIGH PERFORMANCE EFFORT",
@@ -183,6 +186,7 @@ class Quartus(FpgaSynthFlow):
             "A value above 1 increases placement time and quality, and may reduce routing time "
             "for designs with routing congestion. A value of 4 increases fitting time by about 2 "
             "to 4 times and may improve quality.",
+            json_schema_extra=ratio(),
         )
         router_timing_optimization_level: Literal["Normal", "Maximum", "Minimum"] = Field(
             "Maximum",

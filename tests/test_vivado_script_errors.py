@@ -78,7 +78,7 @@ def _design(root: Path) -> Design:
     )
 
 
-FPGA = {"fpga": "xc7a12tcsg325-1", "clock": {"period": 10.0}}
+FPGA = {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}}
 
 
 @pytest.mark.skipif(not shutil.which("tclsh"), reason="the fake Vivado runs its TCL under tclsh")

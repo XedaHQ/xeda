@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass
 from types import UnionType
 from typing import (
+    Annotated,
     Any,
     Callable,
     ClassVar,
@@ -42,6 +43,7 @@ from ..dataclass import (
     input_names,
     model_validator,
 )
+from ..units import Quantity
 from .flow import _is_comma_separated_list, _is_optional_path, removed_message
 
 __all__ = ["Flag", "SettingsGroup", "group_problems", "render_flags"]
@@ -187,6 +189,18 @@ def _is_list(annotation: Any) -> bool:
     return get_origin(annotation) is list
 
 
+def _is_quantity(annotation: Any) -> bool:
+    """Return whether `annotation` is a quantity type, or an `Optional`, `Union` or `Annotated`
+    of one."""
+    if isinstance(annotation, type):
+        return issubclass(annotation, Quantity)
+    if get_origin(annotation) is Annotated:
+        return _is_quantity(get_args(annotation)[0])
+    if get_origin(annotation) in (Union, UnionType):
+        return any(_is_quantity(member) for member in get_args(annotation))
+    return False
+
+
 def _declaration_problems(cls: type[SettingsGroup]) -> list[str]:
     """Return what is wrong with the declaration of the group `cls`."""
     problems: list[str] = []
@@ -205,6 +219,12 @@ def _declaration_problems(cls: type[SettingsGroup]) -> list[str]:
         if flag.flag in cls.EXTRA_FLAGS:
             problems.append(f"`{flag.flag}` is in `FLAGS` and in `EXTRA_FLAGS`")
         annotation = field_annotation(cls, flag.field)
+        if _is_quantity(annotation):
+            problems.append(
+                f"`{flag.field}` is a quantity and cannot be in `FLAGS`, which prints it with its "
+                f"unit (`10 ns`): write the flag `{flag.flag}` in the template, with the value "
+                f"rendered by `| to(unit)`"
+            )
         if flag.kind not in FLAG_KINDS:
             problems.append(
                 f"the flag `{flag.flag}` has the kind {flag.kind!r}: use one of {', '.join(FLAG_KINDS)}"

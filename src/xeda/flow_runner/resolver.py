@@ -30,6 +30,7 @@ from ..flow.flow import NoReadableSource, written_path_problems
 from ..flow.fpga import FPGA
 from ..flow.io import declared_inputs, declared_outputs, selected_types
 from ..flow.synth import PhysicalClock
+from ..units import Quantity
 from .bindings import (
     BindingLayer,
     InputBinding,
@@ -468,6 +469,12 @@ def _error(cls: type[Flow], leaf: str, message: str) -> FlowSettingsError:
     return FlowSettingsError([(leaf, message, None, "shared_setting_conflict")], cls.Settings)
 
 
+def _shown(value: Any) -> str:
+    """Return `value` as a message shows it: a quantity as its text (`10 ns`), anything else
+    as its `repr`, so that text stays quoted."""
+    return str(value) if isinstance(value, Quantity) else repr(value)
+
+
 def _given_at(location: _Location | None) -> str:
     """Return ` at <where it was given>`, or nothing for a value that has no recorded origin."""
     return f" at {location.label}" if location else ""
@@ -540,7 +547,7 @@ def _normalized_leaves(
                     value = PhysicalClock.model_validate({"freq": value}).period
                     target = (*path[:-1], "period")
                 else:
-                    clock = PhysicalClock.model_validate({"period": 1, path[-1]: value})
+                    clock = PhysicalClock.model_validate({"period": "1 ns", path[-1]: value})
                     value = getattr(clock, path[-1])
             elif shared == "board":
                 # The board and database may come from different nodes. Lookup is valid
@@ -701,8 +708,9 @@ def _agree(
                     raise _error(
                         first.cls,
                         leaf,
-                        f"{first.cls.name} {leaf}={value!r} at {location.label} disagrees with "
-                        f"{other.cls.name} {leaf}={alternative!r} at {other_location.label}",
+                        f"{first.cls.name} {leaf}={_shown(value)} at {location.label} disagrees with "
+                        f"{other.cls.name} {leaf}={_shown(alternative)} at "
+                        f"{other_location.label}",
                     )
             _put(agreed, path[1:], value) if len(path) > 1 else agreed.update({shared: value})
             winning[path] = location

@@ -897,7 +897,7 @@ def test_the_map_files_resolve_against_the_design_root(tmp_path):
     flow = Yosys(
         Yosys.Settings(
             liberty=["lib/cells.lib"],
-            clock={"period": 5.0},
+            clock={"period": "5 ns"},
             arithmetic={"adder_map_file": "maps/add.v"},
             sequential={"clockgate_map_file": "maps/cg.v", "latch_map_file": "maps/latch.v"},
             techmap_files=["maps/a.v", "maps/b.v"],
@@ -919,7 +919,7 @@ def test_the_map_files_resolve_against_the_design_root(tmp_path):
     ]
     fpga = YosysFpga(
         YosysFpga.Settings(
-            fpga={"part": "xc7a12tcsg325-1"}, clock={"period": 5.0}, clockgate_map="maps/cg.v"
+            fpga={"part": "xc7a12tcsg325-1"}, clock={"period": "5 ns"}, clockgate_map="maps/cg.v"
         ),
         design,
         tmp_path / "yosys_fpga",

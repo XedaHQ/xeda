@@ -17,7 +17,7 @@ from xeda.flows import VivadoSynth
 from .test_vivado_step_tables import PART, _design
 from .tool_utils import use_fake_tools
 
-SETTINGS = {"fpga": PART, "clock": {"period": 5.5}}
+SETTINGS = {"fpga": PART, "clock": {"period": "5.5 ns"}}
 NAMES = ("", "xeda", "xeda.flow_runner", "xeda.flows.vivado", "not.xeda")
 
 
@@ -184,7 +184,7 @@ def test_a_direct_search_launch_logs_at_debug_when_asked(tmp_path, monkeypatch) 
     runner.run_flow(
         "vivado_alt_synth",
         design,
-        flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.0}},
+        flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": "5 ns"}},
     )
     assert seen == [True]
     assert logging.getLogger("xeda").level == logging.NOTSET

@@ -65,7 +65,7 @@ READERS = {
 
 #: settings with which each flow whose fake tool writes its reports runs through to success
 SUCCEEDING = {
-    "vivado_synth": {"fpga": {"part": "xc7a12tcsg325-1"}, "clock": {"period": 10.0}},
+    "vivado_synth": {"fpga": {"part": "xc7a12tcsg325-1"}, "clock": {"period": "10 ns"}},
 }
 
 

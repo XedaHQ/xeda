@@ -80,7 +80,7 @@ def _test_parse_reports():
     root_dir = Path("/Users/kamyar/src/xeda/examples/vhdl/pipeline")
     design = Design.from_file(root_dir / "pipelined_adder.yaml")
     run_path = root_dir / "xeda_run/pipelined_adder/quartus"
-    settings = Quartus.Settings(fpga={"part": "10CL016YU256C6G"}, clock={"period": 15})  # type: ignore
+    settings = Quartus.Settings(fpga={"part": "10CL016YU256C6G"}, clock={"period": "15 ns"})  # type: ignore
     flow = Quartus(settings, design, run_path=run_path)
     flow.init()
     flow.parse_reports()
@@ -119,7 +119,7 @@ def test_quartus_records_bitstream_as_artifact(tmp_path, monkeypatch) -> None:
     directory with no output directory of its own."""
     use_fake_tools(monkeypatch)
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
-    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock=dict(period=6.0))
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock=dict(period="6 ns"))
     flow = DefaultRunner(tmp_path / "run").run_flow(Quartus, design, settings)
     assert flow is not None and flow.succeeded
     calls = fake_calls(flow.run_path)
@@ -142,7 +142,7 @@ def _quartus_processes(tmp_path, monkeypatch, **settings) -> list:
     monkeypatch.setattr("xeda.tool.run_process", record)
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     flow = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
-        Quartus, design, dict(fpga=FPGA("10CL016YU256C6G"), clock=dict(period=6.0), **settings)
+        Quartus, design, dict(fpga=FPGA("10CL016YU256C6G"), clock=dict(period="6 ns"), **settings)
     )
     assert flow is not None and flow.quartus_sh is not None
     return started
@@ -175,7 +175,7 @@ def test_every_launch_of_quartus_has_its_own_tool(tmp_path, monkeypatch) -> None
     assert not isinstance(vars(Quartus).get("quartus_sh"), Tool)
     monkeypatch.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
-    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock=dict(period=6.0))
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock=dict(period="6 ns"))
     first = DefaultRunner(tmp_path / "one", display_results=False).launch_flow(
         Quartus, design, settings
     )
@@ -190,7 +190,7 @@ def test_quartus_synth_py(monkeypatch) -> None:
     use_fake_tools(monkeypatch)
     assert path.exists()
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
-    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock={"period": 6}, dockerized=False)
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock={"period": "6 ns"}, dockerized=False)
     with tempfile.TemporaryDirectory() as run_dir:
         print("Xeda run dir: ", run_dir)
         xeda_runner = DefaultRunner(run_dir, debug=True)

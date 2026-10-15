@@ -13,12 +13,12 @@ tb:
 flows:
   yosys_fpga:
     fpga.part: xc7a100tftg256-2L
-    clock.freq: 100MHz
+    clock.freq: 100 MHz
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clock.period: 5.0
+    clock.period: 5 ns
   vivado_alt_synth:
     fpga.part: xc7a100tftg256-2L
     synth.strategy: ExtraTiming
     impl.strategy: ExtraTimingCongestion
-    clock.period: 5.0
+    clock.period: 5 ns

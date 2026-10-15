@@ -32,7 +32,7 @@ COUNTER = (
     "  always @(posedge clk) if (rst) q <= 0; else q <= q + a;\n"
     "endmodule\n"
 )
-CLOCK = {"clock": {"period": 2.0}}
+CLOCK = {"clock": {"period": "2 ns"}}
 
 
 def _design(root: Path) -> Design:
@@ -142,7 +142,7 @@ def test_the_dont_use_cells_of_a_user_override_replace_those_of_the_liberty_file
 def test_a_setting_the_user_gave_wins_over_the_model(fake_yosys):
     flow, _ = _launch(
         fake_yosys,
-        abc={"driver_cell": "INV_X1", "load": 1.5},
+        abc={"driver_cell": "INV_X1", "load": "1.5 fF"},
         finish={
             "tie_cells": {"hi": ["TIEHI_BIG", "Z"], "lo": ["TIELO_X1", "Z"]},
             "buffer_cell": ["INV_X1", "A", "ZN"],
@@ -482,7 +482,7 @@ def test_a_corner_that_the_platform_lacks_is_refused_at_planning(fake_yosys):
 
 @pytest.mark.parametrize("name", ["driver_cell", "load"])
 def test_an_abc_cell_setting_without_a_liberty_mapping_names_the_ways_to_map(name):
-    value = "BUF_X1" if name == "driver_cell" else 1.5
+    value = "BUF_X1" if name == "driver_cell" else "1.5 fF"
     with pytest.raises(FlowSettingsError) as refused:
         Yosys.check_settings_supported(Yosys.Settings.from_input({"abc": {name: value}}))
     for text in ("`platform`", "`platform_file`", "`liberty`"):

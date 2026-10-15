@@ -1025,7 +1025,7 @@ def test_a_vivado_synthesis_precedes_the_loader_and_has_its_bitstream_switched_o
     tool_utils.use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
     design = _write_design(
-        tmp_path, flows={flow: {"fpga": A100T, "clock": {"period": 5.0}}}, name="top"
+        tmp_path, flows={flow: {"fpga": A100T, "clock": {"period": "5 ns"}}}, name="top"
     )
     result, document = _xeda(
         "run", f"{flow}+openfpgaloader", design, "--dry-run", "-s", f"fpga.part={A100T}"

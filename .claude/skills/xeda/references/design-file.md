@@ -91,7 +91,7 @@ rtl:
   clock.port: clk
 flows:
   vivado_synth:
-    clock.period: 5.0 # nanoseconds; clock.freq: 200MHz is the same clock
+    clock.period: 5 ns # clock.freq: 200 MHz is the same clock
 ```
 
 Several clocks:
@@ -105,17 +105,49 @@ rtl:
       name: aux
 flows:
   vivado_synth:
-    clocks.main_clock.period: 5.0
-    clocks.aux.freq: 100MHz
+    clocks.main_clock.period: 5 ns
+    clocks.aux.freq: 100 MHz
 ```
 
 Within one settings layer give `clock` or `clocks`, not both. Across layers the higher layer's
 `clock` merges into the canonical `clocks`. Clock names are keys, so they contain no dot.
 
-A clock takes `period` (ns) or `freq` (MHz) and derives the other; a consistent pair is accepted,
-a contradictory pair is an error. Values take units (`5.5ns`, `200MHz`, `0.2GHz`), and units are
-case-sensitive: `200mhz` is an error that names `MHz`. A clock also takes `rise`, `duty_cycle`,
-`uncertainty`, `skew` and `port`.
+A clock takes `period` (a time) or `freq` (a frequency) and derives the other; a consistent pair is
+accepted, a contradictory pair is an error. Every time and frequency needs a unit (`5.5 ns`,
+`200 MHz`, `0.2 GHz`); a bare number is refused. Units are case-sensitive: `200mhz` is an error
+that names `MHz`. A clock also takes `rise`, `uncertainty` and `skew` (times), `duty_cycle` (a
+fraction) and `port`.
+
+## Units
+
+A setting whose `type` in `xeda list-settings <flow> --json` is a kind (`time`, `frequency`,
+`capacitance`, `length`, `voltage`, `resistance`) holds a quantity: one number, an optional space
+and one unit, and nothing else (`5 ns * 2` is an error). A bare number is an error. Units are
+case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
+
+| Kind | Units | `settings.json` writes |
+| --- | --- | --- |
+| time | `fs`, `ps`, `ns`, `us`, `µs` (micro sign, U+00B5), `ms`, `s`, `min`, `h` | `ns` |
+| frequency | `Hz`, `kHz`, `MHz`, `GHz` | `MHz` |
+| capacitance | `fF`, `pF`, `nF` | `fF` |
+| length | `nm`, `um`, `mm`, `µm` (micro sign, U+00B5) | `um` |
+| voltage | `mV`, `V` | `V` |
+| resistance | `ohm`, `kohm`, `Mohm` | `ohm` |
+
+- Write `clock.period: 2.5 ns` in YAML, `"2.5 ns"` as a string in TOML and JSON, and
+  `-s clock.period=2.5ns` on the command line (no space, so no quotes; with a space, quote the
+  item).
+- `10 ns`, `10000 ps` and `0.01 us` are one value and one run identity. `settings.json` writes
+  `10 ns` for all three.
+- Other numbers stay plain: counts, ratios and fractions, percentages (the name ends in
+  `_percent`), sizes of data (the description names the unit) and values "in the units of the
+  library" (passed to the tool unconverted).
+- These keep their current form and are not quantities: `stop_time` (ns, or text such as `100us`),
+  `timeout` (s), `prerun_time` (text such as `10ns`), `time_unit`, `time_resolution` and
+  `lic_wait` of `vcs`, the Vivado `default_{max,min}_{input,output}_delay` (ns), `hold_detour_max`
+  of `nextpnr` (ns), `freq` of `openfpgaloader` (Hz), and the numbers of `dc` and `xeda dse`. A
+  unit on one that takes a plain number fails with a type error ("unable to parse string as a
+  number" or "... as an integer").
 
 ## Source files
 
@@ -211,10 +243,10 @@ A section applies only when that flow is in the run.
 flows:
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clock.period: 5.0
+    clock.period: 5 ns
   yosys:
     platform: nangate45
-    clock.period: 10.0
+    clock.period: 10 ns
   ghdl_sim:
     stop_time: 100us
 ```
@@ -328,7 +360,7 @@ designs:
 flows:
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clock.period: 5.0
+    clock.period: 5 ns
 ```
 
 - Top-level keys: `designs` (`design`) and `flows` (`flow`). Any other key fails with

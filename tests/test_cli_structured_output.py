@@ -14,6 +14,7 @@ stream) that must not leak into other tests.
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -158,6 +159,31 @@ def test_list_settings_preserves_single_value_literal_choices(flow):
     assert by_name["stop_after"]["required"] is False
 
 
+def test_list_settings_json_names_the_kind_of_a_quantity():
+    """A setting that holds a measurement lists its kind (`time`), not `string`. The text of the
+    schema keeps `type: string` and names the kind in `x-xeda-quantity`."""
+    info = json.loads(run_xeda("list-settings", "yosys", "--json").stdout)
+    by_name = {f["name"]: f for f in info["fields"]}
+    assert by_name["abc.load"]["type"] == "capacitance"
+    assert by_name["abc.max_slew"]["type"] == "time"
+    # a union lists its branches by type; the text `auto` is a string
+    assert by_name["abc.delay_target"]["type"] == "string | time"
+    load = by_name["abc.load"]["json_schema"]
+    quantity = next(b for b in load["anyOf"] if "x-xeda-quantity" in b)
+    assert (quantity["type"], quantity["x-xeda-quantity"]) == ("string", "capacitance")
+    clock = info["definitions"]["PhysicalClock"]["properties"]
+    assert (clock["period"]["type"], clock["period"]["x-xeda-quantity"]) == ("string", "time")
+    assert clock["freq"]["x-xeda-quantity"] == "frequency"
+
+
+def test_list_settings_table_names_the_kind_of_the_properties_of_a_clock():
+    out = run_xeda("list-settings", "yosys").stdout
+    clock = out[out.index("Type PhysicalClock") :]
+    assert re.search(r"^\W*period\W+time\W", clock, re.M), clock
+    assert re.search(r"^\W*freq\W+frequency\W", clock, re.M), clock
+    assert re.search(r"^\W*abc\.load\W+capacitance\W", out, re.M), out
+
+
 def test_list_settings_no_common_excludes_shared_settings():
     info = json.loads(run_xeda("list-settings", "vivado_synth", "--json", "--no-common").stdout)
     assert all(not f["common"] for f in info["fields"])
@@ -199,7 +225,7 @@ def test_run_json_stdout_carries_only_the_json_document(tmp_path):
         "vivado_synth",
         str(SQRT_DESIGN),
         "-s",
-        "clock.period=5.5",
+        "clock.period=5.5ns",
         "--json",
         cwd=tmp_path,
         fake_tools=True,
@@ -223,7 +249,7 @@ def test_run_design_file_option_selects_the_design(tmp_path):
         "--design-file",
         str(SQRT_DESIGN),
         "-s",
-        "clock.period=5.5",
+        "clock.period=5.5ns",
         "--json",
         cwd=tmp_path,
         fake_tools=True,
@@ -277,7 +303,7 @@ def test_help_does_not_require_a_terminal():
 def test_clean_empties_the_run_directory_before_running(tmp_path):
     """`--clean` empties the run directory before running: the CLI never asks the launcher for
     backups -- the previous run's own files are simply gone."""
-    args = ("run", "vivado_synth", str(SQRT_DESIGN), "-s", "clock.period=5.5", "--json")
+    args = ("run", "vivado_synth", str(SQRT_DESIGN), "-s", "clock.period=5.5ns", "--json")
     first = json.loads(run_xeda(*args, cwd=tmp_path, fake_tools=True).stdout)
     run_path = Path(first["run_path"])
     (run_path / "MARKER").write_text("from the previous run\n")

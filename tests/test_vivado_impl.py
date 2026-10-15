@@ -75,7 +75,7 @@ BLINKY_OVER_A_COUNTER = (
 PINS = "set_property -dict {PACKAGE_PIN W5 IOSTANDARD LVCMOS33} [get_ports clk]\n"
 TOP = "blinky"
 #: the settings of a run: the device and a clock, given once, to the node that is requested
-SETTINGS = {"fpga": PART, "clock": {"period": 10.0}}
+SETTINGS = {"fpga": PART, "clock": {"period": "10 ns"}}
 #: an EDIF netlist as a design lists it, whatever its file is called
 NETLIST = (
     "(edif other (edifVersion 2 0 0) (edifLevel 0) (keywordMap (keywordLevel 0))\n"
@@ -114,7 +114,7 @@ def _edif_design(root: Path, **kwargs) -> Design:
 
 
 #: the device and clock as command-line items, for a request that names its flows by chain
-_DEV = ["fpga=xc7a35tcpg236-1", "clock.period=10.0"]
+_DEV = ["fpga=xc7a35tcpg236-1", "clock.period=10ns"]
 SIM_INPUTS = ("netlist", "netlist_timing", "sdf")
 
 
@@ -216,7 +216,7 @@ def test_vivado_impl_takes_the_edif_netlist_of_yosys_fpga_by_default(tmp_path) -
         # one clock and one device for both, from the one node that gave them
         for node in plan.nodes:
             assert node.settings.fpga.part == PART
-            assert node.settings.main_clock.period == 10.0
+            assert node.settings.main_clock.period.to("ns") == 10.0
 
 
 def test_nextpnr_still_takes_the_json_netlist(tmp_path) -> None:
@@ -1013,7 +1013,7 @@ def test_the_bindings_the_documentation_gives_for_the_power_chain_make_it_plan(t
                 "name": "blinky",
                 "rtl": {"sources": ["blinky.v", "pins.xdc"], "top": TOP, "clock": {"port": "clk"}},
                 "tb": {"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
-                "flows": {"vivado_impl": {"fpga": {"part": PART}, "clock": {"period": 10.0}}},
+                "flows": {"vivado_impl": {"fpga": {"part": PART}, "clock": {"period": "10 ns"}}},
             }
         )
     )

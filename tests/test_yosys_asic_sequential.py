@@ -561,7 +561,7 @@ def _run_real(tmp_path: Path, script_format: str, **given: Any):
     """Run `yosys` on the `en` design and the `tiny` platform with a clock-gating cell."""
     store = _store_with_clock_gate(tmp_path)
     design = _enable_design(tmp_path / "design")
-    settings = tiny_settings(store, clock={"period": 2.0}, script_format=script_format, **given)
+    settings = tiny_settings(store, clock={"period": "2 ns"}, script_format=script_format, **given)
     with contextlib.suppress(FlowException):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/en/yosys/results.json")
@@ -698,7 +698,7 @@ def _run_mac(tmp_path: Path, script_format: str, **given: Any):
     """Run `yosys` on the `mac` design, whose module `mul8` the flattening dissolves."""
     design = _design(tmp_path / "design")
     settings = tiny_settings(
-        tiny_store(tmp_path), clock={"period": 2.0}, script_format=script_format, **given
+        tiny_store(tmp_path), clock={"period": "2 ns"}, script_format=script_format, **given
     )
     with contextlib.suppress(FlowException):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)

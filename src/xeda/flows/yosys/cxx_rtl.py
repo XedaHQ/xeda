@@ -16,6 +16,7 @@ from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import read_sim_evidence
 from ...flows.ghdl import GhdlSynth
 from ...tool import NonZeroExitCode
+from ...units import count
 from .common import READ_SOURCE_TYPES, YosysBase, YosysSynthesisBase, process_parameters
 
 log = logging.getLogger(__name__)
@@ -34,8 +35,8 @@ class CxxRtl(XedaBaseModel):
     flatten: bool = True
     hierarchy: bool = True
     proc: bool = True
-    debug: Optional[int] = None
-    opt: Optional[int] = None
+    debug: Optional[int] = Field(None, json_schema_extra=count())
+    opt: Optional[int] = Field(None, json_schema_extra=count())
     namespace: Optional[str] = None
     ccflags: List[str] = []
 

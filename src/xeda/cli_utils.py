@@ -40,6 +40,7 @@ from .cli_types import (
     OptionEatAll as OptionEatAll,
     OUTPUT_FORMATS as OUTPUT_FORMATS,
     TIER_NAMES,
+    _is_key_value,
     output_format_option as output_format_option,
 )
 from .console import console, console_target, redirect_console, restore_console
@@ -47,6 +48,7 @@ from .design import Design
 from .flow import Flow
 from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
 from .introspect import settings_info, type_str
+from .units import is_number_text, is_quantity_unit
 from .xedaproject import XedaProject
 
 __all__ = [
@@ -66,6 +68,7 @@ __all__ = [
     "print_flow_settings",
     "requested_output_format",
     "reraise_suggesting_visible",
+    "unit_after_space_hint",
     "wants_machine_readable",
 ]
 
@@ -192,14 +195,53 @@ def reraise_suggesting_visible(
     ) from error
 
 
+_EXTRA_ARGUMENT = "Got unexpected extra argument ("
+
+
+def unit_after_space_hint(message: str, args: Sequence[str]) -> Optional[str]:
+    """Return the hint for a unit that a user wrote after a space, or None.
+
+    `-s clock.period=5.5 ns` ends the list of `KEY=VALUE` items at `ns`, and click reports `ns` as
+    an extra argument. `message` is the text of that error and `args` the command line. The hint
+    applies when the first extra argument is exactly a unit of a quantity and the token before it
+    is an item whose value is a number.
+    """
+    if not message.startswith(_EXTRA_ARGUMENT):
+        return None
+    unit = message.removeprefix(_EXTRA_ARGUMENT).split(" ", 1)[0].removesuffix(")")
+    if not is_quantity_unit(unit):
+        return None
+    for index in range(1, len(args)):
+        if args[index] != unit:
+            continue
+        item = args[index - 1]
+        key, _, value = item.partition("=")
+        if not _is_key_value(item) or not is_number_text(value.strip()):
+            continue
+        option = next((t for t in reversed(args[: index - 1]) if t.startswith("-")), None)
+        prefix = f"{option} " if option is not None else ""
+        return (
+            f"Write the unit without a space ({prefix}{key}={value.strip()}{unit}), or quote the "
+            f'item ({prefix}"{key}={value.strip()} {unit}").'
+        )
+    return None
+
+
 class XedaCommand(ColorizedCommand):
-    """The command class of the Xeda commands. It suggests only options that its help lists."""
+    """The command class of the Xeda commands. It suggests only options that its help lists, and
+    explains a unit that a user wrote after a space."""
 
     def parse_args(self, ctx: click.Context, args: List[str]) -> List[str]:
+        command_line = list(args)  # the parser consumes `args`
         try:
             return super().parse_args(ctx, args)
         except click.NoSuchOption as error:
             reraise_suggesting_visible(self, ctx, error)
+        except click.UsageError as error:
+            hint = unit_after_space_hint(error.message, command_line)
+            if hint is None:
+                raise
+            raise click.UsageError(f"{error.message}. {hint}", ctx=error.ctx) from error
 
 
 class DeclaredEnvvarsCommand(XedaCommand):

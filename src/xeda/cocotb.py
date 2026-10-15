@@ -18,6 +18,7 @@ from .dataclass import (
 )
 from .design import Design, SourceType
 from .tool import Tool
+from .units import count
 
 log = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ class CocotbSettings(XedaBaseModel):
         description="Seed of the Python random module (`COCOTB_RANDOM_SEED`): the same seed "
         'recreates the same test stimulus. "random" lets cocotb draw a new seed on every run, '
         "so the flow then always runs and is never reused.",
+        json_schema_extra=count(),
     )
     gpi_extra: List[str] = Field(
         [],

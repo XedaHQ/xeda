@@ -5,9 +5,11 @@ from abc import ABCMeta
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Dict, Optional, Union
 
+from pydantic import TypeAdapter
+
 from ..dataclass import Field, XedaBaseModel, field_validator, model_validator
 from ..design import Clock, Design
-from ..units import convert_unit
+from ..units import Bounds, Frequency, QuantityError, Time, ratio
 from ..utils import first_key, first_value
 from .flow import Flow, FlowSettingsError
 from .fpga import FPGA
@@ -24,40 +26,36 @@ __all__ = [
 
 class PhysicalClock(XedaBaseModel):
     name: Optional[str] = None
-    period: Optional[float] = Field(
-        None,
-        description="Clock period in ns. Specify `period` or `freq`; a consistent pair is also accepted.",
+    period: Annotated[Time, Bounds(gt="0 ns")] = Field(
+        ...,
+        description="Clock period, a time with a unit, such as `10 ns`. Specify `period` or "
+        "`freq`; a consistent pair is also accepted.",
     )
-    rise: float = Field(0.0, description="Time of the rising edge of the clock, in ns.")
+    rise: Time = Field(
+        Time("0 ns"),
+        description="Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`.",
+    )
     duty_cycle: Annotated[float, Field(gt=0.0, lt=1.0)] = Field(
-        0.5, description="Duty cycle, between 0.0 and 1.0 (exclusive)."
+        0.5,
+        description="Duty cycle, between 0.0 and 1.0 (exclusive).",
+        json_schema_extra=ratio(),
     )  # type: ignore
-    uncertainty: Optional[float] = Field(None, description="Clock uncertainty, in ns.")
-    skew: Optional[float] = Field(None, description="Clock skew, in ns.")
-    port: Optional[str] = Field(None, description="The design port of the clock.")
-
-    @field_validator(
-        "period",
-        "rise",
-        "uncertainty",
-        "skew",
-        mode="before",
-        json_schema_input_type=float | str | None,
+    uncertainty: Optional[Time] = Field(
+        None, description="Clock uncertainty, a time with a unit, such as `0.1 ns`."
     )
-    @classmethod
-    def time_validator(cls, value):
-        if value is not None:
-            return convert_unit(value, "nanosecond")
-        return value
+    skew: Optional[Time] = Field(
+        None, description="Clock skew, a time with a unit, such as `0.05 ns`."
+    )
+    port: Optional[str] = Field(None, description="The design port of the clock.")
 
     @field_validator("duty_cycle", mode="before", json_schema_input_type=float | str)
     @classmethod
     def duty_cycle_validator(cls, value):
         """Validate the duty cycle as a unitless fraction.
 
-        Unlike the other clock timing fields, `duty_cycle` is a ratio and not a duration.
-        Passing it through `convert_unit` would accept values such as `"0.5ns"` and reject the
-        more useful percentage spelling with an opaque dimensionality error. Numeric strings stay
+        Unlike the other clock timing fields, `duty_cycle` is a ratio and not a duration. A
+        string that carries a unit (`"0.5ns"`) would otherwise reach pydantic's float parser and
+        fail with an opaque message, and the percentage spelling would too. Numeric strings stay
         accepted, because command-line overrides arrive as strings. Strings that carry a unit,
         and other non-numeric values, are rejected before pydantic applies the
         `0 < duty_cycle < 1` bounds.
@@ -76,50 +74,22 @@ class PhysicalClock(XedaBaseModel):
         return value
 
     @property
-    def fall(self) -> float:
-        if not self.period:
-            return 0
-        assert isinstance(self.duty_cycle, float)
-        f = self.rise + (self.period * self.duty_cycle)
-        if f >= self.period:
+    def fall(self) -> Time:
+        """The time of the falling edge of the clock."""
+        period = self.period.to("ns")
+        fall = self.rise.to("ns") + (period * self.duty_cycle)
+        if fall >= period:
             raise ValueError("Fall time is beyond the period")
-        return f
+        return Time.of(fall, "ns")
 
     @property
-    def freq_mhz(self) -> float:
-        if not self.period:
-            return 0
-        return 1000.0 / self.period
-
-    @property
-    def freq(self) -> float:
-        """Clock frequency in MHz, derived from the one stored constraint (`period`)."""
-        return self.freq_mhz
+    def freq(self) -> Frequency:
+        """Clock frequency, derived from the one stored constraint (`period`)."""
+        return Frequency.of(1000.0 / self.period.to("ns"), "MHz")
 
     @freq.setter
-    def freq(self, value: Any) -> None:
-        value = float(convert_unit(value, "MHz"))
-        if value <= 0:
-            raise ValueError(f"Clock frequency must be positive, got {value}")
-        self.period = 1000.0 / value
-
-    @property
-    def period_ps(self) -> float:
-        if not self.period:
-            return 0
-        return convert_unit(self.period, to_unit="picosecond", from_unit="nanosecond")
-
-    @period_ps.setter
-    def period_ps(self, period):
-        """Accept a period in picoseconds and store it in nanoseconds."""
-        self.period = convert_unit(period, to_unit="nanosecond", from_unit="picosecond")
-
-    def period_unit(self, unit: str) -> float:
-        unit = unit.strip()
-        assert self.period is not None
-        if not unit:
-            return self.period
-        return convert_unit(self.period, to_unit=unit, from_unit="nanosecond")
+    def freq(self, value: str | Frequency) -> None:
+        self.period = _period_of(_frequency(value))
 
     @classmethod
     def __get_pydantic_json_schema__(cls, core_schema, handler):
@@ -129,17 +99,13 @@ class PhysicalClock(XedaBaseModel):
         """
         schema = handler(core_schema)
         properties = schema.setdefault("properties", {})
-        period_schema = properties.get("period", {})
-        period_schema.pop("default", None)
-        if "anyOf" in period_schema:
-            period_schema["anyOf"] = [
-                branch for branch in period_schema["anyOf"] if branch.get("type") != "null"
-            ]
         properties["freq"] = {
-            "anyOf": [{"type": "number"}, {"type": "string"}],
-            "description": "Clock frequency in MHz. A number or a string with a frequency unit.",
+            **TypeAdapter(Frequency).json_schema(),
+            "description": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify "
+            "`freq` or `period`; a consistent pair is also accepted.",
             "title": "Freq",
         }
+        schema.pop("required", None)
         schema["anyOf"] = [{"required": ["period"]}, {"required": ["freq"]}]
         return schema
 
@@ -147,10 +113,10 @@ class PhysicalClock(XedaBaseModel):
     @classmethod
     def root_validate_phys_clock(cls, values: Dict[str, Any], info) -> Dict[str, Any]:
         # This is a `before` validator, so values are still raw here: a CLI override such as
-        # `-s clock.period=5.5` arrives as the string "5.5". Normalize before any arithmetic,
-        # because dividing by the raw value fails with "unsupported operand type(s) for /".
+        # `-s clock.period=5.5ns` arrives as the string "5.5ns". The field validation of `period`
+        # reads it. Only `freq` is read here, because it is no stored field: it becomes `period`.
         # Test `is not None` at every step, never truthiness: a zero frequency is a value the
-        # user supplied and must reach the "must be positive" check below. Under `if freq:` it
+        # user supplied and must reach the "greater than 0 MHz" check below. Under `if freq:` it
         # would look the same as an omitted `freq` and produce "Neither `freq` nor `period` was
         # specified", which names the wrong problem. The same holds for `period`.
         #
@@ -165,28 +131,42 @@ class PhysicalClock(XedaBaseModel):
             # concerns it; `freq = ...` is a property assignment that writes `period`.
             return values
         freq = values.pop("freq", None)
-        if freq is not None:
-            freq = float(convert_unit(freq, "MHz"))
-            if freq <= 0:
-                raise ValueError(f"Clock frequency must be positive, got {freq}")
         period = values.get("period")
-        if period is not None:
-            period = convert_unit(period, "nanosecond")
-            if period <= 0:
-                raise ValueError(f"Clock period must be positive, got {period}")
-            if freq is not None and abs(period - 1000.0 / freq) > 0.0005:
-                raise ValueError(
-                    f"Clock period ({period} ns) and frequency ({freq} MHz) disagree; "
-                    "specify one, or make them consistent"
-                )
-            values["period"] = period
-        elif freq is not None:
-            values["period"] = 1000.0 / freq
-        else:
+        if freq is not None:
+            freq = _frequency(freq)
+            if period is None:
+                values["period"] = _period_of(freq)
+            else:
+                try:
+                    given = Time(period)
+                except QuantityError:
+                    given = None  # the field validation of `period` names the problem
+                if given is not None and abs(given.to("ns") - _period_of(freq).to("ns")) > 0.0005:
+                    raise ValueError(
+                        f"Clock period ({given}) and frequency ({freq}) disagree; "
+                        "specify one, or make them consistent"
+                    )
+        elif period is None:
             raise ValueError("Neither `freq` nor `period` was specified")
         if not values.get("name"):
             values["name"] = ""
         return values
+
+
+def _frequency(value: Any) -> Frequency:
+    """Read the `freq` of a clock: a frequency greater than 0 MHz."""
+    try:
+        freq = Frequency(value)
+    except QuantityError as error:
+        raise ValueError(f"`freq`: {error}") from None
+    if not freq > Frequency("0 MHz"):
+        raise ValueError(f"`freq`: must be greater than 0 MHz, got {freq}")
+    return freq
+
+
+def _period_of(freq: Frequency) -> Time:
+    """The period of a clock of frequency `freq`."""
+    return Time.of(1000.0 / freq.to("MHz"), "ns")
 
 
 def find_matching_clock(design_clocks: list[Clock], name: str):

@@ -190,7 +190,7 @@ CASES = [
         "vivado_synth",
         ("inv.vhd", VHDL_INVERTER),
         ("tb.vhd", VHDL_TB),
-        {"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.5}},
+        {"fpga": "xc7a12tcsg325-1", "clock": {"period": "5.5 ns"}},
         "fake",
     ),
     Case("yosys", ("inv.v", VERILOG_RTL), ("tb.v", VERILOG_TB), {}, "yosys"),

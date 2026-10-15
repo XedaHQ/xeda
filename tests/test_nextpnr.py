@@ -37,7 +37,7 @@ def make_flow(tmp_path: Path, report: Any, family: str = "ecp5") -> Nextpnr:
         name="dummy",
         rtl={"sources": [], "top": "dummy", "clock": "clk"},  # type: ignore[arg-type]
     )
-    settings = Nextpnr.Settings(fpga=FPGA(family=family), clock={"period": 5.0})  # type: ignore[call-arg]
+    settings = Nextpnr.Settings(fpga=FPGA(family=family), clock={"period": "5 ns"})  # type: ignore[call-arg]
     flow = Nextpnr(settings, design, tmp_path)
     report_path = tmp_path / str(settings.report)
     if report is not None:
@@ -486,7 +486,7 @@ def test_nextpnr_ice40_end_to_end(tmp_path, monkeypatch):
     flow = DefaultRunner(tmp_path / "runs").run_flow(
         Nextpnr,
         design,
-        {"fpga": "iCE40HX1K-TQ144", "clock": {"period": 20.0}, "pcf_allow_unconstrained": True},
+        {"fpga": "iCE40HX1K-TQ144", "clock": {"period": "20 ns"}, "pcf_allow_unconstrained": True},
     )
     assert flow is not None and flow.succeeded
     assert (flow.run_path / "config.asc").is_file()
@@ -622,7 +622,7 @@ def test_nextpnr_runs_with_its_device_given_only_for_yosys_fpga(tmp_path, monkey
     )
     monkeypatch.chdir(tmp_path)
     flow = DefaultRunner(tmp_path / "xeda_run").run(
-        Nextpnr, design, flow_overrides={"clock": {"period": 20.0}}
+        Nextpnr, design, flow_overrides={"clock": {"period": "20 ns"}}
     )
     assert flow is not None and flow.succeeded
     assert flow.settings.fpga is not None and flow.settings.fpga.part == "LFE5U-25F-6BG381C"
@@ -778,7 +778,7 @@ def test_nextpnr_ice40_places_a_netlist_with_src_unless_told_otherwise(
         _blink(tmp_path, flows),
         flow_settings=[
             "fpga=iCE40HX1K-TQ144",
-            "clock.period=20.0",
+            "clock.period=20ns",
             "pcf_allow_unconstrained=true",
         ],
     )

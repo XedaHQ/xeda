@@ -137,7 +137,7 @@ options.
 
 The command line takes dotted keys for nested values, and you can give several at once::
 
-    xeda run vivado_synth sqrt.yaml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
+    xeda run vivado_synth sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
 
 A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an error that names
 ``timing`` and ``timing.x``, and so is the same pair in the other order. The same holds in a
@@ -213,6 +213,200 @@ nothing with it.
 
 ``xeda list-settings <flow>`` lists these settings under *Common settings*. Pass ``--no-common``
 to see only the settings of the flow itself.
+
+.. _quantities:
+
+Physical quantities and units
+-----------------------------
+
+A setting that holds a physical measurement takes a number and a unit, such as ``5 ns``. A number
+without a unit is an error. It means nothing: ``5`` can be 5 ns, 5 ps or 5 MHz. Xeda never guesses
+the unit. A few settings do not follow this rule yet. The last part of this section lists them.
+
+Each such setting has a *kind*. The kind is what the setting measures: a time, a frequency, a
+capacitance, a length, a voltage or a resistance. The kind decides which units the setting takes.
+``clock.period`` is a time, ``clock.freq`` is a frequency, and ``abc.load`` of ``yosys`` is a
+capacitance. ``xeda list-settings <flow>`` shows the kind of a setting in its type column: ``time``
+and not ``string``. The JSON output shows it too (see :ref:`machine-readable-settings`).
+
+Writing a quantity
+~~~~~~~~~~~~~~~~~~
+
+A quantity is one number, optional spaces and one unit. Spaces around the whole value do not
+matter. The number has an optional sign, digits, an optional decimal point and an optional
+exponent. ``10``, ``-2.5``, ``.5`` and ``1e3`` are numbers. Nothing else is a quantity. An
+expression such as ``5 ns * 2`` is an error, and so is a digit separator, as in ``1_000 ns``.
+
+In a design file, a quantity is plain text:
+
+.. code-block:: yaml
+
+    # clock-units.yaml
+    name: clock_units
+    rtl:
+      top: top
+      sources:
+        - top.v
+      clock.port: clk
+    flows:
+      yosys:
+        clock.period: 2.5 ns
+        liberty:
+          - cells.lib
+        abc:
+          delay_target: 500 ps
+          load: 3.9 fF
+      nextpnr:
+        clock.freq: 400 MHz
+
+In a TOML or a JSON file, write a quantity as a string: ``period = "2.5 ns"``. On the command line,
+write the number and the unit without a space. The shell then passes one word, and the item needs
+no quotes: ``-s clock.period=2.5ns``. With a space, quote the whole item:
+``-s "clock.period=2.5 ns"``. Without the quotes, the list of ``-s`` items ends at the unit, and
+Xeda reports the unit as an unexpected extra argument, with a hint.
+
+Kinds and units
+~~~~~~~~~~~~~~~
+
+Each kind takes the units of its row in this table. Xeda writes a quantity into ``settings.json``
+in the unit of the last column, whatever unit you wrote: ``10000 ps`` becomes ``10 ns``.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 52 30
+
+   * - Kind
+     - Units
+     - Unit in ``settings.json``
+   * - time
+     - ``fs``, ``ps``, ``ns``, ``us``, ``µs``, ``ms``, ``s``, ``min``, ``h``
+     - ``ns``
+   * - frequency
+     - ``Hz``, ``kHz``, ``MHz``, ``GHz``
+     - ``MHz``
+   * - capacitance
+     - ``fF``, ``pF``, ``nF``
+     - ``fF``
+   * - length
+     - ``nm``, ``um``, ``mm``, and ``µm`` with the micro sign (U+00B5)
+     - ``um``
+   * - voltage
+     - ``mV``, ``V``
+     - ``V``
+   * - resistance
+     - ``ohm``, ``kohm``, ``Mohm``
+     - ``ohm``
+
+Units are case-sensitive, as in SI: ``MHz`` is megahertz, and ``mHz`` is millihertz. A unit in the
+wrong case is an error that names the right spelling. Xeda takes only the units in the table. A
+spelled-out name such as ``nanoseconds`` is an error that lists the units of the kind. A unit
+with the prefix ``u`` (micro) can also be written with the micro sign (U+00B5): ``µs`` is ``us``.
+
+Two spellings of one value are the same value. ``10 ns``, ``10000 ps`` and ``0.01 us`` are the
+same time. Runs that differ only in such a spelling have the same identity, so Xeda reuses the
+results of one for the other. A clock written as a frequency is the same clock as one written as a
+period: ``clock.freq: 100 MHz`` is ``clock.period: 10 ns``.
+
+Errors
+~~~~~~
+
+Xeda reports a quantity that it cannot read when it plans the run, before any tool starts. The
+report names the setting and gives a message. These are the common messages. A number without a
+unit, as in ``clock.period: 10``, gives this message:
+
+.. code-block:: text
+
+    `10` needs a unit, such as `10 ns`: a bare number does not mean anything
+
+A unit of another kind, as in ``clock.period: 5 MHz``:
+
+.. code-block:: text
+
+    `5 MHz` is a frequency, not a time
+
+A unit in the wrong case, as in ``abc.load: 3.9 ff``:
+
+.. code-block:: text
+
+    unit `ff` in `3.9 ff`: units are case-sensitive, did you mean `fF`?
+
+Text that is no quantity at all, as in ``clock.period: 5 ns * 2`` or ``clock.period: fast``:
+
+.. code-block:: text
+
+    cannot read `5 ns * 2` as a time: write one number and one unit, such as `10 ns`
+
+A unit that is not in the table, as in ``clock.period: 10 nanoseconds``:
+
+.. code-block:: text
+
+    unknown unit `nanoseconds` in `10 nanoseconds`: a time takes one of fs, ps, ns, us, µs, ms, s, min, h
+
+A value outside the limits of the setting, as in ``clock.period: -1 ns``:
+
+.. code-block:: text
+
+    must be greater than 0 ns, got -1 ns
+
+Settings that are plain numbers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A setting that holds a plain number takes no unit. These settings hold plain numbers:
+
+* A count: a number of items, bits or steps, or a level, an index or a seed. Examples are an
+  iteration limit, a fanout, a verbosity level and a random seed. A count is a whole number.
+* A ratio or a fraction: a number with no unit that is not a count. Examples are a utilization of
+  ``0.5``, a duty cycle and the weight of a term in a placer.
+* A percentage. The name of such a setting ends in ``_percent``, and ``5`` means 5 percent.
+* A size of data. The description of the setting names the unit. For example, ``fsdb_size_limit``
+  of ``vcs`` is in megabytes, and ``offset`` of ``openfpgaloader`` is in bytes.
+* A value in the units of the library. The description of such a setting says "in the units of the
+  library". Only the Liberty file of the library knows the unit, for example ``ns`` or ``ps`` for a
+  time. Xeda passes the number to the tool as it is.
+
+Settings that do not take units yet
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The settings in this table hold a time, a frequency or another measurement, but they do not take
+a quantity. Each keeps its current form. A setting that takes a number refuses text with a unit.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 24 36
+
+   * - Setting
+     - Flows
+     - Current form
+   * - ``stop_time``
+     - simulation flows
+     - a number of nanoseconds, or text with a unit, such as ``100us``
+   * - ``timeout``
+     - simulation flows
+     - a number of seconds
+   * - ``prerun_time``
+     - Vivado simulation flows
+     - text with a unit, such as ``10ns``
+   * - ``time_unit``, ``time_resolution``
+     - ``vcs``
+     - text such as ``1ns`` and ``1ps``
+   * - ``lic_wait``
+     - ``vcs``
+     - a whole number
+   * - ``default_max_input_delay``, ``default_min_input_delay``, ``default_max_output_delay``,
+       ``default_min_output_delay``
+     - Vivado synthesis and implementation flows
+     - a number of nanoseconds
+   * - ``hold_detour_max``
+     - ``nextpnr``
+     - a number of nanoseconds
+   * - ``freq``
+     - ``openfpgaloader``
+     - a whole number of hertz
+
+The ``dc`` flow keeps the form of its own numbers, such as ``default_max_input_delay``. Its clock
+settings need a unit, as in every other flow. ``xeda dse`` keeps the form of its options and
+optimizer settings: the frequency bounds (``--init-freq-low`` and ``--init-freq-high``),
+``resolution``, ``delta``, ``max_runtime_minutes`` and ``timeout`` are plain numbers.
 
 .. _settings-groups:
 
@@ -622,7 +816,7 @@ synthesis, bind the inputs of both flows to it:
     flows:
       vivado_alt_synth:
         fpga.part: xc7a35tcpg236-1
-        clock.period: 5.0
+        clock.period: 5 ns
       vivado_postsynth_sim:
         inputs:
           netlist: vivado_alt_synth.netlist
@@ -661,7 +855,7 @@ binding is the only switch:
     flows:
       vivado_synth:
         fpga.part: xc7a35tcpg236-1
-        clock.period: 5.0
+        clock.period: 5 ns
       vivado_power:
         inputs:
           activity: vivado_postsynth_sim.saif
@@ -799,7 +993,7 @@ opt-in. A faster or smaller Yosys netlist alone does not show an improvement in 
 For example, list ``{file: "pins.pcf", type: Pcf}`` in ``rtl.sources``, then run::
 
     xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 \
-      -s clock.period=20 -s seed=2
+      -s clock.period=20ns -s seed=2
     xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
 
 Use ``xeda list-settings <flow> --json`` with ``yosys_fpga``, ``nextpnr``, ``fpga_pack`` or
@@ -907,7 +1101,7 @@ reads no environment variable of the ``CHIPDB_DIR`` kind. This is a design for t
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
       nextpnr:
-        clock.freq: 100MHz
+        clock.freq: 100 MHz
 
 ``xeda run fpga_pack blinky.yaml`` synthesizes, places and routes the design, and packs
 ``outputs/blinky.bit`` in the run directory of ``fpga_pack``. Nothing is programmed. ``xeda run
@@ -1176,7 +1370,7 @@ compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The des
     flows:
       vivado_impl:
         fpga.part: xc7a35tcpg236-1
-        clock.period: 10.0
+        clock.period: 10 ns
 
 .. code-block:: bash
 
@@ -1368,7 +1562,11 @@ settings of one stage, and its common settings are these:
     delay target. Common settings: ``abc.strategy``, ``abc.driver_cell`` and ``abc.load``. The
     mapping passes no ``-D`` option to ``abc`` unless ``abc.delay_target`` is set, as
     OpenROAD-flow-scripts does. Earlier releases passed the clock period whenever the flow had a
-    clock; ``abc.delay_target: auto`` does that again. ``abc.dress`` passes ``-dress`` to ``abc``.
+    clock; ``abc.delay_target: auto`` does that again. ``abc.delay_target`` and ``abc.max_slew``
+    are times and ``abc.load`` is a capacitance. Each needs a unit, such as ``500 ps`` or
+    ``3.9 fF`` (see :ref:`quantities`). ABC reads picoseconds and femtofarads, and Xeda converts.
+    ``abc.max_slew`` is at least 1 ps and a whole number of picoseconds. ``abc.dress`` passes
+    ``-dress`` to ``abc``.
     It is off by default. It is experimental in ABC: with a Liberty library it maps to LUTs
     instead of library cells (YosysHQ/yosys#3644), and it fails when ``abc`` retimes
     (berkeley-abc/abc#445).
@@ -1509,12 +1707,12 @@ nested tables and dotted keys.
         - top.v
     flows:
       yosys:
-        clock.period: 2.0
+        clock.period: 2 ns
         liberty:
           - cells.lib
         abc:
           strategy: speed
-          load: 0.5
+          load: 0.5 fF
         arithmetic.adder_map: none
         finish.tie_undefined: none
         sequential:

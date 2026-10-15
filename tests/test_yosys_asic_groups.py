@@ -24,6 +24,7 @@ from xeda.flow_runner.settings_layers import compose_flow_settings
 from xeda.flows import Yosys, YosysFpga
 from xeda.flows.yosys import asic_groups
 from xeda.introspect import settings_info
+from xeda.units import Time
 
 from .test_yosys_asic import (
     SCRIPT_FORMATS,
@@ -209,8 +210,8 @@ def test_the_enum_leaves_take_exactly_the_documented_values():
     "key,value",
     [
         ("hierarchy.keep_min_cost", 0),
-        ("abc.load", -1),
-        ("abc.delay_target", -5),
+        ("abc.load", "-1 fF"),
+        ("abc.delay_target", "-5 ps"),
         ("abc.strategy", "fast"),
         ("abc.mapper", "abc9"),
         ("finish.tie_undefined", "x"),
@@ -229,17 +230,18 @@ def test_a_buffer_cell_is_a_cell_and_its_two_ports():
     assert tuple(settings.finish.buffer_cell) == ("BUF_X1", "A", "Z")
 
 
-def test_the_delay_target_is_auto_a_number_or_unset():
-    for value in ("auto", 1500, 1500.5, None):
-        assert Yosys.Settings.from_input({"abc": {"delay_target": value}}).abc.delay_target == (
-            float(value) if isinstance(value, int) else value
-        )
+def test_the_delay_target_is_auto_a_time_or_unset():
+    for value in ("auto", None):
+        assert Yosys.Settings.from_input({"abc": {"delay_target": value}}).abc.delay_target == value
+    for text in ("1500 ps", "1.5 ns", "1500.5 ps"):
+        target = Yosys.Settings.from_input({"abc": {"delay_target": text}}).abc.delay_target
+        assert target == Time(text)
 
 
 def test_the_defaults_survive_a_round_trip_through_settings_json():
     settings = Yosys.Settings.from_input(
         {
-            "abc": {"strategy": "speed", "delay_target": "auto", "load": 2.5},
+            "abc": {"strategy": "speed", "delay_target": "auto", "load": "2.5 fF"},
             "finish": {
                 "tie_cells": {"hi": ["H", "Z"], "lo": ["L", "Z"]},
                 "buffer_cell": ["B", "A", "Z"],
@@ -486,8 +488,8 @@ def test_tie_undefined_none_leaves_out_the_setundef_line(tmp_path, monkeypatch, 
 @SCRIPT_FORMATS
 @pytest.mark.parametrize(
     "target,expected",
-    [("auto", "2000.000"), (1500, "1500.000"), (1234.5, "1234.500"), (None, None)],
-    ids=["auto", "number", "fraction", "none"],
+    [("auto", "2000.000"), ("1500 ps", "1500.000"), ("1234.5 ps", "1234.500"), (None, None)],
+    ids=["auto", "time", "fraction", "none"],
 )
 def test_delay_target_is_the_d_flag_of_abc(tmp_path, monkeypatch, script_format, target, expected):
     commands = _run(tmp_path, monkeypatch, script_format, abc={"delay_target": target})
@@ -546,7 +548,7 @@ def test_user_values_of_the_cell_leaves_win_over_the_platform_s(
     tmp_path, monkeypatch, script_format
 ):
     given = {
-        "abc": {"driver_cell": "INV_X1", "load": 2.5},
+        "abc": {"driver_cell": "INV_X1", "load": "2.5 fF"},
         "finish": {
             "tie_cells": {"hi": ["TIEHI_BIG", "Z"], "lo": ["TIELO_X1", "Y"], "singleton": False},
             "buffer_cell": ["INV_X1", "A", "ZN"],
@@ -578,7 +580,7 @@ def test_a_leaf_left_unset_takes_the_value_of_the_platform(tmp_path, monkeypatch
 def test_a_leaf_that_the_user_gave_with_a_partial_group_keeps_the_other_defaults(
     tmp_path, monkeypatch
 ):
-    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, _tiny(tmp_path, abc={"load": 1.0}))
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, _tiny(tmp_path, abc={"load": "1 fF"}))
     assert (run_dir / "abc.constr").read_text() == "set_driving_cell BUF_X1\nset_load 1.0\n"
 
 
@@ -606,8 +608,8 @@ def test_the_pure_method_resolves_the_values_and_changes_no_setting(tmp_path):
     settings = Yosys.Settings.from_input(
         tiny_settings(
             store,
-            clock={"period": 2.0},
-            abc={"load": 1.5, "delay_target": "auto"},
+            clock={"period": "2 ns"},
+            abc={"load": "1.5 fF", "delay_target": "auto"},
             techmap_files=["extra.v"],
             memory={"libmap": ["mem.txt"], "techmap": "mem_map.v"},
         ),
@@ -638,7 +640,7 @@ def test_the_pure_method_resolves_the_values_and_changes_no_setting(tmp_path):
 
 def test_without_a_liberty_mapping_the_pure_method_gives_nothing(tmp_path):
     design = _design(tmp_path / "design")
-    flow = Yosys(Yosys.Settings(gates=["AND"], clock={"period": 2.0}), design, tmp_path)
+    flow = Yosys(Yosys.Settings(gates=["AND"], clock={"period": "2 ns"}), design, tmp_path)
     values = flow.asic_values()
     assert values.latch_map is None and values.adder_map is None and values.abc_script is None
     assert values.constraints == () and values.techmap_files == ()
@@ -688,8 +690,8 @@ NO_MAPPING_CASES = [
     ("abc.strategy", {"abc": {"strategy": "speed"}}),
     ("abc.mapper", {"abc": {"mapper": "abc_new"}}),
     ("abc.driver_cell", {"abc": {"driver_cell": "BUF_X1"}}),
-    ("abc.load", {"abc": {"load": 1.0}}),
-    ("abc.delay_target", {"abc": {"delay_target": 100.0}}),
+    ("abc.load", {"abc": {"load": "1 fF"}}),
+    ("abc.delay_target", {"abc": {"delay_target": "100 ps"}}),
     ("finish.tie_undefined", {"finish": {"tie_undefined": "one"}}),
     ("finish.tie_cells", {"finish": {"tie_cells": {"hi": ["H", "Z"], "lo": ["L", "Z"]}}}),
     ("finish.buffer_cell", {"finish": {"buffer_cell": ["B", "A", "Z"]}}),
@@ -781,9 +783,11 @@ def test_the_auto_delay_target_needs_a_clock():
     problems = dict(_refused(platform="nangate45", abc={"delay_target": "auto"}))
     assert "`abc.delay_target: auto`" in problems["abc.delay_target"]
     Yosys.check_settings_supported(
-        Yosys.Settings(platform="nangate45", abc={"delay_target": "auto"}, clock={"period": 2.0})
+        Yosys.Settings(platform="nangate45", abc={"delay_target": "auto"}, clock={"period": "2 ns"})
     )
-    Yosys.check_settings_supported(Yosys.Settings(platform="nangate45", abc={"delay_target": 1000}))
+    Yosys.check_settings_supported(
+        Yosys.Settings(platform="nangate45", abc={"delay_target": "1 ns"})
+    )
 
 
 def test_the_refusals_arrive_at_planning_before_any_run_directory(tmp_path):
@@ -845,7 +849,7 @@ def test_a_relative_group_path_resolves_against_the_design_root_and_not_the_work
 
 
 def _given(store: Path, **extra: Any) -> dict[str, Any]:
-    return tiny_settings(store, clock={"period": 2.0}, **extra)
+    return tiny_settings(store, clock={"period": "2 ns"}, **extra)
 
 
 def test_editing_a_user_latch_map_makes_the_next_launch_stale(fake_yosys):

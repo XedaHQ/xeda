@@ -145,13 +145,13 @@ def _settings(root: Path, flow: str) -> dict:
         lib = root / "pdk" / "cells.db"
         lib.parent.mkdir(parents=True, exist_ok=True)
         lib.write_text("")
-        return {"target_libraries": [str(lib)], "clock": {"period": 10.0}}
+        return {"target_libraries": [str(lib)], "clock": {"period": "10 ns"}}
     fpga = {
         "quartus": "10CL016YU256C6G",
         "ise_synth": "xc6slx9-2-tqg144",
         "diamond_synth": "LFE5U-25F-6BG256C",
     }.get(flow, "xc7a12tcsg325-1")
-    return {"fpga": fpga, "clock": {"period": 10.0}}
+    return {"fpga": fpga, "clock": {"period": "10 ns"}}
 
 
 def _every_type(
@@ -461,7 +461,7 @@ def test_a_producer_that_several_inputs_reach_by_default_is_not_said_to_leave_wi
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
             "vivado_power",
             design,
-            flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": 10.0}},
+            flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}},
         )
     assert str(raised.value) == _own_refusal("vivado_synth", design)
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"

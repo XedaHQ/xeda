@@ -61,6 +61,7 @@ from typing import Any
 import pytest
 
 import xeda
+from xeda.units import Time
 
 from .tiny_platform import TINY_RESIDUE, tiny_store
 from .tool_utils import (
@@ -197,6 +198,19 @@ REVIEWED_RENAMES: dict[str, dict[str, str]] = {
 for _deltas in REVIEWED_DELTAS.values():
     _deltas.update(_REMOVED_EVERYWHERE)
 
+#: The times of a clock are quantities with units now, and `settings.json` writes them as text
+#: (`"5 ns"`) where the goldens have the number of nanoseconds (`5.0`). The same clock is meant
+#: if and only if the text is that of the golden's number in nanoseconds: `5 ns` for `5.0`. Only
+#: the leaves `clocks/<name>/<field>` are compared this way; every other leaf compares as it is.
+CLOCK_TIME_FIELDS = ("period", "rise", "uncertainty", "skew")
+
+#: The same clocks, spelled on the command line with a unit where the goldens' requests have a
+#: bare number of nanoseconds (the request records how it was spelled).
+REVIEWED_REQUEST_SPELLINGS = {
+    "flows.vivado_synth.clock.period=5ns": "flows.vivado_synth.clock.period=5.0",
+    "clock.period=2ns": "clock.period=2.0",
+}
+
 
 def activity_recording_delta(record: dict, name: str, *, baseline: bool = False) -> dict:
     """Only a direct timing request gains activity calls. Require their exact sequence and
@@ -243,7 +257,7 @@ IDENTITY_AND_TIMING = {"design_hash", "flow_hash", "settings_hash", "runtime", "
 
 VIVADO_SETTINGS = (
     "flows.vivado_synth.fpga=xc7a12tcsg325-1",
-    "flows.vivado_synth.clock.period=5.0",
+    "flows.vivado_synth.clock.period=5ns",
 )
 
 
@@ -263,7 +277,7 @@ REQUESTS: dict[str, Request] = {
     "vivado_power": Request("vivado_power", VIVADO_SETTINGS),
     "yosys_asic": Request(
         "yosys",
-        ("platform_file=tiny.yaml", "clock.period=2.0", "abc.strategy=speed_roundtrip"),
+        ("platform_file=tiny.yaml", "clock.period=2ns", "abc.strategy=speed_roundtrip"),
         kind="yosys",
     ),
 }
@@ -498,6 +512,39 @@ def without(record: Any, deltas: dict[tuple[str, ...] | str, str]) -> Any:
     return record
 
 
+def golden_clock_times(observed: Any, golden: Any, path: tuple[str, ...] = ()) -> Any:
+    """Return `observed` with each leaf `clocks/<name>/<field>` (a field of `CLOCK_TIME_FIELDS`)
+    that is the text of the golden's number of nanoseconds replaced by that number, and the
+    command-line spellings of `REVIEWED_REQUEST_SPELLINGS` by the golden's. A leaf that is
+    anything else stays as observed, so that a difference shows."""
+    if isinstance(observed, dict) and isinstance(golden, dict):
+        return {
+            key: golden_clock_times(value, golden[key], (*path, key)) if key in golden else value
+            for key, value in observed.items()
+        }
+    if isinstance(observed, list) and isinstance(golden, list) and len(observed) == len(golden):
+        return [
+            golden_clock_times(value, expected, path) for value, expected in zip(observed, golden)
+        ]
+    if (
+        len(path) >= 3
+        and path[-3] == "clocks"
+        and path[-1] in CLOCK_TIME_FIELDS
+        and isinstance(observed, str)
+        and isinstance(golden, (int, float))
+        and not isinstance(golden, bool)
+        and observed == str(Time.of(golden, "ns"))
+    ):
+        return golden
+    if (
+        isinstance(observed, str)
+        and observed in REVIEWED_REQUEST_SPELLINGS
+        and golden == REVIEWED_REQUEST_SPELLINGS[observed]
+    ):
+        return golden
+    return observed
+
+
 def require_tclsh() -> None:
     if shutil.which("tclsh"):
         return
@@ -549,7 +596,8 @@ def test_a_request_hands_its_tools_what_it_did_before_the_conversion(captured, n
     text = render(observed)
     for new, old in REVIEWED_RENAMES.get(name, {}).items():
         text = text.replace(new, old)
-    assert without(activity_recording_delta(json.loads(text), name), deltas) == expected
+    recorded = golden_clock_times(json.loads(text), json.loads(path.read_text()))
+    assert without(activity_recording_delta(recorded, name), deltas) == expected
 
 
 # ------------------------------------------------------------------------------ teeth
@@ -623,3 +671,30 @@ def test_the_timing_and_functional_simulations_are_handed_different_netlists(cap
     assert digests(timing, run, "timesim.max.sdf") and not digests(
         functional, run, "timesim.max.sdf"
     )
+
+
+def test_only_the_text_of_the_golden_number_of_nanoseconds_is_accepted_for_a_clock_time() -> None:
+    """The comparison of a clock's times is narrow: `5 ns` stands for the golden's `5.0` in
+    `clocks/<name>/period`, and nothing else stands for anything."""
+    golden = {"effective_flow_settings": {"clocks": {"main_clock": {"period": 5.0, "rise": 0.0}}}}
+
+    def observe(**clock: Any) -> dict[str, Any]:
+        return {"effective_flow_settings": {"clocks": {"main_clock": clock}}}
+
+    same = golden_clock_times(observe(period="5 ns", rise="0 ns"), golden)
+    assert same == golden
+    assert golden_clock_times(observe(period="5000 ps", rise="0 ns"), golden) != golden
+    assert (
+        golden_clock_times(observe(period="6 ns", rise="0 ns"), golden)["effective_flow_settings"][
+            "clocks"
+        ]["main_clock"]["period"]
+        == "6 ns"
+    )
+    # a leaf that is no clock time is not accepted, whatever it says
+    other = {"effective_flow_settings": {"timeout": 5.0}}
+    assert golden_clock_times({"effective_flow_settings": {"timeout": "5 ns"}}, other) != other
+    # the golden's own text is not a number to convert
+    assert golden_clock_times(
+        observe(period="5 ns"),
+        {"effective_flow_settings": {"clocks": {"main_clock": {"period": "5 ns"}}}},
+    ) == observe(period="5 ns")

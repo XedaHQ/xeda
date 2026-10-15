@@ -20,6 +20,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import Yosys
 from xeda.flows.yosys import abc_strategy_script, asic_groups
 from xeda.flows.yosys.abc_strategies import Composition
+from xeda.units import Time
 
 from .test_yosys_asic import SCRIPT_FORMATS, _design, _tiny, _words
 from .test_yosys_asic_groups import no_liberty_message, _abc_script, _refused, _run
@@ -242,7 +243,7 @@ KNOBS = {
     "buffering": True,
     "sizing": True,
     "max_fanout": 8,
-    "max_slew": 150,
+    "max_slew": "150 ps",
     "mfs3": True,
     "area_mapper": "nf",
     "legacy_refactor": True,
@@ -283,7 +284,7 @@ def test_the_strategies_are_the_documented_values():
     "given,mentions",
     [
         ({"max_fanout": 0}, "max_fanout"),
-        ({"max_slew": 0}, "max_slew"),
+        ({"max_slew": "0 ps"}, "max_slew"),
         ({"clock_derating": -0.1}, "clock_derating"),
         ({"clock_derating": 1}, "clock_derating"),
         ({"area_mapper": "map"}, "area_mapper"),
@@ -367,7 +368,8 @@ def test_each_composed_strategy_reaches_the_abc_command_in_both_script_formats(
 def test_the_knobs_reach_the_abc_command_in_both_script_formats(
     tmp_path, monkeypatch, script_format, strategy, knobs, script
 ):
-    commands = _run(tmp_path, monkeypatch, script_format, abc={"strategy": strategy, **knobs})
+    given = {name: f"{value} ps" if name == "max_slew" else value for name, value in knobs.items()}
+    commands = _run(tmp_path, monkeypatch, script_format, abc={"strategy": strategy, **given})
     assert _abc_script(commands) == script
 
 
@@ -386,6 +388,8 @@ def test_every_knob_changes_the_script_of_a_strategy_that_reads_it(knob):
     given = {knob: KNOBS[knob]}
     if knob in ("max_fanout", "max_slew"):
         given["buffering"] = True
+    if "max_slew" in given:
+        given["max_slew"] = round(Time(given["max_slew"]).to("ps"))
     assert abc_strategy_script(reads, Composition(**given)) != abc_strategy_script(reads)
 
 
@@ -569,7 +573,7 @@ def test_the_description_of_mfs3_warns_and_states_what_was_measured():
 
 
 def test_the_limits_of_buffering_need_buffering():
-    for leaf, value in (("max_fanout", 8), ("max_slew", 150)):
+    for leaf, value in (("max_fanout", 8), ("max_slew", "150 ps")):
         problems = _keys(abc={"strategy": "area_0", leaf: value})
         message = problems[f"abc.{leaf}"]
         assert f"`abc.{leaf}`" in message and "`abc.buffering`" in message
@@ -588,7 +592,7 @@ def test_the_new_area_mapper_is_refused_where_the_strategy_has_no_area_mapping(s
     assert f"`abc.strategy: {strategy}`" in message and "`area_0`" in message
 
 
-@pytest.mark.parametrize("target", [None, 1500])
+@pytest.mark.parametrize("target", [None, "1500 ps"])
 def test_the_clock_derating_needs_the_auto_delay_target(target):
     problems = _keys(abc={"delay_target": target, "clock_derating": 0.1})
     message = problems["abc.clock_derating"]
@@ -726,7 +730,7 @@ def test_real_yosys_maps_with_a_composed_strategy_and_its_options(tmp_path, scri
             "strategy": "delay_3",
             "buffering": True,
             "max_fanout": 8,
-            "max_slew": 150,
+            "max_slew": "150 ps",
             "area_mapper": "nf",
             "legacy_refactor": True,
             "legacy_rewrite": True,

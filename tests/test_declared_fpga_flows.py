@@ -19,6 +19,7 @@ from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader, YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
+from xeda.units import Time
 
 from .project_files import PROJECT_FILE
 from .settings_samples import flow_classes, minimal_settings
@@ -344,9 +345,11 @@ def test_cli_device_leaf_preserves_section_origins(tmp_path, monkeypatch, tools,
     project = tmp_path / PROJECT_FILE
     project.write_text(
         project.read_text()
-        + "    clock: {period: 10}\n  yosys_fpga: {netlist_src_attrs: false, flatten: true}\n"
+        + "    clock: {period: 10 ns}\n  yosys_fpga: {netlist_src_attrs: false, flatten: true}\n"
     )
-    design_file.write_text(design_file.read_text() + "clock.uncertainty = 0.3\nflatten = false\n")
+    design_file.write_text(
+        design_file.read_text() + 'clock.uncertainty = "0.3 ns"\nflatten = false\n'
+    )
     runner = _runner(tmp_path, monkeypatch)
     plan = runner.plan("nextpnr", design_file, flow_settings=[f"{cli_leaf}={PART}"])
     flow = runner.run("nextpnr", design_file, flow_settings=[f"{cli_leaf}={PART}"])
@@ -354,8 +357,12 @@ def test_cli_device_leaf_preserves_section_origins(tmp_path, monkeypatch, tools,
     (producer,) = producers_of(runner, flow)
     assert flow.settings.fpga.part == producer.settings.fpga.part == PART
     assert producer.settings.flatten is False and producer.settings.netlist_src_attrs is False
-    assert producer.settings.main_clock.period == flow.settings.main_clock.period == 10
-    assert producer.settings.main_clock.uncertainty == flow.settings.main_clock.uncertainty == 0.3
+    assert producer.settings.main_clock.period == flow.settings.main_clock.period == Time("10 ns")
+    assert (
+        producer.settings.main_clock.uncertainty
+        == flow.settings.main_clock.uncertainty
+        == Time("0.3 ns")
+    )
     assert producer.settings.flatten is plan.node("yosys_fpga").settings.flatten
     assert producer.flow_hash == plan.node("yosys_fpga").flowrun_hash
     assert flow.flow_hash == plan.node("nextpnr").flowrun_hash

@@ -18,7 +18,7 @@ xeda run ghdl_sim sqrt.yaml          # simulate with GHDL and run the cocotb tes
 xeda run nvc sqrt.yaml               # the same design and testbench with NVC
 xeda run yosys_fpga sqrt.yaml        # synthesize with Yosys
 xeda run vivado_synth sqrt.yaml      # synthesize with Vivado
-xeda run vivado_synth sqrt.yaml -s clock.period=4.0   # change one setting for this run
+xeda run vivado_synth sqrt.yaml -s clock.period=4ns   # change one setting for this run
 ```
 
 Other VHDL examples:

@@ -22,7 +22,7 @@ def test_ise_synth_py(monkeypatch) -> None:
     use_fake_tools(monkeypatch)
     assert path.exists()
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
-    settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock={"period": 5.5})
+    settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock={"period": "5.5 ns"})
     with tempfile.TemporaryDirectory() as run_dir:
         print("Xeda run dir: ", run_dir)
         xeda_runner = DefaultRunner(run_dir, debug=True)
@@ -68,7 +68,7 @@ def test_ise_synth_py(monkeypatch) -> None:
         assert recorded_artifacts == {k: str(v) for k, v in expected.items()}
 
 
-ISE_SETTINGS = dict(fpga=FPGA("xc7a12tcsg325-1"), clock={"period": 5.5})
+ISE_SETTINGS = dict(fpga=FPGA("xc7a12tcsg325-1"), clock={"period": "5.5 ns"})
 
 
 def _run_ise(run_dir: Path, monkeypatch, **launcher) -> Flow:
@@ -177,7 +177,7 @@ def test_ise_project_options_are_quoted_exactly_once() -> None:
     """
     settings = IseSynth.Settings(  # type: ignore[call-arg]
         fpga=FPGA("xc7a12tcsg325-1"),
-        clock={"period": 5.5},
+        clock={"period": "5.5 ns"},
         translate_options={"Allow Unmatched LOC Constraints": "true"},
     )
     assert settings.translate_options["Allow Unmatched LOC Constraints"] == "true"

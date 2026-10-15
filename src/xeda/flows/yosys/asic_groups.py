@@ -11,10 +11,23 @@ when `synth` has an option for it.
 """
 
 from pathlib import Path
-from typing import Annotated, ClassVar, List, Literal, Optional, Tuple, Union
+from typing import Annotated, Any, ClassVar, List, Literal, Optional, Tuple, Union
 
-from ...dataclass import Field, XedaBaseModel, accepts_non_mapping, model_validator, tier
+from pydantic import ValidatorFunctionWrapHandler
+from pydantic_core import PydanticCustomError
+
+from ...dataclass import (
+    Field,
+    ValidationError,
+    XedaBaseModel,
+    accepts_non_mapping,
+    extras,
+    field_validator,
+    model_validator,
+    tier,
+)
 from ...flow.settings_group import Flag, SettingsGroup
+from ...units import Bounds, Capacitance, Time, count, ratio
 
 __all__ = [
     "AbcGroup",
@@ -78,7 +91,7 @@ class HierarchyGroup(SettingsGroup):
         description="Keep each module whose cost is above this many NAND2 gate equivalents "
         "(`keep_hierarchy -min_cost`). Unset: flatten the design. Needs a yosys with Tcl and "
         "`script_format: tcl`.",
-        json_schema_extra=tier("common"),
+        json_schema_extra=extras(tier("common"), count()),
     )
     keep_instances: List[str] = Field(
         [],
@@ -166,13 +179,13 @@ class ExtractFaGroup(SettingsGroup):
         None,
         ge=1,
         description="The deepest logic cone to search (`-d`). Unset: 20, the value of yosys.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     max_breadth: Optional[int] = Field(
         None,
         ge=1,
         description="The widest logic cone to search (`-b`). Unset: 6, the value of yosys.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
 
 
@@ -354,7 +367,7 @@ class MemoryGroup(SettingsGroup):
         "(rows times width). A larger memory stops the run, or is shrunk with `mock_large`. "
         "Unset: no limit. The check runs on the memories after the coarse part of `synth`. "
         "Needs a yosys with Tcl and `script_format: tcl`.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     mock_large: bool = Field(
         False,
@@ -441,7 +454,7 @@ class ClockGatingGroup(SettingsGroup):
         ge=1,
         description="Gate only the sets of at least this many flip-flops that share an enable "
         "(`clockgate -min_net_size`). Unset: the default of yosys.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     tie_lo: Optional[str] = Field(
         None,
@@ -544,7 +557,7 @@ class SequentialGroup(SettingsGroup):
         description="Warning: this changes the netlist from the flip-flops on. Unmap a clock "
         "enable that fewer flip-flops share than this number into logic (`dfflegalize -mince`). "
         "Unset: keep every enable.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     min_sync_reset_fanout: Optional[int] = Field(
         None,
@@ -552,7 +565,7 @@ class SequentialGroup(SettingsGroup):
         description="Warning: this changes the netlist from the flip-flops on. Unmap a "
         "synchronous set or reset that fewer flip-flops share than this number into logic "
         "(`dfflegalize -minsrst`). Unset: keep every set and reset.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), count()),
     )
 
     def problems(self, key: str) -> List[Tuple[str, str]]:
@@ -640,19 +653,39 @@ class AbcGroup(SettingsGroup):
         "cell of the platform.",
         json_schema_extra=tier("common"),
     )
-    load: Optional[float] = Field(
+    load: Optional[Annotated[Capacitance, Bounds(ge="0 fF")]] = Field(
         None,
-        ge=0,
-        description="Load that ABC assumes on the outputs (`set_load`), in units of flip-flop "
-        "input capacitance. Unset: the load of the platform.",
+        description="Load that ABC assumes on each output (`set_load`), a capacitance such as "
+        "`3.9 fF`. Unset: the load of the platform.",
         json_schema_extra=tier("common"),
     )
-    delay_target: Union[Literal["auto"], Annotated[float, Field(ge=0)], None] = Field(
+    delay_target: Union[Literal["auto"], Annotated[Time, Bounds(ge="0 ns")], None] = Field(
         None,
-        description="Delay target of ABC in picoseconds (`-D`). `auto` is the period of the "
-        "main clock. Unset: no `-D`.",
+        description="Delay target of ABC (`-D`): a time such as `500 ps`, or `auto` for the "
+        "period of the main clock. Unset: no `-D`.",
         json_schema_extra=tier("advanced"),
     )
+
+    @field_validator("delay_target", mode="wrap")
+    @classmethod
+    def _delay_target_error(cls, value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+        """Report a bad delay target by the problem with the time. The union of `auto` and a time
+        reports both branches, and "Input should be 'auto'" hides the real problem."""
+        try:
+            return handler(value)
+        except ValidationError as error:
+            times = [e for e in error.errors() if e["type"] != "literal_error"]
+            if not times:
+                raise
+            message = times[0]["msg"]
+            if isinstance(value, str) and "cannot read" in message:
+                # The text is no time. A user who wrote `Auto` or `AUTO` meant the other branch.
+                if value.strip().casefold() == "auto":
+                    message = f"cannot read `{value}` as a time: did you mean `auto`?"
+                else:
+                    message += "; or write `auto`"
+            raise PydanticCustomError("quantity", "{message}", {"message": message}) from None
+
     clock_derating: float = Field(
         0.0,
         ge=0,
@@ -661,7 +694,7 @@ class AbcGroup(SettingsGroup):
         "clock period, and that can grow the netlist. The part of the clock period that ABC "
         "leaves free, as a fraction: ABC gets the period times one minus this number. Needs "
         "`delay_target: auto`.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     buffering: bool = Field(
         False,
@@ -682,15 +715,31 @@ class AbcGroup(SettingsGroup):
         ge=1,
         description="The largest fanout that `buffer` leaves (`buffer -N`). Unset: the value of "
         "ABC, 10. Needs `buffering`.",
-        json_schema_extra=tier("advanced"),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
-    max_slew: Optional[int] = Field(
+    max_slew: Optional[Time] = Field(
         None,
-        ge=1,
-        description="The slew that `buffer` aims at, in picoseconds (`buffer -S`). Unset: the "
-        "value of ABC, 100. Needs `buffering`.",
+        description="The slew that `buffer` aims at (`buffer -S`): a time such as `100 ps`, at "
+        "least 1 ps and a whole number of picoseconds, since ABC reads an integer. Unset: the "
+        "value of ABC, 100 ps. Needs `buffering`.",
         json_schema_extra=tier("advanced"),
     )
+
+    @field_validator("max_slew")
+    @classmethod
+    def _slew_in_whole_picoseconds(cls, value: Optional[Time]) -> Optional[Time]:
+        """Refuse a slew that is under 1 ps or not a whole number of picoseconds: ABC's
+        `buffer -S` takes a positive integer number of picoseconds."""
+        if value is not None:
+            picoseconds = value.to("ps")
+            if picoseconds < 1 or not picoseconds.is_integer():
+                raise ValueError(
+                    f"the slew must be at least 1 ps and a whole number of picoseconds, got "
+                    f"{picoseconds:g} ps: ABC's `buffer -S` takes an integer number of "
+                    "picoseconds"
+                )
+        return value
+
     mfs3: bool = Field(
         False,
         description="Warning: this step can stop ABC. On some real designs, ABC stopped on an "

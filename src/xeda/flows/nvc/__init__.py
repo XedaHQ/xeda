@@ -13,7 +13,7 @@ from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import parse_nvc_log, read_sim_log
 from ...tool import Tool
-from ...units import convert_unit
+from ...units import convert_unit, count
 from ...utils import LOCATION_FORMS
 
 log = logging.getLogger(__name__)
@@ -147,6 +147,7 @@ class Nvc(SimFlow):
             3,
             description="Optimization level (`-O`), from 0 to 3. Higher levels can speed up the "
             "simulation but slow down elaboration.",
+            json_schema_extra=count(),
         )
         print_verbose: bool = Field(
             False, description="Print resource usage after each elaboration step (`--verbose`)."
@@ -173,6 +174,7 @@ class Nvc(SimFlow):
             description="Include memories and nested arrays in the waveform. True includes all "
             "of them, an integer N only arrays with up to N elements, and false none. Large "
             "arrays cost performance, memory and disk space.",
+            json_schema_extra=count(),
         )
         wave_include_glob: Optional[str] = Field(
             None,
@@ -189,6 +191,7 @@ class Nvc(SimFlow):
         stop_delta: Optional[int] = Field(
             None,
             description="Stop the simulation after this many delta cycles at the same time.",
+            json_schema_extra=count(),
         )
         vhpi: List[Path] = Field([], description="VHPI libraries to load at startup.")
         shuffle: bool = Field(

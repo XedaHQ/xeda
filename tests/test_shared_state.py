@@ -340,6 +340,16 @@ def test_the_sweep_sees_a_flow_that_shares_the_default_of_a_setting(tmp_path, mo
     assert "is also" in said and "suppress_msgs" in said
 
 
+def test_the_sweep_skips_a_quantity_and_still_sees_a_mutable_object_beside_it() -> None:
+    """A quantity is immutable, so sharing one is harmless; a list next to it is not."""
+    from xeda.units import Time
+
+    shared = [1]
+    found = ss.reachable({"period": Time("10 ns"), "table": shared}, "root")
+    assert [kind for _path, kind in found.values()].count("Time") == 0
+    assert found[id(shared)] == ("root['table']", "list")
+
+
 def _loggers() -> dict:
     return {
         name: logger

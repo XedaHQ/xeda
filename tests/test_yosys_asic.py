@@ -128,7 +128,7 @@ def _effective(run_dir: Path) -> dict:
 
 def _tiny(tmp_path: Path, **given: Any) -> dict[str, Any]:
     """Settings that select the `tiny` platform, in a store under `tmp_path`, and a 2 ns clock."""
-    return tiny_settings(tiny_store(tmp_path), clock={"period": 2.0}, **given)
+    return tiny_settings(tiny_store(tmp_path), clock={"period": "2 ns"}, **given)
 
 
 # ------------------------------------------------------------------------------ the output
@@ -225,7 +225,7 @@ def test_every_liberty_file_is_read_and_mapped_to_and_the_dont_use_cells_are_wor
     patched, merged or written."""
     settings = {
         **_stage_platform(tmp_path, platform_s),
-        "clock": {"period": 2.0},
+        "clock": {"period": "2 ns"},
         "dont_use_cells": own,
         "script_format": script_format,
     }
@@ -279,7 +279,7 @@ def test_a_platform_alone_configures_everything_a_standard_cell_run_needs(tmp_pa
 def test_explicit_settings_win_over_what_the_platform_derives(tmp_path, monkeypatch):
     settings = _tiny(
         tmp_path,
-        abc={"strategy": "speed", "driver_cell": "INV_X1", "load": 2.5},
+        abc={"strategy": "speed", "driver_cell": "INV_X1", "load": "2.5 fF"},
         flatten=False,
         netlist_attrs=True,
     )
@@ -296,7 +296,7 @@ def test_without_a_liberty_library_nothing_is_derived(tmp_path, monkeypatch):
     """A generic-gate run is what it was: no abc script, no constraints, no flattening, the
     netlist's attributes kept -- the group settings act on a liberty mapping."""
     run_dir = _scripted_launch(
-        tmp_path, monkeypatch, Yosys, {"gates": ["AND", "OR", "NOT"], "clock": {"period": 2.0}}
+        tmp_path, monkeypatch, Yosys, {"gates": ["AND", "OR", "NOT"], "clock": {"period": "2 ns"}}
     )
     script = _script(run_dir)
     assert "-script" not in script and "-constr" not in script
@@ -334,7 +334,7 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
             "-s",
             f"platform_file={TINY_RESIDUE}",
             f"pdk_root={store}",
-            "clock.period=2.0",
+            "clock.period=2ns",
             "--json",
         ],
         cwd=design,
@@ -388,7 +388,7 @@ def test_the_gate_mapping_keeps_its_post_synthesis_optimization_setting(
 ):
     """Mapping to gates is not the liberty mapping: it runs the optimization after synthesis
     when `post_synth_opt` is true, and not otherwise."""
-    settings: dict[str, Any] = {"gates": ["AND", "OR", "NOT"], "clock": {"period": 2.0}}
+    settings: dict[str, Any] = {"gates": ["AND", "OR", "NOT"], "clock": {"period": "2 ns"}}
     if given is not None:
         settings["post_synth_opt"] = given
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
@@ -572,9 +572,9 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
             "-s",
             f"platform_file={TINY_RESIDUE}",
             f"pdk_root={tiny_store(tmp_path)}",
-            "clock.period=2.0",
+            "clock.period=2ns",
             "abc.driver_cell=INV_X1",
-            "abc.load=2.5",
+            "abc.load=2.5 fF",
             "black_box=mul8",
             "post_synth_opt=false",
         ],
@@ -587,7 +587,7 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
     producer = root / "mac" / "yosys"
     settings = json.loads((producer / "settings.json").read_text())["effective_flow_settings"]
     assert settings["abc"]["driver_cell"] == "INV_X1"
-    assert settings["abc"]["load"] == 2.5
+    assert settings["abc"]["load"] == "2.5 fF"
     assert settings["black_box"] == ["mul8"]
     assert settings["post_synth_opt"] is False
     script = (producer / "yosys_synth.ys").read_text()
@@ -653,7 +653,7 @@ def test_a_relative_liberty_is_relative_to_the_design_root(tmp_path, monkeypatch
         {
             "liberty": ["lib/x.lib"],
             "sequential": {"dff_liberty": "lib/dff.lib"},
-            "clock": {"period": 2.0},
+            "clock": {"period": "2 ns"},
         },
     )
     assert flow.succeeded
@@ -905,7 +905,7 @@ def test_abc_dff_and_splitnets_follow_the_mapping_unless_set(
     shutil.copy(TINY / "tiny.lib", cells)
     settings: dict[str, Any] = {
         **{k: ([str(cells)] if k == "liberty" else v) for k, v in mapping.items()},
-        "clock": {"period": 2.0},
+        "clock": {"period": "2 ns"},
     }
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
     script = _script(run_dir)

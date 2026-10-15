@@ -248,7 +248,7 @@ def _xdc(flow) -> str:
 
 def test_a_clock_setting_becomes_a_create_clock_and_never_a_freq(tmp_path, monkeypatch, prefix):
     flow, tool = _flow(
-        tmp_path, monkeypatch, prefix, clocks={"main": {"port": "clk", "period": 10}}
+        tmp_path, monkeypatch, prefix, clocks={"main": {"port": "clk", "period": "10 ns"}}
     )
     flow.run()
     assert "create_clock -period 10.0 [get_ports {clk}]" in _xdc(flow)
@@ -271,7 +271,7 @@ def test_a_clock_given_twice_names_the_sdc_source_and_line(tmp_path, monkeypatch
         monkeypatch,
         prefix,
         sdc="# timing\ncreate_clock -period 8 [get_ports clk]\n",
-        clocks={"main": {"port": "clk", "period": 10}},
+        clocks={"main": {"port": "clk", "period": "10 ns"}},
     )
     with pytest.raises(FlowFatalError, match="Duplicate clock") as error:
         flow.run()
@@ -300,7 +300,7 @@ def test_the_measured_counter_reports_occupied_luts_not_positions(tmp_path, monk
         prefix,
         _resource("blinky_report"),
         _resource("blinky_placement"),
-        clocks={"main": {"port": "clk", "period": 10}},
+        clocks={"main": {"port": "clk", "period": "10 ns"}},
     )
     r = flow.results
     assert ok is True
@@ -449,7 +449,12 @@ def test_two_domains_keep_their_raw_names_only(tmp_path, monkeypatch, prefix):
         },
     }
     flow, ok = _parsed(
-        tmp_path, monkeypatch, prefix, report, {}, clocks={"main": {"port": "clk", "period": 10}}
+        tmp_path,
+        monkeypatch,
+        prefix,
+        report,
+        {},
+        clocks={"main": {"port": "clk", "period": "10 ns"}},
     )
     assert ok is True and flow.results["Fmax"] == 150.0
     assert "clock_port" not in flow.results and set(flow.results["_fmax"]) == {"$glb$a", "$glb$b"}
@@ -508,7 +513,7 @@ def test_a_launch_with_a_clock_in_the_sdc_and_the_settings_names_both(tmp_path, 
     design, runner = _project(
         tmp_path, monkeypatch, sdc="\ncreate_clock -period 8 [get_ports clk]\n"
     )
-    settings = {"fpga": A100T, "clocks": {"main": {"port": "clk", "period": 10}}}
+    settings = {"fpga": A100T, "clocks": {"main": {"port": "clk", "period": "10 ns"}}}
     with pytest.raises(FlowFatalError, match="Duplicate clock") as error:
         runner.run("nextpnr", design, flow_settings=settings)
     assert f"{tmp_path / 'timing.sdc'}:2" in str(error.value)
@@ -519,7 +524,10 @@ def test_a_board_supplies_the_part_and_its_pin_file(tmp_path, monkeypatch):
     """No typed XDC source: the bundled Arty A7-100 pin file is the fallback, with the clock."""
     design, runner = _project(tmp_path, monkeypatch)
     design = Design(name="top", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
-    settings = {"board": "arty_a7_100t", "clocks": {"main": {"port": "CLK100MHZ", "period": 10}}}
+    settings = {
+        "board": "arty_a7_100t",
+        "clocks": {"main": {"port": "CLK100MHZ", "period": "10 ns"}},
+    }
     flow = runner.run("nextpnr", design, flow_settings=settings)
     assert flow is not None and flow.succeeded
     merged = (flow.run_path / "constraints.xdc").read_text()

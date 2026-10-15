@@ -29,7 +29,7 @@ from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
 
 ALT = [
     "flows.vivado_alt_synth.fpga=xc7a12tcsg325-1",
-    "flows.vivado_alt_synth.clock.period=5.0",
+    "flows.vivado_alt_synth.clock.period=5ns",
 ]
 SIM = "flows.vivado_postsynth_sim.inputs"
 POWER = "flows.vivado_power.inputs"

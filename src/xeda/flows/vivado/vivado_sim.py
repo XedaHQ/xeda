@@ -6,7 +6,7 @@ from ...dataclass import WORKING, Field, waveform
 from ...design import Design, DesignValidationError, SourceType
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results, NoReplacement
 from ...flow.sim import SimEvidence
-from ...units import convert_unit
+from ...units import convert_unit, count
 from ...utils import SDF
 from ..vivado import Vivado
 from .sim_evidence import PROCESS_LOG, RUNTIME_LOG, parse_xsim_evidence
@@ -96,6 +96,7 @@ class VivadoSim(Vivado, SimFlow):
             0,
             description="How many hierarchy levels below `vcd_scope` to dump. 0 dumps every level. "
             "Needs `vcd`.",
+            json_schema_extra=count(),
         )
 
     @classmethod

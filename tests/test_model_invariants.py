@@ -17,7 +17,15 @@ from xeda.flow import FlowSettingsError
 from xeda.tool import Tool
 from xeda.utils import dump_json, semantic_hash
 
-from .settings_samples import PROBES, flow_classes, minimal_settings
+from .settings_fields import assign, dotted, follow, shape_of
+from .settings_samples import (
+    PROBES,
+    QUANTITY_FIELD_IDS,
+    QUANTITY_FIELDS,
+    flow_classes,
+    minimal_settings,
+    with_quantity,
+)
 
 pytestmark = pytest.mark.python_compat
 
@@ -142,6 +150,106 @@ def test_settings_reload_unchanged_from_their_settings_json(cls, tmp_path):
                 ]
                 changed.append(f"{name}={value!r}: reloading changes {differ}")
     assert not changed, f"{cls.name}:\n  " + "\n  ".join(changed)
+
+
+# ---------------------------------------------------------------------------------------------
+# The sweeps above give every probe to the top-level settings. A quantity is always nested in a
+# group (`abc.delay_target`) or in a clock (`clocks.<name>.period`), so these sweeps give every
+# probe, the values with units among them, to each field that holds a quantity.
+# ---------------------------------------------------------------------------------------------
+
+
+def _kind_of(path):
+    """The quantity class that the field at `path` holds."""
+    last = path[-1]
+    (kind,) = shape_of(last.model.model_fields[last.key].annotation).quantity_types
+    return kind
+
+
+def _example_of(path) -> str:
+    """Text that the quantity field at `path` accepts."""
+    return _kind_of(path).example
+
+
+def test_the_sweep_has_every_quantity_field_of_the_flows():
+    fields = {dotted(path) for _, path in QUANTITY_FIELDS}
+    assert fields >= {
+        "clocks.key.period",
+        "clocks.key.rise",
+        "clocks.key.skew",
+        "clocks.key.uncertainty",
+        "abc.delay_target",
+        "abc.max_slew",
+        "abc.load",
+    }
+    assert {"yosys", "yosys_fpga", "vivado_synth", "dc"} <= {cls.name for cls, _ in QUANTITY_FIELDS}
+
+
+@pytest.mark.parametrize("field", QUANTITY_FIELDS, ids=QUANTITY_FIELD_IDS)
+def test_a_quantity_field_takes_a_value_with_a_unit_of_its_kind(field):
+    cls, path = field
+    kind, example = _kind_of(path), _example_of(path)
+    held = follow(with_quantity(cls, path, example), path)
+    assert type(held) is kind
+    assert held == kind(example)
+
+
+@pytest.mark.parametrize("field", QUANTITY_FIELDS, ids=QUANTITY_FIELD_IDS)
+def test_assigning_a_value_to_a_quantity_field_is_the_same_as_constructing_with_it(field):
+    cls, path = field
+    base_good = with_quantity(cls, path, _example_of(path))
+    mismatches, accepted = [], 0
+    for value in PROBES:
+        constructed = _outcome(lambda: with_quantity(cls, path, copy.deepcopy(value)))
+
+        def assign_it():
+            settings = base_good.model_copy(deep=True)
+            assign(settings, path, copy.deepcopy(value))
+            return settings
+
+        assigned = _outcome(assign_it)
+        accepted += constructed[0] == "accepted"
+        if constructed[0] != assigned[0]:
+            mismatches.append(f"{value!r}: {constructed[0]} vs {assigned[0]} on assignment")
+        elif constructed != assigned:
+            differ = [k for k in constructed[1] if constructed[1][k] != assigned[1][k]]
+            mismatches.append(f"{value!r}: assignment differs in {differ}")
+    assert not mismatches, f"{dotted(path)}:\n  " + "\n  ".join(mismatches)
+    assert accepted, f"{dotted(path)} accepts none of the probes"
+
+
+@pytest.mark.parametrize("field", QUANTITY_FIELDS, ids=QUANTITY_FIELD_IDS)
+def test_settings_with_a_quantity_reload_unchanged_from_their_settings_json(field, tmp_path):
+    cls, path = field
+    changed, accepted = [], 0
+    for value in PROBES:
+        try:
+            settings = with_quantity(cls, path, copy.deepcopy(value))
+        except (ValidationError, FlowSettingsError):
+            continue
+        accepted += 1
+        dump_json({"flow_settings": settings}, tmp_path / "settings.json", backup=False)
+        saved = json.loads((tmp_path / "settings.json").read_text())["flow_settings"]
+        try:
+            reloaded = cls.Settings(**saved)
+        except (ValidationError, FlowSettingsError) as e:
+            changed.append(f"{value!r}: its settings.json does not load: {e}")
+            continue
+        if reloaded.model_dump() != settings.model_dump():
+            changed.append(f"{value!r}: reloading changes the settings")
+        if follow(reloaded, path) != follow(settings, path):
+            changed.append(f"{value!r}: reloading changes {dotted(path)}")
+    assert not changed, f"{dotted(path)}:\n  " + "\n  ".join(changed)
+    assert accepted
+
+
+@pytest.mark.parametrize("field", QUANTITY_FIELDS, ids=QUANTITY_FIELD_IDS)
+def test_assigning_a_quantity_field_its_own_value_changes_nothing(field):
+    cls, path = field
+    settings = with_quantity(cls, path, _example_of(path))
+    before = settings.model_dump()
+    assign(settings, path, follow(settings, path))
+    assert settings.model_dump() == before
 
 
 # ---------------------------------------------------------------------------------------------

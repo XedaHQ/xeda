@@ -429,9 +429,9 @@ def test_remote_declared_shared_settings_agree_before_connecting(tmp_path, monke
         # a release before protocol 1 carries no marker: the probe reports protocol 0, and its
         # `flow_hash` for the same request differs from this side's, so it is refused here, not
         # accepted and failed on a mirror hash
-        ("0.4.3", None, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
+        ("0.4.3", None, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5ns"]),
         ("0.4.4", None, "nextpnr", ["fpga.part=LFE5U-25F-6BG381C"]),
-        ("0.4.4", None, "yosys", ["platform=nangate45", "clock.period=2.0"]),
+        ("0.4.4", None, "yosys", ["platform=nangate45", "clock.period=2ns"]),
         ("0.4.4", None, "ghdl_sim", None),
         # a marker lower than this side's floor
         ("0.4.5", 0, "openfpgaloader", ["fpga.part=LFE5U-25F-6BG381C"]),
@@ -698,7 +698,7 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
             design_root / "sqrt.yaml",
             "vivado_synth",
             host="somewhere",
-            flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"],
+            flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5ns"],
         )
 
     results = run_remote()
@@ -770,7 +770,7 @@ def _run_vivado_alt_synth_with_netlist(tmp_path: Path) -> dict | None:
         host="somewhere",
         flow_settings=[
             "fpga.part=xc7a12tcsg325-1",
-            "clock.period=5.0",
+            "clock.period=5ns",
             "write_netlist=true",
             "write_timing_netlist=true",
         ],
@@ -818,7 +818,7 @@ def _remote_with_fake_fpga_tools(tmp_path: Path, remote_host: Path, monkeypatch)
 
 
 #: A clock of 400 MHz: the fake `nextpnr` reports 250 MHz, so the checks of the flow reject it.
-REJECTED_REMOTE_SETTINGS = ["fpga.part=LFE5U-25F-6BG381C", "clock.freq=400"]
+REJECTED_REMOTE_SETTINGS = ["fpga.part=LFE5U-25F-6BG381C", "clock.freq=400MHz"]
 
 
 def test_a_remote_run_whose_checks_reject_it_reports_the_rejection_and_keeps_no_trace(
@@ -991,7 +991,7 @@ def test_a_failed_remote_run_does_not_fetch_an_earlier_runs_output(
         host="somewhere",
         flow_settings=[
             "fpga.part=xc7a12tcsg325-1",
-            "clock.period=5.0",
+            "clock.period=5ns",
             "bitstream=top.bit",
         ],
     )
@@ -1236,7 +1236,7 @@ def test_a_remote_run_refuses_a_users_local_results_directory_before_connecting(
             SQRT / "sqrt.yaml",
             "vivado_synth",
             host="somewhere",
-            flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"],
+            flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5ns"],
         )
 
     assert not connected_to
@@ -1255,7 +1255,7 @@ def test_a_remote_run_marks_its_local_results_directory_and_reuses_it(tmp_path, 
             SQRT / "sqrt.yaml",
             "vivado_synth",
             host="somewhere",
-            flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"],
+            flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5ns"],
         )
         assert results and results["success"], f"run {attempt}: {results}"
         local_run = Path(results["run_path"])
@@ -1400,7 +1400,7 @@ def test_the_remote_runs_in_a_run_root_of_its_own(tmp_path, monkeypatch):
     assert roots == [str(tmp_path / "xeda_run")]
 
 
-SQRT_SETTINGS = ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]
+SQRT_SETTINGS = ["fpga.part=xc7a12tcsg325-1", "clock.period=5ns"]
 
 
 def _sqrt_design(root: Path) -> Path:
@@ -2095,7 +2095,7 @@ def test_a_platform_file_s_remote_run_has_this_side_s_identity(
         rtl={"sources": ["mac.v"], "top": "mac", "clock": {"port": "clk"}},
     )
     runner = RemoteRunner(tmp_path / "mirror", display_results=False)
-    settings = [f"platform_file={TINY_RESIDUE}", "clock.period=2.0", "pdk_root=elsewhere"]
+    settings = [f"platform_file={TINY_RESIDUE}", "clock.period=2ns", "pdk_root=elsewhere"]
     plan = runner.plan("yosys", design, flow_settings=settings)
     expected = plan.node("yosys").flowrun_hash
     results = runner.run_remote(design, "yosys", "fake", flow_settings=settings)
@@ -2131,7 +2131,7 @@ def test_a_remote_run_of_a_flow_that_declares_no_io_resolves_the_identity_it_was
         design_root / "sqrt.yaml",
         "dc",
         host="somewhere",
-        flow_settings=["target_libraries=cells.db", "clock.period=5.0"],
+        flow_settings=["target_libraries=cells.db", "clock.period=5ns"],
     )
 
     # the fake `dc_shell` writes no timing report, so the run itself reports failure: what is

@@ -153,11 +153,12 @@ design. A design with one clock usually needs only this:
     rtl:
       clock.port: clk
 
-In each flow, set ``clock.period`` (in ns) or ``clock.freq`` (in MHz) as a number, or with a unit
-(``"5.5ns"``, ``"200MHz"``). Units are case-sensitive, as in SI: ``"200mhz"`` is an error that
-names ``MHz``. The design key ``clock_port`` and the flow setting ``clock_period`` were removed.
-Xeda refuses both and names the replacement: write ``clock: <port>`` in the design and
-``clock.period`` in a flow.
+In each flow, set ``clock.period`` or ``clock.freq`` with a unit: ``clock.period: 5.5 ns`` or
+``clock.freq: 200 MHz``. A number without a unit is an error. Units are case-sensitive, as in SI:
+``200 mhz`` is an error that names ``MHz``. See :ref:`quantities` for the kinds and the units.
+
+The design key ``clock_port`` and the flow setting ``clock_period`` were removed. Xeda refuses both
+and names the replacement: write ``clock: <port>`` in the design and ``clock.period`` in a flow.
 
 .. _tb:
 
@@ -500,10 +501,10 @@ design file can carry the settings of several flows:
     flows:
       vivado_synth:
         fpga.part: xc7a100tftg256-2L
-        clock.period: 5.0
+        clock.period: 5 ns
       yosys:
         platform: nangate45
-        clock.period: 10.0
+        clock.period: 10 ns
       ghdl_sim:
         stop_time: 100us
 

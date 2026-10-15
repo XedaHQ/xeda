@@ -204,7 +204,11 @@ under the name that you can type as ``-s <name>=<value>``:
   appear under the ``$defs`` key of JSON Schema.
 * ``type`` is a short rendering for people and agents, and it is not JSON Schema. An optional
   setting reads as its underlying type (``integer``), while ``json_schema`` carries the literal
-  ``anyOf: [..., {"type": "null"}]`` that pydantic emits.
+  ``anyOf: [..., {"type": "null"}]`` that pydantic emits. A quantity reads as its kind (``time``,
+  ``frequency``, ``capacitance``, ``length``, ``voltage`` or ``resistance``; see :ref:`quantities`).
+  In ``json_schema``, a quantity is ``"type": "string"`` with the kind in the key
+  ``x-xeda-quantity``. The schema separates a number from text, and it cannot check the unit in the
+  text.
 
 ``fields`` has one entry for each top-level setting. After the entry of a settings group, it has
 one entry for each field of the group, depth first in the order of declaration. A sub-group has an
@@ -259,7 +263,9 @@ from it, instead of guessing the format. The schema is a draft 2020-12 document:
 under ``$defs`` and fixed-length tuples use ``prefixItems``. The ``$schema`` key always names the
 dialect that the document actually conforms to, so point a validator at that dialect and do not
 assume a draft. The schema describes the forms that the loader accepts. For example, ``sources`` and
-``clocks`` take one item in place of a list of one.
+``clocks`` take one item in place of a list of one. It does not describe the settings of a flow:
+every ``flows.<flow>`` is an open table. Take the schema of those settings from
+``xeda list-settings <flow> --json`` (``json_schema``).
 
 Running a flow
 ==============
@@ -766,7 +772,7 @@ To run a flow:
 
     design = Design.from_file("sqrt.yaml")
     runner = DefaultRunner("xeda_run")
-    flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5.0"])
+    flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5ns"])
     if flow and flow.results.success:
         print(flow.results.Fmax)
 

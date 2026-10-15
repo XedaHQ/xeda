@@ -306,7 +306,7 @@ def test_a_remote_run_puts_only_the_json_document_on_stdout(
         cli,
         ["run", "nextpnr", "--design", str(design), "--remote", "somewhere"]
         + ["--run-root", str(tmp_path / "local" / "xeda_run"), "--json"]
-        + ["-s", "fpga.part=LFE5U-25F-6BG381C", "-s", "clock.freq=200"],
+        + ["-s", "fpga.part=LFE5U-25F-6BG381C", "-s", "clock.freq=200MHz"],
     )
     assert result.exit_code == 0, result.output
     try:

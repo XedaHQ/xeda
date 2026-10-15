@@ -26,6 +26,7 @@ from ..flow import (
 )
 from ..tool import NonZeroExitCode, Tool
 from ..run_dir import RunDirectory
+from ..units import count, ratio
 from ..utils import replacing_file, setting_flag
 from .nextpnr_constraints import ClockUse, Constraints, merge_constraints, reconcile_clocks
 from .xilinx import (
@@ -353,6 +354,7 @@ class Nextpnr(FpgaSynthFlow):
             None,
             description="Seed for nextpnr's placer. Different seeds give different results. "
             "A sweep over seeds is a common way to find a higher Fmax.",
+            json_schema_extra=count(),
         )
         randomize_seed: bool = Field(
             False,
@@ -416,17 +418,25 @@ class Nextpnr(FpgaSynthFlow):
             None, description="nextpnr placer (`heap`, `sa`, or a backend-specific choice)."
         )
         router: Optional[str] = Field(None, description="nextpnr router (`router1` or `router2`).")
-        cstrweight: Optional[float] = Field(None, description="Placer constraint weight.")
-        starttemp: Optional[float] = Field(
-            None, description="Simulated-annealing starting temperature."
+        cstrweight: Optional[float] = Field(
+            None, description="Placer constraint weight.", json_schema_extra=ratio()
         )
-        placer_heap_alpha: Optional[float] = Field(None, description="HeAP placer alpha.")
-        placer_heap_beta: Optional[float] = Field(None, description="HeAP placer density limit.")
+        starttemp: Optional[float] = Field(
+            None,
+            description="Simulated-annealing starting temperature.",
+            json_schema_extra=ratio(),
+        )
+        placer_heap_alpha: Optional[float] = Field(
+            None, description="HeAP placer alpha.", json_schema_extra=ratio()
+        )
+        placer_heap_beta: Optional[float] = Field(
+            None, description="HeAP placer density limit.", json_schema_extra=ratio()
+        )
         placer_heap_critexp: Optional[int] = Field(
-            None, description="HeAP placer criticality exponent."
+            None, description="HeAP placer criticality exponent.", json_schema_extra=ratio()
         )
         placer_heap_timingweight: Optional[int] = Field(
-            None, description="HeAP placer timing weight."
+            None, description="HeAP placer timing weight.", json_schema_extra=ratio()
         )
         tmg_ripup: bool = Field(
             False, description="Enable experimental timing-driven router ripup."
@@ -468,10 +478,12 @@ class Nextpnr(FpgaSynthFlow):
             False, description="Disable Nexus post-placement repacking."
         )
         carry_lutff_ratio: Optional[float] = Field(
-            None, description="Nexus carry-chain LUT/FF clustering ratio."
+            None,
+            description="Nexus carry-chain LUT/FF clustering ratio.",
+            json_schema_extra=ratio(),
         )
         estimate_delay_mult: Optional[float] = Field(
-            None, description="Nexus estimated-delay multiplier."
+            None, description="Nexus estimated-delay multiplier.", json_schema_extra=ratio()
         )
         router2_alt_weights: bool = Field(
             False, description="Use alternative router2 congestion weights."
@@ -545,6 +557,7 @@ class Nextpnr(FpgaSynthFlow):
             False,
             description="Xilinx: fix hold-time violations after routing. `true` uses the "
             "default pass limit of the backend (8). A positive number sets the pass limit.",
+            json_schema_extra=count(),
         )
         hold_detour_max: float | None = Field(
             None,

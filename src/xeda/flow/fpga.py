@@ -3,6 +3,7 @@ import re
 from typing import Any, Optional
 
 from ..dataclass import Code, Field, XedaBaseModel, accepts_non_mapping, model_validator
+from ..units import count
 from ..utils import try_convert
 
 log = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ class FPGA(XedaBaseModel):
     speed: Optional[Code] = Field(None, description='Speed grade, e.g. `-1` or `"2L"`.')
     package: Optional[str] = None
     capacity: Optional[str] = None
-    pins: Optional[int] = None
+    pins: Optional[int] = Field(None, json_schema_extra=count())
     grade: Optional[Code] = None
 
     def __init__(self, *args: str, **data: Any) -> None:

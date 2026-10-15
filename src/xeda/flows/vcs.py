@@ -12,7 +12,7 @@ from ..flow import Flow, FlowSettingsException, SimFlow, NoReplacement
 from ..flow.flow import describe_results
 from ..flow.sim import SimEvidence
 from ..tool import Tool
-from ..units import convert_unit
+from ..units import convert_unit, data_size
 from ..utils import replacing_file, tcl_word
 from .vcs_evidence import RUNTIME_LOG, parse_vcs_evidence, prepare_vcs_runtime
 
@@ -234,6 +234,7 @@ class Vcs(SimFlow):
         fsdb_size_limit: Optional[int] = Field(
             256,
             description="FSDB size limit in MB (`+fsdb+dump_limit`). Unset uses the VCS default.",
+            json_schema_extra=data_size(),
         )
         to_vcd: bool = Field(
             False,
@@ -255,6 +256,7 @@ class Vcs(SimFlow):
             None,
             description="VPD size limit in MB (`+vpdfilesize`). When the simulation reaches the "
             "limit, it overwrites older history. Needs `vpd`.",
+            json_schema_extra=data_size(),
         )
 
     @classmethod

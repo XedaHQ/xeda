@@ -3,6 +3,7 @@ import random
 from typing import Any, Dict, List, Optional, Union
 
 from ...dataclass import field_validator
+from ...units import Time
 from ...utils import settings_to_dict, unique
 from ..dse.dse_runner import FlowOutcome, Optimizer, deep_hash, linspace
 from ..settings_layers import merge_layers
@@ -350,7 +351,7 @@ class FmaxOptimizer(Optimizer):
                 if target_clock_name not in candidate_clocks:
                     candidate_clocks[target_clock_name] = {}
                 candidate_clocks[target_clock_name].pop("freq", None)
-                candidate_clocks[target_clock_name]["period"] = clock_period
+                candidate_clocks[target_clock_name]["period"] = Time.of(clock_period, "ns")
                 h = deep_hash(settings)
                 if h in self.batch_hashes:
                     log.info(

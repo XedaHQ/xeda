@@ -1053,7 +1053,7 @@ def test_ise_synth_from_the_design_directory_deletes_none_of_its_files(
             "--clean",
             "-s",
             "fpga=xc6slx9-2-tqg144",
-            "clock.period=10",
+            "clock.period=10ns",
         ],
     )
     assert _state(work, [work / "xeda_run"]) == before, "the design directory changed"
