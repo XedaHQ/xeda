@@ -8,16 +8,22 @@ The first group of tests runs without OpenROAD: it checks the reader that finds 
 Tcl script and the guard of the layer. The other groups skip without their variables.
 """
 
+import json
 import os
 import re
+import shutil
 import stat
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
 
 from xeda import Design
+from xeda.flow import Flow
+from xeda.flow_runner import DefaultRunner
 from xeda.flows.openroad import OpenroadPlace
+from xeda.run_root import ensure_run_root
 
 from .openroad_flags import (
     Installed,
@@ -34,7 +40,13 @@ from .openroad_flags import (
     template_pairs,
 )
 from .openroad_utils import render_driver
-from .tool_utils import OPENROAD_COMMANDS, pdk_test_platforms, require_openroad, require_pdk_store
+from .tool_utils import (
+    OPENROAD_COMMANDS,
+    pdk_test_platforms,
+    require_openroad,
+    require_pdk_store,
+    require_yosys,
+)
 
 # ---------------------------------------------------------------------------- the guard
 
@@ -427,3 +439,197 @@ def test_each_platform_floorplans_a_four_cell_netlist(name, tmp_path):
     assert count.returncode == 0, count.stdout[-2000:] + count.stderr[-2000:]
     found = re.search(r"INSTANCES (\d+)", count.stdout)
     assert found and int(found.group(1)) >= 4, count.stdout
+
+
+# ---------------------------------------------------------------------------- gcd through the chain
+
+#: The design `gcd` of OpenROAD-flow-scripts on nangate45, with the settings of its configuration.
+GCD_DESIGN = Path(__file__).parent / "resources" / "openroad" / "gcd_nangate45.yaml"
+#: The clock period of the ORFS configuration, which these flows do not meet on gcd.
+ORFS_PERIOD = "0.25ns"
+
+
+def require_gcd_tools() -> Path:
+    """Insist on what a gcd run needs: OpenROAD, yosys, and a PDK store that holds nangate45.
+    Return the store."""
+    require_openroad()
+    require_yosys()
+    store = require_pdk_store()
+    if "nangate45" not in pdk_test_platforms():
+        pytest.skip("the PDK store of XEDA_TESTS_PDK_ROOT does not hold nangate45")
+    return store
+
+
+def gcd_settings(store: Path, period: str | None = None) -> list[str]:
+    """The settings of the command line for a gcd run: the PDK store, and the clock period of
+    the two flows that take it, if `period` is given."""
+    settings = [f"pdk_root={store}"]
+    if period is not None:
+        settings += [f"flows.{flow}.clock.period={period}" for flow in ("yosys", "openroad_place")]
+    return settings
+
+
+def run_gcd(
+    runner: DefaultRunner, store: Path, *extra: str, period: str | None = None, flow: str = ""
+) -> Flow:
+    """Launch `yosys+openroad` (or `flow`) on gcd with `runner` and return the requested flow."""
+    launched = runner.run(
+        flow or "yosys+openroad",
+        str(GCD_DESIGN),
+        flow_settings=[*gcd_settings(store, period), *extra],
+    )
+    assert launched is not None
+    return launched
+
+
+def started(runner: DefaultRunner, first: int) -> list[str]:
+    """The names of the flows that the launches of `runner` ran, not reused, since `first`."""
+    return [flow.name for flow in runner.launched[first:] if not flow.reused]
+
+
+CHAIN = ["yosys", "openroad_place", "openroad_cts", "openroad_grt", "openroad"]
+
+
+def test_gcd_runs_through_the_chain(tmp_path):
+    """The whole chain closes gcd at 0.65 ns on nangate45: timing met, no DRC error, no antenna
+    violation, and a trace in each of the five run directories."""
+    store = require_gcd_tools()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    start = time.monotonic()
+    flow = run_gcd(runner, store)
+    elapsed = time.monotonic() - start
+    assert flow.succeeded, flow.results.get("error")
+    assert started(runner, 0) == CHAIN
+    results = flow.results
+    assert results["wns"] == 0 and results["worst_slack"] > 0, results["worst_slack"]
+    assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
+    for name in CHAIN:
+        assert (tmp_path / "run" / "gcd" / name / "trace.json").is_file(), name
+    print(f"the gcd chain took {elapsed:.0f} s")
+
+
+def test_gcd_at_its_orfs_clock_is_rejected_and_reported_again(tmp_path):
+    """At the 0.25 ns of its ORFS configuration, `openroad` rejects gcd for its timing and
+    keeps the trace. A second launch reports the rejection again and starts no tool."""
+    store = require_gcd_tools()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flow = run_gcd(runner, store, period=ORFS_PERIOD)
+    assert flow.name == "openroad" and flow.outcome == "rejected", flow.results.get("error")
+    assert "timing not met" in (flow.rejection or "")
+    assert (flow.run_path / "trace.json").is_file()
+    logs = [flow.run_path / f"openroad_{process}.log" for process in ("route", "final")]
+    stamps = [log.stat().st_mtime_ns for log in logs]
+    first = len(runner.launched)
+    again = run_gcd(runner, store, period=ORFS_PERIOD)
+    assert again.reused and again.rejected_again and not again.succeeded
+    document = json.loads((flow.run_path / "results.json").read_text())
+    assert again.rejection == document["error"]["message"]
+    assert (flow.rejection or "") in again.rejection
+    assert started(runner, first) == []
+    assert [log.stat().st_mtime_ns for log in logs] == stamps
+
+
+def test_a_late_setting_reruns_only_the_later_flows(tmp_path):
+    """A setting of `openroad` reruns only `openroad`. A setting of `openroad_grt` reruns
+    `openroad_grt` and `openroad`, and the earlier flows are reused."""
+    store = require_gcd_tools()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    assert run_gcd(runner, store).succeeded
+    first = len(runner.launched)
+    route = "flows.openroad.detailed_route.end_iteration=32"
+    assert run_gcd(runner, store, route).succeeded
+    assert started(runner, first) == ["openroad"]
+    first = len(runner.launched)
+    congestion = "flows.openroad_grt.congestion.iterations=40"
+    assert run_gcd(runner, store, route, congestion).succeeded
+    assert started(runner, first) == ["openroad_grt", "openroad"]
+
+
+def write_def(openroad: Path, odb: Path, work: Path) -> bytes:
+    """The DEF file that OpenROAD writes from the database `odb`."""
+    work.mkdir()
+    done = run_openroad(openroad, work, f"read_db {odb}\nwrite_def design.def\n", "def")
+    assert done.returncode == 0, done.stdout[-2000:] + done.stderr[-2000:]
+    return (work / "design.def").read_bytes()
+
+
+def test_two_runs_write_the_same_database(tmp_path):
+    """`openroad_place` in two run roots writes the same SDC file and the same database, or at
+    least the same design: the DEF files that OpenROAD writes from the two databases are equal.
+    The database never holds the path of its netlist."""
+    store = require_gcd_tools()
+    openroad = require_openroad()
+    flows = [
+        run_gcd(DefaultRunner(tmp_path / root, display_results=False), store, flow="openroad_place")
+        for root in ("one", "two")
+    ]
+    assert all(flow.succeeded for flow in flows)
+    odbs = [flow.outputs.odb.read_bytes() for flow in flows]
+    sdcs = [flow.outputs.sdc.read_bytes() for flow in flows]
+    assert sdcs[0] == sdcs[1]
+    for flow, odb in zip(flows, odbs):
+        assert flow.inputs.netlist is not None
+        assert os.fsencode(flow.inputs.netlist) not in odb
+        assert os.fsencode(flow.inputs.netlist.parent) not in odb
+    if odbs[0] == odbs[1]:
+        print("the two databases are equal")
+        return
+    defs = [
+        write_def(openroad, flow.outputs.odb, tmp_path / f"def-{index}")
+        for index, flow in enumerate(flows)
+    ]
+    assert defs[0] == defs[1], "the two databases hold different designs"
+    print("the two databases differ, and their DEF files are equal")
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes through file permissions")
+def test_the_chain_writes_nothing_outside_its_run_root(tmp_path, monkeypatch):
+    """With the design, a copy of the PDK store and the home directory read-only, the chain, an
+    unchanged second launch and a rejected launch write nothing outside the run root. The audit
+    hook sees the writes of xeda, and the listing of the tree those of the tools."""
+    from .test_isolation import World, _freeze, _state, watching
+
+    store = require_gcd_tools()
+    parent = tmp_path / "world"
+    work = parent / "work"
+    (work / "gcd").mkdir(parents=True)
+    shutil.copy(GCD_DESIGN, work / GCD_DESIGN.name)
+    shutil.copy(GCD_DESIGN.parent / "gcd" / "gcd.v", work / "gcd" / "gcd.v")
+    pdks = parent / "pdks"
+    shutil.copytree(store, pdks, symlinks=True)
+    home = parent / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    world = World(parent, work, parent / "outside", work / "xeda_run", work / "delivered", pdks)
+    ensure_run_root(world.root)
+    before = _state(parent, [world.root])
+    modes = {
+        Path(directory, name): os.lstat(Path(directory, name)).st_mode
+        for directory, directories, files in os.walk(parent)
+        for name in (*directories, *files)
+    }
+    modes[parent] = parent.stat().st_mode
+    _freeze(parent, keep=world.root)
+    try:
+        with watching(world) as violations:
+            runner = DefaultRunner(world.root, display_results=False)
+            design = str(work / GCD_DESIGN.name)
+
+            def launch(period: str | None = None) -> Flow:
+                settings = gcd_settings(pdks, period)
+                flow = runner.run("yosys+openroad", design, flow_settings=settings)
+                assert flow is not None
+                return flow
+
+            assert launch().succeeded
+            first = len(runner.launched)
+            assert launch().reused and started(runner, first) == []
+            assert launch(ORFS_PERIOD).outcome == "rejected"
+    finally:  # the modes as they were: the store holds executable files
+        for path, mode in sorted(modes.items(), key=lambda item: len(item[0].parts)):
+            if not stat.S_ISLNK(mode):
+                path.chmod(stat.S_IMODE(mode))
+    after = _state(parent, [world.root])
+    changed = sorted(k for k in before.keys() | after.keys() if before.get(k) != after.get(k))
+    assert not changed, changed
+    assert not violations, violations
