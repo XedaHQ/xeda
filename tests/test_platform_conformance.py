@@ -16,6 +16,7 @@ snippets of `docs/platforms.rst` are residue files.
 import json
 import re
 import sys
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
@@ -173,7 +174,9 @@ def _layers(name: str) -> tuple[Path, Residue, Any, dict[str, Any], dict[str, An
     located = locate(residue, None, None, store, None)
     assert residue.upstream is not None, "a bundled platform names its upstream configuration"
     derived = derive(located.files, located.corner)
-    upstream = read_upstream(residue.upstream.adapter, located.upstream_files, located.directory)
+    upstream = read_upstream(
+        residue.upstream.adapter, located.upstream_files, located.directory, located.library
+    )
     return store, residue, located, derived, upstream
 
 
@@ -251,14 +254,13 @@ def _liberty_cells(files: list[Path]) -> dict[str, bool]:
     return cells
 
 
-@pytest.mark.parametrize("name", pdk_test_platforms())
-def test_real_yosys_maps_a_counter_to_the_cells_of_the_platform(name, tmp_path):
-    require_pdk_store()
-    require_yosys()
-    store, _, located, derived, upstream = _layers(name)
+def _synthesize(name: str, tmp_path: Path, source: str) -> tuple[Any, list[str]]:
+    """Run the Yosys flow on `source` (module `top`, clock `clk`) for the platform, and return the
+    flow and the cells of its netlist."""
+    store = require_pdk_store()
     design_root = tmp_path / "design"
     design_root.mkdir()
-    (design_root / "top.v").write_text(COUNTER)
+    (design_root / "top.v").write_text(source)
     design = Design(
         name="top",
         design_root=design_root,
@@ -269,14 +271,69 @@ def test_real_yosys_maps_a_counter_to_the_cells_of_the_platform(name, tmp_path):
         Yosys, design, settings
     )
     assert flow.succeeded
+    netlist = (flow.run_path / "netlist.v").read_text()
+    used = re.findall(r"^\s*(\w+)\s+\S+\s*\(", netlist, re.M)
+    return flow, [cell for cell in used if cell != "module"]
+
+
+@pytest.mark.parametrize("name", pdk_test_platforms())
+def test_real_yosys_maps_a_counter_to_the_cells_of_the_platform(name, tmp_path):
+    require_pdk_store()
+    require_yosys()
+    _, _, located, derived, upstream = _layers(name)
+    flow, used = _synthesize(name, tmp_path, COUNTER)
     results = json.loads((flow.run_path / "results.json").read_text())
     assert results["platform"]["name"] == name
     netlist = (flow.run_path / "netlist.v").read_text()
-    used = re.findall(r"^\s*(\w+)\s+\S+\s*\(", netlist, re.M)
-    used = [cell for cell in used if cell != "module"]
     library = _liberty_cells(located.files["liberty"])
     assert used and set(used) <= set(library), sorted(set(used) - set(library))
     assert not re.search(r"^\s*\\\$_", netlist, re.M), "a generic cell is left in the netlist"
     assert (
         sum(library[cell] for cell in used) == 4
     ), "one flip-flop cell for each bit of the counter"
+
+
+# ---------------------------------------------------------------------------- the dont-use cells
+
+ADDER_AND_LATCH = (
+    "module top(input clk, input [7:0] a, b, input g, output reg [8:0] s, output reg l);\n"
+    "  always @(posedge clk) s <= a + b;\n"
+    "  always @* if (g) l = a[0] ^ b[0];\n"
+    "endmodule\n"
+)
+
+
+@pytest.mark.parametrize("name", pdk_test_platforms())
+def test_real_yosys_uses_no_cell_that_the_platform_excludes(name, tmp_path):
+    require_pdk_store()
+    require_yosys()
+    model = load_model(name)
+    excluded = model.dont_use_cells
+    assert excluded, "the platform excludes cells"
+    flow, used = _synthesize(name, tmp_path, ADDER_AND_LATCH)
+    assert used
+    results = json.loads((flow.run_path / "results.json").read_text())
+    assert results["platform"]["sources"]["dont_use_cells"] == model.sources["dont_use_cells"]
+    hit = sorted({cell for cell in used for pattern in excluded if fnmatchcase(cell, pattern)})
+    assert not hit, hit
+
+
+def load_model(name: str) -> Any:
+    _, residue, located, derived, upstream = _layers(name)
+    return build_platform(located, residue, None, derived, upstream)
+
+
+@pytest.mark.skipif("sky130hd" not in pdk_test_platforms(), reason="sky130hd is not in the store")
+def test_sky130hd_excludes_the_cells_of_the_drc_exclude_list_and_records_where_they_came_from():
+    """`dont_use_cells` is the list that `DRC_EXCLUDE_CELL_LIST` names, in the order of the
+    file, and the model says that the upstream configuration gave it."""
+    _, residue, located, derived, upstream = _layers("sky130hd")
+    model = build_platform(located, residue, None, derived, upstream)
+    listed = (
+        located.directory / "libs.tech/openlane/sky130_fd_sc_hd/drc_exclude.cells"
+    ).read_text()
+    names = listed.split()
+    assert len(names) == 53
+    assert model.dont_use_cells == names
+    assert model.sources["dont_use_cells"] == "upstream"
+    assert located.upstream_files[-1].name == "drc_exclude.cells"

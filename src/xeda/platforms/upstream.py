@@ -40,6 +40,7 @@ order given and a later value of a key wins.
 | `LAYERS_RC` | `wire_rc.layers.<layer>` | `res` and `cap` of the layer, see below |
 | `VIAS_R` | `wire_rc.vias.<via>` | `res` of the via, see below |
 | `CTS_ROOT_BUFFER`, `CTS_CLK_BUFFER_LIST` | `cts_buffers` | the root, then the list, no repeats |
+| `DRC_EXCLUDE_CELL_LIST` | `dont_use_cells` | a file with one cell name per line, see below |
 | `FP_PDN_RAIL_LAYER`, `_RAIL_WIDTH`, `_RAIL_OFFSET` | `pdn.rails` | one rail |
 | `FP_PDN_VERTICAL_LAYER`, `_VWIDTH`, `_VPITCH`, `_VOFFSET` | `pdn.straps` | the first strap |
 | `FP_PDN_HORIZONTAL_LAYER`, `_HWIDTH`, `_HPITCH`, `_HOFFSET` | `pdn.straps` | the second strap |
@@ -59,6 +60,16 @@ width, pitch and offset keys of its own strap (a rail needs the width; its offse
 The reader ignores the keys that the `Pdn` model cannot hold: `*_VSPACING`, `*_HSPACING`, the
 `*_CORE_RING_*` keys, the macro blockage keys and every other `PDN` key. It does not give
 `pdn.connects` or `pdn.pin_layers`, because no key of these files names them.
+
+`DRC_EXCLUDE_CELL_LIST` names a file of cells that the PDK excludes from every flow. In its value
+the reader expands three variables and no other: `$::env(PDK_ROOT)` is the parent of the platform
+directory, `$::env(PDK)` is the name of the platform directory, and `$::env(STD_CELL_LIBRARY)` is
+the library of the provider. The file must be inside the platform directory, and it must be one of
+the files that the residue lists under `upstream.files`, so that a run records it. Each line of it
+is one cell name or a wildcard pattern; `#` starts a comment, and blank lines count for nothing.
+The files that end in `.tcl` are configuration, and every other listed file must be the one that
+this key names. The key `NO_SYNTH_CELL_LIST` is ignored: it lists the cells that synthesis alone
+leaves out.
 
 The reader ignores `GRT_LAYER_ADJUSTMENTS`. It is a list with one number for each routing layer
 of the technology, from its lowest routing layer up. That layer is below `RT_MIN_LAYER` in sky130
@@ -104,6 +115,7 @@ The keys that name files (`TECH_LEF`, `SC_LEF`, `LIB_FILES`, `GDS_FILES`, `*_MAP
 platform.
 """
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -160,6 +172,10 @@ def _number(text: str) -> Optional[float]:
     if not NUMBER.fullmatch(text):
         raise _Invalid(f"expects a number, got `{text}`")
     return float(text)
+
+
+def _path_text(text: str) -> Optional[str]:
+    return text.strip() or None
 
 
 def _integer(text: str) -> Optional[int]:
@@ -298,6 +314,7 @@ TCL_CONVERTERS: dict[str, Callable[[str], Any]] = {
     "DIODE_CELL_PIN": _one_word,
     "CTS_ROOT_BUFFER": _one_word,
     "CTS_CLK_BUFFER_LIST": _words,
+    "DRC_EXCLUDE_CELL_LIST": _path_text,
     **{f"PDN_{key}": convert for key, convert in PDN_KEYS.items()},
 }
 
@@ -370,9 +387,23 @@ def _brace_delta(line: str) -> int:
 class _TclReader:
     """The state of reading a list of `config.tcl` files in order."""
 
-    def __init__(self) -> None:
-        #: The text of each key read so far, by the name that the file used.
+    def __init__(
+        self,
+        platform_dir: Optional[Path] = None,
+        library: Optional[str] = None,
+        lists: Sequence[Path] = (),
+    ) -> None:
+        self.platform_dir = platform_dir
+        #: The files that are no configuration: the lists that a key names.
+        self.lists = list(lists)
+        #: The text of each key read so far, by the name that the file used. The three variables
+        #: that open_pdks defines before it reads the files start it.
         self.env: dict[str, str] = {}
+        if platform_dir is not None:
+            self.env["PDK_ROOT"] = str(platform_dir.parent)
+            self.env["PDK"] = platform_dir.name
+        if library is not None:
+            self.env["STD_CELL_LIBRARY"] = library
         #: The latest entry of each key, by its main name.
         self.entries: dict[str, _Entry] = {}
         #: The entries of the two tables: table, then layer or via, then field.
@@ -561,7 +592,57 @@ class _TclReader:
         for via, fields in self.tables["VIAS_R"].items():
             leaves[f"wire_rc.vias.{via}"] = fields["res"].value
         self.power_grid(leaves)
+        self.dont_use(leaves)
         return leaves
+
+    def dont_use(self, leaves: dict[str, Any]) -> None:
+        entry = self.get("DRC_EXCLUDE_CELL_LIST")
+        if entry is None:
+            if self.lists:
+                raise PlatformConfigError(
+                    self.lists[0],
+                    None,
+                    "no `DRC_EXCLUDE_CELL_LIST` names this file; list only configuration files "
+                    "(`.tcl`) and the file of that key in `upstream.files`",
+                )
+            return
+        where = (entry.path, entry.line)
+        if self.platform_dir is None:
+            raise PlatformConfigError(
+                *where, f"`{entry.name}` needs the directory of the platform to expand"
+            )
+        path = Path(os.path.normpath(entry.value))
+        root = Path(os.path.normpath(self.platform_dir))
+        if not path.is_absolute() or not path.is_relative_to(root):
+            raise PlatformConfigError(
+                *where, f"`{entry.name}` names {path}, which is not inside the platform directory"
+            )
+        listed = {Path(os.path.normpath(item)): item for item in self.lists}
+        if path not in listed:
+            raise PlatformConfigError(
+                *where,
+                f"`{entry.name}` names {path}, which is not among the `upstream.files` of the "
+                "residue; list it there, so that a run records the file",
+            )
+        if len(listed) > 1:
+            other = next(item for key, item in listed.items() if key != path)
+            raise PlatformConfigError(
+                other,
+                None,
+                f"no `DRC_EXCLUDE_CELL_LIST` names this file; `{entry.name}` names {path}",
+            )
+        leaves["dont_use_cells"] = self.cells(listed[path])
+
+    def cells(self, path: Path) -> list[str]:
+        names: list[str] = []
+        for number, line in enumerate(_read_text(path).splitlines(), start=1):
+            words = line.split("#", 1)[0].split()
+            if len(words) > 1:
+                raise PlatformConfigError(
+                    path, number, f"expects one cell name on a line, got `{' '.join(words)}`"
+                )
+            names.extend(words)
+        return _unique(names)
 
     def antenna(self, leaves: dict[str, Any]) -> None:
         diode, pin = self.get("DIODE_CELL"), self.get("DIODE_CELL_PIN")
@@ -619,17 +700,29 @@ class _TclReader:
             leaves["pdn.straps"] = straps
 
 
-def read_open_pdks_config(paths: Sequence[Path]) -> dict[str, Any]:
+def read_open_pdks_config(
+    paths: Sequence[Path],
+    platform_dir: Optional[Path] = None,
+    library: Optional[str] = None,
+) -> dict[str, Any]:
     """Read `config.tcl` files of open_pdks or IHP and return the leaves of the platform model.
 
     `paths` are the files in reading order: the file of the PDK, then the file of the library. A
     later file wins at a key, and its values may refer to a key of an earlier file with
-    `$::env(KEY)`. A line that the reader needs but does not understand raises
-    `PlatformConfigError`, which names the file and the line.
+    `$::env(KEY)`. A path that does not end in `.tcl` is a list that a key names (see
+    `DRC_EXCLUDE_CELL_LIST` above). `platform_dir` and `library` give the values of
+    `$::env(PDK_ROOT)`, `$::env(PDK)` and `$::env(STD_CELL_LIBRARY)`. A line that the reader needs
+    but does not understand raises `PlatformConfigError`, which names the file and the line.
     """
-    reader = _TclReader()
-    for path in paths:
-        reader.read(Path(path))
+    files = [Path(path) for path in paths]
+    reader = _TclReader(
+        None if platform_dir is None else Path(platform_dir),
+        library,
+        [path for path in files if path.suffix != ".tcl"],
+    )
+    for path in files:
+        if path.suffix == ".tcl":
+            reader.read(path)
     return reader.leaves()
 
 
@@ -798,16 +891,19 @@ def read_orfs_config_mk(path: Path, platform_dir: Path) -> dict[str, Any]:
     return leaves
 
 
-def read_upstream(adapter: str, paths: Sequence[Path], platform_dir: Path) -> dict[str, Any]:
+def read_upstream(
+    adapter: str, paths: Sequence[Path], platform_dir: Path, library: Optional[str] = None
+) -> dict[str, Any]:
     """Read the upstream configuration files of a platform with the adapter that the residue names.
 
     `paths` are the files in reading order, and `platform_dir` is the directory of the platform.
-    The adapter `open_pdks_config` reads all files as one configuration. The adapter
+    `library` is the standard cell library of the provider, which the adapter `open_pdks_config`
+    needs to expand `$::env(STD_CELL_LIBRARY)`. The adapter `open_pdks_config` reads all files as one configuration. The adapter
     `orfs_config_mk` reads each file on its own, and a later file wins at a leaf. Raise
     `ValueError` for an adapter that does not exist, and `PlatformConfigError` for a line that an
     adapter cannot read."""
     if adapter == "open_pdks_config":
-        return read_open_pdks_config(paths)
+        return read_open_pdks_config(paths, platform_dir, library)
     if adapter == "orfs_config_mk":
         leaves: dict[str, Any] = {}
         for path in paths:

@@ -69,6 +69,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 * the cell names, the layers, the tap cell distance and the power grid, which xeda reads at run
   time from `libs.tech/openlane/config.tcl` and `libs.tech/openlane/sky130_fd_sc_hd/config.tcl`
   and does not copy;
+* the cells that no flow may use, from `libs.tech/openlane/sky130_fd_sc_hd/drc_exclude.cells`,
+  which `DRC_EXCLUDE_CELL_LIST` names. Xeda reads the list at run time and does not copy it. The
+  list `no_synth.cells` of the same build is for synthesis only, and xeda ignores it;
 * the layer adjustment of global routing: `config.tcl` gives `GRT_LAYER_ADJUSTMENTS` as a list
   with one number for each routing layer of the technology. The residue maps the list to layer
   names with the order of the layers in the technology LEF (`li1`, `met1` to `met5`). It writes

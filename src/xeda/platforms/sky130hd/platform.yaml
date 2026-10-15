@@ -7,7 +7,10 @@ providers:
   directory: {layout: open_pdks, variant: sky130A, library: sky130_fd_sc_hd}
 upstream:
   adapter: open_pdks_config
-  files: [libs.tech/openlane/config.tcl, libs.tech/openlane/sky130_fd_sc_hd/config.tcl]
+  # The last file is the list of cells that DRC_EXCLUDE_CELL_LIST names: the dont-use cells.
+  files: [
+    libs.tech/openlane/config.tcl, libs.tech/openlane/sky130_fd_sc_hd/config.tcl,
+    libs.tech/openlane/sky130_fd_sc_hd/drc_exclude.cells]
 corners: {default: tt_025C_1v80, aliases: {tt: tt_025C_1v80}}
 files:
   liberty:

@@ -330,6 +330,7 @@ def test_pdk_path_gives_a_ciel_platform_with_a_corner_and_its_alias(home, tmp_pa
         assert located["upstream_files"] == [
             str(directory / "libs.tech" / "openlane" / "config.tcl"),
             str(directory / "libs.tech" / "openlane" / "sky130_fd_sc_hd" / "config.tcl"),
+            str(directory / "libs.tech" / "openlane" / "sky130_fd_sc_hd" / "drc_exclude.cells"),
         ]
 
 

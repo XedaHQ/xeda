@@ -431,6 +431,121 @@ def test_a_file_that_cannot_be_read_is_refused_naming_it(tmp_path: Path) -> None
 
 
 # ---------------------------------------------------------------------------------------------
+# config.tcl: the list of cells that DRC_EXCLUDE_CELL_LIST names
+# ---------------------------------------------------------------------------------------------
+
+EXCLUDE_KEY = (
+    'set ::env(DRC_EXCLUDE_CELL_LIST) "$::env(PDK_ROOT)/$::env(PDK)/libs.tech/'
+    '$::env(STD_CELL_LIBRARY)/drc_exclude.cells"\n'
+)
+CELLS = "# cells that fail the checks\ncell_a\n\n  cell_b  # trailing comment\nlib1__*_0\n"
+
+
+def exclude_store(
+    tmp_path: Path, config: str = EXCLUDE_KEY, cells: str | None = CELLS
+) -> tuple[Path, Path, list[Path]]:
+    """A store with the layout of an open_pdks build: `pdk/varA` is the platform directory, with
+    a `config.tcl` and the list of cells. Return the directory, the config file and the files."""
+    directory = tmp_path / "pdk" / "varA"
+    folder = directory / "libs.tech" / "lib1"
+    folder.mkdir(parents=True)
+    tcl = write(folder, "config.tcl", config)
+    listed = [tcl]
+    if cells is not None:
+        listed.append(write(folder, "drc_exclude.cells", cells))
+    return directory, tcl, listed
+
+
+def test_the_exclude_list_gives_the_dont_use_cells(tmp_path: Path) -> None:
+    """`$::env(PDK_ROOT)` is the parent of the platform directory, `$::env(PDK)` its name and
+    `$::env(STD_CELL_LIBRARY)` the library. Comments and blank lines are not cells."""
+    directory, _, files = exclude_store(tmp_path)
+    leaves = read_open_pdks_config(files, directory, "lib1")
+    assert leaves == {"dont_use_cells": ["cell_a", "cell_b", "lib1__*_0"]}
+    model = with_empty_residue(tmp_path, leaves)
+    assert model.dont_use_cells == ["cell_a", "cell_b", "lib1__*_0"]
+    assert model.sources["dont_use_cells"] == "upstream"
+
+
+def test_a_repeated_cell_of_the_exclude_list_counts_once(tmp_path: Path) -> None:
+    directory, _, files = exclude_store(tmp_path, cells="a\nb\na\n")
+    assert read_open_pdks_config(files, directory, "lib1")["dont_use_cells"] == ["a", "b"]
+
+
+def test_an_empty_exclude_list_gives_an_empty_leaf(tmp_path: Path) -> None:
+    directory, _, files = exclude_store(tmp_path, cells="# nothing\n\n")
+    assert read_open_pdks_config(files, directory, "lib1") == {"dont_use_cells": []}
+
+
+def test_a_config_without_the_key_gives_no_dont_use_cells(tmp_path: Path) -> None:
+    directory, _, files = exclude_store(tmp_path, config="set ::env(PLACE_SITE) core\n", cells=None)
+    assert read_open_pdks_config(files, directory, "lib1") == {"site": "core"}
+
+
+@pytest.mark.parametrize("variable", ["HOME", "PDK_ROOTS", "OTHER", "STD_CELL_LIBRARY_OPT"])
+def test_the_exclude_list_refuses_a_variable_other_than_the_three(
+    tmp_path: Path, variable: str
+) -> None:
+    config = f'set ::env(DRC_EXCLUDE_CELL_LIST) "$::env(PDK_ROOT)/$::env({variable})/x.cells"\n'
+    directory, _, files = exclude_store(tmp_path, config=config, cells=None)
+    message = refusal(read_open_pdks_config, files, directory, "lib1")
+    assert "config.tcl:1" in message and variable in message
+
+
+def test_the_library_is_known_only_when_the_provider_gives_it(tmp_path: Path) -> None:
+    directory, _, files = exclude_store(tmp_path)
+    message = refusal(read_open_pdks_config, files, directory)
+    assert "config.tcl:1" in message and "STD_CELL_LIBRARY" in message
+
+
+@pytest.mark.parametrize(
+    "path", ["$::env(PDK_ROOT)/other/x.cells", "$::env(PDK_ROOT)/$::env(PDK)/../x.cells", "/etc/x"]
+)
+def test_the_exclude_list_must_be_inside_the_platform_directory(tmp_path: Path, path: str) -> None:
+    config = f'set ::env(DRC_EXCLUDE_CELL_LIST) "{path}"\n'
+    directory, _, files = exclude_store(tmp_path, config=config, cells=None)
+    message = refusal(read_open_pdks_config, files, directory, "lib1")
+    assert "config.tcl:1" in message and "inside the platform directory" in message
+
+
+def test_the_exclude_list_needs_the_platform_directory(tmp_path: Path) -> None:
+    _, _, files = exclude_store(tmp_path)
+    assert "config.tcl:1" in refusal(read_open_pdks_config, files)
+
+
+def test_the_exclude_list_must_be_among_the_files_that_the_residue_lists(tmp_path: Path) -> None:
+    """The reader opens only listed files, so that the run records every file it read."""
+    directory, tcl, _ = exclude_store(tmp_path)
+    message = refusal(read_open_pdks_config, [tcl], directory, "lib1")
+    assert "config.tcl:1" in message and "upstream.files" in message
+
+
+def test_a_listed_exclude_list_that_is_missing_is_an_error(tmp_path: Path) -> None:
+    directory, tcl, files = exclude_store(tmp_path)
+    files[1].unlink()
+    message = refusal(read_open_pdks_config, files, directory, "lib1")
+    assert "drc_exclude.cells" in message and "cannot read" in message
+
+
+def test_a_listed_file_that_no_key_names_is_refused(tmp_path: Path) -> None:
+    directory, _, files = exclude_store(tmp_path, config="set ::env(PLACE_SITE) core\n")
+    message = refusal(read_open_pdks_config, files, directory, "lib1")
+    assert "drc_exclude.cells" in message and "DRC_EXCLUDE_CELL_LIST" in message
+
+
+def test_a_line_of_the_exclude_list_with_two_words_names_its_line(tmp_path: Path) -> None:
+    directory, _, files = exclude_store(tmp_path, cells="cell_a\ncell_b cell_c\n")
+    message = refusal(read_open_pdks_config, files, directory, "lib1")
+    assert "drc_exclude.cells:2" in message
+
+
+def test_the_exclude_list_in_a_block_is_refused_as_any_key_is(tmp_path: Path) -> None:
+    config = "if { 1 } {\n" + EXCLUDE_KEY + "}\n"
+    directory, _, files = exclude_store(tmp_path, config=config, cells=None)
+    assert "DRC_EXCLUDE_CELL_LIST" in refusal(read_open_pdks_config, files, directory, "lib1")
+
+
+# ---------------------------------------------------------------------------------------------
 # config.mk: every key of the set
 # ---------------------------------------------------------------------------------------------
 

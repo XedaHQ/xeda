@@ -144,7 +144,9 @@ def _layers(bundled: Residue, parity: Residue, orfs: Path) -> tuple[Any, dict, d
     structure = effective_residue(bundled, parity)
     located = locate(structure, None, None, orfs, None)
     derived = derive(located.files, located.corner)
-    upstream = read_upstream(structure.upstream.adapter, located.upstream_files, located.directory)
+    upstream = read_upstream(
+        structure.upstream.adapter, located.upstream_files, located.directory, located.library
+    )
     return located, derived, upstream
 
 
@@ -165,7 +167,8 @@ def test_the_model_takes_the_cells_and_the_settings_from_config_mk(bundled, pari
     assert model.site == "unithd"
     assert model.min_buffer is not None and model.min_buffer.cell == "sky130_fd_sc_hd__buf_4"
     assert model.abc_driver_cell == "sky130_fd_sc_hd__buf_1" and model.abc_load_in_ff == 5
-    assert len(model.dont_use_cells) == 36
+    assert len(model.dont_use_cells) == 36, "the cells of config.mk, not those of open_pdks"
+    assert model.sources["dont_use_cells"] == "upstream"
     assert model.match_cell_footprint is True
     assert model.place_density == 0.6
     assert model.fill_cells[:2] == ["sky130_fd_sc_hd__fill_1", "sky130_fd_sc_hd__fill_2"]
