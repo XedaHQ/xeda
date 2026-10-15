@@ -1833,9 +1833,10 @@ stage stopped. The flow deletes it before its next process starts.
 Example
 -------
 
-The FIFO in ``examples/sv/fifo`` has one design file for a simulation and for the ASIC chain. The
-section ``flows.verilator`` configures the simulation. The section ``flows.yosys`` holds the
-settings that reach the four OpenROAD flows. Every other setting keeps its default:
+The FIFO in ``examples/sv/fifo`` has one design file for a simulation, for FPGA synthesis and for
+the ASIC chain. The section ``flows.verilator`` configures the simulation, and the section
+``flows.yosys_fpga`` configures the FPGA synthesis. The section ``flows.yosys`` holds the settings
+that reach the four OpenROAD flows. Every other setting keeps its default:
 
 .. code-block:: yaml
 
@@ -1857,6 +1858,10 @@ settings that reach the four OpenROAD flows. Every other setting keeps its defau
       verilator:
         timing: true
         vcd: true
+      # FPGA synthesis for a Xilinx 7-series part: `xeda run yosys_fpga fifo.xeda.yaml`.
+      yosys_fpga:
+        fpga.part: xc7a100tftg256-2L
+        clock.period: 5 ns
       # ASIC place and route on nangate45: `xeda run yosys+openroad fifo.xeda.yaml`.
       yosys:
         # Shared settings: they reach the four OpenROAD flows along the chain.

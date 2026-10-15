@@ -35,6 +35,7 @@ Other VHDL examples:
 cd examples/sv/fifo
 xeda run verilator fifo.xeda.yaml         # SystemVerilog testbench
 xeda run verilator fifo_cocotb.xeda.yaml  # the same FIFO with a cocotb testbench
+xeda run yosys_fpga fifo.xeda.yaml        # FPGA synthesis for a Xilinx 7-series part
 
 cd ../../mixed_language/blink
 xeda run yosys_sim blinky.xeda.yaml       # SystemVerilog design, C++ testbench, CXXRTL
@@ -65,9 +66,10 @@ xeda run fpga_pack --design-name dvi_test
 
 ## ASIC
 
-`sv/fifo` also has the settings for the ASIC chain on the platform nangate45, next to those of the
-simulation. Yosys maps the design to the cells of the platform, and four OpenROAD flows place,
-route and finish it. Install the PDK files of the platform once, then run the chain:
+`sv/fifo` also has the settings for the ASIC chain on the platform nangate45. One design file
+serves the simulation, the FPGA synthesis and the ASIC chain. Yosys maps the design to the cells of
+the platform, and four OpenROAD flows place, route and finish it. Install the PDK files of the
+platform once, then run the chain:
 
 ```bash
 xeda pdk install nangate45                       # download the PDK files that the platform pins
