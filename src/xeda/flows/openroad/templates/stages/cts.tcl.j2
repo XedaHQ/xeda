@@ -3,10 +3,17 @@
    cells that must not be used, and the tree builder picks its buffers from the cells that are
    left. The written SDC file holds the propagated clocks, so the flows after this one read it.
    The repair of the clock nets in the tree (`-repair_clock_nets`) runs before the tree balances
-   the latencies; the standalone one runs after the tree. #}
+   the latencies; the standalone one runs after the tree. The tree takes its options as arguments.
+   The buffer footprint, the buffer name and the skipped nets exist only in `set_cts_config`, and
+   the limits and the steps of the characterization only in `configure_cts_characterization`. Both
+   commands run before the tree. #}
 {% set buf = settings.buffers %}
 {% set sc = settings.sink_clustering %}
+{% set macro = settings.macro_clustering %}
 {% set tree = settings.tree %}
+{% set bal = settings.balance %}
+{% set ndr = settings.ndr %}
+{% set char = settings.characterization %}
 {% set rcn = settings.repair_clock_nets %}
 {% set crt = settings.repair %}
 {% set crt_footprint = P.match_cell_footprint if crt.match_cell_footprint is none else crt.match_cell_footprint %}
@@ -15,10 +22,19 @@ proc xeda_cts {} {
 {% if settings.repair_clock_inverters %}
     repair_clock_inverters
 {% endif %}
-    {{ ["clock_tree_synthesis", "-buf_list " ~ (buf.cells|tcl_list) if buf.select == "list" else "", render_flags(buf), "-library " ~ (buf.library|tcl_word) if buf.select == "library" else "", "-sink_clustering_enable" if sc.mode != "off" else "", render_flags(sc), "-distance_between_buffers " ~ (tree.buffer_distance|tcl_word) if tree.style == "simple_segments" else "", render_flags(tree), "-repair_clock_nets" if rcn.when == "in_cts" else ""]|select|join(" ") }}
+{% set characterization_words = [("-max_slew " ~ (char.max_slew|seconds)) if char.max_slew is not none else "", ("-max_cap " ~ (char.max_cap|farads)) if char.max_cap is not none else "", render_flags(char)]|select|join(" ") %}
+{% if characterization_words %}
+    {{ ["configure_cts_characterization", characterization_words]|join(" ") }}
+{% endif %}
+{% set configuration_words = [("-clock_buffer_footprint " ~ (buf.footprint|tcl_word)) if buf.select == "footprint" else "", ("-clock_buffer_string " ~ (buf.name_pattern|tcl_word)) if buf.select == "name" else "", ("-skip_nets " ~ (settings.skip_nets|tcl_list)) if settings.skip_nets else ""]|select|join(" ") %}
+{% if configuration_words %}
+    {{ ["set_cts_config", configuration_words]|join(" ") }}
+{% endif %}
+    {{ ["clock_tree_synthesis", "-buf_list " ~ (buf.cells|tcl_list) if buf.select == "list" else "", render_flags(buf), "-library " ~ (buf.library|tcl_word) if buf.select == "library" else "", "-sink_clustering_enable" if sc.mode != "off" else "", render_flags(sc), render_flags(macro), "-distance_between_buffers " ~ (tree.buffer_distance|tcl_word) if tree.style == "simple_segments" else "", render_flags(tree), render_flags(bal), render_flags(ndr), "-clk_nets " ~ (settings.clock_nets|join(" ")|tcl_word) if settings.clock_nets else "", "-repair_clock_nets" if rcn.when == "in_cts" else ""]|select|join(" ") }}
+    report_cts -out_file {{ reports.cts|tcl_word }}
 {% if rcn.when == "after" %}
     estimate_parasitics -placement
-    repair_clock_nets
+    {{ ["repair_clock_nets", render_flags(rcn)]|select|join(" ") }}
 {% endif %}
     estimate_parasitics -placement
     set_placement_padding -global -left {{ settings.legalize.cell_padding|tcl_number }} -right {{ settings.legalize.cell_padding|tcl_number }}

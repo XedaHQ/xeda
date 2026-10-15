@@ -18,6 +18,7 @@ from xeda.design import SourceType
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.openroad import OpenroadCts, base
+from xeda.flows.openroad.base import to_farads
 from xeda.flows.openroad.cts import EffectiveCts, effective
 
 from .openroad_utils import (
@@ -159,6 +160,7 @@ def test_the_defaults_build_the_clock_tree_of_openroad_flow_scripts(tmp_path):
         "xeda_stage cts",
         "repair_clock_inverters",
         "clock_tree_synthesis -sink_clustering_enable -repair_clock_nets",
+        'report_cts -out_file "reports/cts.rpt"',
         "estimate_parasitics -placement",
         "set_placement_padding -global -left 0 -right 0",
         "detailed_placement",
@@ -198,6 +200,7 @@ def test_the_defaults_run_the_commands_of_the_flow_in_order(tmp_path):
         "set_dont_use",
         "repair_clock_inverters",
         "clock_tree_synthesis",
+        "report_cts",
         "estimate_parasitics",
         "set_placement_padding",
         "detailed_placement",
@@ -365,7 +368,7 @@ def test_the_repair_of_the_clock_nets_runs_where_the_settings_say(tmp_path, when
     assert ("repair_clock_nets" in found) == after
     if after:
         index = found.index("repair_clock_nets")
-        assert index == tree + 2 and found[index - 1] == "estimate_parasitics -placement"
+        assert index == tree + 3 and found[index - 1] == "estimate_parasitics -placement"
         assert found[index + 1] == "estimate_parasitics -placement"
 
 
@@ -383,7 +386,7 @@ def test_the_parasitics_are_estimated_after_the_tree_and_before_the_repair(tmp_p
     the last estimate."""
     found = body(tmp_path)
     tree = found.index(command(found, "clock_tree_synthesis"))
-    assert found[tree + 1] == "estimate_parasitics -placement"
+    assert found[tree + 2] == "estimate_parasitics -placement"
     first = found.index("detailed_placement")
     assert found[first + 1] == "estimate_parasitics -placement"
     assert found[first + 2].startswith("repair_timing")
@@ -462,6 +465,218 @@ def test_the_footprint_of_the_platform_applies_unless_the_settings_say_otherwise
     assert "-match_cell_footprint" not in command(stage(render(flow)), "repair_timing")
 
 
+DEFAULT_TREE_LINE = "clock_tree_synthesis -sink_clustering_enable -repair_clock_nets"
+
+
+def tree_line(tmp_path: Path, settings: dict[str, Any]) -> str:
+    """The `clock_tree_synthesis` line of the stage for `settings`."""
+    return command(body(tmp_path, settings), "clock_tree_synthesis")
+
+
+@pytest.mark.parametrize(
+    "settings, flags",
+    [
+        ({"buffers": {"tree": "BUF_A"}}, '-tree_buf "BUF_A"'),
+        ({"buffers": {"sink": "BUF_B"}}, '-sink_clustering_buffer "BUF_B"'),
+        (
+            {"buffers": {"root": "BUF_A", "tree": "BUF_A", "sink": "BUF_B"}},
+            '-root_buf "BUF_A" -tree_buf "BUF_A" -sink_clustering_buffer "BUF_B"',
+        ),
+        (
+            {"sink_clustering": {"mode": "explicit", "size": 20, "levels": 2}},
+            '-sink_clustering_size "20" -sink_clustering_levels "2"',
+        ),
+        ({"sink_clustering": {"mode": "auto", "levels": 1}}, '-sink_clustering_levels "1"'),
+        (
+            {"sink_clustering": {"buffer_cap_derate": 0.5}},
+            '-sink_buffer_max_cap_derate "0.5"',
+        ),
+        (
+            {"macro_clustering": {"size": 3, "max_diameter": 40.5}},
+            '-macro_clustering_size "3" -macro_clustering_max_diameter "40.5"',
+        ),
+        ({"macro_clustering": {"size": 6}}, '-macro_clustering_size "6"'),
+        ({"tree": {"wire_unit": 9}}, '-wire_unit "9"'),
+        (
+            {
+                "tree": {
+                    "style": "simple_segments",
+                    "buffer_distance": 40,
+                    "branch_buffer_distance": 90,
+                }
+            },
+            '-distance_between_buffers "40.0" -branching_point_buffers_distance "90.0"',
+        ),
+        ({"tree": {"clustering_exponent": 3}}, '-clustering_exponent "3"'),
+        ({"tree": {"clustering_exponent": 0}}, '-clustering_exponent "0"'),
+        ({"tree": {"clustering_unbalance_ratio": 0.5}}, '-clustering_unbalance_ratio "0.5"'),
+        ({"tree": {"static_layers": 1}}, '-num_static_layers "1"'),
+        ({"tree": {"obstruction_aware": False}}, "-no_obstruction_aware"),
+        ({"tree": {"obstruction_aware": True}}, ""),
+        ({"balance": {"delay_buffer_derate": 0.5}}, '-delay_buffer_derate "0.5"'),
+        ({"balance": {"delay_buffer_derate": 0}}, '-delay_buffer_derate "0.0"'),
+        ({"balance": {"insertion_delay": False}}, "-no_insertion_delay"),
+        ({"balance": {"dummy_load": False}}, "-dont_use_dummy_load"),
+        ({"balance": {"insertion_delay": True, "dummy_load": True}}, ""),
+        ({"clock_nets": ["clk"]}, '-clk_nets "clk"'),
+        ({"clock_nets": ["clk", "gated/clk"]}, '-clk_nets "clk gated/clk"'),
+    ],
+)
+def test_the_options_of_the_clock_tree_pass_their_flags(tmp_path, settings, flags):
+    line = tree_line(tmp_path, settings)
+    assert line.startswith("clock_tree_synthesis ") and line.endswith(" -repair_clock_nets")
+    if flags:
+        assert f" {flags} " in f"{line} "
+    else:
+        assert line == DEFAULT_TREE_LINE
+
+
+def test_the_default_clock_tree_passes_none_of_the_new_flags(tmp_path):
+    assert tree_line(tmp_path, {}) == DEFAULT_TREE_LINE
+
+
+def test_the_flags_of_the_clock_tree_come_in_the_order_of_the_groups(tmp_path):
+    settings = {
+        "buffers": {"select": "list", "cells": ["BUF_A"], "root": "BUF_A", "tree": "BUF_A"},
+        "sink_clustering": {"mode": "explicit", "size": 20, "levels": 1},
+        "macro_clustering": {"size": 3},
+        "tree": {"style": "simple_segments", "buffer_distance": 40, "static_layers": 1},
+        "balance": {"delay_buffer_derate": 0.5, "dummy_load": False},
+        "ndr": {"strategy": "full"},
+        "clock_nets": ["clk"],
+    }
+    assert tree_line(tmp_path, settings) == (
+        'clock_tree_synthesis -buf_list [list "BUF_A"] -root_buf "BUF_A" -tree_buf "BUF_A" '
+        '-sink_clustering_enable -sink_clustering_size "20" -sink_clustering_levels "1" '
+        '-macro_clustering_size "3" -distance_between_buffers "40.0" -num_static_layers "1" '
+        '-delay_buffer_derate "0.5" -dont_use_dummy_load -apply_ndr "full" -clk_nets "clk" '
+        "-repair_clock_nets"
+    )
+
+
+@pytest.mark.parametrize("strategy", ["none", "root_only", "half", "full"])
+def test_every_ndr_strategy_renders_and_runs(tmp_path, strategy):
+    flow = cts_flow(tmp_path, {"ndr": {"strategy": strategy}})
+    assert f'-apply_ndr "{strategy}"' in tree_line(
+        tmp_path / "text", {"ndr": {"strategy": strategy}}
+    )
+    (tree,) = [call for call in run_script(flow) if call[0] == "clock_tree_synthesis"]
+    assert tree[tree.index("-apply_ndr") + 1] == strategy
+
+
+def test_the_ndr_strategy_is_unset_by_default(tmp_path):
+    assert "-apply_ndr" not in tree_line(tmp_path, {})
+
+
+@pytest.mark.parametrize(
+    "buffers, flags",
+    [
+        ({"select": "footprint", "footprint": "buf"}, '-clock_buffer_footprint "buf"'),
+        ({"select": "name", "name_pattern": "CLKBUF"}, '-clock_buffer_string "CLKBUF"'),
+    ],
+)
+def test_the_buffers_can_be_found_by_footprint_or_by_name(tmp_path, buffers, flags):
+    found = body(tmp_path, {"buffers": buffers})
+    assert command(found, "set_cts_config") == f"set_cts_config {flags}"
+    assert found.index(command(found, "set_cts_config")) < found.index(
+        command(found, "clock_tree_synthesis")
+    )
+    assert command(found, "clock_tree_synthesis") == DEFAULT_TREE_LINE
+    run_script(cts_flow(tmp_path / "run", {"buffers": buffers}))
+
+
+def test_the_clock_nets_to_skip_are_a_list_for_the_configuration(tmp_path):
+    found = body(tmp_path, {"skip_nets": ["rst", "a b", "$x"]})
+    assert command(found, "set_cts_config") == 'set_cts_config -skip_nets [list "rst" "a b" "\\$x"]'
+    flow = cts_flow(tmp_path / "run", {"skip_nets": ["rst", "a b"]})
+    (config,) = [call for call in run_script(flow) if call[0] == "set_cts_config"]
+    assert config[1] == "-skip_nets"
+
+
+def test_one_configuration_call_holds_the_footprint_and_the_skipped_nets(tmp_path):
+    found = body(
+        tmp_path,
+        {"buffers": {"select": "footprint", "footprint": "buf"}, "skip_nets": ["rst"]},
+    )
+    assert [line for line in found if line.startswith("set_cts_config")] == [
+        'set_cts_config -clock_buffer_footprint "buf" -skip_nets [list "rst"]'
+    ]
+
+
+def test_the_default_stage_has_no_configuration_call(tmp_path):
+    found = body(tmp_path)
+    assert not [line for line in found if line.split()[0] in ("set_cts_config",)]
+    assert not [line for line in found if line.startswith("configure_cts_characterization")]
+
+
+@pytest.mark.parametrize(
+    "characterization, flags",
+    [
+        ({"slew_steps": 5}, '-slew_steps "5"'),
+        ({"cap_steps": 12}, '-cap_steps "12"'),
+        ({"max_slew": 0.25}, "-max_slew 2.5e-10"),
+        ({"max_cap": 0.05}, "-max_cap 5e-14"),
+        (
+            {"max_slew": 0.2, "max_cap": 0.1, "slew_steps": 7, "cap_steps": 20},
+            '-max_slew 2e-10 -max_cap 1e-13 -slew_steps "7" -cap_steps "20"',
+        ),
+    ],
+)
+def test_the_characterization_of_the_buffers_is_configured_before_the_tree(
+    tmp_path, characterization, flags
+):
+    """The slew is in nanoseconds and the capacitance in picofarads in the settings. The command
+    takes seconds and farads, whatever the units of the Liberty files are."""
+    found = body(tmp_path, {"characterization": characterization})
+    line = command(found, "configure_cts_characterization")
+    assert line == f"configure_cts_characterization {flags}"
+    assert found.index(line) < found.index(command(found, "clock_tree_synthesis"))
+    run_script(cts_flow(tmp_path / "run", {"characterization": characterization}))
+
+
+@pytest.mark.parametrize("unit", ["1ns", "1ps"])
+def test_the_characterization_takes_seconds_whatever_the_unit_of_the_platform(tmp_path, unit):
+    flow = cts_flow(tmp_path, {"characterization": {"max_slew": 0.1}}, model={"time_unit": unit})
+    found = stage(render(flow))
+    assert command(found, "configure_cts_characterization") == (
+        "configure_cts_characterization -max_slew 1e-10"
+    )
+
+
+@pytest.mark.parametrize(
+    "picofarads, farads",
+    [(0.05, "5e-14"), (1, "1e-12"), (0.0001, "1e-16"), (2.5, "2.5e-12")],
+)
+def test_a_capacitance_in_picofarads_is_written_in_farads(picofarads, farads):
+    assert to_farads(picofarads) == farads
+
+
+@pytest.mark.parametrize("value", [True, "1", float("nan"), float("inf"), None])
+def test_a_capacitance_that_is_no_finite_number_is_a_bug_of_the_caller(value):
+    with pytest.raises(TypeError):
+        to_farads(value)
+
+
+def test_the_report_of_the_tree_has_a_fixed_name_under_the_directory_of_reports(tmp_path):
+    assert OpenroadCts.reports == {"cts": "reports/cts.rpt"}
+    found = body(tmp_path)
+    tree = found.index(command(found, "clock_tree_synthesis"))
+    assert found[tree + 1] == 'report_cts -out_file "reports/cts.rpt"'
+
+
+@pytest.mark.parametrize(
+    "repair, flags",
+    [
+        ({"when": "after", "max_wire_length": 120.5}, '-max_wire_length "120.5"'),
+        ({"when": "after"}, ""),
+    ],
+)
+def test_the_standalone_repair_of_the_clock_nets_takes_a_wire_length(tmp_path, repair, flags):
+    found = body(tmp_path, {"repair_clock_nets": repair})
+    assert command(found, "repair_clock_nets") == " ".join(["repair_clock_nets", flags]).strip()
+    run_script(cts_flow(tmp_path / "run", {"repair_clock_nets": repair}))
+
+
 @pytest.mark.parametrize(
     "settings",
     [
@@ -484,6 +699,23 @@ def test_the_footprint_of_the_platform_applies_unless_the_settings_say_otherwise
         {"repair": {"fix": "setup"}},
         {"repair": {"fix": "hold"}},
         {"repair": {"fix": "setup_and_hold"}},
+        {"buffers": {"select": "footprint", "footprint": "buf"}},
+        {"buffers": {"select": "name", "name_pattern": "CLKBUF"}},
+        {"buffers": {"tree": "BUF_A", "sink": "BUF_B", "root": "BUF_A"}},
+        {"sink_clustering": {"levels": 1}},
+        {"sink_clustering": {"buffer_cap_derate": 0.5}},
+        {"macro_clustering": {"size": 3, "max_diameter": 30}},
+        {"tree": {"wire_unit": 9}},
+        {"tree": {"style": "simple_segments", "buffer_distance": 60, "branch_buffer_distance": 90}},
+        {"tree": {"clustering_exponent": 3, "clustering_unbalance_ratio": 0.5}},
+        {"tree": {"static_layers": 1, "obstruction_aware": False}},
+        {"balance": {"delay_buffer_derate": 0.5, "dummy_load": False}},
+        {"balance": {"insertion_delay": False}},
+        {"characterization": {"max_slew": 0.2, "max_cap": 0.1}},
+        {"characterization": {"slew_steps": 5, "cap_steps": 10}},
+        {"clock_nets": ["clk"]},
+        {"skip_nets": ["rst"]},
+        {"repair_clock_nets": {"when": "after", "max_wire_length": 100}},
     ],
     ids=lambda settings: "-".join(
         f"{group}.{leaf}={value}" if isinstance(value, dict) is False else f"{group}"
@@ -601,8 +833,51 @@ def test_a_netlist_source_of_the_design_displaces_the_synthesis(tmp_path):
             "`sink_clustering.mode: explicit` needs `sink_clustering.size`",
         ),
         (
+            ["buffers.footprint=buf"],
+            "`buffers.footprint` has no effect with `buffers.select: inferred`",
+        ),
+        (
+            ["buffers.select=footprint"],
+            "`buffers.select: footprint` takes the buffers from `buffers.footprint`, and that "
+            "is not set",
+        ),
+        (
+            ["buffers.name_pattern=CLKBUF"],
+            "`buffers.name_pattern` has no effect with `buffers.select: inferred`",
+        ),
+        (
+            ["buffers.select=name"],
+            "`buffers.select: name` takes the buffers from `buffers.name_pattern`, and that is "
+            "not set",
+        ),
+        (
+            ["buffers.select=footprint", "buffers.footprint=buf", "buffers.name_pattern=CLKBUF"],
+            "`buffers.name_pattern` has no effect with `buffers.select: footprint`",
+        ),
+        (
+            ["sink_clustering.mode=off", "sink_clustering.levels=2"],
+            "`sink_clustering.levels` has no effect with `sink_clustering.mode: off`",
+        ),
+        (
             ["tree.buffer_distance=60"],
             "`tree.buffer_distance` has no effect with `tree.style: lut`",
+        ),
+        (
+            ["tree.branch_buffer_distance=90"],
+            "`tree.branch_buffer_distance` has no effect with `tree.style: lut`",
+        ),
+        (
+            ["balance.insertion_delay=false", "balance.delay_buffer_derate=0.5"],
+            "`balance.delay_buffer_derate` has no effect with `balance.insertion_delay: false`",
+        ),
+        (
+            ["repair_clock_nets.max_wire_length=100"],
+            "`repair_clock_nets.max_wire_length` has no effect with `repair_clock_nets.when: "
+            "in_cts`",
+        ),
+        (
+            ["repair_clock_nets.when=off", "repair_clock_nets.max_wire_length=100"],
+            "`repair_clock_nets.max_wire_length` has no effect with `repair_clock_nets.when: off`",
         ),
         (
             ["tree.style=simple_segments"],
@@ -630,6 +905,26 @@ def test_a_netlist_source_of_the_design_displaces_the_synthesis(tmp_path):
 )
 def test_the_refusals_come_at_planning_with_the_way_out(tmp_path, texts, expected):
     assert expected in refusal(tmp_path, *texts)
+
+
+@pytest.mark.parametrize(
+    "text, leaf",
+    [
+        ("tree.clustering_unbalance_ratio=1.5", "tree.clustering_unbalance_ratio"),
+        ("sink_clustering.buffer_cap_derate=2", "sink_clustering.buffer_cap_derate"),
+        ("balance.delay_buffer_derate=-1", "balance.delay_buffer_derate"),
+        ("tree.wire_unit=2.5", "tree.wire_unit"),
+        ("tree.wire_unit=0", "tree.wire_unit"),
+        ("tree.static_layers=-1", "tree.static_layers"),
+        ("macro_clustering.size=0", "macro_clustering.size"),
+        ("characterization.slew_steps=0", "characterization.slew_steps"),
+        ("characterization.max_cap=-1", "characterization.max_cap"),
+        ("clock_nets=a b", "clock_nets"),
+        ("ndr.strategy=Half", "ndr.strategy"),
+    ],
+)
+def test_a_value_outside_the_range_of_the_tool_is_refused(tmp_path, text, leaf):
+    assert leaf.replace(".", " -> ") in refusal(tmp_path, text)
 
 
 def test_a_root_buffer_outside_the_list_is_no_contradiction(tmp_path):
@@ -672,6 +967,7 @@ def test_a_launch_runs_the_placement_and_then_the_clock_tree(tmp_path, monkeypat
     assert run_dir.name == "openroad_cts" and run_dir.parent.name == "counter"
     for name in ("openroad_cts.tcl", "openroad_cts.log", "metrics.json", "cts.odb", "cts.sdc"):
         assert (run_dir / name).is_file(), name
+    assert (run_dir / "reports").is_dir()
     place = run_dir.parent / "openroad_place"
     assert (place / "place.odb").is_file() and (place / "place.sdc").is_file()
     assert flow.outputs.odb == run_dir / "cts.odb"

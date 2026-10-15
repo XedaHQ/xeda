@@ -1114,7 +1114,7 @@ def test_the_clock_tree_groups_render_the_flags_of_their_choices():
 @pytest.mark.parametrize(
     "item",
     [
-        "buffers.select=footprint",
+        "buffers.select=pattern",
         "sink_clustering.mode=on",
         "sink_clustering.size=0",
         "sink_clustering.max_diameter=0",

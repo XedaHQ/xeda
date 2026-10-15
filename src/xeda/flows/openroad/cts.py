@@ -12,6 +12,7 @@ the templates read as `P`. It reads nothing else.
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar, Dict
 
 from ...dataclass import Field, tier
 from ...design import SourceType
@@ -19,10 +20,15 @@ from ...flow import In, Out, describe_results
 from ...platforms.model import PlatformModel
 from .base import EffectiveBase, OpenroadStage, base_values, platform_time_unit
 from .cts_groups import (
+    BalanceGroup,
+    CharacterizationGroup,
     CtsBuffersGroup,
     CtsTreeGroup,
+    MacroClusteringGroup,
+    NdrGroup,
     RepairClockNetsGroup,
     SinkClusteringGroup,
+    WordName,
 )
 from .groups import Legalize, RepairTiming
 from .metrics import MetricsError, stage_results
@@ -63,6 +69,8 @@ class OpenroadCts(OpenroadStage):
     The wire RC and the cells that the resizer must not use are no part of the database. The
     process sets them again from the platform and the settings `wire_rc` and `dont_use_cells`."""
 
+    reports: ClassVar[Dict[str, str]] = {"cts": "reports/cts.rpt"}
+
     results_description = describe_results(
         "wns",
         "tns",
@@ -100,9 +108,40 @@ class OpenroadCts(OpenroadStage):
             default_factory=SinkClusteringGroup,
             description="The grouping of the clock sinks under one buffer each.",
         )
+        macro_clustering: MacroClusteringGroup = Field(
+            default_factory=MacroClusteringGroup,
+            description="The grouping of the macro sinks, which the tool clusters on their own.",
+        )
         tree: CtsTreeGroup = Field(
             default_factory=CtsTreeGroup,
             description="The shape of the clock tree.",
+        )
+        balance: BalanceGroup = Field(
+            default_factory=BalanceGroup,
+            description="The balance of the clock latencies between macros and registers, and of "
+            "the loads at the leaves.",
+        )
+        ndr: NdrGroup = Field(
+            default_factory=NdrGroup,
+            description="The non-default routing rule of the clock nets.",
+        )
+        characterization: CharacterizationGroup = Field(
+            default_factory=CharacterizationGroup,
+            description="The characterization of the clock buffers, from which the tool builds "
+            "its lookup table.",
+        )
+        clock_nets: list[WordName] = Field(
+            [],
+            description="The clock roots to build trees for: nets, or pins that drive a net "
+            "(`-clk_nets`). A name holds no white space. Empty: the tool finds all clock roots.",
+            json_schema_extra=tier("advanced"),
+        )
+        skip_nets: list[str] = Field(
+            [],
+            description="The nets that the tool leaves out: a clock root skips the whole clock, "
+            "and a sub-net skips that net (`set_cts_config -skip_nets`). A name is a pattern of "
+            "`get_nets`.",
+            json_schema_extra=tier("expert"),
         )
         repair_clock_nets: RepairClockNetsGroup = Field(
             default_factory=RepairClockNetsGroup,
@@ -162,7 +201,9 @@ class OpenroadCts(OpenroadStage):
         """Run the process that builds the clock tree and writes the database and the SDC file."""
         odb, sdc = self.run_path / "cts.odb", self.run_path / "cts.sdc"
         self.outputs.odb, self.outputs.sdc = odb, sdc  # type: ignore[attr-defined]
-        self.run_openroad("openroad_cts", "metrics.json", [odb, sdc, self.failed_odb])
+        self.run_openroad(
+            "openroad_cts", "metrics.json", [odb, sdc, self.failed_odb, *self.reports.values()]
+        )
 
     # --- the results --------------------------------------------------------------------------
 

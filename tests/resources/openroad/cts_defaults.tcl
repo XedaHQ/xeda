@@ -80,6 +80,7 @@ proc xeda_cts {} {
     xeda_stage cts
     repair_clock_inverters
     clock_tree_synthesis -sink_clustering_enable -repair_clock_nets
+    report_cts -out_file "reports/cts.rpt"
     estimate_parasitics -placement
     set_placement_padding -global -left 0 -right 0
     detailed_placement

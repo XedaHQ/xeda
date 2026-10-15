@@ -51,6 +51,7 @@ __all__ = [
     "space_word",
     "tcl_number",
     "tcl_numbers",
+    "to_farads",
     "to_lib_time",
     "to_nanometers",
     "to_seconds",
@@ -135,6 +136,25 @@ def to_seconds(nanoseconds: Any) -> str:
             f"expected a finite number of nanoseconds for a Tcl script, got {nanoseconds!r}"
         )
     converted = convert_unit(nanoseconds, to_unit="second", from_unit="nanosecond")
+    return tcl_number(float(f"{converted:.12g}"))
+
+
+def to_farads(picofarads: Any) -> str:
+    """Return a capacitance given in picofarads as a Tcl number of farads. A setting for a
+    capacitance is in picofarads on every platform. A few commands of OpenROAD take farads and
+    not the unit of the Liberty files (`configure_cts_characterization -max_cap`).
+
+    The result has twelve significant digits, so the noise of the conversion does not show:
+    `0.05 pF` is `5e-14`."""
+    if (
+        isinstance(picofarads, bool)
+        or not isinstance(picofarads, (int, float))
+        or not math.isfinite(picofarads)
+    ):
+        raise TypeError(
+            f"expected a finite number of picofarads for a Tcl script, got {picofarads!r}"
+        )
+    converted = convert_unit(picofarads, to_unit="farad", from_unit="picofarad")
     return tcl_number(float(f"{converted:.12g}"))
 
 
@@ -372,13 +392,15 @@ class OpenroadStage(AsicPlatformFlow, Flow):
         """Add the helpers that the templates of every OpenROAD flow use: `render_flags` (it
         quotes for Tcl, and its second argument is the `list_word` for a list flag, such as
         `comma_word`), `comma_word`, `space_word`, `fix_flags`, the filters `tcl_number`,
-        `tcl_numbers`, `lib_time`, `seconds` and `nanometers`, `reports` and `failed_odb`.
+        `tcl_numbers`, `lib_time`, `seconds`, `farads` and `nanometers`, `reports` and
+        `failed_odb`.
         `init()` calls it.
         Code that renders a template without `init()`, such as a test, can call it."""
         self.add_template_filter("tcl_number", tcl_number, replace_existing=True)
         self.add_template_filter("tcl_numbers", tcl_numbers, replace_existing=True)
         self.add_template_filter("lib_time", self._lib_time, replace_existing=True)
         self.add_template_filter("seconds", to_seconds, replace_existing=True)
+        self.add_template_filter("farads", to_farads, replace_existing=True)
         self.add_template_filter("nanometers", to_nanometers, replace_existing=True)
         # one line for each command in a script, with no blank lines from the control statements
         self.jinja_env.trim_blocks = True
