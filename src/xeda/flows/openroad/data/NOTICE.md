@@ -8,12 +8,16 @@ merge the routed design with the GDSII files of the cells into one layout.
 `def2stream.py` comes from the directory `flow/util` of OpenROAD-flow-scripts at commit
 `6b305a712966be72d8908695c04398acdbe273ca`. Its first line names the exact URL of the file.
 
-Xeda changed the script in three ways. It takes the regular expression of the cells that may have
+Xeda changed the script in these ways. It takes the regular expression of the cells that may have
 no GDSII cell (`allow_empty`) from a name that KLayout defines on its command line, as it takes the
 other inputs, and not from an environment variable. It reads the GDSII files from a list with one
 path on each line, so that a path can hold a space. It leaves out the support of the memory
-generator of that flow, which Xeda does not have. The code formatter of Xeda also changed the line
-breaks.
+generator of that flow, which Xeda does not have. It adds three kinds of input, all names that KLayout
+defines on its command line: the policy for a cell that is in the layout already
+(`conflict_resolution`), the options of the LEF and DEF reader that remove the properties of the
+shapes (`net_properties`, `instance_properties`, `pin_properties`) or change the reading of the
+LEF files (`read_lef_with_def`), and the switch for the time stamps of the output file
+(`write_timestamps`). The code formatter of Xeda also changed the line breaks.
 
 OpenROAD-flow-scripts publishes its build and run scripts under the BSD 3-Clause License. The
 license text follows.

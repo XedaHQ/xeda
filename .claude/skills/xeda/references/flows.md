@@ -343,7 +343,7 @@ Group `reports`: `reports.power`; 7 more: `xeda list-settings openroad --tier ex
 
 Group `ir_drop`: `ir_drop.nets`; 17 more: `xeda list-settings openroad --tier expert --json`
 
-Group `gds`: no common settings; 1 more: `xeda list-settings openroad --tier expert --json`
+Group `gds`: no common settings; 10 more: `xeda list-settings openroad --tier expert --json`
 
 Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `setup_violations`, `hold_violations`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `max_slew_violations`, `max_cap_violations`, `max_fanout_violations`, `core_area`, `die_area`, `power_internal`, `power_switching`, `power_leakage`, `drc_errors`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `wirelength`, `vias`, `instances`, `fill_cells`, `tap_cells`, `warnings`, `errors`, `parasitics`, `platform`
 

@@ -58,6 +58,21 @@ log = logging.getLogger(__name__)
 #: The roles of the platform files that the merge of the layout reads: the technology file of
 #: KLayout, which names how it reads the DEF and the LEF files, and the GDSII files of the cells.
 GDS_ROLES = ("klayout_tech", "gds")
+#: The members of `LoadLayoutOptions.CellConflictResolution` of KLayout, by setting.
+CONFLICT_RESOLUTIONS = {
+    "add_to_cell": "AddToCell",
+    "overwrite_cell": "OverwriteCell",
+    "rename_cell": "RenameCell",
+    "skip_new_cell": "SkipNewCell",
+}
+
+
+def tri_state(value: Optional[bool]) -> str:
+    """Return the text of a `-rd` name of the merge for an option that can be unset: an empty
+    text for `None`, else `true` or `false`."""
+    return "" if value is None else str(value).lower()
+
+
 #: The files of the IR drop analysis for the net number `n`, by kind. Each name is fixed, and
 #: numbered from 1 in the order of the nets, since the name of a net would reach the file system.
 IR_DROP_FILES = {
@@ -551,12 +566,18 @@ class Openroad(OpenroadStage):
             return  # the missing platform is reported with the other required settings
         residue = settings.residue()
         if settings.write_gds:
-            missing = [role for role in GDS_ROLES if not getattr(residue.files, role)]
+            missing = [
+                role
+                for role in GDS_ROLES
+                if not getattr(residue.files, role)
+                and not (role == "gds" and settings.gds.cell_libraries)
+            ]
             if missing:
                 raise FlowSettingsException(
                     f"the platform {residue.name!r} gives no {' and no '.join(missing)}, which "
                     "`write_gds` needs to merge the layout: add them to `files` in its residue "
-                    "file (`platform_file`), or set `write_gds: false`"
+                    "file (`platform_file`), give `gds.cell_libraries` for the GDSII files, or "
+                    "set `write_gds: false`"
                 )
         extraction = resolve_extraction(
             settings.extraction.method,
@@ -805,15 +826,24 @@ class Openroad(OpenroadStage):
         output = self._guard_write(self.gds_file)
         log_file = self.run_directory.writable("klayout.log")
         script = Path(str(resources.files("xeda.flows.openroad").joinpath("data", "def2stream.py")))
+        libraries = [*model.files.get("gds", []), *settings.gds.cell_libraries]
         names = {
             "design_name": top,
             "in_def": getattr(self.outputs, "def_file"),
-            "in_files": "\n".join(str(path) for path in model.files["gds"]),
+            "in_files": "\n".join(str(path) for path in libraries),
             "seal_file": "" if seal_ring is None else seal_ring,
             "out_file": output,
             "tech_file": technology,
-            "layer_map": "",
-            "allow_empty": "",
+            "layer_map": settings.gds.layer_map or "",
+            "allow_empty": settings.gds.allow_empty or "",
+            "conflict_resolution": CONFLICT_RESOLUTIONS.get(
+                settings.gds.conflict_resolution or "", ""
+            ),
+            "read_lef_with_def": tri_state(settings.gds.lefdef_options.read_lef_with_def),
+            "net_properties": tri_state(settings.gds.lefdef_options.net_properties),
+            "instance_properties": tri_state(settings.gds.lefdef_options.instance_properties),
+            "pin_properties": tri_state(settings.gds.lefdef_options.pin_properties),
+            "write_timestamps": tri_state(settings.gds.timestamps),
         }
         defines: List[str] = []
         for name, value in names.items():

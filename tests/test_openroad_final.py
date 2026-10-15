@@ -2200,7 +2200,7 @@ def test_the_image_commands_are_in_the_command_list():
 
 FAKE_KLAYOUT = """#!/bin/sh
 case "$1" in -v|-V) echo "KLayout 0.30.12"; exit 0;; esac
-printf '%s\\n' "$@" > klayout.args
+printf '%s\\0' "$@" > klayout.args
 out=
 while [ "$#" -gt 0 ]; do
   case "$1" in out_file=*) out="${1#out_file=}";; esac
@@ -2216,7 +2216,7 @@ def fake_klayout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     working directory and writes the file that `out_file` names. When `KLAYOUT_FAKE_ERROR` is set,
     it prints that text and fails."""
     binary = tmp_path / "klayout_bin"
-    binary.mkdir()
+    binary.mkdir(parents=True)
     script = binary / "klayout"
     script.write_text(FAKE_KLAYOUT)
     script.chmod(0o755)
@@ -2239,7 +2239,7 @@ def run_gds(tmp_path: Path, monkeypatch, settings: dict[str, Any] | None = None,
 
 
 def klayout_arguments(flow: Openroad) -> list[str]:
-    return (Path(flow.run_path) / "klayout.args").read_text().splitlines()
+    return (Path(flow.run_path) / "klayout.args").read_text().split("\0")[:-1]
 
 
 def test_the_merge_runs_klayout_with_the_names_that_the_script_reads(tmp_path, monkeypatch):
@@ -2265,6 +2265,18 @@ def test_the_merge_runs_klayout_with_the_names_that_the_script_reads(tmp_path, m
         "layer_map=",
         "-rd",
         "allow_empty=",
+        "-rd",
+        "conflict_resolution=",
+        "-rd",
+        "read_lef_with_def=",
+        "-rd",
+        "net_properties=",
+        "-rd",
+        "instance_properties=",
+        "-rd",
+        "pin_properties=",
+        "-rd",
+        "write_timestamps=false",
         "-r",
         str(script),
     ]
@@ -2466,8 +2478,8 @@ def test_write_gds_on_a_platform_without_the_layout_files_is_refused_with_the_wa
     message = " ".join(str(raised.value).split())
     assert (
         "the platform 'tiny' gives no klayout_tech and no gds, which `write_gds` needs to merge "
-        "the layout: add them to `files` in its residue file (`platform_file`), or set "
-        "`write_gds: false`" in message
+        "the layout: add them to `files` in its residue file (`platform_file`), give "
+        "`gds.cell_libraries` for the GDSII files, or set `write_gds: false`" in message
     )
 
 
@@ -3744,3 +3756,157 @@ def test_decap_cells_with_a_table_of_nets_need_the_net_that_gets_them(tmp_path):
             runner_cwd=tmp_path,
         )
     )
+
+
+# ============================================================================== the GDS options
+
+
+def merge_names(flow: Openroad) -> dict[str, str]:
+    """The names that the merge defines for the script, as the recorded command line gives them."""
+    words = klayout_arguments(flow)
+    return dict(word.split("=", 1) for before, word in zip(words, words[1:]) if before == "-rd")
+
+
+def test_the_layer_map_goes_to_the_merge(tmp_path, monkeypatch):
+    layer_map = tmp_path / "layers.map"
+    layer_map.write_text("map\n")
+    flow = run_gds(tmp_path, monkeypatch, {"gds": {"layer_map": str(layer_map)}})
+    assert merge_names(flow)["layer_map"] == str(layer_map)
+
+
+def test_the_files_of_the_platform_come_before_the_libraries_of_the_settings(tmp_path, monkeypatch):
+    first, second = tmp_path / "a.gds", tmp_path / "b.oas"
+    for path in (first, second):
+        path.write_bytes(b"x\n")
+    flow = run_gds(tmp_path, monkeypatch, {"gds": {"cell_libraries": [str(first), str(second)]}})
+    platform = flow.platform_model.files["gds"][0]
+    assert merge_names(flow)["in_files"] == f"{platform}\n{first}\n{second}"
+
+
+def test_a_library_of_the_settings_is_an_input_of_the_run(tmp_path):
+    from xeda.flow_runner.trace_inputs import setting_read_paths
+
+    library = tmp_path / "macro.gds"
+    library.write_bytes(b"x\n")
+    layer_map = tmp_path / "layers.map"
+    layer_map.write_text("map\n")
+    flow = gds_flow(
+        tmp_path, {"gds": {"cell_libraries": [str(library)], "layer_map": str(layer_map)}}
+    )
+    read = setting_read_paths(flow.settings, Path(flow.run_path))
+    assert library in read and layer_map in read
+
+
+def test_the_regular_expression_of_the_cells_that_may_be_empty_goes_to_the_merge(
+    tmp_path, monkeypatch
+):
+    flow = run_gds(tmp_path, monkeypatch, {"gds": {"allow_empty": "fakeram.*|SRAM_.*"}})
+    assert merge_names(flow)["allow_empty"] == "fakeram.*|SRAM_.*"
+
+
+def test_text_that_is_no_regular_expression_is_refused(tmp_path):
+    with pytest.raises(Exception, match="no regular expression"):
+        Openroad.Settings.from_input({"gds": {"allow_empty": "("}}, design_root=tmp_path)
+
+
+@pytest.mark.parametrize(
+    "setting, name",
+    [
+        ("add_to_cell", "AddToCell"),
+        ("overwrite_cell", "OverwriteCell"),
+        ("rename_cell", "RenameCell"),
+        ("skip_new_cell", "SkipNewCell"),
+    ],
+)
+def test_each_policy_for_a_cell_that_is_in_already_is_a_member_of_the_klayout_enumeration(
+    tmp_path, monkeypatch, setting, name
+):
+    flow = run_gds(tmp_path, monkeypatch, {"gds": {"conflict_resolution": setting}})
+    assert merge_names(flow)["conflict_resolution"] == name
+
+
+@pytest.mark.parametrize(
+    "leaf, value, names_",
+    [
+        ("read_lef_with_def", True, {"read_lef_with_def": "true"}),
+        ("read_lef_with_def", False, {"read_lef_with_def": "false"}),
+        ("net_properties", False, {"net_properties": "false"}),
+        ("instance_properties", False, {"instance_properties": "false"}),
+        ("pin_properties", True, {"pin_properties": "true"}),
+    ],
+)
+def test_the_options_of_the_reader_are_unset_true_or_false(
+    tmp_path, monkeypatch, leaf, value, names_
+):
+    flow = run_gds(tmp_path, monkeypatch, {"gds": {"lefdef_options": {leaf: value}}})
+    found = merge_names(flow)
+    assert {name: found[name] for name in names_} == names_
+    unset = {
+        name
+        for name in ("read_lef_with_def", "net_properties", "instance_properties", "pin_properties")
+        if name not in names_
+    }
+    assert all(found[name] == "" for name in unset)
+
+
+def test_the_time_stamps_are_off_unless_asked_for(tmp_path, monkeypatch):
+    assert merge_names(run_gds(tmp_path, monkeypatch))["write_timestamps"] == "false"
+    flow = run_gds(tmp_path / "on", monkeypatch, {"gds": {"timestamps": True}})
+    assert merge_names(flow)["write_timestamps"] == "true"
+
+
+def test_an_option_of_the_layout_is_refused_without_write_gds(tmp_path):
+    for leaf, value in (
+        ("timestamps", True),
+        ("conflict_resolution", "rename_cell"),
+        ("allow_empty", "x.*"),
+    ):
+        message = refuse_settings(tmp_path / leaf, {"gds": {leaf: value}})
+        assert f"`gds.{leaf}` has no effect with `write_gds: false`" in message
+    message = refuse_settings(
+        tmp_path / "sub", {"gds": {"lefdef_options": {"net_properties": False}}}
+    )
+    assert "`gds.lefdef_options.net_properties` has no effect with `write_gds: false`" in message
+
+
+def test_a_platform_without_gds_files_merges_the_libraries_of_the_settings(tmp_path):
+    library = tmp_path / "all.gds"
+    library.write_bytes(b"x\n")
+    store = tiny_store(tmp_path)
+    (store / "tiny" / KLAYOUT_TECH).write_text(KLAYOUT_TECH_TEXT)
+    residue = yaml.safe_load(TINY_OPENROAD_RESIDUE.read_text())
+    residue["files"]["klayout_tech"] = KLAYOUT_TECH
+    path = tmp_path / "no_gds.yaml"
+    path.write_text(yaml.safe_dump(residue, sort_keys=False))
+    given = {**tiny_settings(store, residue=path), "write_gds": True}
+    with pytest.raises(FlowSettingsException) as raised:
+        Openroad.check_settings_supported(
+            Openroad.Settings.from_input(given, design_root=tmp_path, runner_cwd=tmp_path)
+        )
+    assert "gives no gds" in str(raised.value)
+    Openroad.check_settings_supported(
+        Openroad.Settings.from_input(
+            {**given, "gds": {"cell_libraries": [str(library)]}},
+            design_root=tmp_path,
+            runner_cwd=tmp_path,
+        )
+    )
+
+
+def test_the_merge_script_reads_every_name_that_the_flow_defines(tmp_path, monkeypatch):
+    """The script gets its inputs as global names that KLayout defines from `-rd`. A name that
+    the flow defines and the script does not read would do nothing, and a name that the script
+    reads and the flow does not define would stop it."""
+    import ast
+
+    tree = ast.parse((ASSETS / "def2stream.py").read_text())
+    (main,) = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Compare)
+    ]
+    read = {node.id for node in ast.walk(main) if isinstance(node, ast.Name)}
+    defined = set(merge_names(run_gds(tmp_path, monkeypatch)))
+    assert defined <= read, sorted(defined - read)
+    kinds = {"pya", "merge_gds", "lefdef_options_of", "sys", "NameError"}
+    assert read - kinds <= defined | {"allow_empty"}, sorted(read - kinds - defined)

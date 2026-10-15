@@ -5,10 +5,11 @@ A leaf whose description says "Unset: the value of the platform" is `None` in th
 flow resolves it from the platform.
 """
 
+import re
 from pathlib import Path
 from typing import Annotated, ClassVar, Literal, Optional, Tuple, Union
 
-from ...dataclass import Field, XedaBaseModel, tier
+from ...dataclass import Field, XedaBaseModel, field_validator, tier
 from ...flow.settings_group import Flag, SettingsGroup
 from .groups import differing_leaves
 
@@ -19,6 +20,7 @@ __all__ = [
     "FillGroup",
     "FinalAntennaGroup",
     "GdsGroup",
+    "GdsLefDefOptions",
     "IrDropDecap",
     "IrDropGroup",
     "IrDropSource",
@@ -814,6 +816,37 @@ class IrDropGroup(SettingsGroup):
         return found
 
 
+class GdsLefDefOptions(SettingsGroup):
+    """The options of the reader of LEF and DEF files of KLayout that the technology file sets.
+    An option that is unset stays as the technology file has it."""
+
+    read_lef_with_def: Optional[bool] = Field(
+        None,
+        description="Read the LEF files together with the DEF file. Unset: as the technology "
+        "file of the platform says.",
+        json_schema_extra=tier("expert"),
+    )
+    net_properties: Optional[bool] = Field(
+        None,
+        description="Keep the name of the net as a property of its shapes. False removes the "
+        "property and makes the layout smaller. Unset: as the technology file of the platform "
+        "says.",
+        json_schema_extra=tier("expert"),
+    )
+    instance_properties: Optional[bool] = Field(
+        None,
+        description="Keep the name of the instance as a property of its cell instance. False "
+        "removes the property. Unset: as the technology file of the platform says.",
+        json_schema_extra=tier("expert"),
+    )
+    pin_properties: Optional[bool] = Field(
+        None,
+        description="Keep the name of the pin as a property of its shapes. False removes the "
+        "property. Unset: as the technology file of the platform says.",
+        json_schema_extra=tier("expert"),
+    )
+
+
 class GdsGroup(SettingsGroup):
     """The GDSII file of the routed design, which KLayout writes when `write_gds` is true."""
 
@@ -823,3 +856,55 @@ class GdsGroup(SettingsGroup):
         "relative path is relative to the design root. Needs `write_gds`.",
         json_schema_extra=tier("advanced"),
     )
+    layer_map: Optional[Path] = Field(
+        None,
+        description="A file that maps the layers of the LEF and DEF files to the layers and "
+        "data types of the GDSII file. A relative path is relative to the design root. Unset: "
+        "the map of the technology file of KLayout.",
+        json_schema_extra=tier("advanced"),
+    )
+    cell_libraries: list[Path] = Field(
+        [],
+        description="More GDSII or OASIS files to merge, after those of the platform: the "
+        "layouts of macros and of other cells that the platform does not give. A relative path "
+        "is relative to the design root.",
+        json_schema_extra=tier("advanced"),
+    )
+    allow_empty: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="A regular expression for the names of the cells that may have no layout. "
+        "The merge fails for any other cell of the design that no file gives. Unset: every cell "
+        "needs a layout.",
+        json_schema_extra=tier("advanced"),
+    )
+    conflict_resolution: Optional[
+        Literal["add_to_cell", "overwrite_cell", "rename_cell", "skip_new_cell"]
+    ] = Field(
+        None,
+        description="What happens when a GDSII or OASIS file has a cell with the name of a cell "
+        "that is in the layout already: add the content to the cell, overwrite the cell, rename "
+        "the new cell, or skip the new cell. Unset: the default of KLayout, `add_to_cell`.",
+        json_schema_extra=tier("expert"),
+    )
+    lefdef_options: GdsLefDefOptions = Field(
+        default_factory=GdsLefDefOptions,
+        description="The options of the reader of the LEF and DEF files.",
+    )
+    timestamps: bool = Field(
+        False,
+        description="Write the time stamps of the cells into the GDSII file. False keeps the "
+        "file the same from run to run.",
+        json_schema_extra=tier("advanced"),
+    )
+
+    @field_validator("allow_empty")
+    @classmethod
+    def _allow_empty_is_a_regular_expression(cls, value: Optional[str]) -> Optional[str]:
+        """Refuse text that Python does not read as a regular expression."""
+        if value is not None:
+            try:
+                re.compile(value)
+            except re.error as error:
+                raise ValueError(f"{value!r} is no regular expression: {error}") from None
+        return value
