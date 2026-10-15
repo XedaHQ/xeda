@@ -362,7 +362,7 @@ def test_a_platform_without_lef_files_is_refused_at_planning(tmp_path):
 # The four flows run one after the other under the fake OpenROAD.
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
-CLOCK = {"flows.openroad_place.clocks.clk.period": "5"}
+CLOCK = {"flows.openroad_place.clocks.clk.period": "5 ns"}
 SLACK = "finish__timing__setup__ws"
 HOLD = "finish__timing__hold__ws"
 DRC = "detailedroute__route__drc_errors"

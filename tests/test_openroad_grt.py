@@ -1197,7 +1197,7 @@ def test_the_reroute_move_and_phase_are_no_refusal(tmp_path):
 
 # ------------------------------------------------------------------------------ launches
 
-LAUNCH = {"flows.openroad_place.clocks.clk.period": "5"}
+LAUNCH = {"flows.openroad_place.clocks.clk.period": "5 ns"}
 
 
 def launch_settings(tmp_path: Path, **given: Any) -> tuple[Path, list[str]]:

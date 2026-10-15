@@ -15,6 +15,7 @@ runs (`run_openroad`) and the metrics file that OpenROAD writes (`read_metrics`)
 import logging
 import math
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Dict, List, Optional, Sequence
@@ -34,7 +35,7 @@ from ...flow.settings_group import render_flags
 from ...platforms.model import PlatformModel, WireRc
 from ...proc_utils import ProcessTimeout
 from ...tool import NonZeroExitCode, Tool
-from ...units import convert_unit
+from ...units import Time, convert_unit
 from ...utils import tcl_word, unique
 from .groups import FIX_FLAGS, comma_word
 from .metrics import MetricsError, load_metrics
@@ -44,6 +45,7 @@ __all__ = [
     "OpenroadStage",
     "effective_base",
     "base_values",
+    "fraction_of",
     "failure_lines",
     "WireRcSettings",
     "merge_wire_rc",
@@ -102,23 +104,33 @@ def platform_time_unit(model: PlatformModel) -> str:
     return model.time_unit or "1ns"
 
 
-def to_lib_time(nanoseconds: Any, unit: str) -> str:
-    """Return a time given in nanoseconds as a Tcl number of the time `unit` of the Liberty files
-    (`1ns`, `1ps`, `10ps`). A setting for a time is in nanoseconds on every platform, and a command
+#: The time unit of a Liberty file: a scale and one of the units of a time (`1ns`, `10ps`).
+_LIBERTY_TIME_UNIT = re.compile(
+    r"\s*(?P<scale>[0-9]+(?:\.[0-9]*)?)?\s*(?P<unit>fs|ps|ns|us|ms|s)\s*"
+)
+
+
+def to_lib_time(time: Any, unit: str) -> str:
+    """Return the time `time` as a Tcl number of the time `unit` of the Liberty files (`1ns`,
+    `1ps`, `10ps`). A setting for a time has a unit of its own (`5 ns`, `250 ps`), and a command
     of OpenROAD takes the unit of the Liberty files.
 
-    The result has nine decimals at most, so the noise of the conversion does not show: `0.25 ns`
-    is `250.0` in `1ps`."""
-    if (
-        isinstance(nanoseconds, bool)
-        or not isinstance(nanoseconds, (int, float))
-        or not math.isfinite(nanoseconds)
-    ):
-        raise TypeError(
-            f"expected a finite number of nanoseconds for a Tcl script, got {nanoseconds!r}"
-        )
-    converted = convert_unit(nanoseconds, to_unit=unit, from_unit="nanosecond")
-    return tcl_number(round(converted, 9))
+    A plain number of nanoseconds is still accepted for the settings that are not times with
+    units yet. The result has nine decimals at most: `0.25 ns` is `250.0` in `1ps`."""
+    if isinstance(time, (int, float)) and not isinstance(time, bool) and math.isfinite(time):
+        time = Time.of(time, "ns")
+    if not isinstance(time, Time):
+        raise TypeError(f"expected a time for a Tcl script, got {time!r}")
+    found = _LIBERTY_TIME_UNIT.fullmatch(unit)
+    scale = float(found["scale"]) if found is not None and found["scale"] else 1.0
+    if found is None or scale <= 0:
+        raise ValueError(f"cannot read the time unit {unit!r} of the Liberty files")
+    return tcl_number(round(time.to(found["unit"]) / scale, 9))
+
+
+def fraction_of(time: Time, fraction: float) -> Time:
+    """Return the part `fraction` of the time `time`: the input delay of 0.2 of a clock period."""
+    return Time.of(fraction * time.to("ns"), "ns")
 
 
 def to_seconds(nanoseconds: Any) -> str:
@@ -406,7 +418,7 @@ class OpenroadStage(AsicPlatformFlow, Flow):
     def add_template_helpers(self) -> None:
         """Add the helpers that the templates of every OpenROAD flow use: `render_flags` (it
         quotes for Tcl, and its second argument is the `list_word` for a list flag, such as
-        `comma_word`), `comma_word`, `space_word`, `fix_flags`, the filters `tcl_number`,
+        `comma_word`), `comma_word`, `space_word`, `fraction_of`, `fix_flags`, the filters `tcl_number`,
         `tcl_numbers`, `lib_time`, `seconds`, `farads`, `femtofarads` and `nanometers`,
         `reports` and `failed_odb`.
         `init()` calls it.
@@ -427,18 +439,19 @@ class OpenroadStage(AsicPlatformFlow, Flow):
             render_flags=lambda group, list_word=None: render_flags(group, tcl_word, list_word),
             comma_word=comma_word,
             space_word=space_word,
+            fraction_of=fraction_of,
             fix_flags=FIX_FLAGS,
             reports=dict(self.reports),
             failed_odb=self.failed_odb,
         )
 
-    def _lib_time(self, nanoseconds: Any) -> str:
-        """The template filter `lib_time`: a time in nanoseconds as a number of the time unit of
-        the Liberty files of the platform (`to_lib_time`). It reads the platform model, so a
-        template can use it after `prepare_inputs()`."""
+    def _lib_time(self, time: Any) -> str:
+        """The template filter `lib_time`: a time as a number of the time unit of the Liberty
+        files of the platform (`to_lib_time`). It reads the platform model, so a template can use
+        it after `prepare_inputs()`."""
         model = self.platform_model
         assert model is not None, "prepare_inputs() builds the platform model"
-        return to_lib_time(nanoseconds, platform_time_unit(model))
+        return to_lib_time(time, platform_time_unit(model))
 
     def bind_template_values(self) -> None:
         """Add the values that exist only after `prepare_inputs()`: `P` (the values of the

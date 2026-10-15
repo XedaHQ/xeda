@@ -19,12 +19,12 @@ create_clock -period {{ clock.period|lib_time }} -name {{ clock_name|tcl_word }}
 {% if settings.input_delay is not none %}
 set_input_delay {{ (settings.input_delay / 1000)|lib_time }} -clock {{ clock_name|tcl_word }} $non_clock_inputs
 {% else %}
-set_input_delay {{ (settings.input_delay_frac * clock.period)|lib_time }} -clock {{ clock_name|tcl_word }} $non_clock_inputs
+set_input_delay {{ fraction_of(clock.period, settings.input_delay_frac)|lib_time }} -clock {{ clock_name|tcl_word }} $non_clock_inputs
 {% endif %}
 {% if settings.output_delay is not none %}
 set_output_delay {{ (settings.output_delay / 1000)|lib_time }} -clock {{ clock_name|tcl_word }} $all_output_ports
 {% else %}
-set_output_delay {{ (settings.output_delay_frac * clock.period)|lib_time }} -clock {{ clock_name|tcl_word }} $all_output_ports
+set_output_delay {{ fraction_of(clock.period, settings.output_delay_frac)|lib_time }} -clock {{ clock_name|tcl_word }} $all_output_ports
 {% endif %}
 
 {% endif %}

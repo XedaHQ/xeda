@@ -17,9 +17,10 @@ import pytest
 from xeda import Design
 from xeda.flow import FlowSettingsException
 from xeda.platforms import PdkNotInstalled
+from xeda.units import Time
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.openroad import OpenroadPlace, base
-from xeda.flows.openroad.base import to_lib_time, to_seconds
+from xeda.flows.openroad.base import fraction_of, to_lib_time, to_seconds
 from xeda.flows.openroad.place_groups import PresizeMode, SwapTarget
 from xeda.flows.openroad.place import EffectivePlace, effective
 from xeda.flows.openroad.place_pdn import PdnStripe
@@ -64,7 +65,7 @@ def place_flow(
     design = Design.from_file(openroad_design(tmp_path / "design"))
     given = {
         **tiny_settings(store, residue=TINY_OPENROAD_RESIDUE),
-        "clocks": {"clk": {"period": 5.0}},
+        "clocks": {"clk": {"period": "5 ns"}},
         **(settings or {}),
     }
     run_path = tmp_path / "work"
@@ -165,6 +166,33 @@ def refusal(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None) ->
 )
 def test_a_time_in_nanoseconds_is_written_in_the_unit_of_the_library(unit, value, text):
     assert to_lib_time(value, unit) == text
+
+
+@pytest.mark.parametrize(
+    "unit, time, text",
+    [
+        ("1ns", "0.25 ns", "0.25"),
+        ("1ns", "250 ps", "0.25"),
+        ("1ns", "5000 ps", "5.0"),
+        ("1ps", "0.25 ns", "250.0"),
+        ("1ps", "2 us", "2000000.0"),
+        ("10ps", "2.5 ns", "250.0"),
+        ("1fs", "1 ps", "1000.0"),
+    ],
+)
+def test_a_time_with_a_unit_is_written_in_the_unit_of_the_library(unit, time, text):
+    assert to_lib_time(Time(time), unit) == text
+
+
+@pytest.mark.parametrize("unit", ["1 hour", "0ns", "1e3ns", "fast"])
+def test_a_unit_of_the_library_that_is_no_time_is_refused(unit):
+    with pytest.raises(ValueError, match="time unit"):
+        to_lib_time(Time("1 ns"), unit)
+
+
+@pytest.mark.parametrize("period, fraction, text", [("5 ns", 0.2, "1.0"), ("8000 ps", 0.25, "2.0")])
+def test_a_fraction_of_a_time_is_a_time(period, fraction, text):
+    assert to_lib_time(fraction_of(Time(period), fraction), "1ns") == text
 
 
 @pytest.mark.parametrize("value", ["1.0", None, True, float("nan"), float("inf")])
@@ -3254,6 +3282,14 @@ def test_the_clock_and_the_delays_are_in_the_time_unit_of_the_platform(
     assert 'set clk_port [get_ports "clk"]' in found
 
 
+@pytest.mark.parametrize("period", ["5 ns", "5000 ps", "0.005 us"])
+def test_the_period_of_the_clock_is_written_whatever_unit_the_setting_has(tmp_path, period):
+    flow = place_flow(tmp_path, {"clocks": {"clk": {"period": period}}})
+    found = sdc_lines(flow)
+    assert 'create_clock -period 5.0 -name "clk" $clk_port' in found
+    assert 'set_input_delay 1.0 -clock "clk" $non_clock_inputs' in found
+
+
 @pytest.mark.parametrize("unit, delay", [("1ns", "0.25"), ("1ps", "250.0")])
 def test_a_delay_in_picoseconds_is_converted_to_the_time_unit_of_the_platform(
     tmp_path, unit, delay
@@ -3283,8 +3319,8 @@ def test_no_input_delay_goes_to_the_port_of_any_clock(tmp_path):
         tmp_path,
         {
             "clocks": {
-                "clk_a": {"period": 5.0, "port": "clk_a"},
-                "clk_b": {"period": 8.0, "port": "clk_b"},
+                "clk_a": {"period": "5 ns", "port": "clk_a"},
+                "clk_b": {"period": "8 ns", "port": "clk_b"},
             }
         },
     )
@@ -3444,7 +3480,7 @@ def test_a_launch_writes_the_constraints_and_the_files_of_the_stage(tmp_path, mo
     flow = runner.run(
         OpenroadPlace,
         openroad_design(tmp_path / "design"),
-        flow_settings=openroad_settings(store, **{"clock.period": "5"}),
+        flow_settings=openroad_settings(store, **{"clock.period": "5 ns"}),
     )
     assert flow is not None and flow.succeeded
     run_dir = Path(flow.run_path)
@@ -3473,7 +3509,7 @@ def test_a_launch_removes_the_failed_database_of_an_earlier_run(tmp_path, monkey
     use_fake_openroad(monkeypatch)
     store = tiny_store(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    settings = openroad_settings(store, **{"clock.period": "5"})
+    settings = openroad_settings(store, **{"clock.period": "5 ns"})
     design = openroad_design(tmp_path / "design")
     with monkeypatch.context() as failing:
         failing.setenv("XEDA_FAKE_TOOL_FAIL", "pdngen")
@@ -3561,7 +3597,7 @@ def test_a_fixed_density_needs_a_density_in_the_residue_files_or_the_settings(tm
 def test_a_platform_that_reads_the_pdk_configuration_may_give_the_density_later(tmp_path):
     """The bundled `nangate45` has `PLACE_DENSITY` in the configuration of its PDK, which only
     the files tell. So planning refuses nothing there."""
-    given = {"platform": "nangate45", "clocks": {"clk": {"period": 5}}}
+    given = {"platform": "nangate45", "clocks": {"clk": {"period": "5 ns"}}}
     settings = OpenroadPlace.Settings.from_input(given, design_root=tmp_path, runner_cwd=tmp_path)
     OpenroadPlace.check_settings_supported(settings)
 
@@ -3585,7 +3621,7 @@ def test_a_detailed_padding_above_the_global_padding_is_a_warning(tmp_path, monk
     store = tiny_store(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     settings = openroad_settings(
-        store, **{"clock.period": "5", "detailed_placement.cell_padding": "2"}
+        store, **{"clock.period": "5 ns", "detailed_placement.cell_padding": "2"}
     )
     with caplog.at_level("WARNING"):
         flow = runner.run(
@@ -3688,7 +3724,7 @@ def launch(tmp_path, monkeypatch):
     store = tiny_store(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design")
-    settings = openroad_settings(store, **{"clock.period": "5"})
+    settings = openroad_settings(store, **{"clock.period": "5 ns"})
     flow = runner.run(OpenroadPlace, design, flow_settings=settings)
     assert flow is not None and flow.succeeded
     return runner, design, settings, flow
@@ -3736,7 +3772,7 @@ def test_a_missing_metrics_file_fails_the_reading_of_the_results(tmp_path, monke
     flow = runner.run(
         OpenroadPlace,
         openroad_design(tmp_path / "design"),
-        flow_settings=openroad_settings(store, **{"clock.period": "5"}),
+        flow_settings=openroad_settings(store, **{"clock.period": "5 ns"}),
     )
     assert flow is None or not flow.succeeded
     (run_dir,) = (tmp_path / "xeda_run").rglob("openroad_place")
@@ -3757,7 +3793,7 @@ def test_a_metric_that_is_no_number_fails_the_reading_of_the_results(tmp_path, m
     flow = runner.run(
         OpenroadPlace,
         openroad_design(tmp_path / "design"),
-        flow_settings=openroad_settings(store, **{"clock.period": "5"}),
+        flow_settings=openroad_settings(store, **{"clock.period": "5 ns"}),
     )
     assert flow is None or not flow.succeeded
 
@@ -3815,7 +3851,7 @@ def test_a_dry_run_shows_a_missing_store_as_unknown_with_the_message_of_the_laun
     empty.mkdir()
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = Design.from_file(openroad_design(tmp_path / "design"))
-    given = dict(s.split("=", 1) for s in openroad_settings(empty, **{"clock.period": "5"}))
+    given = dict(s.split("=", 1) for s in openroad_settings(empty, **{"clock.period": "5 ns"}))
     _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
     assert states["openroad_place"].state == "unknown"
     with pytest.raises(PdkNotInstalled) as refused:
@@ -3833,7 +3869,9 @@ def test_a_synthesized_netlist_chains_into_the_placement(tmp_path, monkeypatch):
     use_fake_openroad(monkeypatch)
     use_fake_asic_tools(monkeypatch, tmp_path / "bin")
     store = tiny_store(tmp_path)
-    given = dict(text.split("=", 1) for text in openroad_settings(store, **{"clock.period": "5"}))
+    given = dict(
+        text.split("=", 1) for text in openroad_settings(store, **{"clock.period": "5 ns"})
+    )
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design", rtl=True)
     planned = runner.plan("yosys+openroad_place", design, flow_settings=given)
