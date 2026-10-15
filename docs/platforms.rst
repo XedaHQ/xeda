@@ -31,6 +31,30 @@ You select a platform with the setting ``platform``, which takes the name of a b
 
 Use ``platform_file`` for a platform that Xeda does not ship (see `A platform of your own`_).
 
+Bundled platforms
+=================
+
+Xeda ships two platforms:
+
+``nangate45``
+    FreePDK45 with the Nangate Open Cell Library. The ``orfs`` provider serves it. The provider
+    takes the platform directory of OpenROAD-flow-scripts at the commit
+    ``6b305a712966be72d8908695c04398acdbe273ca``. The corner is ``typical``, and ``tt`` is an alias
+    of it.
+
+``sky130hd``
+    SkyWater SKY130 with the high density standard cell library (``sky130_fd_sc_hd``). The
+    ``ciel`` provider serves it. The provider takes the open_pdks build at the commit
+    ``8afc8346a57fe1ab7934ba5a6056ea8b43078e71``, for the family ``sky130`` and the variant
+    ``sky130A``. The default corner is ``tt_025C_1v80``, and ``tt`` is an alias of it. The other
+    corners are ``ss_100C_1v60`` and ``ff_n40C_1v95``.
+
+    The dont-use cells come from ``drc_exclude.cells`` in the open_pdks configuration of the
+    library, ``libs.tech/openlane/sky130_fd_sc_hd``. That is the file that ``DRC_EXCLUDE_CELL_LIST``
+    names. Xeda reads the file when it runs a flow and does not copy it. Install the files of
+    ``sky130hd`` with ``xeda pdk install sky130hd``, which downloads about 128 MiB (see
+    `The PDK store`_).
+
 The four layers
 ===============
 
@@ -258,8 +282,9 @@ setting selects the provider. The default is the ``default`` of the residue file
        commit, each in its own directory. The store keeps no ``.git`` for it.
      - The commit of OpenROAD-flow-scripts.
    * - ``ciel``
-     - ``<root>/ciel/<family>/versions/<hash>/<variant>``, as ``ciel`` writes it. The role paths
-       are relative to this directory (``libs.ref/<library>/...``, ``libs.tech/...``).
+     - ``<root>/ciel/<family>/versions/<hash>/<variant>``, as ``ciel`` writes it. For
+       ``sky130hd``, the family is ``sky130`` and the variant is ``sky130A``. The role paths are
+       relative to this directory (``libs.ref/<library>/...``, ``libs.tech/...``).
      - The hash of the PDK build.
    * - ``directory``, layout ``orfs``
      - ``<root>/<platform>``. The root is the ``flow/platforms`` directory of an
@@ -286,6 +311,7 @@ store than ``~/.ciel``.
 .. code-block:: bash
 
     xeda pdk install nangate45          # download the PDK files that the platform pins
+    xeda pdk install sky130hd           # download the open_pdks files of sky130hd with ciel
     xeda pdk list                       # each platform and provider, the pin, and whether installed
     xeda pdk path nangate45             # the directory of the platform in the store
     xeda list-platforms                 # the bundled platforms and whether they are installed
@@ -362,6 +388,16 @@ Licenses
 Xeda ships no Nangate file and no other PDK library file. The residue files hold only file names
 and numbers. ``xeda pdk install nangate45`` fetches the files of the Nangate Open Cell Library
 from OpenROAD-flow-scripts, at the commit that the residue file pins, and only when you ask for
-it. The files stay under their own license. Read the license of a PDK before you use it. The file
-``NOTICE.md`` in the platform directory of the Xeda package lists the sources of the values that
-the residue files take from OpenROAD-flow-scripts and from open_pdks.
+it. ``xeda pdk install sky130hd`` runs ``ciel``, which fetches the open_pdks build of SKY130 into
+the store, and only when you ask for it. The files stay under their own license. Read the license
+of a PDK before you use it. The file ``NOTICE.md`` in the platform directory of the Xeda package
+lists the sources of the values that the residue files take from OpenROAD-flow-scripts and from
+open_pdks.
+
+Checking a platform against OpenROAD-flow-scripts
+=================================================
+
+The repository tool ``tools/asic_parity.py`` compares the ASIC flow of Xeda with
+OpenROAD-flow-scripts (ORFS) for one design on a platform. It runs the design through ORFS and
+through Xeda with equivalent settings, then compares the results. The tool is part of the source
+checkout, not of the installed package. See ``tools/asic_parity/README.md`` for how to run it.
