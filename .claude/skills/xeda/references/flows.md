@@ -327,9 +327,11 @@ Detail-route a globally routed design with OpenROAD, then write the final output
 
 Required settings: `platform`
 
-20 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
+21 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
 
-Group `detailed_route`: `detailed_route.end_iteration`; 5 more: `xeda list-settings openroad --tier expert --json`
+Group `detailed_route`: `detailed_route.end_iteration`; 17 more: `xeda list-settings openroad --tier expert --json`
+
+Group `ndr`: no common settings; 3 more: `xeda list-settings openroad --tier expert --json`
 
 Group `antenna`: no common settings; 2 more: `xeda list-settings openroad --tier expert --json`
 
@@ -351,15 +353,23 @@ Build the clock tree of a placed design with OpenROAD and repair its timing. One
 
 Required settings: `platform`
 
-16 flow-specific settings (plus the common ones): `xeda list-settings openroad_cts --json`
+22 flow-specific settings (plus the common ones): `xeda list-settings openroad_cts --json`
 
-Group `buffers`: `buffers.select`, `buffers.cells`; 2 more: `xeda list-settings openroad_cts --tier expert --json`
+Group `buffers`: `buffers.select`, `buffers.cells`; 6 more: `xeda list-settings openroad_cts --tier expert --json`
 
-Group `sink_clustering`: `sink_clustering.mode`, `sink_clustering.size`, `sink_clustering.max_diameter`
+Group `sink_clustering`: `sink_clustering.mode`, `sink_clustering.size`, `sink_clustering.max_diameter`; 2 more: `xeda list-settings openroad_cts --tier expert --json`
 
-Group `tree`: `tree.buffer_distance`; 1 more: `xeda list-settings openroad_cts --tier expert --json`
+Group `macro_clustering`: no common settings; 2 more: `xeda list-settings openroad_cts --tier expert --json`
 
-Group `repair_clock_nets`: `repair_clock_nets.when`
+Group `tree`: `tree.buffer_distance`; 7 more: `xeda list-settings openroad_cts --tier expert --json`
+
+Group `balance`: no common settings; 3 more: `xeda list-settings openroad_cts --tier expert --json`
+
+Group `ndr`: no common settings; 1 more: `xeda list-settings openroad_cts --tier expert --json`
+
+Group `characterization`: no common settings; 4 more: `xeda list-settings openroad_cts --tier expert --json`
+
+Group `repair_clock_nets`: `repair_clock_nets.when`; 1 more: `xeda list-settings openroad_cts --tier expert --json`
 
 Group `legalize`: no common settings; 1 more: `xeda list-settings openroad_cts --tier expert --json`
 

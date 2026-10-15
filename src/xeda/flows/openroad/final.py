@@ -26,6 +26,7 @@ from .base import (
     base_values,
     failure_lines,
     platform_time_unit,
+    tcl_number,
 )
 from .final_groups import (
     DetailedRouteGroup,
@@ -34,6 +35,7 @@ from .final_groups import (
     FinalAntennaGroup,
     GdsGroup,
     IrDropGroup,
+    NdrGroup,
     ViaInPin,
 )
 from .groups import differing_leaves
@@ -44,7 +46,9 @@ __all__ = [
     "Openroad",
     "drc_iteration_reports",
     "effective",
+    "ndr_words",
     "resolve_extraction",
+    "snapshot_files",
 ]
 
 log = logging.getLogger(__name__)
@@ -149,6 +153,25 @@ def effective(settings: "Openroad.Settings", model: PlatformModel) -> EffectiveF
     )
 
 
+def ndr_words(values: Dict[str, float | str]) -> list[str]:
+    """Return the widths or the spacings of a non-default rule as the flat list that `create_ndr`
+    reads: a layer or a range of layers, then its value, and so on. A number becomes the Tcl text
+    of the number, and a factor (`*2`) stays as it is."""
+    words: list[str] = []
+    for layers, value in values.items():
+        words += [layers, value if isinstance(value, str) else tcl_number(value)]
+    return words
+
+
+def snapshot_files(route: DetailedRouteGroup) -> list[str]:
+    """Return the names of the databases that the router saves with `snapshots`: `drt_iter<n>.odb`
+    for each iteration `n` from 0 to `end_iteration`, in the working directory. The router saves
+    one only after an iteration that leaves violations. The list is empty if the setting is off."""
+    if not route.snapshots:
+        return []
+    return [f"drt_iter{n}.odb" for n in range(route.end_iteration + 1)]
+
+
 def drc_iteration_reports(route: DetailedRouteGroup, drc_report: str) -> list[str]:
     """Return the names of the files that the detailed route writes next to the report `drc_report`
     while it works. The router writes `<report>-<n>.rpt` after every `drc_report_step`-th iteration
@@ -230,6 +253,7 @@ class Openroad(OpenroadStage):
     reports = {
         "drc": "reports/drc.rpt",
         "maze": "reports/maze.log",
+        "guide_coverage": "reports/guide_coverage.csv",
         "antennas": "reports/antennas.rpt",
     }
     #: The files that the first process writes for the process after it, by role: the database and
@@ -287,6 +311,10 @@ class Openroad(OpenroadStage):
         detailed_route: DetailedRouteGroup = Field(
             default_factory=DetailedRouteGroup,
             description="The detailed router.",
+        )
+        ndr: NdrGroup = Field(
+            default_factory=NdrGroup,
+            description="The non-default routing rules for the detailed route.",
         )
         antenna: FinalAntennaGroup = Field(
             default_factory=FinalAntennaGroup,
@@ -425,7 +453,9 @@ class Openroad(OpenroadStage):
         the first process writes for the second, and `image_files`, the names of the images."""
         super().add_template_helpers()
         self.jinja_env.globals.update(
-            working_files=dict(self.working_files), image_files=list(self.image_files)
+            working_files=dict(self.working_files),
+            image_files=list(self.image_files),
+            ndr_words=ndr_words,
         )
 
     def effective(self) -> EffectiveFinal:
@@ -452,6 +482,7 @@ class Openroad(OpenroadStage):
                 *self.working_files.values(),
                 *self.reports.values(),
                 *drc_iteration_reports(settings.detailed_route, self.reports["drc"]),
+                *snapshot_files(settings.detailed_route),
                 self.failed_odb,
             ],
         )

@@ -819,6 +819,11 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     "write_guides",
     # detailed route and fill
     "detailed_route",
+    "detailed_route_set_default_via",
+    "detailed_route_set_unidirectional_layer",
+    "create_ndr",
+    "assign_ndr",
+    "set_debug_level",
     "grt::have_routes",
     "design_is_routed",
     "filler_placement",

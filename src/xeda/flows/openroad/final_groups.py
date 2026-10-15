@@ -6,7 +6,7 @@ flow resolves it from the platform.
 """
 
 from pathlib import Path
-from typing import Annotated, ClassVar, Literal, Optional, Tuple
+from typing import Annotated, ClassVar, Literal, Optional, Tuple, Union
 
 from ...dataclass import Field, XedaBaseModel, tier
 from ...flow.settings_group import Flag, SettingsGroup
@@ -14,6 +14,8 @@ from .groups import differing_leaves
 
 __all__ = [
     "DetailedRouteGroup",
+    "NdrGroup",
+    "NdrRule",
     "ExtractionGroup",
     "FillGroup",
     "FinalAntennaGroup",
@@ -43,16 +45,23 @@ class DetailedRouteGroup(SettingsGroup):
     """The detailed router (`detailed_route`)."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("verbose", "-verbose", "value"),
         Flag("end_iteration", "-droute_end_iter", "value"),
         Flag("reroute_seed", "-or_seed", "value"),
         Flag("reroute_swap_factor", "-or_k", "value"),
         Flag("drc_report_step", "-drc_report_iter_step", "value"),
+        Flag("via_access_layer", "-via_access_layer", "value"),
+        Flag("min_access_points", "-min_access_points", "value"),
+        Flag("pin_access", "-no_pin_access", "skip"),
+        Flag("via_generation", "-disable_via_gen", "skip"),
+        Flag("repair_pdn_vias_layer", "-repair_pdn_vias", "value"),
+        Flag("clean_patches", "-clean_patches", "switch"),
+        Flag("save_guide_updates", "-save_guide_updates", "switch"),
     )
     #: The flags of `detailed_route` that no setting covers. The layers of the route are the ones
-    #: of the database, and the files of the reports are the ones of the flow.
-    EXTRA_FLAGS: ClassVar[frozenset[str]] = frozenset(
-        {"-via_access_layer", "-min_access_points", "-clean_patches", "-save_guide_updates"}
-    )
+    #: of the database, the files of the reports are the ones of the flow, and the cloud workers
+    #: need a service that Xeda does not start.
+    EXTRA_FLAGS: ClassVar[frozenset[str]] = frozenset({"-db_process_node"})
 
     end_iteration: int = Field(
         64,
@@ -69,7 +78,7 @@ class DetailedRouteGroup(SettingsGroup):
         "option of the router. Unset: no shuffling.",
         json_schema_extra=tier("expert"),
     )
-    reroute_swap_factor: Optional[int] = Field(
+    reroute_swap_factor: Optional[float] = Field(
         None,
         ge=0,
         description="The factor that sets how many swaps the shuffle makes (`-or_k`): the "
@@ -91,11 +100,94 @@ class DetailedRouteGroup(SettingsGroup):
         "router no range. No platform gives one.",
         json_schema_extra=tier("advanced"),
     )
+    via_access_layer: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="A pin on this layer or below is reached by vias only "
+        "(`-via_access_layer`). Unset: the router decides.",
+        json_schema_extra=tier("expert"),
+    )
+    min_access_points: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The least number of access points that the router finds for each pin of a "
+        "standard cell or a macro (`-min_access_points`). Unset: the default of the router.",
+        json_schema_extra=tier("expert"),
+    )
+    pin_access: bool = Field(
+        True,
+        description="The router analyzes the access to the pins itself. False skips that "
+        "analysis (`-no_pin_access`): the router then works with the access points that an "
+        "earlier `pin_access` left in the database, which `openroad_grt` runs with "
+        "`pin_access.enabled`.",
+        json_schema_extra=tier("expert"),
+    )
+    via_generation: bool = Field(
+        True,
+        description="The router makes vias for the pins and the wide wires besides the vias of "
+        "the technology. False allows only the vias of the technology (`-disable_via_gen`).",
+        json_schema_extra=tier("advanced"),
+    )
+    repair_pdn_vias_layer: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="The layer of the vias of the power grid that the router removes where they "
+        "cause design rule violations (`-repair_pdn_vias`). A platform whose first two metal "
+        "layers carry the power rails in parallel needs it. Unset: the router removes none.",
+        json_schema_extra=tier("advanced"),
+    )
+    clean_patches: bool = Field(
+        False,
+        description="Remove the patch wires that the router does not need (`-clean_patches`).",
+        json_schema_extra=tier("expert"),
+    )
+    save_guide_updates: bool = Field(
+        False,
+        description="Save the changes that the router makes to the route guides "
+        "(`-save_guide_updates`).",
+        json_schema_extra=tier("expert"),
+    )
+    verbose: int = Field(
+        1,
+        ge=0,
+        description="The level of the messages of the router (`-verbose`). The default is the "
+        "one of OpenROAD-flow-scripts.",
+        json_schema_extra=tier("expert"),
+    )
+    default_vias: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="The vias that the router prefers, by name, one command each "
+        "(`detailed_route_set_default_via`). The command has no entry in the help of OpenROAD. "
+        "Empty: the router chooses.",
+        json_schema_extra=tier("expert"),
+    )
+    unidirectional_layers: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="The layers where the router allows wires in the preferred direction only, "
+        "one command each (`detailed_route_set_unidirectional_layer`). The command has no entry "
+        "in the help of OpenROAD. Empty: the layers keep the direction rule of the technology.",
+        json_schema_extra=tier("expert"),
+    )
+    require_routed: bool = Field(
+        True,
+        description="The flow fails when a net is unrouted after the route and the antenna "
+        "repair (`design_is_routed`). OpenROAD-flow-scripts fails then. False keeps the "
+        "partial route and goes on, so the later checks and the outputs describe it.",
+        json_schema_extra=tier("advanced"),
+    )
+    snapshots: bool = Field(
+        False,
+        description="Save the database after each iteration that leaves violations "
+        "(`set_debug_level DRT snapshot 1`) as `drt_iter<n>.odb` in the run directory, for "
+        "each iteration `n` up to `end_iteration`. A database is large, so use it for a small "
+        "design.",
+        json_schema_extra=tier("expert"),
+    )
     extra_args: list[str] = Field(
         [],
-        description="More flags for `detailed_route`. Each flag must be one of "
-        "`-via_access_layer`, `-min_access_points`, `-clean_patches` and "
-        "`-save_guide_updates`, each followed by its value where it takes one.",
+        description="More flags for `detailed_route`. Each flag must be `-db_process_node`, "
+        "followed by its value. The router uses it to select the via rules of one process "
+        "node, which the platform of the node gives.",
         json_schema_extra=tier("expert"),
     )
 
@@ -110,6 +202,72 @@ class DetailedRouteGroup(SettingsGroup):
                 )
             ]
         return []
+
+
+#: A width or spacing of a non-default rule: micrometers, or a factor of the value of the
+#: technology, written `*2`.
+NdrValue = Union[
+    Annotated[float, Field(gt=0)],
+    Annotated[str, Field(pattern=r"^\*[0-9]+(\.[0-9]+)?$")],
+]
+
+
+class NdrRule(XedaBaseModel):
+    """A non-default routing rule: the widths and the spacings of the layers, and the vias."""
+
+    width: dict[str, NdrValue] = Field(
+        {},
+        description="The width of the wires, by layer. A key is a layer name or a range "
+        "`first:last` of routing layers. A value is a number in micrometers or a factor of the "
+        "default width, written `*2`. A layer that no key names keeps its default width.",
+    )
+    spacing: dict[str, NdrValue] = Field(
+        {},
+        description="The spacing of the wires, by layer. A key is a layer name or a range "
+        "`first:last` of routing layers. A value is a number in micrometers or a factor of the "
+        "default spacing, written `*2`.",
+    )
+    vias: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="The vias that the nets of the rule may use, by name.",
+    )
+
+
+class NdrGroup(SettingsGroup):
+    """The non-default routing rules for the detailed route, and the nets that follow them."""
+
+    rules: dict[Annotated[str, Field(min_length=1)], NdrRule] = Field(
+        {},
+        description="The rules to create, by name (`create_ndr`). The database keeps them.",
+        json_schema_extra=tier("advanced"),
+    )
+    assignments: dict[Annotated[str, Field(min_length=1)], Annotated[str, Field(min_length=1)]] = (
+        Field(
+            {},
+            description="The rule of each net, by net name (`assign_ndr -net`). A rule is one "
+            "of `rules` or a rule that the database already holds.",
+            json_schema_extra=tier("advanced"),
+        )
+    )
+    clock_rule: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="The rule for all clock nets (`assign_ndr -all_clocks`). A rule is one of "
+        "`rules` or a rule that the database already holds. Unset: no rule for the clock nets.",
+        json_schema_extra=tier("advanced"),
+    )
+
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse a rule that changes nothing."""
+        return [
+            (
+                f"{key}.rules.{name}",
+                f"the rule `{name}` in `{key}.rules` sets no width, no spacing and no via: give "
+                "one of them or delete the rule",
+            )
+            for name, rule in self.rules.items()
+            if not (rule.width or rule.spacing or rule.vias)
+        ]
 
 
 class FinalAntennaGroup(SettingsGroup):

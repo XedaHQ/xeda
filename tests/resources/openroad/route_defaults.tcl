@@ -82,7 +82,7 @@ proc xeda_detail_route {} {
         error "xeda: the database has no global routes"
     }
     set_propagated_clock [all_clocks]
-    set route_args [list -output_drc "reports/drc.rpt" -output_maze "reports/maze.log" -verbose 1 -droute_end_iter "64" -drc_report_iter_step "5"]
+    set route_args [list -output_drc "reports/drc.rpt" -output_maze "reports/maze.log" -output_guide_coverage "reports/guide_coverage.csv" -verbose "1" -droute_end_iter "64" -drc_report_iter_step "5"]
     detailed_route {*}$route_args
     set pass 1
     if {[repair_antennas "ANTENNA_X1"]} {

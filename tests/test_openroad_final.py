@@ -252,7 +252,8 @@ def test_the_defaults_route_repair_the_antennas_and_fill_as_openroad_flow_script
         "}",
         "set_propagated_clock [all_clocks]",
         'set route_args [list -output_drc "reports/drc.rpt" -output_maze "reports/maze.log" '
-        '-verbose 1 -droute_end_iter "64" -drc_report_iter_step "5"]',
+        '-output_guide_coverage "reports/guide_coverage.csv" -verbose "1" '
+        '-droute_end_iter "64" -drc_report_iter_step "5"]',
         "detailed_route {*}$route_args",
         "set pass 1",
         'if {[repair_antennas "ANTENNA_X1"]} {',
@@ -414,7 +415,7 @@ def test_the_flags_of_the_route_follow_the_settings(tmp_path):
     )
     (route,) = [line for line in found if line.startswith("set route_args")]
     assert route.endswith(
-        '-verbose 1 -droute_end_iter "32" -or_seed "3" -or_k "2" -drc_report_iter_step "0"]'
+        '-verbose "1" -droute_end_iter "32" -or_seed "3" -or_k "2.0" -drc_report_iter_step "0"]'
     )
 
 
@@ -455,10 +456,10 @@ def test_the_router_gets_no_routing_layer_flags(tmp_path):
 def test_the_hatch_flags_come_after_the_flags_of_the_settings(tmp_path):
     found = route_body(
         tmp_path,
-        {"detailed_route": {"extra_args": ["-via_access_layer", "m2", "-clean_patches"]}},
+        {"detailed_route": {"extra_args": ["-db_process_node", "GF14"]}},
     )
     (route,) = [line for line in found if line.startswith("set route_args")]
-    assert route.endswith('-drc_report_iter_step "5" "-via_access_layer" "m2" "-clean_patches"]')
+    assert route.endswith('-drc_report_iter_step "5" "-db_process_node" "GF14"]')
 
 
 def test_every_route_in_the_antenna_loop_gets_the_same_arguments(tmp_path):
@@ -471,6 +472,8 @@ def test_every_route_in_the_antenna_loop_gets_the_same_arguments(tmp_path):
         "reports/drc.rpt",
         "-output_maze",
         "reports/maze.log",
+        "-output_guide_coverage",
+        "reports/guide_coverage.csv",
         "-verbose",
         "1",
         "-droute_end_iter",
@@ -708,6 +711,7 @@ def test_the_process_makes_every_file_it_writes_ready_first(tmp_path, monkeypatc
             "route.sdc",
             "reports/drc.rpt",
             "reports/maze.log",
+            "reports/guide_coverage.csv",
             "reports/antennas.rpt",
             "openroad-failed.odb",
             *(f"reports/drc.rpt-{n}.rpt" for n in range(5, 65, 5)),
@@ -771,8 +775,9 @@ def test_the_failure_of_the_process_names_the_flow_the_script_and_the_error(tmp_
         {"detailed_route": {"reroute_seed": 0}},
         {"detailed_route": {"reroute_seed": 7, "reroute_swap_factor": 0}},
         {"detailed_route": {"via_in_pin": {"bottom": "m1", "top": "m4"}}},
-        {"detailed_route": {"extra_args": ["-via_access_layer", "m2"]}},
-        {"detailed_route": {"extra_args": ["-min_access_points", "3", "-save_guide_updates"]}},
+        {"detailed_route": {"extra_args": ["-db_process_node", "GF14"]}},
+        {"detailed_route": {"via_access_layer": "m2", "min_access_points": 3}},
+        {"detailed_route": {"clean_patches": True, "save_guide_updates": True}},
         {"antenna": {"repair": False}},
         {"antenna": {"reroute_iterations": 1}},
         {"antenna": {"reroute_iterations": 9}},
@@ -872,6 +877,7 @@ def test_the_reports_and_the_working_files_have_fixed_names():
     assert Openroad.reports == {
         "drc": "reports/drc.rpt",
         "maze": "reports/maze.log",
+        "guide_coverage": "reports/guide_coverage.csv",
         "antennas": "reports/antennas.rpt",
     }
     assert Openroad.metrics_files == ("metrics_route.json", "metrics_final.json")
@@ -2483,3 +2489,315 @@ def test_the_packaging_selects_the_assets_of_the_merge():
 
     for relative in ("data/def2stream.py", "data/NOTICE.md"):
         assert any(fnmatchcase(relative, pattern) for pattern in include), relative
+
+
+# ============================================================================== the detailed route
+#
+# Every option of the router that Xeda offers is a flag of `detailed_route`, or a command that
+# runs before it. The antenna loop gives each route the same flags.
+
+
+def route_args(tmp_path: Path, settings: dict[str, Any] | None = None) -> str:
+    """The line `set route_args [list ...]` of the stage."""
+    (line,) = [
+        line
+        for line in route_body(tmp_path, {"detailed_route": settings or {}})
+        if line.startswith("set route_args")
+    ]
+    return line
+
+
+@pytest.mark.parametrize(
+    "option, flag",
+    [
+        ({"via_access_layer": "m2"}, '-via_access_layer "m2"'),
+        ({"min_access_points": 2}, '-min_access_points "2"'),
+        ({"pin_access": False}, "-no_pin_access"),
+        ({"via_generation": False}, "-disable_via_gen"),
+        ({"repair_pdn_vias_layer": "m1"}, '-repair_pdn_vias "m1"'),
+        ({"clean_patches": True}, "-clean_patches"),
+        ({"save_guide_updates": True}, "-save_guide_updates"),
+        ({"verbose": 0}, '-verbose "0"'),
+        ({"reroute_seed": 1, "reroute_swap_factor": 1.5}, '-or_k "1.5"'),
+    ],
+    ids=lambda value: json.dumps(value, sort_keys=True) if isinstance(value, dict) else value,
+)
+def test_each_option_of_the_router_prints_its_flag(tmp_path, option, flag):
+    assert flag in route_args(tmp_path, option)
+    assert flag not in route_args(tmp_path / "default")
+
+
+def test_the_router_defaults_print_no_flag_beyond_those_of_openroad_flow_scripts(tmp_path):
+    line = route_args(tmp_path)
+    for flag in (
+        "-via_access_layer",
+        "-min_access_points",
+        "-no_pin_access",
+        "-disable_via_gen",
+        "-repair_pdn_vias",
+        "-clean_patches",
+        "-save_guide_updates",
+        "-or_seed",
+        "-or_k",
+        "-via_in_pin",
+    ):
+        assert flag not in line, flag
+
+
+def test_the_swap_factor_is_a_number_because_the_router_reads_a_double(tmp_path):
+    assert '-or_k "0.5"' in route_args(tmp_path, {"reroute_seed": 1, "reroute_swap_factor": 0.5})
+    settings = Openroad.Settings.from_input(
+        {"detailed_route": {"reroute_seed": 1, "reroute_swap_factor": 2}}, design_root=tmp_path
+    )
+    assert settings.detailed_route.reroute_swap_factor == 2.0
+    assert isinstance(settings.detailed_route.reroute_swap_factor, float)
+
+
+def test_the_guide_coverage_goes_to_a_report_of_a_fixed_name(tmp_path):
+    assert '-output_guide_coverage "reports/guide_coverage.csv"' in route_args(tmp_path)
+
+
+def test_the_flags_the_settings_cover_are_no_flags_of_the_hatch(tmp_path):
+    for flag in (
+        "-via_access_layer",
+        "-min_access_points",
+        "-save_guide_updates",
+        "-clean_patches",
+    ):
+        message = refuse_settings(tmp_path, {"detailed_route": {"extra_args": [flag, "1"]}})
+        assert f"`{flag}` in `detailed_route.extra_args` is the setting" in message
+
+
+def test_the_hatch_takes_the_process_node(tmp_path):
+    assert '"-db_process_node" "GF14"' in route_args(
+        tmp_path, {"extra_args": ["-db_process_node", "GF14"]}
+    )
+    message = refuse_settings(
+        tmp_path, {"detailed_route": {"extra_args": ["-output_maze", "x.log"]}}
+    )
+    assert "`-output_maze` in `detailed_route.extra_args` is not allowed" in message
+
+
+def refuse_settings(tmp_path: Path, settings: dict[str, Any]) -> str:
+    """The message of the refusal of `settings` (nested settings) by the planning of `openroad`."""
+    store = tmp_path / "refusal_store"
+    if not store.exists():
+        tiny_store(tmp_path, "refusal_store")
+    given = {**tiny_settings(store, residue=TINY_OPENROAD_RESIDUE), **settings}
+    with pytest.raises(FlowSettingsException) as raised:
+        Openroad.check_settings_supported(
+            Openroad.Settings.from_input(given, design_root=tmp_path, runner_cwd=tmp_path)
+        )
+    return " ".join(str(raised.value).split())
+
+
+def test_the_default_vias_and_the_one_way_layers_are_set_before_the_route_one_command_each(
+    tmp_path,
+):
+    found = route_body(
+        tmp_path,
+        {
+            "detailed_route": {
+                "default_vias": ["via1_4", "via2_0"],
+                "unidirectional_layers": ["m1"],
+            }
+        },
+    )
+    assert found[found.index("set_propagated_clock [all_clocks]") + 1 :][:4] == [
+        'detailed_route_set_default_via "via1_4"',
+        'detailed_route_set_default_via "via2_0"',
+        'detailed_route_set_unidirectional_layer "m1"',
+        found[found.index('detailed_route_set_unidirectional_layer "m1"') + 1],
+    ]
+    assert found[found.index('detailed_route_set_unidirectional_layer "m1"') + 1].startswith(
+        "set route_args"
+    )
+
+
+def test_a_via_name_with_a_dollar_reaches_the_command_as_text(tmp_path):
+    found = route_body(tmp_path, {"detailed_route": {"default_vias": ["v$x [1]"]}})
+    assert 'detailed_route_set_default_via "v\\$x \\[1\\]"' in found
+
+
+def test_the_router_without_the_check_of_the_route_does_not_fail_on_unrouted_nets(tmp_path):
+    found = route_body(tmp_path, {"detailed_route": {"require_routed": False}})
+    assert "design_is_routed" not in " ".join(found)
+    assert "report_design_area" in found
+    assert any(line.startswith("check_antennas") for line in found)
+    assert "design_is_routed" in " ".join(route_body(tmp_path / "default"))
+
+
+def test_the_snapshots_set_the_debug_level_before_the_route_and_name_their_databases(
+    tmp_path, monkeypatch
+):
+    found = route_body(tmp_path, {"detailed_route": {"snapshots": True}})
+    assert found.index("set_debug_level DRT snapshot 1") < found.index(
+        "detailed_route {*}$route_args"
+    )
+    assert "set_debug_level" not in " ".join(route_body(tmp_path / "default"))
+    assert final.snapshot_files(Openroad.Settings().detailed_route) == []
+    route = Openroad.Settings(detailed_route={"snapshots": True, "end_iteration": 3}).detailed_route
+    assert final.snapshot_files(route) == [f"drt_iter{n}.odb" for n in range(4)]
+
+
+def test_the_snapshots_are_files_the_process_makes_ready_first(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    flow = route_flow(tmp_path, {"detailed_route": {"snapshots": True, "end_iteration": 2}})
+    in_run_directory(flow, monkeypatch)
+    ready: list[str] = []
+    guard = flow._guard_write
+
+    def record(path):
+        ready.append(str(flow._relative_to_run(path)))
+        return guard(path)
+
+    monkeypatch.setattr(flow, "_guard_write", record)
+    flow.run_route()
+    assert {"drt_iter0.odb", "drt_iter1.odb", "drt_iter2.odb"} <= set(ready)
+    assert "drt_iter3.odb" not in ready
+
+
+def test_a_link_at_the_name_of_a_snapshot_is_replaced_and_not_followed(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    flow = route_flow(
+        tmp_path, {"detailed_route": {"snapshots": True, "end_iteration": 1}}, launched=True
+    )
+    in_run_directory(flow, monkeypatch)
+    victim = tmp_path / "victim.odb"
+    victim.write_text("keep\n")
+    (Path(flow.run_path) / "drt_iter1.odb").symlink_to(victim)
+    flow.run_route()
+    assert victim.read_text() == "keep\n"
+    assert not (Path(flow.run_path) / "drt_iter1.odb").is_symlink()
+
+
+# ------------------------------------------------------------------------------ the non-default rules
+
+
+def ndr_lines(tmp_path: Path, ndr: dict[str, Any]) -> list[str]:
+    found = route_body(tmp_path, {"ndr": ndr})
+    return [line for line in found if line.startswith(("create_ndr", "assign_ndr"))]
+
+
+def test_no_rule_is_created_by_default(tmp_path):
+    assert ndr_lines(tmp_path, {}) == []
+
+
+def test_a_rule_creates_the_widths_the_spacings_and_the_vias(tmp_path):
+    rule = {
+        "width": {"m2:m3": "*2", "m4": 0.4},
+        "spacing": {"m2": 0.15},
+        "vias": ["via23", "via34"],
+    }
+    assert ndr_lines(tmp_path, {"rules": {"wide": rule}}) == [
+        'create_ndr -name "wide" -spacing [list "m2" "0.15"] '
+        '-width [list "m2:m3" "*2" "m4" "0.4"] -via [list "via23" "via34"]'
+    ]
+
+
+def test_a_rule_with_only_vias_creates_only_those(tmp_path):
+    assert ndr_lines(tmp_path, {"rules": {"v": {"vias": ["via23"]}}}) == [
+        'create_ndr -name "v" -via [list "via23"]'
+    ]
+
+
+def test_the_rules_come_in_the_order_of_the_settings_and_the_assignments_follow_them(tmp_path):
+    found = ndr_lines(
+        tmp_path,
+        {
+            "rules": {"b": {"width": {"m2": "*2"}}, "a": {"spacing": {"m2": "*3"}}},
+            "assignments": {"n1": "a", "n2": "b"},
+            "clock_rule": "b",
+        },
+    )
+    assert found == [
+        'create_ndr -name "b" -width [list "m2" "*2"]',
+        'create_ndr -name "a" -spacing [list "m2" "*3"]',
+        'assign_ndr -ndr "a" -net "n1"',
+        'assign_ndr -ndr "b" -net "n2"',
+        'assign_ndr -ndr "b" -all_clocks',
+    ]
+
+
+def test_the_rules_are_made_before_the_first_route(tmp_path):
+    found = route_body(tmp_path, {"ndr": {"clock_rule": "r", "rules": {"r": {"vias": ["v"]}}}})
+    assert found.index('create_ndr -name "r" -via [list "v"]') < found.index(
+        'assign_ndr -ndr "r" -all_clocks'
+    )
+    assert found.index('assign_ndr -ndr "r" -all_clocks') < found.index(
+        "detailed_route {*}$route_args"
+    )
+
+
+def test_a_name_with_a_bracket_reaches_the_rule_as_text(tmp_path):
+    found = ndr_lines(
+        tmp_path, {"rules": {"r[0]": {"vias": ["v"]}}, "assignments": {"n$1": "r[0]"}}
+    )
+    assert found == [
+        'create_ndr -name "r\\[0\\]" -via [list "v"]',
+        'assign_ndr -ndr "r\\[0\\]" -net "n\\$1"',
+    ]
+
+
+def test_the_commands_of_the_rules_run_under_the_fake(tmp_path):
+    calls = run_script(
+        route_flow(
+            tmp_path,
+            {
+                "detailed_route": {"default_vias": ["v"], "unidirectional_layers": ["m1"]},
+                "ndr": {
+                    "rules": {"r": {"width": {"m2": "*2"}}},
+                    "assignments": {"n1": "r"},
+                    "clock_rule": "r",
+                },
+            },
+        )
+    )
+    assert names(
+        calls,
+        "detailed_route_set_default_via",
+        "detailed_route_set_unidirectional_layer",
+        "create_ndr",
+        "assign_ndr",
+        "detailed_route",
+    )[:6] == [
+        "detailed_route_set_default_via",
+        "detailed_route_set_unidirectional_layer",
+        "create_ndr",
+        "assign_ndr",
+        "assign_ndr",
+        "detailed_route",
+    ]
+
+
+@pytest.mark.parametrize(
+    "value, valid",
+    [
+        (0.2, True),
+        ("*2", True),
+        ("*1.5", True),
+        ("2", True),
+        (0, False),
+        (-1, False),
+        ("x2", False),
+    ],
+)
+def test_a_width_is_a_positive_number_or_a_factor(tmp_path, value, valid):
+    build = lambda: Openroad.Settings.from_input(  # noqa: E731
+        {"ndr": {"rules": {"r": {"width": {"m2": value}}}}}, design_root=tmp_path
+    )
+    if valid:
+        build()
+    else:
+        with pytest.raises(Exception):
+            build()
+
+
+def test_a_rule_that_changes_nothing_is_refused_with_the_way_out(tmp_path):
+    message = refuse_settings(tmp_path, {"ndr": {"rules": {"empty": {}}}})
+    assert (
+        "the rule `empty` in `ndr.rules` sets no width, no spacing and no via: give one of them "
+        "or delete the rule" in message
+    )

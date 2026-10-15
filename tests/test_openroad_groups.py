@@ -1260,7 +1260,7 @@ def test_the_last_flow_prints_the_flags_of_the_detailed_route():
         "detailed_route.reroute_swap_factor=2",
     ).detailed_route
     assert render(route) == (
-        '-droute_end_iter "32" -or_seed "3" -or_k "2" -drc_report_iter_step "5"'
+        '-verbose "1" -droute_end_iter "32" -or_seed "3" -or_k "2.0" -drc_report_iter_step "5"'
     )
     fill = settings_of(Openroad, "fill.cells=FILL_*").fill
     assert fill.cells == ["FILL_*"]
@@ -1278,7 +1278,7 @@ HATCHES = {
     "detailed_route": (
         None,
         "detailed_route",
-        {"-via_access_layer", "-min_access_points", "-clean_patches", "-save_guide_updates"},
+        {"-db_process_node"},
     ),
 }
 
