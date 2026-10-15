@@ -15,6 +15,7 @@ import pytest
 from click.testing import CliRunner
 
 from xeda.cli import cli
+from xeda.platforms import bundled_platform_names
 
 from .test_remote_run import _remote_with_fake_fpga_tools
 from .test_remote_run import remote_host  # noqa: F401  (the fixture of the remote harness)
@@ -114,7 +115,7 @@ def test_group_level_json_is_itself_a_usage_error():
 def test_the_pdk_queries_put_one_document_on_stdout(command, tmp_path):
     proc = run_xeda(*command, "--json", home=tmp_path)
     assert proc.returncode == 0, proc.stderr
-    assert {row["platform"] for row in json_stdout(proc)} == {"nangate45"}
+    assert {row["platform"] for row in json_stdout(proc)} == set(bundled_platform_names())
 
 
 @pytest.mark.parametrize(
