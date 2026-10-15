@@ -28,6 +28,7 @@ from xeda.flows.yosys import asic_groups
 from .test_yosys_asic import SCRIPT_FORMATS, _design, _tiny, _words
 from .test_yosys_asic_groups import no_liberty_message, _refused, _run
 from .tool_utils import require_yosys, require_yosys_tcl
+from .yosys_format import forced_script_format
 
 #: The default commands that the new settings change, as `_run` returns them.
 DEFAULT_COARSE = ["synth", "-flatten", "-run", ":fine"]
@@ -505,10 +506,11 @@ REAL_YOSYS = [
 def _run_real(tmp_path: Path, given: dict[str, Any], script_format: str) -> None:
     design = _design(tmp_path)
     settings = _tiny(tmp_path, **given)
-    with contextlib.suppress(FlowException):
+    with contextlib.suppress(FlowException), forced_script_format(script_format):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")
     assert json.loads(results.read_text())["success"] is True
+    assert (results.parent / f"yosys_synth.{script_format}").is_file()
 
 
 @pytest.mark.parametrize(

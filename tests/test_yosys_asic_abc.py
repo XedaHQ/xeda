@@ -26,6 +26,7 @@ from .test_yosys_asic import SCRIPT_FORMATS, _design, _tiny, _words
 from .test_yosys_asic_groups import no_liberty_message, _abc_script, _refused, _run
 from .test_yosys_asic_sequential import _enable_design
 from .tool_utils import require_yosys, require_yosys_tcl
+from .yosys_format import forced_script_format
 
 #: The script of each composed strategy at its defaults, as `abc -script` takes it. The text is
 #: the script that `construct_abc_script.py` of LibreLane writes for `AREA 0` to `DELAY 3` (commands
@@ -700,10 +701,11 @@ def _run_real(tmp_path, script_format: str, enables: bool = False, **given: Any)
     enables when `enables` is set."""
     design = _enable_design(tmp_path / "design") if enables else _design(tmp_path)
     settings = _tiny(tmp_path, **given)
-    with contextlib.suppress(FlowException):
+    with contextlib.suppress(FlowException), forced_script_format(script_format):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/*/yosys/results.json")
     assert json.loads(results.read_text())["success"] is True, results.read_text()
+    assert (results.parent / f"yosys_synth.{script_format}").is_file()
     return results.parent
 
 

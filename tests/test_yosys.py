@@ -286,7 +286,7 @@ def test_yosys_keeps_src_attributes_when_asked(script_format, tmp_path):
     assert "src =" in (flow.run_path / "netlist.v").read_text()
 
 
-@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize("script_format", ["ys"])  # `yosys_fpga` writes no Tcl script
 @pytest.mark.parametrize("keep_src", [False, True], ids=["strip-src", "keep-src"])
 def test_yosys_fpga_json_netlist_follows_netlist_src_attrs(keep_src, script_format, tmp_path):
     """FPGA synthesis writes the target's library cells into the JSON netlist as boxes, each

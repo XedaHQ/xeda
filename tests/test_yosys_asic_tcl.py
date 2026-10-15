@@ -843,7 +843,7 @@ HIERARCHY_DESIGN = (
 )
 
 
-def _launch(tmp_path: Path, source: str, top: str, script_format: str = "tcl", **given: Any):
+def _launch(tmp_path: Path, source: str, top: str, **given: Any):
     root = tmp_path / "design"
     root.mkdir()
     (root / "top.v").write_text(source)

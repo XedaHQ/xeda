@@ -1,10 +1,11 @@
-"""Force the format of the yosys script in a test.
+"""Force the format of the script of `yosys` in a test.
 
 Xeda selects the format from the settings (`YosysBase.script_format`): a Tcl script only when a
 setting needs one (`Yosys.tcl_reasons`), and a script of yosys otherwise. A test that checks both
 template sets of `yosys` forces one format with `forced_script_format`, around the planning and
 the rendering. It changes no setting, so the commands that the two scripts run are compared for
-the same settings.
+the same settings. Only `yosys` has Tcl templates: the other yosys flows always write a script of
+yosys, and the forcing leaves them alone.
 """
 
 import contextlib
@@ -13,7 +14,6 @@ from typing import Iterator, Literal, Optional
 import pytest
 
 from xeda.flows import Yosys
-from xeda.flows.yosys.common import YosysBase
 
 ScriptFormat = Literal["ys", "tcl"]
 
@@ -27,18 +27,14 @@ def forced_script_format(script_format: Optional[ScriptFormat]) -> Iterator[None
         return
     assert script_format in ("ys", "tcl"), script_format
     with pytest.MonkeyPatch.context() as patch:
-        for cls in (YosysBase, Yosys):
-            patch.setattr(cls, "script_format", classmethod(lambda _cls, _settings: script_format))
+        patch.setattr(Yosys, "script_format", classmethod(lambda _cls, _settings: script_format))
         yield
 
 
 def force_script_format(monkeypatch: pytest.MonkeyPatch, script_format: ScriptFormat) -> None:
     """Make every yosys flow write a script of `script_format` for the rest of the test."""
     assert script_format in ("ys", "tcl"), script_format
-    for cls in (YosysBase, Yosys):
-        monkeypatch.setattr(
-            cls, "script_format", classmethod(lambda _cls, _settings: script_format)
-        )
+    monkeypatch.setattr(Yosys, "script_format", classmethod(lambda _cls, _settings: script_format))
 
 
 def split_script_format(settings: Optional[dict]) -> tuple[Optional[dict], Optional[ScriptFormat]]:

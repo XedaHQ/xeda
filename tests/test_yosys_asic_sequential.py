@@ -28,6 +28,7 @@ from .test_yosys_asic import SCRIPT_FORMATS, _design, _words
 from .test_yosys_asic_groups import no_liberty_message, _pdk, _refused, _run
 from .tiny_platform import tiny_settings, tiny_store
 from .tool_utils import require_yosys, require_yosys_tcl
+from .yosys_format import forced_script_format
 
 ENABLES = (
     "module en(input clk, input rst, input e1, input e2, input [3:0] d, output reg [3:0] q1,\n"
@@ -562,10 +563,11 @@ def _run_real(tmp_path: Path, script_format: str, **given: Any):
     store = _store_with_clock_gate(tmp_path)
     design = _enable_design(tmp_path / "design")
     settings = tiny_settings(store, clock={"period": "2 ns"}, **given)
-    with contextlib.suppress(FlowException):
+    with contextlib.suppress(FlowException), forced_script_format(script_format):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/en/yosys/results.json")
     assert json.loads(results.read_text())["success"] is True, results.read_text()
+    assert (results.parent / f"yosys_synth.{script_format}").is_file()
     return results.parent
 
 
@@ -698,9 +700,10 @@ def _run_mac(tmp_path: Path, script_format: str, **given: Any):
     """Run `yosys` on the `mac` design, whose module `mul8` the flattening dissolves."""
     design = _design(tmp_path / "design")
     settings = tiny_settings(tiny_store(tmp_path), clock={"period": "2 ns"}, **given)
-    with contextlib.suppress(FlowException):
+    with contextlib.suppress(FlowException), forced_script_format(script_format):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")
+    assert (results.parent / f"yosys_synth.{script_format}").is_file()
     return results.parent, json.loads(results.read_text())
 
 

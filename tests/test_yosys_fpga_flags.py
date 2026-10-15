@@ -587,13 +587,11 @@ module top(input clk, input a, output q);
 endmodule
 """
 
-#: Every target with `flatten` unset, and both values of it on a Xilinx and on another target;
-#: all in a `.ys` script, and three targets in a `.tcl` one.
-RTL_CASES = (
-    [(target, None, "ys") for target in TARGETS]
-    + [(target, flatten, "ys") for target in ("xilinx", "ecp5") for flatten in (True, False)]
-    + [(target, None, "tcl") for target in ("xilinx", "ecp5", "gw1n")]
-)
+#: Every target with `flatten` unset, and both values of it on a Xilinx and on another target, in
+#: the `.ys` script that `yosys_fpga` writes.
+RTL_CASES = [(target, None, "ys") for target in TARGETS] + [
+    (target, flatten, "ys") for target in ("xilinx", "ecp5") for flatten in (True, False)
+]
 
 
 @pytest.mark.parametrize(
