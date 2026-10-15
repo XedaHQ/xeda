@@ -1,0 +1,41 @@
+# platform.yaml (sky130hd): values from open_pdks, see ../NOTICE.md
+name: sky130hd
+description: SkyWater SKY130 with the high density standard cell library (sky130_fd_sc_hd)
+providers:
+  default: ciel
+  ciel: {family: sky130, variant: sky130A, library: sky130_fd_sc_hd, version: 8afc8346a57fe1ab7934ba5a6056ea8b43078e71, download_mib: 128}
+  directory: {layout: open_pdks, variant: sky130A, library: sky130_fd_sc_hd}
+upstream:
+  adapter: open_pdks_config
+  files: [libs.tech/openlane/config.tcl, libs.tech/openlane/sky130_fd_sc_hd/config.tcl]
+corners: {default: tt_025C_1v80, aliases: {tt: tt_025C_1v80}}
+files:
+  liberty:
+    tt_025C_1v80: [libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib]
+    ss_100C_1v60: [libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ss_100C_1v60.lib]
+    ff_n40C_1v95: [libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ff_n40C_1v95.lib]
+  tech_lef: libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef
+  cell_lef: [libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef, libs.ref/sky130_fd_sc_hd/lef/sky130_ef_sc_hd.lef]
+  gds: [libs.ref/sky130_fd_sc_hd/gds/sky130_fd_sc_hd.gds]
+  # config.tcl picks the nominal `calibre` rules when the file exists, else `spef_extractor`
+  rcx_rules: libs.tech/openlane/rules.openrcx.sky130A.nom.calibre
+  klayout_tech: libs.tech/klayout/tech/sky130A.lyt
+  klayout_layer_props: libs.tech/klayout/tech/sky130A.lyp
+  latch_map: libs.tech/openlane/sky130_fd_sc_hd/latch_map.v
+  adder_map: libs.tech/openlane/sky130_fd_sc_hd/fa_map.v
+values:
+  # GRT_LAYER_ADJUSTMENTS is "0.99,0,0,0,0,0": li1, met1, ..., met5 in the order of the tech LEF.
+  # A zero asks for no adjustment, which is the default, so only li1 is written.
+  routing: {layer_adjustments: {li1: 0.99}}
+  # The nets are the power and ground pins (VDD_PIN, GND_PIN), as in LibreLane. The pins that
+  # connect to them are STD_CELL_POWER_PINS and STD_CELL_GROUND_PINS.
+  pdn:
+    power_net: VPWR
+    ground_net: VGND
+    global_connects: [
+      {net: VPWR, pin_pattern: ^VPWR$, kind: power},
+      {net: VPWR, pin_pattern: ^VPB$, kind: power},
+      {net: VGND, pin_pattern: ^VGND$, kind: ground},
+      {net: VGND, pin_pattern: ^VNB$, kind: ground}]
+    connects: [[met1, met4], [met4, met5]]
+    pin_layers: [met4, met5]

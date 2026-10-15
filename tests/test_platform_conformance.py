@@ -195,6 +195,32 @@ def test_the_store_resolves_every_role_and_the_pin_verifies(name):
 
 
 @pytest.mark.parametrize("name", pdk_test_platforms())
+def test_the_store_resolves_every_corner(name):
+    """Each corner of the residue names Liberty files that the store holds, and the aliases of
+    the corners resolve to them."""
+    store = require_pdk_store()
+    residue = load_residue(name)
+    for corner in [*residue.files.liberty, *residue.corners.aliases]:
+        located = locate(residue, None, None, store, corner)
+        assert located.corner == residue.resolve_corner(corner)
+        assert located.files["liberty"] and all(path.is_file() for path in located.files["liberty"])
+
+
+@pytest.mark.skipif("sky130hd" not in pdk_test_platforms(), reason="sky130hd is not in the store")
+def test_the_directory_provider_reads_the_open_pdks_build_of_ciel():
+    """A directory with the layout `open_pdks` is the version directory of `ciel`: it holds
+    `sky130A` and `sky130B`. The residue names the same files for both providers."""
+    store = require_pdk_store()
+    residue = load_residue("sky130hd")
+    ciel = locate(residue, "ciel", None, store, None)
+    build = ciel.directory.parent
+    found = locate(residue, "directory", None, build, None)
+    assert found.directory == ciel.directory
+    assert found.files == ciel.files
+    verify_pin(found, residue)
+
+
+@pytest.mark.parametrize("name", pdk_test_platforms())
 def test_the_model_builds_from_the_real_files(name):
     _, residue, located, derived, upstream = _layers(name)
     model = build_platform(located, residue, None, derived, upstream)
