@@ -1479,13 +1479,13 @@ the mapping files, the tie and buffer cells, and the defaults that this section 
 The mapping script
 ------------------
 
-Xeda writes the mapping as a Yosys script (``script_format: ys``) or as a Tcl script
-(``script_format: tcl``). The list below is the default mapping, in the order of
-OpenROAD-flow-scripts, and both formats hold these commands. The options that need Tcl add or
-replace commands: operator wrapping replaces the fine part of ``synth`` with ``wrap_operators``,
-and hierarchical synthesis adds ``keep_hierarchy -min_cost``. In both formats,
-``abc.mapper: abc_new`` replaces ``abc``. The script in the run directory, ``yosys_synth.ys`` or ``yosys_synth.tcl``, has every
-command. The main steps are these:
+Xeda writes the mapping as a Yosys script, or as a Tcl script when an option needs Tcl (see `Options
+that need Tcl`_). Xeda selects the format, and no setting chooses it. The list below is the default
+mapping, in the order of OpenROAD-flow-scripts, and both formats hold these commands. The options
+that need Tcl add or replace commands: operator wrapping replaces the fine part of ``synth`` with
+``wrap_operators``, and hierarchical synthesis adds ``keep_hierarchy -min_cost``. In both formats,
+``abc.mapper: abc_new`` replaces ``abc``. The script in the run directory, ``yosys_synth.ys`` or
+``yosys_synth.tcl``, has every command. The main steps are these:
 
 .. code-block:: text
 
@@ -1594,8 +1594,9 @@ point that each entry names in ``when``: ``pre_synth``, ``post_coarse``, ``pre_d
 Options that need Tcl
 ---------------------
 
-Some options need ``script_format: tcl``, and a yosys build with Tcl support. Xeda refuses them
-with ``script_format: ys``. A yosys build without Tcl support cannot run a ``tcl`` script.
+Some options need a Tcl script. When one of them is set, Xeda writes the script in Tcl, and
+otherwise in the script language of Yosys, which every build runs. A Tcl script needs a yosys
+build with Tcl support: a build without it fails, and the log of Xeda names the option.
 
 ``hierarchy.keep_min_cost``
     Keeps each module whose cost is above this number of NAND2 gate equivalents as a module of its

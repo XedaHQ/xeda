@@ -18,6 +18,7 @@ from ...flow import (
 )
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from ...flow.settings_group import SettingsGroup, render_flags
+from ...tool import NonZeroExitCode
 from ...utils import replacing_copy, replacing_file, tcl_word
 from ..ghdl import GhdlSynth
 from .abc_strategies import Composition, composed_abc_script
@@ -36,6 +37,7 @@ from .asic_groups import (
 from .flag_hatches import LIBERTY_HATCHES, flag_problems
 from .common import (
     STOP_AFTER_DESCRIPTION,
+    YosysBase,
     YosysSynthesisBase,
     append_flag,
     process_parameters,
@@ -509,22 +511,25 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             )
 
     @classmethod
-    def _liberty_mapping_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
-        """Return what is wrong with the group settings of a liberty mapping, beyond the rules
-        of each group: the values that only a Tcl script renders, the script that two settings
-        choose, and a delay target that needs a clock."""
-        problems: List[Tuple[str, str]] = []
-        tcl_only = (
+    def tcl_reasons(cls, settings: YosysBase.Settings) -> List[str]:
+        """Return the names of the settings that need a Tcl script: the script runs a Tcl
+        procedure for each of them. The planning refuses each of them without a liberty
+        mapping."""
+        assert isinstance(settings, cls.Settings)
+        asked = (
             ("hierarchy.keep_min_cost", settings.hierarchy.keep_min_cost is not None),
             ("arithmetic.wrap_operators", settings.arithmetic.wrap_operators),
             ("memory.max_bits", settings.memory.max_bits is not None),
             ("memory.mock_large", settings.memory.mock_large),
         )
-        for key, asked in tcl_only:
-            if asked and settings.script_format == "ys":
-                problems.append(
-                    (key, f"`{key}` needs `script_format: tcl`: the script runs Tcl procedures")
-                )
+        return [name for name, given in asked if given]
+
+    @classmethod
+    def _liberty_mapping_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
+        """Return what is wrong with the group settings of a liberty mapping, beyond the rules
+        of each group: the values that only a Tcl script renders, the script that two settings
+        choose, and a delay target that needs a clock."""
+        problems: List[Tuple[str, str]] = []
         problems += cls._tcl_mode_problems(settings)
         problems += cls._hierarchy_problems(settings)
         problems += flag_problems(settings, LIBERTY_HATCHES)
@@ -640,7 +645,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         whose flags a template prints. It quotes a value for the script language."""
         super().add_template_helpers()
         assert isinstance(self.settings, self.Settings)
-        quote = tcl_word if self.settings.script_format == "tcl" else ys_path
+        quote = tcl_word if type(self).script_format(self.settings) == "tcl" else ys_path
         self.jinja_env.globals["render_flags"] = lambda group: render_flags(group, quote)
 
     def init(self):
@@ -899,7 +904,19 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         depfile = self.run_path / "yosys.d"
         args += ["-E", depfile]
         self.depfiles.append(depfile)
-        self.run_yosys(*args)
+        try:
+            self.run_yosys(*args)
+        except NonZeroExitCode:
+            reasons = type(self).tcl_reasons(ss)
+            if reasons:
+                log.error(
+                    "Xeda runs a Tcl script, since %s %s one. A yosys built without Tcl cannot "
+                    "run it, so if the log says so, use a yosys with Tcl, or delete %s.",
+                    " and ".join(f"`{name}`" for name in reasons),
+                    "needs" if len(reasons) == 1 else "need",
+                    "the setting" if len(reasons) == 1 else "the settings",
+                )
+            raise
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)

@@ -392,7 +392,6 @@ def test_wrapped_architectures_in_order_are_accepted():
     Yosys.check_settings_supported(
         Yosys.Settings(
             platform="nangate45",
-            script_format="tcl",
             abc={"mapper": "abc_new"},
             arithmetic={
                 "wrap_operators": True,
@@ -404,36 +403,20 @@ def test_wrapped_architectures_in_order_are_accepted():
 
 
 def test_mocking_needs_a_limit_to_mock_above():
-    problems = _keys(script_format="tcl", memory={"mock_large": True})
+    problems = _keys(memory={"mock_large": True})
     message = problems["memory.mock_large"]
     assert "`memory.max_bits`" in message
 
 
 def test_keep_mocked_false_needs_mocking():
-    problems = _keys(script_format="tcl", memory={"max_bits": 64, "keep_mocked": False})
+    problems = _keys(memory={"max_bits": 64, "keep_mocked": False})
     message = problems["memory.keep_mocked"]
     assert "`memory.mock_large`" in message
     Yosys.check_settings_supported(
         Yosys.Settings(
             platform="nangate45",
-            script_format="tcl",
             memory={"max_bits": 64, "mock_large": True, "keep_mocked": False},
         )
-    )
-
-
-@pytest.mark.parametrize(
-    "key,given",
-    [
-        ("memory.max_bits", {"memory": {"max_bits": 64}}),
-        ("memory.mock_large", {"memory": {"max_bits": 64, "mock_large": True}}),
-    ],
-)
-def test_the_memory_size_checks_need_the_tcl_script(key, given):
-    problems = _keys(script_format="ys", **given)
-    assert problems[key].endswith("needs `script_format: tcl`: the script runs Tcl procedures")
-    Yosys.check_settings_supported(
-        Yosys.Settings(platform="nangate45", script_format="tcl", **given)
     )
 
 
@@ -521,7 +504,7 @@ REAL_YOSYS = [
 
 def _run_real(tmp_path: Path, given: dict[str, Any], script_format: str) -> None:
     design = _design(tmp_path)
-    settings = _tiny(tmp_path, script_format=script_format, **given)
+    settings = _tiny(tmp_path, **given)
     with contextlib.suppress(FlowException):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")
@@ -683,7 +666,6 @@ def test_an_adder_architecture_is_refused_with_operator_wrapping(architecture):
     messages = [
         message
         for key, message in _keys_all(
-            script_format="tcl",
             arithmetic={"adder_architecture": architecture, "wrap_operators": True},
             abc={"mapper": "abc_new"},
         )
@@ -695,7 +677,6 @@ def test_an_adder_architecture_is_refused_with_operator_wrapping(architecture):
     Yosys.check_settings_supported(
         Yosys.Settings(
             platform="nangate45",
-            script_format="tcl",
             arithmetic={"wrap_operators": True, "wrapped_adders": [architecture]},
             abc={"mapper": "abc_new"},
         )

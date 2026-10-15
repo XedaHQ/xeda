@@ -89,7 +89,7 @@ Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warning
 
 Simulate a design with a CXXRTL model that Yosys generates.
 
-28 flow-specific settings (plus the common ones): `xeda list-settings yosys_sim --json`
+27 flow-specific settings (plus the common ones): `xeda list-settings yosys_sim --json`
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 
@@ -225,7 +225,7 @@ Synthesize a design for an FPGA device with Yosys.
 
 Required settings: `fpga`
 
-70 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
+69 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
 Reports: `LUT`, `lut`, `ff`, `LUT:LOGIC`, `LUT:RAM`, `LUT:SRL`, `LUT:STAGE`, `LUT:METHOD`, `FF`
 
@@ -255,7 +255,7 @@ Reports no results beyond the keys every flow reports.
 
 Synthesize a design with Yosys to a standard-cell, gate or LUT netlist.
 
-72 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
+71 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
 
 Group `hierarchy`: `hierarchy.keep_min_cost`; 3 more: `xeda list-settings yosys --tier expert --json`
 

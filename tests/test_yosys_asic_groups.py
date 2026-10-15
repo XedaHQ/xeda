@@ -36,6 +36,7 @@ from .test_yosys_asic import (
 )
 from .tiny_platform import TINY, tiny_settings, tiny_store
 from .tool_utils import require_yosys, use_fake_asic_tools
+from .yosys_format import force_script_format
 
 GROUPS = ("hierarchy", "coarse", "arithmetic", "memory", "sequential", "abc", "finish")
 
@@ -132,10 +133,10 @@ def _abc_script(commands: list[list[str]]) -> str | None:
 
 
 def _run(tmp_path, monkeypatch, script_format: str, **given: Any) -> list[list[str]]:
-    """The commands of the script that `yosys` renders for the `tiny` platform and `given`."""
-    run_dir = _scripted_launch(
-        tmp_path, monkeypatch, Yosys, _tiny(tmp_path, script_format=script_format, **given)
-    )
+    """The commands of the script of `script_format` that `yosys` renders for the `tiny` platform
+    and `given`."""
+    force_script_format(monkeypatch, script_format)
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, _tiny(tmp_path, **given))
     return _commands(run_dir, script_format, tmp_path)
 
 
@@ -554,9 +555,7 @@ def test_user_values_of_the_cell_leaves_win_over_the_platform_s(
             "buffer_cell": ["INV_X1", "A", "ZN"],
         },
     }
-    run_dir = _scripted_launch(
-        tmp_path, monkeypatch, Yosys, _tiny(tmp_path, script_format=script_format, **given)
-    )
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, _tiny(tmp_path, **given))
     commands = _commands(run_dir, script_format, tmp_path)
     assert (run_dir / "abc.constr").read_text() == "set_driving_cell INV_X1\nset_load 2.5\n"
     assert _words(commands, "hilomap") == [
@@ -567,9 +566,7 @@ def test_user_values_of_the_cell_leaves_win_over_the_platform_s(
 
 @SCRIPT_FORMATS
 def test_a_leaf_left_unset_takes_the_value_of_the_platform(tmp_path, monkeypatch, script_format):
-    run_dir = _scripted_launch(
-        tmp_path, monkeypatch, Yosys, _tiny(tmp_path, script_format=script_format)
-    )
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, _tiny(tmp_path))
     assert (run_dir / "abc.constr").read_text() == "set_driving_cell BUF_X1\nset_load 3.5\n"
     settings = Yosys.Settings.from_input(
         json.loads((run_dir / "settings.json").read_text())["flow_settings"]
@@ -739,21 +736,6 @@ def test_every_problem_comes_back_in_one_error():
 def test_a_default_leaf_is_not_refused_when_no_liberty_mapping_runs():
     Yosys.check_settings_supported(Yosys.Settings(gates=["AND"]))
     Yosys.check_settings_supported(Yosys.Settings(abc={"strategy": "area", "mapper": "abc"}))
-
-
-@pytest.mark.parametrize(
-    "key,given",
-    [
-        ("hierarchy.keep_min_cost", {"hierarchy": {"keep_min_cost": 5}}),
-        (
-            "arithmetic.wrap_operators",
-            {"arithmetic": {"wrap_operators": True}, "abc": {"mapper": "abc_new"}},
-        ),
-    ],
-)
-def test_a_value_that_only_the_tcl_script_renders_is_refused_with_the_ys_script(key, given):
-    problems = dict(_refused(platform="nangate45", script_format="ys", **given))
-    assert problems[key] == f"`{key}` needs `script_format: tcl`: the script runs Tcl procedures"
 
 
 def test_wrap_operators_false_and_the_default_mapper_are_not_refused():
@@ -934,17 +916,17 @@ def test_the_reader_templates_take_the_clockgate_map_from_a_render_variable():
         assert "clockgate_map" in text
 
 
-@SCRIPT_FORMATS
+@pytest.mark.parametrize("script_format", ["ys"])  # `yosys_fpga` writes no Tcl script
 def test_yosys_fpga_still_reads_its_own_clockgate_map(tmp_path, script_format):
     from .test_yosys_templates import _fpga_settings, _render
 
     script = _render(
         YosysFpga,
-        _fpga_settings(script_format=script_format, clockgate_map=tmp_path / "cg.v"),
+        _fpga_settings(clockgate_map=tmp_path / "cg.v"),
         tmp_path,
     )
     assert re.search(rf'read_verilog -defer "?{re.escape(str(tmp_path / "cg.v"))}"?$', script, re.M)
-    plain = _render(YosysFpga, _fpga_settings(script_format=script_format), tmp_path)
+    plain = _render(YosysFpga, _fpga_settings(), tmp_path)
     assert not re.search(r"read_verilog -defer \S*cg\.v", plain)
 
 

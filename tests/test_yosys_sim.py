@@ -321,14 +321,11 @@ def test_cxxrtl_backend_settings_are_rendered(tmp_path):
     )
 
 
-def test_flatten_is_a_separate_command_in_both_script_formats(tmp_path):
+def test_flatten_is_a_separate_command(tmp_path):
     design = _design_with_a_source(tmp_path)
     flow = YosysSim(YosysSim.Settings(flatten=True), design, tmp_path)
     flow.init()
-    for template, command in (
-        ("yosys_sim.ys", "flatten"),
-        ("yosys_sim.tcl", "yosys flatten"),
-    ):
+    for template, command in (("yosys_sim.ys", "flatten"),):
         script = flow.copy_from_template(
             template,
             ghdl_args=[],

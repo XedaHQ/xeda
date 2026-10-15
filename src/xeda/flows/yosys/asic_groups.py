@@ -89,8 +89,8 @@ class HierarchyGroup(SettingsGroup):
         None,
         ge=1,
         description="Keep each module whose cost is above this many NAND2 gate equivalents "
-        "(`keep_hierarchy -min_cost`). Unset: flatten the design. Needs a yosys with Tcl and "
-        "`script_format: tcl`.",
+        "(`keep_hierarchy -min_cost`). Unset: flatten the design. Needs a yosys with Tcl: Xeda "
+        "then runs a Tcl script.",
         json_schema_extra=extras(tier("common"), count()),
     )
     keep_instances: List[str] = Field(
@@ -217,7 +217,7 @@ class ArithmeticGroup(SettingsGroup):
     wrap_operators: bool = Field(
         False,
         description="Wrap wide operators in modules with alternative architectures, for the "
-        "place and route tool to choose from. Needs a yosys with Tcl and `script_format: tcl`. "
+        "place and route tool to choose from. Needs a yosys with Tcl: Xeda then runs a Tcl script. "
         "The netlist keeps its attributes. With `abc.mapper: abc_new`, ABC maps each wrapped "
         "operator with the script that the operator carries, as OpenROAD-flow-scripts does. With "
         "`abc`, ABC maps every module with the script of `abc.strategy`.",
@@ -366,14 +366,14 @@ class MemoryGroup(SettingsGroup):
         description="The largest memory that the synthesis turns into flip-flops, in bits "
         "(rows times width). A larger memory stops the run, or is shrunk with `mock_large`. "
         "Unset: no limit. The check runs on the memories after the coarse part of `synth`. "
-        "Needs a yosys with Tcl and `script_format: tcl`.",
+        "Needs a yosys with Tcl: Xeda then runs a Tcl script.",
         json_schema_extra=extras(tier("advanced"), count()),
     )
     mock_large: bool = Field(
         False,
         description="Shrink each memory above `max_bits` to one row, as OpenROAD-flow-scripts "
         "does. The netlist is not a correct implementation then. The log lists the shrunk "
-        "memories. Needs `max_bits`, a yosys with Tcl and `script_format: tcl`.",
+        "memories. Needs `max_bits` and a yosys with Tcl: Xeda then runs a Tcl script.",
         json_schema_extra=tier("advanced"),
     )
     keep_mocked: bool = Field(

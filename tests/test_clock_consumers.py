@@ -63,7 +63,7 @@ def test_yosys_abc9_hint_uses_first_unnamed_clock(tmp_path):
         netlist_json=None,
         netlist_verilog=None,
     )
-    rendered = flow.jinja_env.get_template("yosys_fpga_synth.tcl").render(
+    rendered = flow.jinja_env.get_template("yosys_fpga_synth.ys").render(
         settings=settings,
         design=design,
         artifacts=flow.artifacts,

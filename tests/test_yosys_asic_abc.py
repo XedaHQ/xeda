@@ -478,13 +478,12 @@ def test_dress_goes_to_the_main_abc_command_and_not_to_the_retiming_run(
 
 def test_abc_new_takes_no_dress():
     """`abc_new` has no `-dress` option, so `abc.dress: true` cannot go with it."""
-    problems = _keys(script_format="tcl", abc={"mapper": "abc_new", "dress": True})
+    problems = _keys(abc={"mapper": "abc_new", "dress": True})
     message = problems["abc.dress"]
     assert "`abc.dress`" in message and "`abc.mapper: abc_new`" in message
     Yosys.check_settings_supported(
         Yosys.Settings(
             platform="nangate45",
-            script_format="tcl",
             abc={"mapper": "abc_new", "dress": False},
         )
     )
@@ -600,7 +599,7 @@ def test_the_clock_derating_needs_the_auto_delay_target(target):
 
 
 def test_abc_new_takes_no_liberty_args():
-    problems = _keys(script_format="tcl", abc={"mapper": "abc_new", "liberty_args": "-G 250"})
+    problems = _keys(abc={"mapper": "abc_new", "liberty_args": "-G 250"})
     message = problems["abc.liberty_args"]
     assert "`abc.liberty_args`" in message and "`abc.mapper: abc_new`" in message
 
@@ -608,12 +607,10 @@ def test_abc_new_takes_no_liberty_args():
 def test_abc_new_takes_no_dff():
     """`abc_new` has no `-dff` option, and the liberty mapping that it belongs to maps the
     flip-flops before it runs, so `abc_dff: true` is refused with it and `false` is accepted."""
-    problems = _keys(script_format="tcl", abc_dff=True, abc={"mapper": "abc_new"})
+    problems = _keys(abc_dff=True, abc={"mapper": "abc_new"})
     assert "`abc_dff`" in problems["abc_dff"]
     Yosys.check_settings_supported(
-        Yosys.Settings(
-            platform="nangate45", script_format="tcl", abc_dff=False, abc={"mapper": "abc_new"}
-        )
+        Yosys.Settings(platform="nangate45", abc_dff=False, abc={"mapper": "abc_new"})
     )
 
 
@@ -702,7 +699,7 @@ def _run_real(tmp_path, script_format: str, enables: bool = False, **given: Any)
     """Run `yosys` on the `tiny` platform and the multiplier-accumulator, or on the design with
     enables when `enables` is set."""
     design = _enable_design(tmp_path / "design") if enables else _design(tmp_path)
-    settings = _tiny(tmp_path, script_format=script_format, **given)
+    settings = _tiny(tmp_path, **given)
     with contextlib.suppress(FlowException):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/*/yosys/results.json")
@@ -769,7 +766,7 @@ def test_real_yosys_runs_the_dress_command_of_abc_and_the_mapped_check_judges_th
     not have this bug finishes the run."""
     _real(script_format)
     design = _design(tmp_path)
-    settings = _tiny(tmp_path, script_format=script_format, abc={"dress": True})
+    settings = _tiny(tmp_path, abc={"dress": True})
     with contextlib.suppress(FlowException):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/*/yosys/results.json")

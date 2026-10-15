@@ -32,7 +32,7 @@ ECP5 = "LFE5U-25F-6BG381C"
 FLOWS = {
     "yosys_fpga": dict(
         fake=tool_utils.use_fake_fpga_tools,
-        formats=["ys", "tcl"],
+        formats=["ys"],
         needs=[f"fpga={ECP5}"],
         off=["netlist_json=", "netlist_verilog="],
     ),
@@ -87,7 +87,6 @@ def test_a_stop_after_the_rtl_succeeds_with_the_outputs_it_wrote(
         "-s",
         *recipe["needs"],
         "stop_after=rtl",
-        f"script_format={script_format}",
         "rtl_verilog=rtl.v",
         "rtl_json=rtl.json",
         *recipe["off"],

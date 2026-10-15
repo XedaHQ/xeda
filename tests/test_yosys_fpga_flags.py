@@ -627,7 +627,6 @@ def test_the_rtl_outputs_hold_only_the_designs_modules(target, flatten, script_f
         "rtl_json": "rtl.json",
         "rtl_verilog": "rtl.v",
         "rtl_graph": "rtl.dot",
-        "script_format": script_format,
     }
     if flatten is not None:
         settings["flatten"] = flatten
