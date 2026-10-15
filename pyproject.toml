@@ -62,7 +62,7 @@ dependencies = [
     "GitPython         >= 3.2.0, < 4",
     "fabric            ~= 3.2.3",
     "execnet           ~= 2.1.2",
-    "devtools          ~= 0.12",
+    "devtools          ~= 0.13",
     "colorama          ~= 0.4",
 ]
 
