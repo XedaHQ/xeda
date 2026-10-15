@@ -496,6 +496,8 @@ def test_the_canonicalization_script_reads_the_design_with_slang(tmp_path: Path)
     assert "--top ibex_core" in script
     assert "-I" + variables["VERILOG_INCLUDE_DIRS"] in script
     assert script.rstrip().endswith(f"write_rtlil {tmp_path / 'ibex.rtlil'}")
+    # a yosys whose slang is a plugin (Homebrew's) reads it too; one with it built in loads it
+    assert script.splitlines()[0] == "plugin -i slang"
 
 
 # ---- the seam to the OpenROAD flows -----------------------------------------------------------

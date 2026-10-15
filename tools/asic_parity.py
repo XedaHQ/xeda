@@ -678,7 +678,9 @@ def canonical_script(variables: Mapping[str, str], out: Path) -> str:
     end. It does what `synth_canonicalize.tcl` of ORFS does for that front end, and it needs no
     Tcl in yosys."""
     libs = words(variables, "LIB_FILES")
-    lines = [f"read_liberty -overwrite -setattr liberty_cell -lib {lib}" for lib in libs]
+    # `read_slang` is a plugin in some yosys builds; `plugin -i` works with a built-in one too
+    lines = ["plugin -i slang"]
+    lines += [f"read_liberty -overwrite -setattr liberty_cell -lib {lib}" for lib in libs]
     lines += [
         "read_liberty -overwrite -setattr liberty_cell -unit_delay -wb -ignore_miss_func "
         f"-ignore_buses {lib}" for lib in libs
