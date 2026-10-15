@@ -255,6 +255,31 @@ def test_repair_design_prints_its_margins_and_the_template_prints_its_wire_lengt
     assert design.max_wire_length == Length("0.3 mm")
 
 
+def test_every_leaf_of_an_item_model_of_the_groups_has_a_tier():
+    """A list of items (a blockage, a pin, a rule) holds models that are no groups. Their leaves
+    carry the tier of the setting that holds the list, so that their description in the schema
+    says how often a user needs them."""
+    from xeda.dataclass import tier_of
+    from tests.settings_fields import reachable_models
+
+    exempt = {"WireRcSettings", "PdnGrid", "Settings"}
+    items = [
+        model
+        for model in reachable_models([flow.Settings for flow in OPENROAD_FLOWS])
+        if model.__module__.startswith("xeda.flows.openroad")
+        and not issubclass(model, SettingsGroup)
+        and model.__name__ not in exempt
+    ]
+    assert len(items) > 10
+    untiered = [
+        f"{model.__qualname__}.{name}"
+        for model in items
+        for name in model.model_fields
+        if tier_of(model, name) is None
+    ]
+    assert not untiered
+
+
 def test_the_placement_flow_and_the_later_flows_share_the_legalization_options():
     from xeda.flows.openroad.place_groups import DetailedPlacementGroup
 

@@ -146,11 +146,13 @@ class ViaInPin(XedaBaseModel):
         min_length=1,
         description="The lowest layer where a via may sit inside a pin "
         "(`-via_in_pin_bottom_layer`).",
+        json_schema_extra=tier("advanced"),
     )
     top: str = Field(
         min_length=1,
         description="The highest layer where a via may sit inside a pin "
         "(`-via_in_pin_top_layer`).",
+        json_schema_extra=tier("advanced"),
     )
 
 

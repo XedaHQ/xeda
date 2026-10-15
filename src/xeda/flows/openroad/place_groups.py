@@ -176,28 +176,35 @@ class PlacementBlockage(XedaBaseModel):
 
     region: Rectangle = Field(
         description="The region, four lengths with units: lower-left x, lower-left y, "
-        "upper-right x, upper-right y (`-region`)."
+        "upper-right x, upper-right y (`-region`).",
+        json_schema_extra=tier("advanced"),
     )
     soft: bool = Field(
         False,
         description="A soft blockage keeps cells away during the first global placement only "
         "(`-soft`). The later steps may use the region. Not with `max_density_percent`.",
+        json_schema_extra=tier("advanced"),
     )
     max_density_percent: Optional[Annotated[float, Field(ge=0, le=100)]] = Field(
         None,
         description="The share of the region that cells may fill, in percent (`-max_density`). "
         "It makes the blockage partial. Unset: no cell may enter. Not with `soft`.",
-        json_schema_extra=percent(),
+        json_schema_extra=extras(tier("advanced"), percent()),
     )
 
 
 class RoutingBlockage(XedaBaseModel):
     """A region where the router keeps wires out (`create_obstruction`)."""
 
-    layer: str = Field(min_length=1, description="The routing layer of the obstruction (`-layer`).")
+    layer: str = Field(
+        min_length=1,
+        description="The routing layer of the obstruction (`-layer`).",
+        json_schema_extra=tier("advanced"),
+    )
     region: Rectangle = Field(
         description="The region, four lengths with units: lower-left x, lower-left y, "
-        "upper-right x, upper-right y (`-region`)."
+        "upper-right x, upper-right y (`-region`).",
+        json_schema_extra=tier("advanced"),
     )
 
 
@@ -816,17 +823,20 @@ class EdgeInterval(XedaBaseModel):
 
     edge: Literal["top", "bottom", "left", "right"] = Field(
         description="The edge of the die. Along `top` and `bottom` the position is x, along "
-        "`left` and `right` it is y."
+        "`left` and `right` it is y.",
+        json_schema_extra=tier("advanced"),
     )
     begin: Optional[Distance] = Field(
         None,
         description="Where the interval starts, a length with a unit. Unset: at the start of "
         "the edge.",
+        json_schema_extra=tier("advanced"),
     )
     end: Optional[Distance] = Field(
         None,
         description="Where the interval ends, a length with a unit. Unset: at the end of the "
         "edge.",
+        json_schema_extra=tier("advanced"),
     )
 
     def as_region(self) -> str:
@@ -848,10 +858,12 @@ class PinGroup(XedaBaseModel):
         min_length=1,
         description="The pins of the group, by name or by pattern (`-pin_names`). A pin belongs "
         "to one group.",
+        json_schema_extra=tier("advanced"),
     )
     order: bool = Field(
         False,
         description="Place the pins in the order of the list, in ascending x or y (`-order`).",
+        json_schema_extra=tier("advanced"),
     )
     region: Optional[EdgeInterval] = Field(
         None,
@@ -860,57 +872,73 @@ class PinGroup(XedaBaseModel):
         "part of an edge, and it works with a whole edge (no `begin` and no `end`). The error "
         "was seen with a group of two pins in a die of 40 by 40 micrometers. No upstream issue "
         "exists.",
+        json_schema_extra=tier("advanced"),
     )
 
 
 class PinConstraint(XedaBaseModel):
     """A restriction of some pins to a part of an edge (`set_io_pin_constraint -region`)."""
 
-    region: EdgeInterval = Field(description="The part of the edge that the pins keep to.")
+    region: EdgeInterval = Field(
+        description="The part of the edge that the pins keep to.",
+        json_schema_extra=tier("advanced"),
+    )
     pins: Optional[list[PinName]] = Field(
         None,
         min_length=1,
         description="The pins to restrict, by name or by pattern (`-pin_names`). Give this or "
         "`direction`.",
+        json_schema_extra=tier("advanced"),
     )
     direction: Optional[Literal["input", "output", "inout", "feedthru"]] = Field(
         None,
         description="Restrict every pin of this direction (`-direction`). The documentation of "
         "OpenROAD spells the last value `feedthrough`, and the tool accepts only `feedthru`. "
         "Give this or `pins`.",
+        json_schema_extra=tier("advanced"),
     )
 
 
 class FixedPin(XedaBaseModel):
     """A pin that the flow places by hand (`place_pin`), before the pin placer runs."""
 
-    pin: PinName = Field(description="The name of the pin.")
-    layer: str = Field(min_length=1, description="The routing layer of the pin (`-layer`).")
+    pin: PinName = Field(description="The name of the pin.", json_schema_extra=tier("advanced"))
+    layer: str = Field(
+        min_length=1,
+        description="The routing layer of the pin (`-layer`).",
+        json_schema_extra=tier("advanced"),
+    )
     x: Length = Field(
-        description="The x of the center of the pin, a length with a unit (`-location`)."
+        description="The x of the center of the pin, a length with a unit (`-location`).",
+        json_schema_extra=tier("advanced"),
     )
     y: Length = Field(
-        description="The y of the center of the pin, a length with a unit (`-location`)."
+        description="The y of the center of the pin, a length with a unit (`-location`).",
+        json_schema_extra=tier("advanced"),
     )
     width: Optional[PositiveLength] = Field(
         None,
         description="The width of the pin shape, a length with a unit (`-pin_size`). Give it with "
         "`height`. Unset: the tool makes the smallest shape that the layer allows.",
+        json_schema_extra=tier("advanced"),
     )
     height: Optional[PositiveLength] = Field(
         None,
         description="The height of the pin shape, a length with a unit (`-pin_size`). Give it with "
         "`width`.",
+        json_schema_extra=tier("advanced"),
     )
     snap_to_boundary: bool = Field(
         False,
         description="Move the pin to the nearest routing track next to the die boundary "
         "(`-force_to_die_boundary`).",
+        json_schema_extra=tier("advanced"),
     )
     status: Literal["fixed", "placed"] = Field(
         "fixed",
         description="The placement status of the pin. `fixed` keeps the pin where it is. `placed` "
         "lets a later step move it (`-placed_status`).",
+        json_schema_extra=tier("advanced"),
     )
 
 
@@ -2288,23 +2316,25 @@ class PaddingOverride(XedaBaseModel):
         [],
         description="The masters, each a name or a glob pattern (`-masters`). Give this or "
         "`instances`.",
+        json_schema_extra=tier("expert"),
     )
     instances: list[Annotated[str, Field(min_length=1)]] = Field(
         [],
         description="The instances, each a name or a glob pattern (`-instances`). Give this or "
         "`masters`.",
+        json_schema_extra=tier("expert"),
     )
     left: int = Field(
         0,
         ge=0,
         description="The empty sites on the left of each cell (`-left`).",
-        json_schema_extra=count(),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     right: int = Field(
         0,
         ge=0,
         description="The empty sites on the right of each cell (`-right`).",
-        json_schema_extra=count(),
+        json_schema_extra=extras(tier("expert"), count()),
     )
 
 

@@ -171,7 +171,8 @@ class OpenroadGrt(OpenroadStage):
         )
         router: RouterGroup = Field(
             default_factory=RouterGroup,
-            description="The global router: its seed and the flags that no setting covers.",
+            description="The global router: its engine, resistance-aware routing, the random "
+            "order of the nets, the weights of the Steiner trees and the nets to route.",
         )
         legalize: Legalize = Field(
             default_factory=Legalize,

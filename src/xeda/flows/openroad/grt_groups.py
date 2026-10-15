@@ -122,13 +122,18 @@ class RegionAdjustment(XedaBaseModel):
 
     region: Tuple[NonNegative, NonNegative, NonNegative, NonNegative] = Field(
         description="The region, four lengths with units: lower-left x, lower-left y, "
-        "upper-right x, upper-right y. It must lie inside the die."
+        "upper-right x, upper-right y. It must lie inside the die.",
+        json_schema_extra=tier("advanced"),
     )
-    layer: str = Field(min_length=1, description="The routing layer of the cut (`-layer`).")
+    layer: str = Field(
+        min_length=1,
+        description="The routing layer of the cut (`-layer`).",
+        json_schema_extra=tier("advanced"),
+    )
     adjustment: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] = Field(
         description="The share of the routing tracks that the router may not use, from 0 to 1 "
         "(`-adjustment`).",
-        json_schema_extra=ratio(),
+        json_schema_extra=extras(tier("advanced"), ratio()),
     )
 
 
@@ -212,25 +217,29 @@ class SteinerAlpha(XedaBaseModel):
 
     alpha: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] = Field(
         description="The weight, from 0 to 1.",
-        json_schema_extra=ratio(),
+        json_schema_extra=extras(tier("expert"), ratio()),
     )
     nets: list[Annotated[str, Field(min_length=1)]] = Field(
         [],
         description="Apply the weight to these nets, by name (`-net`, once for each net). "
         "Empty: no such selector.",
+        json_schema_extra=tier("expert"),
     )
     min_fanout: Optional[Annotated[int, Field(ge=1)]] = Field(
         None,
         description="Apply the weight to the nets with at least this many pins (`-min_fanout`).",
-        json_schema_extra=count(),
+        json_schema_extra=extras(tier("expert"), count()),
     )
     min_hpwl: Optional[NonNegative] = Field(
         None,
         description="Apply the weight to the nets with at least this half-perimeter wire length, "
         "a length with a unit (`-min_hpwl`).",
+        json_schema_extra=tier("expert"),
     )
     clock_nets: bool = Field(
-        False, description="Apply the weight to the clock nets (`-clock_nets`)."
+        False,
+        description="Apply the weight to the clock nets (`-clock_nets`).",
+        json_schema_extra=tier("expert"),
     )
 
     def selectors(self) -> list[str]:

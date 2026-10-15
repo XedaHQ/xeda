@@ -10,7 +10,7 @@ platform into these classes, which hold lengths with units, so a template reads 
 
 from typing import Annotated, Literal, Optional, Union
 
-from ...dataclass import Field, XedaBaseModel
+from ...dataclass import Field, XedaBaseModel, extras, tier
 from ...platforms.model import Pdn
 from ...platforms.model import PdnRail as PlatformRail
 from ...platforms.model import PdnStrap
@@ -41,23 +41,40 @@ Polarity = Literal["power", "ground"]
 class PdnRail(XedaBaseModel):
     """A rail of the power grid that follows the rows of cells."""
 
-    layer: str = Field(description="Layer of the rail.")
-    width: Positive = Field(description="Width of the rail, a length with a unit.")
-    pitch: Optional[Positive] = Field(None, description="Pitch of the rail, a length with a unit.")
-    offset: Optional[Length] = Field(None, description="Offset of the rail, a length with a unit.")
+    layer: str = Field(description="Layer of the rail.", json_schema_extra=tier("common"))
+    width: Positive = Field(
+        description="Width of the rail, a length with a unit.", json_schema_extra=tier("common")
+    )
+    pitch: Optional[Positive] = Field(
+        None,
+        description="Pitch of the rail, a length with a unit.",
+        json_schema_extra=tier("advanced"),
+    )
+    offset: Optional[Length] = Field(
+        None,
+        description="Offset of the rail, a length with a unit.",
+        json_schema_extra=tier("advanced"),
+    )
 
 
 class PdnStripe(XedaBaseModel):
     """A stripe of the power grid. The offset counts from the lower-left corner of the core."""
 
-    layer: str = Field(description="Layer of the stripe.")
-    width: Positive = Field(description="Width of the stripe, a length with a unit.")
-    pitch: Positive = Field(description="Pitch of the stripe, a length with a unit.")
-    offset: Distance = Field(description="Offset of the stripe, a length with a unit.")
+    layer: str = Field(description="Layer of the stripe.", json_schema_extra=tier("common"))
+    width: Positive = Field(
+        description="Width of the stripe, a length with a unit.", json_schema_extra=tier("common")
+    )
+    pitch: Positive = Field(
+        description="Pitch of the stripe, a length with a unit.", json_schema_extra=tier("common")
+    )
+    offset: Distance = Field(
+        description="Offset of the stripe, a length with a unit.", json_schema_extra=tier("common")
+    )
     spacing: Optional[Positive] = Field(
         None,
         description="Space between the power stripe and the ground stripe of one pitch, a "
         "length with a unit (`-spacing`). Unset: half the pitch.",
+        json_schema_extra=tier("advanced"),
     )
     offset_type: Optional[Literal["start", "first", "center", "last", "end"]] = Field(
         None,
@@ -65,40 +82,48 @@ class PdnStripe(XedaBaseModel):
         "lower edge of the first stripe, the center of the first stripe, the center of the "
         "group, the center of the last stripe, or the upper edge of the last stripe. Unset: "
         "`first`.",
+        json_schema_extra=tier("advanced"),
     )
     starts_with: Optional[Polarity] = Field(
         None,
         description="Whether the first stripe is power or ground (`-starts_with`). Unset: the "
         "choice of the grid.",
+        json_schema_extra=tier("advanced"),
     )
     extend: Optional[Literal["core_ring", "boundary"]] = Field(
         None,
         description="Extend the stripes to the core ring or to the boundary of the grid "
         "(`-extend_to_core_ring`, `-extend_to_boundary`). Unset: the stripes stop at the last "
         "connection.",
+        json_schema_extra=tier("advanced"),
     )
     extend_by: Optional[Distance] = Field(
         None,
         description="Extend the stripes this far beyond where they would stop, a length with a "
         "unit (`-extend_by`). They never go beyond the boundary of the grid.",
+        json_schema_extra=tier("advanced"),
     )
     snap_to_grid: bool = Field(
-        False, description="Snap the stripes to the routing tracks (`-snap_to_grid`)."
+        False,
+        description="Snap the stripes to the routing tracks (`-snap_to_grid`).",
+        json_schema_extra=tier("advanced"),
     )
     number_of_straps: Optional[int] = Field(
         None,
         ge=1,
         description="The number of pairs of a power stripe and a ground stripe "
         "(`-number_of_straps`). Unset: as many as fit.",
-        json_schema_extra=count(),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     nets: list[str] = Field(
         default_factory=list,
         description="Limit the stripes to these nets (`-nets`). Empty: all the nets of the grid.",
+        json_schema_extra=tier("advanced"),
     )
     allow_out_of_core: bool = Field(
         False,
         description="Let the stripes continue beyond the core area (`-allow_out_of_core`).",
+        json_schema_extra=tier("advanced"),
     )
 
 
@@ -108,92 +133,112 @@ class PdnRing(XedaBaseModel):
 
     layers: tuple[str, str] = Field(
         description="The vertical layer and the horizontal layer of the ring (`-layers`). "
-        "OpenROAD refuses two layers that run in the same direction."
+        "OpenROAD refuses two layers that run in the same direction.",
+        json_schema_extra=tier("common"),
     )
     widths: OneOrTwo = Field(
         description="Width of the stripes, a length with a unit: one value, or one for each "
-        "layer (`-widths`)."
+        "layer (`-widths`).",
+        json_schema_extra=tier("common"),
     )
     spacings: OneOrTwo = Field(
         description="Space between the power stripe and the ground stripe, a length with a "
-        "unit: one value, or one for each layer (`-spacings`)."
+        "unit: one value, or one for each layer (`-spacings`).",
+        json_schema_extra=tier("common"),
     )
     core_offset: Union[Distance, tuple[Distance, Distance, Distance, Distance]] = Field(
         description="Distance between the ring and the core, a length with a unit: one value "
-        "for all sides, or four: left, bottom, right, top (`-core_offsets`)."
+        "for all sides, or four: left, bottom, right, top (`-core_offsets`).",
+        json_schema_extra=tier("common"),
     )
     add_connect: bool = Field(
-        False, description="Connect the two layers of the ring with vias (`-add_connect`)."
+        False,
+        description="Connect the two layers of the ring with vias (`-add_connect`).",
+        json_schema_extra=tier("advanced"),
     )
     extend_to_boundary: bool = Field(
-        False, description="Extend the ring to the boundary of the grid (`-extend_to_boundary`)."
+        False,
+        description="Extend the ring to the boundary of the grid (`-extend_to_boundary`).",
+        json_schema_extra=tier("advanced"),
     )
     nets: list[str] = Field(
         default_factory=list,
         description="Limit the ring to these nets (`-nets`). Empty: all the nets of the grid.",
+        json_schema_extra=tier("advanced"),
     )
     starts_with: Optional[Polarity] = Field(
         None,
         description="Whether the first stripe is power or ground (`-starts_with`). Unset: the "
         "choice of the grid.",
+        json_schema_extra=tier("advanced"),
     )
     allow_out_of_die: bool = Field(
         False,
         description="Let the ring go beyond the die (`-allow_out_of_die`). OpenROAD refuses a "
         "ring that does not fit in the die otherwise.",
+        json_schema_extra=tier("advanced"),
     )
 
 
 class PdnConnect(XedaBaseModel):
     """The vias that connect two layers of the grid where nets of the same kind overlap."""
 
-    layers: tuple[str, str] = Field(description="The two layers to connect (`-layers`).")
+    layers: tuple[str, str] = Field(
+        description="The two layers to connect (`-layers`).", json_schema_extra=tier("common")
+    )
     cut_pitch: Optional[OneOrTwo] = Field(
         None,
         description="The distance between via cuts when the two layers run in parallel, a "
         "length with a unit: one value, or x and y (`-cut_pitch`).",
+        json_schema_extra=tier("advanced"),
     )
     fixed_vias: list[str] = Field(
         default_factory=list,
         description="The vias of the technology to use for the stack (`-fixed_vias`). A "
         "technology without via rules needs them.",
+        json_schema_extra=tier("advanced"),
     )
     dont_use_vias: list[str] = Field(
         default_factory=list,
         description="The vias, or patterns of vias, that the stack must not use "
         "(`-dont_use_vias`).",
+        json_schema_extra=tier("advanced"),
     )
     max_rows: Optional[int] = Field(
         None,
         ge=1,
         description="The most rows of an array of vias (`-max_rows`).",
-        json_schema_extra=count(),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     max_columns: Optional[int] = Field(
         None,
         ge=1,
         description="The most columns of an array of vias (`-max_columns`).",
-        json_schema_extra=count(),
+        json_schema_extra=extras(tier("advanced"), count()),
     )
     ongrid: list[str] = Field(
         default_factory=list,
         description="The layers in the middle of a via stack to snap to the routing grid "
         "(`-ongrid`).",
+        json_schema_extra=tier("advanced"),
     )
     min_width_layers: list[str] = Field(
         default_factory=list,
         description="The layers in the middle of a via stack to keep at their least width "
         "(`-min_width_layers`).",
+        json_schema_extra=tier("advanced"),
     )
     split_cuts: dict[str, Positive] = Field(
         default_factory=dict,
         description="Layers that use split cuts, each with its pitch, a length with a unit "
         "(`-split_cuts`).",
+        json_schema_extra=tier("advanced"),
     )
     split_cuts_staggered: bool = Field(
         False,
         description="Stagger the split cuts: the ground vias are half a pitch off "
         "(`-split_cuts_staggered`). Needs `split_cuts`.",
+        json_schema_extra=tier("advanced"),
     )
 
 

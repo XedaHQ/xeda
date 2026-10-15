@@ -222,16 +222,19 @@ class NdrRule(XedaBaseModel):
         description="The width of the wires, by layer. A key is a layer name or a range "
         "`first:last` of routing layers. A value is a length with a unit, such as `0.14 um`, or "
         "a factor of the default width, written `*2`. A layer that no key names keeps its default width.",
+        json_schema_extra=tier("advanced"),
     )
     spacing: dict[str, NdrValue] = Field(
         {},
         description="The spacing of the wires, by layer. A key is a layer name or a range "
         "`first:last` of routing layers. A value is a length with a unit, such as `0.14 um`, or "
         "a factor of the default spacing, written `*2`.",
+        json_schema_extra=tier("advanced"),
     )
     vias: list[Annotated[str, Field(min_length=1)]] = Field(
         [],
         description="The vias that the nets of the rule may use, by name.",
+        json_schema_extra=tier("advanced"),
     )
 
 
