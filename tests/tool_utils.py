@@ -63,7 +63,25 @@ __all__ = [
     "check_after_the_racy_window",
     "producers_of",
     "run_outputs_state",
+    "run_report",
 ]
+
+
+def run_report(flow: Any, captured: Any, tail: int = 4000) -> str:
+    """Return the text for the message of an assertion that a run succeeded: the error that the
+    flow recorded, then the tail of what the run printed to stderr and to stdout.
+
+    `captured` is the result of `capfd.readouterr()`, read once. A tool's diagnostic may be on
+    either stream, and a parallel build buries the first error far from the end, so the flow's
+    own error comes first."""
+    error = (getattr(flow, "results", None) or {}).get("error") or {}
+    lines = []
+    if error:
+        lines.append(f"flow error: {error.get('type')}: {error.get('message')}")
+    lines.append(f"--- stderr (last {tail} characters) ---\n{captured.err[-tail:]}")
+    lines.append(f"--- stdout (last {tail} characters) ---\n{captured.out[-tail:]}")
+    return "\n".join(lines)
+
 
 REQUIRE_TOOLS = os.environ.get("XEDA_TESTS_REQUIRE_TOOLS", "").lower() in ("1", "true", "yes", "on")
 

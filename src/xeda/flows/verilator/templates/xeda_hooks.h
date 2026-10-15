@@ -1,8 +1,9 @@
 // Xeda: declaration for Xeda's Verilator runtime hooks (xeda_hooks.cpp).
 //
-// Force-included into every C++ compile of the model (`-CFLAGS "-include xeda_hooks.h"`): with
-// `VL_USER_STOP_MAYBE`, verilated.cpp calls `vl_stop_maybe` with no declaration of it in scope,
-// which this header supplies. A C compile sees nothing of it.
+// With `VL_USER_STOP_MAYBE`, verilated.cpp calls `vl_stop_maybe` with no declaration of it in
+// scope, which this header supplies. xeda_hooks.mk forces it into the compile of verilated.cpp
+// only: forced into the model's compiles, it would keep GCC from using the model's precompiled
+// header. A C compile sees nothing of it.
 #pragma once
 #ifdef __cplusplus
 

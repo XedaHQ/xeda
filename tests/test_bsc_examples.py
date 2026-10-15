@@ -28,6 +28,7 @@ from .tool_utils import (
     require_iverilog,
     require_verilator,
     require_yosys,
+    run_report,
 )
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "bluespec"
@@ -137,9 +138,9 @@ def _cases():
 def test_the_testbench_passes(design_file, simulator, tmp_path, capfd):
     _require_simulator(simulator)
     flow = _run(BscSim, _load(design_file), tmp_path, simulator=simulator)
-    out = capfd.readouterr().out
-    assert flow.succeeded, out[-2000:]
-    assert "PASS" in out
+    captured = capfd.readouterr()
+    assert flow.succeeded, run_report(flow, captured)
+    assert "PASS" in captured.out
 
 
 @pytest.mark.parametrize("design_file", EXAMPLES, ids=lambda p: p.stem)

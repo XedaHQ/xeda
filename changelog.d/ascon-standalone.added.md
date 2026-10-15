@@ -1,0 +1,1 @@
+- Add a standalone Bluespec Ascon example with a vector-driven testbench and Xeda FPGA/ASIC handoff.

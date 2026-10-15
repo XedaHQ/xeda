@@ -86,3 +86,9 @@ result. The testbench drains results slowly to exercise that backpressure.
 
 Bluesim cannot simulate imported Verilog, so the design file sets `simulator: verilator` for
 `bsc_sim`. The option `-s simulator=iverilog` works too.
+
+## ascon: standalone crypto core
+
+The [Ascon v1.2 example](ascon/README.md) adds a standalone 32-bit Put/Get core and a
+vector-driven testbench. Its `run.py` helper passes the complete `bsc` Verilog artifact list to
+Xeda's FPGA or ASIC synthesis flows.
