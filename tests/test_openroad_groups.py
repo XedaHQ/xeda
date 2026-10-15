@@ -1158,6 +1158,14 @@ GRT_REFUSALS = [
         ("antenna.repair=false", "antenna.diode_cell=DIODE"),
         "`antenna.diode_cell` has no effect with `antenna.repair: false`",
     ),
+    (
+        ("antenna.repair=false", "antenna.method=jumper"),
+        "`antenna.method` has no effect with `antenna.repair: false`",
+    ),
+    (
+        ("antenna.repair=false", "antenna.ratio_margin_percent=5"),
+        "`antenna.ratio_margin_percent` has no effect with `antenna.repair: false`",
+    ),
 ]
 
 
@@ -1197,6 +1205,9 @@ def test_the_global_route_groups_render_their_flags():
         "repair.recover_power_percent=0",
         "repair.recover_power_percent=101",
         "antenna.iterations=0",
+        "antenna.method=both_ways",
+        "antenna.ratio_margin_percent=-1",
+        "antenna.ratio_margin_percent=100",
     ],
 )
 def test_the_global_route_settings_refuse_a_value_out_of_range(item):

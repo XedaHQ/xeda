@@ -14,6 +14,7 @@ from .groups import RepairDesign, RepairTiming, differing_leaves
 __all__ = [
     "AntennaGroup",
     "CongestionGroup",
+    "GrtRepairDesign",
     "GrtRepairGroup",
     "GrtRepairTiming",
     "PinAccessGroup",
@@ -29,6 +30,13 @@ NonNegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 class GrtRepairTiming(RepairTiming):
     """The call of `repair_timing` after global routing. It may use the `reroute` move and the
     `REROUTE` phase, which need the parasitics of the route."""
+
+    ALLOWS_REROUTE: ClassVar[bool] = True
+
+
+class GrtRepairDesign(RepairDesign):
+    """The call of `repair_design` after global routing. It may use `reroute`, which needs the
+    parasitics of the route."""
 
     ALLOWS_REROUTE: ClassVar[bool] = True
 
@@ -389,8 +397,8 @@ class GrtRepairGroup(SettingsGroup):
         "only without the WNS polish.",
         json_schema_extra=tier("expert"),
     )
-    design: RepairDesign = Field(
-        default_factory=RepairDesign,
+    design: GrtRepairDesign = Field(
+        default_factory=GrtRepairDesign,
         description="The call of `repair_design` after the route.",
     )
     timing: GrtRepairTiming = Field(
@@ -432,7 +440,10 @@ class GrtRepairGroup(SettingsGroup):
 class AntennaGroup(SettingsGroup):
     """The repair of the antenna violations of the global route, with diodes."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("iterations", "-iterations", "value"),)
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("iterations", "-iterations", "value"),
+        Flag("ratio_margin_percent", "-ratio_margin", "value"),
+    )
 
     repair: bool = Field(
         True,
@@ -446,6 +457,24 @@ class AntennaGroup(SettingsGroup):
         ge=1,
         description="The most passes of `repair_antennas` (`-iterations`). The default is the "
         "one of OpenROAD-flow-scripts.",
+        json_schema_extra=tier("advanced"),
+    )
+    method: Literal["both", "diode", "jumper"] = Field(
+        "both",
+        description="How `repair_antennas` fixes a violation. `diode` inserts diodes only "
+        "(`-diode_only`), `jumper` moves wire to a higher layer only (`-jumper_only`), and "
+        "`both` tries jumpers and then diodes. The default is the one of OpenROAD-flow-scripts, "
+        "which names neither flag. The command reads the diffusion area of the diode to judge "
+        "a violation, with every method, so a platform without a usable diode skips it.",
+        json_schema_extra=tier("advanced"),
+    )
+    ratio_margin_percent: Optional[float] = Field(
+        None,
+        ge=0,
+        lt=100,
+        description="Repair a violation when the antenna ratio comes within this share of its "
+        "limit, in percent (`-ratio_margin`). The margin costs area. Unset: the default of the "
+        "tool, 0.",
         json_schema_extra=tier("advanced"),
     )
     diode_cell: Optional[str] = Field(

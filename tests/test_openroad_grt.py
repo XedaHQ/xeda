@@ -699,6 +699,14 @@ def test_the_reroute_move_and_phase_are_allowed_after_a_global_route(tmp_path):
     assert '-sequence "reroute"' in timing and '-phases "WNS REROUTE"' in timing
 
 
+def test_the_reroute_of_the_repair_of_the_design_is_allowed_after_a_global_route(tmp_path):
+    """The call runs with the parasitics of the route, which `-reroute` needs."""
+    found = body(tmp_path, {"repair": {"design": {"reroute": True}}})
+    (design,) = words(found, "repair_design")
+    assert design.endswith("-reroute -verbose")
+    assert "-reroute" not in " ".join(words(body(tmp_path / "none"), "repair_design"))
+
+
 def test_the_footprint_of_the_platform_applies_unless_the_settings_say_otherwise(tmp_path):
     on = {"match_cell_footprint": True}
     found = body(tmp_path, model=on)
@@ -808,6 +816,47 @@ def test_the_iterations_of_the_antenna_repair_follow_the_settings(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "method, flag",
+    [("both", None), ("diode", "-diode_only"), ("jumper", "-jumper_only")],
+)
+def test_the_method_of_the_antenna_repair_chooses_its_flag(tmp_path, method, flag):
+    found = body(tmp_path, {"antenna": {"method": method}})
+    (line,) = words(found, "repair_antennas")
+    others = {"-diode_only", "-jumper_only"} - {flag}
+    assert (flag in line) if flag else True
+    assert not others & set(line.split())
+
+
+def test_the_ratio_margin_of_the_antenna_repair_follows_the_setting(tmp_path):
+    found = body(tmp_path, {"antenna": {"ratio_margin_percent": 10, "method": "diode"}})
+    assert words(found, "repair_antennas") == [
+        'repair_antennas "ANTENNA_X1" -iterations "5" -ratio_margin "10.0" -diode_only'
+    ]
+    assert "-ratio_margin" not in " ".join(words(body(tmp_path / "none"), "repair_antennas"))
+
+
+def test_the_method_and_the_margin_come_before_the_decision_on_congestion(tmp_path):
+    found = body(
+        tmp_path,
+        {"congestion": {"allow": True}, "antenna": {"method": "jumper", "ratio_margin_percent": 5}},
+    )
+    (line,) = words(found, "repair_antennas")
+    assert line.endswith('-ratio_margin "5.0" -jumper_only -allow_congestion')
+
+
+def test_a_method_that_needs_no_diode_still_skips_where_the_platform_has_none(tmp_path):
+    """The command reads the diffusion area of the diode to judge a violation, with every
+    method, and it stops with GRT-0244 where that area is zero."""
+    found = body(
+        tmp_path,
+        {"antenna": {"method": "jumper"}},
+        model={"antenna_cell": None, "diode_usable": False},
+    )
+    assert not words(found, "repair_antennas")
+    assert [line for line in found if "antenna repair skipped" in line]
+
+
+@pytest.mark.parametrize(
     "settings",
     [
         {"pin_access": {"enabled": False}},
@@ -837,11 +886,14 @@ def test_the_iterations_of_the_antenna_repair_follow_the_settings(tmp_path):
         {"repair": {"wns_polish": False, "recover_power_percent": 5}},
         {"repair": {"design": {"enabled": False}}},
         {"repair": {"design": {"max_wire_length": 100, "slew_margin_percent": 10}}},
+        {"repair": {"design": {"reroute": True}}},
         {"repair": {"timing": {"enabled": False}}},
         {"repair": {"timing": {"fix": "hold", "hold_margin": 0.05, "max_buffer_percent": 10}}},
         {"repair": {"timing": {"phases": ["WNS", "REROUTE"]}}},
         {"antenna": {"repair": False}},
         {"antenna": {"iterations": 1, "diode_cell": "DIODE_X1"}},
+        {"antenna": {"method": "diode", "ratio_margin_percent": 20}},
+        {"antenna": {"method": "jumper"}},
     ],
     ids=lambda settings: json.dumps(settings, sort_keys=True),
 )
@@ -1130,6 +1182,11 @@ def test_a_platform_value_that_is_unknown_at_planning_refuses_nothing(tmp_path):
     """The configuration of the PDK may give the value, and only a run reads it."""
     residue = residue_with(tmp_path, upstream=True)
     planned = plan(tmp_path, "repair.recover_power_percent=10", residue=residue)
+    assert planned.nodes[-1].name == "openroad_grt"
+
+
+def test_the_reroute_of_the_repair_of_the_design_is_no_refusal(tmp_path):
+    planned = plan(tmp_path, "repair.design.reroute=true")
     assert planned.nodes[-1].name == "openroad_grt"
 
 

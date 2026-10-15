@@ -78,7 +78,7 @@ proc xeda_global_route {} {
 {% endif %}
 {% if ant.repair %}
 {% if P.diode_usable %}
-    {{ ["repair_antennas", (P.diode_cell|tcl_word) if P.diode_cell else "", render_flags(ant), "-allow_congestion" if cong.allow else ""]|select|join(" ") }}
+    {{ ["repair_antennas", (P.diode_cell|tcl_word) if P.diode_cell else "", render_flags(ant), "-diode_only" if ant.method == "diode" else ("-jumper_only" if ant.method == "jumper" else ""), "-allow_congestion" if cong.allow else ""]|select|join(" ") }}
     check_placement -verbose
 {% else %}
     puts "xeda: the platform has no usable antenna diode; antenna repair skipped"
