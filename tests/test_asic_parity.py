@@ -652,6 +652,8 @@ def test_the_pinned_files_include_every_file_of_an_include_directory(tmp_path: P
     assert tool.pinned_files(variables) == [str(top), str(header), str(data)]
     added = write(include / "more.vh", "`define B 2\n")
     assert str(added) in tool.pinned_files(variables)
+    nested = write(include / "sub" / "deep.vh", "`define C 3\n")
+    assert str(nested) in tool.pinned_files(variables)
 
 
 def test_the_residue_digest_is_that_of_the_bundled_file() -> None:

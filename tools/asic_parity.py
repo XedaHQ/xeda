@@ -523,11 +523,11 @@ def design_sources(variables: Mapping[str, str]) -> list[Any]:
 
 def pinned_files(variables: Mapping[str, str]) -> list[str]:
     """Return the files whose digests pin the sources of a row: the ORFS source files, then every
-    regular file of each include directory, sorted. A header can change, appear or go away
+    regular file below each include directory, sorted. A header can change, appear or go away
     without a change of the ORFS commit, so each of them is part of the identity."""
     files = words(variables, "VERILOG_FILES")
     for directory in words(variables, "VERILOG_INCLUDE_DIRS"):
-        files += [str(path) for path in sorted(Path(directory).iterdir()) if path.is_file()]
+        files += [str(path) for path in sorted(Path(directory).rglob("*")) if path.is_file()]
     return list(dict.fromkeys(files))
 
 
