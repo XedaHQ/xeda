@@ -11,7 +11,7 @@ resolves it first, and the template prints the result.
 
 from typing import Annotated, Any, ClassVar, Literal, Optional, Sequence, Tuple
 
-from ...dataclass import Field, XedaBaseModel, extras, tier
+from ...dataclass import Field, XedaBaseModel, extras, field_validator, tier
 from ...flow.settings_group import Flag, SettingsGroup
 from ...units import Bounds, Length, Time, count, percent
 from ...utils import tcl_word
@@ -558,8 +558,10 @@ class RepairDesign(SettingsGroup):
 
 
 class Legalize(SettingsGroup):
-    """The legalization of the placement after a repair or after the clock tree. The flow runs
-    `detailed_placement` there with this padding."""
+    """The legalization of the placement: the padding, the farthest move and the legalizer of
+    `detailed_placement`. The flow runs `detailed_placement` with them after a repair and after
+    the clock tree. `openroad_place` extends the group with the other options of the command.
+    The flow prints `legalizer` itself, as a flag that takes no value."""
 
     cell_padding: int = Field(
         0,
@@ -570,3 +572,27 @@ class Legalize(SettingsGroup):
         "`openroad_place`, so that both legalizations leave the same space.",
         json_schema_extra=extras(tier("advanced"), count()),
     )
+    max_displacement: Optional[list[Annotated[Length, Bounds(ge="0 um")]]] = Field(
+        None,
+        min_length=2,
+        max_length=2,
+        description="The farthest that a cell moves to find a legal site, as two lengths with "
+        "units, for x and y (`-max_displacement`). The tool takes whole micrometers. Unset: the "
+        "default of the tool, which sets no limit of its own.",
+        json_schema_extra=tier("advanced"),
+    )
+    legalizer: Literal["negotiation", "diamond"] = Field(
+        "negotiation",
+        description="The engine that legalizes the placement. `negotiation` is the default of "
+        "the tool and handles dense designs. `diamond` is the earlier search "
+        "(`-use_diamond_legalizer`). It is faster, and it cannot handle dense designs.",
+        json_schema_extra=tier("advanced"),
+    )
+
+    @field_validator("max_displacement")
+    @classmethod
+    def _whole_micrometers(cls, value: Optional[list[Length]]) -> Optional[list[Length]]:
+        """Refuse a displacement that is not a whole number of micrometers."""
+        for item in value or ():
+            whole_micrometers(item)
+        return value

@@ -25,6 +25,7 @@
 {% set aware = "-resistance_aware" if router.resistance_aware else "" %}
 {% set origin = ("-grid_origin [list [ord::microns_to_dbu " ~ (router.grid_origin[0]|micrometers) ~ "] [ord::microns_to_dbu " ~ (router.grid_origin[1]|micrometers) ~ "]]") if router.grid_origin else "" %}
 {% set default_iterations = "" if cong.iterations is not none else "-congestion_iterations " ~ ((10 if router.engine == "cugr" else 30)|tcl_word) %}
+{% set legalization = ["detailed_placement", ("-max_displacement " ~ (settings.legalize.max_displacement|map("to", "um")|map("int")|join(" ")|tcl_word)) if settings.legalize.max_displacement else "", "-use_diamond_legalizer" if settings.legalize.legalizer == "diamond" else ""]|select|list %}
 proc xeda_global_route {} {
     xeda_stage globalroute
 {% if pin.enabled %}
@@ -57,14 +58,14 @@ proc xeda_global_route {} {
 {% if rd.enabled %}
     repair_design {{ [wire_length, render_flags(rd), "-match_cell_footprint" if rd_footprint else "", "-verbose"]|select|join(" ") }}
     {{ ["global_route -start_incremental", allow, origin]|select|join(" ") }}
-    detailed_placement
+    {{ legalization|join(" ") }}
     {{ ["global_route -end_incremental", allow, aware, origin, "-congestion_report_file " ~ (reports.post_repair_design|tcl_word)]|select|join(" ") }}
     estimate_parasitics -global_routing
 {% endif %}
 {% if rt.enabled %}
     repair_timing {{ [fix_flags[rt.fix], "-setup_margin " ~ (rt.setup_margin|lib_time), "-hold_margin " ~ (rt.hold_margin|lib_time), render_flags(rt, space_word), render_flags(rt.moves), "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
     {{ ["global_route -start_incremental", allow, origin]|select|join(" ") }}
-    detailed_placement
+    {{ legalization|join(" ") }}
     check_placement -verbose
     {{ ["global_route -end_incremental", allow, aware, origin, "-congestion_report_file " ~ (reports.post_repair_timing|tcl_word)]|select|join(" ") }}
     estimate_parasitics -global_routing

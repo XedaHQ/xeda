@@ -622,6 +622,15 @@ def test_the_placement_is_legalized_with_the_padding_of_the_settings(tmp_path):
     assert "set_placement_padding -global -left 2 -right 2" in found
 
 
+def test_every_legalization_takes_the_displacement_and_the_legalizer_of_the_settings(tmp_path):
+    plain = [line for line in body(tmp_path) if line.startswith("detailed_placement")]
+    assert plain == ["detailed_placement", "detailed_placement"]
+    settings = {"legalize": {"max_displacement": ["10 um", "4 um"], "legalizer": "diamond"}}
+    found = body(tmp_path / "set", settings)
+    expected = 'detailed_placement -max_displacement "10 4" -use_diamond_legalizer'
+    assert [line for line in found if line.startswith("detailed_placement")] == [expected] * 2
+
+
 def test_the_parasitics_of_the_route_are_estimated_after_each_route_and_repair(tmp_path):
     found = body(tmp_path)
     for position, line in enumerate(found):
@@ -1073,6 +1082,10 @@ def test_a_valid_set_of_settings_plans_the_three_flows(tmp_path):
         (
             ["repair.strategy=none", "repair.wns_polish=true"],
             "`repair.wns_polish` has no effect with `repair.strategy: none`",
+        ),
+        (
+            ["repair.timing.recover_power_percent=10"],
+            "the global route has its own pass for it: set `repair.recover_power_percent`",
         ),
         (
             ["repair.wns_polish=true", "repair.recover_power_percent=10"],

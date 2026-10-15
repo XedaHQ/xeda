@@ -17,6 +17,7 @@
 {% set rcn = settings.repair_clock_nets %}
 {% set crt = settings.repair %}
 {% set crt_footprint = P.match_cell_footprint if crt.match_cell_footprint is none else crt.match_cell_footprint %}
+{% set legalization = ["detailed_placement", ("-max_displacement " ~ (settings.legalize.max_displacement|map("to", "um")|map("int")|join(" ")|tcl_word)) if settings.legalize.max_displacement else "", "-use_diamond_legalizer" if settings.legalize.legalizer == "diamond" else ""]|select|list %}
 proc xeda_cts {} {
     xeda_stage cts
 {% if settings.repair_clock_inverters %}
@@ -38,11 +39,11 @@ proc xeda_cts {} {
 {% endif %}
     estimate_parasitics -placement
     set_placement_padding -global -left {{ settings.legalize.cell_padding|tcl_number }} -right {{ settings.legalize.cell_padding|tcl_number }}
-    detailed_placement
+    {{ legalization|join(" ") }}
     estimate_parasitics -placement
 {% if crt.enabled %}
     repair_timing {{ [fix_flags[crt.fix], "-setup_margin " ~ (crt.setup_margin|lib_time), "-hold_margin " ~ (crt.hold_margin|lib_time), render_flags(crt, space_word), render_flags(crt.moves), "-match_cell_footprint" if crt_footprint else "", "-verbose"]|select|join(" ") }}
-    detailed_placement
+    {{ legalization|join(" ") }}
 {% endif %}
     check_placement -verbose
     estimate_parasitics -placement

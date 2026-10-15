@@ -12,10 +12,10 @@ choose between flags or that need the platform.
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, Optional, Tuple, Union
 
-from ...dataclass import Field, XedaBaseModel, extras, field_validator, tier
+from ...dataclass import Field, XedaBaseModel, extras, tier
 from ...flow.settings_group import Flag, SettingsGroup
 from ...units import Bounds, Length, Time, count, library_units, percent, ratio
-from .groups import RepairDesign, RepairTiming, SetupMove, differing_leaves, whole_micrometers
+from .groups import Legalize, RepairDesign, RepairTiming, SetupMove, differing_leaves
 from .place_pdn import PdnConnect, PdnGrid
 
 __all__ = [
@@ -2308,12 +2308,13 @@ class PaddingOverride(XedaBaseModel):
     )
 
 
-class DetailedPlacementGroup(SettingsGroup):
+class DetailedPlacementGroup(Legalize):
     """The legalization and the optimization of the placement.
 
     Every flag of `detailed_placement` that the flow can use has a setting. The others are
     internal (`-incremental`, `-quiet`), deprecated (`-disallow_one_site_gaps`) or write a file
-    (`-report_file_name`). The flow prints `legalizer` itself, as a flag that takes no value."""
+    (`-report_file_name`). The padding, the farthest move and the legalizer are those of
+    `Legalize`, which the flows after this one hold too."""
 
     cell_padding: int = Field(
         0,
@@ -2329,31 +2330,6 @@ class DetailedPlacementGroup(SettingsGroup):
         "global padding, and an instance wins over its master. Each item names `masters` or "
         "`instances`, with `left` and `right`.",
         json_schema_extra=tier("expert"),
-    )
-    max_displacement: Optional[list[Distance]] = Field(
-        None,
-        min_length=2,
-        max_length=2,
-        description="The farthest that a cell moves to find a legal site, as two lengths with "
-        "units, for x and y (`-max_displacement`). The tool takes whole micrometers. Unset: the "
-        "default of the tool, which sets no limit of its own.",
-        json_schema_extra=tier("advanced"),
-    )
-
-    @field_validator("max_displacement")
-    @classmethod
-    def _whole_micrometers(cls, value: Optional[list[Length]]) -> Optional[list[Length]]:
-        """Refuse a displacement that is not a whole number of micrometers."""
-        for item in value or ():
-            whole_micrometers(item)
-        return value
-
-    legalizer: Literal["negotiation", "diamond"] = Field(
-        "negotiation",
-        description="The engine that legalizes the placement. `negotiation` is the default of "
-        "the tool and handles dense designs. `diamond` is the earlier search "
-        "(`-use_diamond_legalizer`). It is faster, and it cannot handle dense designs.",
-        json_schema_extra=tier("advanced"),
     )
     negotiation: NegotiationGroup = Field(
         default_factory=NegotiationGroup,

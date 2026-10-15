@@ -386,6 +386,15 @@ def test_the_placement_is_legalized_with_the_padding_of_the_settings(tmp_path):
     )
 
 
+def test_every_legalization_takes_the_displacement_and_the_legalizer_of_the_settings(tmp_path):
+    plain = [line for line in body(tmp_path) if line.startswith("detailed_placement")]
+    assert plain == ["detailed_placement", "detailed_placement"]
+    settings = {"legalize": {"max_displacement": ["10 um", "4 um"], "legalizer": "diamond"}}
+    found = body(tmp_path / "set", settings)
+    expected = 'detailed_placement -max_displacement "10 4" -use_diamond_legalizer'
+    assert [line for line in found if line.startswith("detailed_placement")] == [expected] * 2
+
+
 def test_the_parasitics_are_estimated_after_the_tree_and_before_the_repair(tmp_path):
     """The legalization after the tree is followed by an estimate, since the repair of the timing
     and the metrics read the parasitics. The check after the second legalization is followed by

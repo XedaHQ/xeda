@@ -33,6 +33,22 @@ class GrtRepairTiming(RepairTiming):
 
     ALLOWS_REROUTE: ClassVar[bool] = True
 
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse the power recovery of this call: the global route has a pass of its own for it,
+        `repair.recover_power_percent`, which runs after the repairs of the timing."""
+        found = super().problems(key)
+        if self.recover_power_percent is not None:
+            found.append(
+                (
+                    f"{key}.recover_power_percent",
+                    f"`{key}.recover_power_percent` recovers power in the repair of the timing, "
+                    "and the global route has its own pass for it: set "
+                    f"`{key.rsplit('.', 1)[0]}.recover_power_percent` and delete "
+                    f"`{key}.recover_power_percent`",
+                )
+            )
+        return found
+
 
 class GrtRepairDesign(RepairDesign):
     """The call of `repair_design` after global routing. It may use `reroute`, which needs the

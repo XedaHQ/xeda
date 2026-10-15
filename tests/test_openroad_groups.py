@@ -255,6 +255,21 @@ def test_repair_design_prints_its_margins_and_the_template_prints_its_wire_lengt
     assert design.max_wire_length == Length("0.3 mm")
 
 
+def test_the_placement_flow_and_the_later_flows_share_the_legalization_options():
+    from xeda.flows.openroad.place_groups import DetailedPlacementGroup
+
+    assert issubclass(DetailedPlacementGroup, groups.Legalize)
+    for name in ("max_displacement", "legalizer", "cell_padding"):
+        assert name in groups.Legalize.model_fields
+    assert (
+        groups.Legalize().legalizer == "negotiation" and groups.Legalize().max_displacement is None
+    )
+    with pytest.raises(Exception, match="whole number of micrometers"):
+        groups.Legalize(max_displacement=["2 um", "3.5 um"])
+    with pytest.raises(Exception):
+        groups.Legalize(max_displacement=["2 um"])
+
+
 def test_the_range_of_layers_for_a_via_in_a_pin_is_one_shared_group():
     from xeda.flows.openroad import final_groups, grt_groups
 

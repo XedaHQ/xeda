@@ -267,7 +267,7 @@ Group `io`: `io.flow`, `io.horizontal_layers`, `io.vertical_layers`; 19 more: `x
 
 Group `global_placement`: `global_placement.density.mode`, `global_placement.density.value`, `global_placement.density.headroom`, `global_placement.timing_driven.enabled`, `global_placement.routability_driven.enabled`; 45 more: `xeda list-settings openroad_place --tier expert --json`
 
-Group `resize`: `resize.buffer_ports.enabled`, `resize.buffer_ports.inputs`, `resize.buffer_ports.outputs`, `resize.repair_design.enabled`, `resize.repair_timing.enabled`, `resize.repair_timing.fix`, `resize.repair_timing.setup_margin`, `resize.repair_timing.hold_margin`; 46 more: `xeda list-settings openroad_place --tier expert --json`
+Group `resize`: `resize.buffer_ports.enabled`, `resize.buffer_ports.inputs`, `resize.buffer_ports.outputs`, `resize.repair_design.enabled`, `resize.repair_timing.enabled`, `resize.repair_timing.fix`, `resize.repair_timing.setup_margin`, `resize.repair_timing.hold_margin`; 45 more: `xeda list-settings openroad_place --tier expert --json`
 
 Group `arith_swap`: no common settings; 4 more: `xeda list-settings openroad_place --tier expert --json`
 
@@ -373,7 +373,7 @@ Group `characterization`: no common settings; 4 more: `xeda list-settings openro
 
 Group `repair_clock_nets`: `repair_clock_nets.when`; 1 more: `xeda list-settings openroad_cts --tier expert --json`
 
-Group `legalize`: no common settings; 1 more: `xeda list-settings openroad_cts --tier expert --json`
+Group `legalize`: no common settings; 3 more: `xeda list-settings openroad_cts --tier expert --json`
 
 Group `repair`: `repair.enabled`, `repair.fix`, `repair.setup_margin`, `repair.hold_margin`; 20 more: `xeda list-settings openroad_cts --tier expert --json`
 
@@ -395,9 +395,9 @@ Group `congestion`: `congestion.iterations`, `congestion.allow`; 4 more: `xeda l
 
 Group `router`: no common settings; 11 more: `xeda list-settings openroad_grt --tier expert --json`
 
-Group `legalize`: no common settings; 1 more: `xeda list-settings openroad_grt --tier expert --json`
+Group `legalize`: no common settings; 3 more: `xeda list-settings openroad_grt --tier expert --json`
 
-Group `repair`: `repair.strategy`, `repair.design.enabled`, `repair.timing.enabled`, `repair.timing.fix`, `repair.timing.setup_margin`, `repair.timing.hold_margin`; 28 more: `xeda list-settings openroad_grt --tier expert --json`
+Group `repair`: `repair.strategy`, `repair.design.enabled`, `repair.timing.enabled`, `repair.timing.fix`, `repair.timing.setup_margin`, `repair.timing.hold_margin`; 27 more: `xeda list-settings openroad_grt --tier expert --json`
 
 Group `antenna`: `antenna.repair`; 4 more: `xeda list-settings openroad_grt --tier expert --json`
 
