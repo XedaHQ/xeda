@@ -578,7 +578,8 @@ def test_a_run_without_a_target_uses_the_design_whatever_the_number_of_targets(
 ):
     monkeypatch.chdir(tmp_path)
     use_fake_tools(monkeypatch)
-    for name, design in (("many", KNIGHT), ("one", SINGLE)):
+    designs = (("many", KNIGHT, ["knight.v", "por_sync.v"]), ("one", SINGLE, ["knight.v"]))
+    for name, design, sources in designs:
         result, document = invoke("run", "vivado_synth", str(design), "--run-root", name, *PART)
         assert result.exit_code == 0, document.get("error")
         assert document["success"] is True and document["target"] is None
@@ -586,6 +587,10 @@ def test_a_run_without_a_target_uses_the_design_whatever_the_number_of_targets(
         assert run_path == (tmp_path / name / design.stem / "vivado_synth").resolve()
         settings = json.loads(Path(document["settings_json"]).read_text())
         assert settings["design"]["target"] is None
+        # No overlay reached the design: neither the sources nor the defines of a target.
+        rtl = settings["design"]["rtl"]
+        assert [Path(source).name for source in rtl["sources"]] == sources
+        assert "CLK_HZ" not in (rtl.get("defines") or {})
     result, document = invoke(
         "run", "vivado_synth", str(SINGLE), "--run-root", "one", "--dry-run", *PART
     )
@@ -686,7 +691,7 @@ def test_dse_uses_the_design_unless_a_target_is_given(tmp_path, target):
     document = json.loads(proc.stdout)
     assert document["success"] is True and document["target"] == target
     run_dir = Path(document["best"]["run_path"]).resolve().parent.name
-    assert (run_dir == "b") is (target == "b")
+    assert run_dir == (target or "sqrt")
 
 
 # ------------------------------------------------------------------------------ the layer order

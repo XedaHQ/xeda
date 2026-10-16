@@ -579,6 +579,10 @@ def test_a_remote_run_without_a_target_runs_the_design(tmp_path, remote_host):
     )
     assert results is not None and results["success"] is True
     assert runner.target is None
+    # No overlay reached the design: neither the sources nor the defines of a target.
+    rtl = json.loads((Path(results["run_path"]) / "settings.json").read_text())["design"]["rtl"]
+    assert [Path(source).name for source in rtl["sources"]] == ["knight.v", "por_sync.v"]
+    assert "CLK_HZ" not in (rtl.get("defines") or {})
 
 
 #: A design dependency at the protocol floor (`GitReference`) and the keys it accepts as `null`.

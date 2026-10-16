@@ -55,11 +55,12 @@ Inside the run root, the layout depends on ``--hashed-run-dirs``:
 A design selected as a target (``targets.<name>`` in its design file) has one more level, a
 directory named for the target: ``<design>/<target>/<flow>/``, or
 ``<design>/<target>/<flow>_<16-char run hash>/`` with ``--hashed-run-dirs``. Select a target with
-``--target``. A run without ``--target`` keeps ``<design>/<flow>/``, whether the design has no
-target, an empty ``targets`` table or several targets. The target name is not part of the run hash.
-Two targets that yield the same design therefore have the same directory names in two places. Each
-one is built once and stays up to date without the other running it again. A run without a target
-(``<design>/<flow>``) is not a target's run. A launch for a target never reads or removes it.
+``--target``. A run without ``--target`` has the layout of the table above, whether the design has
+no target, an empty ``targets`` table, one target or several targets. The target name is not part of
+the run hash. Two targets that yield the same design therefore have the same directory names in two
+places. Each one is built once and stays up to date without the other running it again. A run
+without a target (``<design>/<flow>``) is not a target's run. A launch for a target never reads or
+removes it.
 
 The run directory of a producer is a sibling of the run directory of its consumer. It has the same
 layout and the same target, and it is never nested under the consumer. With ``--hashed-run-dirs``,
