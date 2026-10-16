@@ -78,6 +78,7 @@ from .settings_layers import (
 from .trace import remove_trace
 from .trace_inputs import design_files, register_read_settings
 from .outputs import declared_output_files
+from ..flow.derived import recorded_files
 from .trace import as_recorded
 from ..digest import content_digest
 
@@ -1336,8 +1337,8 @@ class RemoteRunner(FlowLauncher):
                     else artifacts
                 )
                 for recorded in declared.values():
-                    for entry in recorded if isinstance(recorded, list) else [recorded]:
-                        remote_output = Path(entry["path"])
+                    for entry, key in recorded_files(recorded):
+                        remote_output = Path(entry[key])
                         if (
                             not remote_run_path
                             or not remote_output.is_absolute()
@@ -1387,14 +1388,14 @@ class RemoteRunner(FlowLauncher):
                     results["artifacts"] = fetched["artifacts"] if output_paths else fetched
                     rewrites = dict(zip(output_paths, fetched["outputs"])) if output_paths else {}
                     for recorded in declared.values():
-                        for entry in recorded if isinstance(recorded, list) else [recorded]:
-                            remote_output = Path(entry["path"])
-                            local_output = Path(rewrites[entry["path"]])
+                        for entry, key in recorded_files(recorded):
+                            remote_output = Path(entry[key])
+                            local_output = Path(rewrites[entry[key]])
                             if content_digest(local_output) != entry["sha"]:
                                 raise DeliveryError(
                                     f"Declared remote output {remote_output} changed during transfer"
                                 )
-                            entry["path"] = str(local_output)
+                            entry[key] = str(local_output)
 
                 # The remote run_path does not exist locally. Report the path of the local copy
                 # instead.
