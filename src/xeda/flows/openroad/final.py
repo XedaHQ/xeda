@@ -363,6 +363,12 @@ class Openroad(OpenroadStage):
         "that gave each value of the platform model.",
     )
 
+    #: The design sources it can take as its inputs: the database and constraints of the global
+    #: route.
+    design_source_types = frozenset(
+        {SourceType.OpenroadDbGlobalRouted, SourceType.OpenroadSdcGlobalRouted}
+    )
+
     metrics_files = ("metrics_route.json", "metrics_final.json")
     reports = {
         "drc": "reports/drc.rpt",

@@ -44,6 +44,10 @@ NARROWED = {
     "fpga_pack": {SourceType.EcpConfig, SourceType.IceAsc, SourceType.Fasm},
     "openfpgaloader": {SourceType.Bitstream},
     "openroad_place": {SourceType.Sdc, SourceType.VerilogNetlist},
+    "openroad_cts": {SourceType.OpenroadDbPlaced, SourceType.OpenroadSdcPlaced},
+    "openroad_grt": {SourceType.OpenroadDbCts, SourceType.OpenroadSdcCts},
+    "openroad": {SourceType.OpenroadDbGlobalRouted, SourceType.OpenroadSdcGlobalRouted},
+    "vivado_impl": {SourceType.Edif, SourceType.Xdc, SourceType.Sdc},
     "vivado_power": {SourceType.Saif, SourceType.RoutedCheckpoint},
 }
 
@@ -73,6 +77,18 @@ def test_no_flow_is_narrowed_by_default() -> None:
     assert {name for cls, name in flow_classes() if cls.design_source_types is not None} == set(
         NARROWED
     )
+
+
+def test_every_flow_that_reads_no_design_source_is_narrowed() -> None:
+    """A flow without `reads_sources` takes its files through declared inputs. Its identity and
+    its trace cover the sources of the types those inputs take, not every source of the design: a
+    source in another language (the Bluespec of a design that `bsc` converts) leaves it alone."""
+    unscoped = [
+        name
+        for cls, name in flow_classes()
+        if cls.reads_sources is None and cls.design_source_types is None
+    ]
+    assert not unscoped, f"declare `design_source_types` for {unscoped}"
 
 
 @pytest.mark.parametrize("name", sorted(NARROWED))

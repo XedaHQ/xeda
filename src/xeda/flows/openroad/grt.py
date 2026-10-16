@@ -148,6 +148,9 @@ class OpenroadGrt(OpenroadStage):
         "that gave each value of the platform model.",
     )
 
+    #: The design sources it can take as its inputs: the database and constraints of the clock tree.
+    design_source_types = frozenset({SourceType.OpenroadDbCts, SourceType.OpenroadSdcCts})
+
     metrics_files = ("metrics.json",)
     reports = {
         "congestion": "reports/congestion.rpt",
