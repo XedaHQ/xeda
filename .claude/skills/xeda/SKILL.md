@@ -196,7 +196,7 @@ xeda run yosys_fpga+fpga_pack design.yaml   # same plan: nextpnr runs between th
   entry with `through` lists the flows its link passes through). `bsc_sim`, `vivado_project` and
   `vivado_sim` run alone.
 - `--remote` and `xeda dse` refuse chains and bindings. The conversion of a Bluespec design
-  (below) is no chain or binding: they run it.
+  (below) is no chain or binding: they accept it.
 - A refused chain ends with `Did you mean ...?` when one valid request is near. Planning can still
   refuse a request the chain check passed (related inputs, below).
 
