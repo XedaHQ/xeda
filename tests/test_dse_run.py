@@ -845,3 +845,28 @@ def test_dse_does_not_refuse_a_flow_that_is_not_an_openroad_flow(tmp_path, monke
         )
         is not None
     )
+
+
+def test_a_search_checks_a_bluespec_design_as_the_verilog_that_bsc_converts_it_to(
+    tmp_path, monkeypatch
+):
+    """`vivado_alt_synth` does not read Bluespec. The search plans `bsc` before it, as a launch
+    does, so the design check sees the Verilog, and the search gets as far as its first batch."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Top.bsv").write_text("package Top;\nendpackage\n")
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": ["Top.bsv"], "top": "mkTop", "clock": "CLK"},
+    )
+    runner = Dse(
+        _IdleFmax,
+        optimizer_settings={"init_freq_low": 100.0, "init_freq_high": 200.0},
+        run_root=tmp_path / "run",
+        max_workers=1,
+    )
+    runner.run(
+        "vivado_alt_synth",
+        design,
+        flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": "5 ns"}},
+    )

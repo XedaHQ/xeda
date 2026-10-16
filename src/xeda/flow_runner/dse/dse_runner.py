@@ -38,7 +38,7 @@ from ..default_runner import (
 )
 from ..scrub import run_directory_names
 from ..settings_layers import merge_layers
-from ..resolver import Plan
+from ..resolver import Plan, planned_design_of
 from ..run_lock import run_dir_lock
 from ..trace import as_recorded
 
@@ -415,7 +415,12 @@ class Dse(FlowLauncher):
         # the flow cannot run) would fail every run of the search separately, and be reported
         # only as "no successful run".
         flow_class.check_required_settings(base_settings)
-        flow_class.check_design_supported(design, base_settings)
+        # The design the flow is planned to read: a Bluespec design that bsc turns into Verilog is
+        # checked as the Verilog it will be, as a launch does.
+        flow_class.check_design_supported(
+            planned_design_of(base_plan, base_plan.node(flow_class.name), design, self.run_path_of),
+            base_settings,
+        )
         # Every candidate runs in a sibling of this directory, under the same run root.
         flow_class.check_run_directory(
             base_settings,
