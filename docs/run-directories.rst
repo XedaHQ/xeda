@@ -55,12 +55,12 @@ Inside the run root, the layout depends on ``--hashed-run-dirs``:
 A design selected as a target (``targets.<name>`` in its design file) has one more level, a
 directory named for the target: ``<design>/<target>/<flow>/``, or
 ``<design>/<target>/<flow>_<16-char run hash>/`` with ``--hashed-run-dirs``. Select a target with
-``--target``. A design with one target needs no selection. A design with no target, or with an empty
-``targets`` table, keeps ``<design>/<flow>/``. The target name is not part of the run hash. Two
-targets that yield the same design therefore have the same directory names in two places. Each one
-is built once and stays up to date without the other running it again. A run made before targets
-existed (``<design>/<flow>``) is not a target's run. A launch for a target never reads or removes
-it.
+``--target``. A run without ``--target`` has the layout of the table above, whether the design has
+no target, an empty ``targets`` table, one target or several targets. The target name is not part of
+the run hash. Two targets that yield the same design therefore have the same directory names in two
+places. Each one is built once and stays up to date without the other running it again. A run
+without a target (``<design>/<flow>``) is not a target's run. A launch for a target never reads or
+removes it.
 
 The run directory of a producer is a sibling of the run directory of its consumer. It has the same
 layout and the same target, and it is never nested under the consumer. With ``--hashed-run-dirs``,
@@ -612,11 +612,11 @@ Pruning (``--post-cleanup`` and ``--post-cleanup-purge``) removes the trace firs
 therefore not reused, even though its ``settings.json`` and ``results.json`` remain.
 
 ``xeda scrub <flow> <design_name>`` removes the previous run directories of one flow for one design.
-It runs nothing. It removes the directories directly under ``<design_name>/`` (made before targets
-existed, or by a design without a target) and those under every target directory below it. Xeda
+It runs nothing. It removes the directories directly under ``<design_name>/`` (made without a
+target) and those under every target directory below it. Xeda
 finds them on disk, so it also finds a target that the design file no longer names, and it reads no
 design file. With ``--target NAME``, Xeda searches only ``<design_name>/NAME/``, and leaves the runs
-from before targets and the runs of every other target alone. Scrub lists the directories to remove
+without a target and the runs of every other target alone. Scrub lists the directories to remove
 first and asks you to confirm once. It removes the runs that it listed, which are the runs that you
 confirmed. It takes the lock of each directory first, so it never removes a directory while a launch
 runs in it. It waits until the launch ends. Then it looks at what is at the listed path:

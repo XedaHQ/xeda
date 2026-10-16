@@ -9,7 +9,7 @@ own, built and kept fresh separately. The oracles:
   target, and a design without one keeps `<design>/<flow>`;
 - a plan is bound to the target it was made for, though an equal-effective design of another
   target has equal hashes, and a target that is no name is refused at the path boundary;
-- a pre-target run (`<design>/<flow>`) is never taken for a target's, nor touched by it.
+- a run without a target (`<design>/<flow>`) is never taken for a target's, nor touched by it.
 """
 
 import json
@@ -46,13 +46,23 @@ def private_registry():
 LAYOUTS = {
     "none": (None, None),
     "empty-table": ({}, None),
-    "sole": ({"only": {}}, None),
+    "sole": ({"only": {}}, "only"),
+    "sole-unselected": ({"only": {}}, None),
+    "many-unselected": ({"a": {}, "b": {}}, None),
     "a": ({"a": {}, "b": {}}, "a"),
     "b": ({"a": {}, "b": {}}, "b"),
 }
 BY_LAYOUT = pytest.mark.parametrize("layout", LAYOUTS, ids=list(LAYOUTS))
 #: the target a layout selects (what the design records), None for no target
-SELECTED = {"none": None, "empty-table": None, "sole": "only", "a": "a", "b": "b"}
+SELECTED = {
+    "none": None,
+    "empty-table": None,
+    "sole": "only",
+    "sole-unselected": None,
+    "many-unselected": None,
+    "a": "a",
+    "b": "b",
+}
 
 
 def write_design(tmp_path: Path, targets, sources=(), name="d", file="d.yaml") -> Path:
@@ -194,7 +204,7 @@ def test_the_direct_apis_name_the_designs_target(tmp_path, hashed):
     assert flow.run_path == taker_path
 
 
-def test_no_target_keeps_the_pre_target_path(tmp_path):
+def test_no_target_keeps_the_direct_path(tmp_path):
     launcher = runner(tmp_path)
     assert launcher.run_path_of("d", "__taker") == tmp_path / "xeda_run" / "d" / "__taker"
     assert launcher.run_path_of("d", "__taker", target=None) == (
@@ -269,16 +279,26 @@ def xeda(*args) -> tuple:
     return result, json.loads(result.stdout)
 
 
-@pytest.mark.parametrize("selection", [["--target", "a"], []], ids=["explicit", "sole"])
-def test_a_chain_runs_every_stage_in_its_target(tmp_path, toolchain, selection):
-    targets = {"a": {}, "b": {}} if selection else {"a": {}}
+@pytest.mark.parametrize(
+    "targets, selection, target",
+    [
+        ({"a": {}, "b": {}}, ["--target", "a"], "a"),
+        ({"a": {}}, ["--target", "a"], "a"),
+        ({"a": {}, "b": {}}, [], None),
+        ({"a": {}}, [], None),
+    ],
+    ids=["explicit", "sole", "many-unselected", "sole-unselected"],
+)
+def test_a_chain_runs_every_stage_in_its_target(tmp_path, toolchain, targets, selection, target):
     design = chain_design(tmp_path, targets)
     result, document = xeda("run", CHAIN, design, *selection)
     assert result.exit_code == 0, result.output
-    root = tmp_path / "xeda_run" / "chain_ulx3s" / "a"
+    base = tmp_path / "xeda_run" / "chain_ulx3s"
+    root = base / target if target else base
     assert [Path(n["run_path"]) for n in document["nodes"]] == [root / s for s in STAGES]
-    assert document["target"] == "a"
-    assert sorted(p.name for p in (tmp_path / "xeda_run" / "chain_ulx3s").iterdir()) == ["a"]
+    assert document["target"] == target
+    entered = sorted(p.name for p in base.iterdir() if p.is_dir())
+    assert entered == ([target] if target else sorted(STAGES))
 
 
 def test_a_chain_of_two_equal_targets_builds_in_two_places_and_stays_fresh_in_each(
@@ -349,7 +369,7 @@ def test_a_plan_of_one_target_is_refused_for_an_equal_design_of_another(tmp_path
 
 
 def test_a_plan_of_a_target_is_refused_for_the_same_design_without_one(tmp_path):
-    targeted = Design.from_file(write_design(tmp_path, {"a": {}}))
+    targeted = Design.from_file(write_design(tmp_path, {"a": {}}), target="a")
     flat = Design.from_file(write_design(tmp_path, None, file="flat.yaml"))
     launcher = runner(tmp_path)
     assert targeted.target == "a" and flat.target is None
@@ -406,7 +426,7 @@ def test_targets_that_differ_only_in_letter_case_are_refused_at_load(tmp_path):
 
 def test_a_target_directory_leading_out_of_the_run_root_is_refused(tmp_path):
     launcher = runner(tmp_path)
-    design = Design.from_file(write_design(tmp_path, {"a": {}}))
+    design = Design.from_file(write_design(tmp_path, {"a": {}}), target="a")
     plan_root = tmp_path / "xeda_run"
     from xeda.run_root import ensure_run_root
 
@@ -422,10 +442,10 @@ def test_a_target_directory_leading_out_of_the_run_root_is_refused(tmp_path):
     assert list(outside.iterdir()) == []
 
 
-# ---------------------------------------------------------------------- the older layout
+# ---------------------------------------------------------------------- the layout without a target
 
 
-def test_a_pre_target_run_is_neither_reused_nor_touched_by_a_target(tmp_path):
+def test_a_run_without_a_target_is_neither_reused_nor_touched_by_a_target(tmp_path):
     """No migration, no fallback: `<design>/<flow>` holds a run no board was recorded for."""
     flat = Design.from_file(write_design(tmp_path, None, file="flat.yaml"))
     launcher = runner(tmp_path)
@@ -433,7 +453,7 @@ def test_a_pre_target_run_is_neither_reused_nor_touched_by_a_target(tmp_path):
     direct = [tmp_path / "xeda_run" / "d" / name for name in ("__maker", "__taker")]
     before = tool_utils.run_outputs_state(*direct)
 
-    targeted = Design.from_file(write_design(tmp_path, {"a": {}}))
+    targeted = Design.from_file(write_design(tmp_path, {"a": {}}), target="a")
     launcher = runner(tmp_path)
     flow = launcher.run(_Taker, targeted)
     assert flow.succeeded and not flow.reused
@@ -448,7 +468,7 @@ def test_a_pre_target_run_is_neither_reused_nor_touched_by_a_target(tmp_path):
 
 
 def test_a_target_run_directory_is_not_a_run_of_the_flat_layout(tmp_path):
-    targeted = Design.from_file(write_design(tmp_path, {"a": {}}))
+    targeted = Design.from_file(write_design(tmp_path, {"a": {}}), target="a")
     assert runner(tmp_path).run(_Taker, targeted).succeeded
     base = tmp_path / "xeda_run" / "d"
     assert sorted(p.name for p in base.iterdir() if p.is_dir()) == ["a"]
@@ -460,7 +480,7 @@ def test_a_target_run_directory_is_not_a_run_of_the_flat_layout(tmp_path):
 
 def test_the_maker_alone_is_not_reached_through_the_taker_s_target(tmp_path):
     """A producer requested by itself lives in the same target parent as when it is a producer."""
-    design = Design.from_file(write_design(tmp_path, {"a": {}}))
+    design = Design.from_file(write_design(tmp_path, {"a": {}}), target="a")
     launcher = runner(tmp_path)
     assert launcher.run(_Maker, design).succeeded
     assert launcher.launched[-1].run_path == tmp_path / "xeda_run" / "d" / "a" / "__maker"

@@ -555,7 +555,9 @@ Targets
 
 One design file can describe the design for several boards. Each entry of ``targets`` is an
 overlay on the design. It takes the keys of the design file, merged over them, and ``--target
-NAME`` selects one.
+NAME`` selects one. Without ``--target``, Xeda uses the design itself. So the top level of the file
+can hold the settings that suit most flows (simulation, ASIC, Vivado), and the targets can hold the
+choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
 
 .. code-block:: yaml
 
@@ -582,7 +584,8 @@ NAME`` selects one.
 
 .. code-block:: bash
 
-    xeda run nextpnr knight.yaml --target ulx3s
+    xeda run bsc_sim knight.yaml                   # the design itself, with no target
+    xeda run nextpnr knight.yaml --target ulx3s    # the design with the target ulx3s
 
 * A target takes ``rtl``, ``tb``, ``flows`` and every other key of a design file, including
   the flat forms (``sources``, ``defines``, ``top``, ``clock``, ...). In a target they mean
@@ -630,10 +633,12 @@ NAME`` selects one.
   they share, such as ``yosys_fpga`` and ``nextpnr`` that name different boards, are a different
   case, and that is an error.
 * A path in a target resolves against the design root, like the paths of the design.
-* A design with one target needs no ``--target``. With several targets, ``--target`` is
-  required, and the error lists them. ``--target`` on a design without ``targets`` is an error.
-  From Python, write ``Design.from_file(path, target="ulx3s")``. ``--design-overrides`` are an
-  overlay on the selected design, like a target, and merge by the same rules: a short form means
+* A target is optional. Without ``--target``, Xeda uses the design itself, with no overlay, whatever
+  the number of targets. A lone target is not selected automatically. ``--target NAME`` selects
+  that target. An unknown name is an error, and the error lists the targets. ``--target`` on a
+  design without ``targets`` is an error. From Python, write
+  ``Design.from_file(path, target="ulx3s")``. ``--design-overrides`` are an overlay on the
+  selected design, like a target, and merge by the same rules: a short form means
   its table, and an override does not hide a mistake in the design. One rule differs. Only a
   target adds its ``sources`` to the design's, because its job is to add the files of a board. A
   ``sources`` override (``rtl.sources`` or ``tb.sources``) replaces the whole list, the sources of
@@ -647,12 +652,12 @@ NAME`` selects one.
   (``target`` in the ``--json`` documents, ``null`` without one), and it is no part of the
   identity of the design.
 * A selected target has run directories of its own, ``<run root>/<design>/<target>/<flow>``
-  (``<flow>_<hash>`` with ``--hashed-run-dirs``). This also holds when Xeda selected the target
-  because it is the only one. A design without targets keeps ``<design>/<flow>``. Two targets that
+  (``<flow>_<hash>`` with ``--hashed-run-dirs``). A run without ``--target`` keeps
+  ``<design>/<flow>``, whether or not the design has targets. Two targets that
   yield the same design therefore build separately, and each stays up to date, although they have
-  the same hashes. A launch for a target leaves a run made before targets existed alone.
+  the same hashes. A launch for a target leaves the run without a target alone.
   ``xeda scrub FLOW DESIGN --target NAME`` removes only the runs of that target.
-  ``xeda scrub FLOW DESIGN`` removes the runs of every target and the older ones too.
+  ``xeda scrub FLOW DESIGN`` removes the runs of every target and the runs without a target too.
 
 ``xeda run`` and ``xeda dse`` take ``--target``. The designs in a project file take targets in the
 same way.

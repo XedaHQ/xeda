@@ -310,8 +310,9 @@ targets:
         board: ulx3s_85f
 ```
 
-- One target needs no `--target`; several need it, and the error lists them. `--target` on a
-  design without targets is an error. API: `Design.from_file(path, target=...)`.
+- A target is optional. Without `--target`, Xeda uses the design itself, whatever the number of
+  targets. An unknown name is an error that lists the targets. `--target` on a design without
+  targets is an error. API: `Design.from_file(path, target=...)`.
 - Where design and target both write a key, the target wins with no error (its
   `flows.nextpnr.board` replaces the design's); other keys stay. Mappings merge at every depth,
   `sources` append, any other list replaces. A null or empty `flows` table or section adds
@@ -326,8 +327,9 @@ targets:
   directory name; two names that differ only in case are refused. A design file has no `target`
   key. `--json` documents report `target`.
 - A selected target has its own run directories, `<run root>/<design>/<target>/<flow>`; runs made
-  without targets are left alone. `xeda scrub FLOW DESIGN --target NAME` removes only that
-  target's runs; without `--target` it removes every target's and the older ones.
+  without a selected target are left alone. `xeda scrub FLOW DESIGN --target NAME` removes only
+  that target's runs; without `--target` it removes every target's runs and the runs without a
+  target too.
 - `board`, `fpga` and `custom_boards_file` go under the target's `flows.<flow>`; at the target's
   top level they are refused, naming that.
 

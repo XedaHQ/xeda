@@ -768,10 +768,10 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
 @click.option(
     "--target",
     metavar="NAME",
-    help="Select one of the design's `targets` (`targets.NAME` in the design file). A design "
-    "with a single target needs no selection; a design with several targets does. For each "
-    "key a target sets, its value wins over the design's and the project's. The order, lowest "
-    "first, is defaults < project < design < target < -s < API.",
+    help="Select one of the design's `targets` (`targets.NAME` in the design file). Without "
+    "this option, Xeda uses the design itself, with no target. For each key a target sets, its "
+    "value wins over the design's and the project's. The order, lowest first, is defaults < "
+    "project < design < target < -s < API.",
 )
 @click.option(
     "--design-overrides",
@@ -1298,10 +1298,10 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
 @click.option(
     "--target",
     metavar="NAME",
-    help="Select one of the design's `targets` (`targets.NAME` in the design file). A design "
-    "with a single target needs no selection; a design with several targets does. For each "
-    "key a target sets, its value wins over the design's and the project's. The order, lowest "
-    "first, is defaults < project < design < target < -s < API.",
+    help="Select one of the design's `targets` (`targets.NAME` in the design file). Without "
+    "this option, Xeda uses the design itself, with no target. For each key a target sets, its "
+    "value wins over the design's and the project's. The order, lowest first, is defaults < "
+    "project < design < target < -s < API.",
 )
 @click.option(
     "--design",

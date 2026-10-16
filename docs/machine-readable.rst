@@ -337,9 +337,9 @@ failure before Xeda reads the design has no name to report for a design file. It
 ``null``, and ``design_file`` still says which file it was. Every ``run`` and ``dse`` document
 carries both keys: the document of a failure, of a dry run and of a ``--remote`` run too.
 
-``target`` is the name of the target that the design selected (see :ref:`targets`), or ``null`` for
-a design without targets. Every ``run`` and ``dse`` document carries it, the document of a failure
-too, and so does the ``plan`` of a dry run.
+``target`` is the name given with ``--target`` (see :ref:`targets`), or ``null`` without it. This
+holds for an unknown name too. Every ``run`` and ``dse`` document carries it, the document of a
+failure too, and so does the ``plan`` of a dry run.
 
 ``nodes`` lists every run directory that the launch touched, once each and in the order of
 completion. This includes the run directory of the requested flow and of each producer. Each entry

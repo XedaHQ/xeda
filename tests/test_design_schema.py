@@ -368,8 +368,10 @@ def test_every_target_of_a_design_agrees_with_the_schema_and_the_loader(path):
 def test_the_schema_refuses_what_the_loader_refuses_in_targets(targets, tmp_path):
     data = {"name": "d", "rtl": {"sources": [], "top": "t"}, "targets": targets}
     assert not validator().is_valid(data)
+    # The loader judges the form of every target, and the values of the selected one.
+    selected = next(iter(targets)) if isinstance(targets, dict) else None
     with pytest.raises(Exception):
-        Design(design_root=tmp_path, **data)
+        Design(design_root=tmp_path, **Design.select_target(data, selected))
 
 
 @pytest.mark.parametrize("spelling", ["parameters", "generics"])

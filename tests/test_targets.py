@@ -6,7 +6,10 @@ after the loader knows about targets but the documents that report the name.
 """
 
 import json
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -116,7 +119,7 @@ def test_sources_are_appended_and_other_lists_replace(tmp_path):
             }
         },
     }
-    design = Design.from_file(write_design(tmp_path, data))
+    design = Design.from_file(write_design(tmp_path, data), target="t")
     assert [s.file.name for s in design.rtl.sources] == ["knight.v", "por_sync.v", "arty.xdc"]
     assert [s.file.name for s in design.tb.sources] == ["knight_tb.v", "ulx3s.lpf"]
     assert design.authors == ["C <c@example.com>"]
@@ -142,14 +145,14 @@ def test_a_target_meets_the_design_s_other_spelling_of_a_key(tmp_path):
             "t": {"parameters": {"WIDTH": 4}, "flows": {"nextpnr": {"board": "ulx3s_85f"}}}
         },
     }
-    design = Design.from_file(write_design(tmp_path, data))
+    design = Design.from_file(write_design(tmp_path, data), target="t")
     assert design.rtl.parameters == {"WIDTH": 4, "DEPTH": 2}
     assert design.flow["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
 
 
 def test_dotted_keys_in_a_target_are_expanded(tmp_path):
     data = {**BASE, "targets": {"t": {"clock.port": "CLK", "flows.nextpnr.seed": 5}}}
-    design = Design.from_file(write_design(tmp_path, data))
+    design = Design.from_file(write_design(tmp_path, data), target="t")
     assert design.rtl.clock is not None and design.rtl.clock.port == "CLK"
     assert design.flow == {"nextpnr": {"seed": 5}}
 
@@ -159,14 +162,16 @@ def test_a_target_s_paths_resolve_against_the_design_root(tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path / "elsewhere")
     (tmp_path / "d").mkdir()
     path = write_design(tmp_path / "d", {**BASE, "targets": {"t": {"sources": ["arty.xdc"]}}})
-    design = Design.from_file(path)
+    design = Design.from_file(path, target="t")
     assert design.rtl.sources[-1].file == (tmp_path / "d" / "arty.xdc").resolve()
 
 
 def test_design_overrides_win_over_the_target(tmp_path):
     data = {**BASE, "targets": {"t": {"top": "from_target", "defines": {"A": 1, "B": 1}}}}
     design = Design.from_file(
-        write_design(tmp_path, data), overrides={"top": "from_override", "defines": {"A": 2}}
+        write_design(tmp_path, data),
+        target="t",
+        overrides={"top": "from_override", "defines": {"A": 2}},
     )
     assert design.rtl.top == "from_override"
     assert design.rtl.defines == {"A": 2, "B": 1}
@@ -211,8 +216,9 @@ def test_a_sources_override_replaces_the_design_s_sources(
     list: what a selected target added with it."""
     data = {**SOURCES_DESIGN, **({"targets": {"t": SOURCES_TARGET}} if with_target else {})}
     path = write_design(tmp_path, data)
-    design = Design.from_file(path, overrides=overrides)
-    kept = Design.from_file(path)
+    target = "t" if with_target else None
+    design = Design.from_file(path, target=target, overrides=overrides)
+    kept = Design.from_file(path, target=target)
     assert source_names(kept.rtl.sources) == (
         ["knight.v", "por_sync.v", "arty.xdc"] if with_target else ["knight.v", "por_sync.v"]
     )
@@ -243,7 +249,7 @@ def test_a_sources_override_replaces_a_project_design_s_sources_and_a_target_s(t
 def test_design_overrides_cannot_change_or_hide_the_selected_target(tmp_path, reported_target):
     path = write_design(tmp_path, {**BASE, "targets": {"t": {"top": "from_target"}}})
     with pytest.raises(DesignValidationError, match="cannot be overridden"):
-        Design.from_file(path, overrides={"target": reported_target})
+        Design.from_file(path, target="t", overrides={"target": reported_target})
 
 
 def test_project_design_overrides_cannot_forge_the_selected_target(tmp_path):
@@ -255,20 +261,42 @@ def test_project_design_overrides_cannot_forge_the_selected_target(tmp_path):
 # ------------------------------------------------------------------------------ selection
 
 
-def test_one_target_and_no_selection_uses_that_target():
+def test_one_target_is_not_selected_automatically():
     design = Design.from_file(SINGLE)
-    assert design.target == "arty"
-    assert [s.file.name for s in design.rtl.sources] == ["knight.v", "arty.xdc"]
-    assert design.rtl.defines == {"CLK_HZ": 100000000}
+    assert design.target is None
+    assert [s.file.name for s in design.rtl.sources] == ["knight.v"]
+    assert design.rtl.defines == {}
     assert design.rtl.top == "knight"
+    selected = Design.from_file(SINGLE, target="arty")
+    assert selected.target == "arty"
+    assert [s.file.name for s in selected.rtl.sources] == ["knight.v", "arty.xdc"]
+    assert selected.rtl.defines == {"CLK_HZ": 100000000}
 
 
-def test_several_targets_and_no_selection_lists_them():
-    with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(KNIGHT)
-    message = str(raised.value)
-    assert "arty, ulx3s" in message and "--target" in message
-    assert str(KNIGHT) in message
+def test_several_targets_and_no_selection_is_the_design_itself():
+    base = Design.from_file(KNIGHT)
+    assert base.target is None
+    assert "targets" not in base.model_dump()
+    assert [s.file.name for s in base.rtl.sources] == ["knight.v", "por_sync.v"]
+    assert base.rtl.parameters == {"WIDTH": 8}
+    assert base.flow["nextpnr"] == {"seed": 3}
+    assert design_hash(base) != design_hash(Design.from_file(KNIGHT, target="arty"))
+
+
+def test_no_selection_is_the_design_written_without_its_targets(tmp_path):
+    data = yaml.safe_load(KNIGHT.read_text())
+    with_targets = Design.from_file(write_design(tmp_path, data, "with_targets.yaml"))
+    del data["targets"]
+    flat = Design.from_file(write_design(tmp_path, data, "flat.yaml"))
+    assert with_targets.model_dump() == flat.model_dump()
+    assert design_hash(with_targets) == design_hash(flat)
+
+
+def test_a_target_that_is_not_selected_is_still_checked_for_its_form(tmp_path):
+    message = error_of(tmp_path, {**BASE, "targets": {"t": {}, "u": {"sorces": ["x"]}}})
+    assert "targets.u.sorces" in message and "did you mean `sources`" in message
+    message = error_of(tmp_path, {**BASE, "targets": {"t": {}, "T": {}}})
+    assert "differ only in letter case" in message
 
 
 def test_an_unknown_target_lists_them_with_a_close_match():
@@ -314,16 +342,16 @@ def test_an_empty_targets_table_is_no_targets(tmp_path):
     assert design.target is None
 
 
-def test_a_design_built_from_data_selects_its_only_target(tmp_path):
+def test_a_design_built_from_data_has_no_target_unless_one_is_selected(tmp_path):
     write_design(tmp_path, BASE)
-    design = Design(design_root=tmp_path, **BASE, targets={"t": {"defines": {"A": 1}}})
-    assert design.target == "t" and design.rtl.defines == {"A": 1}
-    with pytest.raises(DesignValidationError, match="a, b"):
-        Design(design_root=tmp_path, **BASE, targets={"a": {}, "b": {}})
+    for targets in ({"t": {"defines": {"A": 1}}}, {"a": {}, "b": {}}):
+        design = Design(design_root=tmp_path, **BASE, targets=targets)
+        assert design.target is None and design.rtl.defines == {}
     chosen = Design(
-        design_root=tmp_path, **Design.select_target({**BASE, "targets": {"a": {}, "b": {}}}, "b")
+        design_root=tmp_path,
+        **Design.select_target({**BASE, "targets": {"a": {}, "b": {"defines": {"A": 1}}}}, "b"),
     )
-    assert chosen.target == "b"
+    assert chosen.target == "b" and chosen.rtl.defines == {"A": 1}
 
 
 def test_a_recorded_target_survives_a_dump_and_reload():
@@ -401,7 +429,7 @@ def test_an_unknown_key_in_a_target_names_it_and_a_close_match(tmp_path):
 
 
 def test_an_unknown_nested_key_in_a_target_is_the_loader_s_error(tmp_path):
-    message = error_of(tmp_path, {**BASE, "targets": {"t": {"rtl": {"tpo": "x"}}}})
+    message = error_of(tmp_path, {**BASE, "targets": {"t": {"rtl": {"tpo": "x"}}}}, target="t")
     assert "rtl.tpo" in message and "Extra inputs are not permitted" in message
 
 
@@ -435,7 +463,10 @@ def test_a_project_design_takes_a_target_the_same_way(tmp_path):
     flat = Design.from_file(RESOURCES / "knight_ulx3s_flat.yaml")
     assert design.rtl_hash == flat.rtl_hash and design.flow == flat.flow
     with pytest.raises(DesignValidationError, match="arty, ulx3s"):
-        project.get_design("knight")
+        project.get_design("knight", target="nexys")
+    base = project.get_design("knight")
+    assert base is not None and base.target is None
+    assert [s.file.name for s in base.rtl.sources] == ["knight.v", "por_sync.v"]
     with pytest.raises(DesignValidationError, match="no `targets`"):
         project.get_design("plain", target="arty")
     plain = project.get_design("plain")
@@ -488,13 +519,13 @@ def test_a_built_design_takes_no_target(tmp_path):
 def test_a_dry_run_reports_the_target(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result, document = invoke("run", "vivado_synth", str(KNIGHT), "--target", "arty", "--dry-run")
-    assert result.exit_code == 0, document
+    assert result.exit_code == 0, document.get("error")
     assert document["target"] == "arty" and document["plan"]["target"] == "arty"
 
     result, document = invoke(
         "run", "vivado_synth", str(SINGLE.parent / "knight_arty_flat.yaml"), "--dry-run"
     )
-    assert result.exit_code == 0, document
+    assert result.exit_code == 0, document.get("error")
     assert document["target"] is None and document["plan"]["target"] is None
 
     text = CliRunner().invoke(
@@ -507,14 +538,14 @@ def test_a_run_reports_the_target(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     use_fake_tools(monkeypatch)
     result, document = invoke("run", "vivado_synth", str(KNIGHT), "--target", "arty")
-    assert result.exit_code == 0, document
+    assert result.exit_code == 0, document.get("error")
     assert document["success"] is True and document["target"] == "arty"
     settings = json.loads(Path(document["settings_json"]).read_text())
     assert settings["design"]["target"] == "arty"
 
     flat = RESOURCES / "knight_arty_flat.yaml"
     result, document = invoke("run", "vivado_synth", str(flat), "--run-root", "flat")
-    assert result.exit_code == 0, document
+    assert result.exit_code == 0, document.get("error")
     assert document["target"] is None
 
 
@@ -532,23 +563,88 @@ def test_design_overrides_of_the_command_line_replace_the_sources_of_a_target(
         "--design-overrides",
         "rtl.sources=por_sync.v",
     )
-    assert result.exit_code == 0, document
+    assert result.exit_code == 0, document.get("error")
     design = json.loads(Path(document["settings_json"]).read_text())["design"]
     assert [Path(source).name for source in design["rtl"]["sources"]] == ["por_sync.v"]
     assert [Path(source).name for source in design["tb"]["sources"]] == ["knight_tb.v"]
 
 
-def test_a_failed_selection_is_a_document_that_names_the_targets(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    result, document = invoke("run", "vivado_synth", str(KNIGHT))
-    assert result.exit_code == 1 and document["success"] is False
-    assert document["target"] is None
-    assert document["error"]["type"] == "DesignValidationError"
-    assert "arty, ulx3s" in document["error"]["message"]
+#: The device that a design needs for `vivado_synth` when no target supplies one.
+PART = ("-s", "fpga.part=xc7a100tcsg324-1")
 
+
+def test_a_run_without_a_target_uses_the_design_whatever_the_number_of_targets(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    use_fake_tools(monkeypatch)
+    designs = (("many", KNIGHT, ["knight.v", "por_sync.v"]), ("one", SINGLE, ["knight.v"]))
+    for name, design, sources in designs:
+        result, document = invoke("run", "vivado_synth", str(design), "--run-root", name, *PART)
+        assert result.exit_code == 0, document.get("error")
+        assert document["success"] is True and document["target"] is None
+        run_path = Path(document["run_path"])
+        assert run_path == (tmp_path / name / design.stem / "vivado_synth").resolve()
+        settings = json.loads(Path(document["settings_json"]).read_text())
+        assert settings["design"]["target"] is None
+        # No overlay reached the design: neither the sources nor the defines of a target.
+        rtl = settings["design"]["rtl"]
+        assert [Path(source).name for source in rtl["sources"]] == sources
+        assert "CLK_HZ" not in (rtl.get("defines") or {})
+    result, document = invoke(
+        "run", "vivado_synth", str(SINGLE), "--run-root", "one", "--dry-run", *PART
+    )
+    assert result.exit_code == 0, document.get("error")
+    assert document["target"] is None and document["plan"]["target"] is None
+
+
+def test_a_selected_target_has_its_own_run_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    use_fake_tools(monkeypatch)
+    result, document = invoke("run", "vivado_synth", str(SINGLE), "--target", "arty", *PART)
+    assert result.exit_code == 0, document.get("error")
+    assert document["target"] == "arty"
+    expected = (tmp_path / "xeda_run" / "single" / "arty" / "vivado_synth").resolve()
+    assert Path(document["run_path"]) == expected
+
+
+def test_a_project_run_without_a_target_uses_the_design(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    project = project_file(tmp_path)
+    arguments = (
+        "run",
+        "vivado_synth",
+        "--xedaproject",
+        str(project),
+        "--design-name",
+        "knight",
+        *PART,
+    )
+    result, document = invoke(*arguments, "--dry-run")
+    assert result.exit_code == 0, document.get("error")
+    assert document["target"] is None and document["plan"]["target"] is None
+    result, document = invoke(*arguments, "--target", "arty", "--dry-run")
+    assert result.exit_code == 0, document.get("error")
+    assert document["target"] == "arty" and document["plan"]["target"] == "arty"
+
+
+def test_an_unknown_target_is_a_document_that_names_the_targets(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     result, document = invoke("run", "vivado_synth", str(KNIGHT), "--target", "nexys")
     assert result.exit_code == 1 and document["target"] == "nexys"
+    assert document["success"] is False
+    assert document["error"]["type"] == "DesignValidationError"
     assert "arty, ulx3s" in document["error"]["message"]
+    assert not (tmp_path / "xeda_run").exists()
+
+
+def test_a_target_for_a_design_without_targets_is_a_document(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    path = write_design(tmp_path, BASE)
+    result, document = invoke("run", "vivado_synth", str(path), "--target", "arty")
+    assert result.exit_code == 1 and document["target"] == "arty"
+    assert document["error"]["type"] == "DesignValidationError"
+    assert "no `targets`" in document["error"]["message"]
     assert not (tmp_path / "xeda_run").exists()
 
 
@@ -568,6 +664,34 @@ def test_dse_takes_a_target(tmp_path, monkeypatch):
     )
     assert result.exit_code == 1 and document["target"] == "nexys"
     assert "arty, ulx3s" in document["error"]["message"]
+
+
+@pytest.mark.parametrize("target", [None, "b"])
+def test_dse_uses_the_design_unless_a_target_is_given(tmp_path, target):
+    """The exploration follows the same rule as `xeda run`, here in a real command."""
+    sqrt = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
+    for name in ("sqrt.vhdl", "tb_sqrt.py"):
+        shutil.copy(sqrt / name, tmp_path)
+    text = (sqrt / "sqrt.yaml").read_text() + "\ntargets:\n  a: {}\n  b: {}\n"
+    (tmp_path / "sqrt.yaml").write_text(text)
+    command = [sys.executable, "-m", "xeda", "dse", "vivado_synth", "--design", "sqrt.yaml"]
+    command += ["--max-workers", "2", "--init-freq-low", "100", "--init-freq-high", "300"]
+    command += ["--dse-settings", "max_failed_iters=2", "--json"]
+    command += ["--target", target] if target else []
+    fake_tools = str(Path(__file__).parent / "fake_tools")
+    proc = subprocess.run(
+        command,
+        cwd=tmp_path,
+        env={**os.environ, "PATH": fake_tools + os.pathsep + os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    document = json.loads(proc.stdout)
+    assert document["success"] is True and document["target"] == target
+    run_dir = Path(document["best"]["run_path"]).resolve().parent.name
+    assert run_dir == (target or "sqrt")
 
 
 # ------------------------------------------------------------------------------ the layer order
@@ -689,7 +813,9 @@ def test_a_shared_leaf_at_a_target_s_top_level_is_refused_and_says_where_it_goes
 def test_a_design_clock_carries_no_frequency(tmp_path):
     """Investigation (a): `rtl.clock` names a port; a constraint is a flow's `clock` setting."""
     message = error_of(
-        tmp_path, {**BASE, "targets": {"t": {"clock": {"port": "CLK", "freq": "100MHz"}}}}
+        tmp_path,
+        {**BASE, "targets": {"t": {"clock": {"port": "CLK", "freq": "100MHz"}}}},
+        target="t",
     )
     assert "freq" in message and "Extra inputs are not permitted" in message
 
