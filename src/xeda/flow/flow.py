@@ -1074,6 +1074,7 @@ class Flow(metaclass=ABCMeta):
             raise FlowSettingsException(
                 f"{cls.name} cannot read the design's {' and '.join(kinds)} source(s) "
                 f"{', '.join(str(src.file) for src in unread)}; it reads {reads}"
+                + cls._testbench_hint(unread, by_part)
             )
         if not any(src.type in cls.reads_sources for src in listed):
             has = ", ".join(
@@ -1084,6 +1085,33 @@ class Flow(metaclass=ABCMeta):
             raise NoReadableSource(
                 f"{cls.name} reads none of the design's sources: {has}; {cls.name} reads {reads}"
             )
+
+    @classmethod
+    def _testbench_hint(cls, unread: list[DesignSource], by_part: dict[str, Any]) -> str:
+        """Return `; simulate a <language> testbench with <flows>` for a simulator that is given a
+        testbench in a language it cannot read, when other simulators read that language; else "".
+
+        The names come from the registry: the simulators that read every unread language."""
+        from .sim import SimFlow
+
+        rtl = by_part.get("rtl", [])
+        if not issubclass(cls, SimFlow) or any(src is own for src in unread for own in rtl):
+            return ""
+        languages = {src.type for src in unread}
+        names = sorted(
+            {
+                flow_class.name
+                for _module, flow_class in registered_flows.values()
+                if issubclass(flow_class, SimFlow)
+                and flow_class is not cls
+                and flow_class.reads_sources is not None
+                and languages <= flow_class.reads_sources
+            }
+        )
+        if not names:
+            return ""
+        kinds = " and ".join(sorted(member.name for member in languages))
+        return f"; simulate a {kinds} testbench with {' or '.join(names)}"
 
     @classmethod
     def design_conversion(cls, settings: Flow.Settings) -> DesignConversion | None:

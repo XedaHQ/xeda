@@ -29,7 +29,7 @@ def input_settings(
     flow_settings: dict[str, Any] | Flow.Settings | None,
     design: Design,
     runner_cwd: Path,
-    depender: Flow | None = None,
+    producer: bool = False,
     *,
     debug: bool = False,
 ) -> Flow.Settings:
@@ -38,11 +38,15 @@ def input_settings(
     They are never modified afterwards. The flow works on a copy of its own (`flow.settings`),
     which its `__init__`, `init()` and `run()` may complete with derived values, resolved paths
     and outputs, without any of that leaking into the identity of the run.
+
+    `design` is the design that the flow is planned to read (`resolver.planned_design_of`).
+    `producer` says that the launch serves a consumer, which suggests no node to a failing
+    setting: the requested flow does.
     """
     try:
         settings = settings_in_context(flow_class, flow_settings, design.root_path, runner_cwd)
     except FlowSettingsError as error:
-        if depender is None:
+        if not producer:
             suggest_dependency_node(flow_class, error)
         raise
     if debug:
