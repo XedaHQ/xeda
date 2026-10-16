@@ -333,7 +333,9 @@ class AsicPlatformFlow(_FlowBase):
             read = (
                 {}
                 if upstream is None
-                else read_upstream(upstream.adapter, located.upstream_files, located.directory)
+                else read_upstream(
+                    upstream.adapter, located.upstream_files, located.directory, located.library
+                )
             )
             model = build_platform(located, bundled, user, derived, read)
         except ValueError as error:

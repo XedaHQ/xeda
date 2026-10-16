@@ -1,0 +1,10 @@
+# nangate45.yaml
+# The bundled nangate45 platform with one change: xeda reads the files of the platform from the
+# directory `flow/platforms` of an OpenROAD-flow-scripts checkout (`pdk_root`), the files that
+# ORFS itself reads. The bundled platform already holds the values of ORFS for this PDK.
+name: nangate45
+extends: nangate45
+description: nangate45 from the platform directory of an OpenROAD-flow-scripts checkout
+providers:
+  default: directory
+  directory: {layout: orfs}

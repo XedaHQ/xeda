@@ -37,12 +37,22 @@ yosys read_verilog {{lib.flags|join(" ")}} {{lib.path|read_path}}
 yosys log -stdout "** Reading {{src|tcl_quote}} **"
 yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|read_path}}
     {% elif src.type.name == "SystemVerilog" %}
-yosys log -stdout "** Reading {{src|tcl_quote}} **"
+        {#- the slang and uhdm plugin front ends do not strip quotes, so use `verbatim_path`.
+            slang elaborates what one `read_slang` reads as one compilation, so the first
+            SystemVerilog source reads them all: a package of one file is then known in the
+            others, as in OpenROAD-flow-scripts. #}
         {%- if slang_plugin %}
-yosys read_slang --extern-modules --best-effort-hierarchy{% if settings.read_systemverilog_flags %} {{settings.read_systemverilog_flags|join(" ")}}{% endif %} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|verbatim_path}}
+            {%- if src is sameas sv_files[0] %}
+                {%- for sv in sv_files %}
+yosys log -stdout "** Reading {{sv|tcl_quote}} **"
+                {%- endfor %}
+yosys read_slang --extern-modules --best-effort-hierarchy{% if settings.read_systemverilog_flags %} {{settings.read_systemverilog_flags|join(" ")}}{% endif %} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{sv_files|map("verbatim_path")|join(" ")}}
+            {%- endif %}
         {%- elif uhdm_plugin %}
+yosys log -stdout "** Reading {{src|tcl_quote}} **"
 yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src|verbatim_path}}
         {%- else %}
+yosys log -stdout "** Reading {{src|tcl_quote}} **"
 yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|read_path}}
         {%- endif %}
     {% endif -%}

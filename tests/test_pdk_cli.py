@@ -83,6 +83,27 @@ def touch_all(directory: Path, residue: Residue) -> None:
         path.write_text("")
 
 
+def sky130_directory(root: Path) -> Path:
+    entry = load_residue("sky130hd").providers.ciel
+    assert entry is not None
+    return root / "ciel" / entry.family / "versions" / entry.version / entry.variant
+
+
+def install_sky130(root: Path) -> None:
+    """Put sky130hd in the store `root` as a finished install of `ciel` leaves it."""
+    residue = load_residue("sky130hd")
+    directory = sky130_directory(root)
+    for name in every_corner_file(residue):
+        path = directory / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("")
+    entry = residue.providers.ciel
+    assert entry is not None
+    receipt = root / "xeda" / "receipts" / f"sky130hd-{entry.version}.json"
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text("{}\n")
+
+
 def nangate_directory(root: Path, commit: Optional[str] = None) -> Path:
     entry = load_residue("nangate45").providers.orfs
     assert entry is not None
@@ -113,7 +134,7 @@ def test_list_platforms_lists_nangate45_as_not_installed_in_an_empty_home(home):
     proc = run_xeda("list-platforms", "--json", home=home)
     assert proc.returncode == 0, proc.stderr
     rows = {row["platform"]: row for row in document(proc)}
-    assert list(rows) == ["nangate45"]
+    assert list(rows) == ["nangate45", "sky130hd"]
     entry = load_residue("nangate45").providers.orfs
     assert entry is not None
     assert rows["nangate45"] == {
@@ -121,6 +142,15 @@ def test_list_platforms_lists_nangate45_as_not_installed_in_an_empty_home(home):
         "description": "FreePDK45 with the Nangate Open Cell Library",
         "provider": "orfs",
         "version": entry.version,
+        "installed": False,
+    }
+    sky130 = load_residue("sky130hd").providers.ciel
+    assert sky130 is not None
+    assert rows["sky130hd"] == {
+        "platform": "sky130hd",
+        "description": load_residue("sky130hd").description,
+        "provider": "ciel",
+        "version": sky130.version,
         "installed": False,
     }
     assert not (home / ".ciel").exists()
@@ -134,6 +164,17 @@ def test_list_platforms_says_where_an_installed_platform_is(home):
     assert row["directory"] == str(nangate_directory(root))
 
 
+def test_list_platforms_says_where_an_installed_ciel_platform_is(home):
+    root = home / ".ciel"
+    install_sky130(root)
+    rows = {
+        row["platform"]: row for row in document(run_xeda("list-platforms", "--json", home=home))
+    }
+    assert rows["sky130hd"]["installed"] is True
+    assert rows["sky130hd"]["directory"] == str(sky130_directory(root))
+    assert rows["nangate45"]["installed"] is False
+
+
 def test_list_platforms_table_says_how_to_install_what_is_missing(home):
     proc = run_xeda("list-platforms", home=home)
     assert proc.returncode == 0, proc.stderr
@@ -143,6 +184,7 @@ def test_list_platforms_table_says_how_to_install_what_is_missing(home):
 
 def test_list_platforms_table_gives_no_install_hint_when_everything_is_installed(home):
     touch_all(nangate_directory(home / ".ciel"), load_residue("nangate45"))
+    install_sky130(home / ".ciel")
     proc = run_xeda("list-platforms", home=home)
     assert proc.returncode == 0, proc.stderr
     assert "xeda pdk install" not in proc.stdout
@@ -161,7 +203,12 @@ def listed(home: Path, *args: str) -> dict[tuple[str, str], dict[str, Any]]:
 
 def test_pdk_list_gives_every_provider_of_a_platform_with_its_pin(home, store):
     rows = listed(home, "--root", str(store))
-    assert set(rows) == {("nangate45", "orfs"), ("nangate45", "directory")}
+    assert set(rows) == {
+        ("nangate45", "orfs"),
+        ("nangate45", "directory"),
+        ("sky130hd", "ciel"),
+        ("sky130hd", "directory"),
+    }
     entry = load_residue("nangate45").providers.orfs
     assert entry is not None
     orfs = rows["nangate45", "orfs"]
@@ -261,6 +308,32 @@ def test_pdk_path_gives_the_directory_and_the_role_files(home, store):
     assert located["upstream_files"] == [str(directory / "config.mk")]
 
 
+def test_pdk_path_gives_a_ciel_platform_with_a_corner_and_its_alias(home, tmp_path):
+    root = tmp_path / "store"
+    install_sky130(root)
+    directory = sky130_directory(root)
+    for corner in ("tt", "tt_025C_1v80", "ss_100C_1v60", "ff_n40C_1v95"):
+        proc = run_xeda(
+            "pdk", "path", "sky130hd", "--root", str(root), "--corner", corner, "--json", home=home
+        )
+        assert proc.returncode == 0, proc.stderr
+        located = document(proc)
+        token = {"tt": "tt_025C_1v80"}.get(corner, corner)
+        assert located["provider"] == "ciel"
+        assert located["directory"] == str(directory)
+        assert located["corner"] == token
+        assert located["files"]["liberty"] == [
+            str(
+                directory / "libs.ref" / "sky130_fd_sc_hd" / "lib" / f"sky130_fd_sc_hd__{token}.lib"
+            )
+        ]
+        assert located["upstream_files"] == [
+            str(directory / "libs.tech" / "openlane" / "config.tcl"),
+            str(directory / "libs.tech" / "openlane" / "sky130_fd_sc_hd" / "config.tcl"),
+            str(directory / "libs.tech" / "openlane" / "sky130_fd_sc_hd" / "drc_exclude.cells"),
+        ]
+
+
 def test_pdk_path_prints_only_the_directory_in_text_mode(home, store):
     proc = run_xeda("pdk", "path", "nangate45", "--root", str(store), home=home)
     assert proc.returncode == 0, proc.stderr
@@ -330,13 +403,13 @@ def test_an_unknown_platform_fails_naming_the_bundled_ones(home, store):
     error = document(proc)
     assert error["success"] is False
     assert "nangate" in error["error"]["message"]
-    assert "the bundled platforms are: nangate45" in error["error"]["message"]
+    assert "the bundled platforms are: nangate45, sky130hd" in error["error"]["message"]
 
 
 def test_an_unknown_platform_fails_in_text_mode_too(home, store):
     proc = run_xeda("pdk", "path", "nangate", "--root", str(store), home=home)
     assert proc.returncode != 0
-    assert "the bundled platforms are: nangate45" in proc.stderr
+    assert "the bundled platforms are: nangate45, sky130hd" in proc.stderr
 
 
 @pytest.mark.parametrize(
@@ -536,7 +609,7 @@ def test_a_user_file_that_extends_an_unknown_platform_fails_naming_the_bundled_o
     user = write_user_file(tmp_path / "mine.yaml", {"name": "mine", "extends": "nowhere"})
     proc = run_xeda("pdk", "path", "--platform-file", str(user), "--json", home=home)
     assert proc.returncode != 0
-    assert "the bundled platforms are: nangate45" in document(proc)["error"]["message"]
+    assert "the bundled platforms are: nangate45, sky130hd" in document(proc)["error"]["message"]
 
 
 def test_a_platform_or_a_platform_file_is_needed_but_not_both(home, tmp_path):
@@ -936,10 +1009,17 @@ arguments = sys.argv[1:]
 assert arguments[0] == "fetch", arguments
 root = Path(arguments[arguments.index("--pdk-root") + 1])
 family = arguments[arguments.index("--pdk-family") + 1]
-directory = root / "ciel" / family / "versions" / arguments[-1] / {variant!r}
+build = root / "ciel" / family / "versions" / arguments[-1]
+directory = build / {variant!r}
 for name in {files!r}:
     (directory / name).parent.mkdir(parents=True, exist_ok=True)
     (directory / name).write_text("")
+# The real ciel unpacks every variant of the family, writes a `SOURCES` file in each, and prints
+# the path of the build without a newline.
+for variant in ({variant!r}, "other_variant"):
+    (build / variant).mkdir(exist_ok=True)
+    (build / variant / "SOURCES").write_text("open_pdks " + arguments[-1] + "\\n")
+print(build, end="")
 """
 
 
@@ -1015,6 +1095,20 @@ def test_a_ciel_install_runs_ciel_with_a_clean_environment(tmp_path, monkeypatch
     assert receipt["version"] == entry.version
     assert receipt["commands"] == [["ciel", *call["argv"]]]
     assert CIEL_VERSION.startswith("3.")
+
+
+def test_a_ciel_install_accepts_what_the_real_ciel_leaves(tmp_path, monkeypatch):
+    """The real `ciel` unpacks the other variants of the family too, and it ends its output with
+    the path of the build and no newline. The install checks the variant of the platform only."""
+    from xeda.platforms.providers import install
+
+    fake = fake_ciel(monkeypatch, tmp_path)
+    root = tmp_path / "store"
+    result = install(fake.residue, "ciel", None, root)
+    build = result.located.directory.parent
+    assert (build / "other_variant" / "SOURCES").is_file()
+    assert result.located.directory == build / fake.entry.variant
+    assert (result.located.directory / "SOURCES").read_text().startswith("open_pdks ")
 
 
 def test_a_ciel_install_verifies_every_corner(tmp_path, monkeypatch):

@@ -1,0 +1,72 @@
+# sky130hd.yaml
+# The bundled sky130hd platform with the files and the values of OpenROAD-flow-scripts (ORFS):
+# xeda reads the platform directory `flow/platforms/sky130hd` of an ORFS checkout (`pdk_root` is
+# its `flow/platforms`), the files that ORFS itself reads, and takes the values from `config.mk`,
+# `fastroute.tcl`, `tapcell.tcl`, `setRC.tcl` and `pdn.tcl` of that directory. A comparison with
+# ORFS then measures the scripts, not the library revision or the values of the platform.
+# The inherited corners `ss_100C_1v60` and `ff_n40C_1v95` have no files in this layout. A run
+# resolves only its own corner, `tt_025C_1v80`, so they do no harm.
+name: sky130hd
+extends: sky130hd
+description: sky130hd from the platform directory of an OpenROAD-flow-scripts checkout
+providers:
+  default: directory
+  directory: {layout: orfs}
+upstream: {adapter: orfs_config_mk, files: [config.mk]}
+files:
+  liberty: {tt_025C_1v80: [lib/sky130_fd_sc_hd__tt_025C_1v80.lib]}
+  tech_lef: lef/sky130_fd_sc_hd.tlef
+  cell_lef: [lef/sky130_fd_sc_hd_merged.lef]
+  gds: [gds/sky130_fd_sc_hd.gds]
+  rcx_rules: rcx_patterns.rules
+  klayout_tech: sky130hd.lyt
+  klayout_layer_props: sky130hd.lyp
+  latch_map: cells_latch_hd.v
+  clkgate_map: cells_clkgate_hd.v
+  adder_map: cells_adders_hd.v
+values:
+  # fastroute.tcl: 0.2 on met1 to met5 (MIN_ROUTING_LAYER to MAX_ROUTING_LAYER).
+  routing: {layer_adjustments: {met1-met5: 0.2}}
+  # tapcell.tcl
+  tapcell: {distance: 14}
+  # setRC.tcl: [resistance, capacitance] of each layer, the via resistances, and the two layers
+  # whose values estimate the signal and the clock nets.
+  wire_rc:
+    signal_layer: met1
+    clock_layer: met3
+    layers: {
+      li1: [7.176e-02, 1.499e-04], met1: [1.20565E-03, 1.72375E-04],
+      met2: [1.22132E-03, 1.36233E-04], met3: [1.66281E-04, 2.14962E-04],
+      met4: [1.68093E-04, 1.48128E-04], met5: [1.83558E-05, 1.54087E-04]}
+    vias: {mcon: 9.249146E-3, via: 4.5E-3, via2: 3.368786E-3, via3: 0.376635E-3, via4: 0.00580E-3}
+  # pdn.tcl: the rails of met1 and the straps of met4 and met5.
+  pdn:
+    rails: [{layer: met1, width: 0.48, pitch: 5.44, offset: 0}]
+    straps: [
+      {layer: met4, width: 1.6, pitch: 27.14, offset: 13.57},
+      {layer: met5, width: 1.6, pitch: 27.2, offset: 13.6}]
+overrides:
+  routing.layer_adjustments.li1:
+    value: 0
+    reason: ORFS adjusts met1 to met5 only; a zero asks for no adjustment on li1, which is below its routing layers
+  pdn.power_net:
+    value: VDD
+    reason: ORFS names the power net VDD and connects the cell pins VPWR and VPB to it
+  pdn.ground_net:
+    value: VSS
+    reason: ORFS names the ground net VSS and connects the cell pins VGND and VNB to it
+  pdn.global_connects:
+    value: [
+      {net: VDD, pin_pattern: ^VDD$, kind: power},
+      {net: VDD, pin_pattern: ^VDDPE$},
+      {net: VDD, pin_pattern: ^VDDCE$},
+      {net: VDD, pin_pattern: VPWR},
+      {net: VDD, pin_pattern: VPB},
+      {net: VSS, pin_pattern: ^VSS$, kind: ground},
+      {net: VSS, pin_pattern: ^VSSE$},
+      {net: VSS, pin_pattern: VGND},
+      {net: VSS, pin_pattern: VNB}]
+    reason: ORFS connects these pin patterns of the cells to VDD and VSS
+  pdn.pin_layers:
+    value: [met5]
+    reason: ORFS promotes only the met5 straps to pins

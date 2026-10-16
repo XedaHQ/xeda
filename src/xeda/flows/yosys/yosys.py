@@ -219,6 +219,9 @@ class AsicValues:
     * `abc_new_script`: the `-script` of `abc_new`, when `abc.mapper` is `abc_new`: `abc_script`,
       or else the name of the script file that the flow writes (`ABC_NEW_SCRIPT`), but none when
       operators are wrapped.
+    * `abc_new_default_script`: with wrapped operators and no `abc_script`, the script file
+      (`ABC_NEW_SCRIPT`) that maps the rest of the design, set as the default of `abc_new`
+      (`abc9.script`) as OpenROAD-flow-scripts does.
     * `wrap_script`, `booth_map`: the names of the files of the package that wrap the operators,
       when `arithmetic.wrap_operators` is on. `run` copies each into the run directory, and the
       script names the copy, since a container does not mount the package.
@@ -244,6 +247,7 @@ class AsicValues:
     buffer_cell: Optional[Tuple[str, str, str]] = None
     abc_script: Optional[str] = None
     abc_new_script: Optional[str] = None
+    abc_new_default_script: Optional[str] = None
     wrap_script: Optional[str] = None
     booth_map: Optional[str] = None
     wrapped_adders: Tuple[str, ...] = ()
@@ -714,6 +718,18 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             return ss.abc_script
         return None if ss.arithmetic.wrap_operators else ABC_NEW_SCRIPT
 
+    def _abc_new_default_script(self) -> Optional[str]:
+        """Return the script file that maps the modules other than the wrapped operators, or None.
+
+        `abc_new` maps each wrapped operator with the script it carries and every other module
+        with its default script. The flow sets that default to the gia-only script, as
+        OpenROAD-flow-scripts does: the default of yosys maps to LUTs when a path in the
+        arguments contains `-script` (YosysHQ/yosys#6320), and it can change with yosys."""
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        wrapped = ss.abc.mapper == "abc_new" and ss.arithmetic.wrap_operators
+        return ABC_NEW_SCRIPT if wrapped and ss.abc_script is None else None
+
     def asic_values(self) -> AsicValues:
         """Return the values of a mapping to a liberty library, with the platform's defaults.
 
@@ -821,6 +837,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                 )
             ),
             abc_new_script=self._abc_new_script(),
+            abc_new_default_script=self._abc_new_default_script(),
             wrap_script=WRAP_SCRIPT if ss.arithmetic.wrap_operators else None,
             booth_map=BOOTH_MAP if ss.arithmetic.wrap_operators else None,
             wrapped_adders=tuple(name.upper() for name in ss.arithmetic.wrapped_adders),
@@ -881,8 +898,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             if name:
                 replacing_copy(_asic_data(name), self.run_directory.writable(name))
 
-        if asic.abc_new_script == ABC_NEW_SCRIPT:
-            with replacing_file(self.run_directory.writable(asic.abc_new_script)) as f:
+        if ABC_NEW_SCRIPT in (asic.abc_new_script, asic.abc_new_default_script):
+            with replacing_file(self.run_directory.writable(ABC_NEW_SCRIPT)) as f:
                 f.write(ABC_SPEED_GIA_ONLY)
 
         script_path = self.copy_from_template(

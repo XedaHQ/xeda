@@ -23,7 +23,7 @@ import tempfile
 from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, NamedTuple, Optional, Sequence
 
 import pytest
 
@@ -1056,6 +1056,12 @@ def fake_calls(run_dir: Path, elements: bool = False) -> List[List[str]]:
 #   XEDA_TESTS_PDK_ROOT=<directory>  each bundled platform against its real PDK files, in a PDK
 #     store; XEDA_TESTS_PLATFORMS=<names> lists the bundled platforms that store holds
 #     (tests/test_platform_conformance.py)
+#   XEDA_TESTS_ASIC_QOR=1  the ASIC flows of xeda held to the results of OpenROAD-flow-scripts on
+#     the same designs (tests/test_asic_parity.py, with tools/asic_parity.py); needs
+#     XEDA_TESTS_ORFS=<checkout of OpenROAD-flow-scripts>, an `openroad`, and a `yosys` with Tcl
+#     and the slang plugin on PATH. The checkout holds the platform files, so no PDK store.
+#   XEDA_TESTS_ORFS alone runs the fast checks against that checkout
+#     (tests/test_parity_override_sky130hd.py).
 # ---------------------------------------------------------------------------------------------
 
 
@@ -1127,6 +1133,20 @@ def _probe_openroad(path_variable: str) -> bool:
         )
 
 
+def _find_openroad(variable: str) -> Path:
+    """Return the `openroad` on `PATH`. Fail, naming `variable`, if there is none or it does not
+    run."""
+    found = shutil.which("openroad")
+    if found is None:
+        pytest.fail(f"{variable} is set, but no `openroad` is on PATH")
+    if not _probe_openroad(os.environ.get("PATH", "")):
+        pytest.fail(
+            f"{variable} is set, but the `openroad` on PATH ({found}) does not run: "
+            "`openroad -version` or a script with `-no_init -no_splash -exit` fails"
+        )
+    return Path(found)
+
+
 def require_openroad() -> Path:
     """Run the OpenROAD flows against the real tool only when asked (`XEDA_TESTS_OPENROAD=1`: a
     chain of the flows takes minutes), and then insist on an `openroad` on `PATH` that runs.
@@ -1134,15 +1154,7 @@ def require_openroad() -> Path:
     the general tools and have no OpenROAD."""
     if not _opted_in("XEDA_TESTS_OPENROAD"):
         pytest.skip("set XEDA_TESTS_OPENROAD=1 to run the tests that run OpenROAD")
-    found = shutil.which("openroad")
-    if found is None:
-        pytest.fail("XEDA_TESTS_OPENROAD is set, but no `openroad` is on PATH")
-    if not _probe_openroad(os.environ.get("PATH", "")):
-        pytest.fail(
-            f"XEDA_TESTS_OPENROAD is set, but the `openroad` on PATH ({found}) does not run: "
-            "`openroad -version` or a script with `-no_init -no_splash -exit` fails"
-        )
-    return Path(found)
+    return _find_openroad("XEDA_TESTS_OPENROAD")
 
 
 @lru_cache(maxsize=None)
@@ -1155,6 +1167,22 @@ def _probe_yosys_tcl(path_variable: str) -> bool:
         return _command_succeeds(["yosys", "-q", "-c", str(script)], cwd=tmp)
 
 
+@lru_cache(maxsize=None)
+def _probe_yosys_slang(path_variable: str) -> bool:
+    """Load the slang plugin with `yosys -p`, in a temporary directory. A yosys that has `slang`
+    built in loads it too. The cache key is the value of `PATH`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        return _command_succeeds(["yosys", "-q", "-p", "plugin -i slang"], cwd=tmp)
+
+
+def _check_yosys_tcl(variable: str) -> None:
+    if not _probe_yosys_tcl(os.environ.get("PATH", "")):
+        pytest.fail(
+            f"{variable} is set, but the `yosys` on PATH does not run a Tcl script "
+            "with `yosys -c`"
+        )
+
+
 def require_yosys_tcl() -> None:
     """Run a Tcl script with yosys only when asked (`XEDA_TESTS_YOSYS_TCL=1`), and then insist on
     a `yosys` on `PATH` that runs one with `yosys -c`. Its own variable, not
@@ -1162,11 +1190,61 @@ def require_yosys_tcl() -> None:
     yosys."""
     if not _opted_in("XEDA_TESTS_YOSYS_TCL"):
         pytest.skip("set XEDA_TESTS_YOSYS_TCL=1 to run the tests that run a yosys with Tcl")
-    if not _probe_yosys_tcl(os.environ.get("PATH", "")):
+    _check_yosys_tcl("XEDA_TESTS_YOSYS_TCL")
+
+
+class AsicQorTools(NamedTuple):
+    """What the comparison with OpenROAD-flow-scripts runs: the checkout, `openroad` and `yosys`."""
+
+    orfs: Path
+    openroad: Path
+    yosys: Path
+
+
+def require_orfs_checkout() -> Path:
+    """Return the checkout of OpenROAD-flow-scripts that `XEDA_TESTS_ORFS` names, and skip without
+    the variable. A value that names no checkout fails: the variable was set for a reason."""
+    value = os.environ.get("XEDA_TESTS_ORFS", "")
+    if not value:
+        pytest.skip("set XEDA_TESTS_ORFS to a checkout of OpenROAD-flow-scripts")
+    orfs = Path(value).expanduser()
+    if not (orfs / "flow" / "Makefile").is_file():
         pytest.fail(
-            "XEDA_TESTS_YOSYS_TCL is set, but the `yosys` on PATH does not run a Tcl script "
-            "with `yosys -c`"
+            f"XEDA_TESTS_ORFS is {value}, which is no checkout of OpenROAD-flow-scripts "
+            "(it has no flow/Makefile)"
         )
+    return orfs
+
+
+def require_asic_qor() -> AsicQorTools:
+    """Hold the ASIC flows of xeda to OpenROAD-flow-scripts only when asked
+    (`XEDA_TESTS_ASIC_QOR=1`: a design takes minutes, and the largest takes an hour), and then
+    insist on its tools. `XEDA_TESTS_ORFS` names a checkout of OpenROAD-flow-scripts. `PATH` holds
+    an `openroad` that runs and a `yosys` that runs a Tcl script and loads the slang plugin: the
+    flows of ORFS and of xeda both use that yosys. The checkout holds the platform files, so the
+    layer needs no PDK store. Its own variable, not `XEDA_TESTS_REQUIRE_TOOLS`."""
+    if not _opted_in("XEDA_TESTS_ASIC_QOR"):
+        pytest.skip(
+            "set XEDA_TESTS_ASIC_QOR=1 and XEDA_TESTS_ORFS to hold the ASIC flows to "
+            "OpenROAD-flow-scripts"
+        )
+    if not os.environ.get("XEDA_TESTS_ORFS", ""):
+        pytest.fail(
+            "XEDA_TESTS_ASIC_QOR is set, but XEDA_TESTS_ORFS is not: give a checkout of "
+            "OpenROAD-flow-scripts"
+        )
+    orfs = require_orfs_checkout()
+    openroad = _find_openroad("XEDA_TESTS_ASIC_QOR")
+    yosys = shutil.which("yosys")
+    if yosys is None:
+        pytest.fail("XEDA_TESTS_ASIC_QOR is set, but no `yosys` is on PATH")
+    _check_yosys_tcl("XEDA_TESTS_ASIC_QOR")
+    if not _probe_yosys_slang(os.environ.get("PATH", "")):
+        pytest.fail(
+            "XEDA_TESTS_ASIC_QOR is set, but the `yosys` on PATH does not load the slang plugin "
+            "(`yosys -p 'plugin -i slang'` fails)"
+        )
+    return AsicQorTools(orfs, openroad, Path(yosys))
 
 
 def require_pdk_store() -> Path:

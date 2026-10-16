@@ -1,0 +1,27 @@
+# gcd.yaml
+# The xeda settings that match flow/designs/sky130hd/gcd/config.mk of OpenROAD-flow-scripts.
+orfs: sky130hd/gcd
+clock:
+  port: clk
+  period: 1.1 ns  # constraint.sdc: set clk_period 1.1
+hierarchical: true  # OPENROAD_HIERARCHICAL = 1: every OpenROAD flow reads the hierarchy
+flows:
+  yosys:
+    arithmetic.wrap_operators: true  # SWAP_ARITH_OPERATORS = 1
+    abc.mapper: abc_new  # SWAP_ARITH_OPERATORS = 1: ORFS maps with abc_new then
+    # abc_new takes only `area`. ORFS ignores ABC_AREA (here 0) and ABC_SCRIPT when it swaps.
+    abc.strategy: area
+    arithmetic.adder_map: none  # ADDER_MAP_FILE :=  (empty: "Adders degrade GCD")
+    # OPENROAD_HIERARCHICAL = 1 acts in the place and route stages, not in synthesis.
+    # No arithmetic.adder_architecture: the wrapped operators carry their own architectures
+    # (SWAP_ARITH_OPERATORS = 1), and the -extra-map of synth.tcl does not apply to them.
+  openroad_place:
+    floorplan.core_utilization_percent: 38  # CORE_UTILIZATION = 38
+    # PLACE_DENSITY_LB_ADDON is unset: the density is PLACE_DENSITY of the platform.
+    arith_swap.enabled: true  # SWAP_ARITH_OPERATORS = 1: ORFS swaps the wrapped operators after the floorplan and in the resize step
+    floorplan.netlist_cleanup.repair.tns_end_percent: 100  # TNS_END_PERCENT = 100
+    resize.repair_timing.tns_end_percent: 100  # TNS_END_PERCENT = 100
+  openroad_cts:
+    repair.tns_end_percent: 100  # TNS_END_PERCENT = 100
+  openroad_grt:
+    repair.timing.tns_end_percent: 100  # TNS_END_PERCENT = 100

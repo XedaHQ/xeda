@@ -35,7 +35,8 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
   `XEDA_TESTS_REQUIRE_TOOLS=1` (set in CI) makes a skip fail. Opt-in layers: `XEDA_TESTS_VIVADO`,
   `XEDA_TESTS_DOCKER`, `XEDA_TESTS_EXTERNAL`, `XEDA_TESTS_OPENXC7`, `XEDA_TESTS_OPENROAD`,
   `XEDA_TESTS_YOSYS_TCL` (a yosys with Tcl), `XEDA_TESTS_PDK_ROOT` (a PDK store) with
-  `XEDA_TESTS_PLATFORMS` (the bundled platforms it holds).
+  `XEDA_TESTS_PLATFORMS` (the bundled platforms it holds), `XEDA_TESTS_ASIC_QOR` with
+  `XEDA_TESTS_ORFS` (an OpenROAD-flow-scripts checkout).
 - `pytest &` in a non-interactive shell ignores SIGINT: a test that interrupts a tool sets
   `DEFAULT_SIGINT` (`tests/test_proc_utils.py`) and waits for a ready signal, never a sleep.
 

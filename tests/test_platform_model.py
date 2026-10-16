@@ -84,22 +84,29 @@ TRACK_COARSE = {"x": [0.095, 0.28], "y": [0.07, 0.28]}
 # ---------------------------------------------------------------------------------------------
 
 
-def test_the_only_bundled_platform_is_nangate45() -> None:
-    assert bundled_platform_names() == ["nangate45"]
+def test_the_bundled_platforms_are_nangate45_and_sky130hd() -> None:
+    assert bundled_platform_names() == ["nangate45", "sky130hd"]
 
 
-@pytest.mark.parametrize("name", bundled_platform_names())
-def test_a_bundled_residue_loads_under_its_directory_name(name: str) -> None:
+@pytest.mark.parametrize(
+    "name, default_corner", [("nangate45", "typical"), ("sky130hd", "tt_025C_1v80")]
+)
+def test_a_bundled_residue_loads_under_its_directory_name(name: str, default_corner: str) -> None:
     residue = load_residue(name)
     assert residue.name == name
     assert residue.extends is None
-    assert residue.resolve_corner(None) == "typical"
+    assert residue.resolve_corner(None) == default_corner
     assert (PLATFORMS / name / "platform.yaml").is_file()
 
 
 def test_the_bundled_nangate45_residue_is_a_small_file() -> None:
     size = (PLATFORMS / "nangate45" / "platform.yaml").stat().st_size
     assert size <= 2048, f"platform.yaml of nangate45 is {size} bytes"
+
+
+def test_the_bundled_sky130hd_residue_is_a_small_file() -> None:
+    size = (PLATFORMS / "sky130hd" / "platform.yaml").stat().st_size
+    assert size <= 3072, f"platform.yaml of sky130hd is {size} bytes"
 
 
 def test_a_bundled_name_that_is_unknown_lists_the_known_ones() -> None:

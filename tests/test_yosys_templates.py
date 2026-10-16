@@ -660,3 +660,32 @@ def test_the_scripts_hand_yosys_the_sources_the_flow_reads_and_no_others(
     assert "top.v" in script
     for passed_over in ("defs.vh", "pkg.sv", "inv.vhd", "ghdl", " -I"):
         assert passed_over not in script, passed_over
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_slang_reads_every_systemverilog_source_in_one_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script_format: Any
+) -> None:
+    """slang elaborates what one `read_slang` reads as one compilation, so a package that one
+    file declares is unknown in another file that a second `read_slang` reads. The script gives
+    every SystemVerilog source to one `read_slang`, in the order of the design, as
+    OpenROAD-flow-scripts does. A Verilog source keeps its own `read_verilog -defer`."""
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "pkg.sv").write_text("package p; localparam int W = 4; endpackage\n")
+    (root / "top.sv").write_text("module top import p::*; (output logic [W-1:0] q); endmodule\n")
+    (root / "gate.v").write_text("module gate(input a, output b); assign b = a; endmodule\n")
+    design = Design(
+        name="top",
+        design_root=root,
+        rtl={"sources": ["pkg.sv", "gate.v", "top.sv"], "top": "top"},
+    )
+    out = tmp_path / "out"
+    out.mkdir()
+    force_script_format(monkeypatch, script_format)
+    script = _render(Yosys, {}, out, design)
+    slang = [line for line in script.splitlines() if "read_slang" in line]
+    assert len(slang) == 1, slang
+    assert slang[0].index("pkg.sv") < slang[0].index("top.sv")
+    assert "gate.v" not in slang[0]
+    assert any("read_verilog" in line and "gate.v" in line for line in script.splitlines())

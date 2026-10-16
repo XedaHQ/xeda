@@ -1,8 +1,8 @@
 name: OpenROAD
 
 # The real OpenROAD runs the placement, clock tree, global routing and final flows
-# (tests/test_openroad_real.py), and the nangate45 platform files are read from the real PDK
-# files (tests/test_platform_conformance.py, tests/test_yosys_asic.py). The job runs in the
+# (tests/test_openroad_real.py), and the platform files of nangate45 and sky130hd are read from
+# the real PDK files (tests/test_platform_conformance.py, tests/test_yosys_asic.py). The job runs in the
 # OpenROAD-flow-scripts Docker image, which holds OpenROAD, yosys and KLayout built together. No
 # package has them, and a build takes hours. This is a separate workflow, so it runs beside the
 # tox legs in ci.yml and delays none of them.
@@ -13,9 +13,9 @@ name: OpenROAD
 # that runs this job. A container cannot take its image from `env`, so the digest is written in
 # the line itself.
 #
-# The PDK files are not pinned here. The job installs them with `xeda pdk install nangate45`, at
-# the version that the platform file of the checkout pins (`providers.orfs.version`). So the
-# installer is tested too, and the job cannot disagree with the platform file.
+# The PDK files are not pinned here. The job installs each platform of XEDA_TESTS_PLATFORMS with
+# `xeda pdk install`, at the version that the platform file of the checkout pins. So the installer
+# is tested too (sky130hd through ciel), and the job cannot disagree with the platform files.
 on:
   push:
     branches: ["main", "release/*"]
@@ -42,7 +42,7 @@ jobs:
       # Where the image installs its tools.
       ORFS_INSTALL: /OpenROAD-flow-scripts/tools/install
       XEDA_TESTS_OPENROAD: "1"
-      XEDA_TESTS_PLATFORMS: nangate45
+      XEDA_TESTS_PLATFORMS: nangate45,sky130hd
       # A missing tool fails a test, and does not skip it.
       XEDA_TESTS_REQUIRE_TOOLS: "1"
     steps:
@@ -85,12 +85,14 @@ jobs:
           yosys -V
           klayout -v
 
-      - name: Install the nangate45 PDK files
-        # The version is the one that the platform file pins: no --version here.
+      - name: Install the PDK files
+        # The versions are the ones that the platform files pin: no --version here.
         run: |
           set -euo pipefail
           export PATH="$PATH:$RUNNER_TEMP/venv/bin"
-          xeda pdk install nangate45 --root "$RUNNER_TEMP/pdk" --yes
+          for platform in ${XEDA_TESTS_PLATFORMS//,/ }; do
+            xeda pdk install "$platform" --root "$RUNNER_TEMP/pdk" --yes
+          done
           xeda pdk list --root "$RUNNER_TEMP/pdk"
 
       - name: Check whether yosys runs a Tcl script

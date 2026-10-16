@@ -695,6 +695,34 @@ def test_yosys_reads_systemverilog_from_a_path_with_spaces(tmp_path):
     assert flow is not None and flow.succeeded
 
 
+def test_yosys_elaborates_a_package_that_another_systemverilog_file_declares(tmp_path):
+    """slang elaborates the sources of one `read_slang` as one compilation. A design whose
+    package is in a file of its own, as most multi-file SystemVerilog designs are, elaborates
+    only when every SystemVerilog source goes to one `read_slang`."""
+    require_yosys()
+    _require("the yosys slang plugin", _probe_yosys_slang(), "`plugin -i slang`")
+    _write(tmp_path / "pkg.sv", "package p;\n  localparam int W = 4;\nendpackage\n")
+    _write(
+        tmp_path / "top.sv",
+        "module top import p::*; (input logic [W-1:0] a, output logic [W-1:0] y);\n"
+        "  inv u_inv(.a(a), .y(y));\n"
+        "endmodule\n",
+    )
+    _write(
+        tmp_path / "inv.sv",
+        "module inv import p::*; (input logic [W-1:0] a, output logic [W-1:0] y);\n"
+        "  assign y = ~a;\n"
+        "endmodule\n",
+    )
+    design = Design(
+        name="pkgtop",
+        design_root=tmp_path,
+        rtl={"sources": ["pkg.sv", "inv.sv", "top.sv"], "top": "top"},
+    )
+    flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, {})
+    assert flow is not None and flow.succeeded
+
+
 def test_yosys_passes_vhdl_top_generics_to_ghdl_and_leaves_the_design_alone(tmp_path):
     """A VHDL top's generics reach yosys through GHDL (`-g<name>=<value>`), after which the
     elaborated top has no parameters left to `chparam`. `init` used to express the second half

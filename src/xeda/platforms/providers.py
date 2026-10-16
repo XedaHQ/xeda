@@ -303,6 +303,7 @@ def locate(
         corner=token,
         files=files,
         upstream_files=[target.directory / path for path in upstream],
+        library=getattr(target.entry, "library", None),
     )
 
 

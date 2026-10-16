@@ -391,8 +391,10 @@ class Located:
     corner: str
     #: Absolute paths of the files, by role. `liberty` holds the files of the corner.
     files: dict[str, list[Path]]
-    #: Absolute paths of the upstream configuration files.
+    #: Absolute paths of the upstream configuration files, and of the lists that they name.
     upstream_files: list[Path]
+    #: The standard cell library that the provider serves, if its entry names one.
+    library: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------------------------

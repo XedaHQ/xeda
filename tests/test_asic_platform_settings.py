@@ -601,6 +601,31 @@ def test_locating_the_platform_reads_no_file_but_the_residue(tmp_path):
     assert located.upstream_files == [store / "tiny" / "config.mk"]
 
 
+def test_a_list_of_cells_that_the_configuration_names_is_an_input_of_the_run(tmp_path):
+    """The upstream files include the list that `DRC_EXCLUDE_CELL_LIST` names. The platform finds
+    it with `stat`, and `platform_files` (what the run records and what a dry run checks) has it."""
+    store = _store(tmp_path)
+    directory = store / "tiny"
+    (directory / "config.tcl").write_text(
+        'set ::env(DRC_EXCLUDE_CELL_LIST) "$::env(PDK_ROOT)/$::env(PDK)/cells.list"\n'
+    )
+    (directory / "cells.list").write_text("# excluded\nBAD_X1\n")
+    (tmp_path / "mine.yaml").write_text(
+        "name: tiny\nproviders: {default: directory, directory: {layout: orfs}}\n"
+        "upstream: {adapter: open_pdks_config, files: [config.tcl, cells.list]}\n"
+        "corners: {default: typical}\n"
+        "files: {liberty: {typical: [lib/tiny.lib]}, tech_lef: lef/tiny.tlef,"
+        " cell_lef: [lef/tiny.lef]}\n"
+    )
+    settings = _settings(tmp_path, platform_file="mine.yaml", pdk_root=str(store))
+    located = settings.locate_platform()
+    assert located.upstream_files == [directory / "config.tcl", directory / "cells.list"]
+    assert settings.platform_files([])[-3:-1] == located.upstream_files
+    (directory / "cells.list").unlink()
+    with pytest.raises(PdkNotInstalled, match="cells.list"):
+        settings.locate_platform()
+
+
 def test_locating_the_platform_uses_the_corner_and_the_pin(tmp_path):
     store = _store(tmp_path)
     _write_residue(tmp_path, default="orfs")

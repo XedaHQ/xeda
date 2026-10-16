@@ -1,0 +1,34 @@
+# ibex.yaml
+# The xeda settings that match flow/designs/sky130hd/ibex/config.mk of OpenROAD-flow-scripts.
+# This design needs a yosys that has both Tcl (operator wrapping) and read_slang.
+orfs: sky130hd/ibex
+clock:
+  port: clk_i
+  period: 8.0 ns  # constraint.sdc: set clk_period 8.0
+hierarchical: true  # OPENROAD_HIERARCHICAL = 1: every OpenROAD flow reads the hierarchy
+flows:
+  yosys:
+    systemverilog: slang  # SYNTH_HDL_FRONTEND = slang
+    arithmetic.wrap_operators: true  # SWAP_ARITH_OPERATORS = 1
+    abc.mapper: abc_new  # SWAP_ARITH_OPERATORS = 1: ORFS maps with abc_new then
+    # abc_new takes only `area`. ORFS ignores ABC_AREA (here 0) and ABC_SCRIPT when it swaps.
+    abc.strategy: area
+    arithmetic.adder_map: none  # ADDER_MAP_FILE :=  ("Adders degrade ibex setup repair")
+    # OPENROAD_HIERARCHICAL = 1 acts in the place and route stages, not in synthesis.
+    # No arithmetic.adder_architecture: the wrapped operators carry their own architectures
+    # (SWAP_ARITH_OPERATORS = 1), and the -extra-map of synth.tcl does not apply to them.
+  openroad_place:
+    floorplan.core_utilization_percent: 50  # CORE_UTILIZATION = 50
+    global_placement.density.mode: auto  # PLACE_DENSITY_LB_ADDON = 0.25
+    global_placement.density.headroom: 0.25  # PLACE_DENSITY_LB_ADDON = 0.25
+    arith_swap.enabled: true  # SWAP_ARITH_OPERATORS = 1: ORFS swaps the wrapped operators after the floorplan and in the resize step
+    floorplan.netlist_cleanup.repair.tns_end_percent: 100  # TNS_END_PERCENT = 100
+    resize.repair_timing.tns_end_percent: 100  # TNS_END_PERCENT = 100
+    routing.layer_adjustments: {met1-met5: 0.2}  # FASTROUTE_TCL: set_global_routing_layer_adjustment 0.2 on MIN_ROUTING_LAYER-MAX_ROUTING_LAYER
+  openroad_cts:
+    sink_clustering.mode: explicit  # CTS_CLUSTER_SIZE = 20 and CTS_CLUSTER_DIAMETER = 50
+    sink_clustering.size: 20  # CTS_CLUSTER_SIZE = 20
+    sink_clustering.max_diameter: 50 um  # CTS_CLUSTER_DIAMETER = 50
+    repair.tns_end_percent: 100  # TNS_END_PERCENT = 100
+  openroad_grt:
+    repair.timing.tns_end_percent: 100  # TNS_END_PERCENT = 100
