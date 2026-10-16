@@ -356,12 +356,13 @@ def verified_design(
     This is the one rule of the hand-over (`handed_design`, under the read lease of the producer)
     and of the dry run, which reads the files and holds no lease. `run_directory` is the one of
     the producer. The record has the shape `recorded_entries` checks. It names the design it was
-    made from (`input_design`), and that must be `design`. The generated files are checked as
-    `handed_over` checks them. Each source that passes through must still be the same file, of
-    the same type, at its index in `design.rtl.sources`: a design that was edited or reordered
-    since the run recorded it is a changed record. Last, as a guard, the design must be the one
-    the run recorded (its hash, `input_design`). Return the derived design and the entries of
-    the generated files, in order, which the consumer compares with what it consumed."""
+    made from (`input_design`). The generated files are checked as `handed_over` checks them.
+    Each source that passes through must still be the same file, of the same type, at its index
+    in `design.rtl.sources`: a design that was edited or reordered since the run recorded it is a
+    changed record. Last, as a guard, it refuses a record whose `input_design` differs from the
+    hash of `design`. A fresh run always records that hash, so the guard changes no freshness
+    rule. Return the derived design and the entries of the generated files, in order, which the
+    consumer compares with what it consumed."""
     entries = recorded_entries(recorded, False, label, design=True)
     _verified_files(run_directory, entries, label)
     for item in recorded["sources"]:

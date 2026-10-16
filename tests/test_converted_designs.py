@@ -23,11 +23,12 @@ import yaml
 from xeda import Design
 from xeda.design import LANGUAGE_TYPES, SourceType
 from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, FlowSettingsException
-from xeda.flow_runner import DefaultRunner, launch_producers
+from xeda.flow_runner import DefaultRunner, launch_producers, plan_freshness
 from xeda.flow_runner import default_runner as default_runner_module
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.plan_freshness import NodeFreshness
 from xeda.flow_runner.resolver import Plan, planned_design_of
+from xeda.flow_runner.trace import Freshness
 from xeda.introspect import plan_info
 
 from .derived_flows import converter_flows
@@ -521,13 +522,45 @@ def test_a_dry_run_agrees_with_the_launch(tmp_path) -> None:
     rebuilding = DefaultRunner(tmp_path / "run", display_results=False, rebuild_all=True)
     _plan, rebuilt = rebuilding.plan_with_freshness(reader, design)
     assert rebuilt[reader.name].state == "stale" and "--rebuild-all" in rebuilt[reader.name].reason
-    # a generated file that changed by hand gives `unknown`, with the words of the hand-over
+    # a generated file that changed by hand makes the converter stale, and the reader depends on it
     (the_runner.run_path_of(design.name, converter.name) / "Top.v").write_text(
         "module x(); endmodule\n"
     )
     _plan, tampered = the_runner.plan_with_freshness(reader, design)
     assert tampered[converter.name].state == "stale"
     assert tampered[reader.name].reason == f"depends on {converter.name}"
+
+
+def test_a_fresh_converter_whose_record_does_not_verify_leaves_the_reader_unknown(
+    tmp_path, monkeypatch
+) -> None:
+    """The trace of the converter holds, so the converter is fresh, but its record in
+    `results.json` is for another design. The reader is unknown, for the reason of the hand-over.
+
+    A real edit of the record or of a generated file also changes the trace, which makes the
+    converter stale. So the trace check of the converter is patched to hold."""
+    events = Events()
+    classes = consumer_flows(events)
+    converter, reader, design, the_runner, flow = launch(tmp_path, classes)
+    assert flow is not None
+    converter_run = the_runner.run_path_of(design.name, converter.name)
+    results_path = converter_run / "results.json"
+    document = json.loads(results_path.read_text())
+    document["outputs"]["design"]["input_design"] = "0" * 64
+    results_path.write_text(json.dumps(document))
+    real = plan_freshness.check_trace
+
+    def trace_holds_for_the_converter(run_dir, *args, **kwargs):
+        if Path(run_dir) == converter_run:
+            return Freshness(True)
+        return real(run_dir, *args, **kwargs)
+
+    monkeypatch.setattr(plan_freshness, "check_trace", trace_holds_for_the_converter)
+    _plan, judged = the_runner.plan_with_freshness(reader, design)
+    assert judged[converter.name].state == "fresh"
+    assert judged[reader.name] == NodeFreshness(
+        "unknown", f"{converter.name}'s output `design` was recorded for another design: run again"
+    )
 
 
 def test_a_generated_file_that_changed_before_the_hand_over_fails_the_flow(
