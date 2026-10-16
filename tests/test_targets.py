@@ -249,7 +249,7 @@ def test_a_sources_override_replaces_a_project_design_s_sources_and_a_target_s(t
 def test_design_overrides_cannot_change_or_hide_the_selected_target(tmp_path, reported_target):
     path = write_design(tmp_path, {**BASE, "targets": {"t": {"top": "from_target"}}})
     with pytest.raises(DesignValidationError, match="cannot be overridden"):
-        Design.from_file(path, overrides={"target": reported_target})
+        Design.from_file(path, target="t", overrides={"target": reported_target})
 
 
 def test_project_design_overrides_cannot_forge_the_selected_target(tmp_path):

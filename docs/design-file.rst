@@ -636,8 +636,9 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
 * A target is optional. Without ``--target``, Xeda uses the design itself, with no overlay, whatever
   the number of targets. A lone target is not selected automatically. ``--target NAME`` selects
   that target. An unknown name is an error, and the error lists the targets. ``--target`` on a
-  design without ``targets`` is an error. From Python, write ``Design.from_file(path, target="ulx3s")``. ``--design-overrides`` are an
-  overlay on the selected design, like a target, and merge by the same rules: a short form means
+  design without ``targets`` is an error. From Python, write
+  ``Design.from_file(path, target="ulx3s")``. ``--design-overrides`` are an overlay on the
+  selected design, like a target, and merge by the same rules: a short form means
   its table, and an override does not hide a mistake in the design. One rule differs. Only a
   target adds its ``sources`` to the design's, because its job is to add the files of a board. A
   ``sources`` override (``rtl.sources`` or ``tb.sources``) replaces the whole list, the sources of

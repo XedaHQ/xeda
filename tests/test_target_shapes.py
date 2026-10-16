@@ -744,7 +744,7 @@ def test_a_null_or_empty_flows_table_or_section_leaves_the_design_s_section(
     kept = Design.from_file(write_design(tmp_path, design))
     if merged == "a target":
         data = {**design, "targets": {"t": {"defines": {"A": 1}, **fragment}}}
-        selected = Design.from_file(write_design(tmp_path, data, "target.json"))
+        selected = Design.from_file(write_design(tmp_path, data, "target.json"), target="t")
     else:
         selected = Design.from_file(write_design(tmp_path, design), overrides=fragment)
     assert kept.flow["vivado_synth"]["fpga"] == PART
@@ -810,12 +810,13 @@ def test_remove_extra_removes_a_key_in_any_spelling(tmp_path, spelling, merged):
         data["targets"] = {"t": {"defines": {"A": 1}}}
     overrides = {"rtl": {"top": "knight"}} if merged == "overrides" else None
     path = write_design(tmp_path, data)
-    kept = Design.from_file(path, overrides=overrides)
-    assert kept.flow and kept.authors
-    removed = Design.from_file(path, overrides=overrides, remove_extra=[spelling])
+    target = "t" if merged == "a target" else None
+    kept = Design.from_file(path, target=target, overrides=overrides)
+    assert kept.target == target and kept.flow and kept.authors
+    removed = Design.from_file(path, target=target, overrides=overrides, remove_extra=[spelling])
     assert removed.flow == {} and removed.authors == kept.authors
     other = "authors" if spelling == "flows" else "author"
-    removed = Design.from_file(path, overrides=overrides, remove_extra=[other])
+    removed = Design.from_file(path, target=target, overrides=overrides, remove_extra=[other])
     assert removed.authors == [] and removed.flow == kept.flow
 
 

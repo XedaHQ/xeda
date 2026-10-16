@@ -1,4 +1,4 @@
-# The flat top-level form with one target: no selection is needed.
+# The flat top-level form with one target: it applies only with `--target arty`.
 name: single
 sources: [knight.v]
 top: knight

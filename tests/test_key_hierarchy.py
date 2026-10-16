@@ -246,17 +246,21 @@ def _root(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _design_file(tmp_path: Path, data: dict) -> Design:
+def _design_file(tmp_path: Path, data: dict, target: str | None = None) -> Design:
     path = _root(tmp_path) / "d.json"
     path.write_text(json.dumps({"name": "d", **data}))
-    return Design.from_file(path)
+    design = Design.from_file(path, target=target)
+    assert design.target == target
+    return design
 
 
-def _project(tmp_path: Path, entry: dict, flows: dict | None = None, **options) -> Design:
+def _project(
+    tmp_path: Path, entry: dict, flows: dict | None = None, target: str | None = None, **options
+) -> Design:
     path = _root(tmp_path) / "xedaproject.json"
     path.write_text(json.dumps({"design": [{"name": "d", **entry}], "flows": flows or {}}))
-    design = XedaProject.from_file(path, **options).get_design(0)
-    assert design is not None
+    design = XedaProject.from_file(path, **options).get_design(0, target)
+    assert design is not None and design.target == target
     return design
 
 
@@ -269,13 +273,16 @@ ORIGINS = {
             **(DESIGN),
             "targets": {"t": OVERLAY_DOTTED if dotted else OVERLAY_NESTED},
         },
+        target="t",
     ),
     "design overrides of a design file": lambda tmp, dotted: _overridden_file(tmp, dotted),
     "design overrides of a project": lambda tmp, dotted: _project(
         tmp, DESIGN, design_overrides=OVERLAY_DOTTED if dotted else OVERLAY_NESTED
     ),
     "target in a project design entry": lambda tmp, dotted: _project(
-        tmp, {**DESIGN, "targets": {"t": OVERLAY_DOTTED if dotted else OVERLAY_NESTED}}
+        tmp,
+        {**DESIGN, "targets": {"t": OVERLAY_DOTTED if dotted else OVERLAY_NESTED}},
+        target="t",
     ),
 }
 

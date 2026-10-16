@@ -9,7 +9,7 @@ own, built and kept fresh separately. The oracles:
   target, and a design without one keeps `<design>/<flow>`;
 - a plan is bound to the target it was made for, though an equal-effective design of another
   target has equal hashes, and a target that is no name is refused at the path boundary;
-- a pre-target run (`<design>/<flow>`) is never taken for a target's, nor touched by it.
+- a run without a target (`<design>/<flow>`) is never taken for a target's, nor touched by it.
 """
 
 import json
@@ -204,7 +204,7 @@ def test_the_direct_apis_name_the_designs_target(tmp_path, hashed):
     assert flow.run_path == taker_path
 
 
-def test_no_target_keeps_the_pre_target_path(tmp_path):
+def test_no_target_keeps_the_direct_path(tmp_path):
     launcher = runner(tmp_path)
     assert launcher.run_path_of("d", "__taker") == tmp_path / "xeda_run" / "d" / "__taker"
     assert launcher.run_path_of("d", "__taker", target=None) == (
@@ -442,10 +442,10 @@ def test_a_target_directory_leading_out_of_the_run_root_is_refused(tmp_path):
     assert list(outside.iterdir()) == []
 
 
-# ---------------------------------------------------------------------- the older layout
+# ---------------------------------------------------------------------- the layout without a target
 
 
-def test_a_pre_target_run_is_neither_reused_nor_touched_by_a_target(tmp_path):
+def test_a_run_without_a_target_is_neither_reused_nor_touched_by_a_target(tmp_path):
     """No migration, no fallback: `<design>/<flow>` holds a run no board was recorded for."""
     flat = Design.from_file(write_design(tmp_path, None, file="flat.yaml"))
     launcher = runner(tmp_path)

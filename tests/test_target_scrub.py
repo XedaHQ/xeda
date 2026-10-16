@@ -1,13 +1,13 @@
 """`xeda scrub` beside per-target run directories.
 
 A run directory lies in `<run root>/<design>[/<target>]/<flow>[_<hash>]`, so a scrub of one flow
-of one design has three honest readings: everything (`xeda scrub FLOW DESIGN`: the pre-target
-`<design>/<flow>` runs and every target's), or one target's alone (`--target NAME`), and it never
+of one design has three honest readings: everything (`xeda scrub FLOW DESIGN`: the
+`<design>/<flow>` runs without a target and every target's), or one target's alone (`--target NAME`), and it never
 reads a design file: it finds what is on disk, one level below the design for targets, and
 never goes into a run directory. The oracles:
 
 - exact candidate sets, collected before one confirmation, removed under each directory's lock;
-- a target's scrub leaves the pre-target runs and every other target alone, and an unqualified
+- a target's scrub leaves the runs without a target and every other target alone, and an unqualified
   one takes them all, a target no design file names included;
 - a refused name touches nothing, and so does a link that leads out of the run root;
 - a held read lease blocks the scrub until released, and what is at each path is judged again
@@ -98,7 +98,7 @@ def run_dir(path: Path) -> Path:
 
 
 class Tree:
-    """`<run root>/d`: pre-target runs, three targets (one without runs of the flow) and a
+    """`<run root>/d`: runs without a target, three targets (one without runs of the flow) and a
     target no design file names, beside run directories of other flows that hold a directory
     named like the flow, and another design with a target of the same name."""
 
@@ -169,7 +169,7 @@ def test_a_target_scrub_removes_that_target_s_runs_of_the_flow_and_nothing_else(
     assert len(confirmations) == 1
 
 
-def test_an_unqualified_scrub_removes_the_pre_target_runs_and_every_target_s(
+def test_an_unqualified_scrub_removes_the_runs_without_a_target_and_every_target_s(
     tmp_path, confirmations
 ):
     tree = Tree(tmp_path)
