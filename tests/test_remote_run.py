@@ -41,7 +41,7 @@ from xeda.xedaproject import PROJECT_FILE_NAMES
 
 from .project_files import PROJECT_FILE, TOML_PROJECT_FILE
 from .tiny_platform import TINY_RESIDUE, tiny_store
-from .tool_utils import require_ghdl, require_yosys
+from .tool_utils import require_bsc, require_ghdl, require_yosys
 
 pytestmark = pytest.mark.python_compat
 
@@ -2156,3 +2156,81 @@ def test_a_remote_run_of_a_flow_that_declares_no_io_resolves_the_identity_it_was
     local_settings = json.loads((Path(results["run_path"]) / "settings.json").read_text())
     remote_settings = json.loads((_remote_run_dir(remote_host, "dc") / "settings.json").read_text())
     assert local_settings["flowrun_hash"] == remote_settings["flowrun_hash"] == results["flow_hash"]
+
+
+# ------------------------------------------------------------ a Bluespec design on a remote
+
+GCD = TESTS_DIR.parent / "examples" / "bluespec" / "gcd"
+
+
+def _bluespec_design(tmp_path: Path) -> Path:
+    """The Bluespec example in a directory of the test, with a clock for yosys."""
+    root = tmp_path / "gcd"
+    shutil.copytree(GCD, root)
+    with (root / "gcd.yaml").open("a") as f:
+        f.write("flows:\n  yosys:\n    clock.period: 2 ns\n")
+    return root / "gcd.yaml"
+
+
+def test_a_remote_run_checks_a_converted_design_as_what_it_will_be_before_connecting(
+    tmp_path, remote_host, monkeypatch
+):
+    """`yosys` cannot read Bluespec, and the plan has bsc convert it on the remote: the request is
+    accepted here, and fails only when it reaches for the connection."""
+    connected_to = []
+
+    class _Unreachable(_LocalConnection):
+        def __init__(self, host, user=None, port=None):
+            connected_to.append(host)
+            raise ConnectionRefusedError(f"connected to {host}")
+
+    monkeypatch.setattr(remote_module, "Connection", _Unreachable)
+    with pytest.raises(ConnectionRefusedError):
+        RemoteRunner(tmp_path / "local" / "xeda_run").run_remote(
+            _bluespec_design(tmp_path), "yosys", host="somewhere"
+        )
+    assert connected_to == ["somewhere"]
+
+    # a flow with no converter is still refused here, for the language
+    with pytest.raises(FlowSettingsException, match="ghdl_sim cannot read the design's Bluespec"):
+        RemoteRunner(tmp_path / "local" / "xeda_run").run_remote(
+            _bluespec_design(tmp_path / "again"), "ghdl_sim", host="somewhere"
+        )
+
+
+@pytest.mark.real_tool
+def test_a_remote_run_converts_a_bluespec_design_for_yosys_on_the_remote(tmp_path, remote_host):
+    require_bsc()
+    require_yosys()
+    design_file = _bluespec_design(tmp_path)
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    plan = runner.plan("yosys", Design.from_file(design_file))
+    results = runner.run_remote(design_file, "yosys", host="somewhere")
+    assert results and results["success"], results
+    assert results["flow_hash"] == plan.node("yosys").flowrun_hash
+    assert [node.name for node in plan.nodes] == ["bsc", "yosys"]
+    # bsc ran on the remote, in a directory beside the one of yosys
+    assert (
+        _remote_run_dir(remote_host, "bsc").parent == _remote_run_dir(remote_host, "yosys").parent
+    )
+    assert Path(results["outputs"]["netlist"]["path"]).read_text()
+
+
+@pytest.mark.real_tool
+def test_a_remote_bsc_returns_its_design_record_with_the_paths_of_this_side(tmp_path, remote_host):
+    require_bsc()
+    design_file = _bluespec_design(tmp_path)
+    mirror = tmp_path / "mirror"
+    results = RemoteRunner(mirror, display_results=False).run_remote(
+        design_file, "bsc", host="somewhere"
+    )
+    assert results and results["success"], results
+    record = results["outputs"]["design"]
+    assert record["kind"] == "design" and record["top"] == "mkGcdUnit"
+    generated = [item for item in record["sources"] if "generated" in item]
+    assert generated
+    for item in generated:
+        path = Path(item["generated"])
+        assert path.is_file() and path.resolve().is_relative_to(mirror.resolve()), item
+        assert not path.resolve().is_relative_to(remote_host.resolve())
+    assert {Path(item["generated"]).name for item in generated} >= {"mkGcdUnit.v"}
