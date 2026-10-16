@@ -1364,6 +1364,48 @@ def test_a_row_without_the_identity_fields_is_stale() -> None:
     assert reasons and "orfs_commit" in " ".join(reasons)
 
 
+def _row_of(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, half: str) -> dict[str, Any]:
+    """The row that `new_row` starts for `half` of nangate45/gcd, with made-up tools and a made-up
+    ORFS checkout."""
+    ctx = _context(tmp_path)
+    ctx.versions.update(
+        openroad="v1", yosys_orfs="0.70", yosys_xeda="0.70", yosys_xeda_path="/y", xeda="0.5.dev1"
+    )
+    monkeypatch.setattr(tool, "git_commit", lambda checkout: "a" * 40)
+    monkeypatch.setattr(tool, "pinned_files", lambda variables: [])
+    monkeypatch.setattr(tool, "source_pins", lambda orfs, files, sdc: {})
+    monkeypatch.setattr(tool, "xeda_sha256", lambda: "7")
+    config = tool.load_design_config(tool.design_config_path("nangate45/gcd"))
+    variables = {"SDC_FILE": "/c.sdc"}
+    design = tool.OrfsDesign(config=config, config_mk=tmp_path / "config.mk", variables=variables)
+    return tool.new_row(ctx, design, half)
+
+
+def test_the_orfs_row_records_no_input_that_only_xeda_reads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A change of xeda, of its yosys or of the files that only xeda reads leaves the ORFS row
+    current, so it does not run ORFS again. The tool drives ORFS too, so the row records it."""
+    row = _row_of(monkeypatch, tmp_path, "orfs")
+    assert not set(tool.XEDA_ONLY_TOOLS) & set(row["tools"])
+    assert row["tools"]["openroad"] == "v1" and row["tools"]["yosys_orfs"] == "0.70"
+    for key in ("platform_residue_sha256", "override_sha256", "design_file_sha256"):
+        assert row[key] is None, key
+    assert row["xeda_sha256"] is None
+    assert row["tool_sha256"] == tool.sha256_file(Path(tool.__file__))
+
+
+def test_a_half_row_records_the_digest_of_the_tool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The tool translates the design for xeda, so a change of the tool makes a half row stale."""
+    row = _row_of(monkeypatch, tmp_path, "synthesis")
+    assert row["tool_sha256"] == tool.sha256_file(Path(tool.__file__))
+    assert set(tool.XEDA_ONLY_TOOLS) <= set(row["tools"])
+    assert row["design_file_sha256"] and row["xeda_sha256"] == "7"
+    assert tool.stale_reasons(row, {**row, "tool_sha256": "0"}) == ["tool_sha256 differs"]
+
+
 def _design(spec: str = "nangate45/gcd"):
     return types.SimpleNamespace(config=types.SimpleNamespace(spec=spec))
 

@@ -1223,7 +1223,11 @@ IDENTITY_KEYS = (
     "make_vars",
     "reference_sha256",
     "xeda_sha256",
+    "tool_sha256",
 )
+
+#: The tools that only the halves run: the ORFS row does not record them.
+XEDA_ONLY_TOOLS = ("xeda", "yosys_xeda", "yosys_xeda_path")
 
 
 def package_sha256(directory: Path) -> str:
@@ -1594,6 +1598,13 @@ def new_row(ctx: Context, design: OrfsDesign, half: str) -> dict[str, Any]:
     commit = git_commit(ctx.orfs)
     override = OVERRIDES / f"{config.platform}.yaml"
     files = pinned_files(design.variables)
+    # ORFS reads none of the xeda inputs: a change of xeda, of its yosys or of the files that only
+    # xeda reads does not rerun ORFS. This tool drives both runs, so every row records its digest.
+    xeda_side = half != "orfs"
+    tools = dict(tool_versions(ctx))
+    if not xeda_side:
+        for key in XEDA_ONLY_TOOLS:
+            tools.pop(key, None)
     return {
         "schema": 1,
         "design": config.spec,
@@ -1605,14 +1616,14 @@ def new_row(ctx: Context, design: OrfsDesign, half: str) -> dict[str, Any]:
         "times": {},
         "yosys_area": None,
         "yosys_cells": None,
-        "tools": dict(tool_versions(ctx)),
+        "tools": tools,
         "orfs_commit": commit,
         "pdk": {"provider": "directory", "pin": commit},
-        "platform_residue_sha256": residue_digest(config.platform),
-        "override_sha256": sha256_file(override) if override.is_file() else None,
-        "design_file_sha256": sha256_file(config.path),
-        # the ORFS row does not depend on xeda, so a change of xeda does not rerun it
-        "xeda_sha256": None if half == "orfs" else xeda_sha256(),
+        "platform_residue_sha256": residue_digest(config.platform) if xeda_side else None,
+        "override_sha256": sha256_file(override) if xeda_side and override.is_file() else None,
+        "design_file_sha256": sha256_file(config.path) if xeda_side else None,
+        "xeda_sha256": xeda_sha256() if xeda_side else None,
+        "tool_sha256": sha256_file(Path(__file__)),
         "sources": {
             "orfs_commit": commit,
             **source_pins(ctx.orfs, files, design.sdc),

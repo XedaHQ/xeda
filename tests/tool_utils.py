@@ -1042,6 +1042,8 @@ def fake_calls(run_dir: Path, elements: bool = False) -> List[List[str]]:
 #     the same designs (tests/test_asic_parity.py, with tools/asic_parity.py); needs
 #     XEDA_TESTS_ORFS=<checkout of OpenROAD-flow-scripts>, an `openroad`, and a `yosys` with Tcl
 #     and the slang plugin on PATH. The checkout holds the platform files, so no PDK store.
+#   XEDA_TESTS_ORFS alone runs the fast checks against that checkout
+#     (tests/test_parity_override_sky130hd.py).
 # ---------------------------------------------------------------------------------------------
 
 
@@ -1181,6 +1183,21 @@ class AsicQorTools(NamedTuple):
     yosys: Path
 
 
+def require_orfs_checkout() -> Path:
+    """Return the checkout of OpenROAD-flow-scripts that `XEDA_TESTS_ORFS` names, and skip without
+    the variable. A value that names no checkout fails: the variable was set for a reason."""
+    value = os.environ.get("XEDA_TESTS_ORFS", "")
+    if not value:
+        pytest.skip("set XEDA_TESTS_ORFS to a checkout of OpenROAD-flow-scripts")
+    orfs = Path(value).expanduser()
+    if not (orfs / "flow" / "Makefile").is_file():
+        pytest.fail(
+            f"XEDA_TESTS_ORFS is {value}, which is no checkout of OpenROAD-flow-scripts "
+            "(it has no flow/Makefile)"
+        )
+    return orfs
+
+
 def require_asic_qor() -> AsicQorTools:
     """Hold the ASIC flows of xeda to OpenROAD-flow-scripts only when asked
     (`XEDA_TESTS_ASIC_QOR=1`: a design takes minutes, and the largest takes an hour), and then
@@ -1193,18 +1210,12 @@ def require_asic_qor() -> AsicQorTools:
             "set XEDA_TESTS_ASIC_QOR=1 and XEDA_TESTS_ORFS to hold the ASIC flows to "
             "OpenROAD-flow-scripts"
         )
-    value = os.environ.get("XEDA_TESTS_ORFS", "")
-    if not value:
+    if not os.environ.get("XEDA_TESTS_ORFS", ""):
         pytest.fail(
             "XEDA_TESTS_ASIC_QOR is set, but XEDA_TESTS_ORFS is not: give a checkout of "
             "OpenROAD-flow-scripts"
         )
-    orfs = Path(value).expanduser()
-    if not (orfs / "flow" / "Makefile").is_file():
-        pytest.fail(
-            f"XEDA_TESTS_ASIC_QOR is set, but {value} is no checkout of OpenROAD-flow-scripts "
-            "(it has no flow/Makefile)"
-        )
+    orfs = require_orfs_checkout()
     openroad = _find_openroad("XEDA_TESTS_ASIC_QOR")
     yosys = shutil.which("yosys")
     if yosys is None:

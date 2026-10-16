@@ -52,11 +52,12 @@ Commands:
 - `run <platform>/<design> --half {synthesis,pnr,both}` runs ORFS when `--root` has no ORFS row,
   then runs each named half, then prints the table. Give `--half` more than once for several
   halves. A half whose saved row is current is skipped. A row is current when it passed and the
-  inputs that it records are unchanged: the tools, the source files, the platform and override
-  files, the design file, the ORFS variables and the core count. A half row also records a digest
-  of the code of xeda, and the `pnr` row depends on the ORFS row. A failed or stale row runs
-  again, and the tool prints why. With `--force`, every row of the command runs
-  again, the ORFS row too.
+  inputs that it records are unchanged: the tools, the source files, the ORFS variables and the
+  core count, and a digest of this tool. A half row also records the platform and override files,
+  the design file and a digest of the code of xeda, and the `pnr` row depends on the ORFS row. The
+  ORFS row records none of the inputs that only xeda reads, so a change of xeda does not run ORFS
+  again. A failed or stale row runs again, and the tool prints why. With `--force`, every row of
+  the command runs again, the ORFS row too.
 - `table [<platform>/<design> ...]` prints the table of the recorded rows. With no design, it prints
   every design under `--root`. It needs no ORFS checkout and no tool.
 - `script <platform>/<design>` runs the xeda `yosys` flow of the design. It prints the yosys script
@@ -229,10 +230,13 @@ A row holds:
 
 - `success`, `failed_at` and `error`: whether every stage ran to the end, and where it stopped.
 - `tools`: the versions and the paths of OpenROAD, the ORFS yosys and the xeda yosys, the front-end
-  yosys when it differs, the SHA-256 digest of the OpenROAD executable, and the xeda version.
+  yosys when it differs, the SHA-256 digest of the OpenROAD executable, and the xeda version. The
+  ORFS row leaves out the xeda yosys and the xeda version.
 - `orfs_commit`, and `pdk` with `provider` (`directory`) and `pin` (the ORFS commit).
 - `platform_residue_sha256`, `override_sha256` and `design_file_sha256`: the SHA-256 digests of the
-  bundled platform file, the override file and the design file.
+  bundled platform file, the override file and the design file (`null` in the ORFS row).
+- `xeda_sha256`: the digest of the xeda package (`null` in the ORFS row).
+- `tool_sha256`: the digest of `tools/asic_parity.py`, which drives both runs.
 - `sources`: the SHA-256 digests of the source files and of the SDC file, by path in the checkout.
 - `make_vars`: the ORFS variables that the tool read.
 - `metrics`: the ORFS metric names, such as `finish__timing__setup__ws`.

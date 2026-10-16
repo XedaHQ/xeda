@@ -3,8 +3,8 @@
 `tools/asic_parity/overrides/sky130hd.yaml` extends the bundled `sky130hd`. The comparison with
 OpenROAD-flow-scripts (ORFS) uses it, so that both flows run on the same library and the same
 values. The checks without an ORFS checkout look at the file and at the model it builds from a
-directory of made-up paths. The checks with a checkout (the reference location, skipped without
-it) resolve every role to a real file and compare the model with `config.mk`.
+directory of made-up paths. The checks with a checkout (`XEDA_TESTS_ORFS`, skipped without it)
+resolve every role to a real file and compare the model with `config.mk`.
 """
 
 from pathlib import Path
@@ -18,9 +18,10 @@ from xeda.platforms.model import Located
 from xeda.platforms.residue import effective_residue
 from xeda.platforms.upstream import read_upstream
 
+from .tool_utils import require_orfs_checkout
+
 ROOT = Path(__file__).parent.parent
 OVERRIDE = ROOT / "tools" / "asic_parity" / "overrides" / "sky130hd.yaml"
-ORFS_PLATFORMS = Path("/Volumes/src/opensource-asics/OpenROAD-flow-scripts/flow/platforms")
 
 
 @pytest.fixture(scope="module")
@@ -123,9 +124,11 @@ def test_the_file_gives_the_values_of_orfs_in_the_model(bundled, parity, tmp_pat
 
 @pytest.fixture(scope="module")
 def orfs() -> Path:
-    if not (ORFS_PLATFORMS / "sky130hd" / "config.mk").is_file():
-        pytest.skip("no OpenROAD-flow-scripts checkout at the reference location")
-    return ORFS_PLATFORMS
+    """The platform directories of the ORFS checkout that `XEDA_TESTS_ORFS` names."""
+    platforms = require_orfs_checkout() / "flow" / "platforms"
+    if not (platforms / "sky130hd" / "config.mk").is_file():
+        pytest.fail(f"the ORFS checkout of XEDA_TESTS_ORFS has no {platforms}/sky130hd/config.mk")
+    return platforms
 
 
 def test_the_directory_provider_resolves_every_role_to_a_file_of_orfs(bundled, parity, orfs):
