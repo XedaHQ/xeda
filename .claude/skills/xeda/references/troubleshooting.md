@@ -53,6 +53,8 @@
 | `` `standard` was removed from a source `` | Use `language.vhdl.standard`. |
 | `<flow> reads none of the design's sources: ...` (`NoReadableSource`) | The design lists no source the flow reads. Pick a flow for the design's languages, or give a source its `type`. |
 | `<flow> cannot read the design's Vhdl source(s) ...; it reads ...` | Same: `verilator` reads no VHDL; `ghdl_sim`, `nvc` and `ghdl_synth` read only VHDL; `bsc` reads Bluespec and Verilog. A simulator checks `tb.sources` too. |
+| `<flow> does not read the design's Bluespec sources, and more than one flow converts them: ...` | Two converters fit. Choose one with a chain (`bsc+<flow>`) or a binding (`flows.<flow>.inputs.design: bsc`). |
+| `... ; simulate a Bluespec testbench with bsc_sim` | A Verilog simulator cannot read a Bluespec `tb`. Run `bsc_sim`. |
 | `` <flow> needs `fpga`, the target FPGA device ... `` | Give `flows.<flow>.fpga.part` or `-s fpga.part=<part>` (or a `board`). A shared setting travels only along the edges of the run's graph. In `vivado_synth+openfpgaloader` the part under `flows.yosys_fpga` reaches neither node (`yosys_fpga is not part of this run`). Only `nextpnr`, `fpga_pack` and `openfpgaloader` take `board`. |
 | `<flow> cannot run cocotb tests; use one of: ghdl_sim, nvc, verilator` | Pick a cocotb simulator, or drop the `.py` testbench. |
 

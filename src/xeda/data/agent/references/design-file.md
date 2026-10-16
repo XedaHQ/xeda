@@ -220,12 +220,13 @@ configuration is packed by `fpga_pack` without placing, and a `Bitstream` is wha
 `openfpgaloader` programs.
 
 Each flow declares the source types it reads. It skips other non-language types (an `Lpf` in a
-Vivado design). At planning it refuses a source in a language it cannot read (Bluespec for
-`vivado_synth`, VHDL for `verilator`, SystemVerilog for `ghdl_sim`) and a design with no source
-it reads; the error lists the sources with their types and the types the flow reads. One source of
-a type the flow reads is enough, a constraint file included. Simulators, `bsc` and
-`vivado_project` check `tb.sources` too. C and C++ files are never refused. `nextpnr`,
-`fpga_pack`, `openfpgaloader`, `vivado_impl` and `vivado_power` read only their declared inputs.
+Vivado design). At planning it refuses a source in a language it cannot read (VHDL for `verilator`,
+Bluespec or SystemVerilog for `ghdl_sim`) and a design with no source it reads; the error lists the
+sources with their types and the types the flow reads. A Bluespec source is no refusal for a flow
+that reads Verilog, because `bsc` converts it first. One source of a type the flow reads is enough,
+a constraint file included. Simulators, `bsc` and `vivado_project` check `tb.sources` too. C and
+C++ files are never refused. `nextpnr`, `fpga_pack`, `openfpgaloader`, `vivado_impl` and
+`vivado_power` read only their declared inputs.
 `bsc` compiles Bluespec Classic only from `.bs` files and refuses a `.bh` source.
 
 ## `language`: standards
