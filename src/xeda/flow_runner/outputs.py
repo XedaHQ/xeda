@@ -31,10 +31,11 @@ from ..flow.derived import (
     recorded_files,
 )
 from ..flow.io import OutputDeclaration, declared_outputs, output_enabled
-from ..run_dir import RunDirectoryError
+from ..run_dir import RunDirectory, RunDirectoryError
 from .trace import OutputEntry
 
 __all__ = [
+    "verified_design",
     "handed_design",
     "handed_entries",
     "handed_over",
@@ -301,19 +302,21 @@ def _recorded_output(producer: Flow, output: str) -> tuple[OutputDeclaration, An
     return declaration, recorded
 
 
-def _verified_files(producer: Flow, entries: tuple[OutputEntry, ...], label: str) -> list[Path]:
-    """Check each recorded file under the held read lease of `producer`, and return the paths.
+def _verified_files(
+    run_directory: RunDirectory, entries: tuple[OutputEntry, ...], label: str
+) -> list[Path]:
+    """Check each recorded file, and return the paths.
 
-    A file must be an absolute path inside the run directory of the producer, exist, and have the
-    digest the record gives it."""
+    A file must be an absolute path inside the run directory (`run_directory`, the one of the
+    producer, held under its read lease), exist, and have the digest the record gives it."""
     paths: list[Path] = []
     for entry in entries:
         path = Path(entry.path)
         try:
             if (
                 not path.is_absolute()
-                or not producer.run_directory.holds(path)
-                or not path.resolve().is_relative_to(producer.run_directory.path)
+                or not run_directory.holds(path)
+                or not path.resolve().is_relative_to(run_directory.path)
                 or not path.is_file()
             ):
                 raise FlowDependencyFailure(f"{label} is missing or outside its run directory")
@@ -342,25 +345,25 @@ def handed_over(producer: Flow, output: str) -> list[Path]:
     entries = recorded_entries(
         recorded, declaration.cardinality == "many", label, design=declaration.is_design
     )
-    return _verified_files(producer, entries, label)
+    return _verified_files(producer.run_directory, entries, label)
 
 
-def handed_design(
-    producer: Flow, output: str, design: Design
+def verified_design(
+    recorded: Any, run_directory: RunDirectory, label: str, design: Design
 ) -> tuple[Design, tuple[OutputEntry, ...]]:
-    """Validate the design output of `producer` against `design`, and derive the design from it.
+    """Verify the record of a design output against `design`, and derive the design from it.
 
-    `design` is the design the producer was given. The generated files are checked as
+    This is the one rule of the hand-over (`handed_design`, under the read lease of the producer)
+    and of the dry run, which reads the files and holds no lease. `run_directory` is the one of
+    the producer. The record has the shape `recorded_entries` checks. It names the design it was
+    made from (`input_design`), and that must be `design`. The generated files are checked as
     `handed_over` checks them. Each source that passes through must still be the same file, of
     the same type, at its index in `design.rtl.sources`: a design that was edited or reordered
-    since the run recorded it is a changed record. Return the derived design and the entries of
+    since the run recorded it is a changed record. Last, as a guard, the design must be the one
+    the run recorded (its hash, `input_design`). Return the derived design and the entries of
     the generated files, in order, which the consumer compares with what it consumed."""
-    declaration, recorded = _recorded_output(producer, output)
-    label = f"{producer.name}'s output `{output}`"
-    if not declaration.is_design:
-        raise FlowDependencyFailure(f"{label} is no design")
     entries = recorded_entries(recorded, False, label, design=True)
-    _verified_files(producer, entries, label)
+    _verified_files(run_directory, entries, label)
     for item in recorded["sources"]:
         if "source" not in item:
             continue
@@ -374,8 +377,24 @@ def handed_design(
                 f"{label} changed since its run recorded it: source {index} of the design "
                 f"was {item['file']} ({item['type']}) and is not any more. Run again"
             )
+    if recorded["input_design"] != design.parts_hash(DESIGN_PARTS):
+        raise FlowDependencyFailure(f"{label} was recorded for another design: run again")
     try:
         derived = derive_design(design, recorded)
     except ValueError as error:
         raise FlowDependencyFailure(f"{label} cannot derive a design: {error}") from error
     return derived, entries
+
+
+def handed_design(
+    producer: Flow, output: str, design: Design
+) -> tuple[Design, tuple[OutputEntry, ...]]:
+    """Validate the design output of `producer` against `design`, and derive the design from it.
+
+    `design` is the design the producer was given. The checks are those of `verified_design`,
+    made under the held read lease of the producer."""
+    declaration, recorded = _recorded_output(producer, output)
+    label = f"{producer.name}'s output `{output}`"
+    if not declaration.is_design:
+        raise FlowDependencyFailure(f"{label} is no design")
+    return verified_design(recorded, producer.run_directory, label, design)

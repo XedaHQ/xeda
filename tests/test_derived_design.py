@@ -418,6 +418,20 @@ def test_the_hand_over_refuses_a_source_of_another_type_at_the_same_place(tmp_pa
         handed_design(flow, "design", retyped)
 
 
+def test_the_hand_over_refuses_a_design_that_is_not_the_one_the_run_recorded(tmp_path) -> None:
+    """The sources are the same files in the same places, and a define differs: the record was
+    made for another design."""
+    design = _design(tmp_path / "d")
+    flow = _launched(tmp_path, design)
+    other = design.model_copy(deep=True)
+    other.rtl.defines["STEP"] = "3"
+    other.rtl.invalidate_cached_properties()
+    other.invalidate_cached_properties()
+    with pytest.raises(FlowDependencyFailure, match="recorded for another design: run again"):
+        handed_design(flow, "design", other)
+    handed_design(flow, "design", design)
+
+
 def test_the_hand_over_of_a_missing_record_says_to_run_again(tmp_path) -> None:
     design = _design(tmp_path / "d")
     flow = _launched(tmp_path, design)
