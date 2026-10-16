@@ -44,6 +44,8 @@ ARABIC_INDIC = str.maketrans(
     "0123456789", "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669"
 )
 OLD_SHA256 = "4e69030f3a28cb819192a3780e20fd174ff7caf30cacf1cdbf2195cce913a933"
+OLD_UBUNTU_22_SHA256 = "cb6aad55786a91d1c85ab0e3609e86c086e4147367e3c623676bade0e73bbd05"
+NEW_UBUNTU_22_SHA256 = "12" * 32
 NEW_SHA256 = "ab" * 32
 OLD_COMMIT = "efe9e07330e88434a831f2c52bee72739da0f0a5"
 NEW_COMMIT = "1234567890abcdef1234567890abcdef12345678"
@@ -108,6 +110,12 @@ jobs:
       - uses: some/other-action@v1
         with:
           version: "2030.1.1"
+      - name: Install Bluespec Compiler (bsc)
+        env:
+          BSC_VERSION: "2026.07.1"
+          BSC_SHA256: "{OLD_UBUNTU_22_SHA256}"
+        run: |
+          curl -fsSL -o bsc.tar.gz "https://example.org/${{BSC_VERSION}}/bsc.tar.gz"
 """
 
 
@@ -127,16 +135,26 @@ def oss_cad(date: str, **flags: bool) -> dict[str, Any]:
     return release(date, f"oss-cad-suite-linux-x64-{date.replace('-', '')}.tgz", **flags)
 
 
-def bsc(tag: str, asset: dict[str, Any] | None = None, **flags: bool) -> dict[str, Any]:
-    """A bsc release. `asset` adds to, or replaces, the fields of its Ubuntu 24.04 tarball, which
-    has the digest that GitHub publishes unless `asset` says `{"digest": None}`."""
-    tarball = {
-        "name": f"bsc-{tag}-ubuntu-24.04.tar.gz",
-        "size": TARBALL_SIZE,
-        "digest": f"sha256:{NEW_SHA256}",
-        **(asset or {}),
-    }
-    return release(tag, tarball, **flags)
+def bsc(
+    tag: str,
+    asset: dict[str, Any] | None = None,
+    asset_22: dict[str, Any] | None = None,
+    **flags: bool,
+) -> dict[str, Any]:
+    """A bsc release. `asset` adds to, or replaces, the fields of its Ubuntu 24.04 and 22.04
+    tarballs, which have the digest that GitHub publishes unless `asset` says `{"digest": None}`.
+    `asset_22` changes the Ubuntu 22.04 tarball only."""
+    tarballs = [
+        {
+            "name": f"bsc-{tag}-{platform}.tar.gz",
+            "size": TARBALL_SIZE,
+            "digest": f"sha256:{NEW_SHA256}",
+            **(asset or {}),
+            **(asset_22 or {} if platform == "ubuntu-22.04" else {}),
+        }
+        for platform in ("ubuntu-24.04", "ubuntu-22.04")
+    ]
+    return release(tag, *tarballs, **flags)
 
 
 AMD64_IMAGE = {
@@ -236,6 +254,11 @@ def pin(kind: str):
     return next(p for p in pins.PINS if p.kind == kind)
 
 
+def orfs_bsc_pin():
+    """The pin of bsc in openroad.yml: the second pin of kind bsc."""
+    return next(p for p in pins.PINS if p.kind == "bsc" and p.path == pins.ORFS)
+
+
 # --------------------------------------------------------------------- the real workflow files
 
 
@@ -265,7 +288,23 @@ def test_the_workflow_files_of_the_repository_hold_pins_the_script_reads(pin_):
 def test_ci_downloads_the_bsc_tarball_from_the_address_the_script_hashes():
     """`bsc_url` builds the address the way ci.yml does from BSC_VERSION, so the SHA-256 that the
     script computes is the one the step checks."""
-    assert pins.bsc_url("${BSC_VERSION}") in (ROOT / pins.CI).read_text(encoding="utf-8")
+    assert pins.bsc_url("${BSC_VERSION}", "ubuntu-24.04") in (ROOT / pins.CI).read_text(
+        encoding="utf-8"
+    )
+
+
+def test_the_openroad_job_downloads_the_bsc_tarball_of_its_own_ubuntu_version():
+    """The image of the job is Ubuntu 22.04, so the pin there is the digest of that tarball."""
+    text = (ROOT / pins.ORFS).read_text(encoding="utf-8")
+    assert pins.bsc_url("${BSC_VERSION}", "ubuntu-22.04") in text
+    assert "ubuntu-24.04" not in text.replace("runs-on: ubuntu-24.04", "")
+
+
+def test_both_bsc_pins_of_the_repository_name_the_same_release():
+    versions = {
+        pins.read_bsc((ROOT / path).read_text(encoding="utf-8"))[0] for path in (pins.CI, pins.ORFS)
+    }
+    assert len(versions) == 1
 
 
 # ------------------------------------------------------------------------ reading a pin
@@ -277,6 +316,7 @@ def test_each_pin_is_read():
     assert pins.read_installer(OPENXC7_TEXT) == OLD_COMMIT
     assert pins.read_orfs_image(ORFS_TEXT) == (OLD_ORFS_TAG, OLD_ORFS_DIGEST)
     assert pins.read_uv(ORFS_TEXT) == OLD_UV
+    assert pins.read_bsc(ORFS_TEXT) == ("2026.07.1", OLD_UBUNTU_22_SHA256)
 
 
 def test_the_oss_cad_pin_is_the_version_of_its_own_step_and_no_other():
@@ -452,7 +492,7 @@ def test_a_tag_written_with_other_digits_is_no_release_tag():
     dated = "2026-10-08".translate(ARABIC_INDIC)
     assert pins.newest_oss_cad([oss_cad("2026-10-06"), oss_cad(dated)]) == "2026-10-06"
     numbered = "2026.10".translate(ARABIC_INDIC)
-    assert pins.newest_bsc([bsc("2026.07.1"), bsc(numbered)]).tag == "2026.07.1"
+    assert pins.newest_bsc([bsc("2026.07.1"), bsc(numbered)], "ubuntu-24.04").tag == "2026.07.1"
     assert not pins.OSS_CAD_TAG.fullmatch(dated) and not pins.BSC_TAG.fullmatch(numbered)
 
 
@@ -462,42 +502,49 @@ def test_no_usable_oss_cad_release_is_an_error(answer):
         pins.newest_oss_cad(answer)
 
 
-def test_the_newest_bsc_release_has_the_ubuntu_24_04_tarball():
+def test_the_newest_bsc_release_has_the_tarball_of_each_ubuntu_version():
     answer = [
         bsc("2026.01"),
         bsc("2026.07"),
         bsc("2026.07.1"),
         release("2026.12", "bsc-2026.12-ubuntu-24.04-arm.tar.gz"),  # another architecture
-        release("2026.11", "bsc-2026.11-ubuntu-22.04.tar.gz"),  # another Ubuntu
+        release("2026.11", "bsc-2026.11-ubuntu-22.04.tar.gz"),  # no Ubuntu 24.04
+        release("2026.11.1", "bsc-2026.11.1-ubuntu-24.04.tar.gz"),  # no Ubuntu 22.04
         bsc("2026.10", prerelease=True),
         bsc("2026.09", draft=True),
         bsc("2026.08-rc1"),  # not a release number
         bsc("nightly"),
     ]
-    assert pins.newest_bsc(answer).tag == "2026.07.1"
+    assert pins.newest_bsc(answer, "ubuntu-24.04").tag == "2026.07.1"
+    assert pins.newest_bsc(answer, "ubuntu-22.04").tag == "2026.07.1"
 
 
 def test_bsc_releases_are_ordered_as_numbers_not_as_text():
-    assert pins.newest_bsc([bsc("2026.07"), bsc("2026.07.1")]).tag == "2026.07.1"
-    assert pins.newest_bsc([bsc("2025.12.3"), bsc("2025.12.10")]).tag == "2025.12.10"
+    assert pins.newest_bsc([bsc("2026.07"), bsc("2026.07.1")], "ubuntu-24.04").tag == "2026.07.1"
+    assert (
+        pins.newest_bsc([bsc("2025.12.3"), bsc("2025.12.10")], "ubuntu-22.04").tag == "2025.12.10"
+    )
 
 
 @pytest.mark.parametrize("answer", [[], {"message": "rate limit"}, [release("2026.01")]])
 def test_no_usable_bsc_release_is_an_error(answer):
     with pytest.raises(pins.PinError):
-        pins.newest_bsc(answer)
+        pins.newest_bsc(answer, "ubuntu-24.04")
 
 
 def test_the_tarball_of_a_release_has_the_size_and_the_digest_github_lists_for_it():
     answer = [bsc("2026.10", {"size": 1234, "digest": f"sha256:{NEW_SHA256}"}), bsc("2026.07.1")]
-    tarball = pins.newest_bsc(answer)
+    tarball = pins.newest_bsc(answer, "ubuntu-22.04")
     assert (tarball.tag, tarball.size, tarball.sha256) == ("2026.10", 1234, NEW_SHA256)
 
 
 @pytest.mark.parametrize("fields", [{}, {"digest": None}], ids=["no digest", "digest null"])
 def test_a_tarball_that_github_gives_no_digest_has_none(fields):
-    asset = {"name": "bsc-2026.10-ubuntu-24.04.tar.gz", "size": TARBALL_SIZE, **fields}
-    tarball = pins.newest_bsc([release("2026.10", asset)])
+    assets = [
+        {"name": f"bsc-2026.10-{platform}.tar.gz", "size": TARBALL_SIZE, **fields}
+        for platform in pins.BSC_PLATFORMS
+    ]
+    tarball = pins.newest_bsc([release("2026.10", *assets)], "ubuntu-24.04")
     assert (tarball.size, tarball.sha256) == (TARBALL_SIZE, None)
 
 
@@ -519,7 +566,7 @@ def test_a_tarball_that_github_gives_no_digest_has_none(fields):
 )
 def test_a_tarball_that_github_describes_wrongly_is_an_error(asset):
     with pytest.raises(pins.PinError):
-        pins.newest_bsc([bsc("2026.10", asset)])
+        pins.newest_bsc([bsc("2026.10", asset)], "ubuntu-24.04")
 
 
 @pytest.mark.parametrize("answer", [{}, [], {"sha": None}, {"sha": "main"}, {"sha": "ab" * 21}])
@@ -672,6 +719,7 @@ def test_nothing_is_updated_when_upstream_is_where_the_pins_are():
         ("orfs", ORFS_TEXT),
     ):
         assert pins.find_update(pin(kind), text, upstream.fetch, upstream.digest) is None
+    assert pins.find_update(orfs_bsc_pin(), ORFS_TEXT, upstream.fetch, upstream.digest) is None
     assert upstream.downloads == []
 
 
@@ -703,6 +751,29 @@ def test_a_newer_bsc_is_hashed_from_the_address_ci_downloads():
         "https://github.com/B-Lang-org/bsc/releases/download/2026.10/bsc-2026.10-ubuntu-24.04.tar.gz"
     ]
     assert pins.read_bsc(pins.apply_update(CI_TEXT, update)) == ("2026.10", NEW_SHA256)
+
+
+def test_a_newer_bsc_is_hashed_for_the_ubuntu_version_of_each_workflow():
+    upstream = newer_upstream()
+    update = pins.find_update(orfs_bsc_pin(), ORFS_TEXT, upstream.fetch, upstream.digest)
+    assert (update.old, update.new) == ("2026.07.1", "2026.10")
+    assert upstream.downloads == [
+        "https://github.com/B-Lang-org/bsc/releases/download/2026.10/bsc-2026.10-ubuntu-22.04.tar.gz"
+    ]
+    assert pins.read_bsc(pins.apply_update(ORFS_TEXT, update)) == ("2026.10", NEW_SHA256)
+    assert pins.read_uv(pins.apply_update(ORFS_TEXT, update)) == OLD_UV  # no other pin changes
+
+
+def test_a_bsc_release_without_the_digest_of_one_tarball_moves_neither_pin():
+    """The pins of the two workflows never name different releases."""
+    upstream = newer_upstream(
+        bsc_releases=[bsc("2026.10", asset_22={"digest": None}), bsc("2026.07.1")]
+    )
+    for bsc_pin, text in ((pin("bsc"), CI_TEXT), (orfs_bsc_pin(), ORFS_TEXT)):
+        notes: list[str] = []
+        update = pins.find_update(bsc_pin, text, upstream.fetch, upstream.digest, notes.append)
+        assert update is None and len(notes) == 1
+    assert upstream.downloads == []
 
 
 def test_a_newer_bsc_is_downloaded_against_the_size_and_digest_github_lists():
@@ -850,6 +921,7 @@ def test_a_run_prints_a_warning_as_a_warning_when_no_one_collects_them(tmp_path,
 
 
 BSC_WITHOUT_DIGEST = "Bluespec Compiler (bsc): 2026.10 has no published digest; pin it by hand"
+BSC_WITHOUT_DIGEST_ORFS = BSC_WITHOUT_DIGEST.replace("(bsc)", "(bsc) for the OpenROAD tests")
 
 
 def test_a_run_leaves_a_bsc_without_a_published_digest_and_goes_on_with_the_others(tmp_path):
@@ -867,7 +939,11 @@ def test_a_run_leaves_a_bsc_without_a_published_digest_and_goes_on_with_the_othe
     )
     assert [u.pin.kind for u in updates] == ["oss_cad", "installer", "orfs", "uv"]
     assert pins.read_bsc((tmp_path / pins.CI).read_text()) == ("2026.07.1", OLD_SHA256)
-    assert warnings == [f"{BSC_WITHOUT_DIGEST} (the pin stays at 2026.07.1)"]
+    assert pins.read_bsc((tmp_path / pins.ORFS).read_text()) == ("2026.07.1", OLD_UBUNTU_22_SHA256)
+    assert warnings == [
+        f"{BSC_WITHOUT_DIGEST} (the pin stays at 2026.07.1)",
+        f"{BSC_WITHOUT_DIGEST_ORFS} (the pin stays at 2026.07.1)",
+    ]
     assert not any("Bluespec" in line and "up to date" in line for line in log)
     assert upstream.downloads == []
 
@@ -1054,7 +1130,7 @@ def test_a_dry_run_finds_every_update_and_writes_nothing(tmp_path):
     upstream = newer_upstream()
     log: list[str] = []
     updates = pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=True, log=log.append)
-    assert [u.pin.kind for u in updates] == ["oss_cad", "bsc", "installer", "orfs", "uv"]
+    assert [u.pin.kind for u in updates] == ["oss_cad", "bsc", "installer", "orfs", "uv", "bsc"]
     assert contents(tmp_path) == before
     assert any("2026-09-15 -> 2026-10-07" in line for line in log)
     assert any(NEW_SHA256 in line for line in log)
@@ -1069,8 +1145,10 @@ def test_a_run_writes_the_pins_and_only_the_pins(tmp_path):
         pins.write_oss_cad(CI_TEXT, "2026-10-07"), "2026.10", NEW_SHA256
     )
     assert after[str(pins.OPENXC7)] == OPENXC7_TEXT.replace(OLD_COMMIT, NEW_COMMIT)
-    assert after[str(pins.ORFS)] == pins.write_uv(
-        pins.write_orfs_image(ORFS_TEXT, NEW_ORFS_TAG, NEW_ORFS_DIGEST), NEW_UV
+    assert after[str(pins.ORFS)] == pins.write_bsc(
+        pins.write_uv(pins.write_orfs_image(ORFS_TEXT, NEW_ORFS_TAG, NEW_ORFS_DIGEST), NEW_UV),
+        "2026.10",
+        NEW_SHA256,
     )
     # a second run finds nothing more to do
     again = pins.run(
@@ -1111,7 +1189,9 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
     upstream = newer_upstream()
     updates = [
         pins.find_update(p, text, upstream.fetch, upstream.digest)
-        for p, text in zip(pins.PINS, (CI_TEXT, CI_TEXT, OPENXC7_TEXT, ORFS_TEXT, ORFS_TEXT))
+        for p, text in zip(
+            pins.PINS, (CI_TEXT, CI_TEXT, OPENXC7_TEXT, ORFS_TEXT, ORFS_TEXT, ORFS_TEXT)
+        )
     ]
     title, body = pins.pull_request_text(updates)
     message = pins.commit_message(updates)
@@ -1119,6 +1199,7 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
     for line in (
         "OSS CAD Suite: 2026-09-15 -> 2026-10-07",
         "Bluespec Compiler (bsc): 2026.07.1 -> 2026.10",
+        "Bluespec Compiler (bsc) for the OpenROAD tests: 2026.07.1 -> 2026.10",
         "openXC7 toolchain installer: efe9e07 -> 1234567",
         f"ORFS image for the OpenROAD tests: {OLD_ORFS_TAG} -> {NEW_ORFS_TAG}",
         f"uv: {OLD_UV} -> {NEW_UV}",
@@ -1138,6 +1219,7 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
     assert f"`{OLD_ORFS_TAG}` | `{NEW_ORFS_TAG}`" in body
     assert f"`sha256:{NEW_ORFS_DIGEST}`" in body and "providers.orfs.version" in body
     assert f"`{NEW_SHA256}`" in body and "bsc-2026.10-ubuntu-24.04.tar.gz" in body
+    assert "bsc-2026.10-ubuntu-22.04.tar.gz" in body
     assert "GitHub lists the same digest" in body
     for text in (title, body, message):
         assert "Co-Authored-By" not in text and "Generated with" not in text
@@ -1645,9 +1727,9 @@ def test_the_openroad_job_has_no_pin_of_the_platform_files_of_its_own():
     assert "--platform-file" not in install
     assert "ORFS_PLATFORM_REV" not in text
     assert not re.search(r"\bgit (clone|fetch|init|sparse-checkout)\b", text)
-    # the only digest and commit in the file are the image's own
+    # the only digests and commits in the file are the image's and the bsc tarball's
     assert not re.search(r"\b[0-9a-f]{40}\b", text)  # no commit
-    assert len(re.findall(r"\b[0-9a-f]{64}\b", text)) == 1  # the digest of the image
+    assert len(re.findall(r"\b[0-9a-f]{64}\b", text)) == 2  # the image and the bsc tarball
 
 
 def test_the_openroad_job_runs_the_real_tool_tests_with_every_layer_switched_on():

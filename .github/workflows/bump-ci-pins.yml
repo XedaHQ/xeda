@@ -1,8 +1,9 @@
 name: Bump CI tool pins
 
 # CI pins the tools that it installs: the OSS CAD Suite and the Bluespec Compiler (bsc) in ci.yml,
-# the openXC7 toolchain installer in openxc7.yml, and the OpenROAD-flow-scripts Docker image in
-# openroad.yml. Every Monday this workflow looks for newer versions
+# the openXC7 toolchain installer in openxc7.yml, and the OpenROAD-flow-scripts Docker image and
+# bsc again (the Ubuntu 22.04 tarball that fits the image) in openroad.yml. One bsc release moves
+# both bsc pins. Every Monday this workflow looks for newer versions
 # (.github/scripts/bump_ci_pins.py). When it finds one, it changes the pins on the branch
 # ci/bump-tool-pins and opens a pull request, or updates the pull request that is open. The owner
 # of the token is the author of the pull request, and CI runs on it like on any other. A person

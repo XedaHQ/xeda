@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Find newer versions of the tools that CI pins, and write them into the workflow files.
 
-CI pins five tools. A pin is one line of a workflow file (two lines for bsc and for the image):
+CI pins five tools. A pin is one line of a workflow file (two lines for bsc and for the image).
+bsc is pinned twice, in two files, and one release moves both pins:
 
 * the OSS CAD Suite, by the date of its build: the `version` of the
   `YosysHQ/setup-oss-cad-suite` step in `.github/workflows/ci.yml`;
-* the Bluespec Compiler (bsc), by its release and the SHA-256 of its Ubuntu 24.04 tarball:
-  `BSC_VERSION` and `BSC_SHA256` in `.github/workflows/ci.yml`;
+* the Bluespec Compiler (bsc), by its release and the SHA-256 of its tarball: `BSC_VERSION` and
+  `BSC_SHA256` in `.github/workflows/ci.yml` (the Ubuntu 24.04 tarball) and in
+  `.github/workflows/openroad.yml` (the Ubuntu 22.04 tarball, for the image of the OpenROAD job);
 * the openXC7 toolchain installer, by a commit: `INSTALLER_REV` in
   `.github/workflows/openxc7.yml`;
 * the OpenROAD-flow-scripts (ORFS) Docker image that runs the OpenROAD tests, by its tag
@@ -23,7 +25,8 @@ the pin in another format, is an error: the script must change together with the
 value that comes from GitHub or Docker Hub is checked against a strict pattern before it reaches a
 file. The SHA-256 of the bsc tarball comes from a download that must be whole: it has the size and
 the digest that GitHub publishes for the file. A release with no published digest is not pinned:
-the script says so, and a person pins it by hand.
+the script says so, and a person pins it by hand. A release is pinned only when it has the
+tarball of every Ubuntu version, and a digest for each: both pins stay on the same release.
 
 The tags of the image are ordered by the numbers in them, not as text. A tag with no amd64 Linux
 image is not pinned. The pin is the digest of the tag, which is what `docker pull` records. The
@@ -70,6 +73,8 @@ LISTED_DIGEST = re.compile(rf"sha256:(?P<hex>{SHA256.pattern})")  # how GitHub w
 GITHUB = "https://github.com"
 OSS_CAD_REPOSITORY = "YosysHQ/oss-cad-suite-build"
 BSC_REPOSITORY = "B-Lang-org/bsc"
+#: The Ubuntu versions whose tarball a workflow installs. A release is pinned only when it has all.
+BSC_PLATFORMS = ("ubuntu-24.04", "ubuntu-22.04")
 INSTALLER_REPOSITORY = "openXC7/toolchain-installer"
 UV_REPOSITORY = "astral-sh/uv"
 ORFS_REPOSITORY = "The-OpenROAD-Project/OpenROAD-flow-scripts"
@@ -100,14 +105,22 @@ class Pin:
     tool: str
     path: Path
     name: str
+    platform: str = ""  # of the bsc tarball
 
 
 PINS = (
     Pin("oss_cad", "OSS CAD Suite", CI, "`version` of the setup-oss-cad-suite step"),
-    Pin("bsc", "Bluespec Compiler (bsc)", CI, "`BSC_VERSION` and `BSC_SHA256`"),
+    Pin("bsc", "Bluespec Compiler (bsc)", CI, "`BSC_VERSION` and `BSC_SHA256`", "ubuntu-24.04"),
     Pin("installer", "openXC7 toolchain installer", OPENXC7, "`INSTALLER_REV`"),
     Pin("orfs", "ORFS image for the OpenROAD tests", ORFS, "`image` of the container"),
     Pin("uv", "uv", ORFS, "`version` of the setup-uv step"),
+    Pin(
+        "bsc",
+        "Bluespec Compiler (bsc) for the OpenROAD tests",
+        ORFS,
+        "`BSC_VERSION` and `BSC_SHA256`",
+        "ubuntu-22.04",
+    ),
 )
 
 
@@ -324,18 +337,19 @@ def newest_uv(answer: Any) -> str:
     return max(tags, key=_release_number)
 
 
-def bsc_tarball(tag: str) -> str:
-    return f"bsc-{tag}-ubuntu-24.04.tar.gz"
+def bsc_tarball(tag: str, platform: str) -> str:
+    return f"bsc-{tag}-{platform}.tar.gz"
 
 
-def bsc_url(tag: str) -> str:
-    """The address CI downloads. It is built the way ci.yml builds it."""
-    return f"{GITHUB}/{BSC_REPOSITORY}/releases/download/{tag}/{bsc_tarball(tag)}"
+def bsc_url(tag: str, platform: str) -> str:
+    """The address CI downloads. It is built the way the workflows build it."""
+    return f"{GITHUB}/{BSC_REPOSITORY}/releases/download/{tag}/{bsc_tarball(tag, platform)}"
 
 
-def _tarball(release: dict[str, Any], tag: str) -> Tarball:
-    """The tarball of `release`, which has one: its size, and its digest if GitHub lists one."""
-    name = bsc_tarball(tag)
+def _tarball(release: dict[str, Any], tag: str, platform: str) -> Tarball:
+    """The `platform` tarball of `release`, which has one: its size, and its digest if GitHub
+    lists one."""
+    name = bsc_tarball(tag, platform)
     asset = next(a for a in release["assets"] if isinstance(a, dict) and a.get("name") == name)
     size = asset.get("size")
     if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
@@ -352,19 +366,24 @@ def _tarball(release: dict[str, Any], tag: str) -> Tarball:
     return Tarball(tag, size, match.group("hex"))
 
 
-def newest_bsc(answer: Any) -> Tarball:
-    """The tarball of the newest release that has the Ubuntu 24.04 one."""
+def newest_bsc_tarballs(answer: Any) -> dict[str, Tarball]:
+    """The tarball of each Ubuntu version, from the newest release that has all of them."""
     candidates = {
         tag: release
         for release in _releases(answer, "bsc")
         if isinstance(tag := release.get("tag_name"), str)
         and BSC_TAG.fullmatch(tag)
-        and bsc_tarball(tag) in _asset_names(release)
+        and all(bsc_tarball(tag, platform) in _asset_names(release) for platform in BSC_PLATFORMS)
     }
     if not candidates:
-        raise PinError("bsc: no release has an Ubuntu 24.04 tarball")
+        raise PinError(f"bsc: no release has a tarball for each of {', '.join(BSC_PLATFORMS)}")
     tag = max(candidates, key=_release_number)
-    return _tarball(candidates[tag], tag)
+    return {platform: _tarball(candidates[tag], tag, platform) for platform in BSC_PLATFORMS}
+
+
+def newest_bsc(answer: Any, platform: str) -> Tarball:
+    """The `platform` tarball of the newest release that has the tarballs of all platforms."""
+    return newest_bsc_tarballs(answer)[platform]
 
 
 def installer_head(answer: Any) -> str:
@@ -475,17 +494,19 @@ def find_update(
         return Update(pin, old, new, links)
     if pin.kind == "bsc":
         old, _ = read_bsc(text)
-        tarball = newest_bsc(fetch(f"/repos/{BSC_REPOSITORY}/releases?per_page=30"))
+        tarballs = newest_bsc_tarballs(fetch(f"/repos/{BSC_REPOSITORY}/releases?per_page=30"))
+        tarball = tarballs[pin.platform]
         new = tarball.tag
         if _release_number(new) <= _release_number(old):
             return None
-        if tarball.sha256 is None:
+        if tarball.sha256 is None or any(t.sha256 is None for t in tarballs.values()):
             # What the workflow would pin is the digest of whatever it downloads, a file that could
             # have been changed after its release to one of the same size. Only a digest that
-            # GitHub published can tell.
+            # GitHub published can tell. One tarball without it keeps both pins on the old
+            # release, so that they never differ.
             warn(f"{new} has no published digest; pin it by hand (the pin stays at {old})")
             return None
-        sha256 = digest(bsc_url(new), tarball.size, tarball.sha256)
+        sha256 = digest(bsc_url(new, pin.platform), tarball.size, tarball.sha256)
         if not SHA256.fullmatch(sha256):
             raise PinError("bsc: the digest of the tarball is not a SHA-256")
         links = (
@@ -571,7 +592,7 @@ def pull_request_text(updates: Sequence[Update], notes: Sequence[str] = ()) -> t
     for u in updates:
         if u.pin.kind == "bsc":
             explanations.append(
-                f"The SHA-256 of `{bsc_tarball(u.new)}` is `{u.sha256}`. "
+                f"The SHA-256 of `{bsc_tarball(u.new, u.pin.platform)}` is `{u.sha256}`. "
                 "The workflow computed it by downloading the file. "
                 "GitHub lists the same digest for the file."
             )
