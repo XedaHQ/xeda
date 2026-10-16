@@ -28,7 +28,13 @@ from ..design import DESIGN_PARTS, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
 from ..flow.fpga import FPGA
-from ..flow.io import declared_inputs, declared_outputs, selected_types
+from ..flow.io import (
+    declared_inputs,
+    declared_outputs,
+    kinds_text,
+    output_enabled,
+    selected_types,
+)
 from ..flow.synth import PhysicalClock
 from ..units import Quantity
 from .bindings import (
@@ -820,6 +826,8 @@ def _replaceable_by_a_source(producer: _Request, requests: list[_Request]) -> st
     selected = next((item for item in consumer.inputs if item.name == name), None)
     if selected is None or selected.binding_origin is not None:
         return ""
+    if declared_inputs(consumer.cls)[name].is_design:
+        return ""
     kinds = "/".join(kind.name for kind in selected_types(consumer.cls, consumer.settings, name))
     return f"; a {kinds} source would supply {consumer.label}'s {name} and skip {producer.label}"
 
@@ -831,6 +839,36 @@ def _sections(values: Mapping[str, Any] | None) -> dict[str, Any]:
         cls = registered_flow(name)
         normalized[cls.name if cls else name] = merge_layers(_explicit(raw))
     return normalized
+
+
+def _check_design_producers(request: _Request, selected: ResolvedInput) -> None:
+    """Refuse a `design` input whose producer has no design output under the final settings.
+
+    The producer needs an enabled design output, and its conversion under its settings has to
+    write only languages that the consumer reads."""
+    where = f"{request.cls.name}.{selected.name}"
+    reads = request.cls.reads_sources or frozenset()
+    for child, output_name in request.producers.get(selected.name, ()):
+        assert child.settings is not None
+        made = declared_outputs(child.cls)[output_name]
+        conversion = (
+            child.cls.design_conversion(child.settings)
+            if made.is_design and output_enabled(child.settings, made)
+            else None
+        )
+        if conversion is None or not conversion.produces <= reads:
+            writes = (
+                "/".join(sorted(member.name for member in conversion.produces))
+                if conversion is not None
+                else ""
+            )
+            raise FlowSettingsException(
+                f"{where}: {child.cls.name}.{output_name} has no compatible output under the "
+                f"selected settings (takes design written in "
+                f"{'/'.join(sorted(member.name for member in reads)) or 'nothing'}, makes "
+                f"{writes or 'nothing'})"
+                + (f"; bound by {selected.binding_location}" if selected.binding_location else "")
+            )
 
 
 def resolve(
@@ -936,7 +974,7 @@ def resolve(
                 f"{where}: {producer.name} declares no outputs, so it cannot supply "
                 f"{cls.name}.{declaration.name}"
             )
-        made = ", ".join(f"{out.name} ({kinds(out.types)})" for out in outputs.values())
+        made = ", ".join(f"{out.name} ({kinds_text(out)})" for out in outputs.values())
         # The one edge predicate, shared with chain links (`chains.fitting_outputs`).
         fitting, many = fitting_outputs(producer, declaration, output=wanted)
         if wanted is not None:
@@ -947,8 +985,8 @@ def resolve(
                 )
             if not fitting:
                 raise FlowSettingsException(
-                    f"{where}: {cls.name}.{declaration.name} takes {kinds(declaration.types)}; "
-                    f"{producer.name}.{wanted} makes {kinds(outputs[wanted].types)}. "
+                    f"{where}: {cls.name}.{declaration.name} takes {kinds_text(declaration)}; "
+                    f"{producer.name}.{wanted} makes {kinds_text(outputs[wanted])}. "
                     f"{producer.name} makes: {made}"
                 )
             return wanted
@@ -962,7 +1000,7 @@ def resolve(
                 )
             raise FlowSettingsException(
                 f"{where}: {producer.name} has no output {cls.name}.{declaration.name} can "
-                f"take ({kinds(declaration.types)}); it makes: {made}"
+                f"take ({kinds_text(declaration)}); it makes: {made}"
             )
         raise FlowSettingsException(
             f"{where}: {cls.name}.{declaration.name} can take several outputs of "
@@ -1028,6 +1066,10 @@ def resolve(
                     )
                 )
                 continue
+            if declaration.is_design:
+                # Unbound, the design input has no `ResolvedInput`: the flow reads the design
+                # as it is, and the identity of the node is what it was without the input.
+                continue
             sources = tuple(
                 source.path for source in design.rtl.sources if source.type in declaration.types
             )
@@ -1054,7 +1096,11 @@ def resolve(
                     f"{where} names unknown producer {declaration.producer!r}"
                 )
             outputs = declared_outputs(producer)
-            matching = [out for out in outputs.values() if set(out.types) & set(declaration.types)]
+            matching = [
+                out
+                for out in outputs.values()
+                if not out.is_design and set(out.types) & set(declaration.types)
+            ]
             output = (
                 outputs.get(declaration.output)
                 if declaration.output
@@ -1176,7 +1222,9 @@ def resolve(
             settings = settings_in_context(proposal.cls, values, **context)
             selected_inputs = []
             for declaration in declared_inputs(request.cls).values():
-                old = next(item for item in request.inputs if item.name == declaration.name)
+                old = next((item for item in request.inputs if item.name == declaration.name), None)
+                if old is None:  # an unbound design input
+                    continue
                 if old.binding_origin is not None:
                     # An explicit binding is no candidate for displacement by a source.
                     selected_inputs.append(old)
@@ -1301,6 +1349,9 @@ def resolve(
         for selected in request.inputs:
             declaration = declared_inputs(request.cls)[selected.name]
             where = f"{request.cls.name}.{selected.name}"
+            if declaration.is_design:
+                _check_design_producers(request, selected)
+                continue
             types = selected_types(request.cls, request.settings, selected.name)
             sources = tuple(source.path for source in design.rtl.sources if source.type in types)
             if selected.origin == "source" and sources != selected.sources:

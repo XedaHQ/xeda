@@ -15,7 +15,7 @@ from typing import Any, Protocol
 from ..deliver import DeliveryError, ReadInputs
 from ..design import Design
 from ..flow import Flow, FlowDependencyFailure
-from ..flow.io import declared_inputs, selected_types
+from ..flow.io import declared_inputs, declared_outputs, selected_types
 from ..run_dir import RunDirectoryError
 from .bindings import NodeKey
 from .launch_run import refuse_inputs_inside
@@ -101,6 +101,11 @@ def run_producers(
     declarations = declared_inputs(type(flow))
     for selected in node.inputs:
         declaration = declarations[selected.name]
+        if declaration.is_design:
+            raise NotImplementedError(
+                f"{flow.name}.{selected.name} takes a derived design, which the design stage of "
+                "the launcher hands over; it is not part of `run_producers`"
+            )
         producers: list[Flow] = []
         entries: list[tuple[OutputEntry, ...]] = []
         paths = list(selected.sources)
@@ -143,6 +148,14 @@ def run_producers(
             if producer not in consumed_from:
                 read_leases.enter_context(read_lease(producer))
                 consumed_from.append(producer)
+            made = declared_outputs(producer_node.flow_class)[reference.output]
+            # The kind of value decides first: a design input takes a design output only, and
+            # an input of files never takes one.
+            if made.is_design != declaration.is_design:
+                raise FlowDependencyFailure(
+                    f"{flow.name}.{selected.name}: {producer.name}.{reference.output} "
+                    "has no compatible output under the selected settings"
+                )
             accepted = selected_types(type(flow), node.settings, selected.name)
             produced = selected_types(
                 producer_node.flow_class, producer_node.settings, reference.output, output=True
