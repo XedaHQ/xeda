@@ -886,6 +886,7 @@ def _yosys_on_bluespec(tmp_path: Path, monkeypatch, patch=None):
     return _tools_handed(None, None, monkeypatch, launch_it), root
 
 
+@pytest.mark.real_tool
 def test_a_tool_is_handed_the_files_of_the_design_edge_and_no_other_file_of_its_converter(
     tmp_path, monkeypatch
 ):
@@ -918,6 +919,7 @@ def _reads_the_converter_s_results(monkeypatch) -> None:
     monkeypatch.setattr(Yosys, "run", run_and_read_the_converter)
 
 
+@pytest.mark.real_tool
 def test_the_runtime_check_finds_a_consumer_handed_an_undeclared_file_of_its_converter(
     tmp_path, monkeypatch
 ):
