@@ -273,8 +273,8 @@ def _link(index: int, producer: ChainElement, consumer: ChainElement) -> ChainLi
 
 
 def _no_conversion(producer: type[Flow], consumer: type[Flow]) -> str:
-    """Return why the converter `producer` cannot precede `consumer`: no flow of the plan of
-    `consumer` reads what it writes and cannot read what it converts."""
+    """Return why the converter `producer` cannot precede `consumer`: no flow that `consumer` runs
+    reads what the converter writes without reading what it converts."""
     conversion = producer.design_conversion(producer.Settings())
     if conversion is None:
         return f"Flow `{producer.name}` converts no design."
@@ -283,8 +283,8 @@ def _no_conversion(producer: type[Flow], consumer: type[Flow]) -> str:
         for types in (conversion.transforms, conversion.produces)
     )
     return (
-        f"Flow `{producer.name}` converts {converts} into {writes}, but no flow of the plan of "
-        f"`{consumer.name}` reads {writes} and cannot read {converts}."
+        f"`{producer.name}+{consumer.name}`: {producer.name} converts {converts} to {writes}, "
+        f"and no flow that {consumer.name} runs reads {writes} without reading {converts} itself."
     )
 
 

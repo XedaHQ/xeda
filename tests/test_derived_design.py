@@ -540,8 +540,8 @@ def test_bsc_takes_a_design_with_vhdl_beside_bluespec(tmp_path) -> None:
 # ------------------------------------------------------------------------ BSV_POSITIVE_RESET
 
 REFUSAL = (
-    r"the design defines `BSV_POSITIVE_RESET`, which bsc defines itself with `positive_reset` "
-    r"\(true by default\): remove the define, or set `positive_reset: false`"
+    r"the design defines `BSV_POSITIVE_RESET`, which bsc defines itself when "
+    r"`positive_reset` is true: remove the define, or set `positive_reset: false`"
 )
 
 

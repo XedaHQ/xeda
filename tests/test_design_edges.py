@@ -378,7 +378,10 @@ def test_with_two_converters_a_chain_picks_one_for_every_design_input() -> None:
 
 @pytest.mark.parametrize("consumer", ["ghdl_sim", "bsc_sim", "ghdl_synth"])
 def test_a_converter_cannot_precede_a_flow_that_gains_nothing_from_it(consumer) -> None:
-    with pytest.raises(FlowSettingsException, match="converts Bluespec into Verilog"):
+    with pytest.raises(
+        FlowSettingsException,
+        match=rf"`bsc\+{consumer}`: bsc converts Bluespec to Verilog, and no flow that {consumer} runs",
+    ):
         parse_request(f"bsc+{consumer}")
 
 

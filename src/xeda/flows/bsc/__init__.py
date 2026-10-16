@@ -747,9 +747,8 @@ class BscFlow(Flow, metaclass=ABCMeta):
             section = getattr(design, part)
             if BSV_POSITIVE_RESET in section.defines or BSV_POSITIVE_RESET in section.parameters:
                 raise FlowSettingsException(
-                    f"the design defines `{BSV_POSITIVE_RESET}`, which bsc defines itself with "
-                    "`positive_reset` (true by default): remove the define, or set "
-                    "`positive_reset: false`"
+                    f"the design defines `{BSV_POSITIVE_RESET}`, which bsc defines itself when "
+                    "`positive_reset` is true: remove the define, or set `positive_reset: false`"
                 )
 
     def _bsc_sources(self, *, tb: bool) -> list[DesignSource]:
