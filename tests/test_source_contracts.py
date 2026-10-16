@@ -358,20 +358,31 @@ def test_a_design_with_one_source_of_a_type_the_flow_reads_is_not_refused(
     flow_class, member, tmp_path
 ):
     """The rule is that the flow reads none: one source it reads, whichever type, is enough. A
-    source that does not exist yet (`{path: ...}`, which a generator writes) counts too."""
+    source that does not exist yet (`{path: ...}`, which a generator writes) counts too. Bsc also
+    needs Bluespec RTL when a Verilog or SystemVerilog source passes through its conversion."""
     path = tmp_path / f"source.{_suffix(member)}"
     path.write_text("# a source\n")
     for entry in (
         {"file": str(path), "type": member.name},
         {"path": str(path), "type": member.name},
     ):
-        rtl = {"sources": [entry], "top": "top"}
+        sources = [entry]
+        if flow_class.name == "bsc" and member is not SourceType.Bluespec:
+            bsv = tmp_path / "top.bsv"
+            bsv.write_text("package Top; endpackage\n")
+            sources.append({"file": str(bsv), "type": SourceType.Bluespec.name})
+        rtl = {"sources": sources, "top": "top"}
         flow_class.check_design_supported(Design(name="d", design_root=tmp_path, rtl=rtl))
     if "tb" in flow_class.design_parts:
+        rtl_sources = []
+        if flow_class.name == "bsc":
+            bsv = tmp_path / "rtl_top.bsv"
+            bsv.write_text("package Top; endpackage\n")
+            rtl_sources.append({"file": str(bsv), "type": SourceType.Bluespec.name})
         design = Design(
             name="d",
             design_root=tmp_path,
-            rtl={"sources": [], "top": "top"},
+            rtl={"sources": rtl_sources, "top": "top"},
             tb={"sources": [{"file": str(path), "type": member.name}], "top": "tb"},
         )
         flow_class.check_design_supported(design)
