@@ -327,8 +327,9 @@ targets:
   directory name; two names that differ only in case are refused. A design file has no `target`
   key. `--json` documents report `target`.
 - A selected target has its own run directories, `<run root>/<design>/<target>/<flow>`; runs made
-  without targets are left alone. `xeda scrub FLOW DESIGN --target NAME` removes only that
-  target's runs; without `--target` it removes every target's and the older ones.
+  without a selected target are left alone. `xeda scrub FLOW DESIGN --target NAME` removes only
+  that target's runs; without `--target` it removes every target's runs and the runs without a
+  target too.
 - `board`, `fpga` and `custom_boards_file` go under the target's `flows.<flow>`; at the target's
   top level they are refused, naming that.
 
