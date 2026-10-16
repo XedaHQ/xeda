@@ -612,7 +612,7 @@ def test_design_overrides_give_the_design_written_flat_by_hand(
         overlay(overlay(BASE, flat), {"rtl": {"defines": {"A": 1}}} if with_target else {}),
         "flat.json",
     )
-    selected = Design.from_file(path, overrides=overrides)
+    selected = Design.from_file(path, target="t" if with_target else None, overrides=overrides)
     expected = Design.from_file(flat_path)
     assert selected.model_dump(mode="json", exclude={"target"}) == expected.model_dump(
         mode="json", exclude={"target"}
@@ -763,7 +763,7 @@ def test_a_null_section_beside_a_written_one_changes_only_the_written_one(tmp_pa
     fragment = {"flows": {"vivado_synth": None, "nextpnr": {"board": "ulx3s_85f"}}}
     if merged == "a target":
         data = {**design, "targets": {"t": fragment}}
-        selected = Design.from_file(write_design(tmp_path, data))
+        selected = Design.from_file(write_design(tmp_path, data), target="t")
     else:
         selected = Design.from_file(write_design(tmp_path, design), overrides=fragment)
     assert selected.flow["vivado_synth"] == {"fpga": PART, "clock": {"period": "10 ns"}}

@@ -111,7 +111,7 @@ flows:
 - YAML is 1.2 core: `yes`, `on` are text; a boolean is `true` or `false` and nothing else
   (`debug: yes` is an error). Quote text that reads as a number (`"010"`).
 - `targets.<name>` overlays the design for one board. Select it with `--target NAME` on `run` and
-  `dse`; a design with one target needs no flag.
+  `dse`. Without the flag, Xeda uses the design itself, with no target.
 
 ## Settings
 

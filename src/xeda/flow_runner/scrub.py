@@ -406,7 +406,7 @@ def scrub_design(
 
     `design_dir` is the directory of the design. One confirmation covers all directories.
     Without `target`, the run directories are those directly in `design_dir` (the ones made
-    before targets existed) and in the directory of every target below it. With `target`, they
+    without a target) and in the directory of every target below it. With `target`, they
     are only those in `<design_dir>/<target>`. What is on disk decides (`_target_parents`). No
     design file is read, so a target that the design no longer names is found, and one that was
     never built is nothing to do. A link named like a run directory that is none

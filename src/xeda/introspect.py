@@ -893,7 +893,7 @@ def _add_targets(schema: dict[str, Any]) -> None:
         "description": "Named targets (for example, one per board), each an overlay on the "
         "design: it takes the design's own keys, merged over them. Mappings merge key by key; "
         "`sources` are appended after the design's; any other list replaces the design's. One "
-        "is selected with `--target NAME`; a design with a single target needs no selection. "
+        "is selected with `--target NAME`; without it, the design is used with no target. "
         "A target name cannot be the name of a flow.",
         "propertyNames": {"pattern": f"^{DESIGN_NAME.pattern}$"},
         "additionalProperties": {"type": "object", "properties": properties},

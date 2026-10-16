@@ -2612,16 +2612,17 @@ class Design(XedaBaseModel):
     def select_target(cls, data: Mapping[str, Any], target: str | None = None) -> dict[str, Any]:
         """Return the design that `data` describes once one of its `targets` is selected.
 
-        The result is an ordinary design with the target's name recorded as `target`.
+        The result is an ordinary design with the target's name recorded as `target`. Without a
+        `target` the result is the design itself, with no overlay, and `target` stays unset.
 
         A target is an overlay: it takes the keys of the design file itself (all but
         `TARGET_FORBIDDEN_KEYS`), folded as the design's own are (`process_compatibility`) and
         merged over them. Mappings merge key by key at every depth; `rtl.sources` and
         `tb.sources` are appended after the design's; any other list replaces the design's.
 
-        With one target and no `target` given, that target is selected. Without `targets`, the
-        data is returned as it is, and naming a `target` is an error. A design cannot write
-        `target`, and `targets: null` is invalid. Every problem is a
+        Targets are optional: with no `target` given, no target is selected, whatever the number
+        of targets (the overlays are still checked). Without `targets`, naming a `target` is an
+        error. A design cannot write `target`, and `targets: null` is invalid. Every problem is a
         `DesignValidationError` located at the offending key.
         """
         data = dict(data)
@@ -2660,16 +2661,10 @@ class Design(XedaBaseModel):
                     f"the targets {other!r} and {name!r} differ only in letter case: their run "
                     "directories would be one on a file system that ignores it",
                 )
-        names = ", ".join(overlays)
         if target is None:
-            if len(overlays) > 1:
-                raise invalid(
-                    "targets",
-                    f"the design has several targets ({names}): select one with `--target NAME` "
-                    "(`target=` in the API)",
-                )
-            target = next(iter(overlays))
-        elif target not in overlays:
+            return data
+        if target not in overlays:
+            names = ", ".join(overlays)
             close = difflib.get_close_matches(str(target), list(overlays), n=1)
             raise invalid(
                 "targets",
@@ -3150,8 +3145,8 @@ class Design(XedaBaseModel):
     ) -> DesignType:
         """Load and validate a design from a TOML, JSON or YAML file.
 
-        `target` selects one of the design's `targets` (`select_target`); a design with one
-        target needs none. `overrides` are applied last, over the selected target.
+        `target` selects one of the design's `targets` (`select_target`). Without it, the design
+        is loaded with no target. `overrides` are applied last, over the selected target.
 
         A file that cannot be read as a design raises `DesignFileParseError`. A file whose design
         does not validate raises `DesignValidationError`. Both errors name the file.

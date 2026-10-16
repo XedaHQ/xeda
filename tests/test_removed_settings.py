@@ -313,7 +313,7 @@ def test_clock_period_was_removed_at_every_origin(tmp_path, monkeypatch, origin)
         data["targets"] = {"t": {"flows": {"vivado_synth": {"fpga": fpga, "clock_period": 5.0}}}}
     design_file = tmp_path / "top.json"
     design_file.write_text(json.dumps(data))
-    design = Design.from_file(design_file)
+    design = Design.from_file(design_file, target="t" if origin == "target" else None)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     base = ["fpga.part=xc7a100tcsg324-1"]
     with pytest.raises(Exception, match=re.escape(CLOCK_PERIOD_REMOVED)):

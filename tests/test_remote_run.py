@@ -565,8 +565,20 @@ def test_a_remote_run_takes_a_target(tmp_path, remote_host):
     assert runner.target == "arty"
     with pytest.raises(Exception, match="arty, ulx3s"):
         RemoteRunner(tmp_path / "other" / "xeda_run").run_remote(
-            TARGETS / "knight.yaml", "vivado_synth", host="somewhere"
+            TARGETS / "knight.yaml", "vivado_synth", host="somewhere", target="nexys"
         )
+
+
+def test_a_remote_run_without_a_target_runs_the_design(tmp_path, remote_host):
+    runner = RemoteRunner(tmp_path / "local" / "xeda_run")
+    results = runner.run_remote(
+        TARGETS / "knight.yaml",
+        "vivado_synth",
+        host="somewhere",
+        flow_settings=["fpga.part=xc7a100tcsg324-1"],
+    )
+    assert results is not None and results["success"] is True
+    assert runner.target is None
 
 
 #: A design dependency at the protocol floor (`GitReference`) and the keys it accepts as `null`.

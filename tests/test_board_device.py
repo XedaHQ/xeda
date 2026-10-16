@@ -159,6 +159,7 @@ def test_a_board_alone_gives_every_node_that_shares_the_device_its_part(
         kwargs["xedaproject"] = str(project)
     elif origin == "target":
         targets = {"arty": {"flows": {node: {"board": board}}}}
+        kwargs["target"] = "arty"
     elif origin == "command line":
         kwargs["flow_settings"] = [f"board={board}"]
     elif origin == "command line node":
