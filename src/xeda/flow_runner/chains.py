@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import difflib
 from collections import deque
+from functools import cache, lru_cache
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -226,7 +227,9 @@ def _check_chain(elements: Sequence[ChainElement]) -> tuple[ChainLink, ...]:
     return tuple(links)
 
 
+@cache
 def _is_converter(flow_class: type[Flow]) -> bool:
+    """Whether the flow declares a design output. The declarations of a class never change."""
     return any(made.is_design for made in declared_outputs(flow_class).values())
 
 
@@ -431,18 +434,28 @@ def converter_edges(consumer: type[Flow]) -> list[DefaultEdge]:
     if declaration is None or not declaration.is_design or reads is None or _is_converter(consumer):
         return []
     found: list[DefaultEdge] = []
-    for converter in sorted({cls for _module, cls in registered_flows.values()}, key=_name):
-        made = next((out for out in declared_outputs(converter).values() if out.is_design), None)
-        if made is None:
-            continue
+    registered = tuple(sorted({cls for _module, cls in registered_flows.values()}, key=_name))
+    for converter, output in _converters(registered):
         conversion = converter.design_conversion(converter.Settings())
         if (
             conversion is not None
             and conversion.produces <= reads
             and conversion.transforms - reads
         ):
-            found.append(DefaultEdge(consumer, declaration.name, converter, made.name))
+            found.append(DefaultEdge(consumer, declaration.name, converter, output))
     return found
+
+
+@lru_cache(maxsize=8)
+def _converters(registered: tuple[type[Flow], ...]) -> tuple[tuple[type[Flow], str], ...]:
+    """Return each converter of `registered` with the name of its design output."""
+    return tuple(
+        (flow_class, made.name)
+        for flow_class in registered
+        if _is_converter(flow_class)
+        for made in declared_outputs(flow_class).values()
+        if made.is_design
+    )
 
 
 def _name(flow_class: type[Flow]) -> str:
