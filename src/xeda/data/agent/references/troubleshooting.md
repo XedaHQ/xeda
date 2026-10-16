@@ -55,6 +55,7 @@
 | `<flow> cannot read the design's Vhdl source(s) ...; it reads ...` | Same: `verilator` reads no VHDL; `ghdl_sim`, `nvc` and `ghdl_synth` read only VHDL; `bsc` reads Bluespec and Verilog. A simulator checks `tb.sources` too. |
 | `<flow> does not read the design's Bluespec sources, and more than one flow converts them: ...` | Two converters fit. Choose one with a chain (`bsc+<flow>`) or a binding (`flows.<flow>.inputs.design: bsc`). |
 | `... ; simulate a Bluespec testbench with bsc_sim` | A Verilog simulator cannot read a Bluespec `tb`. Run `bsc_sim`. |
+| `` the design defines `BSV_POSITIVE_RESET`, which bsc defines itself when `positive_reset` is true: remove the define, or set `positive_reset: false` `` | `bsc` and `bsc_sim` refuse a design that defines the macro while `positive_reset` is on. Remove the define, or set `positive_reset: false`. |
 | `` <flow> needs `fpga`, the target FPGA device ... `` | Give `flows.<flow>.fpga.part` or `-s fpga.part=<part>` (or a `board`). A shared setting travels only along the edges of the run's graph. In `vivado_synth+openfpgaloader` the part under `flows.yosys_fpga` reaches neither node (`yosys_fpga is not part of this run`). Only `nextpnr`, `fpga_pack` and `openfpgaloader` take `board`. |
 | `<flow> cannot run cocotb tests; use one of: ghdl_sim, nvc, verilator` | Pick a cocotb simulator, or drop the `.py` testbench. |
 
@@ -64,7 +65,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 
 | Message | Fix |
 | --- | --- |
-| `` Flow `a` has no compatible output for a required input of `b` `` / `` ... takes no required input `` | The pair does not fit, and the default producers of `b` do not reach `a`. `Did you mean ...?` names a valid chain when another output of `a` fixes it. `bsc`, `bsc_sim`, `vivado_project` and `vivado_sim` declare no I/O: run each alone. |
+| `` Flow `a` has no compatible output for a required input of `b` `` / `` ... takes no required input `` | The pair does not fit, and the default producers of `b` do not reach `a`. `Did you mean ...?` names a valid chain when another output of `a` fixes it. `bsc` makes the `design` that the flows which read Verilog take (`bsc+yosys`). `bsc_sim` has no chain relation: run it alone. |
 | `` Flow `openfpgaloader` programs a device and can only end a chain `` | Put it last. |
 | `` Flow `a` appears more than once `` | A chain is a path; each flow once. |
 | `` Input `nextpnr.netlist` takes JsonNetlist, but `yosys_fpga.netlist_edif` makes Edif `` | A link that passes through flows binds every input of them that the producer feeds, and `a.output` must fit each. Use the output the `Did you mean ...?` names, or none. |

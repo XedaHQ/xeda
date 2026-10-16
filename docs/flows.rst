@@ -673,8 +673,9 @@ Rules for chains
   ``xeda list-flows --json``. Today these are ``bsc``, ``yosys_fpga``, ``nextpnr``, ``fpga_pack``,
   ``yosys``, the OpenROAD stages, ``vivado_synth``, ``vivado_alt_synth``, ``vivado_impl`` and
   ``vivado_postsynth_sim``. A flow that declares none (``bsc_sim``, ``vivado_project``,
-  ``vivado_sim``, ``openfpgaloader``, ``vivado_power`` and others) ends a chain. A chain through it is refused: no output fits an input, or the flow after
-  it takes no required input. No stage is ever fed by reading the ``artifacts`` of another flow.
+  ``vivado_sim``, ``openfpgaloader``, ``vivado_power`` and others) ends a chain. A chain through
+  it is refused: no output fits an input, or the flow after it takes no required input. No stage
+  is ever fed by reading the ``artifacts`` of another flow.
 * ``xeda list-flows`` shows, for each declared flow, what it takes and makes and which flows can
   come after it (in JSON: ``can_precede`` and ``can_follow``). A flow that follows through other
   flows is shown with them, for example ``fpga_pack (through nextpnr)``. Shell completion offers
@@ -930,8 +931,9 @@ on. It needs the ``fpga`` of the design and a clock, and it programs a device, s
 ``--dry-run``.
 
 Every flow that reads design sources has the input ``design``. It takes the design that ``bsc``
-derives from a Bluespec design (see `Converted designs`_), and no other flow supplies it. A flow that reads no design sources
-(``nextpnr``, for example) has no such input, and a binding for it is refused.
+derives from a Bluespec design (see `Converted designs`_), and no other flow supplies it. A flow
+that reads no design sources (``nextpnr``, for example) has no such input, and a binding for it
+is refused.
 
 Open-source FPGA flows: devices and tuning
 ==========================================
@@ -1938,7 +1940,8 @@ and the downstream tool must provide it. With ``positive_reset`` (on by default)
 the generated and library modules reset active-high. The Verilog sources of the design itself stay
 unchanged. A first file, ``bsv_defines.v``, defines the macro ahead of them, which sets their reset
 polarity only where they read the macro themselves. Name the reset port with ``reset_prefix`` if a
-downstream flow expects one.
+downstream flow expects one. ``bsc`` and ``bsc_sim`` refuse a design that defines
+``BSV_POSITIVE_RESET`` while ``positive_reset`` is on, because bsc defines the macro itself.
 
 ``bsc_sim`` runs the testbench with Bluesim (the default), the cycle-based simulator of bsc, or
 with a Verilog simulator through the ``-vsim`` link step of bsc: Verilator, Icarus Verilog or

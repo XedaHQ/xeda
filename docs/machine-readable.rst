@@ -138,8 +138,10 @@ Each entry of these two lists has these keys:
   from, so the resolved plan is authoritative. For example, ``nextpnr`` makes the configuration of
   the family of the target.
 
-A flow that declares no I/O has no relations. ``action_reason`` is static and ``null`` for most
-flows. It says why a flow, such as a programmer, can only end a chain.
+A flow that declares no inputs or outputs has no relations. Every flow that reads design sources
+declares the ``design`` input, which fits only the design output of a converter, such as
+``bsc``. ``action_reason`` is static and ``null`` for most flows. It says why a flow, such as a
+programmer, can only end a chain.
 
 .. _machine-readable-settings:
 

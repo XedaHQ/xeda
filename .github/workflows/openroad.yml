@@ -7,11 +7,12 @@ name: OpenROAD
 # package has them, and a build takes hours. This is a separate workflow, so it runs beside the
 # tox legs in ci.yml and delays none of them.
 #
-# The image is the one pin of this job. The comment above it holds its tag, and the line holds
-# the digest of that tag, which is what `docker pull` records. A Docker Hub tag can move, a
-# digest cannot. The workflow bump-ci-pins.yml moves the pin to the newest tag, in a pull request
-# that runs this job. A container cannot take its image from `env`, so the digest is written in
-# the line itself.
+# The pins of this job are the image, the Bluespec Compiler (bsc) release with its SHA-256, and
+# the setup-uv version. The comment above the image holds its tag, and the line holds the digest
+# of that tag, which is what `docker pull` records. A Docker Hub tag can move, a digest cannot.
+# The workflow bump-ci-pins.yml moves the pins to the newest releases, in a pull request that
+# runs this job. A container cannot take its image from `env`, so the digest is written in the
+# line itself.
 #
 # The PDK files are not pinned here. The job installs each platform of XEDA_TESTS_PLATFORMS with
 # `xeda pdk install`, at the version that the platform file of the checkout pins. So the installer

@@ -193,8 +193,9 @@ xeda run yosys_fpga+fpga_pack design.yaml   # same plan: nextpnr runs between th
   through cannot appear elsewhere in the chain; a source or binding that takes it out of the plan is
   refused.
 - Only flows with declared I/O chain (`can_follow`, `can_precede` in `xeda list-flows --json`; an
-  entry with `through` lists the flows its link passes through). `bsc_sim`, `vivado_project` and
-  `vivado_sim` run alone.
+  entry with `through` lists the flows its link passes through). `bsc_sim` runs alone.
+  `vivado_project` and `vivado_sim` have no output, so they end a chain; `bsc` is the only flow
+  before them (`bsc+vivado_sim`).
 - `--remote` and `xeda dse` refuse chains and bindings. The conversion of a Bluespec design
   (below) is no chain or binding: they accept it.
 - A refused chain ends with `Did you mean ...?` when one valid request is near. Planning can still
