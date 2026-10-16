@@ -24,11 +24,17 @@ from click.shell_completion import (
 from .flow_catalog import _builtin_flows, _walk_head
 
 _SETTING_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.\[\]-]*\Z")
+_OPAQUE_KEY_START = re.compile(r"(?:flows\.[A-Za-z_][A-Za-z0-9_-]*\.)?([A-Za-z_][A-Za-z0-9_]*)\.")
 
 
-def _looks_like_setting(token: str) -> bool:
+def _looks_like_setting(token: str, opaque_fields: set[str] | None = None) -> bool:
     key, separator, _ = token.partition("=")
-    return bool(separator and "/" not in key and _SETTING_KEY_RE.fullmatch(key))
+    if not separator:
+        return False
+    if _SETTING_KEY_RE.fullmatch(key):
+        return True
+    match = _OPAQUE_KEY_START.match(key)
+    return bool(match and opaque_fields and match.group(1) in opaque_fields)
 
 
 @dataclass(frozen=True)
@@ -73,6 +79,16 @@ def _completion_records() -> dict[str, dict[str, Any]]:
         runtime_record["class_name"] = flow_class.__name__
         runtime_record["settings"] = info(flow_class)
     return records
+
+
+def _opaque_setting_fields() -> set[str]:
+    """Return opaque setting roots from the lightweight catalog, without loading flows."""
+    return {
+        path.split(".", 1)[0]
+        for record in _completion_records().values()
+        for path, setting in record.get("settings", {}).items()
+        if setting.get("opaque_keys")
+    }
 
 
 def _resolve_record(
@@ -156,13 +172,26 @@ def _parse_request_words(
     explicit_design = False
     last_setting_prefix = ""
     attached_settings_token_prefix = ""
+    opaque_fields: set[str] | None = None
+
+    def is_setting_value(token: str) -> bool:
+        nonlocal opaque_fields
+        if _looks_like_setting(token):
+            return True
+        key, separator, _ = token.partition("=")
+        if not separator or _OPAQUE_KEY_START.match(key) is None:
+            return False
+        if opaque_fields is None:
+            opaque_fields = _opaque_setting_fields()
+        return _looks_like_setting(token, opaque_fields)
+
     index = 0
     while index < len(request):
         token = request[index]
         is_current = index == len(request) - 1
         if token == "--":
             after_terminator = True
-            cursor_after_terminator = not is_current
+            cursor_after_terminator = True
             if not is_current:
                 filtered_args.append(token)
             index += 1
@@ -203,6 +232,8 @@ def _parse_request_words(
                 settings_option_count += 1
                 if has_attached_value:
                     last_setting_prefix = attached_value
+                    if not is_current and is_setting_value(attached_value):
+                        completed_setting_count += 1
                 elif is_current:
                     # `--settings<TAB>` is still completing an option name.
                     param = None
@@ -211,6 +242,8 @@ def _parse_request_words(
                 continue
             if not getattr(param, "is_flag", False):
                 if param.name == "design_file_opt":
+                    explicit_design = True
+                elif param.name == "design_name":
                     explicit_design = True
                 if has_attached_value:
                     if is_current and not is_settings:
@@ -227,13 +260,14 @@ def _parse_request_words(
                         candidate = request[index]
                         if candidate == "--":
                             after_terminator = True
-                            cursor_after_terminator = index < len(request) - 1
-                            filtered_args.append(candidate)
+                            cursor_after_terminator = True
+                            if index < len(request) - 1:
+                                filtered_args.append(candidate)
                             index += 1
                             break
                         if candidate.startswith("-"):
                             break
-                        if not _looks_like_setting(candidate):
+                        if not is_setting_value(candidate):
                             if index == len(request) - 1:
                                 last_setting_prefix = candidate
                             else:
@@ -327,7 +361,7 @@ def _parse_request_words(
     design_params = {
         param.name: param
         for param in command.params
-        if param.name in {"design_file", "design_file_opt"}
+        if param.name in {"design_file", "design_file_opt", "design_name"}
     }
     unset = getattr(click.core, "UNSET", None)
     explicit_design = explicit_design or any(

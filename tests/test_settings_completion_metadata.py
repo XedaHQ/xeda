@@ -60,6 +60,10 @@ def completion_flow():
                 validated_name: str | None = Field(
                     None, validation_alias=AliasChoices("validation-choice")
                 )
+                selected_text: _Primary = Field(
+                    default_factory=_Primary,
+                    validation_alias=AliasChoices("selected-text"),
+                )
                 selected: _Primary | _Secondary | None = None
                 hybrid: _Primary | dict[str, _Secondary] = Field(default_factory=_Primary)
                 clocks: dict[str, _Primary] = Field(default_factory=dict)
@@ -88,6 +92,13 @@ def completion_flow():
                         return {"frequency": int(value)}
                     return value
 
+                @field_validator("selected_text", mode="before", json_schema_input_type=str)
+                @classmethod
+                def selected_text_from_text(cls, value):
+                    if isinstance(value, str):
+                        return {"frequency": int(value)}
+                    return value
+
             def run(self) -> None:
                 pass
 
@@ -111,7 +122,12 @@ def test_pure_maps_and_model_or_map_fields_are_hierarchical_only(completion_flow
 
     info = settings_completion_info(completion_flow)
     assert info["labels"] == {"children": True, "assignable": False, "dynamic": True}
-    assert info["opaque"] == {"children": True, "assignable": False, "dynamic": True}
+    assert info["opaque"] == {
+        "children": True,
+        "assignable": False,
+        "dynamic": True,
+        "opaque_keys": True,
+    }
     assert info["hybrid"]["assignable"] is False
     assert info["hybrid"]["dynamic"] is True
     assert info["clocks"]["assignable"] is False
@@ -210,6 +226,27 @@ def test_metadata_includes_field_and_validation_aliases(completion_flow) -> None
     assert info["legacy-name"]["assignable"] is True
     assert info["legacy_name"]["assignable"] is True
     assert info["validation-choice"]["assignable"] is True
+
+
+def test_model_field_scalar_schema_is_used_for_validation_aliases(completion_flow) -> None:
+    info = settings_completion_info(completion_flow)
+
+    assert info["selected-text"]["assignable"] is True
+    settings = completion_flow.Settings.model_validate({"selected-text": "19"})
+    assert settings.selected_text.frequency == 19
+    from xeda.cli_settings_completion import _settings_candidates
+
+    candidates = _settings_candidates(
+        "completion", [], "selected-tex", {"completion": {"settings": info}}
+    )
+    assert candidates is not None
+    assert "selected-text=" in [item.value for item in candidates]
+
+
+def test_opaque_settings_are_marked_for_lightweight_cli_parsing(completion_flow) -> None:
+    info = settings_completion_info(completion_flow)
+
+    assert info["opaque"]["opaque_keys"] is True
 
 
 def test_metadata_includes_children_from_each_model_union_branch(completion_flow) -> None:

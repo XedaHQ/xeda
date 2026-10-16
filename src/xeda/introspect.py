@@ -846,7 +846,10 @@ def settings_completion_info(flow: Union[str, Type[Flow]]) -> dict[str, dict[str
             if annotation is None:
                 annotation = field.annotation
             field_shorthand = field_name in shorthands
-            field_schema = properties.get(field.alias or field_name, properties.get(field_name))
+            field_schema = next(
+                (properties[spelling] for spelling in spellings if spelling in properties),
+                properties.get(field.alias or field_name, properties.get(field_name)),
+            )
             for spelling in spellings:
                 path = f"{prefix}.{spelling}" if prefix else spelling
                 if field_name in opaque_fields:
@@ -861,6 +864,7 @@ def settings_completion_info(flow: Union[str, Type[Flow]]) -> dict[str, dict[str
                         or field_shorthand,
                     )
                     record["dynamic"] = True
+                    record["opaque_keys"] = True
                     if field.description:
                         record.setdefault("help", field.description)
                     continue

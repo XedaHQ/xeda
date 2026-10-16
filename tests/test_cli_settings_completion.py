@@ -152,6 +152,47 @@ def test_scoped_setting_candidates_keep_the_typed_flow_prefix(shell: str) -> Non
     ) == ["flows.Nextpnr.debug="]
 
 
+def test_opaque_setting_before_omitted_design_is_counted_as_a_setting() -> None:
+    opaque_setting = "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=foo"
+    state = _parse_request_words(cli, ["run", "vivado_synth", "-s", opaque_setting], "")
+
+    assert state is not None
+    assert state.completed_setting_count == 1
+    assert not state.explicit_design
+
+
+def test_attached_setting_before_omitted_design_is_counted_as_a_setting() -> None:
+    state = _parse_request_words(cli, ["run", "vivado_synth", "-sncpus=2"], "")
+
+    assert state is not None
+    assert state.completed_setting_count == 1
+    assert not state.explicit_design
+
+
+@pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
+def test_active_option_terminator_disables_setting_completion(shell: str) -> None:
+    args = ["run", "nextpnr", "DESIGN", "-s", "debug=tr"]
+    state = _parse_request_words(cli, args, "--")
+
+    assert state is not None
+    assert state.cursor_after_terminator
+    assert not {"true", "debug=true"}.intersection(_complete(shell, args, "--"))
+
+
+@pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
+def test_design_name_option_keeps_settings_completion_context(shell: str) -> None:
+    args = ["run", "vivado_synth", "-s", "ncpus=2", "--design-name", "ascon"]
+    state = _parse_request_words(cli, args, "fpga.p")
+
+    assert state is not None
+    assert state.explicit_design
+    assert _complete(shell, args, "fpga.p") == [
+        "fpga.package=",
+        "fpga.part=",
+        "fpga.pins=",
+    ]
+
+
 def test_scope_candidates_are_shell_setting_completions() -> None:
     items = _settings_candidates(
         "nextpnr",

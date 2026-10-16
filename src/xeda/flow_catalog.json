@@ -3084,30 +3084,35 @@
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "XST synthesis properties, as ISE names them in the project file. See the ISE Development System Reference Guide for the accepted values."
       },
       "map_options": {
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "Properties for the `map` (technology mapping and packing) step."
       },
       "pnr_options": {
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "Properties for the `par` (place and route) step."
       },
       "translate_options": {
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "Properties for the `ngdbuild` (translate) step."
       },
       "trace_options": {
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "Properties for the `trce` (static timing analysis) step."
       },
       "xcf_file": {
@@ -10459,12 +10464,14 @@
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "Properties to set on the synthesis run (`synth_1`), by property name. A name with dots is one key. In YAML, write the setting as a block and each name as one key, for example `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM: 0`. On the command line, write `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`. Values may be text, numbers or booleans."
       },
       "set_impl_properties": {
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "Properties to set on the implementation run (`impl_1`), by property name. A name with dots is one key, as in `set_synth_properties`. Values may be text, numbers or booleans."
       },
       "clock": {
@@ -11990,12 +11997,14 @@
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "Properties to set on the synthesis run (`synth_1`), by property name. A name with dots is one key. In YAML, write the setting as a block and each name as one key, for example `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM: 0`. On the command line, write `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`. Values may be text, numbers or booleans."
       },
       "set_impl_properties": {
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "Properties to set on the implementation run (`impl_1`), by property name. A name with dots is one key, as in `set_synth_properties`. Values may be text, numbers or booleans."
       },
       "gui": {
@@ -12726,12 +12735,14 @@
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "Properties to set on the synthesis run (`synth_1`), by property name. A name with dots is one key. In YAML, write the setting as a block and each name as one key, for example `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM: 0`. On the command line, write `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`. Values may be text, numbers or booleans."
       },
       "set_impl_properties": {
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "Properties to set on the implementation run (`impl_1`), by property name. A name with dots is one key, as in `set_synth_properties`. Values may be text, numbers or booleans."
       },
       "clock": {
