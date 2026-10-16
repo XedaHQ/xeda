@@ -824,15 +824,22 @@ class FlowLauncher:
            it (`Flow.check_run_directory`, judged on the path before anything is created).
            Lock the run directory from here until the trace of the run is written
            (`run_lock`). With `clean`, empty the directory now (or back it up, with `backups`).
-        3. Prepare. Construct the flow with its own copy of the input and call its `init()`.
+        3. Design. A flow whose `design` input comes from a converter (bsc turns Bluespec into
+           Verilog) gets that converter launched first (`launch_producers.run_design_producer`),
+           under the lock of this flow and before the flow exists. The record of the converter is
+           verified under its read lease, and the design it derived replaces the loaded design
+           for the rest of the launch: it is checked again, hashed, given to the flow, and
+           recorded in the trace. A failure of the converter is recorded as the failure of this
+           flow, which is then built on the design the plan foresaw and not initialized.
+        4. Prepare. Construct the flow with its own copy of the input and call its `init()`.
            `init()` runs even for a flow that turns out to be up to date, so it must not change
            a file in the run directory: every file there is an output of the last run.
-        4. Producers (`launch_producers.run_producers`). Launch each producer that the plan
+        5. Producers (`launch_producers.run_producers`). Launch each other producer that the plan
            names through this same procedure, in a sibling run directory, with the settings
            that the plan holds for it.
-        5. Prepare inputs (`Flow.prepare_inputs`). After the hand-over, the flow registers the
+        6. Prepare inputs (`Flow.prepare_inputs`). After the hand-over, the flow registers the
            files that it resolves, before the check whether it is up to date.
-        6. Freshness. Without `rebuild_all` or `clean` (the default), a flow whose trace still
+        7. Freshness. Without `rebuild_all` or `clean` (the default), a flow whose trace still
            matches what it would consume now (`trace.check_trace`) is not run again: its
            recorded results are reused. If the trace says its checks rejected the run
            (`Flow.reject`), and `results.json` agrees (`launch_report.adoptable_document`), the
@@ -840,13 +847,13 @@ class FlowLauncher:
            hands nothing over. Otherwise `flow.stale_reason` says why it runs. A flow
            that can never be reused (`Flow.always_runs`: it programs a device, draws a new
            random seed, ...) always runs, with that reason, and no trace records it.
-        7. Run. Delete the trace and the reports that the last run read (`Trace.reports`: a
+        8. Run. Delete the trace and the reports that the last run read (`Trace.reports`: a
            report of a previous run is never this run's). Then record every expected input as
            the run finds it (`trace_inputs.snapshot_inputs`: a file edited while the run goes on
            then no longer matches its trace), record `settings.json`, and execute
            (`launch_run.execute`: `run()`, `parse_reports()`, `check_results()`, results). A
            failed run reports the artifacts that it wrote (`Flow.wrote_output`) and no others.
-        8. Report (`launch_report.report`). Write the artifacts and `results.json`. For a
+        9. Report (`launch_report.report`). Write the artifacts and `results.json`. For a
            passed run, or a rejected run whose `results.json` was written, then write the
            trace (`trace_inputs.build_trace`: its verdict, the inputs of the
            snapshot; the files that the depfiles and settings of the run name, an input unless
