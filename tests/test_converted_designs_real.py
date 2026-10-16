@@ -10,12 +10,13 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
 
-from .tool_utils import require_bsc, require_yosys
+from .tool_utils import require_bsc, require_nextpnr_ecp5, require_yosys
 
 GCD = Path(__file__).parent.parent / "examples" / "bluespec" / "gcd"
 
@@ -131,3 +132,51 @@ def test_outputs_to_delivers_what_yosys_wrote_and_nothing_of_its_converter(tmp_p
     delivered = sorted(p.name for p in out.rglob("*") if p.is_file())
     assert "netlist.v" in delivered
     assert not {"mkGcdUnit.v", "bsv_defines.v"} & set(delivered)
+
+
+# --------------------------------------------------------- the FPGA targets of the design file
+
+
+@pytest.mark.real_tool
+def test_gcd_goes_to_ecp5_through_bsc_yosys_fpga_and_nextpnr(tmp_path) -> None:
+    """`yosys_fpga+nextpnr --target ecp5` on the design file: `bsc` converts the design, and the
+    part and the clock of `yosys_fpga` reach `nextpnr`, which places and routes the design without
+    pins."""
+    require_bsc()
+    require_nextpnr_ecp5()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flow = runner.run("yosys_fpga+nextpnr", GCD / "gcd.yaml", target="ecp5")
+    assert flow is not None and flow.succeeded, flow and flow.results.get("error")
+    assert [f.name for f in runner.launched] == ["bsc", "yosys_fpga", "nextpnr"]
+    assert flow.name == "nextpnr"
+    assert flow.settings.fpga.part == "LFE5U-85F-6BG381C"
+    assert flow.results["lut"] > 0 and flow.results["ff"] > 0 and flow.results["Fmax"] > 0
+    for name in ("bsc", "yosys_fpga", "nextpnr"):
+        assert (tmp_path / "run" / "gcd" / "ecp5" / name / "results.json").is_file(), name
+
+
+@pytest.mark.real_tool
+def test_gcd_on_ecp5_runs_nextpnr_alone_on_the_part_of_the_design_file(tmp_path) -> None:
+    """A bare `nextpnr --target ecp5` plans `bsc` and `yosys_fpga` before it, and the `fpga.part`
+    that the design file gives `yosys_fpga` reaches `nextpnr` along the edge."""
+    require_bsc()
+    require_nextpnr_ecp5()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flow = runner.run("nextpnr", GCD / "gcd.yaml", target="ecp5")
+    assert flow is not None and flow.succeeded, flow and flow.results.get("error")
+    assert [f.name for f in runner.launched] == ["bsc", "yosys_fpga", "nextpnr"]
+    assert flow.settings.fpga.part == "LFE5U-85F-6BG381C"
+
+
+@pytest.mark.real_tool
+def test_gcd_on_artix7_is_a_synthesis_estimate_of_bsc_and_yosys_fpga(tmp_path) -> None:
+    """`yosys_fpga --target artix7` synthesizes the converted design for the 7-series part of the
+    design file."""
+    require_bsc()
+    require_yosys()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flow = runner.run("yosys_fpga", GCD / "gcd.yaml", target="artix7")
+    assert flow is not None and flow.succeeded, flow and flow.results.get("error")
+    assert [f.name for f in runner.launched] == ["bsc", "yosys_fpga"]
+    assert flow.settings.fpga.part == "xc7a100tcsg324-1"
+    assert flow.results["lut"] > 0 and flow.results["ff"] > 0

@@ -18,7 +18,13 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoProject, VivadoSim, VivadoSynth, YosysFpga
 
-from .tool_utils import checkout_work_dir, require_iverilog, require_vivado, require_yosys
+from .tool_utils import (
+    checkout_work_dir,
+    require_bsc,
+    require_iverilog,
+    require_vivado,
+    require_yosys,
+)
 
 PART = "xc7a12tcsg325-1"
 INVERTER_V = "module inv(input a, output y); assign y = ~a; endmodule\n"
@@ -598,3 +604,16 @@ def test_vivado_synth_sets_a_run_property_given_with_dots(work_dir) -> None:
     )
     assert flow is not None and flow.succeeded
     assert _logged(flow.run_path, "-max_bram 0")
+
+
+def test_vivado_synth_runs_the_bluespec_gcd_out_of_context(work_dir) -> None:
+    """`xeda run vivado_synth gcd.yaml`: `bsc` converts the Bluespec design, and Vivado, which
+    reads no Bluespec, synthesizes the Verilog out of context (the module has no pins)."""
+    require_bsc()
+    example = Path(__file__).parent.parent / "examples" / "bluespec" / "gcd" / "gcd.yaml"
+    runner = DefaultRunner(work_dir / "run")
+    flow = runner.run("vivado_synth", example)
+    assert flow is not None and flow.succeeded, flow and flow.results.get("error")
+    assert [f.name for f in runner.launched] == ["bsc", "vivado_synth"]
+    assert flow.settings.out_of_context
+    assert flow.results["lut"] >= 1 and flow.results["ff"] >= 1
