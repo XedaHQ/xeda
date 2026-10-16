@@ -10,7 +10,6 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-import pytest
 import yaml
 
 from xeda import Design
