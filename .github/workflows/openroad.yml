@@ -60,8 +60,6 @@ jobs:
           version: "0.12.23"
           enable-cache: false
 
-      # The venv goes at the end of PATH in the steps below, not at the start: the tools of the
-      # image run `python3` themselves, and they need the Python of the image.
       # Bluespec Compiler (bsc): the tests compile a Bluespec design with it before yosys. The
       # image is Ubuntu 22.04.5 and the job runs as root, so this installs the Ubuntu 22.04
       # release tarball, checked against a pinned sha256, the way the tox job of ci.yml does for
@@ -86,6 +84,8 @@ jobs:
           echo "$BSC_DIR/bin" >> "$GITHUB_PATH"
           "$BSC_DIR/bin/bsc" -v
 
+      # The venv goes at the end of PATH in the steps below, not at the start: the tools of the
+      # image run `python3` themselves, and they need the Python of the image.
       - name: Install Python 3.15 and xeda
         run: |
           set -euo pipefail
