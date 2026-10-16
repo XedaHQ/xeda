@@ -1,7 +1,9 @@
 """Plain Click command classes for the shared completion command graph."""
 
-from collections.abc import Sequence
-from typing import Any
+import os
+import sys
+from collections.abc import MutableMapping, Sequence
+from typing import Any, cast
 
 import click
 
@@ -18,7 +20,48 @@ class CompletionCommand(click.Command):
     context_class = _CompletionContext
 
 
-class CompletionGroup(click.Group):
+class CompletionDispatchMixin:
+    """Dispatch this command's completion requests through Xeda's local adapters."""
+
+    def _main_shell_completion(
+        self,
+        ctx_args: MutableMapping[str, Any],
+        prog_name: str,
+        complete_var: str | None = None,
+    ) -> None:
+        dispatch_shell_completion(cast(click.Command, self), ctx_args, prog_name, complete_var)
+
+
+def dispatch_shell_completion(
+    command: click.Command,
+    ctx_args: MutableMapping[str, Any],
+    prog_name: str,
+    complete_var: str | None = None,
+) -> None:
+    """Run a local adapter for one Click shell completion request."""
+    if complete_var is None:
+        complete_name = prog_name.replace("-", "_").replace(".", "_")
+        complete_var = f"_{complete_name}_COMPLETE".upper()
+    instruction = os.environ.get(complete_var)
+    if not instruction:
+        return
+    from .cli_settings_completion import completion_class
+
+    shell, _, action = instruction.partition("_")
+    cls = completion_class(shell)
+    if cls is None:
+        sys.exit(1)
+    complete = cls(command, ctx_args, prog_name, complete_var)
+    if action == "source":
+        click.echo(complete.source().encode(), nl=False)
+        sys.exit(0)
+    if action == "complete":
+        click.echo(complete.complete().encode())
+        sys.exit(0)
+    sys.exit(1)
+
+
+class CompletionGroup(CompletionDispatchMixin, click.Group):
     """A group that exposes the help command that click-extra adds to each execution group."""
 
     command_class = click.Command

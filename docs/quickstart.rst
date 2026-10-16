@@ -47,9 +47,36 @@ For fish::
     mkdir -p ~/.config/fish/completions
     xeda completion fish --stdout > ~/.config/fish/completions/xeda.fish
 
-Completion of command names, options and single flow names does not load the flows. Completion of
-a chain or of an output name (``flow.output``) loads the flow declarations, so that it offers only
-valid candidates. Generate the script again after you upgrade Xeda.
+Completion of command names, options, built-in flow chains, and settings reads a generated catalog.
+It does not load the flow implementations or read the design file. Generate the script again
+after you upgrade Xeda, then load the new script in your shell.
+
+After selecting a flow, press Tab after ``-s``, ``--settings``, or ``--flow-settings`` to complete
+a setting. Nested names use dots::
+
+    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml -s fpga.p<Tab>
+
+This offers ``fpga.package=``, ``fpga.part=``, and ``fpga.pins=``. A leaf ends in ``=`` so that
+you can type its value immediately. A group ends in ``.`` so that you can complete its fields.
+Some settings support both forms: ``fpga=`` takes a part-number string, while ``fpga.`` leads to
+the device fields. The shell keeps the cursor after ``=`` or ``.`` without adding a space.
+Boolean and enum values are suggested when their choices are declared by the settings model.
+
+An unqualified setting belongs to the last flow in a chain. To select another flow, complete
+``flows.<flow>.`` first::
+
+    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml -s flows.yosys_fpga.fl<Tab>
+
+Flow suggestions include the chain and its potential default producers. The design can change
+which producers the run needs; normal settings validation checks the selected flow when you run
+the command.
+
+You can complete several settings after one ``-s`` when the design path is already supplied,
+or repeat ``-s`` for each setting. If the design path is omitted, a word after a complete
+assignment can also be a design path. Completion preserves file suggestions in that position;
+use another ``-s`` to request a setting explicitly. For mappings with user-defined keys, such as
+``clocks.<name>.``, type the key before completing its declared fields. Arbitrary tool property
+names are not listed.
 
 The design file
 ===============

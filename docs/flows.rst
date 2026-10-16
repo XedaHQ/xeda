@@ -2253,7 +2253,9 @@ Registration is automatic. ``Flow.__init_subclass__`` derives the flow name from
 ``src/xeda/flows/__init__.py``, so that Xeda ships it and users can discover it. Then run
 ``python tools/generate_flow_catalog.py`` and commit the updated ``src/xeda/flow_catalog.json``.
 Shell completion reads that file. Run the same command again after you change the aliases, the
-inputs, the outputs or the ``action_reason`` of a flow.
+inputs, the outputs, the settings models, or the ``action_reason`` of a flow. The catalog includes
+nested setting paths, accepted aliases, and finite value choices derived from the settings
+models. Do not add setting names to the catalog by hand.
 
 The test suite enforces two things that a new flow owes its users:
 

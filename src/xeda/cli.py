@@ -5,13 +5,12 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, MutableMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, NoReturn, Optional, Sequence, Tuple, Union
 
 import click
 from click.core import ParameterSource
-from click.shell_completion import get_completion_class
 
 from .cli_types import (
     ChainChoice,
@@ -35,7 +34,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .cli_utils import (
         HELP_FORMATTER_SETTINGS,
         DeclaredEnvvarsCommand,
-        XedaHelpGroup,
+        XedaHelpGroup as _XedaHelpGroup,
         emit_structured,
         info_table,
         machine_readable_mode,
@@ -75,6 +74,19 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .run_root import RunRootError, ensure_run_root
     from .tool import ExecutableNotFound, NonZeroExitCode
     from .utils import XedaException, removeprefix, settings_to_dict
+
+    from .cli_completion import dispatch_shell_completion
+
+    class XedaHelpGroup(_XedaHelpGroup):
+        """Help group with Xeda's local, lightweight completion dispatch."""
+
+        def _main_shell_completion(
+            self,
+            ctx_args: MutableMapping[str, Any],
+            prog_name: str,
+            complete_var: str | None = None,
+        ) -> None:
+            dispatch_shell_completion(self, ctx_args, prog_name, complete_var)
 
     CONTEXT_SETTINGS: Dict[str, Any] = dict(
         auto_envvar_prefix="XEDA",
@@ -1740,7 +1752,9 @@ def completion(_ctx: click.Context, stdout: bool, shell: Optional[str] = None):
             f"[yellow]WARNING:[/] Current default shell ([bold]{os_default_shell}[/]) is different from the specified shell [bold]{shell}[/b]"
         )
     if stdout:
-        completion_class = get_completion_class(shell)
+        from .cli_settings_completion import completion_class as adapter_class
+
+        completion_class = adapter_class(shell)
         if completion_class is None:
             raise click.ClickException(f"No completion support registered for {shell}.")
         complete = completion_class(

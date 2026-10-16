@@ -199,6 +199,11 @@ def test_completion_of_a_single_flow_name_is_unchanged(shell):
 
 
 @pytest.mark.parametrize("shell", SHELLS)
+def test_completion_of_an_incomplete_flow_name_does_not_enter_settings_routing(shell):
+    assert "ghdl_sim" in _complete(shell, "xeda run ghdl")
+
+
+@pytest.mark.parametrize("shell", SHELLS)
 def test_other_commands_still_complete_one_flow_and_refuse_a_chain_prefix(shell):
     assert "vivado_synth" in _complete(shell, "xeda list-settings vivado_")
     assert _complete(shell, "xeda list-settings yosys_fpga+ne") == []
