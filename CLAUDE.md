@@ -60,11 +60,11 @@ nested. Launch and `xeda scrub` share one rule, `run_dir.run_directory_problem`
 
 ### Flow lifecycle
 
-`launch_flow` runs every flow and producer: input settings -> identity (hashes, run directory,
-lock) -> build the flow from deep copies, `init()` -> producers -> `prepare_inputs()` ->
-freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_reports()`,
-`check_results()` -> `results.json` -> `trace.json`, last and only for a passed or rejected run
-(`tests/test_rejected_verdicts.py`).
+`launch_flow` runs every flow and producer: input settings -> identity (hashes, run directory, lock)
+-> the design's converter, if any -> build the flow from deep copies (of the derived design),
+`init()` -> producers -> `prepare_inputs()` -> freshness (`trace.check_trace`; a match reuses the
+results) -> `run()`, `parse_reports()`, `check_results()` -> `results.json` -> `trace.json`, last
+and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 
 - Never modify the input settings or the design; the flow gets copies
   (`tests/test_flow_design_isolation.py`). A launch leaves no process-wide state
