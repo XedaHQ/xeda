@@ -28,6 +28,7 @@ from xeda.flow import Flow, FlowSettingsException, In
 from xeda.flow.flow import registered_flows
 from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.chains import converter_edges
 from xeda.flows import Nextpnr
 
 from .flow_registry import preserved_flow_registry
@@ -133,6 +134,16 @@ CONVERTERS = [
     for flow in EXPECTED_READS
     if any(out.is_design for out in declared_outputs(registered_flows[flow][1]).values())
 ]
+#: The languages of `rtl` that a converter turns into ones each flow reads: not refused, but
+#: converted first. The planning of the conversion is in `test_converted_designs.py`.
+CONVERTED = {
+    flow: {
+        member
+        for edge in converter_edges(registered_flows[flow][1])
+        for member in (edge.producer.design_conversion(edge.producer.Settings()) or ()).transforms
+    }
+    for flow in EXPECTED_READS
+}
 REFUSED = [
     (flow, member, part)
     for flow, accepted in EXPECTED_READS.items()
@@ -140,6 +151,8 @@ REFUSED = [
     for member in sorted(LANGUAGE_TYPES, key=lambda m: m.name)
     if member.name not in accepted.split()
     for part in sorted(registered_flows[flow][1].design_parts)
+    # a language that a converter turns into one the flow reads is no refusal of the `rtl`
+    if not (part == "rtl" and CONVERTED.get(flow, set()) & {member})
 ]
 FLOWS_DIR = Path(xeda.__file__).parent / "flows"
 
