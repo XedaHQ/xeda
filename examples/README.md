@@ -69,19 +69,20 @@ xeda run fpga_pack --design-name dvi_test
 
 ## ASIC
 
-`sv/fifo` also has the settings for the ASIC chain on the platform nangate45. One design file
-serves the simulation, the FPGA synthesis and the ASIC chain. Yosys maps the design to the cells of
-the platform, and four OpenROAD flows place, route and finish it. Install the PDK files of the
-platform once, then run the chain:
+`bluespec/gcd` has the settings for the ASIC chain on the platform nangate45. One design file
+serves the simulation, the ASIC chain, Vivado and two FPGA targets. Xeda runs `bsc` first, to
+convert the Bluespec design to Verilog. Yosys maps the Verilog to the cells of the platform, and
+four OpenROAD flows place, route and finish it. Install the PDK files of the platform once, then
+run the chain:
 
 ```bash
 xeda pdk install nangate45                       # download the PDK files that the platform pins
-cd examples/sv/fifo
-xeda run yosys+openroad fifo.xeda.yaml --dry-run  # show the five flows
-xeda run yosys+openroad fifo.xeda.yaml            # run them: yosys and OpenROAD must be on PATH
+cd examples/bluespec/gcd
+xeda run openroad gcd.yaml --dry-run             # show the six flows
+xeda run openroad gcd.yaml                       # run them: bsc, yosys and OpenROAD must be on PATH
 ```
 
-The routed design and its reports are in `xeda_run/fifo/openroad`.
+The routed design and its reports are in `xeda_run/gcd/openroad`.
 
 ## Bluespec
 

@@ -930,7 +930,7 @@ on. It needs the ``fpga`` of the design and a clock, and it programs a device, s
 ``--dry-run``.
 
 Every flow that reads design sources has the input ``design``. It takes the design that ``bsc``
-derives from a Bluespec design, and no other flow supplies it. A flow that reads no design sources
+derives from a Bluespec design (see `Converted designs`_), and no other flow supplies it. A flow that reads no design sources
 (``nextpnr``, for example) has no such input, and a binding for it is refused.
 
 Open-source FPGA flows: devices and tuning
@@ -1838,42 +1838,68 @@ stage stopped. The flow deletes it before its next process starts.
 Example
 -------
 
-The FIFO in ``examples/sv/fifo`` has one design file for a simulation, for FPGA synthesis and for
-the ASIC chain. The section ``flows.verilator`` configures the simulation, and the section
-``flows.yosys_fpga`` configures the FPGA synthesis. The section ``flows.yosys`` holds the settings
-that reach the four OpenROAD flows. Every other setting keeps its default:
+The GCD in ``examples/bluespec/gcd`` has one design file for a simulation, for the ASIC chain, for
+Vivado and for two FPGA targets. The section ``flows.yosys`` holds the settings that reach the four
+OpenROAD flows. Every other setting keeps its default:
 
 .. code-block:: yaml
 
-    # openroad-fifo.yaml: the design file examples/sv/fifo/fifo.xeda.yaml.
-    name: fifo
-    description: FIFO in SystemVerilog with a SystemVerilog testbench
+    # openroad-gcd.yaml: the design file examples/bluespec/gcd/gcd.yaml.
+    name: gcd
+    description: >-
+      GCD accelerator in BSV with a Get/Put (Server) interface. It deals requests round-robin, through
+      bsc library FIFOs, to two binary-GCD engines. The engine is a module synthesized separately in
+      another package. The testbench checks 200 directed and LFSR-driven requests against Euclid's
+      algorithm.
     rtl:
+      # The package that defines `top` comes last.
       sources:
-        - "fifo.sv"
-      top: fifo
-      clock.port: clk
+        - "rtl/GcdEngine.bsv"
+        - "rtl/GcdUnit.bsv"
+      top: mkGcdUnit
+      clock.port: CLK
     tb:
       sources:
-        - "fifo_tb.sv"
-      top: fifo_tb
-      # The testbench writes dump.vcd when DUMP_VCD is defined.
-      defines.DUMP_VCD: null
+        - "tb/TbGcdUnit.bsv"
+      top: mkTbGcdUnit
+      # Negative test: defining the macro XEDA_INJECT_BUG plants a bug in the design. The testbench
+      # must catch it (non-zero exit).
+      # defines.XEDA_INJECT_BUG: true
     flows:
-      verilator:
-        timing: true
-        vcd: true
-      # FPGA synthesis for a Xilinx 7-series part: `xeda run yosys_fpga fifo.xeda.yaml`.
-      yosys_fpga:
-        fpga.part: xc7a100tftg256-2L
-        clock.period: 5 ns
-      # ASIC place and route on nangate45: `xeda run yosys+openroad fifo.xeda.yaml`.
+
+      # ASIC place and route on nangate45: `xeda run openroad gcd.yaml`. The shared settings reach the
+      # four OpenROAD flows along the chain.
       yosys:
-        # Shared settings: they reach the four OpenROAD flows along the chain.
         platform: nangate45
-        clock.period: 0.8 ns
-        # Yosys reads SystemVerilog with the slang plugin by default, and not every Yosys build has it.
-        systemverilog: default
+        clock.period: 1.5 ns
+      # Vivado synthesis of the module on its own: `xeda run vivado_synth gcd.yaml`.
+      vivado_synth:
+        fpga.part: xc7a100tcsg324-1
+        clock.period: 10 ns
+        out_of_context: true
+    # The FPGA configurations are resource and timing estimates without pins. A board build needs an
+    # I/O wrapper and constraints.
+    targets:
+      # `xeda run yosys_fpga+nextpnr gcd.yaml --target ecp5`
+      ecp5:
+        flows:
+          yosys_fpga:
+            fpga.part: LFE5U-85F-6BG381C
+            clock.period: 10 ns
+          nextpnr:
+            lpf_allow_unconstrained: true
+      # `xeda run yosys_fpga gcd.yaml --target artix7`. Synthesis only: nextpnr-himbaechel of openXC7
+      # refuses unconstrained I/O, and Xeda refuses a Xilinx nextpnr run without XDC files.
+      artix7:
+        flows:
+          yosys_fpga:
+            fpga.part: xc7a100tcsg324-1
+            clock.period: 10 ns
+
+The design has Bluespec sources, so ``xeda run openroad gcd.yaml`` runs ``bsc`` first, to convert
+them to Verilog (see `Converted designs`_). It plans ``bsc``, ``yosys``, ``openroad_place``,
+``openroad_cts``, ``openroad_grt`` and ``openroad``. The FPGA settings are resource and timing
+estimates without pins. A board build needs an I/O wrapper and constraints.
 
 The physical settings take a quantity with its unit (see `Physical quantities and units`_). The
 settings of the old single ``openroad`` flow fail, and each message names its replacement.
@@ -1897,6 +1923,9 @@ RTL's) are passed to bsc as preprocessor macros. The preprocessor of bsc reads B
 (``.bs``) source sees the macros only through the C preprocessor. Set ``cpp: true``, which also
 feeds the macros to it. Without it, Xeda warns about a design that defines macros and whose
 Bluespec sources are all BH.
+
+``bsc`` also makes the output ``design``: the design with the generated Verilog in place of the
+Bluespec sources. It is what the flows that read Verilog take (see `Converted designs`_).
 
 ``artifacts.verilog`` of ``bsc`` is the set of files that a downstream synthesis or simulation flow
 needs. It holds the generated modules and the Verilog sources of the design itself (listed where
@@ -1930,6 +1959,69 @@ without quoting. Use a run root without whitespace (``--run-root``).
 See ``examples/bluespec/`` for self-checking designs in BSV and BH. They include a design with
 several packages, one that macros size, one that imports Verilog with ``import "BVI"``, and one
 that mixes BSV and BH.
+
+.. _converted-designs:
+
+Converted designs
+=================
+
+A Bluespec design runs on every flow that reads Verilog. The rule is general. When ``rtl.sources``
+holds a language that a flow does not read, and one flow converts that language into languages the
+first flow reads, the converter is the default producer of the ``design`` input of the first flow.
+Today the converter is ``bsc``, which converts Bluespec to Verilog. So ``xeda run yosys gcd.yaml``
+runs ``bsc`` first, and then ``yosys`` on the Verilog that ``bsc`` generated. The dry run shows the
+reason:
+
+.. code-block:: text
+
+    bsc  xeda_run/gcd/bsc
+    yosys  xeda_run/gcd/yosys
+        design <- bsc.design (the design has Bluespec sources, which yosys does not read)
+
+A flow that reads Bluespec itself (``bsc_sim``) needs no conversion. These are the commands for the
+configurations in ``examples/bluespec/gcd/gcd.yaml``:
+
+.. code-block:: bash
+
+    xeda run bsc_sim gcd.yaml                              # Bluesim, no conversion
+    xeda run openroad gcd.yaml                             # ASIC place and route on nangate45
+    xeda run vivado_synth gcd.yaml                         # Vivado, out of context
+    xeda run yosys_fpga+nextpnr gcd.yaml --target ecp5     # ECP5 synthesis, place and route
+    xeda run yosys_fpga gcd.yaml --target artix7           # Xilinx 7-series synthesis only
+
+The FPGA configurations are resource and timing estimates without pins. A board build needs an I/O
+wrapper and constraints. The Artix-7 target stops at ``yosys_fpga`` because ``nextpnr-himbaechel``
+of openXC7 refuses unconstrained I/O, and Xeda refuses a Xilinx ``nextpnr`` run without XDC files.
+``examples/bluespec/ascon`` is a larger design with the same configurations. Its ASIC clock period
+is 2.0 ns.
+
+The chain ``bsc+openroad`` and the saved binding ``flows.yosys.inputs.design: bsc`` say what the
+default says, so they give the same plan as ``xeda run openroad gcd.yaml``. A link ``bsc+X`` binds
+the ``design`` input of every flow in the default graph of ``X`` that ``bsc`` fits, ``X`` included.
+When two flows fit, there is no default, and the plan is an error. It names the flows, and it
+suggests the chain and the binding that choose one: ``yosys does not read the design's Bluespec
+sources, and more than one flow converts them``.
+
+* ``bsc`` passes every source of ``rtl`` that is not Bluespec through, once and in the order of the
+  design (Verilog, VHDL and constraint files, for example), before the modules that it generates.
+  The flow that reads the converted design judges these sources as it does for any other design.
+* The rest of the design is carried unchanged, ``tb`` included. A Verilog testbench or a cocotb
+  testbench works on a converted design. A Bluespec testbench needs ``bsc_sim``: a Verilog
+  simulator refuses it, and the error names ``bsc_sim``.
+* ``--dry-run`` judges the flow on the design that ``bsc`` would derive. While ``bsc`` is stale,
+  it reports the later flow as ``unknown: depends on bsc``.
+* A remote run converts the design on the remote machine, so ``bsc`` must be installed there.
+
+What reruns after an edit follows from what each flow reads:
+
+* A comment in a Bluespec source reruns ``bsc``. It writes the same Verilog, so the flows after it
+  stay up to date.
+* An edit that changes the Verilog reruns ``bsc`` and the flow that reads the Verilog. The flows
+  after that flow rerun when its outputs change.
+* A source that passes through ``bsc`` reruns ``bsc``, because ``bsc`` hashes all of ``rtl``. The
+  flow after it reruns too, when it reads that source.
+* A setting of the flow that reads the converted design reruns that flow and the flows after it.
+  ``bsc`` stays up to date.
 
 .. _flow-results:
 

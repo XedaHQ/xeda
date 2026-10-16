@@ -116,6 +116,7 @@ def _stage(tmp_path: Path, *names: str) -> Path:
             body = {".v": "module top(input clk, output q); assign q = clk; endmodule\n"}.get(
                 Path(file).suffix, '{"modules": {}}\n' if file.endswith(".json") else ""
             )
+            (root / file).parent.mkdir(parents=True, exist_ok=True)
             (root / file).write_text(body)
     return root
 
@@ -159,9 +160,25 @@ def test_the_documents_carry_the_fixtures_the_chain_chapter_teaches():
 
 
 def test_the_openroad_fixture_is_the_example_that_the_real_tool_tests_run():
-    """The OpenROAD section shows the design file `examples/sv/fifo/fifo.xeda.yaml`, as data."""
-    example = yaml.safe_load((ROOT / "examples/sv/fifo/fifo.xeda.yaml").read_text(encoding="utf-8"))
-    assert yaml.safe_load(_fixture("openroad-fifo.yaml")) == example
+    """The OpenROAD section shows the design file `examples/bluespec/gcd/gcd.yaml`, as data."""
+    example = yaml.safe_load((ROOT / "examples/bluespec/gcd/gcd.yaml").read_text(encoding="utf-8"))
+    assert yaml.safe_load(_fixture("openroad-gcd.yaml")) == example
+
+
+@pytest.mark.parametrize("target", [None, "ecp5", "artix7"])
+def test_the_openroad_fixture_loads_with_each_target_and_plans_its_commands(tmp_path, target):
+    """The design file of the section loads without a target and with each of its targets, and the
+    commands of the section plan: `bsc` first, then the flows that read the converted design."""
+    root = _stage(tmp_path, "openroad-gcd.yaml")
+    design = Design.from_file(root / "openroad-gcd.yaml", target=target)
+    assert design.target == target
+    request = {None: "openroad", "ecp5": "yosys_fpga+nextpnr", "artix7": "yosys_fpga"}[target]
+    document = _planned(
+        request, root / "openroad-gcd.yaml", *(["--target", target] if target else [])
+    )
+    names = [node.get("name") or node["node"] for node in document["plan"]["nodes"]]
+    assert names[0] == "bsc"
+    assert names[-1] == request.split("+")[-1]
 
 
 @pytest.mark.parametrize("document, name", FIXTURES)
