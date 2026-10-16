@@ -153,7 +153,7 @@
           "false",
           "true"
         ],
-        "help": "Before compiling, remove what an earlier run compiled: the packages (`.bo`/`.ba`) in `bobj_dir`, and the Verilog modules bsc generated (each `.use` file and the `.v` bsc wrote beside it) in the output directory. bsc recompiles a package (`-u`) only when its source is newer than its `.bo`, so without this a change of flags or macros alone is not compiled, and a module the design no longer generates is still found. Disable only to reuse the output of a run with identical settings and sources."
+        "help": "Before compiling, remove the packages (`.bo`/`.ba`) that an earlier run compiled in `bobj_dir`. bsc recompiles a package (`-u`) only when its source is newer than its `.bo`, so without this a change of flags or macros alone is not compiled. Disable only to reuse the packages of a run with identical settings and sources. The Verilog modules that an earlier run generated are removed in either case, and bsc writes them again."
       },
       "search_paths": {
         "children": false,
@@ -596,7 +596,7 @@
       "verilog_out_dir": {
         "children": false,
         "assignable": true,
-        "help": "Directory for the generated Verilog and the library modules it uses, relative to the run directory. It is the flow's: bsc overwrites the modules it generates, the library modules are copied over, and `cleanup_bobjs` removes an earlier run's generated modules."
+        "help": "Directory for the generated Verilog and the library modules it uses, relative to the run directory. It is the flow's: bsc overwrites the modules it generates, the library modules are copied over, and an earlier run's generated modules are removed before bsc compiles."
       },
       "verilog_primitives": {
         "children": false,
@@ -875,7 +875,7 @@
           "false",
           "true"
         ],
-        "help": "Before compiling, remove what an earlier run compiled: the packages (`.bo`/`.ba`) in `bobj_dir`, and the Verilog modules bsc generated (each `.use` file and the `.v` bsc wrote beside it) in the output directory. bsc recompiles a package (`-u`) only when its source is newer than its `.bo`, so without this a change of flags or macros alone is not compiled, and a module the design no longer generates is still found. Disable only to reuse the output of a run with identical settings and sources."
+        "help": "Before compiling, remove the packages (`.bo`/`.ba`) that an earlier run compiled in `bobj_dir`. bsc recompiles a package (`-u`) only when its source is newer than its `.bo`, so without this a change of flags or macros alone is not compiled. Disable only to reuse the packages of a run with identical settings and sources. The Verilog modules that an earlier run generated are removed in either case, and bsc writes them again."
       },
       "search_paths": {
         "children": false,
@@ -1343,7 +1343,7 @@
       "sim_dir": {
         "children": false,
         "assignable": true,
-        "help": "Directory for the generated simulation code (Bluesim's C++ or the Verilog) and the simulation executable, relative to the run directory. It is the flow's: `cleanup_bobjs` removes an earlier run's generated modules."
+        "help": "Directory for the generated simulation code (Bluesim's C++ or the Verilog) and the simulation executable, relative to the run directory. It is the flow's: an earlier run's generated modules are removed before bsc compiles."
       },
       "sim_args": {
         "children": false,

@@ -1139,8 +1139,10 @@ class Bsc(BscFlow):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """Require a top module, because bsc generates code for it."""
+        """Require Bluespec RTL and a top module, because bsc generates code for it."""
         super().check_design_supported(design, settings)
+        if not any(source.type is SourceType.Bluespec for source in design.rtl.sources):
+            raise FlowSettingsException("bsc needs Bluespec RTL sources to convert")
         if not design.rtl.top:
             raise FlowSettingsException("bsc needs the design's top module: set `rtl.top`")
 

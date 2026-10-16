@@ -229,6 +229,36 @@ def test_a_converter_reads_the_design_as_it_is(tmp_path) -> None:
     assert [n.name for n in plan.nodes] == ["bsc"] and plan.node("bsc").inputs == ()
 
 
+@pytest.mark.parametrize(
+    "flow_request, flows",
+    [("bsc+yosys", {}), ("yosys", {"yosys": {"inputs": {"design": "bsc"}}})],
+)
+def test_bsc_conversion_requires_bluespec_rtl_during_planning(
+    flow_request, flows, tmp_path
+) -> None:
+    design = Design.from_file(write_design(tmp_path / "d", sources=("top.v",), flows=flows))
+
+    with pytest.raises(FlowSettingsException, match="bsc needs Bluespec RTL"):
+        runner(tmp_path).plan(flow_request, design)
+
+    assert not (tmp_path / "run").exists()
+
+
+def test_a_bluespec_testbench_does_not_satisfy_bsc_rtl_conversion(tmp_path) -> None:
+    path = write_design(
+        tmp_path / "d",
+        sources=("top.v",),
+        tb={"sources": ["Tb.bsv"], "top": "mkTb"},
+    )
+    (path.parent / "Tb.bsv").write_text(BSV)
+    design = Design.from_file(path)
+
+    with pytest.raises(FlowSettingsException, match="bsc needs Bluespec RTL"):
+        runner(tmp_path).plan("bsc+yosys", design)
+
+    assert not (tmp_path / "run").exists()
+
+
 def test_two_converters_that_fit_are_an_error_that_names_the_choices(tmp_path) -> None:
     fake, rival, to_vhdl = converter_flows()
     design = Design.from_file(write_design(tmp_path / "d"))

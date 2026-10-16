@@ -60,6 +60,16 @@ def _verilog_design(tmp_path: Path, **fields) -> Design:
     return Design(name="d", design_root=root, rtl={"sources": ["top.v"], "top": "top"}, **fields)
 
 
+def _bluespec_design(tmp_path: Path, **fields) -> Design:
+    """A design for planning a Bluespec converter by chain or saved binding."""
+    root = tmp_path / "d"
+    root.mkdir(exist_ok=True)
+    (root / "Top.bsv").write_text("package Top; endpackage\n")
+    return Design(
+        name="d", design_root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"}, **fields
+    )
+
+
 # ------------------------------------------------------------------------ the declaration
 
 
@@ -429,7 +439,7 @@ def test_an_unbound_design_input_changes_no_plan(tmp_path) -> None:
 
 
 def test_a_design_input_bound_to_bsc_is_planned_through_the_binding(tmp_path) -> None:
-    design = _verilog_design(tmp_path, flows={"yosys": {"inputs": {"design": "bsc"}}})
+    design = _bluespec_design(tmp_path, flows={"yosys": {"inputs": {"design": "bsc"}}})
     plan = DefaultRunner(tmp_path / "run", display_results=False).plan("yosys", design)
     assert [node.name for node in plan.nodes] == ["bsc", "yosys"]
     (bound,) = plan.node("yosys").inputs
@@ -445,14 +455,14 @@ def test_a_design_input_bound_to_bsc_is_planned_through_the_binding(tmp_path) ->
 
 def test_a_chain_plans_the_converter_before_the_flow_it_binds(tmp_path) -> None:
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    plan = runner.plan(parse_request("bsc+yosys"), _verilog_design(tmp_path))
+    plan = runner.plan(parse_request("bsc+yosys"), _bluespec_design(tmp_path))
     assert [node.name for node in plan.nodes] == ["bsc", "yosys"]
     assert plan.node("yosys").inputs[0].binding_origin == "chain"
 
 
 def test_a_chain_through_other_flows_binds_the_design_input_of_the_first(tmp_path) -> None:
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    design = _verilog_design(tmp_path, flows={"openroad": {"platform": "nangate45"}})
+    design = _bluespec_design(tmp_path, flows={"openroad": {"platform": "nangate45"}})
     plan = runner.plan(parse_request("bsc+openroad"), design)
     assert [node.name for node in plan.nodes] == [
         "bsc",
@@ -468,9 +478,9 @@ def test_a_chain_through_other_flows_binds_the_design_input_of_the_first(tmp_pat
 
 def test_a_binding_and_a_chain_plan_the_same_nodes(tmp_path) -> None:
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    chained = runner.plan(parse_request("bsc+yosys"), _verilog_design(tmp_path))
+    chained = runner.plan(parse_request("bsc+yosys"), _bluespec_design(tmp_path))
     bound = runner.plan(
-        "yosys", _verilog_design(tmp_path, flows={"yosys": {"inputs": {"design": "bsc"}}})
+        "yosys", _bluespec_design(tmp_path, flows={"yosys": {"inputs": {"design": "bsc"}}})
     )
     assert [(n.name, n.flowrun_hash, n.run_path) for n in chained.nodes] == [
         (n.name, n.flowrun_hash, n.run_path) for n in bound.nodes
