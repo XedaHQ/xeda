@@ -315,7 +315,15 @@ def judge_node(
             flow_class, node.settings, view, runner_cwd, debug=debug
         )
         split_deliveries(settings, design.name)
-        design_hash = view.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
+        # The planned design names a file that need not exist yet, so it has no hash. The node is
+        # judged on its trace only when its converter is `fresh` (below), and the hash is then
+        # that of the derived design.
+        known = converter is None or (states[converter[0].name].state == "fresh" and lacks is None)
+        design_hash = (
+            view.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
+            if known
+            else ""
+        )
         flow = _bare_flow(node, settings, view, run_root, runner_cwd, design_hash)
     except (FlowSettingsError, FlowSettingsException, FlowFatalError) as error:
         # The plan made the checks of the hooks of the flow. A launch also checks the settings in
