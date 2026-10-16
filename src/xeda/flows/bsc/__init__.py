@@ -369,13 +369,12 @@ class BscFlow(Flow, metaclass=ABCMeta):
         )
         cleanup_bobjs: bool = Field(
             True,
-            description="Before compiling, remove what an earlier run compiled: the packages "
-            "(`.bo`/`.ba`) in `bobj_dir`, and the Verilog modules bsc generated (each `.use` file "
-            "and the `.v` bsc wrote beside it) in the output directory. bsc recompiles a package "
-            "(`-u`) only when its source is newer than its `.bo`, so without this a change of "
-            "flags or macros alone is not compiled, and a module the design no longer generates "
-            "is still found. Disable only to reuse the output of a run with identical settings "
-            "and sources.",
+            description="Before compiling, remove the packages (`.bo`/`.ba`) that an earlier run "
+            "compiled in `bobj_dir`. bsc recompiles a package (`-u`) only when its source is newer "
+            "than its `.bo`, so without this a change of flags or macros alone is not compiled. "
+            "Disable only to reuse the packages of a run with identical settings and sources. "
+            "The Verilog modules that an earlier run generated are removed in either case, and "
+            "bsc writes them again.",
         )
         search_paths: list[Path] = Field(
             [],
@@ -964,11 +963,13 @@ class BscFlow(Flow, metaclass=ABCMeta):
             )
 
     def _prepare_dirs(self, out_dir: Path) -> None:
-        """Create the directories bsc writes to and, with `cleanup_bobjs`, remove what an
-        earlier run left in them: its packages, and the Verilog modules it generated. bsc writes
+        """Create the directories bsc writes to, and remove what an earlier run left in them: the
+        Verilog modules it generated always, and its packages with `cleanup_bobjs`. bsc writes
         a module's `.use` file (`-show-module-use`) right after its `.v`, so each `.use` goes
-        with the `.v` beside it, whatever a `verilog_filters` command made of that `.v`. Other
-        files stay, and the library modules copied in are copied again."""
+        with the `.v` beside it, whatever a `verilog_filters` command made of that `.v`. bsc
+        writes every module again, also from a package it finds up to date, so each generated
+        module that the run records is one that this run wrote. Other files stay, and the library
+        modules copied in are copied again."""
         assert isinstance(self.settings, BscFlow.Settings)
         if self.settings.verilog_filters and any(c.isspace() for c in str(out_dir)):
             raise FlowSettingsException(
@@ -976,12 +977,13 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 f"without quoting, so the output directory cannot contain whitespace: {out_dir}"
             )
         bdir = Path(self.settings.bobj_dir)
+        stale = []
         if self.settings.cleanup_bobjs:
-            stale = [obj for pattern in ("*.bo", "*.ba") for obj in bdir.glob(pattern)]
-            for use_file in out_dir.glob("*.use"):
-                stale += [use_file, use_file.with_suffix(".v")]
-            # These are an earlier run's packages and generated modules, all in the run directory.
-            self.run_directory.remove(*(path for path in stale if path.is_file()))
+            stale += [obj for pattern in ("*.bo", "*.ba") for obj in bdir.glob(pattern)]
+        for use_file in out_dir.glob("*.use"):
+            stale += [use_file, use_file.with_suffix(".v")]
+        # These are an earlier run's packages and generated modules, all in the run directory.
+        self.run_directory.remove(*(path for path in stale if path.is_file()))
         bdir.mkdir(parents=True, exist_ok=True)
         out_dir.mkdir(parents=True, exist_ok=True)
         if self.settings.info_dir:
@@ -1090,8 +1092,8 @@ class Bsc(BscFlow):
             Path("gen_rtl"),
             description="Directory for the generated Verilog and the library modules it uses, "
             "relative to the run directory. It is the flow's: bsc overwrites the modules it "
-            "generates, the library modules are copied over, and `cleanup_bobjs` removes an "
-            "earlier run's generated modules.",
+            "generates, the library modules are copied over, and an earlier run's generated modules "
+            "are removed before bsc compiles.",
             json_schema_extra=WORKING,
         )
         verilog_primitives: Literal["generic", "vivado", "quartus"] = Field(
@@ -1206,22 +1208,8 @@ class Bsc(BscFlow):
         collected = self._collect_verilog(top, top_file, vout_dir, verilog_path)
         self.results["modules"] = collected.modules
         self.artifacts.verilog = [str(f) for f in collected.files]
-        self._adopt_current_modules(collected.generated)
         assert isinstance(self.outputs, self.Outputs)
         self.outputs.design = self._derived_sources(top, collected)
-
-    def _adopt_current_modules(self, modules: Iterable[Path]) -> None:
-        """Write again, with the same content, each generated module that bsc did not write now.
-
-        Without `cleanup_bobjs`, bsc keeps the Verilog of a package it finds up to date, and a run
-        in the directory of an earlier run writes none of it. The design output may list only
-        files that this run wrote (`record_outputs`), so the flow writes such a module again
-        itself. The content, and so the digest that a consumer compares, is what bsc left."""
-        for path in modules:
-            if not self.wrote_output(path):
-                content = path.read_bytes()
-                with replacing_file(self.run_directory.writable(path), "wb") as f:
-                    f.write(content)
 
     def _derived_sources(self, top: str, collected: _Collected) -> DerivedSources:
         """Return the sources of the derived design from what the collection found.
@@ -1309,12 +1297,6 @@ class Bsc(BscFlow):
                     raise FlowSettingsException(
                         f"{module} is both generated by bsc ({verilog}) and defined by the "
                         f"design's Verilog source {defined_in[module]}"
-                        + (
-                            ""
-                            if ss.cleanup_bobjs
-                            else "; with `cleanup_bobjs: false` the generated file may be from "
-                            "an earlier run"
-                        )
                     )
                 modules.append(module)
                 for line in use_file.read_text().splitlines():
@@ -1499,7 +1481,7 @@ class BscSim(BscFlow, SimFlow):
             Path("sim_build"),
             description="Directory for the generated simulation code (Bluesim's C++ or the "
             "Verilog) and the simulation executable, relative to the run directory. It is the "
-            "flow's: `cleanup_bobjs` removes an earlier run's generated modules.",
+            "flow's: an earlier run's generated modules are removed before bsc compiles.",
             json_schema_extra=WORKING,
         )
         sim_args: list[str] = Field(

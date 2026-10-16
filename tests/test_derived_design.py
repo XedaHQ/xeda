@@ -523,6 +523,24 @@ def test_bsc_records_the_modules_it_found_up_to_date(positive_reset, tmp_path, c
     handed_design(again, "design", design)
 
 
+def test_bsc_never_records_a_generated_module_that_it_did_not_write(tmp_path, capfd) -> None:
+    """Without `cleanup_bobjs`, a module changed in the run directory after a run is written
+    again by bsc. The record holds what bsc wrote, never the changed file."""
+    require_bsc()
+    design = _design(tmp_path / "d")
+    first = _bsc(design, tmp_path, cleanup_bobjs=False)
+    assert first.succeeded, run_report(first, capfd.readouterr())
+    before = first.results["outputs"]["design"]
+    generated = [Path(item["generated"]) for item in before["sources"] if "generated" in item]
+    module = generated[-1]
+    original = module.read_bytes()
+    module.write_bytes(original + b"// changed after the run\n")
+    again = _bsc(design, tmp_path, cleanup_bobjs=False)
+    assert again.succeeded, run_report(again, capfd.readouterr())
+    assert module.read_bytes() == original
+    assert again.results["outputs"]["design"] == before
+
+
 def test_bsc_passes_a_design_without_other_languages_through_alone(tmp_path, capfd) -> None:
     require_bsc()
     root = tmp_path / "d"

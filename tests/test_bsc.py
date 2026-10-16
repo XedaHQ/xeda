@@ -651,9 +651,10 @@ def test_an_earlier_runs_output_is_removed_before_compiling(cleanup, tmp_path):
     with WorkingDirectory(run):
         flow._prepare_dirs(out.absolute())
     left = {p.name for p in out.iterdir()} | {p.name for p in (run / "bobjs").iterdir()}
+    # The generated modules go in either case: bsc writes them again, so every module the run
+    # records is one it wrote. The packages stay without `cleanup_bobjs`.
     expected = {"FIFO2.v", "notes.txt"}
     if not cleanup:
-        expected |= {"mkOld.v", "mkOld.use", "mkFiltered.v", "mkFiltered.use", "mkGone.use"}
         expected |= {"Old.bo", "Old.ba"}
     assert left == expected
 
