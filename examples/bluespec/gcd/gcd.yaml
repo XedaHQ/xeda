@@ -18,3 +18,33 @@ tb:
   # Negative test: defining the macro XEDA_INJECT_BUG plants a bug in the design. The testbench
   # must catch it (non-zero exit).
   # defines.XEDA_INJECT_BUG: true
+flows:
+
+  # ASIC place and route on nangate45: `xeda run openroad gcd.yaml`. The shared settings reach the
+  # four OpenROAD flows along the chain.
+  yosys:
+    platform: nangate45
+    clock.period: 1.5 ns
+  # Vivado synthesis of the module on its own: `xeda run vivado_synth gcd.yaml`.
+  vivado_synth:
+    fpga.part: xc7a100tcsg324-1
+    clock.period: 10 ns
+    out_of_context: true
+# The FPGA configurations are resource and timing estimates without pins. A board build needs an
+# I/O wrapper and constraints.
+targets:
+  # `xeda run yosys_fpga+nextpnr gcd.yaml --target ecp5`
+  ecp5:
+    flows:
+      yosys_fpga:
+        fpga.part: LFE5U-85F-6BG381C
+        clock.period: 10 ns
+      nextpnr:
+        lpf_allow_unconstrained: true
+  # `xeda run yosys_fpga gcd.yaml --target artix7`. Synthesis only: nextpnr-himbaechel of openXC7
+  # refuses unconstrained I/O, and Xeda refuses a Xilinx nextpnr run without XDC files.
+  artix7:
+    flows:
+      yosys_fpga:
+        fpga.part: xc7a100tcsg324-1
+        clock.period: 10 ns
