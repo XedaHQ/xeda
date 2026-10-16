@@ -162,6 +162,7 @@ def inputs_info(node: Any) -> list[dict[str, Any]]:
             "binding_origin": resolved.binding_origin,
             "binding_location": resolved.binding_location,
             "overridden": list(resolved.overridden),
+            "reason": resolved.reason,
         }
         for resolved in node.inputs
     ]

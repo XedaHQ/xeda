@@ -305,13 +305,13 @@ delivered the file there once the run finished:
            {"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
             "output": "netlist", "sources": [],
             "references": [{"node": "yosys_fpga", "output": "netlist"}],
-            "binding_origin": null, "binding_location": null, "overridden": []},
+            "binding_origin": null, "binding_location": null, "overridden": [], "reason": null},
            {"name": "constraints", "origin": "none", "producer": null,
             "output": null, "sources": [], "references": [],
-            "binding_origin": null, "binding_location": null, "overridden": []},
+            "binding_origin": null, "binding_location": null, "overridden": [], "reason": null},
            {"name": "sdc", "origin": "none", "producer": null,
             "output": null, "sources": [], "references": [],
-            "binding_origin": null, "binding_location": null, "overridden": []}
+            "binding_origin": null, "binding_location": null, "overridden": [], "reason": null}
          ]}
       ],
       "request": [{"node": "nextpnr", "flow": "nextpnr", "output": null, "through": []}]
@@ -598,13 +598,13 @@ switches an optional output of its producer on:
            "inputs": [{"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
                        "output": "netlist", "sources": [],
                        "references": [{"node": "yosys_fpga", "output": "netlist"}],
-                       "binding_origin": null, "binding_location": null, "overridden": []},
+                       "binding_origin": null, "binding_location": null, "overridden": [], "reason": null},
                       {"name": "constraints", "origin": "none", "producer": null,
                        "output": null, "sources": [], "references": [],
-                       "binding_origin": null, "binding_location": null, "overridden": []},
+                       "binding_origin": null, "binding_location": null, "overridden": [], "reason": null},
                       {"name": "sdc", "origin": "none", "producer": null,
                        "output": null, "sources": [], "references": [],
-                       "binding_origin": null, "binding_location": null, "overridden": []}],
+                       "binding_origin": null, "binding_location": null, "overridden": [], "reason": null}],
            "switched_on": [], "action_reason": null,
            "input_types": {"netlist": ["JsonNetlist"], "constraints": ["Pcf"], "sdc": ["Sdc"]},
            "output_types": {"config": ["IceAsc"]}}
@@ -634,6 +634,9 @@ Each input has these keys:
   ``"cli"``, ``"api"`` or ``"chain"``.
 - ``binding_location`` names that place, and ``overridden`` lists the saved bindings that it
   replaced.
+- ``reason`` explains an edge that Xeda chose on its own because the design needs a conversion
+  (for example, the design has Bluespec sources, which ``yosys`` does not read). It is ``null``
+  for every other input.
 
 An explicit binding supplies an input first, then the sources of the design, and then the default
 producer.

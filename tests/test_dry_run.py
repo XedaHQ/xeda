@@ -27,7 +27,7 @@ def worktree_imports(monkeypatch):
 
 
 #: what the plan says of an input no explicit binding supplies, and of one nothing supplies
-UNBOUND = {"binding_origin": None, "binding_location": None, "overridden": []}
+UNBOUND = {"binding_origin": None, "binding_location": None, "overridden": [], "reason": None}
 NOTHING = {"sources": [], "references": [], **UNBOUND}
 
 
