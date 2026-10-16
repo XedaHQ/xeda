@@ -24,6 +24,7 @@ from xeda import Design
 from xeda.design import LANGUAGE_TYPES, SourceType
 from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, FlowSettingsException
 from xeda.flow_runner import DefaultRunner, launch_producers
+from xeda.flow_runner import default_runner as default_runner_module
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.plan_freshness import NodeFreshness
 from xeda.flow_runner.resolver import Plan, planned_design_of
@@ -588,3 +589,34 @@ def test_a_missing_bsc_names_why_it_was_needed(tmp_path, monkeypatch) -> None:
         "(bsc converts the design for yosys: the design has Bluespec sources, which yosys does "
         "not read)"
     )
+
+
+def test_the_converter_of_a_design_is_launched_as_a_producer(tmp_path, monkeypatch) -> None:
+    """The converter is launched for a consumer that has no flow yet (`consumer=`), and it is a
+    producer in every way that matters: it refreshes no trace, delivers nothing to `--outputs-to`,
+    and leaves a token for the hand-over."""
+    events = Events()
+    classes = consumer_flows(events)
+    refreshes: dict[str, bool] = {}
+    real = default_runner_module.check_trace
+
+    def spying(run_path, expected, locate, *, refresh):
+        refreshes[expected.flow] = refresh
+        return real(run_path, expected, locate, refresh=refresh)
+
+    monkeypatch.setattr(default_runner_module, "check_trace", spying)
+    launch(tmp_path, classes)  # the first launch judges nothing: no trace yet
+    launch(tmp_path, classes)
+    converter, reader = classes
+    assert refreshes == {converter.name: False, reader.name: True}
+
+    seen: list[tuple[str | None, bool]] = []
+    launch_flow = DefaultRunner.launch_flow
+
+    def recording(self, flow_class, design, settings, **kwargs):
+        seen.append((kwargs.get("consumer"), kwargs.get("depender") is not None))
+        return launch_flow(self, flow_class, design, settings, **kwargs)
+
+    monkeypatch.setattr(DefaultRunner, "launch_flow", recording)
+    launch(tmp_path, classes)
+    assert seen == [(None, False), (reader.name, False)]

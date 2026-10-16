@@ -119,3 +119,16 @@ def test_a_small_design_with_a_verilog_module_beside_the_bluespec_runs_on_yosys(
     again = DefaultRunner(tmp_path / "run", display_results=False)
     flow = again.run_flow("yosys", design, {"clock": {"period": "5 ns"}})
     assert flow is not None and [f.reused for f in again.launched] == [True, True]
+
+
+def test_outputs_to_delivers_what_yosys_wrote_and_nothing_of_its_converter(tmp_path) -> None:
+    require_bsc()
+    require_yosys()
+    gcd = Gcd(tmp_path)
+    out = tmp_path / "out"
+    runner = DefaultRunner(tmp_path / "run", display_results=False, outputs_to=out)
+    flow = runner.run_flow("yosys", Design.from_file(gcd.file))
+    assert flow is not None and flow.succeeded
+    delivered = sorted(p.name for p in out.rglob("*") if p.is_file())
+    assert "netlist.v" in delivered
+    assert not {"mkGcdUnit.v", "bsv_defines.v"} & set(delivered)
