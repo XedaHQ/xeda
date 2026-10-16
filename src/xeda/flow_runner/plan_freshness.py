@@ -21,21 +21,29 @@ launch has claimed, and is not initialized.
 
 A node is judged in the order the launch uses:
 
-1. The settings, which a launch checks against the design. If it refuses them, the node is
+1. The design it reads. A flow whose `design` input comes from a converter reads the design that
+   the converter derives. If the converter is `fresh`, the dry run derives that design from its
+   record, after it verified the record read-only (`outputs.verified_design`): the files, the
+   sources that pass through, and the design the record was made for. A record that does not
+   verify gives the node `unknown`, with the reason of the hand-over. Otherwise the node reads
+   the design that the converter is planned to derive (`resolver.planned_design_of`).
+2. The settings, which a launch checks against that design. If it refuses them, the node is
    `unknown`.
-2. The producers, in the order in which a launch runs them. A producer that is `rejected again`
-   or `blocked` makes the node `blocked`. The recorded outputs of every producer that is `fresh`,
-   whatever the other producers do, must be handed over. If one cannot be, the node is
-   `unknown`. A producer that is not `fresh` is not read, because it will be rewritten. Of the
-   two problems, the one with the earlier producer decides.
-3. The prepared inputs, located. If preparation refuses them, the node is `unknown`.
-4. `always_runs()`: the node is `stale`.
-5. `--clean`, then `--rebuild-all`: the node is `stale`.
-6. A prepared input that is not made yet: the node is `unknown`.
-7. The trace: the node is `stale` with the reason of `check_trace`. What the producers handed
+3. The producers, in the order in which a launch runs them (the converter of the design first).
+   A producer that is `rejected again` or `blocked` makes the node `blocked`. The recorded
+   outputs of every producer that is `fresh`, whatever the other producers do, must be handed
+   over. If one cannot be, the node is `unknown`. A producer that is not `fresh` is not read,
+   because it will be rewritten. Of the two problems, the one with the earlier producer decides.
+4. The prepared inputs, located. If preparation refuses them, the node is `unknown`.
+5. `always_runs()`: the node is `stale`.
+6. `--clean`, then `--rebuild-all`: the node is `stale`.
+7. A converter that is not `fresh`: the node is `unknown`, with the reason `depends on <converter>`.
+   Its trace cannot be judged without the hash of the derived design.
+8. A prepared input that is not made yet: the node is `unknown`.
+9. The trace: the node is `stale` with the reason of `check_trace`. What the producers handed
    over is compared last, and only when every producer is `fresh`. Otherwise a node that
    nothing above decided is `unknown`, with the reason `depends on <producer>`.
-8. `results.json`, only when the trace is current and every producer is `fresh`. The document
+10. `results.json`, only when the trace is current and every producer is `fresh`. The document
    must agree with the verdict of the trace (`launch_report.adoptable_document`). If it does
    not, the node is `stale`. If it does, the node is `fresh` for a run that passed, and
    `rejected again` for a run that was rejected.
@@ -47,6 +55,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Literal
 
 from ..deliver import split_deliveries
@@ -62,9 +71,9 @@ from ..flow.io import declared_inputs, declared_outputs
 from ..proc_utils import DOCKER_IMAGE_PREFIX
 from ..run_dir import RunDirectory, RunDirectoryError
 from . import launch_input
-from .outputs import recorded_entries
+from .outputs import recorded_entries, verified_design
 from .launch_report import adoptable_document
-from .resolver import Plan, PlanNode
+from .resolver import Plan, PlanNode, planned_design_of
 from .trace import (
     BoundProducer,
     DeclaredInputRecord,
@@ -136,6 +145,7 @@ def _entries(results: dict, producer: PlanNode, output: str) -> tuple[OutputEntr
             recorded,
             declaration.cardinality == "many",
             f"{producer.name}'s output `{output}`",
+            design=declaration.is_design,
         )
     except FlowDependencyFailure as error:
         return str(error)
@@ -181,6 +191,8 @@ def _wire_inputs(
     asks whether an input is supplied (the board fallback of nextpnr) then answers as the launch
     does."""
     for selected in node.inputs:
+        if declared_inputs(node.flow_class)[selected.name].is_design:
+            continue  # the flow reads the design as `self.design`; the input stays unset
         paths = list(selected.sources)
         for ref in selected.references:
             found = handed.get((ref.node, ref.output))
@@ -236,6 +248,49 @@ def _records(
     return tuple(records)
 
 
+def _derived_design(
+    plan: Plan,
+    node: PlanNode,
+    design: Design,
+    states: dict[str, NodeFreshness],
+    run_root: Path,
+    run_path: Callable[..., Path],
+) -> tuple[Design, tuple[PlanNode, str] | None, tuple[OutputEntry, ...], NodeFreshness | None]:
+    """Return the design that `node` reads, as far as a dry run can tell.
+
+    The result is the design, the converter of it (its node and output) or None, the files the
+    converter generated, and why the record of a converter that is `fresh` cannot be handed over
+    (None if it can, or if there is no such record to read). With a converter that is `fresh`,
+    the design is the one derived from its record, which is verified read-only
+    (`outputs.verified_design`). Otherwise it is the design the converter is planned to derive,
+    or the loaded one if the node has no converter."""
+    planned = planned_design_of(plan, node, design, run_path)
+    selected = next((item for item in node.inputs if item.name == "design"), None)
+    if selected is None or not selected.references:
+        return planned, None, (), None
+    reference = selected.references[0]
+    converter = plan.node(reference.node)
+    if states[converter.name].state != "fresh":
+        return planned, (converter, reference.output), (), None
+    results = _results(converter)
+    recorded = (results or {}).get("outputs", {}).get(reference.output)
+    label = f"{converter.name}'s output `{reference.output}`"
+    if recorded is None:
+        return (
+            planned,
+            (converter, reference.output),
+            (),
+            NodeFreshness("unknown", f"{converter.name} recorded no output `{reference.output}`"),
+        )
+    try:
+        derived, entries = verified_design(
+            recorded, RunDirectory.claimed(converter.run_path, run_root), label, design
+        )
+    except (FlowDependencyFailure, RunDirectoryError) as error:
+        return planned, (converter, reference.output), (), NodeFreshness("unknown", str(error))
+    return derived, (converter, reference.output), entries, None
+
+
 def judge_node(
     plan: Plan,
     node: PlanNode,
@@ -247,15 +302,21 @@ def judge_node(
     rebuild_all: bool,
     clean: bool,
     debug: bool,
+    run_path: Callable[..., Path],
 ) -> NodeFreshness:
     flow_class = node.flow_class
+    # The design the node reads: the one its converter derived when that is `fresh`, else the one
+    # it is planned to derive (`_derived_design`).
+    view, converter, design_entries, lacks = _derived_design(
+        plan, node, design, states, run_root, run_path
+    )
     try:
         settings = launch_input.input_settings(
-            flow_class, node.settings, design, runner_cwd, debug=debug
+            flow_class, node.settings, view, runner_cwd, debug=debug
         )
         split_deliveries(settings, design.name)
-        design_hash = design.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
-        flow = _bare_flow(node, settings, design, run_root, runner_cwd, design_hash)
+        design_hash = view.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
+        flow = _bare_flow(node, settings, view, run_root, runner_cwd, design_hash)
     except (FlowSettingsError, FlowSettingsException, FlowFatalError) as error:
         # The plan made the checks of the hooks of the flow. A launch also checks the settings in
         # the context of the design, as it constructs the flow, and would refuse these.
@@ -267,7 +328,8 @@ def judge_node(
     producers = [plan.node(ref.node) for item in node.inputs for ref in item.references]
     waiting = next((p for p in producers if states[p.name].state != "fresh"), None)
     entries: dict[tuple[str, str], tuple[OutputEntry, ...]] = {}
-    lacks: NodeFreshness | None = None
+    if converter is not None and design_entries:
+        entries[(converter[0].name, converter[1])] = design_entries
     for item in node.inputs:
         for ref in item.references:
             producer = plan.node(ref.node)
@@ -279,6 +341,11 @@ def judge_node(
                 return lacks or NodeFreshness("blocked", f"{producer.name} is blocked")
             if states[ref.node].state != "fresh":
                 continue
+            if converter is not None and (ref.node, ref.output) == (
+                converter[0].name,
+                converter[1],
+            ):
+                continue  # derived above, with the record verified
             results = _results(producer)
             found = (
                 f"{ref.node} recorded no output `{ref.output}` to hand over"
@@ -308,6 +375,9 @@ def judge_node(
         return NodeFreshness("stale", EVERY_FLOW_RUNS_CLEAN)
     if rebuild_all:
         return NodeFreshness("stale", EVERY_FLOW_RUNS_REBUILD_ALL)
+    if converter is not None and states[converter[0].name].state != "fresh":
+        # The trace of the node holds the hash of the design its converter derives.
+        return NodeFreshness("unknown", f"depends on {converter[0].name}")
     if registered is None:
         return NodeFreshness(
             "unknown", "a prepared input is not made yet: a launch makes it before judging"
@@ -319,7 +389,7 @@ def judge_node(
         settings_hash=node.settings_hash,
         design_hash=design_hash,
         run_path=node.run_path,
-        design=design,
+        design=view,
         input_settings=settings,
         run_root=run_root,
         registered=registered,
@@ -353,8 +423,11 @@ def judge_plan(
     rebuild_all: bool = False,
     clean: bool = False,
     debug: bool = False,
+    run_path: Callable[..., Path],
 ) -> dict[str, NodeFreshness]:
-    """Return what a launch of `plan` would do with each node, by node name, producers first."""
+    """Return what a launch of `plan` would do with each node, by node name, producers first.
+
+    `run_path` is the `run_path_of` of the launcher (`resolver.planned_design_of`)."""
     states: dict[str, NodeFreshness] = {}
     for node in plan.nodes:
         states[node.name] = judge_node(
@@ -367,5 +440,6 @@ def judge_plan(
             rebuild_all=rebuild_all,
             clean=clean,
             debug=debug,
+            run_path=run_path,
         )
     return states

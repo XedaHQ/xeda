@@ -1896,6 +1896,7 @@ class FlowLauncher:
             rebuild_all=self.settings.rebuild_all,
             clean=self._run_dir_policy().clean,
             debug=self.debug or self.settings.debug,
+            run_path=self.run_path_of,
         )
         return plan, states
 
