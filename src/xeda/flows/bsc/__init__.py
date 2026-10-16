@@ -1075,9 +1075,9 @@ class Bsc(BscFlow):
         design: DerivedSources | None = Out(
             DESIGN,
             description="The design with the Verilog of the Bluespec sources in place of them: "
-            "the Verilog files that `artifacts.verilog` lists (generated, copied from the "
-            "library and the design's own), then every other source of `rtl` as the design "
-            "lists it. The rest of the design is carried.",
+            "the files that define the reset macro and the copies from bsc's library, then every "
+            "source of `rtl` that is not Bluespec as the design lists it, then the modules bsc "
+            "generated, the top module last. The rest of the design is carried.",
         )
 
     @classmethod
@@ -1226,28 +1226,20 @@ class Bsc(BscFlow):
     def _derived_sources(self, top: str, collected: _Collected) -> DerivedSources:
         """Return the sources of the derived design from what the collection found.
 
-        The Verilog files come first, in the order of `artifacts.verilog`: the generated and
-        library files are `Generated`, and the design's own Verilog sources `Passed`. Then every
-        other source of `rtl` that is not Bluespec, in the order of the design. Each source
-        appears once."""
-        sources = self.design.rtl.sources
-        entries: list[Generated | Passed] = []
-        listed: set[int] = set()
-
-        def design_index(path: Path) -> int:
-            return next(i for i, src in enumerate(sources) if src.file == path)
-
-        def generated(paths: Iterable[Path]) -> None:
-            entries.extend(Generated(path, SourceType.Verilog) for path in paths)
-
-        generated(collected.defines + collected.library)
-        for path in collected.design_verilog:
-            listed.add(design_index(path))
-            entries.append(Passed(design_index(path)))
-        generated(collected.generated)
-        for index, src in enumerate(sources):
-            if src.type is not SourceType.Bluespec and index not in listed:
-                entries.append(Passed(index))
+        The defining file and the library copies come first (`Generated`). Then every source of
+        `rtl` that is not Bluespec (`Passed`: the design's Verilog and SystemVerilog, VHDL,
+        headers, constraints, ...), in the order of the design. The modules bsc generated come
+        last, each before the module that instantiates it and the top module at the end
+        (`Generated`). Each source appears once."""
+        entries: list[Generated | Passed] = [
+            Generated(path, SourceType.Verilog) for path in collected.defines + collected.library
+        ]
+        entries.extend(
+            Passed(index)
+            for index, src in enumerate(self.design.rtl.sources)
+            if src.type is not SourceType.Bluespec
+        )
+        entries.extend(Generated(path, SourceType.Verilog) for path in collected.generated)
         return DerivedSources(top, tuple(unique(entries)))
 
     def _collect_verilog(

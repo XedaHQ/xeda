@@ -457,9 +457,9 @@ def _bsc(design: Design, tmp_path, **settings):
 
 
 def test_bsc_records_the_design_from_what_it_collected(tmp_path, capfd) -> None:
-    """The Verilog files come first, as `artifacts.verilog` lists them: the file that defines the
-    reset macro, the library modules, the design's own Verilog, then the generated modules. Every
-    other source that is not Bluespec follows, in design order. Each source appears once."""
+    """The file that defines the reset macro and the library modules come first. Every source that
+    is not Bluespec follows in design order, whatever its language. The generated modules come
+    last, the top module at the end. Each source appears once."""
     require_bsc()
     design = _design(tmp_path / "d")
     flow = _bsc(design, tmp_path)
@@ -471,7 +471,7 @@ def test_bsc_records_the_design_from_what_it_collected(tmp_path, capfd) -> None:
         for item in record["sources"]
     ]
     assert shape[0] == ("G", "bsv_defines.v")
-    assert shape[-5:] == [("P", 3), ("G", "mkAccum.v"), ("G", "mkTop.v"), ("P", 0), ("P", 4)]
+    assert shape[-5:] == [("P", 0), ("P", 3), ("P", 4), ("G", "mkAccum.v"), ("G", "mkTop.v")]
     library = shape[1:-5]
     assert library and all(kind == "G" for kind, _ in library)
     assert [name for kind, name in shape if kind == "G"][1:-2] == [name for _, name in library]
@@ -489,7 +489,7 @@ def test_bsc_records_the_design_from_what_it_collected(tmp_path, capfd) -> None:
     derived, entries = handed_design(flow, "design", design)
     assert [src.type for src in derived.rtl.sources].count(SourceType.Bluespec) == 0
     assert len(entries) == len([1 for kind, _ in shape if kind == "G"])
-    assert derived.rtl.sources[-2:] == [design.rtl.sources[0], design.rtl.sources[4]]
+    assert derived.rtl.sources[-5:-2] == [design.rtl.sources[i] for i in (0, 3, 4)]
     assert derived.rtl.top == "mkTop" and derived.rtl.parameters == {}
     assert derived.tb.sources == design.tb.sources
 
