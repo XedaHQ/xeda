@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Iterator, List, NamedTuple, Optional, Sequence
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 import xeda
@@ -867,6 +868,10 @@ def _yosys_on_bluespec(tmp_path: Path, monkeypatch, patch=None):
     require_yosys()
     work = tmp_path / "work"
     shutil.copytree(GCD, work)
+    document = yaml.safe_load((work / "gcd.yaml").read_text())
+    document["flows"] = {}  # no platform: yosys synthesizes for no library
+    del document["targets"]
+    (work / "gcd.yaml").write_text(yaml.safe_dump(document, sort_keys=False))
     design = Design.from_file(work / "gcd.yaml")
     root = tmp_path / "run"
     if patch is not None:

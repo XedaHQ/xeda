@@ -22,6 +22,7 @@ from types import SimpleNamespace
 
 import execnet
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from pydantic import ValidationError
@@ -2164,11 +2165,14 @@ GCD = TESTS_DIR.parent / "examples" / "bluespec" / "gcd"
 
 
 def _bluespec_design(tmp_path: Path) -> Path:
-    """The Bluespec example in a directory of the test, with a clock for yosys."""
+    """The Bluespec example in a directory of the test, with its flow sections replaced by a clock
+    for yosys, so that yosys synthesizes for no platform."""
     root = tmp_path / "gcd"
     shutil.copytree(GCD, root)
-    with (root / "gcd.yaml").open("a") as f:
-        f.write("flows:\n  yosys:\n    clock.period: 2 ns\n")
+    document = yaml.safe_load((root / "gcd.yaml").read_text())
+    document["flows"] = {"yosys": {"clock": {"period": "2 ns"}}}
+    del document["targets"]
+    (root / "gcd.yaml").write_text(yaml.safe_dump(document, sort_keys=False))
     return root / "gcd.yaml"
 
 
