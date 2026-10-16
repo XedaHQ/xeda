@@ -67,7 +67,7 @@ from .default_runner import (
     with_debug_logging,
 )
 from .launch_input import refuse_outputs_to_a_programmer
-from .resolver import Plan
+from .resolver import Plan, planned_design_of
 from .run_lock import run_dir_lock
 from .settings_layers import (
     COMMAND_LINE_ORIGIN,
@@ -1070,7 +1070,12 @@ class RemoteRunner(FlowLauncher):
                     flow_class.Settings,
                 )
             flow_class.check_required_settings(input_settings)
-            flow_class.check_design_supported(design, input_settings)
+            # The design the node is planned to read: a Bluespec design that a converter turns
+            # into Verilog on the remote is checked as the Verilog it will be.
+            flow_class.check_design_supported(
+                planned_design_of(plan, plan.node(flow_name), design, self.run_path_of),
+                input_settings,
+            )
             located = deliverable_locations(input_settings)
             if located:
                 key, path = located[0]
