@@ -493,6 +493,22 @@ def test_bsc_without_the_reset_macro_has_no_defining_file(tmp_path, capfd) -> No
     assert "bsv_defines.v" not in names and names[-1] == "mkTop.v"
 
 
+@pytest.mark.parametrize("positive_reset", [False, True])
+def test_bsc_records_the_modules_it_found_up_to_date(positive_reset, tmp_path, capfd) -> None:
+    """Without `cleanup_bobjs`, bsc keeps the Verilog of a package it finds up to date. A run in
+    the directory of an earlier run still records those modules, with the content they have."""
+    require_bsc()
+    design = _design(tmp_path / "d")
+    settings = {"cleanup_bobjs": False, "positive_reset": positive_reset}
+    first = _bsc(design, tmp_path, **settings)
+    assert first.succeeded, run_report(first, capfd.readouterr())
+    before = first.results["outputs"]["design"]
+    again = _bsc(design, tmp_path, verbose=1, **settings)
+    assert again.succeeded, run_report(again, capfd.readouterr())
+    assert again.results["outputs"]["design"] == before
+    handed_design(again, "design", design)
+
+
 def test_bsc_passes_a_design_without_other_languages_through_alone(tmp_path, capfd) -> None:
     require_bsc()
     root = tmp_path / "d"

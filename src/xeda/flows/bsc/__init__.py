@@ -1207,8 +1207,22 @@ class Bsc(BscFlow):
         collected = self._collect_verilog(top, top_file, vout_dir, verilog_path)
         self.results["modules"] = collected.modules
         self.artifacts.verilog = [str(f) for f in collected.files]
+        self._adopt_current_modules(collected.generated)
         assert isinstance(self.outputs, self.Outputs)
         self.outputs.design = self._derived_sources(top, collected)
+
+    def _adopt_current_modules(self, modules: Iterable[Path]) -> None:
+        """Write again, with the same content, each generated module that bsc did not write now.
+
+        Without `cleanup_bobjs`, bsc keeps the Verilog of a package it finds up to date, and a run
+        in the directory of an earlier run writes none of it. The design output may list only
+        files that this run wrote (`record_outputs`), so the flow writes such a module again
+        itself. The content, and so the digest that a consumer compares, is what bsc left."""
+        for path in modules:
+            if not self.wrote_output(path):
+                content = path.read_bytes()
+                with replacing_file(self.run_directory.writable(path), "wb") as f:
+                    f.write(content)
 
     def _derived_sources(self, top: str, collected: _Collected) -> DerivedSources:
         """Return the sources of the derived design from what the collection found.
