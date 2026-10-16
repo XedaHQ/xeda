@@ -20,18 +20,36 @@ import os
 import re
 import textwrap
 from collections.abc import Mapping
+from enum import Enum, IntEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union, get_args
+from types import UnionType
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Type,
+    Union,
+    get_args,
+    get_origin,
+)
 
-from pydantic import BaseModel
+from pydantic import BaseModel, PydanticSchemaGenerationError
+from pydantic.errors import PydanticInvalidForJsonSchema
 
 from .dataclass import (
     PydanticUndefined,
+    field_annotation,
+    field_shorthands_of,
     input_names,
     opaque_key_fields_of,
     single_item_fields_of,
     tier_of,
     written_role,
+    XedaBaseModel,
 )
 from .design import (
     DESIGN_NAME,
@@ -67,6 +85,7 @@ __all__ = [
     "provider_status",
     "results_info",
     "settings_info",
+    "settings_completion_info",
 ]
 
 
@@ -614,6 +633,267 @@ def settings_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
         "definitions": json_safe(schema.get("$defs", {})),
         "json_schema": json_safe(schema),
     }
+
+
+def settings_completion_info(flow: Union[str, Type[Flow]]) -> dict[str, dict[str, Any]]:
+    """Return accepted settings paths and finite values for shell completion.
+
+    The walk follows settings models and their validation schemas. It does not construct model
+    instances or invoke validators. A mapping whose keys come from the user is marked
+    ``dynamic``. Typed maps include ``*`` templates for their values.
+    """
+    cls = _resolve(flow)
+    entries: dict[str, dict[str, Any]] = {}
+
+    def ensure(path: str, *, children: bool = False, assignable: bool = False) -> dict[str, Any]:
+        record = entries.setdefault(path, {"children": False, "assignable": False})
+        record["children"] = record["children"] or children
+        record["assignable"] = record["assignable"] or assignable
+        return record
+
+    def union_members(annotation: Any) -> list[Any]:
+        while get_origin(annotation) is Annotated:
+            annotation = get_args(annotation)[0]
+        origin = get_origin(annotation)
+        if origin in (Union, UnionType):
+            return [member for member in get_args(annotation) if member is not type(None)]
+        return [annotation]
+
+    def is_model(annotation: Any) -> bool:
+        return isinstance(annotation, type) and issubclass(annotation, BaseModel)
+
+    def is_mapping(annotation: Any) -> bool:
+        origin = get_origin(annotation)
+        return origin in (dict, Mapping) or annotation in (dict, Mapping)
+
+    def mapping_values(annotation: Any) -> list[Any]:
+        values = []
+        for member in union_members(annotation):
+            if is_mapping(member):
+                args = get_args(member)
+                values.append(args[1] if len(args) == 2 else Any)
+        return values
+
+    def finite_values(annotation: Any) -> list[str] | None:
+        values: list[str] = []
+        for member in union_members(annotation):
+            origin = get_origin(member)
+            if origin is Literal:
+                literal_choices = get_args(member)
+                if not all(isinstance(choice, str) for choice in literal_choices):
+                    return None
+                values.extend(literal_choices)
+            elif member is bool:
+                values.extend(("false", "true"))
+            elif isinstance(member, type) and issubclass(member, IntEnum):
+                values.extend(str(choice.value) for choice in member)
+            elif isinstance(member, type) and issubclass(member, Enum):
+                enum_choices = [choice.value for choice in member]
+                if not all(isinstance(choice, str) for choice in enum_choices):
+                    return None
+                values.extend(enum_choices)
+            else:
+                return None
+        return sorted(set(values)) if values else None
+
+    scalar_schema_types = {"string", "integer", "number", "boolean"}
+
+    def schema_variants(
+        schema: Any, definitions: Mapping[str, Any], active_refs: frozenset[str]
+    ) -> list[tuple[dict[str, Any], frozenset[str]]]:
+        """Return this schema and its local union/ref branches, stopping recursive refs."""
+        if not isinstance(schema, dict):
+            return []
+        branches: list[tuple[dict[str, Any], frozenset[str]]] = []
+        ref = schema.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/") and ref not in active_refs:
+            key = ref.removeprefix("#/$defs/").replace("~1", "/").replace("~0", "~")
+            target = definitions.get(key)
+            if isinstance(target, dict):
+                branches.extend(schema_variants(target, definitions, active_refs | {ref}))
+        branches.append((schema, active_refs))
+        for key in ("anyOf", "oneOf", "allOf"):
+            for variant in schema.get(key, ()):
+                branches.extend(schema_variants(variant, definitions, active_refs))
+        return branches
+
+    def schema_allows_scalar(schema: Any, definitions: Mapping[str, Any]) -> bool:
+        return any(
+            bool(
+                scalar_schema_types.intersection(
+                    variant.get("type", ())
+                    if isinstance(variant.get("type"), list)
+                    else [variant.get("type")]
+                )
+            )
+            for variant, _ in schema_variants(schema, definitions, frozenset())
+        )
+
+    def schema_values(schema: Any, definitions: Mapping[str, Any]) -> list[str] | None:
+        values: list[str] = []
+        for variant, _ in schema_variants(schema, definitions, frozenset()):
+            choices = variant.get("enum")
+            if choices is None and "const" in variant:
+                choices = [variant["const"]]
+            if choices is not None:
+                if not all(isinstance(choice, str) for choice in choices):
+                    return None
+                values.extend(choices)
+        return sorted(set(values)) if values else None
+
+    def walk_schema(
+        schema: Any,
+        prefix: str,
+        definitions: Mapping[str, Any],
+        active_refs: frozenset[str] = frozenset(),
+    ) -> None:
+        variants = schema_variants(schema, definitions, active_refs)
+        if not variants:
+            return
+        properties: dict[str, list[tuple[dict[str, Any], frozenset[str]]]] = {}
+        descriptions: list[str] = []
+        for variant, refs in variants:
+            if variant.get("description") and variant["description"] not in descriptions:
+                descriptions.append(variant["description"])
+            for name, prop in variant.get("properties", {}).items():
+                if name.endswith("_") or prop.get("hidden_from_schema") or prop.get("readOnly"):
+                    continue
+                properties.setdefault(name, []).extend(schema_variants(prop, definitions, refs))
+        record = ensure(
+            prefix, children=bool(properties), assignable=schema_allows_scalar(schema, definitions)
+        )
+        values = schema_values(schema, definitions)
+        if values is not None:
+            record["values"] = sorted(set(record.get("values", ())) | set(values))
+        if descriptions:
+            record.setdefault("help", descriptions[0])
+        for name, prop_variants in properties.items():
+            path = f"{prefix}.{name}"
+            for variant, refs in prop_variants:
+                # Each schema branch is walked so accepted union properties are merged.
+                walk_schema(variant, path, definitions, refs)
+
+    def walk_value(
+        annotation: Any,
+        prefix: str,
+        ancestors: frozenset[type],
+        definitions: Mapping[str, Any],
+        field_schema: Any = None,
+        field_shorthand: bool = False,
+    ) -> None:
+        members = union_members(annotation)
+        models = [member for member in members if is_model(member)]
+        maps = mapping_values(annotation)
+        schema_scalar = schema_allows_scalar(field_schema, definitions) if field_schema else False
+        annotation_scalar = any(
+            not is_model(member) and not is_mapping(member) for member in members
+        )
+        # Lists and tuples are accepted from CLI text by settings normalization. A JSON schema
+        # reports them as arrays, so keep annotation-based leaf assignment alongside explicit
+        # scalar validation-schema inputs.
+        scalar_branch = schema_scalar or annotation_scalar
+        base_as_mapping = getattr(XedaBaseModel.as_mapping, "__func__", XedaBaseModel.as_mapping)
+
+        def has_model_shorthand(model: type[BaseModel]) -> bool:
+            mapper = getattr(model, "as_mapping", None)
+            return mapper is not None and getattr(mapper, "__func__", mapper) is not base_as_mapping
+
+        shorthand = any(has_model_shorthand(model) for model in models) or field_shorthand
+        has_children = bool(models or maps)
+        record = ensure(prefix, children=has_children, assignable=scalar_branch or shorthand)
+        values = finite_values(annotation)
+        if values is not None:
+            record["values"] = values
+        if has_children:
+            for model in models:
+                walk_model(model, prefix, ancestors)
+            for value_annotation in maps:
+                record["dynamic"] = True
+                # Arbitrary scalar values stop at the dynamic key boundary. Model values,
+                # nested maps, and finite scalar values have useful templates.
+                value_members = union_members(value_annotation)
+                if any(member is Any or member is object for member in value_members):
+                    continue
+                if (
+                    not any(is_model(member) or is_mapping(member) for member in value_members)
+                    and finite_values(value_annotation) is None
+                ):
+                    continue
+                walk_value(value_annotation, f"{prefix}.*", ancestors, definitions)
+
+    def walk_model(model: type[BaseModel], prefix: str, ancestors: frozenset[type]) -> None:
+        if model in ancestors:
+            return
+        branch = ancestors | {model}
+        try:
+            schema = model.model_json_schema(by_alias=True, mode="validation")
+        except (PydanticInvalidForJsonSchema, PydanticSchemaGenerationError):
+            schema = {}
+        properties = schema.get("properties", {})
+        definitions = schema.get("$defs", {})
+        names = input_names(model)
+        spellings_by_field: dict[str, list[str]] = {}
+        for spelling, field_name in names.items():
+            spellings_by_field.setdefault(field_name, []).append(spelling)
+        shorthands = field_shorthands_of(model)
+        opaque_fields = set(opaque_key_fields_of(model))
+        for field_name, field in model.model_fields.items():
+            extra = field.json_schema_extra if isinstance(field.json_schema_extra, dict) else {}
+            if extra.get("hidden_from_schema") or field_name.endswith("_"):
+                continue
+            spellings = sorted(set(spellings_by_field.get(field_name, [field_name])))
+            annotation = field_annotation(model, field_name)
+            if annotation is None:
+                annotation = field.annotation
+            field_shorthand = field_name in shorthands
+            field_schema = next(
+                (properties[spelling] for spelling in spellings if spelling in properties),
+                properties.get(field.alias or field_name, properties.get(field_name)),
+            )
+            for spelling in spellings:
+                path = f"{prefix}.{spelling}" if prefix else spelling
+                if field_name in opaque_fields:
+                    record = ensure(
+                        path,
+                        children=True,
+                        assignable=(
+                            schema_allows_scalar(field_schema, definitions)
+                            if field_schema is not None
+                            else field_shorthand
+                        )
+                        or field_shorthand,
+                    )
+                    record["dynamic"] = True
+                    record["opaque_keys"] = True
+                    if field.description:
+                        record.setdefault("help", field.description)
+                    continue
+                walk_value(
+                    annotation,
+                    path,
+                    branch,
+                    definitions,
+                    field_schema=field_schema,
+                    field_shorthand=field_shorthand,
+                )
+                if field.description:
+                    entries[path].setdefault("help", field.description)
+
+        # Validation schemas also declare accepted aliases and input-only spellings that have no
+        # model field. Walk those properties generically, including inline child properties and
+        # local definitions. Skip schema-only properties that are already ordinary inputs.
+        for name, property_schema in properties.items():
+            if (
+                name in names
+                or property_schema.get("hidden_from_schema")
+                or property_schema.get("readOnly")
+            ):
+                continue
+            path = f"{prefix}.{name}" if prefix else name
+            walk_schema(property_schema, path, definitions)
+
+    walk_model(cls.Settings, "", frozenset())
+    return entries
 
 
 _NAMED_GROUP_RE = re.compile(r"\(\?P<([A-Za-z_]\w*)>")

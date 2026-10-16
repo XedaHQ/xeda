@@ -120,6 +120,8 @@ jobs:
   #     directory is behind a link): test_openroad_run_directory, test_fake_openroad
   #   the host's make (GNU make 3.81 on macOS) reading a fragment named by MAKEFILES:
   #     test_verilator_hooks_makefile
+  #   interactive shell completion and cursor placement through a pseudo-terminal:
+  #     test_cli_settings_completion
   macos:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
@@ -168,6 +170,7 @@ jobs:
           tests/test_openroad_run_directory.py
           tests/test_fake_openroad.py
           tests/test_verilator_hooks_makefile.py
+          tests/test_cli_settings_completion.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only

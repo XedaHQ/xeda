@@ -347,7 +347,7 @@ class _Branch(Flow):
     def run(self) -> None:
         path = self.run_path / "out.txt"
         with replacing_file(self.run_directory.writable(path)) as f:
-            f.write(self.inputs.json.read_text())
+            f.write(self.inputs.json_netlist.read_text())
         self.outputs.out = path
 
 
@@ -357,7 +357,7 @@ class _Left(_Branch):
     results_description: ClassVar[dict[str, str]] = {}
 
     class Inputs(Flow.Inputs):
-        json: Path = In(
+        json_netlist: Path = In(
             SourceType.JsonNetlist, producer="__fork", output="a", description="Netlist a."
         )
 
@@ -368,7 +368,7 @@ class _Right(_Branch):
     results_description: ClassVar[dict[str, str]] = {}
 
     class Inputs(Flow.Inputs):
-        json: Path = In(
+        json_netlist: Path = In(
             SourceType.JsonNetlist, producer="__fork", output="b", description="Netlist b."
         )
 

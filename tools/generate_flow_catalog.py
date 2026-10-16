@@ -1,4 +1,4 @@
-"""Generate the built-in flow transition catalog used by lightweight completion."""
+"""Generate the built-in flow and settings catalog used by lightweight completion."""
 
 from __future__ import annotations
 
@@ -13,8 +13,13 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from xeda.flow import Flow  # noqa: E402
 from xeda.flow.io import declared_outputs  # noqa: E402
-from xeda.flow_runner.chains import ChainElement, complete_request, validate_chain  # noqa: E402
-from xeda.introspect import all_flow_classes  # noqa: E402
+from xeda.flow_runner.chains import (  # noqa: E402
+    ChainElement,
+    complete_request,
+    default_graph,
+    validate_chain,
+)
+from xeda.introspect import all_flow_classes, settings_completion_info  # noqa: E402
 
 
 def builtin_classes() -> list[type[Flow]]:
@@ -32,8 +37,9 @@ def render(classes: Sequence[type[Flow]] | None = None) -> str:
     unqualified for the empty key), in the order the runtime offers them: the direct followers,
     then the ones a link passes through other flows to reach. `routes[output][follower]` lists
     the flows between the two, in chain order, for a follower of the second kind. A flow has the
-    key `routes` only when it has such a follower, and a reader takes a catalog without the key
-    to hold direct followers alone."""
+    key `routes` only when it has such a follower. `settings` is the model-derived accepted-path
+    index, and `default_producers` lists canonical potential producers from the declaration-only
+    default graph."""
     classes = builtin_classes() if classes is None else list(classes)
     by_name = {cls.name: cls for cls in classes}
     catalog: dict[str, dict[str, object]] = {}
@@ -57,6 +63,12 @@ def render(classes: Sequence[type[Flow]] | None = None) -> str:
             "aliases": list(flow_class.aliases),
             "class_name": flow_class.__name__,
             "followers": followers,
+            "settings": settings_completion_info(flow_class),
+            "default_producers": [
+                producer.name
+                for producer in default_graph(flow_class).flows()
+                if producer is not flow_class
+            ],
         }
         if routes:
             catalog[canonical]["routes"] = routes

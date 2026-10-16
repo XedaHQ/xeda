@@ -1,4 +1,4 @@
-"""Lightweight flow names and generated chain transitions for shell completion."""
+"""Lightweight flow names, settings metadata, and chain transitions for shell completion."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import sys
 from functools import lru_cache
 from pathlib import Path
-from typing import NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 
 class _FlowRecord(TypedDict):
@@ -18,6 +18,10 @@ class _FlowRecord(TypedDict):
     #: For a follower reached through other flows, the flows between, in chain order. A catalog
     #: without the key holds direct followers alone.
     routes: NotRequired[dict[str, dict[str, list[str]]]]
+    #: Accepted settings paths and their compact completion metadata.
+    settings: NotRequired[dict[str, dict[str, Any]]]
+    #: Canonical flows that can appear as potential transitive default producers.
+    default_producers: NotRequired[list[str]]
 
 
 @lru_cache(maxsize=1)

@@ -109,8 +109,9 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
 ### Adding or changing a flow
 
 - Add the class to the import list and to `__all__` in `xeda/flows/__init__.py`
-  (`tests/test_flow_registry.py`). After a change to flows, aliases, I/O or `action_reason`, run
-  `python tools/generate_flow_catalog.py` and commit the catalog (`tests/test_flow_catalog.py`).
+  (`tests/test_flow_registry.py`). After a change to flows, aliases, I/O, settings models, or
+  `action_reason`, run `python tools/generate_flow_catalog.py` and commit the catalog
+  (`tests/test_flow_catalog.py`).
 - OpenROAD flows: every OpenROAD process (`openroad` runs two or three) starts with the restart
   header; state the `.odb` stores has one owner (`openroad_place`); the header re-applies the rest
   (`tests/test_openroad_templates.py`).

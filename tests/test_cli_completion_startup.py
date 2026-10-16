@@ -194,6 +194,33 @@ def test_builtin_chain_completion_is_exact_and_light(shell, words, expected, tmp
     _assert_light_imports(modules)
 
 
+def test_opaque_setting_context_completion_does_not_load_flow_implementations(tmp_path):
+    marker = tmp_path / "opaque-setting-imports.json"
+    script = (
+        "import json, os, sys\n"
+        "line = \"xeda run vivado_synth -s 'set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=foo' \"\n"
+        "os.environ.update(_XEDA_COMPLETE='bash_complete', COMP_WORDS=line, COMP_CWORD='5', "
+        "COMP_LINE=line, COMP_POINT=str(len(line.encode())))\n"
+        "from xeda.cli import cli\n"
+        "try:\n"
+        " cli()\n"
+        "finally:\n"
+        " open(sys.argv[1], 'w').write(json.dumps(sorted(sys.modules)))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(marker)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert result.stdout.startswith("file,")
+    _assert_light_imports(json.loads(marker.read_text()))
+
+
 @pytest.mark.parametrize("shell", SHELLS)
 def test_nested_skill_command_completion_is_light(shell, tmp_path):
     output = _complete(shell, "xeda skill ")
