@@ -200,9 +200,11 @@ def plan_info(plan: Plan, freshness: Mapping[str, Any] | None = None) -> dict[st
                     ),
                     # Static class metadata. `always_runs()` is never called here.
                     "action_reason": node.flow_class.action_reason,
+                    # The types of files: the design kind has none.
                     "input_types": {
                         name: [t.name for t in selected_types(node.flow_class, node.settings, name)]
-                        for name in declared_inputs(node.flow_class)
+                        for name, declaration in declared_inputs(node.flow_class).items()
+                        if not declaration.is_design
                     },
                     "output_types": {
                         name: [
@@ -211,7 +213,8 @@ def plan_info(plan: Plan, freshness: Mapping[str, Any] | None = None) -> dict[st
                                 node.flow_class, node.settings, name, output=True
                             )
                         ]
-                        for name in declared_outputs(node.flow_class)
+                        for name, declaration in declared_outputs(node.flow_class).items()
+                        if not declaration.is_design
                     },
                 }
                 for node in plan.nodes
@@ -306,6 +309,7 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
         "inputs": [
             {
                 "name": d.name,
+                "value": d.value,
                 "types": [t.name for t in d.types],
                 "cardinality": d.cardinality,
                 "required": d.required,
@@ -323,6 +327,7 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
         "outputs": [
             {
                 "name": d.name,
+                "value": d.value,
                 "types": [t.name for t in d.types],
                 "cardinality": d.cardinality,
                 "enabled_by": d.enabled_by,
@@ -341,7 +346,7 @@ def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
     what the flow takes, what it makes and what can follow it."""
 
     def kinds(item: dict[str, Any]) -> str:
-        return "/".join(item["types"])
+        return item["value"] if item["value"] == "design" else "/".join(item["types"])
 
     takes = []
     for item in info["inputs"]:

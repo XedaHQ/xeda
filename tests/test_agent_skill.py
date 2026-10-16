@@ -89,9 +89,17 @@ def test_generated_reference_publishes_the_chains_each_flow_can_join():
     loader = reference.partition("### `openfpgaloader`")[2].partition("###")[0]
     assert "programs a device and can only end a chain" in loader
     assert _facts(loader, "can be followed by") == ""
-    # a flow with no declared I/O runs alone, and says nothing about chains
+    # a flow that nothing converts for, and that feeds no flow, runs alone and says nothing about
+    # chains
+    bsc_sim = reference.partition("### `bsc_sim`")[2].partition("###")[0]
+    assert "can follow" not in bsc_sim and "can be followed by" not in bsc_sim
+    # the converter is listed with the flows that read the Verilog it writes
     bsc = reference.partition("### `bsc`")[2].partition("###")[0]
-    assert "can follow" not in bsc and "can be followed by" not in bsc
+    assert "`yosys`" in _facts(bsc, "can be followed by").split(", ")
+    assert "`openroad` (through `yosys`, `openroad_place`, `openroad_cts`, `openroad_grt`)" in (
+        _facts(bsc, "can be followed by")
+    )
+    assert "`bsc_sim`" not in _facts(bsc, "can be followed by")
 
 
 def test_generated_reference_documents_simulator_verification_limits():

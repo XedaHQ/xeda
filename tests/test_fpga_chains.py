@@ -971,15 +971,15 @@ def test_a_prebuilt_netlist_bypasses_synthesis_until_its_producer_is_bound(
 
 # ------------------------------------------------------------------------------ undeclared flows
 #
-# Bluespec and most Vivado flows declare no inputs or outputs yet (`bsc` derives no design value and
-# nothing chains Bluespec to simulation and synthesis); `vivado_synth` and `vivado_alt_synth`
-# declare their outputs. Postsynth declares optional inputs, so adjacency still cannot reach it.
-# A chain through Bluespec is refused, and a binding for one is refused for
-# the missing declaration -- before any tool runs.
+# `bsc` declares its derived design as its output, and every flow that reads design sources has the
+# input `design` for it. `bsc_sim`, `vivado_project` and the programmer declare no outputs, so no
+# chain starts with them. A binding for the `design` input of a flow that reads no design sources
+# is refused for the missing declaration, before any tool runs.
 
-UNDECLARED = ["bsc", "bsc_sim", "vivado_project"]
 #: how a pair that is no edge is refused: no output fits, or the consumer takes no required input
 NO_EDGE = r"has no compatible output for a required input of|takes no required input"
+#: the flows that read no design source: they declare inputs, and not `design`
+NO_DESIGN_INPUT = ["nextpnr", "fpga_pack"]
 
 
 def _nothing_started(tmp_path: Path) -> None:
@@ -990,8 +990,6 @@ def _nothing_started(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "chain, flow",
     [
-        ("bsc+yosys_fpga", "bsc"),
-        ("bsc+vivado_synth", "bsc"),
         ("bsc_sim+openfpgaloader", "bsc_sim"),
         ("vivado_project+openfpgaloader", "vivado_project"),
         ("yosys_fpga+vivado_project", "yosys_fpga"),
@@ -1014,6 +1012,15 @@ def test_a_chain_through_a_flow_without_declared_io_is_refused_before_any_tool_r
     assert dry.exit_code == 2 and refused["error"]["message"] == message
     with pytest.raises(FlowSettingsException, match=NO_EDGE):
         parse_request(chain)
+
+
+@pytest.mark.parametrize("chain", ["bsc+yosys_fpga", "bsc+vivado_synth"])
+def test_bsc_precedes_the_flows_that_read_the_verilog_it_writes(chain):
+    """Its derived design is the output of `bsc`: a link binds the design input of the flow."""
+    (link,) = parse_request(chain).links
+    assert [(flow.name, name, made) for flow, name, made in link.binds] == [
+        (chain.split("+")[1], "design", "design")
+    ]
 
 
 @pytest.mark.parametrize("flow", ["vivado_synth", "vivado_alt_synth"])
@@ -1040,20 +1047,20 @@ def test_a_vivado_synthesis_precedes_the_loader_and_has_its_bitstream_switched_o
 
 
 def _unbound_design(tmp_path: Path, flow: str, bound: bool) -> Path:
-    """A design that plans `flow` (the Vivado flows need a device), `inputs.design` or not."""
-    section = {"fpga": A100T} if flow.startswith("vivado") else {}
+    """A design that plans `flow` (an FPGA flow needs a device), `inputs.design` or not."""
+    section = {"fpga": ECP5}
     if bound:
         section["inputs"] = {"design": "bsc"}
     return _write_design(tmp_path, flows={flow: section}, name="bound" if bound else "top")
 
 
-@pytest.mark.parametrize("flow", UNDECLARED)
+@pytest.mark.parametrize("flow", NO_DESIGN_INPUT)
 @pytest.mark.parametrize("origin", ["design file", "command line", "command line, qualified"])
-def test_a_design_binding_for_a_flow_without_declared_inputs_is_refused_for_the_missing_declaration(
+def test_a_design_binding_for_a_flow_without_a_design_input_is_refused_for_the_missing_declaration(
     tmp_path, monkeypatch, flow, origin
 ):
     """`inputs.design: bsc` is a binding in every origin -- not erased, not a setting -- and the
-    flow has no declared input to bind it to."""
+    flow has no `design` input to bind it to: it reads no design sources."""
     tool_utils.use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
     plain = _unbound_design(tmp_path, flow, bound=False)
@@ -1069,15 +1076,14 @@ def test_a_design_binding_for_a_flow_without_declared_inputs_is_refused_for_the_
     assert error["type"] == "FlowSettingsException", error
     message = error["message"]
     assert f"flows.{flow}.inputs.design" in message
-    assert f"`{flow}` declares no inputs" in message
-    assert "only a flow's declared inputs can be bound" in message
+    assert f"unknown input 'design' of '{flow}'" in message
     assert "not permitted" not in message and "extra_forbidden" not in message
     assert document["nodes"] == []
     _nothing_started(tmp_path)
     # the control: without the binding the same request plans (and nothing is refused)
     result, planned = _xeda("run", flow, plain, "--dry-run")
     assert result.exit_code == 0, result.output
-    assert [n["name"] for n in planned["plan"]["nodes"]] == [flow]
+    assert [n["name"] for n in planned["plan"]["nodes"]][-1] == flow
 
 
 def test_an_unknown_setting_is_a_settings_error_and_a_binding_is_not(tmp_path, monkeypatch):
@@ -1087,7 +1093,7 @@ def test_an_unknown_setting_is_a_settings_error_and_a_binding_is_not(tmp_path, m
     plain = _write_design(tmp_path)
     result, document = _xeda("run", "vivado_project", plain, "-s", "bogus=1")
     assert result.exit_code == 1 and document["error"]["type"] == "FlowSettingsError"
-    result, document = _xeda("run", "vivado_project", plain, "-s", "inputs.design=bsc")
+    result, document = _xeda("run", "nextpnr", plain, "-s", "inputs.design=bsc")
     assert result.exit_code == 1 and document["error"]["type"] == "FlowSettingsException"
     _nothing_started(tmp_path)
 

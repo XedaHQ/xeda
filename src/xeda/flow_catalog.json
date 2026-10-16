@@ -3,7 +3,58 @@
     "aliases": [],
     "class_name": "Bsc",
     "followers": {
-      "": []
+      "": [
+        "dc",
+        "diamond_synth",
+        "ise_synth",
+        "modelsim",
+        "quartus",
+        "vcs",
+        "verilator",
+        "vivado_alt_synth",
+        "vivado_project",
+        "vivado_sim",
+        "vivado_synth",
+        "yosys",
+        "yosys_fpga",
+        "yosys_sim",
+        "fpga_pack",
+        "nextpnr",
+        "openfpgaloader",
+        "openroad",
+        "openroad_cts",
+        "openroad_grt",
+        "openroad_place",
+        "vivado_impl",
+        "vivado_postsynth_sim",
+        "vivado_power"
+      ],
+      "design": [
+        "dc",
+        "diamond_synth",
+        "ise_synth",
+        "modelsim",
+        "quartus",
+        "vcs",
+        "verilator",
+        "vivado_alt_synth",
+        "vivado_project",
+        "vivado_sim",
+        "vivado_synth",
+        "yosys",
+        "yosys_fpga",
+        "yosys_sim",
+        "fpga_pack",
+        "nextpnr",
+        "openfpgaloader",
+        "openroad",
+        "openroad_cts",
+        "openroad_grt",
+        "openroad_place",
+        "vivado_impl",
+        "vivado_postsynth_sim",
+        "vivado_power"
+      ]
     },
     "settings": {
       "verbose": {
@@ -558,7 +609,93 @@
         "help": "Which versions of bsc's Verilog library modules to use: the generic ones, or those tuned for \"vivado\" or \"quartus\" synthesis (block RAMs and a few others, from `$BLUESPECDIR/Verilog.Vivado` or `Verilog.Quartus`)."
       }
     },
-    "default_producers": []
+    "default_producers": [],
+    "routes": {
+      "": {
+        "fpga_pack": [
+          "yosys_fpga",
+          "nextpnr"
+        ],
+        "nextpnr": [
+          "yosys_fpga"
+        ],
+        "openfpgaloader": [
+          "yosys_fpga",
+          "nextpnr",
+          "fpga_pack"
+        ],
+        "openroad": [
+          "yosys",
+          "openroad_place",
+          "openroad_cts",
+          "openroad_grt"
+        ],
+        "openroad_cts": [
+          "yosys",
+          "openroad_place"
+        ],
+        "openroad_grt": [
+          "yosys",
+          "openroad_place",
+          "openroad_cts"
+        ],
+        "openroad_place": [
+          "yosys"
+        ],
+        "vivado_impl": [
+          "yosys_fpga"
+        ],
+        "vivado_postsynth_sim": [
+          "vivado_synth"
+        ],
+        "vivado_power": [
+          "vivado_synth",
+          "vivado_postsynth_sim"
+        ]
+      },
+      "design": {
+        "fpga_pack": [
+          "yosys_fpga",
+          "nextpnr"
+        ],
+        "nextpnr": [
+          "yosys_fpga"
+        ],
+        "openfpgaloader": [
+          "yosys_fpga",
+          "nextpnr",
+          "fpga_pack"
+        ],
+        "openroad": [
+          "yosys",
+          "openroad_place",
+          "openroad_cts",
+          "openroad_grt"
+        ],
+        "openroad_cts": [
+          "yosys",
+          "openroad_place"
+        ],
+        "openroad_grt": [
+          "yosys",
+          "openroad_place",
+          "openroad_cts"
+        ],
+        "openroad_place": [
+          "yosys"
+        ],
+        "vivado_impl": [
+          "yosys_fpga"
+        ],
+        "vivado_postsynth_sim": [
+          "vivado_synth"
+        ],
+        "vivado_power": [
+          "vivado_synth",
+          "vivado_postsynth_sim"
+        ]
+      }
+    }
   },
   "bsc_sim": {
     "aliases": [],
@@ -1595,7 +1732,9 @@
         "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   },
   "diamond_synth": {
     "aliases": [],
@@ -1875,7 +2014,9 @@
         "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   },
   "fpga_pack": {
     "aliases": [],
@@ -2140,7 +2281,8 @@
     },
     "default_producers": [
       "nextpnr",
-      "yosys_fpga"
+      "yosys_fpga",
+      "bsc"
     ]
   },
   "ghdl_sim": {
@@ -3170,7 +3312,9 @@
         "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   },
   "modelsim": {
     "aliases": [],
@@ -3375,7 +3519,9 @@
         "help": "Extra flags passed to `vsim` when it loads the simulation tops."
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   },
   "nextpnr": {
     "aliases": [],
@@ -3989,7 +4135,8 @@
       }
     },
     "default_producers": [
-      "yosys_fpga"
+      "yosys_fpga",
+      "bsc"
     ],
     "routes": {
       "": {
@@ -4728,7 +4875,8 @@
     "default_producers": [
       "fpga_pack",
       "nextpnr",
-      "yosys_fpga"
+      "yosys_fpga",
+      "bsc"
     ]
   },
   "openroad": {
@@ -5623,7 +5771,8 @@
       "openroad_grt",
       "openroad_cts",
       "openroad_place",
-      "yosys"
+      "yosys",
+      "bsc"
     ]
   },
   "openroad_cts": {
@@ -6274,7 +6423,8 @@
     },
     "default_producers": [
       "openroad_place",
-      "yosys"
+      "yosys",
+      "bsc"
     ],
     "routes": {
       "": {
@@ -6940,7 +7090,8 @@
     "default_producers": [
       "openroad_cts",
       "openroad_place",
-      "yosys"
+      "yosys",
+      "bsc"
     ]
   },
   "openroad_place": {
@@ -8924,7 +9075,8 @@
       }
     },
     "default_producers": [
-      "yosys"
+      "yosys",
+      "bsc"
     ],
     "routes": {
       "": {
@@ -9318,7 +9470,9 @@
         "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   },
   "vcs": {
     "aliases": [],
@@ -9705,7 +9859,9 @@
         "help": "VPD size limit in MB (`+vpdfilesize`). When the simulation reaches the limit, it overwrites older history. Needs `vpd`."
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   },
   "verilator": {
     "aliases": [],
@@ -10058,7 +10214,9 @@
         "help": "Do not trace arrays with more than this many elements. Null leaves Verilator's default."
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   },
   "vivado_alt_synth": {
     "aliases": [],
@@ -10519,7 +10677,9 @@
         "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   },
   "vivado_impl": {
     "aliases": [],
@@ -10914,7 +11074,8 @@
       }
     },
     "default_producers": [
-      "yosys_fpga"
+      "yosys_fpga",
+      "bsc"
     ]
   },
   "vivado_postsynth_sim": {
@@ -11344,6 +11505,7 @@
       }
     },
     "default_producers": [
+      "bsc",
       "vivado_synth"
     ]
   },
@@ -11603,7 +11765,8 @@
     },
     "default_producers": [
       "vivado_postsynth_sim",
-      "vivado_synth"
+      "vivado_synth",
+      "bsc"
     ]
   },
   "vivado_project": {
@@ -12061,7 +12224,9 @@
         "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   },
   "vivado_sim": {
     "aliases": [],
@@ -12328,7 +12493,9 @@
         "help": "How many hierarchy levels below `vcd_scope` to dump. 0 dumps every level. Needs `vcd`."
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   },
   "vivado_synth": {
     "aliases": [],
@@ -12790,7 +12957,9 @@
         "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   },
   "yosys": {
     "aliases": [],
@@ -14335,7 +14504,9 @@
         "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
-    "default_producers": [],
+    "default_producers": [
+      "bsc"
+    ],
     "routes": {
       "": {
         "openroad": [
@@ -15447,7 +15618,9 @@
         "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
-    "default_producers": [],
+    "default_producers": [
+      "bsc"
+    ],
     "routes": {
       "": {
         "fpga_pack": [
@@ -16165,6 +16338,8 @@
         "assignable": true
       }
     },
-    "default_producers": []
+    "default_producers": [
+      "bsc"
+    ]
   }
 }

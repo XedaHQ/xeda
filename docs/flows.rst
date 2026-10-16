@@ -669,13 +669,12 @@ Rules for chains
   ``yosys_fpga.netlist+fpga_pack``. Nothing searches all flows, so a refusal with no such output has
   no suggestion.
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
-* Only flows that declare their file inputs and outputs can be chained: those with a nonempty
-  ``inputs`` or ``outputs`` in ``xeda list-flows --json``. Today these are ``yosys_fpga``,
-  ``nextpnr``, ``fpga_pack``, ``openfpgaloader``, ``yosys``, ``vivado_synth``,
-  ``vivado_alt_synth``, ``vivado_impl``, ``vivado_postsynth_sim`` and ``vivado_power``. A flow
-  without declarations (``bsc``, ``bsc_sim``, ``vivado_project``, ``vivado_sim`` and others) runs
-  alone. A chain through it is refused: no output fits an input, or the flow after it takes no
-  required input. No stage is ever fed by reading the ``artifacts`` of another flow.
+* Only flows that declare their outputs can start a link: those with a nonempty ``outputs`` in
+  ``xeda list-flows --json``. Today these are ``bsc``, ``yosys_fpga``, ``nextpnr``, ``fpga_pack``,
+  ``yosys``, the OpenROAD stages, ``vivado_synth``, ``vivado_alt_synth``, ``vivado_impl`` and
+  ``vivado_postsynth_sim``. A flow that declares none (``bsc_sim``, ``vivado_project``,
+  ``vivado_sim``, ``openfpgaloader``, ``vivado_power`` and others) ends a chain. A chain through it is refused: no output fits an input, or the flow after
+  it takes no required input. No stage is ever fed by reading the ``artifacts`` of another flow.
 * ``xeda list-flows`` shows, for each declared flow, what it takes and makes and which flows can
   come after it (in JSON: ``can_precede`` and ``can_follow``). A flow that follows through other
   flows is shown with them, for example ``fpga_pack (through nextpnr)``. Shell completion offers
@@ -914,16 +913,15 @@ chain ``yosys_fpga+nextpnr+fpga_pack`` runs no programmer and touches no hardwar
 ends at ``openfpgaloader`` programs a device. The test suite runs these chains against fake tools
 and never starts a real programmer.
 
-Chains that start at Bluespec, or go through ``vivado_project`` or ``vivado_sim``, are not available
-yet. Xeda refuses the command below today. The error starts with ``Flow `bsc` cannot precede
-`yosys_fpga`: `yosys_fpga` takes no required input``. These chains need the remaining flows to
-declare their inputs and outputs, a design value that ``bsc`` produces and the flows after it read,
-and example designs and targets that use them:
+Chains that go through ``vivado_project`` or ``vivado_sim`` are not available yet. Xeda refuses the
+command below today. The error starts with ``Flow `yosys_fpga` has no compatible output for a
+required input of `vivado_project```. These chains need the flows to declare their outputs, and
+example designs and targets that use them:
 
 .. code-block:: bash
 
     # not available yet
-    xeda run bsc+yosys_fpga+nextpnr+fpga_pack+openfpgaloader knight.yaml
+    xeda run yosys_fpga+vivado_project knight.yaml
 
 ``vivado_synth``, ``vivado_alt_synth`` and ``vivado_impl`` declare their outputs, each switched on
 by its own setting (``write_netlist``, ``write_timing_netlist``, ``write_checkpoint`` and
@@ -931,7 +929,9 @@ by its own setting (``write_netlist``, ``write_timing_netlist``, ``write_checkpo
 on. It needs the ``fpga`` of the design and a clock, and it programs a device, so plan it with
 ``--dry-run``.
 
-Binding an input called ``design`` is refused for the same reason: no flow declares one.
+Every flow that reads design sources has the input ``design``. It takes the design that ``bsc``
+derives from a Bluespec design, and no other flow supplies it. A flow that reads no design sources
+(``nextpnr``, for example) has no such input, and a binding for it is refused.
 
 Open-source FPGA flows: devices and tuning
 ==========================================

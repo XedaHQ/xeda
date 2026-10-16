@@ -211,6 +211,7 @@ def test_list_flows_publishes_the_declarations():
     assert info["inputs"] == [
         {
             "name": "made",
+            "value": "files",
             "types": ["Data"],
             "cardinality": "one",
             "required": True,
@@ -228,6 +229,7 @@ def test_list_flows_publishes_the_declarations():
     assert flow_info(_Maker)["outputs"] == [
         {
             "name": "made",
+            "value": "files",
             "types": ["Data"],
             "cardinality": "optional",
             "enabled_by": "write",

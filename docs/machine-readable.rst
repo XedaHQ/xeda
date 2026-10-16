@@ -86,9 +86,12 @@ Discovering what to run
 the default producers of the declared inputs of the flow. A design source or a binding can replace a
 default producer, so use the resolved plan to see the producers that a request needs.
 
-``inputs`` and ``outputs`` list the declared files of the flow. Each entry has a name, the accepted
-source ``types``, a ``cardinality`` (``one``, ``optional`` or ``many``) and a description. An input
-also says:
+``inputs`` and ``outputs`` list the declared files of the flow. Each entry has a name, a ``value``,
+the accepted source ``types``, a ``cardinality`` (``one``, ``optional`` or ``many``) and a
+description. The ``value`` is ``files`` for a declared file. It is ``design`` for the design itself
+and then ``types`` is empty: a flow that reads design sources has the input ``design``, and a
+converter flow such as ``bsc`` has the output ``design``. An input of the kind ``design`` takes an
+output of that kind and nothing else. An input also says:
 
 - whether it is ``required`` (the flow cannot run without it);
 - whether it is ``optional`` (an optional list, which may be empty);

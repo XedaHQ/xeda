@@ -235,8 +235,9 @@ def test_the_example_of_run_help_is_the_documented_chain_and_plans(tmp_path):
 def test_every_command_the_chain_chapter_shows_runs_or_is_refused_as_it_says(tmp_path):
     """Each `xeda run` line of the chapter's bash blocks: a command that is supported plans
     (dry run) and one under the `not available yet` marker is refused today, as a usage
-    error before any tool, naming the flow with no declared I/O. When `bsc` declares its I/O,
-    the refused commands must stop being refused and this test makes the documents catch up."""
+    error before any tool, naming the flow with no declared outputs. When that flow declares its
+    outputs, the refused commands must stop being refused and this test makes the documents catch
+    up."""
     chapter = _section(FLOWS_RST, *CHAIN_SECTION)
     root = _stage(tmp_path, "routed_demo.yaml", "prebuilt_demo.yaml")
     for stem in ("design", "knight"):
@@ -738,12 +739,15 @@ def test_chains_and_reached_bindings_are_local_and_refused_before_anything_conne
         assert "A chain is a request for `xeda run`" in " ".join(result.output.split()), command
 
 
-def test_flows_without_declared_io_run_alone_and_nothing_binds_a_design_input(tmp_path):
-    """The boundary the guide states: `bsc` and `vivado_project` are not chainable, and an
-    `inputs.design` binding is refused (no flow declares one), in the file, on the command line,
-    and saying why. `vivado_synth` declares its outputs, so it precedes the loader and
-    `vivado_power` (by its routed checkpoint), but not `nextpnr`: its netlists are FPGA
-    netlists, and `nextpnr` takes a JSON netlist."""
+def test_flows_without_outputs_end_a_chain_and_only_a_flow_that_reads_sources_binds_a_design(
+    tmp_path,
+):
+    """The boundary the guide states: `bsc_sim` and `vivado_project` declare no outputs, so no
+    chain goes through them. An `inputs.design` binding is for a flow that reads design sources;
+    a flow that reads none (`nextpnr`) refuses it in the file, on the command line, and saying
+    why. `vivado_synth` declares its outputs, so it precedes the loader and `vivado_power` (by its
+    routed checkpoint), but not `nextpnr`: its netlists are FPGA netlists, and `nextpnr` takes a
+    JSON netlist."""
     listed = {
         f["name"]: f for f in json.loads(CliRunner().invoke(cli, ["list-flows", "--json"]).stdout)
     }
@@ -751,29 +755,34 @@ def test_flows_without_declared_io_run_alone_and_nothing_binds_a_design_input(tm
         "openfpgaloader",
         "vivado_power",
     ]
-    for flow in ("bsc", "bsc_sim", "vivado_project"):
+    for flow in ("bsc_sim", "vivado_project"):
         info = listed[flow]
-        assert info["can_follow"] == info["can_precede"] == [], flow
-        assert info["inputs"] == [] and info["outputs"] == [], flow
-        assert flow_info(get_flow_class(flow))["inputs"] == []
+        assert info["can_precede"] == [], flow
+        assert [i["name"] for i in info["inputs"]] == ["design"] and info["outputs"] == [], flow
+        assert [i["name"] for i in flow_info(get_flow_class(flow))["inputs"]] == ["design"]
+    assert listed["bsc_sim"]["can_follow"] == []
+    assert [e["flow"] for e in listed["vivado_project"]["can_follow"]] == ["bsc"]
+    assert [e["flow"] for e in listed["bsc"]["can_follow"]] == []
+    assert {"yosys_fpga", "vivado_synth", "yosys"} <= {
+        e["flow"] for e in listed["bsc"]["can_precede"]
+    }
     root = _stage(tmp_path, "routed_demo.yaml")
     design = root / "routed_demo.yaml"
-    for chain in ("bsc+yosys_fpga", "yosys_fpga+bsc", "vivado_project+openfpgaloader"):
+    for chain in ("yosys_fpga+bsc", "yosys_fpga+vivado_project", "vivado_project+openfpgaloader"):
         result, document = _xeda("run", chain, design, "--dry-run")
         assert result.exit_code == 2, chain
         assert re.search(NO_EDGE, document["error"]["message"])
     data = yaml.safe_load(design.read_text())
-    data["flows"]["vivado_project"] = {"inputs": {"design": "bsc"}}
+    data["flows"]["nextpnr"] = {"inputs": {"design": "bsc"}}
     (root / "saved_design_binding.yaml").write_text(yaml.safe_dump(data))
     for args in (
-        ("vivado_project", root / "saved_design_binding.yaml"),
-        ("vivado_project", design, "-s", "flows.vivado_project.inputs.design=bsc"),
+        ("nextpnr", root / "saved_design_binding.yaml"),
+        ("nextpnr", design, "-s", "flows.nextpnr.inputs.design=bsc"),
     ):
         result, document = _xeda("run", *args, "--dry-run")
         assert result.exit_code != 0
         message = document["error"]["message"]
-        assert "declares no inputs" in message
-        assert "only a flow's declared inputs can be bound" in message
+        assert "unknown input 'design' of 'nextpnr'" in message
     # the guide's own suggestion for an external file is a typed source, never a path binding
     result, document = _xeda("run", "nextpnr", design, "--dry-run", "-s", "inputs.netlist=top.json")
     assert result.exit_code != 0 and "unknown producer 'top'" in document["error"]["message"]

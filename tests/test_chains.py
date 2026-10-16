@@ -445,13 +445,23 @@ def test_the_open_fpga_flows_follow_each_other_by_their_declarations():
         ("vivado_alt_synth", None, False),
         ("vivado_impl", None, False),
         ("vivado_synth", None, False),
+        ("bsc", None, False),
         ("nextpnr", None, True),
         ("yosys_fpga", None, False),
     ]
-    assert _pairs(predecessors(Nextpnr, classes), "producer") == [("yosys_fpga", None, False)]
-    assert _pairs(predecessors(VivadoImpl, classes), "producer") == [("yosys_fpga", None, False)]
+    # `bsc` converts Bluespec for `yosys_fpga`, so it comes before every flow after it, through
+    # the flows between
+    assert _pairs(predecessors(Nextpnr, classes), "producer") == [
+        ("yosys_fpga", None, False),
+        ("bsc", None, False),
+    ]
+    assert _pairs(predecessors(VivadoImpl, classes), "producer") == [
+        ("yosys_fpga", None, False),
+        ("bsc", None, False),
+    ]
     assert _pairs(predecessors(FpgaPack, classes), "producer") == [
         ("nextpnr", None, True),
+        ("bsc", None, False),
         ("yosys_fpga", None, False),
     ]
     # and its routed checkpoint (`write_checkpoint`) is what the power report reads
@@ -459,7 +469,8 @@ def test_the_open_fpga_flows_follow_each_other_by_their_declarations():
         ("openfpgaloader", None, False),
         ("vivado_power", None, False),
     ]
-    assert predecessors(YosysFpga, classes) == []
+    # only the converter comes before it: nothing else makes a design
+    assert _pairs(predecessors(YosysFpga, classes), "producer") == [("bsc", None, False)]
 
 
 def test_follow_relations_come_from_declarations_not_from_a_name_table():
