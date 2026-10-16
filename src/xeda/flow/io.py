@@ -6,6 +6,11 @@ annotation sets the cardinality: `Path` is exactly one file, `Path | None` zero 
 `list[Path]` an ordered list. `In` and `Out` give the accepted source types and, for an input,
 its default producer.
 
+One kind of value is no file: the design (`DESIGN`). A flow that reads the sources of its design
+has an input of that kind, `design`, and a converter flow (bsc) declares an output of that kind.
+The design input of a flow takes the design that the converter derives (`xeda.flow.derived`). A
+design input fits a design output and nothing else, and a file input never fits a design output.
+
 The launcher fills `flow.inputs` before it judges whether the flow is up to date (`init()` never
 reads them). After a successful run it records what the flow set in `flow.outputs`
 (`flow_runner.outputs`). The launcher launches the producers of a flow's declared inputs, and
@@ -22,10 +27,12 @@ from types import UnionType
 from typing import Any, Union, get_args, get_origin
 
 from ..dataclass import BaseModel, ConfigDict, Field
-from ..design import SourceType
+from ..design import Design, SourceType
 from ..equivalence import has_normalizer
+from .derived import DerivedSources
 
 __all__ = [
+    "DESIGN",
     "FlowInputs",
     "FlowOutputs",
     "In",
@@ -35,6 +42,7 @@ __all__ = [
     "check_io_declarations",
     "declared_inputs",
     "declared_outputs",
+    "kinds_text",
     "output_enabled",
     "selected_types",
     "switch_on",
@@ -42,6 +50,23 @@ __all__ = [
 
 #: The `json_schema_extra` key a declared field carries its declaration under.
 IO_MARKER = "x-xeda-io"
+
+
+class _DesignKind:
+    """The marker type of `DESIGN`."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "DESIGN"
+
+
+#: The kind of value that is the design itself, not a file: `In(DESIGN, ...)` and `Out(DESIGN, ...)`.
+DESIGN = _DesignKind()
+
+#: The `value` of a declaration of files (the default) and of the design.
+FILES_VALUE = "files"
+DESIGN_VALUE = "design"
 
 
 class FlowInputs(BaseModel):
@@ -56,7 +81,9 @@ class FlowOutputs(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
 
-def _type_names(types: SourceType | Sequence[SourceType]) -> list[str]:
+def _type_names(types: SourceType | Sequence[SourceType] | _DesignKind) -> list[str]:
+    if types is DESIGN:
+        return []
     if not isinstance(types, SourceType) and (
         not isinstance(types, Sequence) or isinstance(types, (str, bytes))
     ):
@@ -68,7 +95,7 @@ def _type_names(types: SourceType | Sequence[SourceType]) -> list[str]:
 
 
 def In(
-    types: SourceType | Sequence[SourceType],
+    types: SourceType | Sequence[SourceType] | _DesignKind,
     *,
     producer: str | None = None,
     output: str | None = None,
@@ -98,7 +125,10 @@ def In(
     With `equivalence`, the input compares what its type calls the same (`xeda.equivalence`)
     where the content differs. A flow whose results do not depend on what the normalizer of the
     type drops (for nextpnr, the source locations of a JSON netlist) stays up to date when only
-    that differs. Every type of the input needs a normalizer."""
+    that differs. Every type of the input needs a normalizer.
+
+    `DESIGN` in place of the types declares the design input (`Flow.Inputs.design`), which
+    takes no other argument."""
     marker: dict[str, Any] = {
         "kind": "input",
         "types": _type_names(types),
@@ -106,6 +136,8 @@ def In(
         "output": output,
         "optional": optional,
     }
+    if types is DESIGN:
+        marker["value"] = DESIGN_VALUE
     if same_producer_as is not None:
         marker["same_producer_as"] = same_producer_as
     if paired:
@@ -118,7 +150,7 @@ def In(
 
 
 def Out(
-    types: SourceType | Sequence[SourceType],
+    types: SourceType | Sequence[SourceType] | _DesignKind,
     *,
     enabled_by: str | None = None,
     description: str,
@@ -126,12 +158,15 @@ def Out(
     """Declare an output of a flow.
 
     `types` are the source types the output may have. `enabled_by` names the setting that
-    switches an optional output on: a true flag, or a path or text that is set."""
+    switches an optional output on: a true flag, or a path or text that is set. `DESIGN` in place
+    of the types declares the design that a converter flow derives (always written)."""
     marker: dict[str, Any] = {
         "kind": "output",
         "types": _type_names(types),
         "enabled_by": enabled_by,
     }
+    if types is DESIGN:
+        marker["value"] = DESIGN_VALUE
     return Field(None, description=description, json_schema_extra={IO_MARKER: marker})
 
 
@@ -157,6 +192,13 @@ class InputDeclaration:
     via: str | None = None
     #: Whether the input compares the equivalence digest of its files (`xeda.equivalence`).
     equivalence: bool = False
+    #: "files", or "design" for the design input: the value is the design, not a file.
+    value: str = FILES_VALUE
+
+    @property
+    def is_design(self) -> bool:
+        """Whether the input takes the design and no file."""
+        return self.value == DESIGN_VALUE
 
     @property
     def required(self) -> bool:
@@ -173,9 +215,28 @@ class OutputDeclaration:
     cardinality: str
     enabled_by: str | None
     description: str
+    #: "files", or "design" for the design a converter derives: the value is the design.
+    value: str = FILES_VALUE
+
+    @property
+    def is_design(self) -> bool:
+        """Whether the output is the derived design and no file."""
+        return self.value == DESIGN_VALUE
 
 
-def _cardinality(owner: str, annotation: Any) -> str:
+def kinds_text(declaration: InputDeclaration | OutputDeclaration) -> str:
+    """Return what a declaration takes or makes, for messages: its types, or `design`."""
+    if declaration.is_design:
+        return DESIGN_VALUE
+    return "/".join(member.name for member in declaration.types)
+
+
+def _cardinality(owner: str, annotation: Any, *, design: type | None = None) -> str:
+    if design is not None:
+        origin, args = get_origin(annotation), get_args(annotation)
+        if origin in (Union, UnionType) and set(args) == {design, type(None)}:
+            return "one"
+        raise TypeError(f"{owner} is a `{design.__name__} | None`, not {annotation!r}")
     if annotation is Path:
         return "one"
     origin, args = get_origin(annotation), get_args(annotation)
@@ -200,15 +261,25 @@ def _markers(model: type[BaseModel], kind: str) -> dict[str, dict[str, Any]]:
     return found
 
 
+def _design_value(marker: dict[str, Any]) -> str:
+    return marker.get("value", FILES_VALUE)
+
+
 def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
-    """Return the declared inputs of `flow_cls`, by name, in declaration order."""
+    """Return the declared inputs of `flow_cls`, by name, in declaration order.
+
+    The design input (`Flow.Inputs.design`) comes first, and only a flow that reads the sources
+    of its design (`Flow.reads_sources`) has it."""
     model = flow_cls.Inputs
+    reads = getattr(flow_cls, "reads_sources", None) is not None
     return {
         name: InputDeclaration(
             name=name,
             types=tuple(SourceType[t] for t in marker["types"]),
             cardinality=_cardinality(
-                f"{model.__qualname__}.{name}", model.model_fields[name].annotation
+                f"{model.__qualname__}.{name}",
+                model.model_fields[name].annotation,
+                design=Design if _design_value(marker) == DESIGN_VALUE else None,
             ),
             producer=marker["producer"],
             output=marker["output"],
@@ -218,8 +289,10 @@ def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
             paired=bool(marker.get("paired")),
             via=marker.get("via"),
             equivalence=bool(marker.get("equivalence")),
+            value=_design_value(marker),
         )
         for name, marker in _markers(model, "input").items()
+        if reads or _design_value(marker) != DESIGN_VALUE
     }
 
 
@@ -231,10 +304,13 @@ def declared_outputs(flow_cls: Any) -> dict[str, OutputDeclaration]:
             name=name,
             types=tuple(SourceType[t] for t in marker["types"]),
             cardinality=_cardinality(
-                f"{model.__qualname__}.{name}", model.model_fields[name].annotation
+                f"{model.__qualname__}.{name}",
+                model.model_fields[name].annotation,
+                design=DerivedSources if _design_value(marker) == DESIGN_VALUE else None,
             ),
             enabled_by=marker["enabled_by"],
             description=model.model_fields[name].description or "",
+            value=_design_value(marker),
         )
         for name, marker in _markers(model, "output").items()
     }
@@ -245,7 +321,8 @@ def selected_types(
 ) -> tuple[SourceType, ...]:
     """Return the types `flow_cls` selects for `name` under `settings`.
 
-    The selection may only narrow the types the declaration lists."""
+    The selection may only narrow the types the declaration lists. A design declaration has
+    none: the result is empty."""
     declarations = declared_outputs(flow_cls) if output else declared_inputs(flow_cls)
     hook = flow_cls.output_types if output else flow_cls.input_types
     types = hook(settings, name)
@@ -267,11 +344,18 @@ def check_io_declarations(flow_cls: Any) -> None:
     able to be present only: neither is `Path | None` or an optional list. `optional` is for lists
     only, `output` needs a `producer`, and `equivalence` needs a normalizer for every type of the
     input. An output's `enabled_by` must name a setting of the flow, and the output must be able
-    to be absent."""
+    to be absent. A design input takes none of `producer`, `output`, `optional`,
+    `same_producer_as`, `paired`, `via` and `equivalence`. A design output is always written, so
+    it takes no `enabled_by`, and a flow declares at most one."""
     inputs = declared_inputs(flow_cls)
+    for input_declaration in inputs.values():
+        if input_declaration.is_design:
+            _check_design_input(flow_cls, input_declaration)
     for input_declaration in inputs.values():
         _check_relation(flow_cls, input_declaration, inputs)
     for input_declaration in inputs.values():
+        if input_declaration.is_design:
+            continue
         if input_declaration.optional and input_declaration.cardinality != "many":
             raise TypeError(
                 f"{flow_cls.__qualname__}'s input `{input_declaration.name}` uses optional=True, "
@@ -287,7 +371,19 @@ def check_io_declarations(flow_cls: Any) -> None:
                 f"{flow_cls.__qualname__}'s input `{input_declaration.name}` asks for "
                 "equivalence, and not every type it accepts defines one (`xeda.equivalence`)"
             )
-    for declaration in declared_outputs(flow_cls).values():
+    outputs = declared_outputs(flow_cls)
+    designs = [name for name, declaration in outputs.items() if declaration.is_design]
+    if len(designs) > 1:
+        raise TypeError(
+            f"{flow_cls.__qualname__} declares {len(designs)} design outputs "
+            f"({', '.join(f'`{name}`' for name in designs)}): a flow derives one design"
+        )
+    for declaration in outputs.values():
+        if declaration.is_design and declaration.enabled_by is not None:
+            raise TypeError(
+                f"{flow_cls.__qualname__}'s output `{declaration.name}` is the design, which the "
+                "flow always writes: it takes no `enabled_by`"
+            )
         if declaration.enabled_by is None:
             continue
         if declaration.enabled_by not in flow_cls.Settings.model_fields:
@@ -300,6 +396,28 @@ def check_io_declarations(flow_cls: Any) -> None:
                 f"{flow_cls.__qualname__}'s output `{declaration.name}` is switched on by "
                 f"`{declaration.enabled_by}`, so it may be absent: annotate it `Path | None`"
             )
+
+
+def _check_design_input(flow_cls: Any, declaration: InputDeclaration) -> None:
+    """Refuse a design input with an argument that only a file input takes."""
+    given = [
+        name
+        for name, present in (
+            ("producer", declaration.producer is not None),
+            ("output", declaration.output is not None),
+            ("optional", declaration.optional),
+            ("same_producer_as", declaration.same_producer_as is not None),
+            ("paired", declaration.paired),
+            ("via", declaration.via is not None),
+            ("equivalence", declaration.equivalence),
+        )
+        if present
+    ]
+    if given:
+        raise TypeError(
+            f"{flow_cls.__qualname__}'s input `{declaration.name}` is the design, which takes no "
+            f"{', '.join(f'`{name}`' for name in given)}: a converter flow supplies it"
+        )
 
 
 def _check_relation(
