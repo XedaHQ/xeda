@@ -110,6 +110,13 @@ def test_a_flow_that_reads_no_design_source_has_no_design_input() -> None:
             assert "design" not in declared_inputs(cls), name
 
 
+def test_a_nonreader_can_inherit_the_hidden_base_design_input() -> None:
+    class _NonReader(Flow):
+        reads_sources = None
+
+    assert "design" not in declared_inputs(_NonReader)
+
+
 def test_the_design_input_is_the_only_input_a_flow_never_reads() -> None:
     """The field stays unset: the flow reads the design as `self.design`."""
     assert Yosys.Inputs().design is None
@@ -140,6 +147,9 @@ def test_a_declaration_of_files_stays_what_it_was() -> None:
 
 
 @pytest.mark.parametrize(
+    "reads", [frozenset({SourceType.Verilog}), None], ids=["reader", "nonreader"]
+)
+@pytest.mark.parametrize(
     "argument",
     [
         {"producer": "bsc"},
@@ -151,21 +161,24 @@ def test_a_declaration_of_files_stays_what_it_was() -> None:
         {"equivalence": True},
     ],
 )
-def test_a_design_input_takes_no_argument_of_a_file_input(argument) -> None:
+def test_a_design_input_takes_no_argument_of_a_file_input(argument, reads) -> None:
     with pytest.raises(TypeError, match="_Refused"):
 
         class _Refused(Flow):
-            reads_sources = frozenset({SourceType.Verilog})
+            reads_sources = reads
 
             class Inputs(Flow.Inputs):
                 other: Design | None = In(DESIGN, description=DESCRIPTION, **argument)
 
 
-def test_a_design_input_is_a_design_or_none() -> None:
+@pytest.mark.parametrize(
+    "reads", [frozenset({SourceType.Verilog}), None], ids=["reader", "nonreader"]
+)
+def test_a_design_input_is_a_design_or_none(reads) -> None:
     with pytest.raises(TypeError, match="Design"):
 
         class _Refused(Flow):
-            reads_sources = frozenset({SourceType.Verilog})
+            reads_sources = reads
 
             class Inputs(Flow.Inputs):
                 other: Path | None = In(DESIGN, description=DESCRIPTION)

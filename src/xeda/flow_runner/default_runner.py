@@ -1256,6 +1256,7 @@ class FlowLauncher:
             except Exception as e:  # noqa: BLE001 - recorded below, as any producer failure
                 design_failure = e
                 derived = planned_view
+                design_hash = ""
             with WorkingDirectory(run_path):
                 log.debug("Instantiating flow from %s", flow_class)
                 # A copy of each, which the flow completes for itself. The design, like the

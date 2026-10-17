@@ -635,6 +635,7 @@ def test_a_converter_that_fails_fails_the_flow_with_the_reason_it_was_needed(
     assert the_runner.launched[-1].blocked_by == converter.name
     results = results_of(tmp_path, reader.name)
     assert results["success"] is False and results["error"]["type"] == "FlowDependencyFailure"
+    assert results["design_hash"] == ""
     assert classes  # both registered for the test only
 
 

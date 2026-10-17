@@ -265,13 +265,9 @@ def _design_value(marker: dict[str, Any]) -> str:
     return marker.get("value", FILES_VALUE)
 
 
-def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
-    """Return the declared inputs of `flow_cls`, by name, in declaration order.
-
-    The design input (`Flow.Inputs.design`) comes first, and only a flow that reads the sources
-    of its design (`Flow.reads_sources`) has it."""
+def _input_declarations(flow_cls: Any) -> dict[str, InputDeclaration]:
+    """Return all declared inputs of `flow_cls`, including a hidden base design input."""
     model = flow_cls.Inputs
-    reads = getattr(flow_cls, "reads_sources", None) is not None
     return {
         name: InputDeclaration(
             name=name,
@@ -292,8 +288,18 @@ def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
             value=_design_value(marker),
         )
         for name, marker in _markers(model, "input").items()
-        if reads or _design_value(marker) != DESIGN_VALUE
     }
+
+
+def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
+    """Return the declared inputs of `flow_cls`, by name, in declaration order.
+
+    The design input (`Flow.Inputs.design`) comes first, and only a flow that reads the sources
+    of its design (`Flow.reads_sources`) has it."""
+    inputs = _input_declarations(flow_cls)
+    if getattr(flow_cls, "reads_sources", None) is not None:
+        return inputs
+    return {name: declaration for name, declaration in inputs.items() if not declaration.is_design}
 
 
 def declared_outputs(flow_cls: Any) -> dict[str, OutputDeclaration]:
@@ -347,10 +353,15 @@ def check_io_declarations(flow_cls: Any) -> None:
     to be absent. A design input takes none of `producer`, `output`, `optional`,
     `same_producer_as`, `paired`, `via` and `equivalence`. A design output is always written, so
     it takes no `enabled_by`, and a flow declares at most one."""
-    inputs = declared_inputs(flow_cls)
-    for input_declaration in inputs.values():
+    all_inputs = _input_declarations(flow_cls)
+    for input_declaration in all_inputs.values():
         if input_declaration.is_design:
             _check_design_input(flow_cls, input_declaration)
+    inputs = {
+        name: declaration
+        for name, declaration in all_inputs.items()
+        if getattr(flow_cls, "reads_sources", None) is not None or not declaration.is_design
+    }
     for input_declaration in inputs.values():
         _check_relation(flow_cls, input_declaration, inputs)
     for input_declaration in inputs.values():
