@@ -69,6 +69,9 @@ class OpenroadCts(OpenroadStage):
     The wire RC and the cells that the resizer must not use are no part of the database. The
     process sets them again from the platform and the settings `wire_rc` and `dont_use_cells`."""
 
+    #: The design sources it can take as its inputs: the database and constraints of the placement.
+    design_source_types = frozenset({SourceType.OpenroadDbPlaced, SourceType.OpenroadSdcPlaced})
+
     reports: ClassVar[Dict[str, str]] = {"cts": "reports/cts.rpt"}
 
     results_description = describe_results(

@@ -66,6 +66,7 @@ from .dataclass import DELIVERABLE_ROLE, written_role
 from .digest import FileRecord, content_digest, filesystem_time_ns, record_file
 from .listing import directory_files
 from .flow import Flow, FlowSettingsError
+from .flow.derived import recorded_files
 from .flow.flow import WrittenLeaf, map_written_leaves, output_name, resolved_template
 from .run_root import is_run_root
 from .utils import XedaException, copy_fd, json_encodable, with_json_keys
@@ -441,10 +442,9 @@ def recorded_artifacts(results_json: Path) -> Any:
         results = json.loads(results_json.read_text())
         artifacts = results.get("artifacts") or {}
         outputs = [
-            entry["path"]
+            entry[key]
             for recorded in (results.get("outputs") or {}).values()
-            for entry in (recorded if isinstance(recorded, list) else [recorded])
-            if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+            for entry, key in recorded_files(recorded)
         ]
         return {"artifacts": artifacts, "outputs": outputs} if outputs else artifacts
     except (OSError, ValueError, AttributeError):

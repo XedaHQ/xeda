@@ -101,9 +101,17 @@ DECLARED = [YosysFpga, Nextpnr, FpgaPack, Openfpgaloader]
 def test_the_declared_flows():
     """The FPGA graph, the Vivado synthesis flows, `yosys`, whose gate-level netlist is a
     declared output, and the four OpenROAD flows."""
-    assert {
-        cls.name for cls, _ in flow_classes() if declared_inputs(cls) or declared_outputs(cls)
-    } == {
+    # the design kind (the `design` input of a flow that reads sources, bsc's derived design) is
+    # no file, and is the subject of `test_design_edges.py`
+    files = [
+        cls.name
+        for cls, _ in flow_classes()
+        if any(
+            not d.is_design
+            for d in (*declared_inputs(cls).values(), *declared_outputs(cls).values())
+        )
+    ]
+    assert set(files) == {
         "fpga_pack",
         "nextpnr",
         "openfpgaloader",

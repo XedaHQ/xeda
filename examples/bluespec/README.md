@@ -41,6 +41,21 @@ xeda run bsc_sim examples/bluespec/gcd/gcd.yaml --design-overrides tb.defines.XE
 
 The same setting in a design file is `defines.XEDA_INJECT_BUG: true` under `tb`.
 
+## Other flows
+
+The design files of `gcd` and `ascon` also hold the settings for the flows that read Verilog. Xeda
+runs `bsc` first, to convert the design:
+
+```bash
+xeda run openroad examples/bluespec/gcd/gcd.yaml  # ASIC place and route on nangate45
+xeda run vivado_synth examples/bluespec/gcd/gcd.yaml  # Vivado, out of context
+xeda run yosys_fpga+nextpnr examples/bluespec/gcd/gcd.yaml --target ecp5  # ECP5 place and route
+xeda run yosys_fpga examples/bluespec/gcd/gcd.yaml --target artix7  # Xilinx synthesis only
+```
+
+The FPGA configurations are resource and timing estimates without pins. A board build needs an I/O
+wrapper and constraints.
+
 ## gcd: multi-package BSV
 
 A GCD accelerator with a Get/Put (`Server`) interface. `mkGcdUnit` hands requests round-robin

@@ -7,11 +7,12 @@ name: OpenROAD
 # package has them, and a build takes hours. This is a separate workflow, so it runs beside the
 # tox legs in ci.yml and delays none of them.
 #
-# The image is the one pin of this job. The comment above it holds its tag, and the line holds
-# the digest of that tag, which is what `docker pull` records. A Docker Hub tag can move, a
-# digest cannot. The workflow bump-ci-pins.yml moves the pin to the newest tag, in a pull request
-# that runs this job. A container cannot take its image from `env`, so the digest is written in
-# the line itself.
+# The pins of this job are the image, the Bluespec Compiler (bsc) release with its SHA-256, and
+# the setup-uv version. The comment above the image holds its tag, and the line holds the digest
+# of that tag, which is what `docker pull` records. A Docker Hub tag can move, a digest cannot.
+# The workflow bump-ci-pins.yml moves the pins to the newest releases, in a pull request that
+# runs this job. A container cannot take its image from `env`, so the digest is written in the
+# line itself.
 #
 # The PDK files are not pinned here. The job installs each platform of XEDA_TESTS_PLATFORMS with
 # `xeda pdk install`, at the version that the platform file of the checkout pins. So the installer
@@ -59,6 +60,30 @@ jobs:
         with:
           version: "0.12.23"
           enable-cache: false
+
+      # Bluespec Compiler (bsc): the tests compile a Bluespec design with it before yosys. The
+      # image is Ubuntu 22.04.5 and the job runs as root, so this installs the Ubuntu 22.04
+      # release tarball, checked against a pinned sha256, the way the tox job of ci.yml does for
+      # 24.04. bump-ci-pins.yml moves both pins together. bsc's tools link libtcl8.6, and the
+      # image does not have it. The bin/ scripts find the rest of the install relative to their
+      # own path, so the real bin/ goes on PATH.
+      - name: Install Bluespec Compiler (bsc)
+        env:
+          BSC_VERSION: "2026.07.1"
+          BSC_SHA256: "cb6aad55786a91d1c85ab0e3609e86c086e4147367e3c623676bade0e73bbd05"
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y curl tcl8.6
+          curl -fsSL -o bsc.tar.gz \
+            "https://github.com/B-Lang-org/bsc/releases/download/${BSC_VERSION}/bsc-${BSC_VERSION}-ubuntu-22.04.tar.gz"
+          echo "${BSC_SHA256}  bsc.tar.gz" | sha256sum -c -
+          BSC_DIR="$RUNNER_TEMP/bsc/${BSC_VERSION}"
+          mkdir -p "$BSC_DIR"
+          tar -xzf bsc.tar.gz -C "$BSC_DIR" --strip-components=1
+          rm bsc.tar.gz
+          echo "$BSC_DIR/bin" >> "$GITHUB_PATH"
+          "$BSC_DIR/bin/bsc" -v
 
       # The venv goes at the end of PATH in the steps below, not at the start: the tools of the
       # image run `python3` themselves, and they need the Python of the image.

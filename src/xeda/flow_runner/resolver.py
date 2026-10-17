@@ -24,11 +24,18 @@ from typing import Any, Literal
 
 from ..board import WithFpgaBoardSettings
 from ..dataclass import BaseModel, expand_forms, nested_model
-from ..design import DESIGN_PARTS, Design
+from ..design import DESIGN_PARTS, LANGUAGE_TYPES, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
+from ..flow.derived import planned_design
 from ..flow.fpga import FPGA
-from ..flow.io import declared_inputs, declared_outputs, selected_types
+from ..flow.io import (
+    declared_inputs,
+    declared_outputs,
+    kinds_text,
+    output_enabled,
+    selected_types,
+)
 from ..flow.synth import PhysicalClock
 from ..units import Quantity
 from .bindings import (
@@ -40,7 +47,7 @@ from .bindings import (
     node_bindings,
     node_identity,
 )
-from .chains import FlowRequest, default_graph, fitting_outputs, request_text
+from .chains import FlowRequest, converter_edges, default_graph, fitting_outputs, request_text
 from .related_inputs import Node, check_related_inputs
 from .settings_layers import (
     API_ORIGIN,
@@ -106,7 +113,9 @@ class ResolvedInput:
     `producer` and `output` are those of the first reference (the only one of a scalar input).
     `binding_origin` is None for design sources and default producers. Otherwise it says where
     the explicit binding came from (`BINDING_ORIGINS`). With `binding_location` and
-    `overridden`, it explains the edge, and it is no part of the identity of a run.
+    `overridden`, it explains the edge, and it is no part of the identity of a run. So is
+    `reason`, the explanation of an edge that the resolver chose on its own: the conversion of
+    the design (`discover`). An explicit binding has none.
     """
 
     name: str
@@ -118,9 +127,10 @@ class ResolvedInput:
     binding_origin: str | None = None
     binding_location: str | None = None
     overridden: tuple[str, ...] = ()
+    reason: str | None = None
 
     def describe(self) -> str:
-        explained = ""
+        explained = f" ({self.reason})" if self.reason else ""
         if self.binding_origin is not None:
             explained = f" ({BINDING_ORIGINS[self.binding_origin]})"
             if self.overridden:
@@ -221,6 +231,42 @@ def check_launchable(
     flow_cls.check_required_settings(settings, unreached)
     flow_cls.check_design_supported(design, settings)
     flow_cls.check_settings_supported(settings)
+
+
+def planned_design_of(
+    planned: Plan | Sequence[_Request],
+    node: PlanNode | _Request,
+    design: Design,
+    run_path: Callable[..., Path],
+) -> Design:
+    """Return the design that `node` is planned to read: the one view of it that every check uses.
+
+    That is the loaded `design`, or, when the `design` input of the node comes from a converter
+    (`xeda.flow.derived.planned_design`), the design that the converter will derive. The view
+    serves checks only: the languages the flow will get, its metadata and its clocks. It is no
+    identity. `planned` is the plan, or the requests of the resolver while it builds one.
+    `run_path` is the `run_path_of` of the launcher, which names the run directory of the
+    converter (without a run hash) for messages."""
+    if isinstance(planned, Plan):
+        assert isinstance(node, PlanNode)
+        selected = next((item for item in node.inputs if item.name == "design"), None)
+        if selected is None or not selected.references:
+            return design
+        producer = planned.node(selected.references[0].node)
+        flow_class, settings, label = producer.flow_class, producer.settings, producer.name
+    else:
+        found = node.producers.get("design") if isinstance(node, _Request) else None
+        if not found:
+            return design
+        child = found[0][0]
+        assert child.settings is not None
+        flow_class, settings, label = child.cls, child.settings, child.label
+    conversion = flow_class.design_conversion(settings)
+    if conversion is None:
+        return design
+    return planned_design(
+        design, conversion, run_path(design.name, label, None, target=design.target)
+    )
 
 
 def _explicit(value: Any) -> Any:
@@ -820,6 +866,8 @@ def _replaceable_by_a_source(producer: _Request, requests: list[_Request]) -> st
     selected = next((item for item in consumer.inputs if item.name == name), None)
     if selected is None or selected.binding_origin is not None:
         return ""
+    if declared_inputs(consumer.cls)[name].is_design:
+        return ""
     kinds = "/".join(kind.name for kind in selected_types(consumer.cls, consumer.settings, name))
     return f"; a {kinds} source would supply {consumer.label}'s {name} and skip {producer.label}"
 
@@ -831,6 +879,86 @@ def _sections(values: Mapping[str, Any] | None) -> dict[str, Any]:
         cls = registered_flow(name)
         normalized[cls.name if cls else name] = merge_layers(_explicit(raw))
     return normalized
+
+
+def _check_design_producers(request: _Request, selected: ResolvedInput) -> None:
+    """Refuse a `design` input whose producer has no design output under the final settings.
+
+    The producer needs an enabled design output, and its conversion under its settings has to
+    write only languages that the consumer reads."""
+    where = f"{request.cls.name}.{selected.name}"
+    reads = request.cls.reads_sources or frozenset()
+    for child, output_name in request.producers.get(selected.name, ()):
+        assert child.settings is not None
+        made = declared_outputs(child.cls)[output_name]
+        conversion = (
+            child.cls.design_conversion(child.settings)
+            if made.is_design and output_enabled(child.settings, made)
+            else None
+        )
+        if conversion is None or not conversion.produces <= reads:
+            writes = (
+                "/".join(sorted(member.name for member in conversion.produces))
+                if conversion is not None
+                else ""
+            )
+            raise FlowSettingsException(
+                f"{where}: {child.cls.name}.{output_name} has no compatible output under the "
+                f"selected settings (takes design written in "
+                f"{'/'.join(sorted(member.name for member in reads)) or 'nothing'}, makes "
+                f"{writes or 'nothing'})"
+                + (f"; bound by {selected.binding_location}" if selected.binding_location else "")
+            )
+
+
+def _languages(types: Sequence[Any]) -> str:
+    """Return the names of source types for a message: `Bluespec`, `Bluespec and Vhdl`."""
+    return " and ".join(sorted(member.name for member in types))
+
+
+def converting_flow(cls: type[Flow], design: Design) -> tuple[type[Flow], str, str] | None:
+    """Return the converter that supplies the unbound `design` input of `cls`, or None.
+
+    The rule has one hop and looks at `rtl` only. A flow with a design output itself gets no
+    conversion. The languages of `rtl.sources` that `cls` does not read are the unread ones.
+    The registered converters that convert one of them and write only languages that `cls` reads
+    fit (`chains.converter_edges`, from the declarations alone). None fits: the design input stays
+    unbound and the flow refuses the language itself. One fits: it is the producer, with the
+    output it makes and the reason. More than one fits: the request is ambiguous and the error
+    names the choices."""
+    reads = cls.reads_sources
+    if reads is None:
+        return None
+    unread = {
+        source.type
+        for source in design.rtl.sources
+        if source.type in LANGUAGE_TYPES and source.type not in reads
+    }
+    if not unread:
+        return None
+    fitting = []
+    for edge in converter_edges(cls):
+        conversion = edge.producer.design_conversion(edge.producer.Settings())
+        if conversion is not None and conversion.transforms & unread:
+            fitting.append((edge, conversion.transforms & unread))
+    if not fitting:
+        return None
+    if len(fitting) > 1:
+        names = ", ".join(edge.producer.name for edge, _converted in fitting)
+        first = fitting[0][0].producer.name
+        converted_all = set().union(*(converted for _edge, converted in fitting))
+        raise FlowSettingsException(
+            f"{cls.name} does not read the design's {_languages(list(converted_all))} "
+            f"sources, and more than one flow converts them: {names}. Choose one with a chain "
+            f"(`{first}+{cls.name}`) or a binding (`flows.{cls.name}.inputs.design: {first}`)"
+        )
+    edge, converted = fitting[0]
+    assert edge.output is not None
+    return (
+        edge.producer,
+        edge.output,
+        f"the design has {_languages(list(converted))} sources, which {cls.name} " "does not read",
+    )
 
 
 def resolve(
@@ -936,7 +1064,7 @@ def resolve(
                 f"{where}: {producer.name} declares no outputs, so it cannot supply "
                 f"{cls.name}.{declaration.name}"
             )
-        made = ", ".join(f"{out.name} ({kinds(out.types)})" for out in outputs.values())
+        made = ", ".join(f"{out.name} ({kinds_text(out)})" for out in outputs.values())
         # The one edge predicate, shared with chain links (`chains.fitting_outputs`).
         fitting, many = fitting_outputs(producer, declaration, output=wanted)
         if wanted is not None:
@@ -947,8 +1075,8 @@ def resolve(
                 )
             if not fitting:
                 raise FlowSettingsException(
-                    f"{where}: {cls.name}.{declaration.name} takes {kinds(declaration.types)}; "
-                    f"{producer.name}.{wanted} makes {kinds(outputs[wanted].types)}. "
+                    f"{where}: {cls.name}.{declaration.name} takes {kinds_text(declaration)}; "
+                    f"{producer.name}.{wanted} makes {kinds_text(outputs[wanted])}. "
                     f"{producer.name} makes: {made}"
                 )
             return wanted
@@ -962,7 +1090,7 @@ def resolve(
                 )
             raise FlowSettingsException(
                 f"{where}: {producer.name} has no output {cls.name}.{declaration.name} can "
-                f"take ({kinds(declaration.types)}); it makes: {made}"
+                f"take ({kinds_text(declaration)}); it makes: {made}"
             )
         raise FlowSettingsException(
             f"{where}: {cls.name}.{declaration.name} can take several outputs of "
@@ -1009,6 +1137,11 @@ def resolve(
                 for reference in explicit.references:
                     producer = registered_flow(reference.node.flow)
                     assert producer is not None
+                    if declaration.is_design and producer is cls:
+                        raise FlowSettingsException(
+                            f"{explicit.location}: `{where}` cannot come from {cls.name} itself: "
+                            f"{cls.name} converts the design, so it reads the design as it is"
+                        )
                     output_name = bound_output(
                         cls, declaration, producer, reference.output, explicit.location
                     )
@@ -1027,6 +1160,25 @@ def resolve(
                         overridden=explicit.overridden,
                     )
                 )
+                continue
+            if declaration.is_design:
+                # Unbound, the design input has no `ResolvedInput`: the flow reads the design
+                # as it is, and the identity of the node is what it was without the input.
+                converter = converting_flow(cls, design)
+                if converter is not None:
+                    producer_cls, output_name, reason = converter
+                    child = discover(producer_cls, None, where)
+                    demand(request, declaration.name, child, output_name)
+                    request.inputs.append(
+                        ResolvedInput(
+                            declaration.name,
+                            "producer",
+                            child.label,
+                            output_name,
+                            references=(ResolvedReference(child.label, output_name),),
+                            reason=reason,
+                        )
+                    )
                 continue
             sources = tuple(
                 source.path for source in design.rtl.sources if source.type in declaration.types
@@ -1054,7 +1206,11 @@ def resolve(
                     f"{where} names unknown producer {declaration.producer!r}"
                 )
             outputs = declared_outputs(producer)
-            matching = [out for out in outputs.values() if set(out.types) & set(declaration.types)]
+            matching = [
+                out
+                for out in outputs.values()
+                if not out.is_design and set(out.types) & set(declaration.types)
+            ]
             output = (
                 outputs.get(declaration.output)
                 if declaration.output
@@ -1176,8 +1332,10 @@ def resolve(
             settings = settings_in_context(proposal.cls, values, **context)
             selected_inputs = []
             for declaration in declared_inputs(request.cls).values():
-                old = next(item for item in request.inputs if item.name == declaration.name)
-                if old.binding_origin is not None:
+                old = next((item for item in request.inputs if item.name == declaration.name), None)
+                if old is None:  # an unbound design input
+                    continue
+                if declaration.is_design or old.binding_origin is not None:
                     # An explicit binding is no candidate for displacement by a source.
                     selected_inputs.append(old)
                     continue
@@ -1286,9 +1444,17 @@ def resolve(
                         )
     for request in requests:
         assert request.settings is not None
+        # A producer of the design that cannot supply it is the first problem, before the
+        # languages of the design that it would give.
+        for selected in request.inputs:
+            if declared_inputs(request.cls)[selected.name].is_design:
+                _check_design_producers(request, selected)
         try:
             check_launchable(
-                request.cls, request.settings, design, _unreached(request, requests, layers)
+                request.cls,
+                request.settings,
+                planned_design_of(requests, request, design, run_path),
+                _unreached(request, requests, layers),
             )
         except NoReadableSource as refusal:
             raise NoReadableSource(
@@ -1301,6 +1467,8 @@ def resolve(
         for selected in request.inputs:
             declaration = declared_inputs(request.cls)[selected.name]
             where = f"{request.cls.name}.{selected.name}"
+            if declaration.is_design:
+                continue  # judged above, before the languages of the design
             types = selected_types(request.cls, request.settings, selected.name)
             sources = tuple(source.path for source in design.rtl.sources if source.type in types)
             if selected.origin == "source" and sources != selected.sources:

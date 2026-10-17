@@ -106,7 +106,13 @@ from .launch_report import (
 )
 from .launch_run import refuse_inputs_inside
 from .outputs import declared_output_files
-from .resolver import Plan, PlanNode, resolve as resolve_plan
+from .resolver import (
+    Plan,
+    PlanNode,
+    check_launchable,
+    planned_design_of,
+    resolve as resolve_plan,
+)
 from .plan_freshness import (
     EVERY_FLOW_RUNS_CLEAN,
     EVERY_FLOW_RUNS_REBUILD_ALL,
@@ -797,6 +803,7 @@ class FlowLauncher:
         flow_settings: Union[Dict[str, Any], Flow.Settings, None],
         *,
         depender: Optional[Flow] = None,
+        consumer: str | None = None,
         all_flows_settings: Union[Dict, None] = None,
         plan: Plan | None = None,
         plan_node: NodeKey | None = None,
@@ -817,15 +824,22 @@ class FlowLauncher:
            it (`Flow.check_run_directory`, judged on the path before anything is created).
            Lock the run directory from here until the trace of the run is written
            (`run_lock`). With `clean`, empty the directory now (or back it up, with `backups`).
-        3. Prepare. Construct the flow with its own copy of the input and call its `init()`.
+        3. Design. A flow whose `design` input comes from a converter (bsc turns Bluespec into
+           Verilog) gets that converter launched first (`launch_producers.run_design_producer`),
+           under the lock of this flow and before the flow exists. The record of the converter is
+           verified under its read lease, and the design it derived replaces the loaded design
+           for the rest of the launch: it is checked again, hashed, given to the flow, and
+           recorded in the trace. A failure of the converter is recorded as the failure of this
+           flow, which is then built on the design the plan foresaw and not initialized.
+        4. Prepare. Construct the flow with its own copy of the input and call its `init()`.
            `init()` runs even for a flow that turns out to be up to date, so it must not change
            a file in the run directory: every file there is an output of the last run.
-        4. Producers (`launch_producers.run_producers`). Launch each producer that the plan
+        5. Producers (`launch_producers.run_producers`). Launch each other producer that the plan
            names through this same procedure, in a sibling run directory, with the settings
            that the plan holds for it.
-        5. Prepare inputs (`Flow.prepare_inputs`). After the hand-over, the flow registers the
+        6. Prepare inputs (`Flow.prepare_inputs`). After the hand-over, the flow registers the
            files that it resolves, before the check whether it is up to date.
-        6. Freshness. Without `rebuild_all` or `clean` (the default), a flow whose trace still
+        7. Freshness. Without `rebuild_all` or `clean` (the default), a flow whose trace still
            matches what it would consume now (`trace.check_trace`) is not run again: its
            recorded results are reused. If the trace says its checks rejected the run
            (`Flow.reject`), and `results.json` agrees (`launch_report.adoptable_document`), the
@@ -833,13 +847,13 @@ class FlowLauncher:
            hands nothing over. Otherwise `flow.stale_reason` says why it runs. A flow
            that can never be reused (`Flow.always_runs`: it programs a device, draws a new
            random seed, ...) always runs, with that reason, and no trace records it.
-        7. Run. Delete the trace and the reports that the last run read (`Trace.reports`: a
+        8. Run. Delete the trace and the reports that the last run read (`Trace.reports`: a
            report of a previous run is never this run's). Then record every expected input as
            the run finds it (`trace_inputs.snapshot_inputs`: a file edited while the run goes on
            then no longer matches its trace), record `settings.json`, and execute
            (`launch_run.execute`: `run()`, `parse_reports()`, `check_results()`, results). A
            failed run reports the artifacts that it wrote (`Flow.wrote_output`) and no others.
-        8. Report (`launch_report.report`). Write the artifacts and `results.json`. For a
+        9. Report (`launch_report.report`). Write the artifacts and `results.json`. For a
            passed run, or a rejected run whose `results.json` was written, then write the
            trace (`trace_inputs.build_trace`: its verdict, the inputs of the
            snapshot; the files that the depfiles and settings of the run name, an input unless
@@ -889,6 +903,7 @@ class FlowLauncher:
                 all_flows_settings,
                 plan=plan,
                 plan_node=plan_node,
+                consumer=consumer,
             )
             if plan is not None:
                 self._planned_completed[(id(plan), plan_node or NodeKey(flow.name))] = flow
@@ -1095,8 +1110,15 @@ class FlowLauncher:
         *,
         plan: Plan | None = None,
         plan_node: NodeKey | None = None,
+        consumer: str | None = None,
     ) -> Flow:
-        """Run the stages of `launch_flow` for one flow."""
+        """Run the stages of `launch_flow` for one flow.
+
+        A launch serves a consumer when `depender` (a producer of a declared input) or `consumer`
+        (the label of the node whose design this flow converts: the consumer has no flow yet)
+        is given. Such a launch is a producer launch: it delivers nothing to `--outputs-to`,
+        refreshes no trace, takes a completion token and suggests no node for a failing
+        setting."""
         self.debug |= self.settings.debug
         if isinstance(flow_class, str):
             flow_class = get_flow_class(flow_class)
@@ -1126,12 +1148,15 @@ class FlowLauncher:
         node = self._validate_plan(
             plan, flow_class, design, flow_settings, all_flows_settings, plan_node
         )
-        if depender is None and self.settings.outputs_to is not None:
+        producer_launch = depender is not None or consumer is not None
+        if not producer_launch and self.settings.outputs_to is not None:
             # Before the run root, a lock or a producer.
             refuse_outputs_to_a_programmer(plan, node, self.settings.outputs_to)
         flow_settings = node.settings
+        # The design the node is planned to read: the plan checked the flow against it.
+        planned_view = planned_design_of(plan, node, design, self.run_path_of)
         input_settings = launch_input.input_settings(
-            flow_class, flow_settings, design, runner_cwd, depender, debug=self.debug
+            flow_class, flow_settings, planned_view, runner_cwd, producer_launch, debug=self.debug
         )
         # A deliverable given as a location becomes its conventional name here, before the
         # identity; the tools write that, and a delivery copies it to the location.
@@ -1171,7 +1196,7 @@ class FlowLauncher:
             # Each flow, the requested one included, was asked about its files before the scrub
             # above and before this lock was taken (`_check_deliveries_ahead`). A file that
             # changed since is asked about again.
-            outputs_to = self.settings.outputs_to if depender is None else None
+            outputs_to = None if producer_launch else self.settings.outputs_to
             delivery = self._deliveries_ahead.pop(node.node_key, None)
             if delivery is None:
                 delivery = self._deliveries_of(run_path, deliveries, flow_name)
@@ -1194,6 +1219,44 @@ class FlowLauncher:
                 else:
                     run_directory.clear()
 
+            # The design stage. A flow that reads a design a converter derives gets its producer
+            # launched here, before the flow exists: the derived design decides what the flow is
+            # built with and how its design is hashed. A failure is the failure of this flow
+            # too, and is recorded as one below; the flow is then built on the planned design.
+            assert plan is not None and node is not None
+            handover: launch_producers.DesignHandOver | None = None
+            design_failure: Exception | None = None
+            derived = design
+            try:
+                handover = launch_producers.run_design_producer(
+                    flow_class,
+                    design,
+                    node,
+                    plan,
+                    all_flows_settings,
+                    read_leases,
+                    launch_flow=self.launch_flow,
+                    read_lease=self._producer_read_lease,
+                    completed=self._planned_completed,
+                    entered=self._entered,
+                )
+                if handover is not None:
+                    derived = handover.design
+                    # The derived design is checked as the plan checked the planned one. One the
+                    # plan did not foresee is refused before the flow exists.
+                    check_launchable(flow_class, input_settings, derived)
+                    design_hash = derived.parts_hash(
+                        flow_class.design_parts, flow_class.design_scope(input_settings)
+                    )
+                    derived_files = design_files(derived)
+                    self._read_inputs.add(derived_files)
+                    refuse_inputs_inside(
+                        run_path, flow_name, [*derived_files, *setting_files(input_settings)]
+                    )
+            except Exception as e:  # noqa: BLE001 - recorded below, as any producer failure
+                design_failure = e
+                derived = planned_view
+                design_hash = ""
             with WorkingDirectory(run_path):
                 log.debug("Instantiating flow from %s", flow_class)
                 # A copy of each, which the flow completes for itself. The design, like the
@@ -1201,7 +1264,7 @@ class FlowLauncher:
                 # the producers of the flow, none of which may see what the flow does to it.
                 flow = flow_class(
                     input_settings.model_copy(deep=True),
-                    design.model_copy(deep=True),
+                    derived.model_copy(deep=True),
                     run_path,
                     runner_cwd=runner_cwd,
                     run_directory=run_directory,
@@ -1215,9 +1278,10 @@ class FlowLauncher:
                 # The run time of the flow includes init() and the execution of its producers.
                 flow.init_time = time.monotonic()
                 try:
+                    if design_failure is not None:
+                        raise design_failure
                     with WorkingDirectory(run_path):
                         flow.init()
-                    assert plan is not None and node is not None
                     producers = launch_producers.run_producers(
                         flow,
                         design,
@@ -1230,6 +1294,7 @@ class FlowLauncher:
                         completed=self._planned_completed,
                         read_inputs=self._read_inputs,
                         entered=self._entered,
+                        design_handover=handover,
                     )
                     # Producers have their own program records. Preparation belongs to this
                     # consumer and happens before its execution recording scope/snapshot.
@@ -1263,7 +1328,7 @@ class FlowLauncher:
                     flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
                     if isinstance(e, FlowDependencyFailure) and e.producer:
                         flow.blocked_by = e.producer
-                    report(flow, design, results_json, self.settings, record=True)
+                    report(flow, derived, results_json, self.settings, record=True)
                     raise
 
                 # Only now: what the flow consumes includes the outputs and runs of its producers.
@@ -1271,7 +1336,7 @@ class FlowLauncher:
                 expected = (
                     None
                     if always is not None
-                    else expectation(flow, design, input_settings, self.run_root, producers)
+                    else expectation(flow, derived, input_settings, self.run_root, producers)
                 )
                 if expected is None:
                     flow.stale_reason = always
@@ -1280,7 +1345,7 @@ class FlowLauncher:
                     # A second consumer may be acquiring a lease on this same run. Reuse must
                     # not change its trace or directory through a clock marker.
                     freshness = check_trace(
-                        run_path, expected, locate_program, refresh=depender is None
+                        run_path, expected, locate_program, refresh=not producer_launch
                     )
                     if freshness.fresh and reuse_results(flow, results_json, freshness):
                         if freshness.refreshed is not None:
@@ -1309,7 +1374,7 @@ class FlowLauncher:
                                 flow.name,
                                 name,
                             )
-                        report(flow, design, results_json, self.settings, record=False)
+                        report(flow, derived, results_json, self.settings, record=False)
                         if flow.succeeded:
                             self._defer_delivery(flow, delivery, outputs_to)
                         return flow
@@ -1343,10 +1408,10 @@ class FlowLauncher:
                     None if expected is None else snapshot_inputs(expected, previous, run_path)
                 )
                 all_settings = dict(
-                    design=design,
+                    design=derived,
                     design_hash=design_hash,
-                    rtl_fingerprint=design.rtl_fingerprint,
-                    rtl_hash=design.rtl_hash,
+                    rtl_fingerprint=derived.rtl_fingerprint,
+                    rtl_hash=derived.rtl_hash,
                     flow_name=flow.name,
                     flow_settings=input_settings,
                     effective_flow_settings=flow.settings,
@@ -1393,7 +1458,7 @@ class FlowLauncher:
                     for k, v in flow.artifacts.items():
                         flow.results.artifacts.setdefault(k, v)
                     _drop_unwritten_artifacts(flow)
-                    report(flow, design, results_json, self.settings, record=True)
+                    report(flow, derived, results_json, self.settings, record=True)
                     raise
                 if self.settings.dump_settings_json:
                     # `run()` may finish resolving generated files or derived switches. Keep the
@@ -1401,7 +1466,7 @@ class FlowLauncher:
                     # its effective snapshot after a completed execution without backing up that
                     # transient snapshot.
                     dump_json(all_settings, settings_json, backup=False)
-                report(flow, design, results_json, self.settings, record=True)
+                report(flow, derived, results_json, self.settings, record=True)
                 if (
                     expected is not None
                     and snapshot is not None
@@ -1428,7 +1493,7 @@ class FlowLauncher:
                 if policy.post_cleanup:
                     self._pending_clean_ups.append((flow, settings_json, results_json, policy))
             finally:
-                if flow.succeeded and depender is not None:
+                if flow.succeeded and producer_launch:
                     # Only producers need a hand-over token. A requested run may succeed with
                     # unknown output evidence, whose trace correctly requires another run.
                     recorded = previous_trace(run_path, flow.name)
@@ -1839,6 +1904,7 @@ class FlowLauncher:
             rebuild_all=self.settings.rebuild_all,
             clean=self._run_dir_policy().clean,
             debug=self.debug or self.settings.debug,
+            run_path=self.run_path_of,
         )
         return plan, states
 

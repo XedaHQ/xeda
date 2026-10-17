@@ -91,9 +91,12 @@ from ..utils import (
     unique,
 )
 
+from .derived import DesignConversion
 from .io import (
+    DESIGN,
     FlowInputs,
     FlowOutputs,
+    In,
     check_io_declarations,
     declared_inputs,
     declared_outputs,
@@ -1047,23 +1050,31 @@ class Flow(metaclass=ABCMeta):
 
         The check runs wherever `check_required_settings` does. A flow that reads the sources of
         the design itself (`reads_sources`) refuses a source in a language it cannot read,
-        naming it. It also refuses a design none of whose sources it reads, naming what the
-        design lists. A flow may refuse more by overriding this method and calling it."""
+        naming it. A converter (a flow with a design output) refuses none: it passes the sources
+        it does not convert through. The check also refuses a design none of whose sources the
+        flow reads, naming what the design lists. A flow may refuse more by overriding this
+        method and calling it."""
         if cls.reads_sources is None:
             return
         by_part = {part: getattr(design, part).sources for part in sorted(cls.design_parts)}
         listed = [src for sources in by_part.values() for src in sources]
         reads = ", ".join(sorted(member.name for member in cls.reads_sources))
-        unread = [
-            src
-            for src in listed
-            if src.type in LANGUAGE_TYPES and src.type not in cls.reads_sources
-        ]
+        converter = any(declaration.is_design for declaration in declared_outputs(cls).values())
+        unread = (
+            []
+            if converter
+            else [
+                src
+                for src in listed
+                if src.type in LANGUAGE_TYPES and src.type not in cls.reads_sources
+            ]
+        )
         if unread:
             kinds = sorted({src.type.name for src in unread})
             raise FlowSettingsException(
                 f"{cls.name} cannot read the design's {' and '.join(kinds)} source(s) "
                 f"{', '.join(str(src.file) for src in unread)}; it reads {reads}"
+                + cls._testbench_hint(unread, by_part)
             )
         if not any(src.type in cls.reads_sources for src in listed):
             has = ", ".join(
@@ -1075,10 +1086,55 @@ class Flow(metaclass=ABCMeta):
                 f"{cls.name} reads none of the design's sources: {has}; {cls.name} reads {reads}"
             )
 
+    @classmethod
+    def _testbench_hint(cls, unread: list[DesignSource], by_part: dict[str, Any]) -> str:
+        """Return `; simulate a <language> testbench with <flows>` for a simulator that is given a
+        testbench in a language it cannot read, when other simulators read that language; else "".
+
+        The names come from the registry: the simulators that read every unread language."""
+        from .sim import SimFlow
+
+        rtl = by_part.get("rtl", [])
+        if not issubclass(cls, SimFlow) or any(src is own for src in unread for own in rtl):
+            return ""
+        languages = {src.type for src in unread}
+        names = sorted(
+            {
+                flow_class.name
+                for _module, flow_class in registered_flows.values()
+                if issubclass(flow_class, SimFlow)
+                and flow_class is not cls
+                and flow_class.reads_sources is not None
+                and languages <= flow_class.reads_sources
+            }
+        )
+        if not names:
+            return ""
+        kinds = " and ".join(sorted(member.name for member in languages))
+        return f"; simulate a {kinds} testbench with {' or '.join(names)}"
+
+    @classmethod
+    def design_conversion(cls, settings: Flow.Settings) -> DesignConversion | None:
+        """Return which languages this flow converts and writes, or None when it converts none.
+
+        A flow that declares a design output (`Out(DESIGN, ...)`) is a converter and returns its
+        conversion here. The answer may depend on the settings. Pure, like `input_types`."""
+        return None
+
     class Inputs(FlowInputs):
         """The declared inputs of the flow: files it reads besides those of its design and settings.
 
-        There are none, unless the flow declares them (`xeda.flow.io.In`)."""
+        There are none, unless the flow declares them (`xeda.flow.io.In`). Every flow that reads
+        design sources has the input `design` (listed by `declared_inputs`): the design it reads,
+        or the design that a converter flow derives from it. The flow reads it as `self.design`;
+        the field stays unset."""
+
+        design: Design | None = In(
+            DESIGN,
+            description="The design the flow reads: the loaded design, or the design that a "
+            "converter flow derives from it, such as bsc's Verilog. A flow reads it as "
+            "`self.design`.",
+        )
 
     class Outputs(FlowOutputs):
         """The declared outputs of the flow: files it writes for another flow to read.
@@ -1386,6 +1442,13 @@ class Flow(metaclass=ABCMeta):
 
     def __init_subclass__(cls) -> None:
         check_io_declarations(cls)
+        if any(d.is_design for d in declared_outputs(cls).values()) and (
+            getattr(cls.design_conversion, "__func__")
+            is getattr(Flow.design_conversion, "__func__")
+        ):
+            raise TypeError(
+                f"{cls.__qualname__} declares a design output and must define `design_conversion`"
+            )
         cls_name = cls.__name__
         mod_name = cls.__module__
         log.info("registering flow %s from %s", cls_name, mod_name)

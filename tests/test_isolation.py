@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Iterator, List, NamedTuple, Optional, Sequence
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 import xeda
@@ -42,8 +43,10 @@ from .tiny_platform import TINY_OPENROAD_RESIDUE, TINY_RESIDUE, tiny_settings, t
 from .tool_utils import (
     FAKE_TOOLS_DIR,
     require_bluesim,
+    require_bsc,
     require_ghdl,
     require_nvc,
+    require_yosys,
     use_fake_tools,
 )
 
@@ -620,11 +623,17 @@ _PATH_END = r"[^\s\"'`;,()<>|&{}\[\]=:]*"
 
 
 def declared_values(flow) -> list[Path]:
-    """Every file or directory that `flow` declared as an input (`Flow.Inputs`), as a path."""
+    """Every file or directory that `flow` declared as an input (`Flow.Inputs`), as a path.
+
+    The `design` input is no file: it is the design that a converter derived. Its files are the
+    ones the converter generated, which the record of the input lists."""
     values: list[Path] = []
     for name in type(flow.inputs).model_fields:
         value = getattr(flow.inputs, name)
         values += [Path(v) for v in (value if isinstance(value, (list, tuple)) else [value]) if v]
+    for record in getattr(flow, "declared_input_records", ()):
+        if record.name == "design":
+            values += [Path(path) for path in record.paths]
     return values
 
 
@@ -713,7 +722,9 @@ def _flow_in_the_stack() -> Flow | None:
     return None
 
 
-def _tools_handed(flow_class, world: World, monkeypatch) -> list[tuple[Flow, Sequence[Started]]]:
+def _tools_handed(
+    flow_class, world: World | None, monkeypatch, launch_it=None
+) -> list[tuple[Flow, Sequence[Started]]]:
     """Launch `flow_class` as the sweep does; its launched flows, each with the processes it
     started. Every process starts at `subprocess.Popen`, whichever way the flow asked
     (`Tool.execute`, `run_process`, a helper's own call), so that is where they are recorded."""
@@ -741,7 +752,10 @@ def _tools_handed(flow_class, world: World, monkeypatch) -> list[tuple[Flow, Seq
 
     monkeypatch.setattr(subprocess.Popen, "__init__", recording)
     monkeypatch.setattr(DefaultRunner, "launch_flow", spying)
-    _launch(flow_class, world, monkeypatch, "clean", [])
+    if launch_it is None:
+        _launch(flow_class, world, monkeypatch, "clean", [])
+    else:
+        launch_it()
     runner = runners[0]  # the request's; a producer is launched by one of its own
     return [
         (flow, [process for owner, process in started if owner is flow]) for flow in runner.launched
@@ -845,6 +859,75 @@ def test_the_runtime_check_finds_a_consumer_handed_a_file_that_it_did_not_declar
     if how == "run root":  # the run root itself is the tool's directory, which is no flow's
         wanted = sorted([str(world.root.resolve()), *wanted])
     assert foreign_paths(consumer, world.root, handed) == wanted
+
+
+def _yosys_on_bluespec(tmp_path: Path, monkeypatch, patch=None):
+    """Launch `yosys` on a copy of the Bluespec example, with real bsc and yosys: the flows that
+    ran, each with the processes it started, and the run root."""
+    require_bsc()
+    require_yosys()
+    work = tmp_path / "work"
+    shutil.copytree(GCD, work)
+    document = yaml.safe_load((work / "gcd.yaml").read_text())
+    document["flows"] = {}  # no platform: yosys synthesizes for no library
+    del document["targets"]
+    (work / "gcd.yaml").write_text(yaml.safe_dump(document, sort_keys=False))
+    design = Design.from_file(work / "gcd.yaml")
+    root = tmp_path / "run"
+    if patch is not None:
+        patch(monkeypatch)
+
+    def launch_it() -> None:
+        flow = DefaultRunner(root, display_results=False).run_flow(
+            "yosys", design, {"clock": {"period": "2 ns"}}
+        )
+        assert flow is not None and flow.succeeded
+
+    return _tools_handed(None, None, monkeypatch, launch_it), root
+
+
+@pytest.mark.real_tool
+def test_a_tool_is_handed_the_files_of_the_design_edge_and_no_other_file_of_its_converter(
+    tmp_path, monkeypatch
+):
+    """The design input is a declared input: yosys reads the Verilog that bsc generated, which
+    the record of the input lists. Without the record those files would be foreign."""
+    flows, root = _yosys_on_bluespec(tmp_path, monkeypatch)
+    consumer, started = next((f, c) for f, c in flows if f.name == "yosys")
+    (converter,) = [f for f, _ in flows if f.name == "bsc"]
+    handed = handed_paths(consumer, root, started)
+    taken = {p for p in handed if converter.run_path.resolve() in (p, *p.resolve().parents)}
+    assert taken, "yosys was handed no file of bsc"
+    assert {p.name for p in taken} >= {"mkGcdUnit.v"}
+    assert foreign_paths(consumer, root, handed) == []
+    (record,) = [r for r in consumer.declared_input_records if r.name == "design"]
+    assert {Path(path).resolve() for path in record.paths} >= {p.resolve() for p in taken}
+    consumer.declared_input_records = ()
+    assert sorted(foreign_paths(consumer, root, handed)) == sorted(map(str, taken))
+
+
+def _reads_the_converter_s_results(monkeypatch) -> None:
+    from xeda.flows import Yosys
+    from xeda.tool import Tool
+
+    run = Yosys.run
+
+    def run_and_read_the_converter(self):
+        run(self)
+        Tool(executable="true").run("--read", self.run_path.parent / "bsc" / "results.json")
+
+    monkeypatch.setattr(Yosys, "run", run_and_read_the_converter)
+
+
+@pytest.mark.real_tool
+def test_the_runtime_check_finds_a_consumer_handed_an_undeclared_file_of_its_converter(
+    tmp_path, monkeypatch
+):
+    flows, root = _yosys_on_bluespec(tmp_path, monkeypatch, _reads_the_converter_s_results)
+    consumer, started = next((f, c) for f, c in flows if f.name == "yosys")
+    (converter,) = [f for f, _ in flows if f.name == "bsc"]
+    undeclared = (converter.run_path / "results.json").resolve()
+    assert foreign_paths(consumer, root, handed_paths(consumer, root, started)) == [str(undeclared)]
 
 
 def test_the_runtime_check_follows_a_link_to_where_it_leads(tmp_path):

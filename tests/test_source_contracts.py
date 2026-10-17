@@ -26,8 +26,9 @@ from xeda.board import WithFpgaBoardSettings
 from xeda.design import LANGUAGE_TYPES, SOURCE_SUFFIXES, SourceType
 from xeda.flow import Flow, FlowSettingsException, In
 from xeda.flow.flow import registered_flows
-from xeda.flow.io import declared_inputs
+from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.chains import converter_edges
 from xeda.flows import Nextpnr
 
 from .flow_registry import preserved_flow_registry
@@ -126,12 +127,32 @@ READS_NO_SOURCE = [
     "vivado_impl",
     "vivado_power",
 ]
+#: The flows that convert the design (they declare a design output). They refuse no language:
+#: a source they do not convert passes through to the flow that reads the derived design.
+CONVERTERS = [
+    flow
+    for flow in EXPECTED_READS
+    if any(out.is_design for out in declared_outputs(registered_flows[flow][1]).values())
+]
+#: The languages of `rtl` that a converter turns into ones each flow reads: not refused, but
+#: converted first. The planning of the conversion is in `test_converted_designs.py`.
+CONVERTED = {
+    flow: {
+        member
+        for edge in converter_edges(registered_flows[flow][1])
+        for member in (edge.producer.design_conversion(edge.producer.Settings()) or ()).transforms
+    }
+    for flow in EXPECTED_READS
+}
 REFUSED = [
     (flow, member, part)
     for flow, accepted in EXPECTED_READS.items()
+    if flow not in CONVERTERS
     for member in sorted(LANGUAGE_TYPES, key=lambda m: m.name)
     if member.name not in accepted.split()
     for part in sorted(registered_flows[flow][1].design_parts)
+    # a language that a converter turns into one the flow reads is no refusal of the `rtl`
+    if not (part == "rtl" and CONVERTED.get(flow, set()) & {member})
 ]
 FLOWS_DIR = Path(xeda.__file__).parent / "flows"
 
@@ -215,6 +236,27 @@ def test_a_flow_hands_its_tool_only_the_sources_it_reads(flow, spelling, tmp_pat
     for member in flow_class.reads_sources:
         path = files[member]
         assert _read_call(flow, member, path, calls), (flow, member, path, calls)
+
+
+def test_bsc_is_the_converter_that_refuses_no_language() -> None:
+    assert CONVERTERS == ["bsc"]
+
+
+@pytest.mark.parametrize("part", ["rtl", "tb"])
+@pytest.mark.parametrize("member", sorted(LANGUAGE_TYPES, key=lambda m: m.name))
+def test_a_converter_passes_a_language_it_cannot_read_through(member, part, tmp_path):
+    """The language check of a converter judges what it reads: it names no source of another
+    language, which passes through to the flow that reads the derived design."""
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "top.bsv").write_text("a source the flow reads\n")
+    other = root / f"other.{_suffix(member)}"
+    other.write_text("a source\n")
+    rtl = {"sources": ["top.bsv"], "top": "top"}
+    tb = {"sources": [], "top": "tb"}
+    (rtl if part == "rtl" else tb)["sources"].append({"file": str(other), "type": member.name})
+    design = Design(name="d", design_root=root, rtl=rtl, tb=tb)
+    registered_flows["bsc"][1].check_design_supported(design)
 
 
 @pytest.mark.parametrize(("flow", "member", "part"), REFUSED)
@@ -316,20 +358,31 @@ def test_a_design_with_one_source_of_a_type_the_flow_reads_is_not_refused(
     flow_class, member, tmp_path
 ):
     """The rule is that the flow reads none: one source it reads, whichever type, is enough. A
-    source that does not exist yet (`{path: ...}`, which a generator writes) counts too."""
+    source that does not exist yet (`{path: ...}`, which a generator writes) counts too. Bsc also
+    needs Bluespec RTL when a Verilog or SystemVerilog source passes through its conversion."""
     path = tmp_path / f"source.{_suffix(member)}"
     path.write_text("# a source\n")
     for entry in (
         {"file": str(path), "type": member.name},
         {"path": str(path), "type": member.name},
     ):
-        rtl = {"sources": [entry], "top": "top"}
+        sources = [entry]
+        if flow_class.name == "bsc" and member is not SourceType.Bluespec:
+            bsv = tmp_path / "top.bsv"
+            bsv.write_text("package Top; endpackage\n")
+            sources.append({"file": str(bsv), "type": SourceType.Bluespec.name})
+        rtl = {"sources": sources, "top": "top"}
         flow_class.check_design_supported(Design(name="d", design_root=tmp_path, rtl=rtl))
     if "tb" in flow_class.design_parts:
+        rtl_sources = []
+        if flow_class.name == "bsc":
+            bsv = tmp_path / "rtl_top.bsv"
+            bsv.write_text("package Top; endpackage\n")
+            rtl_sources.append({"file": str(bsv), "type": SourceType.Bluespec.name})
         design = Design(
             name="d",
             design_root=tmp_path,
-            rtl={"sources": [], "top": "top"},
+            rtl={"sources": rtl_sources, "top": "top"},
             tb={"sources": [{"file": str(path), "type": member.name}], "top": "tb"},
         )
         flow_class.check_design_supported(design)
@@ -747,6 +800,12 @@ REVIEWED_DIRECT_READS: dict[str, str] = {
     "decides the unit GHDL elaborates",
     "xeda.flows.ghdl:GhdlSynth.synth_args: sources_of_type": "the VHDL sources of a one-shot "
     "elaboration, a branch no caller takes: every one passes `one_shot_elab=False`",
+    "xeda.flows.bsc:Bsc._derived_sources: sources": "which sources of the design pass through "
+    "into the design it derives, by their index: no tool is handed any of them from here",
+    "xeda.flow.derived:_derived: sources": "the sources of the design that pass through, and the "
+    "sources of the design it derives: data of a design, handed to no tool",
+    "xeda.flow.derived:planned_design: sources": "the sources of the design that pass through, by "
+    "their index: data of a design, handed to no tool",
     "xeda.cocotb:Cocotb.env: sources": "whether a cocotb testbench lists any source",
     "xeda.cocotb:Cocotb.env: sources_of_type": "the `Cocotb` (Python) sources, whose last names "
     "the test module cocotb imports: no simulator reads them",

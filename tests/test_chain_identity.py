@@ -64,8 +64,8 @@ def test_identity_is_the_settings_hash_and_the_ordered_input_origins(tmp_path):
     by_name = _ids(plan)
     fork, left, right, join = plan.nodes
     assert fork.origins == ()
-    assert left.origins == (("json", ((by_name["__fork"], "a"),)),)
-    assert right.origins == (("json", ((by_name["__fork"], "b"),)),)
+    assert left.origins == (("json_netlist", ((by_name["__fork"], "a"),)),)
+    assert right.origins == (("json_netlist", ((by_name["__fork"], "b"),)),)
     assert join.origins == (
         ("left", ((by_name["__left"], "out"),)),
         ("right", ((by_name["__right"], "out"),)),
@@ -278,7 +278,7 @@ def test_a_reconfigured_producer_and_a_settings_change_keep_their_own_reasons(tm
     again = runner.run(_Left, _design(tmp_path, flows={"__fork": {"label": "x"}}))
     assert _launched(runner, "__fork").stale_reason == "settings changed: label"
     assert again.stale_reason == (
-        "__fork, which makes json, has other settings or inputs than in the last run"
+        "__fork, which makes json_netlist, has other settings or inputs than in the last run"
     )
     own = runner.run(
         _Left, _design(tmp_path, flows={"__fork": {"label": "x"}, "__left": {"verbose": 1}})
@@ -291,7 +291,7 @@ def test_a_reconfigured_producer_and_a_settings_change_keep_their_own_reasons(tm
         _Left,
         _design(
             tmp_path,
-            flows={"__left": {"verbose": 2, "inputs": {"json": "__fork.b"}}},
+            flows={"__left": {"verbose": 2, "inputs": {"json_netlist": "__fork.b"}}},
         ),
     )
     assert both.stale_reason.startswith("settings changed: verbose")

@@ -271,7 +271,7 @@ def test_one_producer_reached_through_two_branches_is_one_node_one_identity_one_
 
 def test_a_binding_cycle_is_reported_in_order(tmp_path):
     flows = {
-        "__left": {"inputs": {"json": "__relay.netlist"}},
+        "__left": {"inputs": {"json_netlist": "__relay.netlist"}},
         "__relay": {"inputs": {"data": "__left.out"}},
     }
     with pytest.raises(FlowSettingsException, match="cycle: __left -> __relay -> __left"):

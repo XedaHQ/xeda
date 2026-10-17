@@ -60,11 +60,11 @@ nested. Launch and `xeda scrub` share one rule, `run_dir.run_directory_problem`
 
 ### Flow lifecycle
 
-`launch_flow` runs every flow and producer: input settings -> identity (hashes, run directory,
-lock) -> build the flow from deep copies, `init()` -> producers -> `prepare_inputs()` ->
-freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_reports()`,
-`check_results()` -> `results.json` -> `trace.json`, last and only for a passed or rejected run
-(`tests/test_rejected_verdicts.py`).
+`launch_flow` runs every flow and producer: input settings -> identity (hashes, run directory, lock)
+-> the design's converter, if any -> build the flow from deep copies (of the derived design),
+`init()` -> producers -> `prepare_inputs()` -> freshness (`trace.check_trace`; a match reuses the
+results) -> `run()`, `parse_reports()`, `check_results()` -> `results.json` -> `trace.json`, last
+and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 
 - Never modify the input settings or the design; the flow gets copies
   (`tests/test_flow_design_isolation.py`). A launch leaves no process-wide state
@@ -97,6 +97,9 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
 - An input comes from an explicit binding (chain `a+b` or `flows.<flow>.inputs.<input>`), else a
   matching design source, else the default producer. A new edge between netlist or checkpoint
   types needs `REVIEWED_EDGES` (`tests/test_stage_types.py`).
+- `In(DESIGN)` / `Out(DESIGN)` is the design kind: a flow that reads design sources has a `design`
+  input. A design output needs `design_conversion`, which the resolver plans as the default
+  producer of a flow that cannot read the sources (`tests/test_design_edges.py`).
 - A node's identity is its settings hash plus its ordered input origins
   (`bindings.node_identity`). A producer's settings never depend on which consumer asked.
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`,

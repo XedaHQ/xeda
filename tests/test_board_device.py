@@ -66,11 +66,17 @@ def _part(board: str) -> str:
     return fpga if isinstance(fpga, str) else fpga["part"]
 
 
-def _write_design(root: Path, flows: dict, targets: dict | None = None) -> Path:
+def _write_design(
+    root: Path, flows: dict, targets: dict | None = None, *, bluespec: bool = False
+) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     (root / "blinky.v").write_text(VERILOG)
     (root / "blinky.xdc").write_text("# pins\n")
-    data: dict = {"name": "blinky", "rtl": {"top": "blinky", "sources": ["blinky.v", "blinky.xdc"]}}
+    sources = ["blinky.v", "blinky.xdc"]
+    if bluespec:
+        (root / "blinky.bsv").write_text("package Blinky; endpackage\n")
+        sources.insert(0, "blinky.bsv")
+    data: dict = {"name": "blinky", "rtl": {"top": "blinky", "sources": sources}}
     if flows:
         data["flows"] = flows
     if targets:
@@ -181,7 +187,7 @@ def test_a_board_alone_gives_every_node_that_shares_the_device_its_part(
         )
         board, part = "MY_BOARD", custom_part
         flows = {node: {"board": board, "custom_boards_file": "boards.yaml"}}
-    design = _write_design(root, flows, targets)
+    design = _write_design(root, flows, targets, bluespec=request_.startswith("bsc+"))
 
     plan = _plan(tmp_path, request_, design, **kwargs)
 

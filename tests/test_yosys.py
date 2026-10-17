@@ -832,24 +832,32 @@ def test_a_design_with_no_source_the_flow_reads_is_refused_when_planned(flow, tm
 
 
 @pytest.mark.parametrize("flow", ["yosys", "yosys_sim"])
-@pytest.mark.parametrize(
-    ("unread", "language"), [("Top.bsv", "Bluespec"), ("Top.sc", "Chisel")], ids=["bsv", "chisel"]
-)
-def test_a_language_the_flow_cannot_read_is_refused_by_name_when_planned(
-    flow, unread, language, tmp_path
-):
-    """Passed over, a Bluespec source among Verilog ones would leave a design without its
+def test_a_language_the_flow_cannot_read_is_refused_by_name_when_planned(flow, tmp_path):
+    """Passed over, a Chisel source among Verilog ones would leave a design without its
     modules, and the synthesis would go on with what is left."""
     _write(tmp_path / "top.v", "module top; endmodule\n")
-    _write(tmp_path / unread, "// not for yosys\n")
+    _write(tmp_path / "Top.sc", "// not for yosys\n")
     design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": ["top.v", unread], "top": "top"}
+        name="d", design_root=tmp_path, rtl={"sources": ["top.v", "Top.sc"], "top": "top"}
     )
     with pytest.raises(
         FlowSettingsException,
-        match=rf"{flow} cannot read the design's {language} source\(s\) .*{unread}",
+        match=rf"{flow} cannot read the design's Chisel source\(s\) .*Top\.sc",
     ):
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+@pytest.mark.parametrize("flow", ["yosys", "yosys_sim"])
+def test_a_bluespec_source_among_verilog_ones_is_converted_when_planned(flow, tmp_path):
+    """bsc converts the Bluespec source, and the Verilog one passes through it."""
+    _write(tmp_path / "top.v", "module top; endmodule\n")
+    _write(tmp_path / "Top.bsv", "// for bsc\n")
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": ["top.v", "Top.bsv"], "top": "top"}
+    )
+    plan = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
+    assert [node.name for node in plan.nodes] == ["bsc", flow]
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
 
 

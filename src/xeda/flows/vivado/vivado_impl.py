@@ -72,6 +72,9 @@ class VivadoImpl(VivadoImplementation):
         def _expand_impl(cls, value):
             return expand_run_options("impl", value)
 
+    #: The design sources it can take as its inputs: the netlist and the constraints.
+    design_source_types = frozenset({SourceType.Edif, SourceType.Xdc, SourceType.Sdc})
+
     class Inputs(VivadoImplementation.Inputs):
         netlist: Path = In(
             SourceType.Edif,

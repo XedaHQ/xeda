@@ -578,7 +578,12 @@ def registered_flow(name: str) -> type[Flow] | None:
 
 
 def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
-    """Return the flows of the declared default producers, transitively, in one traversal."""
+    """Return the flows of the declared default producers, transitively, in one traversal.
+
+    A converter flow that can feed the `design` input of a flow is a producer of it too
+    (`chains.converter_edges`), so `-s flows.bsc.<setting>` names a flow of a run of `yosys`."""
+    from .chains import converter_edges
+
     found: dict[str, type[Flow]] = {}
     visited = {flow_cls.name}
 
@@ -587,7 +592,7 @@ def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
             registered_flow(declaration.producer)
             for declaration in declared_inputs(cls).values()
             if declaration.producer is not None
-        ]
+        ] + [edge.producer for edge in converter_edges(cls)]
         for dependency in dependencies:
             if dependency is not None and dependency.name not in visited:
                 visited.add(dependency.name)

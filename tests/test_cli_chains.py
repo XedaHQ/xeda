@@ -568,14 +568,19 @@ def test_list_flows_json_adds_requiredness_and_follow_relations():
     )
     # the family-union configuration is a target-dependent hint
     assert _real(nextpnr["can_follow"]) == [
-        _edge("yosys_fpga", [("nextpnr", "netlist", "netlist")])
+        _edge("yosys_fpga", [("nextpnr", "netlist", "netlist")]),
+        # the converter's design goes into the synthesis, which the link passes through
+        _edge("bsc", [("yosys_fpga", "design", "design")], through=["yosys_fpga"]),
     ]
     assert _real(nextpnr["can_precede"]) == [
         _edge("fpga_pack", [("fpga_pack", "config", "config")], True),
         # the loader reads the packed bitstream: the link passes through the packer
         _edge("openfpgaloader", [("fpga_pack", "config", "config")], True, through=["fpga_pack"]),
     ]
-    assert flows["yosys_fpga"]["can_follow"] == []
+    # only the converter comes before the synthesis: it makes the design that the synthesis reads
+    assert _real(flows["yosys_fpga"]["can_follow"]) == [
+        _edge("bsc", [("yosys_fpga", "design", "design")])
+    ]
     assert _real(flows["fpga_pack"]["can_precede"]) == [
         _edge("openfpgaloader", [("openfpgaloader", "bitstream", "bitstream")])
     ]
@@ -592,6 +597,7 @@ def test_list_flows_json_adds_requiredness_and_follow_relations():
     ]
     assert _real(flows["fpga_pack"]["can_follow"]) == [
         _edge("nextpnr", [("fpga_pack", "config", "config")], True),
+        _edge("bsc", [("yosys_fpga", "design", "design")], through=["yosys_fpga", "nextpnr"]),
         _edge("yosys_fpga", [("nextpnr", "netlist", "netlist")], through=["nextpnr"]),
     ]
 
@@ -606,14 +612,20 @@ def test_list_flows_json_shows_an_action_and_a_flow_without_declared_io_by_their
         "vivado_alt_synth",
         "vivado_impl",
         "vivado_synth",
+        "bsc",
         "nextpnr",
         "yosys_fpga",
     ]
     assert flows["nextpnr"]["action_reason"] is None
+    # `bsc` makes the design that the flows reading Verilog take; nothing makes the design of it
     bsc = flows["bsc"]
-    assert bsc["inputs"] == [] and bsc["outputs"] == []
-    assert bsc["can_follow"] == bsc["can_precede"] == [] and bsc["action_reason"] is None
-    # only flows that declare I/O take part: nothing here needs a design value or an artifact
+    assert [(i["name"], i["value"]) for i in bsc["inputs"]] == [("design", "design")]
+    assert [(o["name"], o["value"]) for o in bsc["outputs"]] == [("design", "design")]
+    assert bsc["can_follow"] == [] and bsc["can_precede"] and bsc["action_reason"] is None
+    # `bsc_sim` reads Bluespec itself and makes nothing: no chain
+    bsc_sim = flows["bsc_sim"]
+    assert bsc_sim["can_follow"] == bsc_sim["can_precede"] == []
+    # only flows that declare inputs or outputs take part
     for flow in flows.values():
         for edge in flow["can_follow"] + flow["can_precede"]:
             other = flows[edge["flow"]]

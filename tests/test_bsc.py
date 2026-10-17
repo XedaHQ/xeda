@@ -410,30 +410,44 @@ def test_a_design_with_no_source_the_flow_reads_is_refused_when_planned(flow, tm
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
 
 
-@pytest.mark.parametrize("flow", ["bsc", "bsc_sim"])
-@pytest.mark.parametrize("part", ["rtl", "tb"])
-@pytest.mark.parametrize(
-    ("unread", "language"), [("dut.vhd", "Vhdl"), ("dut.sc", "Chisel")], ids=["vhdl", "chisel"]
-)
-def test_a_language_bsc_cannot_read_is_refused_by_name_when_planned(
-    flow, part, unread, language, tmp_path
-):
-    """A VHDL source beside Bluespec ones would be passed over, and bsc would compile and
-    simulate a design without it. The testbench counts as the RTL does."""
+def _design_with_an_unread_source(tmp_path, part, unread):
     _write(tmp_path, {"Top.bsv": TOP_PKG, "Tb.bsv": TB_PKG, unread: "-- not for bsc\n"})
     sources = {"rtl": ["Top.bsv"], "tb": ["Tb.bsv"]}
     sources[part].append(unread)
-    design = Design(
+    return Design(
         name="d",
         design_root=tmp_path,
         rtl={"sources": sources["rtl"], "top": "mkTop"},
         tb={"sources": sources["tb"], "top": "mkTb"},
     )
+
+
+@pytest.mark.parametrize("part", ["rtl", "tb"])
+@pytest.mark.parametrize(
+    ("unread", "language"), [("dut.vhd", "Vhdl"), ("dut.sc", "Chisel")], ids=["vhdl", "chisel"]
+)
+def test_a_language_bsc_sim_cannot_read_is_refused_by_name_when_planned(
+    part, unread, language, tmp_path
+):
+    """A VHDL source beside Bluespec ones would be passed over, and bsc would simulate a design
+    without it. The testbench counts as the RTL does."""
+    design = _design_with_an_unread_source(tmp_path, part, unread)
     with pytest.raises(
         FlowSettingsException,
-        match=rf"{flow} cannot read the design's {language} source\(s\) .*{unread}",
+        match=rf"bsc_sim cannot read the design's {language} source\(s\) .*{unread}",
     ):
-        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan("bsc_sim", design)
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+@pytest.mark.parametrize("part", ["rtl", "tb"])
+@pytest.mark.parametrize("unread", ["dut.vhd", "dut.sc"], ids=["vhdl", "chisel"])
+def test_bsc_plans_a_design_with_a_source_in_a_language_it_passes_on(part, unread, tmp_path):
+    """`bsc` converts the Bluespec sources and passes every other source through, so it names no
+    language it cannot read."""
+    design = _design_with_an_unread_source(tmp_path, part, unread)
+    plan = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan("bsc", design)
+    assert [node.name for node in plan.nodes] == ["bsc"]
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
 
 
@@ -551,7 +565,8 @@ def test_collect_verilog(tmp_path, caplog):
     _write(lib, {"FIFO2.v": "module FIFO2(); endmodule\n"})
     flow = _flow(Bsc, design, tmp_path / "run", positive_reset=True)
     with caplog.at_level(logging.WARNING):
-        modules, files = flow._collect_verilog("mkTop", root / "rtl/Top.bsv", out, [out, lib])
+        collected = flow._collect_verilog("mkTop", root / "rtl/Top.bsv", out, [out, lib])
+    modules, files = collected.modules, collected.files
     assert modules == ["mkTop", "mkSub", "FIFO2", "ExtB"]
     defines = out / "bsv_defines.v"
     assert files == [defines, out / "FIFO2.v", root / "rtl/ext.v", out / "mkSub.v", out / "mkTop.v"]
@@ -593,7 +608,8 @@ def test_the_modules_a_design_verilog_source_instantiates_are_collected(tmp_path
     )
     _write(lib, {"SizedFIFO.v": "module SizedFIFO(); endmodule\n"})
     flow = _flow(Bsc, design, tmp_path / "run", positive_reset=False)
-    modules, files = flow._collect_verilog("mkTop", root / "rtl/Top.bsv", out, [out, lib])
+    collected = flow._collect_verilog("mkTop", root / "rtl/Top.bsv", out, [out, lib])
+    modules, files = collected.modules, collected.files
     assert modules == ["mkTop", "wrap", "mkInner", "SizedFIFO"]
     assert files == [out / "SizedFIFO.v", root / "rtl/wrap.v", out / "mkInner.v", out / "mkTop.v"]
 
@@ -635,9 +651,10 @@ def test_an_earlier_runs_output_is_removed_before_compiling(cleanup, tmp_path):
     with WorkingDirectory(run):
         flow._prepare_dirs(out.absolute())
     left = {p.name for p in out.iterdir()} | {p.name for p in (run / "bobjs").iterdir()}
+    # The generated modules go in either case: bsc writes them again, so every module the run
+    # records is one it wrote. The packages stay without `cleanup_bobjs`.
     expected = {"FIFO2.v", "notes.txt"}
     if not cleanup:
-        expected |= {"mkOld.v", "mkOld.use", "mkFiltered.v", "mkFiltered.use", "mkGone.use"}
         expected |= {"Old.bo", "Old.ba"}
     assert left == expected
 

@@ -7,23 +7,27 @@ two calls that it makes back.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, ExitStack, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from ..deliver import DeliveryError, ReadInputs
 from ..design import Design
 from ..flow import Flow, FlowDependencyFailure
-from ..flow.io import declared_inputs, selected_types
+from ..flow.io import declared_inputs, declared_outputs, selected_types
 from ..run_dir import RunDirectoryError
 from .bindings import NodeKey
 from .launch_run import refuse_inputs_inside
-from .outputs import handed_entries, handed_over
+from .outputs import handed_design, handed_entries, handed_over
 from .resolver import Plan, PlanNode
 from .run_lock import CompletedRun, run_dir_read_lock
 from .trace import BoundProducer, DeclaredInputRecord, OutputEntry
 from .trace_inputs import declared_input_files
+
+log = logging.getLogger(__name__)
 
 
 class LaunchFlow(Protocol):
@@ -38,6 +42,7 @@ class LaunchFlow(Protocol):
         flow_settings: dict[str, Any] | Flow.Settings | None,
         *,
         depender: Flow | None = None,
+        consumer: str | None = None,
         all_flows_settings: dict[str, Any] | None = None,
         plan: Plan | None = None,
         plan_node: NodeKey | None = None,
@@ -77,6 +82,158 @@ def producer_read_lease(
         yield producer
 
 
+@dataclass(frozen=True)
+class DesignHandOver:
+    """What the design stage of a launch hands to the consumer: the converter that ran (or was
+    reused), the design it derived, and the record of the `design` input."""
+
+    producer: Flow
+    design: Design
+    record: DeclaredInputRecord
+
+
+def conversion_note(producer: str, consumer: str, reason: str) -> str:
+    """Return why the launch runs `producer` for `consumer`, for the log and for a failure."""
+    return f"{producer} converts the design for {consumer}: {reason}"
+
+
+def _produced(
+    producer_node: PlanNode,
+    design: Design,
+    plan: Plan,
+    sections: dict[str, Any] | None,
+    read_leases: ExitStack,
+    consumed_from: list[Flow],
+    *,
+    depender: Flow | None,
+    consumer: str | None,
+    note: str,
+    launch_flow: LaunchFlow,
+    read_lease: ReadLease,
+    completed: dict[tuple[int, NodeKey], Flow],
+    entered: Callable[[Path], bool],
+) -> Flow:
+    """Return the completed producer for `producer_node`, launching it once per plan.
+
+    The producer must have succeeded. Its read lease is held in `read_leases` until the launch
+    ends. `note` follows a failure of the producer: it says why the launch needed it."""
+    key = (id(plan), producer_node.node_key)
+    producer = completed.get(key)
+    if producer is None:
+        if note:
+            log.info("%s", note)
+        try:
+            producer = launch_flow(
+                producer_node.flow_class,
+                design,
+                producer_node.settings,
+                depender=depender,
+                consumer=consumer,
+                all_flows_settings=sections,
+                plan=plan,
+                plan_node=producer_node.node_key,
+            )
+        except Exception as error:
+            if isinstance(error, DeliveryError) and error.before_run:
+                raise  # refused before the producer's tool ran: not its failure
+            raise FlowDependencyFailure(
+                f"producer {producer_node.name} failed: {error}"
+                + (
+                    f"; see {producer_node.run_path / 'results.json'}"
+                    if entered(producer_node.run_path)
+                    else ""
+                )
+                + (f" ({note})" if note else ""),
+                producer=producer_node.name,
+            ) from error
+        completed[key] = producer
+    if not producer.succeeded:
+        raise FlowDependencyFailure(
+            f"producer {producer.name} failed: {producer.results.get('error', '')}; "
+            f"see {producer.run_path / 'results.json'}" + (f" ({note})" if note else ""),
+            producer=producer.name,
+        )
+    if producer not in consumed_from:
+        read_leases.enter_context(read_lease(producer))
+        consumed_from.append(producer)
+    return producer
+
+
+def run_design_producer(
+    flow_class: type[Flow],
+    design: Design,
+    node: PlanNode,
+    plan: Plan,
+    sections: dict[str, Any] | None,
+    read_leases: ExitStack,
+    *,
+    launch_flow: LaunchFlow,
+    read_lease: ReadLease,
+    completed: dict[tuple[int, NodeKey], Flow],
+    entered: Callable[[Path], bool],
+) -> DesignHandOver | None:
+    """Launch the producer of the `design` input of `node` and hand the derived design over.
+
+    The launcher calls this under the lock of the consumer and before the consumer exists: the
+    derived design decides what the consumer is built with. There is nothing to do for a node
+    whose `design` input is unbound (None). `design` is the loaded design, which the converter
+    reads. The hand-over verifies the record of the converter under its read lease
+    (`outputs.handed_design`), so the derived design is the same whether the converter ran now
+    or an earlier run is reused."""
+    selected = next((item for item in node.inputs if item.name == "design"), None)
+    if selected is None:
+        return None
+    (reference,) = selected.references
+    producer_node = plan.node(reference.node)
+    note = (
+        conversion_note(producer_node.name, node.name, selected.reason) if selected.reason else ""
+    )
+    consumed_from: list[Flow] = []
+    producer = _produced(
+        producer_node,
+        design,
+        plan,
+        sections,
+        read_leases,
+        consumed_from,
+        depender=None,
+        consumer=node.name,
+        note=note,
+        launch_flow=launch_flow,
+        read_lease=read_lease,
+        completed=completed,
+        entered=entered,
+    )
+    if not declared_outputs(producer_node.flow_class)[reference.output].is_design:
+        raise FlowDependencyFailure(
+            f"{node.name}.{selected.name}: {producer.name}.{reference.output} "
+            "has no compatible output under the selected settings"
+        )
+    derived, entries = handed_design(producer, reference.output, design)
+    record = DeclaredInputRecord(
+        name=selected.name,
+        origin=selected.origin,
+        producer=selected.producer,
+        output=selected.output,
+        producer_hash=producer.flow_hash,
+        producer_path=str(producer.run_path),
+        paths=tuple(entry.path for entry in entries),
+        references=(
+            BoundProducer(
+                producer=reference.node,
+                output=reference.output,
+                producer_hash=producer.flow_hash,
+                producer_path=str(producer.run_path),
+                entries=entries,
+            ),
+        ),
+        binding_origin=selected.binding_origin,
+        binding_location=selected.binding_location,
+        equivalence=flow_class.input_equivalence(node.settings, selected.name),
+    )
+    return DesignHandOver(producer, derived, record)
+
+
 def run_producers(
     flow: Flow,
     design: Design,
@@ -90,17 +247,23 @@ def run_producers(
     completed: dict[tuple[int, NodeKey], Flow],
     read_inputs: ReadInputs,
     entered: Callable[[Path], bool],
+    design_handover: DesignHandOver | None = None,
 ) -> list[Flow]:
     """Launch the producers of the planned inputs and hand their files to `flow`.
 
     This function materializes exactly the planned inputs and never chooses another producer.
     It returns the producers whose files the flow was handed, each once, in the order they
-    completed."""
-    consumed_from: list[Flow] = []
-    records = []
+    completed. The `design` input is no part of this: the design stage handed it over already
+    (`run_design_producer`, `design_handover`). Its record comes first among the records of the
+    flow, as the input comes first among its declarations, and its producer first among the
+    producers returned."""
+    consumed_from: list[Flow] = [design_handover.producer] if design_handover else []
+    records = [design_handover.record] if design_handover else []
     declarations = declared_inputs(type(flow))
     for selected in node.inputs:
         declaration = declarations[selected.name]
+        if declaration.is_design:
+            continue
         producers: list[Flow] = []
         entries: list[tuple[OutputEntry, ...]] = []
         paths = list(selected.sources)
@@ -108,41 +271,29 @@ def run_producers(
         # its files handed over by the frozen output key, concatenated in reference order.
         for reference in selected.references:
             producer_node = plan.node(reference.node)
-            key = (id(plan), producer_node.node_key)
-            producer = completed.get(key)
-            if producer is None:
-                try:
-                    producer = launch_flow(
-                        producer_node.flow_class,
-                        design,
-                        producer_node.settings,
-                        depender=flow,
-                        all_flows_settings=sections,
-                        plan=plan,
-                        plan_node=producer_node.node_key,
-                    )
-                except Exception as error:
-                    if isinstance(error, DeliveryError) and error.before_run:
-                        raise  # refused before the producer's tool ran: not its failure
-                    raise FlowDependencyFailure(
-                        f"producer {producer_node.name} failed: {error}"
-                        + (
-                            f"; see {producer_node.run_path / 'results.json'}"
-                            if entered(producer_node.run_path)
-                            else ""
-                        ),
-                        producer=producer_node.name,
-                    ) from error
-                completed[key] = producer
-            if not producer.succeeded:
+            producer = _produced(
+                producer_node,
+                design,
+                plan,
+                sections,
+                read_leases,
+                consumed_from,
+                depender=flow,
+                consumer=None,
+                note="",
+                launch_flow=launch_flow,
+                read_lease=read_lease,
+                completed=completed,
+                entered=entered,
+            )
+            made = declared_outputs(producer_node.flow_class)[reference.output]
+            # The kind of value decides first: a design input takes a design output only, and
+            # an input of files never takes one.
+            if made.is_design != declaration.is_design:
                 raise FlowDependencyFailure(
-                    f"producer {producer.name} failed: {producer.results.get('error', '')}; "
-                    f"see {producer.run_path / 'results.json'}",
-                    producer=producer.name,
+                    f"{flow.name}.{selected.name}: {producer.name}.{reference.output} "
+                    "has no compatible output under the selected settings"
                 )
-            if producer not in consumed_from:
-                read_leases.enter_context(read_lease(producer))
-                consumed_from.append(producer)
             accepted = selected_types(type(flow), node.settings, selected.name)
             produced = selected_types(
                 producer_node.flow_class, producer_node.settings, reference.output, output=True
@@ -155,7 +306,7 @@ def run_producers(
             paths.extend(handed_over(producer, reference.output))
             entries.append(handed_entries(producer, reference.output))
             producers.append(producer)
-        producer = producers[0] if producers else None
+        first_producer = producers[0] if producers else None
         bound_producers = tuple(
             BoundProducer(
                 producer=reference.node,
@@ -186,8 +337,8 @@ def run_producers(
                 origin=selected.origin,
                 producer=selected.producer,
                 output=selected.output,
-                producer_hash=producer.flow_hash if producer else None,
-                producer_path=str(producer.run_path) if producer else None,
+                producer_hash=first_producer.flow_hash if first_producer else None,
+                producer_path=str(first_producer.run_path) if first_producer else None,
                 paths=tuple(map(str, paths)),
                 references=bound_producers,
                 binding_origin=selected.binding_origin,

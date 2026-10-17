@@ -45,7 +45,13 @@ def test_a_consumer_can_enable_activity_without_giving_a_filename(name):
 
 def test_postsynth_has_only_declared_producers():
     assert "synth" not in VivadoPostsynthSim.Settings.model_fields
-    assert set(declared_inputs(VivadoPostsynthSim)) == {"netlist", "netlist_timing", "sdf"}
+    inputs = declared_inputs(VivadoPostsynthSim)
+    assert {name for name, declared in inputs.items() if not declared.is_design} == {
+        "netlist",
+        "netlist_timing",
+        "sdf",
+    }
+    assert inputs["design"].is_design  # the design the simulation reads, not a file of a producer
 
 
 def test_alternative_bindings_of_the_three_inputs_use_only_the_alternative(tmp_path):

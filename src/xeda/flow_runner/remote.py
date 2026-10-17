@@ -67,7 +67,7 @@ from .default_runner import (
     with_debug_logging,
 )
 from .launch_input import refuse_outputs_to_a_programmer
-from .resolver import Plan
+from .resolver import Plan, planned_design_of
 from .run_lock import run_dir_lock
 from .settings_layers import (
     COMMAND_LINE_ORIGIN,
@@ -78,6 +78,7 @@ from .settings_layers import (
 from .trace import remove_trace
 from .trace_inputs import design_files, register_read_settings
 from .outputs import declared_output_files
+from ..flow.derived import recorded_files
 from .trace import as_recorded
 from ..digest import content_digest
 
@@ -1069,7 +1070,12 @@ class RemoteRunner(FlowLauncher):
                     flow_class.Settings,
                 )
             flow_class.check_required_settings(input_settings)
-            flow_class.check_design_supported(design, input_settings)
+            # The design the node is planned to read: a Bluespec design that a converter turns
+            # into Verilog on the remote is checked as the Verilog it will be.
+            flow_class.check_design_supported(
+                planned_design_of(plan, plan.node(flow_name), design, self.run_path_of),
+                input_settings,
+            )
             located = deliverable_locations(input_settings)
             if located:
                 key, path = located[0]
@@ -1336,8 +1342,8 @@ class RemoteRunner(FlowLauncher):
                     else artifacts
                 )
                 for recorded in declared.values():
-                    for entry in recorded if isinstance(recorded, list) else [recorded]:
-                        remote_output = Path(entry["path"])
+                    for entry, key in recorded_files(recorded):
+                        remote_output = Path(entry[key])
                         if (
                             not remote_run_path
                             or not remote_output.is_absolute()
@@ -1387,14 +1393,14 @@ class RemoteRunner(FlowLauncher):
                     results["artifacts"] = fetched["artifacts"] if output_paths else fetched
                     rewrites = dict(zip(output_paths, fetched["outputs"])) if output_paths else {}
                     for recorded in declared.values():
-                        for entry in recorded if isinstance(recorded, list) else [recorded]:
-                            remote_output = Path(entry["path"])
-                            local_output = Path(rewrites[entry["path"]])
+                        for entry, key in recorded_files(recorded):
+                            remote_output = Path(entry[key])
+                            local_output = Path(rewrites[entry[key]])
                             if content_digest(local_output) != entry["sha"]:
                                 raise DeliveryError(
                                     f"Declared remote output {remote_output} changed during transfer"
                                 )
-                            entry["path"] = str(local_output)
+                            entry[key] = str(local_output)
 
                 # The remote run_path does not exist locally. Report the path of the local copy
                 # instead.

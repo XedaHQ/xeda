@@ -128,11 +128,11 @@ REFUSALS = {
         "yosys_fpga reads none of the design's sources",
     ),
     "a language the flow cannot read": (
-        ["gen/top.v", "gen/top.bsv"],
+        ["gen/top.v", "gen/top.sc"],
         {},
         "vivado_synth",
         XILINX,
-        "vivado_synth cannot read the design's Bluespec source",
+        "vivado_synth cannot read the design's Chisel source",
     ),
     "a language the simulator cannot read": (
         ["gen/top.vhd"],
@@ -219,7 +219,7 @@ def test_a_remote_launch_refuses_before_the_generator_runs(tmp_path, monkeypatch
 
 def test_an_exploration_refuses_before_the_generator_runs(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    generated = Generated(tmp_path, ["gen/top.v", "gen/top.bsv"])
+    generated = Generated(tmp_path, ["gen/top.v", "gen/top.sc"])
     runner = Dse(
         FmaxOptimizer,
         {"init_freq_low": 50.0, "init_freq_high": 200.0},
@@ -227,7 +227,7 @@ def test_an_exploration_refuses_before_the_generator_runs(tmp_path, monkeypatch)
         variations={},
         max_workers=1,
     )
-    with pytest.raises(FlowSettingsException, match="cannot read the design's Bluespec"):
+    with pytest.raises(FlowSettingsException, match="cannot read the design's Chisel"):
         runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
     assert generated.runs == 0
     assert not (tmp_path / "xeda_run").exists()

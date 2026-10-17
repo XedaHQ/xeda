@@ -15,6 +15,7 @@ import sys
 from importlib.resources import files
 from abc import ABCMeta
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -23,7 +24,16 @@ import colorama
 
 from ...dataclass import WORKING, Field, field_validator
 from ...design import Design, DesignSource, SourceType
-from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
+from ...flow import (
+    DESIGN,
+    Flow,
+    FlowFatalError,
+    FlowSettingsException,
+    Out,
+    SimFlow,
+    describe_results,
+)
+from ...flow.derived import DerivedSources, DesignConversion, Generated, Passed
 from ...flow.sim import SimEvidence
 from .sim_evidence import (
     bluesim_evidence,
@@ -97,6 +107,8 @@ _VERILOG_INSTANCE = re.compile(
 )
 #: With `positive_reset`, the first file of `artifacts.verilog`: it defines `BSV_POSITIVE_RESET`.
 BSV_DEFINES_FILE = "bsv_defines.v"
+#: The macro that `positive_reset` defines.
+BSV_POSITIVE_RESET = "BSV_POSITIVE_RESET"
 #: bsc compiles BSV from `.bsv` and BH (Bluespec Classic) from `.bs`; it rejects other suffixes.
 _BSC_SOURCE_SUFFIXES = (".bsv", ".bs")
 #: The Verilog sources of a design: the modules a Bluespec package imports, which bsc finds on
@@ -107,6 +119,27 @@ _VERILOG_TYPES = (SourceType.Verilog, SourceType.SystemVerilog)
 _FOREIGN_TYPES = (SourceType.C, SourceType.Cpp, SourceType.ObjectFile)
 #: What separates the entries of a bsc search path, so no entry can contain it.
 _PATH_SEPARATOR = ":"
+
+
+@dataclass(frozen=True)
+class _Collected:
+    """What `Bsc._collect_verilog` found: the modules under the top, and the Verilog files that
+    define them, by where each came from.
+
+    `defines` is the file that defines `BSV_POSITIVE_RESET` (with `positive_reset`), `library`
+    the modules copied from bsc's library, `design_verilog` the design's own Verilog sources and
+    `generated` the modules bsc generated, each module after those it instantiates."""
+
+    modules: list[str]
+    defines: list[Path]
+    library: list[Path]
+    design_verilog: list[Path]
+    generated: list[Path]
+
+    @property
+    def files(self) -> list[Path]:
+        """The Verilog files of the top module (`artifacts.verilog`), each once, in order."""
+        return unique(self.defines + self.library + self.design_verilog + self.generated)
 
 
 class BscTool(Tool):
@@ -315,6 +348,10 @@ class BscFlow(Flow, metaclass=ABCMeta):
 
     reads_sources = frozenset({SourceType.Bluespec, *_VERILOG_TYPES})
 
+    #: The parts of the design whose `defines` and `parameters` become preprocessor macros
+    #: (`_macros`).
+    macro_parts: ClassVar[tuple[str, ...]] = ("rtl",)
+
     class Settings(Flow.Settings):
         # Directories and paths
         bobj_dir: Path = Field(
@@ -332,13 +369,12 @@ class BscFlow(Flow, metaclass=ABCMeta):
         )
         cleanup_bobjs: bool = Field(
             True,
-            description="Before compiling, remove what an earlier run compiled: the packages "
-            "(`.bo`/`.ba`) in `bobj_dir`, and the Verilog modules bsc generated (each `.use` file "
-            "and the `.v` bsc wrote beside it) in the output directory. bsc recompiles a package "
-            "(`-u`) only when its source is newer than its `.bo`, so without this a change of "
-            "flags or macros alone is not compiled, and a module the design no longer generates "
-            "is still found. Disable only to reuse the output of a run with identical settings "
-            "and sources.",
+            description="Before compiling, remove the packages (`.bo`/`.ba`) that an earlier run "
+            "compiled in `bobj_dir`. bsc recompiles a package (`-u`) only when its source is newer "
+            "than its `.bo`, so without this a change of flags or macros alone is not compiled. "
+            "Disable only to reuse the packages of a run with identical settings and sources. "
+            "The Verilog modules that an earlier run generated are removed in either case, and "
+            "bsc writes them again.",
         )
         search_paths: list[Path] = Field(
             [],
@@ -697,6 +733,23 @@ class BscFlow(Flow, metaclass=ABCMeta):
         """
         return [src for src in self.sources_read(rtl=True, tb=tb) if src.type in types]
 
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """Refuse a design that defines `BSV_POSITIVE_RESET` while `positive_reset` is on.
+
+        bsc defines the macro itself then, and a design's own definition would be overridden
+        without a word."""
+        super().check_design_supported(design, settings)
+        if settings is None or not getattr(settings, "positive_reset", False):
+            return
+        for part in cls.macro_parts:
+            section = getattr(design, part)
+            if BSV_POSITIVE_RESET in section.defines or BSV_POSITIVE_RESET in section.parameters:
+                raise FlowSettingsException(
+                    f"the design defines `{BSV_POSITIVE_RESET}`, which bsc defines itself when "
+                    "`positive_reset` is true: remove the define, or set `positive_reset: false`"
+                )
+
     def _bsc_sources(self, *, tb: bool) -> list[DesignSource]:
         """Return the design's Bluespec sources, RTL first, after checking their suffixes."""
         sources = self._sources_of(SourceType.Bluespec, tb=tb)
@@ -720,7 +773,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         if tb:
             macros.update({**self.design.tb.defines, **self.design.tb.parameters})
         if self.settings.positive_reset:
-            macros["BSV_POSITIVE_RESET"] = None
+            macros[BSV_POSITIVE_RESET] = None
         return macros
 
     def _check_macros(self, sources: list[DesignSource], macros: dict[str, Any]) -> None:
@@ -731,7 +784,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         BSV package, so it gets no warning.
         """
         assert isinstance(self.settings, BscFlow.Settings)
-        given = [name for name in macros if name != "BSV_POSITIVE_RESET"]
+        given = [name for name in macros if name != BSV_POSITIVE_RESET]
         bh = [src.file.name for src in sources if src.file.suffix == ".bs"]
         if given and bh and len(bh) == len(sources) and not self.settings.cpp:
             log.warning(
@@ -910,11 +963,13 @@ class BscFlow(Flow, metaclass=ABCMeta):
             )
 
     def _prepare_dirs(self, out_dir: Path) -> None:
-        """Create the directories bsc writes to and, with `cleanup_bobjs`, remove what an
-        earlier run left in them: its packages, and the Verilog modules it generated. bsc writes
+        """Create the directories bsc writes to, and remove what an earlier run left in them: the
+        Verilog modules it generated always, and its packages with `cleanup_bobjs`. bsc writes
         a module's `.use` file (`-show-module-use`) right after its `.v`, so each `.use` goes
-        with the `.v` beside it, whatever a `verilog_filters` command made of that `.v`. Other
-        files stay, and the library modules copied in are copied again."""
+        with the `.v` beside it, whatever a `verilog_filters` command made of that `.v`. bsc
+        writes every module again, also from a package it finds up to date, so each generated
+        module that the run records is one that this run wrote. Other files stay, and the library
+        modules copied in are copied again."""
         assert isinstance(self.settings, BscFlow.Settings)
         if self.settings.verilog_filters and any(c.isspace() for c in str(out_dir)):
             raise FlowSettingsException(
@@ -922,12 +977,13 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 f"without quoting, so the output directory cannot contain whitespace: {out_dir}"
             )
         bdir = Path(self.settings.bobj_dir)
+        stale = []
         if self.settings.cleanup_bobjs:
-            stale = [obj for pattern in ("*.bo", "*.ba") for obj in bdir.glob(pattern)]
-            for use_file in out_dir.glob("*.use"):
-                stale += [use_file, use_file.with_suffix(".v")]
-            # These are an earlier run's packages and generated modules, all in the run directory.
-            self.run_directory.remove(*(path for path in stale if path.is_file()))
+            stale += [obj for pattern in ("*.bo", "*.ba") for obj in bdir.glob(pattern)]
+        for use_file in out_dir.glob("*.use"):
+            stale += [use_file, use_file.with_suffix(".v")]
+        # These are an earlier run's packages and generated modules, all in the run directory.
+        self.run_directory.remove(*(path for path in stale if path.is_file()))
         bdir.mkdir(parents=True, exist_ok=True)
         out_dir.mkdir(parents=True, exist_ok=True)
         if self.settings.info_dir:
@@ -1002,6 +1058,11 @@ class Bsc(BscFlow):
     leaves the module out and warns: the downstream tool must provide it. `rtl.defines` and
     `rtl.parameters` are passed to bsc as preprocessor macros. BH (`.bs`) sources see them only
     through the C preprocessor, with `cpp`.
+
+    The flow converts the design for the flows that read Verilog: its output `design` is the
+    design with the generated Verilog in place of the Bluespec sources. Every other source of
+    `rtl` passes through, once and in the order of the design, and the rest of the design is
+    carried unchanged.
     """
 
     results_description = describe_results(
@@ -1012,13 +1073,27 @@ class Bsc(BscFlow):
 
     output_dir_setting = "verilog_out_dir"
 
+    class Outputs(Flow.Outputs):
+        design: DerivedSources | None = Out(
+            DESIGN,
+            description="The design with the Verilog of the Bluespec sources in place of them: "
+            "the files that define the reset macro and the copies from bsc's library, then every "
+            "source of `rtl` that is not Bluespec as the design lists it, then the modules bsc "
+            "generated, the top module last. The rest of the design is carried.",
+        )
+
+    @classmethod
+    def design_conversion(cls, settings: Flow.Settings) -> DesignConversion | None:
+        """Convert the Bluespec sources into Verilog."""
+        return DesignConversion(frozenset({SourceType.Bluespec}), frozenset({SourceType.Verilog}))
+
     class Settings(BscFlow.Settings):
         verilog_out_dir: Path = Field(
             Path("gen_rtl"),
             description="Directory for the generated Verilog and the library modules it uses, "
             "relative to the run directory. It is the flow's: bsc overwrites the modules it "
-            "generates, the library modules are copied over, and `cleanup_bobjs` removes an "
-            "earlier run's generated modules.",
+            "generates, the library modules are copied over, and an earlier run's generated modules "
+            "are removed before bsc compiles.",
             json_schema_extra=WORKING,
         )
         verilog_primitives: Literal["generic", "vivado", "quartus"] = Field(
@@ -1064,8 +1139,10 @@ class Bsc(BscFlow):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """Require a top module, because bsc generates code for it."""
+        """Require Bluespec RTL and a top module, because bsc generates code for it."""
         super().check_design_supported(design, settings)
+        if not any(source.type is SourceType.Bluespec for source in design.rtl.sources):
+            raise FlowSettingsException("bsc needs Bluespec RTL sources to convert")
         if not design.rtl.top:
             raise FlowSettingsException("bsc needs the design's top module: set `rtl.top`")
 
@@ -1130,13 +1207,34 @@ class Bsc(BscFlow):
         # Read the path with the compile's own path flags, because `extra_flags` may add a
         # `-vsearch`.
         verilog_path = self._verilog_path([*path_flags, *ss.extra_flags])
-        modules, files = self._collect_verilog(top, top_file, vout_dir, verilog_path)
-        self.results["modules"] = modules
-        self.artifacts.verilog = [str(f) for f in files]
+        collected = self._collect_verilog(top, top_file, vout_dir, verilog_path)
+        self.results["modules"] = collected.modules
+        self.artifacts.verilog = [str(f) for f in collected.files]
+        assert isinstance(self.outputs, self.Outputs)
+        self.outputs.design = self._derived_sources(top, collected)
+
+    def _derived_sources(self, top: str, collected: _Collected) -> DerivedSources:
+        """Return the sources of the derived design from what the collection found.
+
+        The defining file and the library copies come first (`Generated`). Then every source of
+        `rtl` that is not Bluespec (`Passed`: the design's Verilog and SystemVerilog, VHDL,
+        headers, constraints, ...), in the order of the design. The modules bsc generated come
+        last, each before the module that instantiates it and the top module at the end
+        (`Generated`). Each source appears once."""
+        entries: list[Generated | Passed] = [
+            Generated(path, SourceType.Verilog) for path in collected.defines + collected.library
+        ]
+        entries.extend(
+            Passed(index)
+            for index, src in enumerate(self.design.rtl.sources)
+            if src.type is not SourceType.Bluespec
+        )
+        entries.extend(Generated(path, SourceType.Verilog) for path in collected.generated)
+        return DerivedSources(top, tuple(unique(entries)))
 
     def _collect_verilog(
         self, top: str, top_file: Path, vout_dir: Path, verilog_path: list[Path]
-    ) -> tuple[list[str], list[Path]]:
+    ) -> _Collected:
         """Return the modules under `top` and the Verilog files that define them.
 
         A module is one bsc generated when its `.use` file (written by `-show-module-use`) and its
@@ -1201,12 +1299,6 @@ class Bsc(BscFlow):
                     raise FlowSettingsException(
                         f"{module} is both generated by bsc ({verilog}) and defined by the "
                         f"design's Verilog source {defined_in[module]}"
-                        + (
-                            ""
-                            if ss.cleanup_bobjs
-                            else "; with `cleanup_bobjs: false` the generated file may be from "
-                            "an earlier run"
-                        )
                     )
                 modules.append(module)
                 for line in use_file.read_text().splitlines():
@@ -1257,8 +1349,9 @@ class Bsc(BscFlow):
                     "// Written by Xeda's bsc flow, to define it before the design's own Verilog.\n"
                 )
             defines.append(defines_file)
-        files = defines + library + [src.file for src in design_verilog] + generated
-        return modules, unique(files)
+        return _Collected(
+            modules, defines, library, [src.file for src in design_verilog], generated
+        )
 
 
 def _check_link_paths(args: list[str | Path]) -> None:
@@ -1332,6 +1425,9 @@ class BscSim(BscFlow, SimFlow):
     )
 
     # The link step also compiles in the C and C++ code a testbench imports.
+    #: The testbench's macros go over the RTL's (`_macros`).
+    macro_parts = ("rtl", "tb")
+
     reads_sources = frozenset({SourceType.Bluespec, *_VERILOG_TYPES, *_FOREIGN_TYPES})
 
     @classmethod
@@ -1387,7 +1483,7 @@ class BscSim(BscFlow, SimFlow):
             Path("sim_build"),
             description="Directory for the generated simulation code (Bluesim's C++ or the "
             "Verilog) and the simulation executable, relative to the run directory. It is the "
-            "flow's: `cleanup_bobjs` removes an earlier run's generated modules.",
+            "flow's: an earlier run's generated modules are removed before bsc compiles.",
             json_schema_extra=WORKING,
         )
         sim_args: list[str] = Field(
