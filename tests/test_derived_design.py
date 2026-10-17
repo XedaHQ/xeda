@@ -169,9 +169,8 @@ def test_the_planned_design_names_a_file_that_need_not_exist(tmp_path) -> None:
     }
 
 
-def test_a_design_without_the_converted_language_plans_to_itself_plus_the_file(tmp_path) -> None:
-    """The conversion is a declaration: it decides nothing about whether anything converts. A
-    design with nothing to convert gets the placeholder in front, and the resolver does not ask."""
+def test_a_vhdl_conversion_plan_replaces_the_vhdl_source_with_a_placeholder(tmp_path) -> None:
+    """Planning replaces the transformed VHDL source with a placeholder without running a flow."""
     design = _design(tmp_path / "d")
     conversion = DesignConversion(frozenset({SourceType.Vhdl}), VERILOG)
     planned = planned_design(design, conversion, tmp_path / "run")
@@ -246,6 +245,7 @@ def test_a_design_record_has_one_shape(tmp_path) -> None:
 
     first = record["sources"][0]
     last = record["sources"][-1]
+    generated = next(item for item in record["sources"] if "generated" in item)
     invalid = [
         None,
         [],
@@ -253,7 +253,10 @@ def test_a_design_record_has_one_shape(tmp_path) -> None:
         broken(top=3),
         broken(input_design=None),
         broken(sources="x"),
+        # A pass-through record cannot have a digest field.
         broken(sources=[{**first, "sha": "not a digest"}]),
+        # A generated record must reject an invalid digest.
+        broken(sources=[{**generated, "sha": "not a digest"}]),
         broken(sources=[{**first, "type": "Nope"}]),
         broken(sources=[{**first, "extra": 1}]),
         broken(sources=[{**last, "source": -1}]),

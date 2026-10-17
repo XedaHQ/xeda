@@ -47,10 +47,10 @@ The design files of `gcd` and `ascon` also hold the settings for the flows that 
 runs `bsc` first, to convert the design:
 
 ```bash
-xeda run openroad gcd.yaml                             # ASIC place and route on nangate45
-xeda run vivado_synth gcd.yaml                         # Vivado, out of context
-xeda run yosys_fpga+nextpnr gcd.yaml --target ecp5     # ECP5 synthesis, place and route
-xeda run yosys_fpga gcd.yaml --target artix7           # Xilinx 7-series synthesis only
+xeda run openroad examples/bluespec/gcd/gcd.yaml  # ASIC place and route on nangate45
+xeda run vivado_synth examples/bluespec/gcd/gcd.yaml  # Vivado, out of context
+xeda run yosys_fpga+nextpnr examples/bluespec/gcd/gcd.yaml --target ecp5  # ECP5 place and route
+xeda run yosys_fpga examples/bluespec/gcd/gcd.yaml --target artix7  # Xilinx synthesis only
 ```
 
 The FPGA configurations are resource and timing estimates without pins. A board build needs an I/O

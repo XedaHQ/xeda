@@ -1971,9 +1971,9 @@ Converted designs
 A Bluespec design runs on every flow that reads Verilog. The rule is general. When ``rtl.sources``
 holds a language that a flow does not read, and one flow converts that language into languages the
 first flow reads, the converter is the default producer of the ``design`` input of the first flow.
-Today the converter is ``bsc``, which converts Bluespec to Verilog. So ``xeda run yosys gcd.yaml``
-runs ``bsc`` first, and then ``yosys`` on the Verilog that ``bsc`` generated. The dry run shows the
-reason:
+Today the converter is ``bsc``, which converts Bluespec to Verilog. From the repository root, run
+``xeda run yosys examples/bluespec/gcd/gcd.yaml`` to run ``bsc`` first, then ``yosys`` on the
+Verilog that ``bsc`` generated. The dry run shows the reason:
 
 .. code-block:: text
 
@@ -1986,11 +1986,11 @@ configurations in ``examples/bluespec/gcd/gcd.yaml``:
 
 .. code-block:: bash
 
-    xeda run bsc_sim gcd.yaml                              # Bluesim, no conversion
-    xeda run openroad gcd.yaml                             # ASIC place and route on nangate45
-    xeda run vivado_synth gcd.yaml                         # Vivado, out of context
-    xeda run yosys_fpga+nextpnr gcd.yaml --target ecp5     # ECP5 synthesis, place and route
-    xeda run yosys_fpga gcd.yaml --target artix7           # Xilinx 7-series synthesis only
+    xeda run bsc_sim examples/bluespec/gcd/gcd.yaml  # Bluesim, no conversion
+    xeda run openroad examples/bluespec/gcd/gcd.yaml  # ASIC place and route on nangate45
+    xeda run vivado_synth examples/bluespec/gcd/gcd.yaml  # Vivado, out of context
+    xeda run yosys_fpga+nextpnr examples/bluespec/gcd/gcd.yaml --target ecp5  # ECP5 place and route
+    xeda run yosys_fpga examples/bluespec/gcd/gcd.yaml --target artix7  # Xilinx synthesis only
 
 The FPGA configurations are resource and timing estimates without pins. A board build needs an I/O
 wrapper and constraints. The Artix-7 target stops at ``yosys_fpga`` because ``nextpnr-himbaechel``
@@ -1999,8 +1999,9 @@ of openXC7 refuses unconstrained I/O, and Xeda refuses a Xilinx ``nextpnr`` run 
 is 2.0 ns.
 
 The chain ``bsc+openroad`` and the saved binding ``flows.yosys.inputs.design: bsc`` say what the
-default says, so they give the same plan as ``xeda run openroad gcd.yaml``. A link ``bsc+X`` binds
-the ``design`` input of every flow in the default graph of ``X`` that ``bsc`` fits, ``X`` included.
+default says, so they give the same plan as ``xeda run openroad examples/bluespec/gcd/gcd.yaml``.
+A link ``bsc+X`` binds the ``design`` input of every flow in the default graph of ``X`` that
+``bsc`` fits, ``X`` included.
 When two flows fit, there is no default, and the plan is an error. It names the flows, and it
 suggests the chain and the binding that choose one: ``yosys does not read the design's Bluespec
 sources, and more than one flow converts them``.

@@ -11,8 +11,10 @@ converted, every other source passes through, and everything else is carried.
   derived design in order, as generated files and as indices into the sources of the design that
   the flow got (`Generated`, `Passed`).
 - `planned_design` builds the design that a converter will derive, before it ran, from the
-  declaration alone. `derive_design` builds it from the record of a run. Both share one helper,
-  so the plan and the launch cannot disagree about the shape of the design.
+  declaration alone, with one placeholder for generated sources. `derive_design` builds the
+  design from the record of a run, with the actual generated and pass-through sources. Both use
+  one helper to construct the design from their source entries; the planned source list can differ
+  from the recorded one.
 
 The functions are pure. They never validate the design again, so the generator of a design does
 not run twice.

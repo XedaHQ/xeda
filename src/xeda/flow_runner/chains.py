@@ -292,7 +292,9 @@ def _converter_link(index: int, producer: ChainElement, consumer: ChainElement) 
     """Return the link of a converter to `consumer`, or None when it feeds no `design` input.
 
     The link binds the `design` input of every flow of the default graph of `consumer` that the
-    converter fits, `consumer` itself included. It passes through the flows between the two."""
+    converter fits, `consumer` itself included. It passes through the flows between the two.
+    Where the default graph also uses the converter for a required file input, that input is bound
+    by the ordinary chain rules."""
     graph = default_graph(consumer.flow_class)
     edges_from = [
         edge
