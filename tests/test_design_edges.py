@@ -435,7 +435,8 @@ def test_flow_info_renders_the_design_kind() -> None:
     takes, makes, following = flow_chain_cells(flow_info("bsc"))
     assert "design (design)" in takes and makes == "design (design)"
     assert "openroad (through yosys" in following
-    assert next(item for item in flow_info("nextpnr")["inputs"])["value"] == "files"
+    netlist = next(item for item in flow_info("nextpnr")["inputs"] if item["name"] == "netlist")
+    assert netlist["value"] == "files"
 
 
 # ------------------------------------------------------------------------ the resolver
