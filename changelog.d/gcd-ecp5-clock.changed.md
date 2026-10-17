@@ -1,0 +1,1 @@
+- Set the ECP5 GCD clock to 20 ns for a conservative place-and-route target.

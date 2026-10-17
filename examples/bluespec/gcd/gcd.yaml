@@ -38,7 +38,7 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: LFE5U-85F-6BG381C
-        clock.period: 10 ns
+        clock.period: 20 ns
       nextpnr:
         lpf_allow_unconstrained: true
   # `xeda run yosys_fpga gcd.yaml --target artix7`. Synthesis only: nextpnr-himbaechel of openXC7
