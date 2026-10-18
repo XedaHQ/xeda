@@ -14,7 +14,6 @@ import re
 import shutil
 import stat
 import subprocess
-import time
 from pathlib import Path
 
 import pytest
@@ -515,9 +514,7 @@ def test_gcd_runs_through_the_chain(tmp_path):
     antenna violation, and a trace in each of the six run directories."""
     store = require_gcd_tools()
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    start = time.monotonic()
     flow = run_gcd(runner, store, flow="bsc+openroad")
-    elapsed = time.monotonic() - start
     assert flow.succeeded, flow.results.get("error")
     assert started(runner, 0) == CHAIN
     results = flow.results
@@ -525,7 +522,6 @@ def test_gcd_runs_through_the_chain(tmp_path):
     assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
     for name in CHAIN:
         assert (tmp_path / "run" / "gcd" / name / "trace.json").is_file(), name
-    print(f"the gcd chain took {elapsed:.0f} s")
 
 
 def test_gcd_at_a_clock_it_misses_is_rejected_and_reported_again(tmp_path):

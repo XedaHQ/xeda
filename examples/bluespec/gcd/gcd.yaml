@@ -19,7 +19,6 @@ tb:
   # must catch it (non-zero exit).
   # defines.XEDA_INJECT_BUG: true
 flows:
-
   # ASIC place and route on nangate45: `xeda run openroad gcd.yaml`. The shared settings reach the
   # four OpenROAD flows along the chain.
   yosys:

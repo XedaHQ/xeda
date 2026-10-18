@@ -36,7 +36,7 @@ width, so parse JSON.
 and `skipped` paths.
 
 ```bash
-xeda run vivado_synth sqrt.yaml -s clock.period=5ns --json | jq '.results.Fmax'
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5ns --json | jq '.results.Fmax'
 ```
 
 The exit status is 0 on success, 1 on a failed run and 2 on a usage error. The `run` document has:
@@ -120,7 +120,7 @@ target's `flows.<flow>`, `-s`, API. They merge key by key, so `-s clock.freq=100
 nested section. Write a flow's settings under its own `flows.<flow>` only.
 
 ```bash
-xeda run vivado_synth sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
 xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
 ```
 
@@ -255,11 +255,13 @@ fail and name both origins. A command-line leaf (`-s fpga.part=...` or
 `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group. A shared setting written under
 a flow that is not in the run reaches no node.
 
-A Bluespec design runs on every flow that reads Verilog (`yosys`, `yosys_fpga`, `vivado_synth`,
-`verilator`, `openroad` and others). When `rtl.sources` holds a language the flow does not read and
-one flow converts it, that flow (today `bsc`) is the default producer of the `design` input: `xeda
-run yosys gcd.yaml` plans `design <- bsc.design (the design has Bluespec sources, which yosys does
-not read)`. `bsc+openroad` and `flows.yosys.inputs.design: bsc` give the same plan. Two fitting
+A Bluespec design runs on every flow that reads Verilog sources (`yosys`, `yosys_fpga`,
+`vivado_synth`, `verilator` and others). When `rtl.sources` holds a language the flow does not read
+and one flow converts it, that flow (today `bsc`) is the default producer of the `design` input:
+`xeda run yosys examples/bluespec/gcd/gcd.yaml` plans `design <- bsc.design (the design has
+Bluespec sources, which yosys does not read)`. The OpenROAD flows read no design sources: `xeda run
+openroad` gets its netlist from `yosys`, so `bsc` converts the design for `yosys`. `bsc+openroad` and
+`flows.yosys.inputs.design: bsc` give the same plan. Two fitting
 converters are an error that names the chain and the binding to choose one. `bsc` passes the other
 sources of `rtl` through in order and carries `tb`: a Bluespec testbench needs `bsc_sim`. A comment
 edit of a `.bsv` reruns `bsc` only; an edit that changes the Verilog reruns the later flows too.
@@ -409,7 +411,7 @@ and `VivadoSynth`; setting names are exact.
 from xeda import Design, DefaultRunner
 from xeda.introspect import flows_info, settings_info, results_info, design_schema
 
-design = Design.from_file("sqrt.yaml")
+design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
 flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock.period=5ns"])
 if flow and flow.results.success:
     print(flow.results.Fmax)

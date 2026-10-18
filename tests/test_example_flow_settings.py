@@ -1,15 +1,19 @@
-"""Every example's flow settings are valid for the flow they name.
+"""Every example's flow settings are valid for the flow they name, with each of its targets.
 
-`test_the_examples_still_load` loads the designs, which never validates their `[flows.*]`
-sections: those are only read when a flow runs. Four sections had rotted unnoticed -- one duplicated `vivado_synth` under its pre-2022 name
-(`vivado_prj_synth`), two named `cxxrtl`, which was never a flow (it is `yosys_sim`), one asked
-`vivado_alt_synth` for a synthesis strategy it only has for implementation.
+`test_the_examples_still_load` loads the designs, which never validates their `flows` sections:
+those are only read when a flow runs. Four sections had rotted unnoticed. One duplicated
+`vivado_synth` under its pre-2022 name (`vivado_prj_synth`). Two named `cxxrtl`, which was never a
+flow (it is `yosys_sim`). One asked `vivado_alt_synth` for a synthesis strategy it only has for
+implementation.
+
+Targets are optional overlays, so a plain load never reads the `flows` of a target. The sweep
+loads every design once with no target and once with each of its targets.
 """
 
+import json
 from pathlib import Path
 
 import pytest
-import json
 
 from xeda.design import Design
 from xeda.flow_runner import get_flow_class
@@ -25,21 +29,62 @@ FILES = sorted(
 )
 
 
-def _flow_sections(path):
+def _raw(path):
+    """The file as written: a mapping, or None for a file that is not one."""
+    if path.suffix in (".yaml", ".yml"):
+        data = load_yaml(path)
+    elif path.suffix == ".json":
+        data = json.loads(path.read_text())
+    else:
+        data = toml_load(path)
+    return data if isinstance(data, dict) else None
+
+
+def _raw_designs(path):
+    """The designs of a file as written: the file itself, or the entries of a project."""
+    data = _raw(path)
+    if data is None:
+        return []
+    if path.stem != "xedaproject":
+        return [data]
+    designs = data.get("design", data.get("designs"))
+    if isinstance(designs, dict):
+        designs = [designs]
+    return [d for d in designs or [] if isinstance(d, dict)]
+
+
+def _targets(path):
+    """Every selection to check: None (no target), then each target of each design."""
+    selections = []
+    for index, raw in enumerate(_raw_designs(path)):
+        expanded = Design.expanded(raw)
+        selections.append((index, None))
+        selections.extend((index, name) for name in expanded.get("targets") or {})
+    return selections
+
+
+def _flow_sections(path, index, target):
     if path.stem == "xedaproject":
         project = XedaProject.from_file(path)
-        yield from (project.flows or {}).items()
-        for i in range(len(project.designs)):
-            design = project.get_design(i)
-            yield from ((design.flow if design else None) or {}).items()
+        if target is None:
+            yield from (project.flows or {}).items()
+        design = project.get_design(index, target=target)
+        yield from ((design.flow if design else None) or {}).items()
     else:
-        yield from (Design.from_file(path).flow or {}).items()
+        yield from (Design.from_file(path, target=target).flow or {}).items()
 
 
-@pytest.mark.parametrize("path", FILES, ids=lambda p: str(p.relative_to(EXAMPLES_DIR)))
-def test_every_flow_section_is_valid_for_its_flow(path):
+def _cases():
+    for path in FILES:
+        for index, target in _targets(path):
+            label = str(path.relative_to(EXAMPLES_DIR)) + (f"[{target}]" if target else "")
+            yield pytest.param(path, index, target, id=label)
+
+
+@pytest.mark.parametrize("path, index, target", list(_cases()))
+def test_every_flow_section_is_valid_for_its_flow(path, index, target):
     invalid = []
-    for flow, section in _flow_sections(path):
+    for flow, section in _flow_sections(path, index, target):
         try:
             get_flow_class(flow).Settings.from_input(
                 section,
@@ -51,46 +96,54 @@ def test_every_flow_section_is_valid_for_its_flow(path):
     assert not invalid, "\n".join(invalid)
 
 
-def _raw_flow_entries(node):
-    """Number of `flow`/`flows` mapping entries directly on a raw (design-like) mapping."""
-    count = 0
+def _flow_names(node):
+    """Names of the flows that a raw (design-like) mapping holds directly, with dotted keys
+    expanded."""
+    names = set()
     for key in ("flow", "flows"):
-        value = node.get(key)
+        value = Design.expanded(node).get(key)
         if isinstance(value, dict):
-            count += len(value)
-    return count
+            names.update(value)
+    return names
 
 
-def _raw_flow_count(path):
-    """Structural count of flow sections in the raw (unparsed-by-xeda) file contents."""
-    if path.suffix in (".yaml", ".yml"):
-        data = load_yaml(path)
-    elif path.suffix == ".json":
-        data = json.loads(path.read_text())
-    else:
-        data = toml_load(path)
-    if not isinstance(data, dict):
-        return 0
-    count = _raw_flow_entries(data)
-    if path.stem == "xedaproject":
-        designs = data.get("design", data.get("designs"))
-        if isinstance(designs, dict):
-            designs = [designs]
-        if isinstance(designs, list):
-            for design in designs:
-                if isinstance(design, dict):
-                    count += _raw_flow_entries(design)
+def _raw_flow_count(path, index, target):
+    """Structural count of flow sections in the raw file contents: the flows of the design and,
+    when a target is selected, those the target adds."""
+    raw = _raw_designs(path)[index]
+    names = _flow_names(raw)
+    if target is not None:
+        names |= _flow_names(Design.expanded(raw)["targets"][target])
+    count = len(names)
+    if path.stem == "xedaproject" and target is None:
+        count += len(_flow_names(_raw(path)))
     return count
 
 
 def test_the_sweep_finds_every_examples_flow_sections():
     """Guards the sweep against passing vacuously: the number of sections `_flow_sections`
-    yields must match a structural count of `flow`/`flows` mapping entries taken directly from
-    the raw, unparsed file contents."""
+    yields must match a structural count of the flow names taken directly from the raw,
+    unparsed file contents, for the design alone and for each of its targets."""
     mismatched = {
-        p: (found, expected)
+        (str(p.relative_to(EXAMPLES_DIR)), target): (found, expected)
         for p in FILES
-        for found, expected in [(len(list(_flow_sections(p))), _raw_flow_count(p))]
+        for index, target in _targets(p)
+        for found, expected in [
+            (len(list(_flow_sections(p, index, target))), _raw_flow_count(p, index, target))
+        ]
         if found != expected
     }
     assert not mismatched, f"flow section count mismatch (found, expected): {mismatched}"
+
+
+def test_the_sweep_covers_the_targets_of_the_examples():
+    """The examples with targets are in the sweep, target by target."""
+    swept = {(p.name, target) for p in FILES for _, target in _targets(p) if target}
+    assert {
+        ("ascon.yaml", "ecp5"),
+        ("ascon.yaml", "artix7"),
+        ("gcd.yaml", "ecp5"),
+        ("gcd.yaml", "artix7"),
+        ("uart_echo.yaml", "arty"),
+        ("uart_echo.yaml", "ulx3s"),
+    } <= swept

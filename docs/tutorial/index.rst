@@ -5,7 +5,7 @@ Tutorial
 This tutorial takes a small VHDL design through simulation, FPGA synthesis and a frequency
 search. The design is the ``sqrt`` example, in ``examples/vhdl/sqrt`` of the Xeda repository. It
 is an iterative integer square root with one clock, a parameterized input width and a cocotb
-testbench. Run the commands in that directory.
+testbench. Run the commands from the root directory of the repository.
 
 1. Write the design file
 ========================
@@ -33,7 +33,7 @@ Notes on the file:
 
 .. code-block:: bash
 
-    xeda run ghdl_sim sqrt.yaml
+    xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml
 
 Xeda analyzes the VHDL with GHDL, elaborates it and runs the cocotb regression. The results table
 shows the cocotb test counts. The exit status is non-zero if any test failed.
@@ -42,7 +42,7 @@ To write a waveform:
 
 .. code-block:: bash
 
-    xeda run ghdl_sim sqrt.yaml -s vcd=dump.vcd
+    xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml -s vcd=dump.vcd
 
 A simulation passes only if it ends on purpose. The testbench calls ``$finish`` (``std.env.finish``
 in VHDL), the cocotb tests complete, or the run reaches the ``stop_time`` that you set. Use
@@ -54,28 +54,28 @@ Another simulator runs the same design file and testbench:
 
 .. code-block:: bash
 
-    xeda run nvc sqrt.yaml
+    xeda run nvc examples/vhdl/sqrt/sqrt.yaml
 
 Verilator simulates Verilog and SystemVerilog. This command runs the ``fifo`` example, a
 SystemVerilog design with its own testbench:
 
 .. code-block:: bash
 
-    xeda run verilator ../../sv/fifo/fifo.xeda.yaml
+    xeda run verilator examples/sv/fifo/fifo.xeda.yaml
 
 3. Synthesize
 =============
 
 .. code-block:: bash
 
-    xeda run vivado_synth sqrt.yaml
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml
 
 The ``flows.vivado_synth`` section supplies the part and the clock period. To tighten the period,
 use the command line and leave the file as it is:
 
 .. code-block:: bash
 
-    xeda run vivado_synth sqrt.yaml -s clock.period=4ns
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4ns
 
 To see all the settings of the flow:
 
@@ -87,14 +87,14 @@ To see what a command would run, add ``--dry-run``. Xeda prints the plan and sta
 
 .. code-block:: bash
 
-    xeda run vivado_synth sqrt.yaml --dry-run
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --dry-run
 
 An open-source toolchain uses ``yosys_fpga`` to synthesize and ``nextpnr`` to place and route.
 ``nextpnr`` needs the netlist of ``yosys_fpga``, so running ``nextpnr`` runs both:
 
 .. code-block:: bash
 
-    xeda run nextpnr sqrt.yaml -s fpga.part=LFE5U-85F-6BG381C clock.period=10ns
+    xeda run nextpnr examples/vhdl/sqrt/sqrt.yaml -s fpga.part=LFE5U-85F-6BG381C clock.period=10ns
 
 4. Read the results
 ===================
@@ -108,7 +108,7 @@ A script can read the results from the ``--json`` document that the command writ
 
 .. code-block:: bash
 
-    xeda run vivado_synth sqrt.yaml --json | jq '{fmax: .results.Fmax, luts: .results.lut}'
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json | jq '{fmax: .results.Fmax, luts: .results.lut}'
 
 ``xeda list-results vivado_synth`` explains every key.
 
@@ -121,7 +121,7 @@ meets timing:
 
 .. code-block:: bash
 
-    xeda dse vivado_synth --design sqrt.yaml --max-workers 4
+    xeda dse vivado_synth --design examples/vhdl/sqrt/sqrt.yaml --max-workers 4
 
 Each time the search improves, Xeda writes the best result to a JSON file in the run root,
 ``xeda_run/fmax_<design>_<flow>_<timestamp>.json``. A search that stops early keeps its best

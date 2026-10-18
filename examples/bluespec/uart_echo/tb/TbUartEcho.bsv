@@ -1,6 +1,6 @@
 // Self-checking testbench for mkUartEcho, the board demo, at the pins.
 //
-// A behavioural host (the line sender of the UART testbench, TbUartModels) drives rxd, the switches
+// A behavioral host (the line sender of the UART testbench, TbUartModels) drives rxd, the switches
 // and the button; a model of a receiver decodes txd, one frame at a time from its own start edge,
 // and compares every byte with what was sent. The design is the real one except for two sizes that
 // the design file shrinks for the simulation: the echo FIFO (ECHO_DEPTH) so that it can overrun
@@ -71,7 +71,7 @@ function Action fail(String msg) = action $fatal(1, "FAIL: " + msg); endaction;
 
 // ---------------------------------------------------------------------------------------
 // A receiver on txd. Each frame is decoded from its own start edge (the first low clock): the
-// start bit, eight data bits and the stop bit are sampled at their centres, with a bit period that
+// start bit, eight data bits and the stop bit are sampled at their centers, with a bit period that
 // the test sets. Frames may follow each other with or without a gap; `chained` counts those that
 // begin where the previous one ended, to within a clock.
 //

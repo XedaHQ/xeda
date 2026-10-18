@@ -352,3 +352,34 @@ def test_vivado_cannot_disable_required_source_provenance(tmp_path, monkeypatch)
 
     with pytest.raises(FlowSettingsException, match="source information"):
         launch(tmp_path, monkeypatch, "vhdl_stop", {"elab_debug": "off"})
+
+
+def test_vivado_sim_reads_what_bsc_converted_in_the_chain_bsc_vivado_sim(tmp_path, monkeypatch):
+    """The skill says `bsc+vivado_sim` works: bsc converts the Bluespec design, and the simulator
+    reads the Verilog that bsc wrote, with the Verilog testbench of the design."""
+    from .bluespec_sources import COUNTER_BSV
+    from .tool_utils import require_bsc
+
+    require_bsc()
+    use_fake_tools(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "clock")
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "Counter.bsv").write_text(COUNTER_BSV)
+    (root / "tb.sv").write_text("module tb; mkCounter dut(); endmodule\n")
+    design = Design(
+        name="sim",
+        design_root=root,
+        rtl={"sources": ["Counter.bsv"], "top": "mkCounter", "clock": "CLK"},
+        tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
+    )
+    runner = DefaultRunner(tmp_path / "run")
+    flow = runner.run(
+        "bsc+vivado_sim", design, flow_settings={"prerun_time": "10ns", "stop_time": "20ns"}
+    )
+    assert flow is not None and flow.succeeded, getattr(flow, "results", None)
+    assert [f.name for f in runner.launched] == ["bsc", "vivado_sim"]
+    calls = [" ".join(call) for call in fake_calls(flow.run_path, elements=True)]
+    read = [call for call in calls if "mkCounter.v" in call]
+    assert read, calls
+    assert all(str(tmp_path / "run" / "sim" / "bsc") in call for call in read), read

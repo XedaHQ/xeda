@@ -660,7 +660,7 @@ class Dse(FlowLauncher):
                                 break  # next(iterator) finished
                             except TimeoutError as e:
                                 log.critical(
-                                    f"Flow run took longer than {e.args[1]} seconds. Cancelling remaining tasks."
+                                    f"Flow run took longer than {e.args[1]} seconds. Canceling remaining tasks."
                                 )
                                 future.cancel()
                             except ProcessExpired as e:

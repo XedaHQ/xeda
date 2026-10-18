@@ -128,7 +128,7 @@ def design_files(
     One walker visits every value of both parts. A `FileResource` is its file. Any other text or
     path counts when it is absolute and names an existing file. Relative text (a top-level name,
     a relative parameter) is not resolved, since nothing says against what. Counting a value
-    that merely looks like a file errs towards another run, never towards a stale reuse.
+    that merely looks like a file errs toward another run, never toward a stale reuse.
     """
     found: List[Path] = []
 

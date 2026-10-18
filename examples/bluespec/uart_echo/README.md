@@ -12,7 +12,7 @@ sw[3:0] -> baud rate table ---^                       btn -> clear flags      le
 | file | content |
 |---|---|
 | `rtl/UartEcho.bsv` | `mkUartEcho`, the top: UART core with a run-time baud rate, echo FIFO, switches, button, LEDs, power-on reset |
-| `tb/TbUartEcho.bsv` | the testbench: a behavioural host at the pins and a receiver model (the line sender of `../uart/tb/TbUartModels.bsv` is reused) |
+| `tb/TbUartEcho.bsv` | the testbench: a behavioral host at the pins and a receiver model (the line sender of `../uart/tb/TbUartModels.bsv` is reused) |
 | `boards/arty_a7_100t.xdc`, `boards/arty_a7_100t_sync.xdc` | Arty A7-100T: pins (also for openXC7), and the synchronizer and timing constraints of Vivado |
 | `boards/ulx3s.lpf` | ULX3S pins |
 | `host/uart_echo_test.py` | the computer's side: sends random bytes, reads the echo, compares, reports throughput |
@@ -142,7 +142,7 @@ the retune logic (a 14-bit idle counter, two more synchronizers).
 
 ## Simulation
 
-`tb/TbUartEcho.bsv` is a behavioural host at the pins of the real `mkUartEcho` (the design file sets
+`tb/TbUartEcho.bsv` is a behavioral host at the pins of the real `mkUartEcho` (the design file sets
 `ECHO_DEPTH` to 3 and `ACTIVITY_US` to 20 for the simulation only, so that an overrun and the end of
 an LED stretch are reached in a few thousand clocks). The host drives `rxd`, the switches and the
 button; a receiver model decodes `txd` frame by frame from its own start edge and compares every byte
@@ -165,11 +165,11 @@ script on the `FIXED_BAUD` build (70761 cycles on all three; test 7 flips the sw
 that the echo does not care, at the one rate; `XEDA_INJECT_BUG` is caught there too, by the receiver bug).
 
 ```bash
-xeda run bsc_sim uart_echo.yaml                       # Bluesim, 11 s with the elaboration
-xeda run bsc_sim uart_echo.yaml -s simulator=verilator
-xeda run bsc_sim uart_echo.yaml -s simulator=iverilog
-xeda run bsc_sim uart_echo.yaml --design-overrides tb.defines.XEDA_INJECT_BUG=true   # must fail
-xeda run bsc_sim uart_echo.yaml --target fixed_baud           # the FIXED_BAUD build
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml                       # Bluesim, 11 s with the elaboration
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml -s simulator=verilator
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml -s simulator=iverilog
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --design-overrides tb.defines.XEDA_INJECT_BUG=true   # must fail
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --target fixed_baud           # the FIXED_BAUD build
 ```
 
 `XEDA_INJECT_BUG` makes the echo take a new baud rate at once instead of when it is idle (and plants
@@ -178,13 +178,14 @@ the receiver bug of the `uart` example too, since both packages read the macro).
 
 ## Building for a board
 
-Commands run from this directory. Use `--run-root` for the run directory somewhere outside the
-checkout, and an absolute path for the design file when you run Xeda with `uv run --directory`.
+Commands run from the root directory of the repository. Use `--run-root` for the run directory
+somewhere outside the checkout, and an absolute path for the design file when you run Xeda with
+`uv run --directory`.
 
 **Arty A7-100T with Vivado** (about 3 minutes; 100 MHz, 10 ns):
 
 ```bash
-xeda run vivado_synth uart_echo.yaml --target arty --run-root /path/to/runs
+xeda run vivado_synth examples/bluespec/uart_echo/uart_echo.yaml --target arty --run-root /path/to/runs
 ```
 
 The bitstream is `uart_echo.bit` in the run directory (`.../uart_echo/arty/vivado_synth/`); add
@@ -201,14 +202,14 @@ on the same pin, and keeps one pair, which carries the property.)
 `PATH`; nextpnr of openXC7 reads only pin lines, which is why the pins have a file of their own):
 
 ```bash
-PATH=/opt/openxc7/bin:$PATH xeda run yosys_fpga+nextpnr+fpga_pack uart_echo.yaml --target arty_nextpnr
+PATH=/opt/openxc7/bin:$PATH xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target arty_nextpnr
 ```
 
 **ULX3S 85F** (about 5 s; needs the oss-cad-suite `bin` directory first on `PATH`, 25 MHz, 3 Mbaud
 default):
 
 ```bash
-PATH=/path/to/oss-cad-suite/bin:$PATH xeda run yosys_fpga+nextpnr+fpga_pack uart_echo.yaml --target ulx3s
+PATH=/path/to/oss-cad-suite/bin:$PATH xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target ulx3s
 ```
 
 The LPF has no `FREQUENCY` line, because `nextpnr: clock.freq: 25 MHz` of the target gives the period.
@@ -220,9 +221,9 @@ through the board's USB cable (the design is gone at power-off; there is no `wri
 runs only when you ask for it. The targets carry the board name for it:
 
 ```bash
-xeda run vivado_synth+openfpgaloader uart_echo.yaml --target arty
-xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader uart_echo.yaml --target arty_nextpnr   # 10 s
-xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader uart_echo.yaml --target ulx3s
+xeda run vivado_synth+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target arty
+xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target arty_nextpnr   # 10 s
+xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target ulx3s
 openFPGALoader -b arty_a7_100t path/to/uart_echo.bit        # the same, from a bitstream
 openFPGALoader -b ulx3s path/to/uart_echo.bit
 ```
@@ -231,9 +232,9 @@ openFPGALoader -b ulx3s path/to/uart_echo.bit
 alone keeps the target's `BAUD`):
 
 ```bash
-xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader uart_echo.yaml --target arty_nextpnr \
+xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target arty_nextpnr \
     --design-overrides rtl.defines.FIXED_BAUD=true rtl.defines.BAUD=6000000
-xeda run bsc_sim uart_echo.yaml --target fixed_baud       # the testbench of that build
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --target fixed_baud       # the testbench of that build
 ```
 
 **Results** (Xeda reports, the design as in the design file; `FIXED_BAUD` is in its section above):
@@ -285,11 +286,11 @@ there is one, so a host that did not read in time can be told apart from an FPGA
 `--ftdi` a `--window` or `--chunk` above the chip's receive buffer minus 64 bytes is refused.
 
 ```bash
-python3 host/uart_echo_test.py --loopback-selftest        # no hardware: both modes, faults, overflow
-python3 host/uart_echo_test.py --ftdi ftdi://ftdi:2232h:210319B9B557/2 --baud 12000000 --bytes 16777216
-python3 host/uart_echo_test.py --port /dev/cu.usbserial-210319B9B5571 --baud 3000000
-python3 host/uart_echo_test.py --ftdi ftdi://ftdi:ft-x:K00121/1 --baud 3000000       # ULX3S
-python3 host/uart_echo_test.py --ftdi ... --baud 12000000 --bytes 536870912 --progress   # soak
+python3 examples/bluespec/uart_echo/host/uart_echo_test.py --loopback-selftest        # no hardware: both modes, faults, overflow
+python3 examples/bluespec/uart_echo/host/uart_echo_test.py --ftdi ftdi://ftdi:2232h:210319B9B557/2 --baud 12000000 --bytes 16777216
+python3 examples/bluespec/uart_echo/host/uart_echo_test.py --port /dev/cu.usbserial-210319B9B5571 --baud 3000000
+python3 examples/bluespec/uart_echo/host/uart_echo_test.py --ftdi ftdi://ftdi:ft-x:K00121/1 --baud 3000000       # ULX3S
+python3 examples/bluespec/uart_echo/host/uart_echo_test.py --ftdi ... --baud 12000000 --bytes 536870912 --progress   # soak
 ```
 
 Exit status 0 only for a perfect echo; a run that stops echoing reports the offset of the first
@@ -367,15 +368,15 @@ shorter runs of the table.
   table work at 115200 on that board. On the Arty, the default design with switches 0 is the
   12 Mbaud rows above.
 
-Reproduce one row (Arty, 6 Mbaud, from this directory; the paths are those of my machine):
+Reproduce one row (Arty, 6 Mbaud, from the root directory of the repository; the paths are those of my machine):
 
 ```bash
 export PATH=/opt/openxc7/bin:$PATH
-xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader $PWD/uart_echo.yaml --target arty_nextpnr \
+xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target arty_nextpnr \
     --run-root /path/to/runs --design-overrides rtl.defines.FIXED_BAUD=true rtl.defines.BAUD=6000000
-DYLD_LIBRARY_PATH=/opt/homebrew/lib python3 host/uart_echo_test.py \
+DYLD_LIBRARY_PATH=/opt/homebrew/lib python3 examples/bluespec/uart_echo/host/uart_echo_test.py \
     --ftdi ftdi://ftdi:2232h:210319B9B557/2 --baud 6000000 --bytes 16777216
-python3 host/uart_echo_test.py --port /dev/cu.usbserial-210319B9B5571 --baud 6000000 --bytes 4194304
+python3 examples/bluespec/uart_echo/host/uart_echo_test.py --port /dev/cu.usbserial-210319B9B5571 --baud 6000000 --bytes 4194304
 ```
 
 (`DYLD_LIBRARY_PATH` makes pyusb find Homebrew's libusb on macOS. The device names are those of

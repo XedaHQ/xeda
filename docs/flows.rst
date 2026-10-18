@@ -138,7 +138,7 @@ options.
 
 The command line takes dotted keys for nested values, and you can give several at once::
 
-    xeda run vivado_synth sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
 
 A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an error that names
 ``timing`` and ``timing.x``, and so is the same pair in the other order. The same holds in a
@@ -148,7 +148,7 @@ Some settings hold a dictionary whose keys are names that a tool defines. The ru
 Vivado are an example, and their names contain dots. A dotted key of such a setting is one key and
 not a path into nested tables::
 
-    xeda run vivado_synth sqrt.yaml -s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0
 
 This sets the one property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` of the synthesis run. A design
 file, a target, a project file and the API give it in the same way. In a design file, the key
@@ -164,7 +164,7 @@ tool have no backslash.
 
 A name with a space is a quoted shell item::
 
-    xeda run vivado_synth sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
 
 ``xeda list-settings --json`` marks these settings with ``"opaque_keys": true``. They are
 ``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` and the flows that share
@@ -1868,7 +1868,6 @@ OpenROAD flows. Every other setting keeps its default:
       # must catch it (non-zero exit).
       # defines.XEDA_INJECT_BUG: true
     flows:
-
       # ASIC place and route on nangate45: `xeda run openroad gcd.yaml`. The shared settings reach the
       # four OpenROAD flows along the chain.
       yosys:
@@ -1898,8 +1897,8 @@ OpenROAD flows. Every other setting keeps its default:
             fpga.part: xc7a100tcsg324-1
             clock.period: 10 ns
 
-The design has Bluespec sources, so ``xeda run openroad gcd.yaml`` runs ``bsc`` first, to convert
-them to Verilog (see `Converted designs`_). It plans ``bsc``, ``yosys``, ``openroad_place``,
+The design has Bluespec sources, so ``xeda run openroad examples/bluespec/gcd/gcd.yaml`` runs
+``bsc`` first, to convert them to Verilog (see `Converted designs`_). It plans ``bsc``, ``yosys``, ``openroad_place``,
 ``openroad_cts``, ``openroad_grt`` and ``openroad``. The FPGA settings are resource and timing
 estimates without pins. A board build needs an I/O wrapper and constraints.
 

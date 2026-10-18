@@ -11,11 +11,11 @@
 //   hold = 1 is no filter, and the filter's registers are gone. The depth is limited by the bit
 //   period, see `maxHold`; `mkUartCore` checks it. The filter delays every edge alike, so it
 //   does not move the sampling point: the baud tolerance is the same for every hold.
-// * The hunt is level sensitive: any low sample starts a frame. The first sample, at the centre of
+// * The hunt is level sensitive: any low sample starts a frame. The first sample, at the center of
 //   the start bit, aborts silently if the line is high again (a false start). Then there is one
 //   sample per bit; the bits shift into a register whose leading marker bit arrives at bit 0 when
 //   the frame is complete, so no bit counter is needed.
-// * Only the first stop bit is sampled, at its centre, and the receiver hunts again one clock
+// * Only the first stop bit is sampled, at its center, and the receiver hunts again one clock
 //   later. Every clock later costs about 1.2 % of baud tolerance at 8.33 clocks per bit, and
 //   hunting only after the stop bit has ended fails at 100 % line utilization even for a perfect
 //   remote.
@@ -42,11 +42,11 @@ endinterface
 typedef enum {
    WaitHigh,   // after reset or a frame error: wait for the line to be high
    Hunt,       // idle: any low sample is a start bit
-   Start,      // until the centre of the start bit
+   Start,      // until the center of the start bit
    Data        // data, parity, then the stop bit
 } RxState deriving (Bits, Eq, FShow);
 
-// The deepest hold filter that survives a glitch of hold-1 clocks at the centre of any bit of at
+// The deepest hold filter that survives a glitch of hold-1 clocks at the center of any bit of at
 // least `bitClocks` clocks (D, the shortest bit). The glitch leaves ceil((D - hold + 1) / 2) clocks
 // of the bit's level before it, and the filter has switched to that level before the glitch only
 // if it saw `hold` of them: D >= 3 * hold - 2. Measured with the testbench's glitch matrix, this is

@@ -5,7 +5,7 @@ description: >-
   elaboration or at run time. A restartable fractional bit timer gives an exact average baud rate,
   the transmitter has no gap between frames, and the receiver has a 2-flop synchronizer, a glitch
   filter, false start rejection and break handling. The testbench runs five DUTs against
-  behavioural models of a remote UART (baud offset, phase, glitches, bad frames) and of a line
+  behavioral models of a remote UART (baud offset, phase, glitches, bad frames) and of a line
   checker, with loopback, other frame formats and a run-time baud rate.
 rtl:
   # The package that defines `top` comes last.

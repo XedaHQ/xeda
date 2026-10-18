@@ -380,6 +380,11 @@ command, a list of arguments, or a table that configures a generator::
 The generator runs while Xeda loads the design. It runs again only when something that it reads
 or produced has changed. Xeda judges this by content and never by modification time.
 
+A generator may write sources of any language that a flow reads or converts. If it writes Bluespec,
+``bsc`` converts the generated files as it converts hand-written ones (see
+:ref:`converted-designs`). A change to what the generator reads changes the Bluespec, and the
+flows after ``bsc`` run again only if the Verilog changes.
+
 ``sources``
     The files that the generator reads, named as the ``sources`` of a design are (patterns
     included). Each one must exist, because Xeda reads its content. A ``touch``, a ``chmod`` or a

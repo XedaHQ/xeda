@@ -68,6 +68,8 @@ A generator runs again when its executable, its `sources` (a directory counts as
 it) or its produced sources change. `generated_sources` names the files it writes when it writes
 only some; `always_runs` says its inputs cannot be judged. The record lives under
 `<run root>/.cache/generators/`, so a design loaded outside `xeda run` generates on every load.
+A generator may write Bluespec: `bsc` converts the generated files like hand-written ones, and the
+flows after `bsc` run again only if the Verilog changes.
 
 ## `tb`: the testbench
 

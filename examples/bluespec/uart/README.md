@@ -4,7 +4,7 @@ A transmitter and a receiver with byte buffers, sticky error flags and one-cycle
 is small (about 50 LUT and 60 FF with buffers on a 7-series FPGA, see [Area](#area)), runs at
 12 Mbaud with a 100 MHz clock (8.33 clocks per bit) and has an exact average baud rate. The
 architecture has no oversampling: one restartable fractional bit timer per direction, a hold
-filter in front of a level-sensitive start detect, and one sample at the centre of every bit.
+filter in front of a level-sensitive start detect, and one sample at the center of every bit.
 
 ```
 tx (Put) -> transmit buffer -> UartTx -> txd
@@ -156,18 +156,18 @@ edge phases, which the testbench and a bisection of the baud offset confirm):
   and the frame period is 10 bit times exactly on average (240 frames checked against one grid).
   The bit timer is restarted only when a frame starts from idle. Its accumulator starts at R + M/2
   (the fraction of the start bit plus one half), which is what keeps the first edges of a frame
-  centred.
-* **Receiver:** the first sample, at the centre of the start bit, rejects a false start (a low
-  pulse shorter than 5 clocks, once past the filter). Then one sample per bit, at its centre, and
-  the stop bit is sampled at its centre too, and the receiver hunts again one clock later. That is
+  centered.
+* **Receiver:** the first sample, at the center of the start bit, rejects a false start (a low
+  pulse shorter than 5 clocks, once past the filter). Then one sample per bit, at its center, and
+  the stop bit is sampled at its center too, and the receiver hunts again one clock later. That is
   what keeps the baud tolerance at 100 % line utilization: **-5.0 % to +4.0 % measured** with the
   remote running back to back (model: -5.06 % / +4.17 %, ideal +-5.26 %). The testbench runs
   -4.5 % to +3.5 % at three phases each, and +7 % and -8 % must produce errors.
 * **Glitches:** with the default filter of 3 clocks a pulse of 1 or 2 clocks is invisible on an
-  idle line and at the centre of a bit (the testbench puts one at the centre of every bit of a
+  idle line and at the center of a bit (the testbench puts one at the center of every bit of a
   frame, and at random bits). Near a bit edge it is not: a pulse right after an edge can delay the
   filtered edge by up to `pulse + HOLD - 1` clocks, which eats into the baud tolerance.
-  The depth of the filter is limited by the bit period. A pulse of HOLD-1 clocks at the centre of
+  The depth of the filter is limited by the bit period. A pulse of HOLD-1 clocks at the center of
   a bit of D clocks (D is the shortest bit: 8 at 8.33 clocks per bit) leaves ceil((D-HOLD+1)/2)
   clocks of the bit's level before it, and the filter must have switched to that level before
   the pulse starts, which takes HOLD of them: **HOLD <= (D+2)/3** (`maxHold`). So 3 is the limit
@@ -219,10 +219,10 @@ flow:
 
 | tool and flow | result |
 |---|---|
-| Vivado 2024.2, `xeda run vivado_synth uart.yaml` (out of context, xc7a100tcsg324-1, 10 ns) | **49 LUT (43 logic, 6 LUTRAM), 59 FF, 19 slices, Fmax 238 MHz** |
-| Yosys 0.69+286, `xeda run yosys_fpga uart.yaml --target artix7` (xc7a100t) | 76 LUT (68 logic, 8 LUTRAM), 64 FF |
-| Yosys 0.69+286 and nextpnr-ecp5 0.11.1, `xeda run yosys_fpga+nextpnr uart.yaml --target ecp5` (LFE5U-85F, 50 MHz target) | 95 LUT4 (TRELLIS_COMB), 64 FF, Fmax 173 MHz |
-| Yosys 0.69+286, `xeda run yosys uart.yaml` (nangate45, 1.5 ns) | 926 um2 |
+| Vivado 2024.2, `xeda run vivado_synth examples/bluespec/uart/uart.yaml` (out of context, xc7a100tcsg324-1, 10 ns) | **49 LUT (43 logic, 6 LUTRAM), 59 FF, 19 slices, Fmax 238 MHz** |
+| Yosys 0.69+286, `xeda run yosys_fpga examples/bluespec/uart/uart.yaml --target artix7` (xc7a100t) | 76 LUT (68 logic, 8 LUTRAM), 64 FF |
+| Yosys 0.69+286 and nextpnr-ecp5 0.11.1, `xeda run yosys_fpga+nextpnr examples/bluespec/uart/uart.yaml --target ecp5` (LFE5U-85F, 50 MHz target) | 95 LUT4 (TRELLIS_COMB), 64 FF, Fmax 173 MHz |
+| Yosys 0.69+286, `xeda run yosys examples/bluespec/uart/uart.yaml` (nangate45, 1.5 ns) | 926 um2 |
 
 The generated Verilog has no needless multiplexers: every register is written by one rule that
 fires every cycle, `txd` is a register output, and the timers' reloads and compares are constants.
@@ -236,7 +236,7 @@ end of a train of frames) and a consumer that compares every received byte.
 
 | DUT | what it checks |
 |---|---|
-| A: `mkUart`, 8N1, 12 Mbaud | low line from power-up; loopback of 240 bytes at 100 % utilization (corner and random bytes: data, order, zero gap, exact baud); remote at -4.5 % to +3.5 % x 3 phases, and +7 %, -8 % that must fail; framing error and resync; breaks of 12 and 48 bits (one event, no byte); glitches of 1 and 2 clocks on an idle line, at the centre of 60 random bits and at the centre of every bit of a frame in turn (the glitch matrix: 2 widths x 10 bits); false starts of 3 and 4 clocks; overrun with a stalled consumer (`RX_DEPTH` bytes kept in order, 3 dropped), recovery, flags; `clearFlags` in the very cycle of a framing error, a break and an overrun: the event stays one cycle and its flag is set |
+| A: `mkUart`, 8N1, 12 Mbaud | low line from power-up; loopback of 240 bytes at 100 % utilization (corner and random bytes: data, order, zero gap, exact baud); remote at -4.5 % to +3.5 % x 3 phases, and +7 %, -8 % that must fail; framing error and resync; breaks of 12 and 48 bits (one event, no byte); glitches of 1 and 2 clocks on an idle line, at the center of 60 random bits and at the center of every bit of a frame in turn (the glitch matrix: 2 widths x 10 bits); false starts of 3 and 4 clocks; overrun with a stalled consumer (`RX_DEPTH` bytes kept in order, 3 dropped), recovery, flags; `clearFlags` in the very cycle of a framing error, a break and an overrun: the event stays one cycle and its flag is set |
 | B: `mkUartCore`, 7E2, 8 Mbaud, hold 2, tx depth 1, rx depth 2 | loopback with the checker, remote at +-3 % with frames of one and two stop bits mixed, a parity error (with `clearFlags` in its cycle), a framing error, a break |
 | C: `mkUartCore`, 8O1, run-time period | 12 M, 3 M and 921600 baud in turn: loopback, remote at +-3 %; the same error cases at 12 M; then reset in the middle of a transmitted frame (two bytes queued, one on the line) and of a received frame, cut every 6 clocks from start bit to stop bit: `txd` high and the transmitter idle two clocks later, the queued byte never sent, a clean frame next; the receiver delivers nothing and raises nothing, and works again |
 | D: `mkUartCore`, 8N1, 16 Mbaud, hold 2 | 6.25 clocks per bit, `adjust` = -1 (hold 2 is the most that 6 clocks in the shortest bit allow) |
@@ -264,14 +264,14 @@ the design file suppresses bsc's warning about it (G0043) for `bsc_sim`.
 
 ```bash
 cd examples/bluespec/uart
-xeda run bsc_sim uart.yaml                          # Bluesim
-xeda run bsc_sim uart.yaml -s simulator=verilator
-xeda run bsc_sim uart.yaml -s simulator=iverilog
-xeda run bsc_sim uart.yaml --design-overrides tb.defines.XEDA_INJECT_BUG=true   # must fail
-xeda run bsc uart.yaml                              # Verilog of mkUart
-xeda run vivado_synth uart.yaml                     # Vivado, out of context
-xeda run yosys_fpga uart.yaml --target artix7       # yosys, xc7a100t
-xeda run yosys_fpga+nextpnr uart.yaml --target ecp5
+xeda run bsc_sim examples/bluespec/uart/uart.yaml                          # Bluesim
+xeda run bsc_sim examples/bluespec/uart/uart.yaml -s simulator=verilator
+xeda run bsc_sim examples/bluespec/uart/uart.yaml -s simulator=iverilog
+xeda run bsc_sim examples/bluespec/uart/uart.yaml --design-overrides tb.defines.XEDA_INJECT_BUG=true   # must fail
+xeda run bsc examples/bluespec/uart/uart.yaml                              # Verilog of mkUart
+xeda run vivado_synth examples/bluespec/uart/uart.yaml                     # Vivado, out of context
+xeda run yosys_fpga examples/bluespec/uart/uart.yaml --target artix7       # yosys, xc7a100t
+xeda run yosys_fpga+nextpnr examples/bluespec/uart/uart.yaml --target ecp5
 ```
 
 ## The receiver in one paragraph

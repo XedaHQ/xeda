@@ -6,7 +6,7 @@ description: >-
   transmitter at the same baud rate; the switches pick the baud rate from a table computed at
   elaboration (12 Mbaud at 100 MHz by default), which changes only when the echo is idle; the LEDs
   show receive and send activity and sticky error and overrun flags, and the button clears
-  them. The testbench is a behavioural host at the pins: echo at three baud rates at full line
+  them. The testbench is a behavioral host at the pins: echo at three baud rates at full line
   utilization, LEDs, framing error, break, overrun, and a baud rate switched in the middle of
   traffic. Targets build the Arty A7-100T (Vivado, or openXC7) and the ULX3S. The macro
   FIXED_BAUD (target fixed_baud for the testbench) builds one baud rate without the switches.

@@ -7,6 +7,7 @@ and each dry run: what runs, what stays up to date, and what the dry run said be
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,7 @@ import yaml
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
 
-from .tool_utils import require_bsc, require_nextpnr_ecp5, require_yosys
+from .tool_utils import _require_command, require_bsc, require_nextpnr_ecp5, require_yosys
 
 GCD = Path(__file__).parent.parent / "examples" / "bluespec" / "gcd"
 
@@ -180,3 +181,96 @@ def test_gcd_on_artix7_is_a_synthesis_estimate_of_bsc_and_yosys_fpga(tmp_path) -
     assert [f.name for f in runner.launched] == ["bsc", "yosys_fpga"]
     assert flow.settings.fpga.part == "xc7a100tcsg324-1"
     assert flow.results["lut"] > 0 and flow.results["ff"] > 0
+
+
+@pytest.mark.real_tool
+def test_gcd_on_ecp5_packs_a_bitstream_through_bsc_yosys_fpga_nextpnr_and_fpga_pack(
+    tmp_path,
+) -> None:
+    """`yosys_fpga+nextpnr+fpga_pack --target ecp5` ends at the bitstream of `ecppack`. No
+    programmer runs: the chain stops at `fpga_pack`."""
+    require_bsc()
+    require_nextpnr_ecp5()
+    _require_command("ecppack", ["ecppack", "--help"])
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flow = runner.run("yosys_fpga+nextpnr+fpga_pack", GCD / "gcd.yaml", target="ecp5")
+    assert flow is not None and flow.succeeded, flow and flow.results.get("error")
+    assert [f.name for f in runner.launched] == ["bsc", "yosys_fpga", "nextpnr", "fpga_pack"]
+    assert flow.outputs.bitstream == flow.run_path / "outputs" / "gcd.bit"
+    assert flow.outputs.bitstream.stat().st_size > 1000
+    assert flow.inputs.config == tmp_path / "run" / "gcd" / "ecp5" / "nextpnr" / "config.txt"
+
+
+# ------------------------------------------------------- a generator that writes Bluespec
+
+GENERATOR = """\
+import sys
+from pathlib import Path
+
+width = int(Path("spec.txt").read_text())
+Path("rtl").mkdir(exist_ok=True)
+Path("rtl/Counter.bsv").write_text(f\"\"\"package Counter;
+
+// Written by gen.py.
+(* synthesize *)
+module mkCounter(Reg#(UInt#({width})));
+   Reg#(UInt#({width})) count <- mkReg(0);
+   rule tick;
+      count <= count + 1;
+   endrule
+   return count;
+endmodule
+
+endpackage
+\"\"\")
+"""
+
+
+def test_a_generator_writes_the_bluespec_that_bsc_converts(tmp_path) -> None:
+    """`rtl.generator` and the conversion compose: the generator writes the Bluespec source while
+    the design loads, `bsc` converts it, and `yosys` reads the Verilog. A second launch runs
+    nothing. A change to what the generator reads makes it write another source, and the flows
+    after it run again."""
+    require_bsc()
+    require_yosys()
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "gen.py").write_text(GENERATOR)
+    (root / "spec.txt").write_text("8\n")
+    file = root / "counter.yaml"
+    file.write_text(
+        yaml.safe_dump(
+            {
+                "name": "counter",
+                "rtl": {
+                    "sources": ["rtl/Counter.bsv"],
+                    "top": "mkCounter",
+                    "clock": {"port": "CLK"},
+                    "generator": {
+                        "executable": sys.executable,
+                        "args": ["gen.py"],
+                        "sources": ["gen.py", "spec.txt"],
+                    },
+                },
+                "flows": {"yosys": {"clock": {"period": "5 ns"}}},
+            },
+            sort_keys=False,
+        )
+    )
+
+    def launch() -> tuple[dict[str, bool], Any]:
+        runner = DefaultRunner(tmp_path / "run", display_results=False)
+        flow = runner.run("yosys", file)
+        assert flow is not None and flow.succeeded, flow and flow.results.get("error")
+        return {f.name: f.reused for f in runner.launched}, flow
+
+    first, flow = launch()
+    assert first == {"bsc": False, "yosys": False}
+    assert "UInt#(8)" in (root / "rtl" / "Counter.bsv").read_text()
+    verilog = tmp_path / "run" / "counter" / "bsc"
+    assert any("mkCounter" in path.name for path in verilog.rglob("*.v"))
+    assert launch()[0] == {"bsc": True, "yosys": True}
+    (root / "spec.txt").write_text("12\n")
+    again, _ = launch()
+    assert again == {"bsc": False, "yosys": False}
+    assert "UInt#(12)" in (root / "rtl" / "Counter.bsv").read_text()
