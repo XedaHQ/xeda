@@ -1802,6 +1802,17 @@ REVIEWED_WRITES = [
         f"`send_design`: the archive's design file, in a `TemporaryDirectory` it made: {_OUTSIDE_RUNS}",
     ),
     (
+        "flow_runner/remote.py",
+        'with gzip.open(copy, "wt", encoding="utf-8") as stream:',
+        f"`send_design`: the same copy, compressed as its original is: {_OUTSIDE_RUNS}",
+    ),
+    (
+        "flow_runner/remote.py",
+        'with open(copy, "w") as f:',
+        f"`send_design`: a copy of a Liberty file with its include names changed, in the "
+        f"`TemporaryDirectory` it made: {_OUTSIDE_RUNS}",
+    ),
+    (
         "flows/yosys/common.py",
         "alias.symlink_to(target, target_is_directory=target.is_dir())",
         "creates a link of its own under `path_aliases/`, where no entry is left at the name",

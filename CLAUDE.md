@@ -97,7 +97,10 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   changes the producer's identity. Write cheap outputs always.
 - An input comes from an explicit binding (chain `a+b` or `flows.<flow>.inputs.<input>`), else a
   matching design source, else the default producer. A new edge between netlist or checkpoint
-  types needs `REVIEWED_EDGES` (`tests/test_stage_types.py`).
+  types needs `REVIEWED_EDGES` (`tests/test_stage_types.py`). A netlist, checkpoint or database
+  `SourceType` has one row in `artifact_kinds.KINDS`, and a flow declares a type only for what its
+  settings write; `output_types` narrows an output to `()` for the file it does not write
+  (`tests/test_artifact_kinds.py`).
 - `In(DESIGN)` / `Out(DESIGN)` is the design kind: a flow that reads design sources has a `design`
   input. Only a flow that defines `design_conversion` (and then declares one design output) is a
   converter: the resolver plans it as the default producer of a flow that cannot read the
@@ -108,7 +111,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - A node's identity is its settings hash plus its ordered input origins
   (`bindings.node_identity`). A producer's settings never depend on which consumer asked.
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`,
-  `prjxray_db`, `platform`, `corner`, `dont_use_cells`, `platform_file`, `pdk_provider`,
+  `prjxray_db`, `platform`, `corner`, `dont_use_cells`, `platform_file`, `liberty`, `pdk_provider`,
   `pdk_version`, `pdk_root`, `hierarchical` and `wire_rc` (`SHARED_SETTINGS`) must agree where both
   endpoints declare them. Keep these names first, in order (`tests/test_documentation.py`).
 - YAML snippets in `docs/` and the skill run as tests (`tests/test_chain_documentation.py`); a

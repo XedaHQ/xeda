@@ -4994,6 +4994,16 @@
         "assignable": true,
         "help": "Name of the corner of the platform, or one of its aliases. The default is the default corner of the platform. A flow works on one corner: a list of corners is refused."
       },
+      "liberty": {
+        "children": false,
+        "assignable": true,
+        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
+      },
+      "library": {
+        "children": false,
+        "assignable": true,
+        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
+      },
       "dont_use_cells": {
         "children": false,
         "assignable": true,
@@ -5886,6 +5896,16 @@
         "assignable": true,
         "help": "Name of the corner of the platform, or one of its aliases. The default is the default corner of the platform. A flow works on one corner: a list of corners is refused."
       },
+      "liberty": {
+        "children": false,
+        "assignable": true,
+        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
+      },
+      "library": {
+        "children": false,
+        "assignable": true,
+        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
+      },
       "dont_use_cells": {
         "children": false,
         "assignable": true,
@@ -6545,6 +6565,16 @@
         "children": false,
         "assignable": true,
         "help": "Name of the corner of the platform, or one of its aliases. The default is the default corner of the platform. A flow works on one corner: a list of corners is refused."
+      },
+      "liberty": {
+        "children": false,
+        "assignable": true,
+        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
+      },
+      "library": {
+        "children": false,
+        "assignable": true,
+        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
       },
       "dont_use_cells": {
         "children": false,
@@ -7256,6 +7286,16 @@
         "children": false,
         "assignable": true,
         "help": "Name of the corner of the platform, or one of its aliases. The default is the default corner of the platform. A flow works on one corner: a list of corners is refused."
+      },
+      "liberty": {
+        "children": false,
+        "assignable": true,
+        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
+      },
+      "library": {
+        "children": false,
+        "assignable": true,
+        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
       },
       "dont_use_cells": {
         "children": false,
@@ -12980,7 +13020,8 @@
         "openroad",
         "openroad_cts",
         "openroad_grt"
-      ]
+      ],
+      "netlist_generic": []
     },
     "settings": {
       "verbose": {
@@ -13816,6 +13857,16 @@
         "assignable": true,
         "help": "Name of the corner of the platform, or one of its aliases. The default is the default corner of the platform. A flow works on one corner: a list of corners is refused."
       },
+      "liberty": {
+        "children": false,
+        "assignable": true,
+        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
+      },
+      "library": {
+        "children": false,
+        "assignable": true,
+        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
+      },
       "dont_use_cells": {
         "children": false,
         "assignable": true,
@@ -13850,16 +13901,6 @@
           "true"
         ],
         "help": "Do not run `synth`."
-      },
-      "liberty": {
-        "children": false,
-        "assignable": true,
-        "help": "Standard cell (liberty) libraries to map to. Xeda reads each file as it is and gives each to `dfflibmap` and to `abc`. Without them, the Liberty files of the platform are used."
-      },
-      "library": {
-        "children": false,
-        "assignable": true,
-        "help": "Standard cell (liberty) libraries to map to. Xeda reads each file as it is and gives each to `dfflibmap` and to `abc`. Without them, the Liberty files of the platform are used."
       },
       "gates": {
         "children": false,

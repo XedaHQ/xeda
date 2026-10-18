@@ -140,6 +140,15 @@ class AsicPlatformSettings(Flow.Settings):
         "the default corner of the platform. A flow works on one corner: a list of corners is "
         "refused.",
     )
+    liberty: List[Path] = Field(
+        [],
+        alias="library",
+        description="Standard cell (Liberty) libraries that the flow reads for mapping and timing, "
+        "instead of the Liberty files of the corner of the platform. Xeda reads each file as it "
+        "is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the "
+        "Liberty files of the platform. The platform still gives everything else, and its files "
+        "must be installed. The files of a producer and its consumer agree, in the same order.",
+    )
     dont_use_cells: List[str] = Field(
         [],
         description="Standard cells that the flow must not use, in addition to the cells that "
@@ -198,6 +207,10 @@ class AsicPlatformSettings(Flow.Settings):
 
         return default_root() if self.pdk_root is None else self._in_design(self.pdk_root)
 
+    def liberty_files(self) -> List[Path]:
+        """Return the files of `liberty`, a relative path against the design root, in order."""
+        return [self._in_design(path) for path in self.liberty]
+
     def user_platform_file(self) -> Optional[Path]:
         """Return the residue file of the user, or `None`."""
         return None if self.platform_file is None else self._in_design(self.platform_file)
@@ -252,6 +265,21 @@ class AsicPlatformSettings(Flow.Settings):
         except ValueError as error:
             raise FlowSettingsException(str(error)) from None
 
+    @staticmethod
+    def _included_by(liberty: Path) -> List[Path]:
+        """Return the files that the Liberty file `liberty` includes (`include_file(...)`), which
+        the derivation and the time-unit check read through. A file that is not there gives none:
+        the check that needs it reports it. Raise `FlowSettingsException` for an include that the
+        reader refuses or cannot find."""
+        from ..platforms.derive import liberty_included_files
+
+        if not liberty.is_file():
+            return []
+        try:
+            return liberty_included_files(liberty)
+        except ValueError as error:
+            raise FlowSettingsException(str(error)) from None
+
     def platform_files(
         self, roles: Iterable[str], located: "Optional[Located]" = None
     ) -> List[Path]:
@@ -260,8 +288,10 @@ class AsicPlatformSettings(Flow.Settings):
         First the files of `roles` (the role names of the residue, such as `liberty`, `gds`), in
         the order given. Then the files that the derivation of the platform model reads
         (`DERIVATION_ROLES`) and that are not listed. Then the files of the upstream
-        configuration, and last the residue file of the user. A role that the platform has no
-        files for adds none: the flow that needs it refuses when it prepares its inputs.
+        configuration. Then the files that a Liberty file of the platform or of `liberty`
+        includes with `include_file(...)`, which the derivation and the check of the time unit
+        read. Last comes the residue file of the user. A role that the platform has no files for
+        adds none: the flow that needs it refuses when it prepares its inputs.
         `located` is the result of `locate_platform()` when the caller has it."""
         if located is None:
             located = self.locate_platform()
@@ -269,6 +299,8 @@ class AsicPlatformSettings(Flow.Settings):
         for role in (*roles, *DERIVATION_ROLES):
             listed.update(dict.fromkeys(located.files.get(role, [])))
         listed.update(dict.fromkeys(located.upstream_files))
+        for liberty in (*located.files.get("liberty", []), *self.liberty_files()):
+            listed.update(dict.fromkeys(self._included_by(liberty)))
         user = self.user_platform_file()
         if user is not None:
             listed.setdefault(user)

@@ -267,7 +267,7 @@ Read a gate-level netlist, then floorplan, place and optimize it with OpenROAD. 
 
 Required settings: `platform`
 
-27 flow-specific settings (plus the common ones): `xeda list-settings openroad_place --json`
+28 flow-specific settings (plus the common ones): `xeda list-settings openroad_place --json`
 
 Group `design`: no common settings; 2 more: `xeda list-settings openroad_place --tier expert --json`
 
@@ -347,7 +347,7 @@ Detail-route a globally routed design with OpenROAD, then write the final output
 
 Required settings: `platform`
 
-24 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
+25 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
 
 Group `detailed_route`: `detailed_route.end_iteration`; 17 more: `xeda list-settings openroad --tier expert --json`
 
@@ -375,7 +375,7 @@ Build the clock tree of a placed design with OpenROAD and repair its timing. One
 
 Required settings: `platform`
 
-22 flow-specific settings (plus the common ones): `xeda list-settings openroad_cts --json`
+23 flow-specific settings (plus the common ones): `xeda list-settings openroad_cts --json`
 
 Group `buffers`: `buffers.select`, `buffers.cells`; 6 more: `xeda list-settings openroad_cts --tier expert --json`
 
@@ -407,7 +407,7 @@ Globally route a design that has a clock tree with OpenROAD and repair its timin
 
 Required settings: `platform`
 
-15 flow-specific settings (plus the common ones): `xeda list-settings openroad_grt --json`
+16 flow-specific settings (plus the common ones): `xeda list-settings openroad_grt --json`
 
 Group `pin_access`: no common settings; 6 more: `xeda list-settings openroad_grt --tier expert --json`
 

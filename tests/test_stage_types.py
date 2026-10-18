@@ -6,6 +6,7 @@ routed one. Each case is judged by one predicate, `chains.fitting_outputs`, whet
 chain, a saved binding or a default producer.
 """
 
+import re
 from dataclasses import replace
 from itertools import product
 
@@ -235,6 +236,7 @@ NETLIST_KINDS = frozenset(
     {
         SourceType.JsonNetlist,
         SourceType.VerilogNetlist,
+        SourceType.GenericVerilogNetlist,
         SourceType.VhdlNetlist,
         SourceType.Edif,
         SourceType.Blif,
@@ -395,7 +397,45 @@ def test_the_flows_that_take_a_stage_type_are_the_ones_that_can_use_it():
 
 def test_the_other_netlists_keep_their_formats():
     assert declared_outputs(Yosys)["netlist"].types == (SourceType.VerilogNetlist,)
+    assert declared_outputs(Yosys)["netlist_generic"].types == (SourceType.GenericVerilogNetlist,)
     assert declared_outputs(YosysFpga)["netlist"].types == (SourceType.JsonNetlist,)
     assert declared_outputs(YosysFpga)["netlist_edif"].types == (SourceType.Edif,)
     assert declared_inputs(Nextpnr)["netlist"].types == (SourceType.JsonNetlist,)
     assert declared_inputs(VivadoImpl)["netlist"].types == (SourceType.Edif,)
+
+
+def test_a_generic_netlist_of_yosys_does_not_chain_into_the_placement():
+    """No Liberty library holds the cells of yosys, so the generic netlist is a different type
+    and the placement flow takes only the mapped one."""
+    message = refused("yosys.netlist_generic+openroad_place")
+    assert "GenericVerilogNetlist" in message and re.search(r"\bVerilogNetlist\b", message)
+
+
+def test_an_explicit_binding_of_the_generic_netlist_to_the_placement_is_refused(tmp_path):
+    from .openroad_utils import openroad_design, register_openroad_flows
+
+    store = tiny_store(tmp_path)
+    with register_openroad_flows(), pytest.raises(FlowSettingsException) as error:
+        DefaultRunner(tmp_path / "run", display_results=False).plan(
+            "openroad_place",
+            openroad_design(tmp_path / "design", rtl=True),
+            flow_settings=[*openroad_settings(store), "inputs.netlist=yosys.netlist_generic"],
+        )
+    message = " ".join(str(error.value).split())
+    assert "GenericVerilogNetlist" in message and re.search(r"\bVerilogNetlist\b", message)
+
+
+def test_the_sweep_finds_an_edge_a_wrong_type_of_the_generic_netlist_would_open():
+    """The oracle's teeth: with the generic netlist typed as a mapped one, the sweep reports it as
+    an undocumented input of `openroad_place`."""
+
+    def typed_as_mapped(flow):
+        outputs = declared_outputs(flow)
+        if flow is Yosys:
+            outputs["netlist_generic"] = replace(
+                outputs["netlist_generic"], types=(SourceType.VerilogNetlist,)
+            )
+        return outputs
+
+    opened = undocumented(fitting_edges(typed_as_mapped)) - REVIEWED_EDGES
+    assert ("yosys", "netlist_generic", "openroad_place", "netlist") in opened

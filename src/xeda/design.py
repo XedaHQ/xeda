@@ -665,13 +665,14 @@ class SourceType(str, Enum):
     Vlt = "Vlt"
     Data = "Data"
     # Types by stage. `FpgaNetlist` is a Verilog netlist of FPGA primitives (what Vivado writes),
-    # and `VerilogNetlist` is a standard-cell netlist. `FpgaTimingNetlist` is the timing netlist
-    # of the same design, simulated with an SDF. A checkpoint is written at several stages, and
-    # only the stage says what reads it. So no flow takes `Checkpoint` (no stage), and `.dcp`
-    # names no type. An OpenROAD database (`.odb`) and the SDC that a stage writes with it are
-    # a pair per stage (placed, clock tree, global routed, routed). So no flow takes `Odb`, and
-    # `.odb` names no type. The SDC of a stage needs its own type, because clock tree synthesis
-    # changes the SDC, and a design's `.sdc` file must never stand in for it.
+    # and `VerilogNetlist` is a netlist mapped to the cells of a Liberty library.
+    # `FpgaTimingNetlist` is the timing netlist of the same design, simulated with an SDF. A
+    # checkpoint is written at several stages, and only the stage says what reads it. So no flow
+    # takes `Checkpoint` (no stage), and `.dcp` names no type. An OpenROAD database (`.odb`) and
+    # the SDC that a stage writes with it are a pair per stage (placed, clock tree, global routed,
+    # routed). So no flow takes `Odb`, and `.odb` names no type. The SDC of a stage needs its own
+    # type, because clock tree synthesis changes the SDC, and a design's `.sdc` file must never
+    # stand in for it.
     FpgaNetlist = "FpgaNetlist"
     SynthCheckpoint = "SynthCheckpoint"
     RoutedCheckpoint = "RoutedCheckpoint"
@@ -684,6 +685,10 @@ class SourceType(str, Enum):
     OpenroadSdcCts = "OpenroadSdcCts"
     OpenroadSdcGlobalRouted = "OpenroadSdcGlobalRouted"
     OpenroadSdcRouted = "OpenroadSdcRouted"
+    # A Verilog netlist of the cells of yosys itself (gates, LUTs or coarse cells). No Liberty
+    # library holds them, so `VerilogNetlist` (a netlist mapped to a Liberty library) is a
+    # different type. `xeda.artifact_kinds` has one row for each netlist, checkpoint and database.
+    GenericVerilogNetlist = "GenericVerilogNetlist"
 
     def __str__(self) -> str:
         return str(self.name)
@@ -810,6 +815,7 @@ TYPE_ONLY: frozenset[SourceType] = frozenset(
         SourceType.OpenroadSdcCts,
         SourceType.OpenroadSdcGlobalRouted,
         SourceType.OpenroadSdcRouted,
+        SourceType.GenericVerilogNetlist,
     }
 )
 

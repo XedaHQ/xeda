@@ -348,13 +348,6 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             "insbuf": "`finish.buffer_cell`",
         }
         nosynth: bool = Field(False, description="Do not run `synth`.")
-        liberty: List[Path] = Field(
-            [],
-            alias="library",
-            description="Standard cell (liberty) libraries to map to. Xeda reads each file as it "
-            "is and gives each to `dfflibmap` and to `abc`. Without them, the Liberty files of "
-            "the platform are used.",
-        )
         netlist_attrs: Optional[bool] = Field(
             None,
             description="Include cell and wire attributes in the written Verilog netlist. Unset: "
@@ -454,9 +447,32 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         netlist: Path | None = Out(
             SourceType.VerilogNetlist,
             enabled_by="netlist_verilog",
-            description="The synthesized gate-level Verilog netlist, written at "
-            "`netlist_verilog`, for a place and route tool.",
+            description="The synthesized Verilog netlist, written at `netlist_verilog`, when the "
+            "flow maps to a Liberty library (`liberty`, `platform` or `platform_file`, and no "
+            "`gates` or `lut`). A place and route tool reads it.",
         )
+        netlist_generic: Path | None = Out(
+            SourceType.GenericVerilogNetlist,
+            enabled_by="netlist_verilog",
+            description="The synthesized Verilog netlist, written at `netlist_verilog`, when the "
+            "flow does not map to a Liberty library: its cells are those of yosys (gates, LUTs "
+            "or coarse cells). No Liberty library holds them.",
+        )
+
+    @classmethod
+    def output_types(cls, settings: Flow.Settings, name: str) -> tuple[SourceType, ...]:
+        """Narrow the two netlists to the one that the settings write: the mapped netlist when
+        `maps_to_liberty()`, else the generic one. The other has no type."""
+        types = super().output_types(settings, name)
+        if name in ("netlist", "netlist_generic"):
+            assert isinstance(settings, cls.Settings)
+            return types if cls.netlist_output(settings) == name else ()
+        return types
+
+    @staticmethod
+    def netlist_output(settings: "Yosys.Settings") -> str:
+        """Return the name of the output that the netlist is: the one decision of the flow."""
+        return "netlist" if settings.maps_to_liberty() else "netlist_generic"
 
     @classmethod
     def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
@@ -469,10 +485,10 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         """Refuse settings the run cannot honor, before anything runs.
 
         These are a result that a run stopped by `stop_after` does not write
-        (`stop_after_conflicts`), a platform or `dont_use_cells` together with `gates` or `lut`,
-        the settings of the groups when no liberty mapping runs, the settings that the liberty
-        mapping cannot honor (`LIBERTY_REFUSALS`), and the rules that join several groups. All
-        problems come back in one error.
+        (`stop_after_conflicts`), a platform, `liberty` or `dont_use_cells` together with `gates`
+        or `lut`, the settings of the groups when no liberty mapping runs, the settings that the
+        liberty mapping cannot honor (`LIBERTY_REFUSALS`), and the rules that join several
+        groups. All problems come back in one error.
         """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
@@ -487,6 +503,17 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                             f"`{name}` and `{selector}` cannot both be set: `{selector}` maps to "
                             f"the standard cells of the platform and `{name}` maps to generic "
                             "cells. Set only one of them",
+                        )
+                    )
+        if settings.liberty:
+            for name in ("gates", "lut"):
+                if getattr(settings, name):
+                    problems.append(
+                        (
+                            name,
+                            f"`{name}` and `liberty` cannot both be set: `liberty` maps to the "
+                            f"cells of the Liberty files and `{name}` maps to generic cells. "
+                            "Set only one of them",
                         )
                     )
         if settings.dont_use_cells:
@@ -856,7 +883,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         declared = self.outputs
         assert isinstance(declared, self.Outputs)
         if ss.netlist_verilog:
-            declared.netlist = self.run_path / ss.netlist_verilog
+            setattr(declared, self.netlist_output(ss), self.run_path / ss.netlist_verilog)
 
         # The Liberty files of the platform, when the user gave none: the script reads each as it is.
         model = self.platform_model

@@ -374,7 +374,13 @@ def judge_node(
     # not stop a run.
     try:
         registered = flow.locate_prepared_inputs()
-    except (FlowFatalError, RunDirectoryError, ValueError, OSError) as error:
+    except (
+        FlowFatalError,
+        FlowSettingsException,
+        RunDirectoryError,
+        ValueError,
+        OSError,
+    ) as error:
         return NodeFreshness("unknown", f"its prepared inputs cannot be located: {error}")
     always = flow.always_runs()
     if always is not None:

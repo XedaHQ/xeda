@@ -18,7 +18,7 @@ import zlib
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping, Optional
+from typing import Any, Callable, Iterable, Iterator, Mapping, Optional
 
 __all__ = [
     "LefLayer",
@@ -45,7 +45,7 @@ def _read_text(path: Path) -> str:
         with open(path, encoding="utf-8", errors="replace") as stream:
             return stream.read()
     except (OSError, EOFError, zlib.error) as error:
-        raise ValueError(f"cannot read the PDK file {path}: {error}") from None
+        raise ValueError(f"cannot read the file {path}: {error}") from None
 
 
 def _number(text: str) -> Optional[float]:
@@ -348,7 +348,19 @@ class LibertySummary:
 # One statement or group header of Liberty: the text up to the next `{`, `}` or `;` outside a
 # quoted string. Possessive quantifiers keep the match linear.
 _STATEMENT = re.compile(r'(?:[^{};"]++|"[^"]*+")*+[{};]')
-_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+#: A quoted string, a block comment, or a line comment (`//`, which yosys reads as a comment). A
+#: scan for comments passes over the strings, as OpenSTA does, so that `"/*"` in a string starts no
+#: comment.
+_STRING_OR_COMMENT = re.compile(r'"(?:[^"\\]|\\.)*+"|/\*.*?\*/|//[^\n]*', re.DOTALL)
+
+
+def _without_comments(text: str) -> str:
+    """Return `text` with every comment replaced by a space; quoted strings stay."""
+    return _STRING_OR_COMMENT.sub(
+        lambda match: match.group() if match.group().startswith('"') else " ", text
+    )
+
+
 _CALL = re.compile(r"\s*([A-Za-z_][\w.$]*)\s*\((.*)\)\s*", re.DOTALL)
 _ATTRIBUTE = re.compile(r"\s*([A-Za-z_][\w.$]*)\s*:\s*(.*?)\s*", re.DOTALL)
 _PIN_GROUPS = ("pin", "bus", "bundle")
@@ -384,12 +396,136 @@ def _liberty_statements(text: str) -> Iterator[tuple[str, str]]:
         yield chunk[:-1], chunk[-1]
 
 
+#: A Liberty statement that includes another file: `include_file(name);`. The text of the file
+#: stands in its place. OpenSTA takes everything between the parentheses as the name, spaces and
+#: quotes included. The pattern also matches a quoted string, so that the same scan can pass over
+#: `"... include_file(x) ..."` and leave it as it is.
+_INCLUDE = re.compile(r'"(?:[^"\\]|\\.)*+"|(?<![\w.$])include_file\s*\(([^)]*+)\)\s*;?')
+#: What is left of a file after the includes are replaced and the strings are taken out.
+_STRING = re.compile(r'"(?:[^"\\]|\\.)*+"')
+_INCLUDE_WORD = re.compile(r"(?<![\w.$])include_file\b")
+#: The deepest chain of `include_file` that the reader follows.
+MAX_INCLUDE_DEPTH = 8
+
+
+def _liberty_text(
+    path: Path, chain: tuple[Path, ...] = (), included: Optional[list[Path]] = None
+) -> str:
+    """Return the text of a Liberty file without comments, with every `include_file(...)` replaced
+    by the text of the file it names.
+
+    The reader takes a name as OpenSTA does, so that it sees the text that OpenROAD reads. OpenSTA
+    opens the name between the parentheses as written, in its working directory: a relative name
+    is not relative to the file that includes it, a name in quotes keeps its quotes, and spaces
+    next to the parentheses belong to the name. So the name must be an absolute path without
+    quotes. A name of another kind, an `include_file` that is no statement of this form, a file
+    that includes itself (directly or through other files), a chain deeper than
+    `MAX_INCLUDE_DEPTH`, and a file that does not exist are errors. All raise `ValueError`.
+    `included` collects the files that were included, each once, in the order of the text."""
+    text = _without_comments(_read_text(path)).replace("\\\n", " ")
+    if "include_file" not in text:
+        return text
+    here = path.resolve()
+    if here in chain:
+        raise ValueError(
+            f"the Liberty file {path} includes itself: "
+            + " -> ".join(str(item) for item in (*chain, here))
+        )
+    if len(chain) >= MAX_INCLUDE_DEPTH:
+        raise ValueError(
+            f"the Liberty file {path} is included {len(chain)} levels deep, and the reader "
+            f"follows at most {MAX_INCLUDE_DEPTH}"
+        )
+
+    def include(match: re.Match[str]) -> str:
+        if match.group().startswith('"'):
+            return match.group()  # a string that mentions `include_file`, not a statement
+        name = match.group(1)
+        if name.startswith('"'):
+            raise ValueError(
+                f"the Liberty file {path} includes {name} in quotes: OpenSTA keeps the quotes in "
+                "the name and cannot open the file. Write the absolute path without quotes"
+            )
+        target = Path(name)
+        if not target.is_absolute():
+            raise ValueError(
+                f"the Liberty file {path} includes {name!r}, which is no absolute name: OpenSTA "
+                "opens the name as written (spaces next to the parentheses belong to it) in its "
+                "working directory, not next to the including file. Write the absolute path"
+            )
+        if not target.is_file():
+            raise ValueError(f"the Liberty file {path} includes {name}, which is not a file")
+        if included is not None and target not in included:
+            included.append(target)
+        return _liberty_text(target, (*chain, here), included)
+
+    expanded = _INCLUDE.sub(include, text)
+    if _INCLUDE_WORD.search(_STRING.sub(" ", expanded)):
+        raise ValueError(
+            f"the Liberty file {path} has an include_file that the reader cannot read: write it "
+            "as include_file(/absolute/name.lib);"
+        )
+    return expanded
+
+
+#: A string, a comment, or an include statement, in the text of a file as it is written. Only the
+#: include statement is replaced when a copy of a Liberty file is written for another machine.
+_RAW_INCLUDE = re.compile(
+    r'"(?:[^"\\]|\\.)*+"|/\*.*?\*/|//[^\n]*|(?<![\w.$])(include_file\s*\()([^)]*+)(\)\s*;?)',
+    re.DOTALL,
+)
+
+
+def liberty_text_with_includes_renamed(path: Path, rename: Callable[[Path], str]) -> str:
+    """Return the text of the Liberty file `path` with the name of each `include_file(...)`
+    replaced by `rename(file)`, where `file` is the included file. Strings and comments stay as
+    they are. The file itself is not followed: the caller writes one copy for each file of
+    `liberty_included_files`. A `.gz` file is read decompressed. Raise `ValueError` as the reader
+    does for a name it cannot accept."""
+    text = _read_text(path)
+
+    def replace(match: re.Match[str]) -> str:
+        if match.group(1) is None:
+            return match.group()  # a string or a comment
+        name = match.group(2)
+        if name.startswith('"') or not Path(name).is_absolute():
+            raise ValueError(
+                f"the Liberty file {path} includes {name!r}, which OpenSTA cannot open"
+            )
+        return match.group(1) + rename(Path(name)) + match.group(3)
+
+    return _RAW_INCLUDE.sub(replace, text)
+
+
+def liberty_mentions(path: Path, word: str) -> bool:
+    """Return whether the Liberty file `path`, with its includes, uses `word` outside strings and
+    comments. A summary that has no value for an attribute that the file mentions did not read
+    that attribute (OpenSTA reads a simple attribute that has no closing semicolon)."""
+    text = _STRING.sub(" ", _liberty_text(path))
+    return re.search(rf"(?<![\w.$]){re.escape(word)}\b", text) is not None
+
+
+def liberty_included_files(path: Path) -> list[Path]:
+    """Return the files that the Liberty file `path` includes with `include_file(...)`, directly
+    or through other files: each once, in the order of the text. The file itself is not in the
+    list. A file without `include_file` gives an empty list.
+
+    The names are those that `_liberty_text` accepts, so a flow that registers these files as
+    inputs registers what the reader read. Raise `ValueError` as the reader does."""
+    if "include_file" not in _read_text(path):
+        return []
+    found: list[Path] = []
+    _liberty_text(path, (), found)
+    return found
+
+
 def read_liberty_summary(path: Path) -> LibertySummary:
     """Read a Liberty file (plain or `.gz`) and return its cells and header values.
 
-    The reader goes through the groups by depth and looks only at the attributes of the library,
-    of its cells and of the pins of the cells. It skips the timing data of a cell."""
-    text = _COMMENT.sub(" ", _read_text(path)).replace("\\\n", " ")
+    The reader follows `include_file(...)` (`_liberty_text`), goes through the groups by depth and
+    looks only at the attributes of the library, of its cells and of the pins of the cells. It
+    skips the timing data of a cell."""
+    text = _liberty_text(path)
     summary = LibertySummary()
     stack: list[str] = []
     cell: dict[str, Any] = {}
@@ -409,7 +545,11 @@ def read_liberty_summary(path: Path) -> LibertySummary:
             if name == "nom_voltage":
                 summary.nom_voltage = _number(value)
             elif name == "time_unit":
-                summary.time_unit = value
+                # OpenSTA reads the text between the quotes as it is, spaces included
+                raw = match.group(2).strip()
+                summary.time_unit = (
+                    raw[1:-1] if len(raw) >= 2 and raw[0] == raw[-1] == '"' else value
+                )
         elif depth == 2 and stack[1] == "cell":
             if name == "area":
                 cell["area"] = _number(value)

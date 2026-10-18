@@ -544,6 +544,9 @@ Some flows declare inputs and outputs (``xeda list-flows --json`` shows them). `
         - {file: "top.json", type: JsonNetlist}
       top: top
 
+A listed netlist is your statement of what it is. Xeda does not parse it or compare it with
+``platform``, ``liberty`` or ``fpga`` (see :ref:`the rule for a listed netlist <listed-netlist>`).
+
 Xeda resolves the declared producers and their settings before anything runs. A scalar input
 needs exactly one matching source. A source or a binding (a chain, or ``flows.<flow>.inputs``)
 can displace a default producer. A displaced producer is not part of the run, its settings are
@@ -558,12 +561,13 @@ Xeda verifies them and records them with content digests in ``results.json``. Co
 those checked records, for producers that ran now and producers that Xeda reused.
 
 Along a declared edge, shared settings (``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
-``prjxray_db``, ``platform``, ``corner``, ``dont_use_cells``, ``platform_file``, ``pdk_provider``,
+``prjxray_db``, ``platform``, ``corner``, ``dont_use_cells``, ``platform_file``, ``liberty``, ``pdk_provider``,
 ``pdk_version``, ``pdk_root``, ``hierarchical`` and ``wire_rc``) must agree where both endpoints
 declare them. A ``platform`` is
 the name of a bundled platform. ``platform_file`` and ``pdk_root`` are paths: Xeda compares them by
 the resolved path, and a relative path is relative to the design root. Xeda compares a ``corner``
-by its name. When ``pdk_provider`` or ``pdk_version`` is unset, Xeda fills it in from the platform
+by its name. Xeda compares ``liberty`` as a list of resolved paths in order, so the same files in
+another order disagree. When ``pdk_provider`` or ``pdk_version`` is unset, Xeda fills it in from the platform
 before it hashes any node, so the version of the PDK is part of the identity of every node in the
 group. ``pdk_root`` is not. It tells where the files are, and the same files in another place are
 the same run. ``hierarchical`` and ``wire_rc`` belong to the OpenROAD flows only: an OpenROAD
@@ -725,7 +729,9 @@ Every declared input has one origin, chosen in this order:
 
 1. an explicit binding: a chain link or a saved ``inputs`` entry (below)
 2. otherwise a typed source in ``rtl.sources``, in source order. A ``JsonNetlist`` supplies the
-   ``netlist`` of ``nextpnr``, and no synthesis runs.
+   ``netlist`` of ``nextpnr``, and no synthesis runs. A netlist that you list is your statement of
+   what it is: Xeda does not parse it or compare it with the platform (see
+   :ref:`the rule for a listed netlist <listed-netlist>`).
 3. otherwise the default producer of the input (``yosys_fpga`` for the ``netlist`` of
    ``nextpnr``)
 
@@ -1481,11 +1487,23 @@ undefined bits, and it warns only with a critical warning (``[Netlist 29-72]``).
 Yosys standard-cell mapping
 ===========================
 
-``yosys`` maps a design to a standard-cell library when the flow has ``liberty`` files or a
-``platform``, and it has no ``gates`` or ``lut`` setting. The platform supplies the Liberty files,
-the mapping files, the tie and buffer cells, and the defaults that this section describes. Set
-``platform`` to a bundled platform name, or ``platform_file`` to a platform of your own (see
+``yosys`` maps a design to a standard-cell library when the flow has ``liberty`` files, a
+``platform`` or a ``platform_file``. Mapping to library cells and mapping to the generic gates or
+LUTs of Yosys contradict each other, so ``gates`` or ``lut`` together with one of these three is
+refused. The platform supplies the Liberty files, the mapping files, the tie and buffer cells, and
+the defaults that this section describes. Set ``platform`` to a bundled platform name, or
+``platform_file`` to a platform of your own (see
 :doc:`platforms`).
+
+``yosys`` has two netlist outputs. A run that writes the Verilog netlist (``netlist_verilog``)
+writes exactly one of them. ``netlist`` (type ``VerilogNetlist``) is written when the run maps to a
+Liberty library: ``liberty``, ``platform`` or ``platform_file`` is set, and ``gates`` and ``lut``
+are not. ``netlist_generic`` (type ``GenericVerilogNetlist``) is written in all other cases:
+``gates``, ``lut``, ``nosynth``, or no platform and no ``liberty``. ``results.json`` records the
+netlist of a run under ``outputs.netlist`` or ``outputs.netlist_generic``, whichever the run
+wrote. The ``netlist_verilog`` setting and the delivered file are the same for both.
+``openroad_place`` takes only ``netlist``, because a netlist of the cells of Yosys has no Liberty
+library.
 
 Reading the sources
 -------------------
@@ -1832,6 +1850,18 @@ The database keeps neither the wire resistance and capacitance nor the way it wa
 ``wire_rc`` and ``hierarchical`` are therefore settings of every OpenROAD flow, and they must agree
 along the chain (see `Producers and consumers`_). ``wire_rc`` replaces the wire RC of the platform
 layer by layer. ``dont_use_cells`` adds to the cells that the platform excludes.
+
+Each OpenROAD flow also has the shared setting ``liberty`` (alias ``library``). It names the
+Liberty files that the flow times against, in place of the Liberty files of the corner of the
+platform. The platform model still comes from the platform: the units, the tie cells, the wire RC
+and the site. So the platform files must be installed. The flow refuses a ``liberty`` file whose
+time unit differs from the time unit of the platform, because the stages scale all times by the
+unit of the platform. OpenSTA reads a time unit only as 1, 10 or 100 and a unit (``1ns``, ``10ps``)
+without spaces. It reads ``1000ps`` as ``1ps`` and ``1.0ns`` as one second, so the flow refuses any
+other spelling. OpenROAD also reads the wire capacitance of the platform in the capacitance unit of
+the first Liberty file, so the flow refuses a first file with another capacitance unit. A later
+file can have its own. ``liberty`` must agree along the chain with the same files in the same order
+(see `Producers and consumers`_).
 
 The verdict of the last flow
 ----------------------------
