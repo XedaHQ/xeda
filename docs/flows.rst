@@ -1497,12 +1497,21 @@ of ``rtl.sources``, as OpenROAD-flow-scripts does. The sources are then one comp
 or a package that one file declares is known in all the others. ``read_systemverilog_flags`` apply to
 that command, and ``read_verilog_flags`` do not apply to the Verilog sources it reads.
 
-The Verilog sources of that design follow the rules of slang, not those of ``read_verilog``. The
-main difference is that slang resolves every module instance when it reads the sources. A module
-that the design defines later, in a ``verilog_lib`` file or in a VHDL source, is unknown at that
-point and the read fails. Yosys resolves such an instance later, but only for ``read_verilog``. A
-design with Verilog sources only still uses ``read_verilog``, and so does a design that sets
-``systemverilog: default``.
+The command also sets the parameters of the top module, with ``-G NAME=VALUE`` as
+OpenROAD-flow-scripts does, and the script then has no ``chparam``. slang elaborates a module while
+it reads the sources, so ``chparam`` cannot change a parameter afterwards. An integer, a sized
+literal such as ``7'b0101001``, a boolean (``1'b1`` or ``1'b0``), a string and a real number all
+reach the top in the form that slang needs. The tokenizer of a Yosys script ends a string value
+at whitespace, so Xeda refuses a string parameter with whitespace or a double quote when slang
+reads the design. Remove them from the value, or set ``systemverilog: default``.
+
+slang resolves every module instance when it reads the sources. So the script reads the files of
+``verilog_lib``, and the Liberty files that the flow reads itself, before the ``read_slang``
+command. The script reads VHDL sources after it, as before. A top module in Verilog or
+SystemVerilog cannot instantiate a VHDL entity.
+
+A design with Verilog sources only still uses ``read_verilog`` and ``chparam``, and so does a design
+that sets ``systemverilog: default``.
 
 The mapping script
 ------------------

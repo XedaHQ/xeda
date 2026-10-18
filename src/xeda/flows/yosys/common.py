@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple
 
 from ...dataclass import WORKING, Field, deliverable, field_validator
-from ...design import LANGUAGE_TYPES, SourceType
+from ...design import LANGUAGE_TYPES, Design, SourceType
 from ...flow import Flow, FlowException, FlowSettingsError, FlowSettingsException, NoReplacement
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
@@ -503,6 +503,32 @@ class YosysBase(Flow):
             raise FlowSettingsError(
                 [(key, message, None, "value_error") for key, message in problems], cls.Settings
             )
+
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """Refuse a parameter that a yosys script cannot give to `read_slang -G`.
+
+        With the slang front end, `-G NAME="text"` sets a string parameter. The script tokenizer
+        of yosys ends such a word at whitespace, and a double quote inside the text ends it too.
+        A Tcl script has no such limit, but Xeda selects the format from the settings alone, so
+        the rule holds for every flow that can write a yosys script. A design with a VHDL source
+        has its generics set by GHDL, and the rule leaves it alone.
+        """
+        super().check_design_supported(design, settings)
+        if not isinstance(settings, cls.Settings) or settings.systemverilog != "slang":
+            return
+        if cls.script_format(settings) != "ys":
+            return
+        types = {src.type for src in design.rtl.sources}
+        if SourceType.SystemVerilog not in types or SourceType.Vhdl in types:
+            return
+        for name, value in design.rtl.parameters.items():
+            if isinstance(value, str) and re.search(r'[\s"]', value):
+                raise FlowSettingsException(
+                    f"The value of the parameter `{name}` has whitespace or a double quote, and "
+                    "a yosys script cannot give it to `read_slang -G`. Remove them from the value, "
+                    'or set `systemverilog: "default"`.'
+                )
 
     def init(self):
         """Prepare the template helpers and the settings that every yosys flow shares."""
