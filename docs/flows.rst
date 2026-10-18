@@ -1487,6 +1487,23 @@ the mapping files, the tie and buffer cells, and the defaults that this section 
 ``platform`` to a bundled platform name, or ``platform_file`` to a platform of your own (see
 :doc:`platforms`).
 
+Reading the sources
+-------------------
+
+``yosys``, ``yosys_fpga`` and ``yosys_sim`` read the Verilog sources of a design with
+``read_verilog``. When the design also has a SystemVerilog source and ``systemverilog`` is
+``slang``, one ``read_slang`` reads the Verilog and the SystemVerilog sources together, in the order
+of ``rtl.sources``, as OpenROAD-flow-scripts does. The sources are then one compilation. A module
+or a package that one file declares is known in all the others. ``read_systemverilog_flags`` apply to
+that command, and ``read_verilog_flags`` do not apply to the Verilog sources it reads.
+
+The Verilog sources of that design follow the rules of slang, not those of ``read_verilog``. The
+main difference is that slang resolves every module instance when it reads the sources. A module
+that the design defines later, in a ``verilog_lib`` file or in a VHDL source, is unknown at that
+point and the read fails. Yosys resolves such an instance later, but only for ``read_verilog``. A
+design with Verilog sources only still uses ``read_verilog``, and so does a design that sets
+``systemverilog: default``.
+
 The mapping script
 ------------------
 

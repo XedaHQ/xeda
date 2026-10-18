@@ -262,16 +262,18 @@ class YosysBase(Flow):
         )
         read_verilog_flags: List[str] = Field(
             ["-noautowire", "-sv"],
-            description="Flags passed to yosys' `read_verilog` for each Verilog source. When "
-            "`yosys` maps to a liberty library, it refuses a flag that the script or a setting "
-            "gives (`-defer`, `-D`, `-I`).",
+            description="Flags passed to yosys' `read_verilog` for each Verilog source. They do "
+            "not apply to the Verilog sources of a design that `slang` reads together with its "
+            "SystemVerilog sources. When `yosys` maps to a liberty library, it refuses a flag that "
+            "the script or a setting gives (`-defer`, `-D`, `-I`).",
         )
         read_systemverilog_flags: List[str] = Field(
             [],
             description="Flags passed to the SystemVerilog front-end selected by `systemverilog`. "
-            "With `slang`, a flag that the script gives to `read_slang` itself (`--top`, `-D`, "
-            "`-I`, `-G`, `--blackboxed-module`, `--extern-modules`, "
-            "`--best-effort-hierarchy`) is refused.",
+            "With `slang`, they also apply to the Verilog sources, which the same `read_slang` "
+            "reads when the design has a SystemVerilog source. A flag that the script gives to "
+            "`read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, "
+            "`--extern-modules`, `--best-effort-hierarchy`) is refused.",
         )
         check_assert: bool = Field(
             True,
@@ -315,7 +317,9 @@ class YosysBase(Flow):
         systemverilog: Literal["default", "uhdm", "slang"] = Field(
             "slang",
             description="Front-end used for SystemVerilog sources: yosys' built-in reader "
-            "(`default`), Surelog/UHDM (`uhdm`), or the slang plugin (`slang`).",
+            "(`default`), Surelog/UHDM (`uhdm`), or the slang plugin (`slang`). With `slang`, "
+            "one `read_slang` reads the Verilog sources of a design that has a SystemVerilog "
+            "source too.",
         )
         use_slang_plugin: bool = Field(
             True,

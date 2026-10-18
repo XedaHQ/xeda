@@ -723,6 +723,43 @@ def test_yosys_elaborates_a_package_that_another_systemverilog_file_declares(tmp
     assert flow is not None and flow.succeeded
 
 
+def test_yosys_reads_verilog_with_the_systemverilog_of_a_design_in_one_read_slang(tmp_path):
+    """A design with a SystemVerilog source gives its Verilog sources to the same `read_slang`,
+    as OpenROAD-flow-scripts does. The Verilog modules and the SystemVerilog modules then see one
+    another in one compilation, and the include directories reach both."""
+    require_yosys()
+    _require("the yosys slang plugin", _probe_yosys_slang(), "`plugin -i slang`")
+    _write(tmp_path / "inc" / "defs.vh", "`define W 4\n")
+    _write(tmp_path / "pkg.sv", "package p;\n  localparam int W = 4;\nendpackage\n")
+    _write(
+        tmp_path / "gate.v",
+        '`include "defs.vh"\n'
+        "module gate(input [`W-1:0] a, output [`W-1:0] y);\n"
+        "  assign y = ~a;\n"
+        "endmodule\n",
+    )
+    _write(
+        tmp_path / "top.sv",
+        "module top import p::*; (input logic [W-1:0] a, output logic [W-1:0] y);\n"
+        "  gate u_gate(.a(a), .y(y));\n"
+        "endmodule\n",
+    )
+    design = Design(
+        name="mixed",
+        design_root=tmp_path,
+        rtl={"sources": ["inc/defs.vh", "gate.v", "pkg.sv", "top.sv"], "top": "top"},
+    )
+    flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, {})
+    assert flow is not None and flow.succeeded
+    log = (flow.run_path / "yosys.log").read_text()
+    assert len(re.findall(r"^\d+\. Executing SLANG frontend", log, re.MULTILINE)) == 1
+    assert not [
+        line for line in log.splitlines() if "Verilog-2005 frontend" in line and "gate.v" in line
+    ]
+    modules = json.loads((flow.run_path / "netlist.json").read_text())["modules"]
+    assert "top" in modules
+
+
 def test_yosys_passes_vhdl_top_generics_to_ghdl_and_leaves_the_design_alone(tmp_path):
     """A VHDL top's generics reach yosys through GHDL (`-g<name>=<value>`), after which the
     elaborated top has no parameters left to `chparam`. `init` used to express the second half
