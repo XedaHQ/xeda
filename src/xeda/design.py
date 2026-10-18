@@ -104,6 +104,7 @@ __all__ = [
     "AMBIGUOUS_SUFFIXES",
     "TYPE_ONLY",
     "LANGUAGE_TYPES",
+    "root_relative_text",
     "source_type_named",
     "source_type_of",
     "SourceType",
@@ -911,6 +912,18 @@ def source_table_problems(table: Mapping[str, Any]) -> list[str]:
     return problems
 
 
+def root_relative_text(root: Path, path: Path) -> str:
+    """Return the path from `root` to `path` as POSIX text, whatever the system.
+
+    The path may begin with `..` for a file outside the root. Where no relative path exists (on
+    Windows, a file on another drive than the root), the absolute path stands: it is the location
+    that the design names."""
+    try:
+        return Path(os.path.relpath(path, root)).as_posix()
+    except ValueError:
+        return Path(path).as_posix()
+
+
 class DesignSource(FileResource):
     type: SourceType
 
@@ -946,6 +959,12 @@ class DesignSource(FileResource):
         # (`{file: legacy.v, type: SystemVerilog}`) would be lost if the dump left it out, and it
         # is part of the design's identity.
         self._stated: dict[str, Any] = {"type": str(self.type)} if typ is not None else {}
+        #: The place of a source that a converter flow generated, in the output of that flow. Only
+        #: the design a converter derives sets it (`xeda.flow.derived`). It stands for the path
+        #: from the design root in the identity of the design (`Design._source_fingerprint`),
+        #: since the path into a run directory depends on where the run root is. It is no part of
+        #: the table of a source, and a design that is loaded from a file never has it.
+        self.generated_name: str | None = None
 
     def as_json_value(self) -> Union[str, Dict[str, Any]]:
         """Serialize a source with only the metadata explicitly supplied."""
@@ -3349,8 +3368,9 @@ class Design(XedaBaseModel):
         return None
 
     def _source_fingerprint(self, source: DesignSource) -> Dict[str, Any]:
-        """Return what identifies a source: its content, its type and its path relative to the
-        design root.
+        """Return what identifies a source: its content, its type and its place: its path relative
+        to the design root, or for a file that a converter generated, its name in the output of
+        the converter (`DesignSource.generated_name`).
 
         A source's location may affect include resolution, commands in a sourced constraint or
         script, and tool lookup. Counting every declared source by path avoids reusing a cached
@@ -3360,11 +3380,16 @@ class Design(XedaBaseModel):
         place depends on where files sit relative to each other, so moving a design together with
         what it names keeps its identity, and so does any spelling of the path.
         """
-        return {
+        fingerprint: Dict[str, Any] = {
             "content": source.content_hash,
             "type": str(source.type) if source.type is not None else None,
-            "path": Path(os.path.relpath(source.file, self.root_path)).as_posix(),
         }
+        if source.generated_name is not None:
+            # A file a converter generated: where it sits in the output of the converter.
+            fingerprint["generated"] = source.generated_name
+        else:
+            fingerprint["path"] = root_relative_text(self.root_path, source.file)
+        return fingerprint
 
     @property
     def rtl_hash(self) -> str:

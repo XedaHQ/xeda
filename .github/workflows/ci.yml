@@ -164,6 +164,7 @@ jobs:
           tests/test_run_dir_safety.py
           tests/test_run_root.py
           tests/test_isolation.py
+          tests/test_generated_names.py
           tests/test_locator_settings.py
           tests/test_pdk_providers.py
           tests/test_pdk_cli.py

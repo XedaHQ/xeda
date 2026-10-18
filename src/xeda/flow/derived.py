@@ -37,6 +37,7 @@ __all__ = [
     "Passed",
     "derive_design",
     "derived_sources",
+    "generated_name",
     "planned_design",
     "recorded_files",
 ]
@@ -79,10 +80,16 @@ class DesignConversion:
 
 @dataclass(frozen=True)
 class Generated:
-    """A source that the converter wrote: its file and its language."""
+    """A source that the converter wrote: its file and its language.
+
+    `name` is the place of the file in the output of the converter (the path within its run
+    directory, in POSIX form). It stands for the file in the identity of the derived design, in
+    place of a path that leads from the design root into the run directory (`generated_name` of a
+    `DesignSource`). A flow leaves it out: the record of the run sets it."""
 
     path: Path
     type: SourceType
+    name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -132,9 +139,9 @@ def _derived(design: Design, sources: DerivedSources, *, checked: bool) -> Desig
                 )
             listed.append(copy.rtl.sources[entry.index])
         else:
-            listed.append(
-                DesignSource({("file" if checked else "path"): str(entry.path)}, entry.type)
-            )
+            source = DesignSource({("file" if checked else "path"): str(entry.path)}, entry.type)
+            source.generated_name = entry.name
+            listed.append(source)
     copy.rtl = copy.rtl.model_copy(
         update={"sources": listed, "top": sources.top, "parameters": {}, "generator": None}
     )
@@ -162,16 +169,41 @@ def planned_design(design: Design, conversion: DesignConversion, where: Path) ->
     return _derived(design, DerivedSources(design.rtl.top, tuple(entries)), checked=False)
 
 
-def derived_sources(record: Mapping[str, Any]) -> DerivedSources:
+def generated_name(path: Path, base: Path) -> str:
+    """Return the place of the generated file `path` in the output under `base`, as POSIX text.
+
+    `base` is the run directory of the converter. The place is that of the file the path leads to
+    (a link in the output stands for its target) when the target is inside `base`, and the path
+    of the link itself when it is not. It never depends on where `base` is. A `ValueError` says
+    that `path` is not inside `base`."""
+    resolved = base.resolve()
+    for candidate in (path.resolve(), path):
+        for root in (resolved, base):
+            try:
+                return candidate.relative_to(root).as_posix()
+            except ValueError:
+                continue
+    raise ValueError(f"{path} is not inside {base}")
+
+
+def derived_sources(record: Mapping[str, Any], base: Path | None = None) -> DerivedSources:
     """Return the sources that a design record lists (`results.json`, `outputs.design`).
 
-    The record has the shape that `flow_runner.outputs.recorded_entries` checks. A malformed
-    entry raises a `ValueError`."""
+    The record has the shape that `flow_runner.outputs.recorded_entries` checks. With `base`, the
+    run directory of the converter, each generated file gets its place in the output
+    (`generated_name`). A malformed entry raises a `ValueError`."""
     entries: list[Generated | Passed] = []
     try:
         for item in record["sources"]:
             if "generated" in item:
-                entries.append(Generated(Path(item["generated"]), SourceType[item["type"]]))
+                path = Path(item["generated"])
+                entries.append(
+                    Generated(
+                        path,
+                        SourceType[item["type"]],
+                        None if base is None else generated_name(path, base),
+                    )
+                )
             else:
                 entries.append(Passed(item["source"]))
         return DerivedSources(record["top"], tuple(entries))
@@ -179,12 +211,13 @@ def derived_sources(record: Mapping[str, Any]) -> DerivedSources:
         raise ValueError(f"a design record is malformed: {error!r}") from error
 
 
-def derive_design(design: Design, record: Mapping[str, Any]) -> Design:
+def derive_design(design: Design, record: Mapping[str, Any], base: Path) -> Design:
     """Return the design that a converter derived from `design`, from the record of its run.
 
-    `record` is the verified record of the design output. Whether the converter ran now or an
-    earlier run is reused, the same record gives the same design."""
-    return _derived(design, derived_sources(record), checked=True)
+    `record` is the verified record of the design output, and `base` the run directory of the
+    converter. Whether the converter ran now or an earlier run is reused, the same record gives
+    the same design. Its identity does not depend on where `base` is (`generated_name`)."""
+    return _derived(design, derived_sources(record, base), checked=True)
 
 
 def recorded_files(recorded: Any) -> list[tuple[dict[str, Any], str]]:

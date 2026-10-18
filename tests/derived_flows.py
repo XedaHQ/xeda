@@ -63,3 +63,60 @@ def converter_flows() -> tuple[type[Flow], type[Flow], type[Flow]]:
         written = SourceType.Vhdl
 
     return _FakeBsc, _Rival, _ToVhdl
+
+
+def vhdl_converter() -> type[Flow]:
+    """Define a converter of VHDL into Verilog, which passes every other source through.
+
+    Bsc reads Bluespec and Verilog, so a design with VHDL beside Bluespec gives a second converter
+    something to convert for the first one: the case of two conversions in a row."""
+
+    class _VhdlToVerilog(Flow):
+        """Converts each VHDL source into a module of the same name, for the tests."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        reads_sources = frozenset({SourceType.Vhdl, SourceType.Verilog})
+
+        class Outputs(Flow.Outputs):
+            design: DerivedSources | None = Out(DESIGN, description="The converted design.")
+
+        @classmethod
+        def design_conversion(cls, settings: Flow.Settings) -> DesignConversion | None:
+            return DesignConversion(frozenset({SourceType.Vhdl}), frozenset({SourceType.Verilog}))
+
+        def run(self) -> None:
+            entries: list[Generated | Passed] = []
+            for index, source in enumerate(self.design.rtl.sources):
+                if source.type is SourceType.Vhdl:
+                    path = self.run_path / f"{Path(source.file).stem}.v"
+                    with replacing_file(self.run_directory.writable(path)) as f:
+                        f.write(MODULE_TEXT.format(name=path.stem))
+                    entries.append(Generated(path, SourceType.Verilog))
+                else:
+                    entries.append(Passed(index))
+            assert isinstance(self.outputs, self.Outputs)
+            self.outputs.design = DerivedSources(self.design.rtl.top, tuple(entries))
+
+    return _VhdlToVerilog
+
+
+def design_output_flow() -> type[Flow]:
+    """Define a flow that has a design output and no conversion: it is no converter.
+
+    It stands for a flow that writes a design for others to read, such as a netlist for gate-level
+    simulation, which converts nothing of the design it reads."""
+
+    class _Netlister(Flow):
+        """Writes a design and converts none, for the tests."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        reads_sources = frozenset({SourceType.Verilog})
+
+        class Outputs(Flow.Outputs):
+            design: DerivedSources | None = Out(DESIGN, description="The design it writes.")
+
+        def run(self) -> None:
+            assert isinstance(self.outputs, self.Outputs)
+            self.outputs.design = DerivedSources(self.design.rtl.top, ())
+
+    return _Netlister

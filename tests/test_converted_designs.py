@@ -495,6 +495,29 @@ def test_the_flow_is_hashed_and_recorded_on_the_derived_design(tmp_path) -> None
     assert listed == ["Top.v", "ext.v"]
 
 
+def test_the_design_hash_of_the_reader_does_not_depend_on_where_the_run_root_is(tmp_path) -> None:
+    """The hashes are free of location: the same design under two run roots, near the design and
+    far from it, gives the reader one design hash and one identity."""
+    events = Events()
+    converter, reader = consumer_flows(events)
+    path = write_design(
+        tmp_path / "d",
+        sources=("Top.bsv", "ext.v"),
+        flows={reader.name: {"inputs": {"design": converter.name}}},
+    )
+    flows = [
+        DefaultRunner(tmp_path / run_root, display_results=False).run_flow(
+            reader, Design.from_file(path)
+        )
+        for run_root in ("run", "deeper/elsewhere/run")
+    ]
+    near, far = flows
+    assert near is not None and far is not None and near.succeeded and far.succeeded
+    assert near.run_path != far.run_path
+    assert near.design_hash == far.design_hash
+    assert near.flow_hash == far.flow_hash
+
+
 def test_a_second_launch_runs_nothing_and_an_edit_reruns_what_it_changes(tmp_path) -> None:
     events = Events()
     classes = consumer_flows(events)
@@ -564,8 +587,8 @@ def test_a_dry_run_agrees_with_the_launch(tmp_path) -> None:
 def test_a_fresh_converter_whose_record_does_not_verify_leaves_the_reader_unknown(
     tmp_path, monkeypatch
 ) -> None:
-    """The trace of the converter holds, so the converter is fresh, but its record in
-    `results.json` is for another design. The reader is unknown, for the reason of the hand-over.
+    """The trace of the converter holds, so the converter is fresh, but a file of its record in
+    `results.json` has another digest. The reader is unknown, for the reason of the hand-over.
 
     A real edit of the record or of a generated file also changes the trace, which makes the
     converter stale. So the trace check of the converter is patched to hold."""
@@ -576,7 +599,8 @@ def test_a_fresh_converter_whose_record_does_not_verify_leaves_the_reader_unknow
     converter_run = the_runner.run_path_of(design.name, converter.name)
     results_path = converter_run / "results.json"
     document = json.loads(results_path.read_text())
-    document["outputs"]["design"]["input_design"] = "0" * 64
+    (generated,) = [s for s in document["outputs"]["design"]["sources"] if "generated" in s]
+    generated["sha"] = "0" * 32
     results_path.write_text(json.dumps(document))
     real = plan_freshness.check_trace
 
@@ -588,8 +612,10 @@ def test_a_fresh_converter_whose_record_does_not_verify_leaves_the_reader_unknow
     monkeypatch.setattr(plan_freshness, "check_trace", trace_holds_for_the_converter)
     _plan, judged = the_runner.plan_with_freshness(reader, design)
     assert judged[converter.name].state == "fresh"
-    assert judged[reader.name] == NodeFreshness(
-        "unknown", f"{converter.name}'s output `design` was recorded for another design: run again"
+    assert judged[reader.name].state == "unknown"
+    assert judged[reader.name].reason.startswith(
+        f"{converter.name}'s output `design` ({generated['generated']}) changed since its run "
+        "recorded it"
     )
 
 
@@ -637,6 +663,31 @@ def test_a_converter_that_fails_fails_the_flow_with_the_reason_it_was_needed(
     assert results["success"] is False and results["error"]["type"] == "FlowDependencyFailure"
     assert results["design_hash"] == ""
     assert classes  # both registered for the test only
+
+
+def test_a_failing_converter_leaves_a_real_flow_built_on_the_planned_design_untouched(
+    tmp_path, monkeypatch
+) -> None:
+    """The flow that waits for the converter is built on the planned design, whose generated
+    source does not exist. Nothing reads or hashes it: the flow has no design hash, its run
+    directory holds the failure, and the planned file is not created."""
+    fake, _rival, _to_vhdl = converter_flows()
+
+    def fails(self) -> None:
+        raise RuntimeError("the converter is out of order")
+
+    monkeypatch.setattr(fake, "run", fails)
+    path = write_design(tmp_path / "d", flows={"yosys": {"inputs": {"design": fake.name}}})
+    the_runner = runner(tmp_path)
+    with pytest.raises(FlowDependencyFailure, match="the converter is out of order"):
+        the_runner.run_flow("yosys", Design.from_file(path))
+    consumer = the_runner.launched[-1]
+    assert consumer.name == "yosys" and consumer.blocked_by == fake.name
+    planned = [s.file for s in consumer.design.rtl.sources]
+    assert [f.name for f in planned] == ["mkTop.v"] and not planned[0].exists()
+    results = results_of(tmp_path, "yosys")
+    assert results["success"] is False and results["design_hash"] == ""
+    assert "mkTop.v" not in {f.name for f in consumer.run_path.iterdir()}
 
 
 def test_a_missing_bsc_names_why_it_was_needed(tmp_path, monkeypatch) -> None:

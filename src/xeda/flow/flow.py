@@ -1050,16 +1050,18 @@ class Flow(metaclass=ABCMeta):
 
         The check runs wherever `check_required_settings` does. A flow that reads the sources of
         the design itself (`reads_sources`) refuses a source in a language it cannot read,
-        naming it. A converter (a flow with a design output) refuses none: it passes the sources
-        it does not convert through. The check also refuses a design none of whose sources the
-        flow reads, naming what the design lists. A flow may refuse more by overriding this
-        method and calling it."""
+        naming it. A converter (a flow that defines `design_conversion`) refuses none: it passes
+        the sources it does not convert through. The check also refuses a design none of whose
+        sources the flow reads, naming what the design lists. A flow may refuse more by
+        overriding this method and calling it."""
         if cls.reads_sources is None:
             return
         by_part = {part: getattr(design, part).sources for part in sorted(cls.design_parts)}
         listed = [src for sources in by_part.values() for src in sources]
         reads = ", ".join(sorted(member.name for member in cls.reads_sources))
-        converter = any(declaration.is_design for declaration in declared_outputs(cls).values())
+        converter = (
+            cls.design_conversion(cls.Settings() if settings is None else settings) is not None
+        )
         unread = (
             []
             if converter
@@ -1117,8 +1119,10 @@ class Flow(metaclass=ABCMeta):
     def design_conversion(cls, settings: Flow.Settings) -> DesignConversion | None:
         """Return which languages this flow converts and writes, or None when it converts none.
 
-        A flow that declares a design output (`Out(DESIGN, ...)`) is a converter and returns its
-        conversion here. The answer may depend on the settings. Pure, like `input_types`."""
+        A flow that returns a conversion is a converter. It declares a design output
+        (`Out(DESIGN, ...)`) that carries the design it derives. A design output without a
+        conversion is allowed: such a flow is no converter and no flow takes its design by
+        default. The answer may depend on the settings. Pure, like `input_types`."""
         return None
 
     class Inputs(FlowInputs):
@@ -1442,13 +1446,6 @@ class Flow(metaclass=ABCMeta):
 
     def __init_subclass__(cls) -> None:
         check_io_declarations(cls)
-        if any(d.is_design for d in declared_outputs(cls).values()) and (
-            getattr(cls.design_conversion, "__func__")
-            is getattr(Flow.design_conversion, "__func__")
-        ):
-            raise TypeError(
-                f"{cls.__qualname__} declares a design output and must define `design_conversion`"
-            )
         cls_name = cls.__name__
         mod_name = cls.__module__
         log.info("registering flow %s from %s", cls_name, mod_name)

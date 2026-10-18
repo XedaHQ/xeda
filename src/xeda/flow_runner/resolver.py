@@ -47,7 +47,14 @@ from .bindings import (
     node_bindings,
     node_identity,
 )
-from .chains import FlowRequest, converter_edges, default_graph, fitting_outputs, request_text
+from .chains import (
+    FlowRequest,
+    converter_edges,
+    default_graph,
+    design_edge_refusal,
+    fitting_outputs,
+    request_text,
+)
 from .related_inputs import Node, check_related_inputs
 from .settings_layers import (
     API_ORIGIN,
@@ -885,7 +892,8 @@ def _check_design_producers(request: _Request, selected: ResolvedInput) -> None:
     """Refuse a `design` input whose producer has no design output under the final settings.
 
     The producer needs an enabled design output, and its conversion under its settings has to
-    write only languages that the consumer reads."""
+    write only languages that the consumer reads, and convert one that it does not. The consumer
+    converts no design under its settings: a conversion is one hop."""
     where = f"{request.cls.name}.{selected.name}"
     reads = request.cls.reads_sources or frozenset()
     for child, output_name in request.producers.get(selected.name, ()):
@@ -907,6 +915,17 @@ def _check_design_producers(request: _Request, selected: ResolvedInput) -> None:
                 f"selected settings (takes design written in "
                 f"{'/'.join(sorted(member.name for member in reads)) or 'nothing'}, makes "
                 f"{writes or 'nothing'})"
+                + (f"; bound by {selected.binding_location}" if selected.binding_location else "")
+            )
+        refusal = design_edge_refusal(
+            child.cls,
+            request.cls,
+            producer_settings=child.settings,
+            consumer_settings=request.settings,
+        )
+        if refusal is not None:
+            raise FlowSettingsException(
+                f"{where}: {refusal}"
                 + (f"; bound by {selected.binding_location}" if selected.binding_location else "")
             )
 
@@ -1142,6 +1161,11 @@ def resolve(
                             f"{explicit.location}: `{where}` cannot come from {cls.name} itself: "
                             f"{cls.name} converts the design, so it reads the design as it is"
                         )
+                    if declaration.is_design:
+                        # The rule of the chain, judged before the fit of the outputs.
+                        refusal = design_edge_refusal(producer, cls)
+                        if refusal is not None:
+                            raise FlowSettingsException(f"{explicit.location}: {refusal}")
                     output_name = bound_output(
                         cls, declaration, producer, reference.output, explicit.location
                     )
