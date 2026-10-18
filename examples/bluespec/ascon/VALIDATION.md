@@ -1,33 +1,41 @@
 # Ascon port validation
 
-Local validation used BSC 2026.07.1 (build 63665af1d1), Yosys 0.70+post,
-Verilator 5.052, and Icarus Verilog 13.0.
+This file lists what the checked-in tests and commands cover, and the results of one run of the
+synthesis commands. The tool versions were bsc 2026.07.1 (build 63665af1d1), Yosys 0.69+286,
+nextpnr-ecp5 0.11.1, Verilator 5.053, Icarus Verilog 14.0 and OpenROAD with the Nangate45 platform.
 
-The standalone core passed BSC elaboration with all warnings promoted to errors for every
-supported variant and unroll factor: Ascon-128 at 1, 2, 3, and 6; Ascon-128a at 1, 2, and 4.
+## Simulation
+
 The test vectors come from the C references vendored in BlueLight at the revision in NOTICE.md.
 They include 129-byte streams with a 100-cycle output stall and key reuse across a Hash operation.
 
-The focused acceptance command passed all 20 tests:
+`tests/test_ascon_example.py` and the Ascon cases of `tests/test_bsc_examples.py` run the vectors
+in Bluesim for Ascon-128 at unroll factors 1, 2, 3 and 6 and for Ascon-128a at 1, 2 and 4. They
+run Ascon-128a at unroll factor 4 with Icarus Verilog and Verilator, check that the testbench
+catches an injected bug, and check that bsc refuses an unroll factor that does not divide the
+round counts. The focused command passed all 16 tests:
 
 ```bash
-pytest tests/test_bsc_examples.py tests/test_ascon_example.py tests/test_ascon_showcase.py \
-  -k ascon -n auto
+pytest tests/test_bsc_examples.py tests/test_ascon_example.py -k ascon
 ```
-
-It covers the supported unroll factors in Bluesim, both AEAD variants with Icarus and Verilator,
-fault injection, invalid-factor rejection, Verilog elaboration and lint, synthesis, and the helper.
-The changelog and documentation checks passed 407 tests. The repository's Black, Ruff, and
-`mypy src` checks also passed.
 
 ## Synthesis and physical implementation
 
-The example helper passed Xilinx FPGA synthesis through Yosys for `xc7a100tftg256-2L`.
-This validates synthesis of the generic core; board pin constraints and hardware testing need a
-board-specific wrapper.
+These commands ran from the root directory of the repository with the settings of `ascon.yaml`.
+Each of them ran `bsc` first, to convert the design to Verilog.
 
-The ASIC helper passed Nangate45 cell mapping and the full OpenROAD flow at a 10 ns clock period.
-Placement, clock-tree synthesis, global routing, detailed routing, and final checks succeeded.
-The final reported cell area was 18826.4 square micrometers and the estimated Fmax was
-372.871 MHz. These figures include the stream adapter and apply only to this tool/platform run.
-The OpenROAD run kept its default timing, DRC, and antenna failure checks enabled.
+| Command | Result |
+| --- | --- |
+| `xeda run bsc_sim examples/bluespec/ascon/ascon.yaml` | passed in Bluesim, Verilator (`-s simulator=verilator`) and Icarus Verilog (`-s simulator=iverilog`) |
+| `xeda run yosys_fpga examples/bluespec/ascon/ascon.yaml --target artix7` | 2239 LUT, 1106 FF, 13 CARRY4 (`xc7a100tcsg324-1`, a synthesis estimate) |
+| `xeda run yosys_fpga+nextpnr examples/bluespec/ascon/ascon.yaml --target ecp5` | placed and routed on `LFE5U-85F-6BG381C` without pins: 3170 TRELLIS_COMB, 1106 TRELLIS_FF, Fmax 63.2 MHz at a 20 ns target |
+| `xeda run openroad examples/bluespec/ascon/ascon.yaml` | the whole chain passed on Nangate45 at a 2 ns clock period |
+
+For the OpenROAD chain, placement, clock-tree synthesis, global routing, detailed routing and the
+final checks succeeded. The final reported cell area was 18820 square micrometers, the worst slack
+was 0.353 ns and the estimated Fmax was 607 MHz. There were no DRC errors and no antenna
+violations, and the default timing, DRC and antenna failure checks stayed on. These figures include
+the stream adapter. They apply only to this tool and platform run.
+
+The FPGA results are resource and timing estimates for the core alone. A board build needs an I/O
+wrapper, pin constraints and a test on hardware.
