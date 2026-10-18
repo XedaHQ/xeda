@@ -1,0 +1,111 @@
+name: uart_echo
+description: >-
+  A board demo for the UART PHY of the `uart` example: everything the host sends comes back. The
+  board-agnostic top mkUartEcho has a clock, the UART pins, four switches, a button and four
+  LEDs, and makes its own power-on reset. Received bytes go through a block RAM FIFO to the
+  transmitter at the same baud rate; the switches pick the baud rate from a table computed at
+  elaboration (12 Mbaud at 100 MHz by default), which changes only when the echo is idle; the LEDs
+  show receive and send activity and sticky error and overrun flags, and the button clears
+  them. The testbench is a behavioural host at the pins: echo at three baud rates at full line
+  utilization, LEDs, framing error, break, overrun, and a baud rate switched in the middle of
+  traffic. Targets build the Arty A7-100T (Vivado, or openXC7) and the ULX3S. The macro
+  FIXED_BAUD (target fixed_baud for the testbench) builds one baud rate without the switches.
+rtl:
+  # The PHY of the uart example comes first; the package that defines `top` comes last.
+  sources:
+    - "../uart/rtl/RingFifo.bsv"
+    - "../uart/rtl/UartTypes.bsv"
+    - "../uart/rtl/BitTimer.bsv"
+    - "../uart/rtl/UartRx.bsv"
+    - "../uart/rtl/UartTx.bsv"
+    - "../uart/rtl/Uart.bsv"
+    - "rtl/UartEcho.bsv"
+  top: mkUartEcho
+  clock.port: CLK
+  # Preprocessor macros (the values here are the defaults, see UartEcho.bsv for all of them).
+  # Use `defines`, not `parameters`: mkUartEcho has no Verilog parameters.
+  defines.CLK_HZ: 100000000
+  defines.BAUD: 12000000
+tb:
+  sources:
+    - "../uart/tb/TbUartModels.bsv"
+    - "tb/TbUartEcho.bsv"
+  top: mkTbUartEcho
+  # The simulation shrinks two sizes of the design so that an overrun and the end of an LED
+  # stretch are reached in a few thousand clocks: the echo FIFO and the LED hold time. They also
+  # reach the compilation of the design, as all `tb.defines` do.
+  defines.ECHO_DEPTH: 3
+  defines.ACTIVITY_US: 20
+  # Negative test: defining the macro XEDA_INJECT_BUG plants a bug in the design (a new baud rate
+  # takes effect at once, even in the middle of a frame; the receiver of the uart example is also
+  # late to hunt). The testbench must catch it (non-zero exit).
+  # defines.XEDA_INJECT_BUG: true
+flows:
+  # Vivado synthesis of the echo on its own: `xeda run vivado_synth uart_echo.yaml`.
+  vivado_synth:
+    fpga.part: xc7a100tcsg324-1
+    clock.period: 10 ns
+    out_of_context: true
+# The targets with `board` build for a board: the pin files are in boards/, and the programming
+# step is the same chain with openfpgaloader (`xeda run <chain>+openfpgaloader`, see README.md).
+# A pin file does not give the clock period: the flow does.
+targets:
+  # One baud rate, `BAUD`, and the switches ignored (the macro FIXED_BAUD, see UartEcho.bsv): the
+  # PHY has a static period. `xeda run bsc_sim uart_echo.yaml --target fixed_baud` runs the
+  # testbench on it; with `rtl.defines.FIXED_BAUD` on any board target it builds the board.
+  fixed_baud:
+    rtl:
+      defines:
+        FIXED_BAUD: true
+    tb:
+      defines:
+        FIXED_BAUD: true
+  # `xeda run yosys_fpga uart_echo.yaml --target artix7`: a resource estimate, no pins.
+  artix7:
+    flows:
+      yosys_fpga:
+        fpga.part: xc7a100tcsg324-1
+        clock.period: 10 ns
+  # Arty A7-100T with Vivado: `xeda run vivado_synth uart_echo.yaml --target arty`. The bitstream
+  # has a bare name, so it stays in the run directory (outputs/); add `--outputs-to DIR` to copy
+  # it. Programming: `xeda run vivado_synth+openfpgaloader uart_echo.yaml --target arty`.
+  arty:
+    rtl:
+      sources:
+        - "boards/arty_a7_100t.xdc"
+        - "boards/arty_a7_100t_sync.xdc"
+    flows:
+      vivado_synth:
+        out_of_context: false
+        bitstream: uart_echo.bit
+      openfpgaloader:
+        board: arty_a7_100t
+  # Arty A7-100T with the open-source openXC7 tools (put /opt/openxc7/bin first on PATH):
+  # `xeda run yosys_fpga+nextpnr+fpga_pack uart_echo.yaml --target arty_nextpnr`
+  # Programming (the SRAM, not the flash): add `+openfpgaloader` to the chain.
+  arty_nextpnr:
+    rtl:
+      sources:
+        - "boards/arty_a7_100t.xdc"
+    flows:
+      yosys_fpga:
+        fpga.part: xc7a100tcsg324-1
+      nextpnr:
+        clock.freq: 100 MHz
+      openfpgaloader:
+        board: arty_a7_100t
+  # ULX3S 85F (put the oss-cad-suite bin directory first on PATH):
+  # `xeda run yosys_fpga+nextpnr+fpga_pack uart_echo.yaml --target ulx3s`
+  ulx3s:
+    rtl:
+      sources:
+        - "boards/ulx3s.lpf"
+      defines:
+        CLK_HZ: 25000000
+        BAUD: 3000000
+    flows:
+      yosys_fpga:
+        fpga.part: LFE5U-85F-6BG381C
+      nextpnr:
+        board: ulx3s_85f
+        clock.freq: 25 MHz

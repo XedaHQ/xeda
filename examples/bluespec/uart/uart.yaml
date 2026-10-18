@@ -1,0 +1,63 @@
+name: uart
+description: >-
+  UART PHY in BSV: a transmitter and a receiver with byte buffers, status flags and event pulses,
+  at up to 12 Mbaud with a 100 MHz clock (8.33 clocks per bit), with the baud rate set at
+  elaboration or at run time. A restartable fractional bit timer gives an exact average baud rate,
+  the transmitter has no gap between frames, and the receiver has a 2-flop synchronizer, a glitch
+  filter, false start rejection and break handling. The testbench runs five DUTs against
+  behavioural models of a remote UART (baud offset, phase, glitches, bad frames) and of a line
+  checker, with loopback, other frame formats and a run-time baud rate.
+rtl:
+  # The package that defines `top` comes last.
+  sources:
+    - "rtl/RingFifo.bsv"
+    - "rtl/UartTypes.bsv"
+    - "rtl/BitTimer.bsv"
+    - "rtl/UartRx.bsv"
+    - "rtl/UartTx.bsv"
+    - "rtl/Uart.bsv"
+  top: mkUart
+  clock.port: CLK
+  # Preprocessor macros that size mkUart; the values here are the defaults (see Uart.bsv for all
+  # of them). Use `defines`, not `parameters`: mkUart has no Verilog parameters.
+  defines.CLK_HZ: 100000000
+  defines.BAUD: 12000000
+tb:
+  sources:
+    - "tb/TbUartModels.bsv"
+    - "tb/TbUart.bsv"
+  top: mkTbUart
+  # Negative test: defining the macro XEDA_INJECT_BUG plants a bug in the design (the receiver is
+  # late to hunt for the next start bit). The testbench must catch it (non-zero exit).
+  # defines.XEDA_INJECT_BUG: true
+flows:
+  # The testbench resets one DUT on its own (mkReset), so the rules of its bench use methods of two
+  # reset domains on purpose; bsc's warning about it (G0043) says nothing here.
+  bsc_sim:
+    suppress_warnings: [G0043]
+  # ASIC synthesis on nangate45: `xeda run yosys uart.yaml`.
+  yosys:
+    platform: nangate45
+    clock.period: 1.5 ns
+  # Vivado synthesis of the UART on its own: `xeda run vivado_synth uart.yaml`.
+  vivado_synth:
+    fpga.part: xc7a100tcsg324-1
+    clock.period: 10 ns
+    out_of_context: true
+# The FPGA configurations are resource and timing estimates without pins.
+targets:
+  # `xeda run yosys_fpga+nextpnr uart.yaml --target ecp5`
+  ecp5:
+    flows:
+      yosys_fpga:
+        fpga.part: LFE5U-85F-6BG381C
+        clock.period: 20 ns
+      nextpnr:
+        lpf_allow_unconstrained: true
+  # `xeda run yosys_fpga uart.yaml --target artix7`. Synthesis only: nextpnr-himbaechel of openXC7
+  # refuses unconstrained I/O, and Xeda refuses a Xilinx nextpnr run without XDC files.
+  artix7:
+    flows:
+      yosys_fpga:
+        fpga.part: xc7a100tcsg324-1
+        clock.period: 10 ns

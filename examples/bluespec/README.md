@@ -54,7 +54,8 @@ xeda run yosys_fpga examples/bluespec/gcd/gcd.yaml --target artix7  # Xilinx syn
 ```
 
 The FPGA configurations are resource and timing estimates without pins. A board build needs an I/O
-wrapper and constraints.
+wrapper and constraints, as the targets of [`uart_echo`](#uart_echo-a-uart-echo-demo-for-two-boards)
+have.
 
 ## gcd: multi-package BSV
 
@@ -107,3 +108,32 @@ Bluesim cannot simulate imported Verilog, so the design file sets `simulator: ve
 The [Ascon v1.2 example](ascon/README.md) adds a standalone 32-bit Put/Get core and a
 vector-driven testbench. Its `run.py` helper passes the complete `bsc` Verilog artifact list to
 Xeda's FPGA or ASIC synthesis flows.
+
+## uart: a UART PHY
+
+The [UART PHY](uart/README.md) is a transmitter and a receiver with byte buffers, sticky error flags
+and event pulses, at up to 12 Mbaud with a 100 MHz clock. It is polymorphic in the frame format,
+the buffer depths and the bit period, which is fixed at elaboration (exact rational) or read from a
+register at run time, and `mkUart` is a synthesizable 8N1 top that the macros `CLK_HZ` and `BAUD`
+size. The testbench runs five DUTs against models of a remote UART, with baud offsets, phases,
+glitches, bad frames and breaks, and of a line checker. Its design file also has the FPGA flows
+(Vivado out of context, `yosys_fpga` and nextpnr for ECP5).
+
+## uart_echo: a UART echo demo for two boards
+
+The [echo demo](uart_echo/README.md) sends everything it receives back, through a block RAM FIFO,
+with the PHY of the `uart` example. Its source files come from `../uart/rtl` through relative paths
+in the design file. `mkUartEcho` is board agnostic: a clock, the UART, four switches that select the
+baud rate from a table made at elaboration, a button and four LEDs, and a power-on reset of its
+own. The testbench is a behavioural host at the pins (echo at three baud rates, LEDs, errors,
+overrun, a baud rate switched in the middle of traffic). The targets `arty` (Vivado),
+`arty_nextpnr` (open-source tools) and `ulx3s` build bitstreams with pin files in `boards/`, and
+`host/uart_echo_test.py` checks the echo from a computer at the full line rate (99.6 to 100 % at
+12 Mbaud on the Arty, measured). The macro `FIXED_BAUD` gives a build with one baud rate and no
+switches that needs 96 LUT in Vivado instead of 168.
+
+```bash
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml
+xeda run vivado_synth examples/bluespec/uart_echo/uart_echo.yaml --target arty
+xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target ulx3s
+```
