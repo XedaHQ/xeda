@@ -313,7 +313,7 @@ def locate(
     """Find the files of the platform in the store at `root`.
 
     `provider` `None` is the default provider of the residue. `version` `None` is the pin of
-    the residue (`orfs`, `ciel`) or `unpinned` (`directory`). `corner` goes through the corner
+    the residue (`orfs`, `ciel`, `lambdapdk`) or `unpinned` (`directory`). `corner` goes through the corner
     resolution of the residue, and `Located.files["liberty"]` holds the files of that corner.
     `platform_file` is the user file that the residue came from, if it came from one. It only
     changes the install command in the refusal, which then names the file and not the platform.
@@ -324,7 +324,7 @@ def locate(
     made absolute with the current directory.
 
     Raise `ValueError` for a provider that does not serve the platform, a version that is no
-    commit hash (`orfs`, `ciel`) and an unknown corner."""
+    commit hash (`orfs`, `ciel`, `lambdapdk`) and an unknown corner."""
     token = resolve_corner(residue, provider, corner)
     residue = _viewed(residue, provider)
     target = _target(residue, provider, version, root)
@@ -950,19 +950,19 @@ def install(
 
     Arguments are as for `locate`. `url` is the repository that a Git provider (`orfs`,
     `lambdapdk`) fetches from, and the default is that of the provider (`ORFS_URL`,
-    `LAMBDAPDK_URL`). The root may be a symbolic link: the install resolves it first. Below it, the install refuses a symbolic link on the way to anything that it writes,
-    publishes, removes or locks (everything under `<root>/xeda`, but not `<root>/ciel`), before
-    it writes, and again before each step that publishes or rolls back. So it writes and deletes
-    only inside the store. If the store holds every file already, nothing runs and
-    nothing is written. Otherwise the install takes the lock `<root>/xeda/.lock`, runs the
+    `LAMBDAPDK_URL`). The root may be a symbolic link: the install resolves it first. Below it,
+    the install refuses a symbolic link on the way to anything that it writes, publishes, removes
+    or locks (everything under `<root>/xeda`, but not `<root>/ciel`), before it writes, and again
+    before each step that publishes or rolls back. So it writes and deletes only inside the
+    store. If the store holds every file already, nothing runs and nothing is written. Otherwise the install takes the lock `<root>/xeda/.lock`, runs the
     plan, checks every file of every corner with `locate`, checks the pin with `verify_pin` and
     writes `<root>/xeda/receipts/<platform>-<pin>.json`.
 
     * `orfs`, `lambdapdk`: the Git commands fill `<root>/xeda/.partial-<random>`. The install
       writes the receipt, and one rename then moves the directory of the platform to
       `<root>/xeda/<provider>/<commit>/<directory>`, so that the store never holds a part of a
-      platform under that name. Platforms of one commit share the directory of the commit, and the store
-      keeps no `.git`. If a command fails, a file is missing or the receipt cannot be written,
+      platform under that name. Platforms of one commit share the directory of the commit, and
+      the store keeps no `.git`. If a command fails, a file is missing or the receipt cannot be written,
       the store is as it was. Every `git` command gets a controlled environment: no `GIT_DIR`,
       no configuration of the user and no hook.
     * `ciel`: the plan runs with `PATH`, `HOME` and `LANG` only. A `ciel` on `PATH` must say that

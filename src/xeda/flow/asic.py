@@ -150,13 +150,13 @@ class AsicPlatformSettings(Flow.Settings):
         description="Where the PDK files of the platform come from. `orfs`: a sparse checkout "
         "of OpenROAD-flow-scripts. `ciel`: a PDK build that `ciel` installs. `lambdapdk`: a "
         "sparse checkout of lambdapdk. `directory`: a directory that holds the files in a known "
-        "layout. The default is the provider that the "
-        "platform names; the platform must have an entry for the provider.",
+        "layout. The default is the provider that the platform names; the platform must have an "
+        "entry for the provider.",
     )
     pdk_version: Optional[str] = Field(
         None,
-        description="Version of the PDK files: the commit (`orfs`, `lambdapdk`) or the hash (`ciel`). For "
-        "`directory`, a version that Xeda checks against the directory when it can, and "
+        description="Version of the PDK files: the commit (`orfs`, `lambdapdk`) or the hash "
+        "(`ciel`). For `directory`, a version that Xeda checks against the directory when it can, and "
         "`unpinned` when you give none. The default is the version that the platform pins for "
         "`pdk_provider`. The version is part of the identity of the run.",
     )

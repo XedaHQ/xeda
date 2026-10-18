@@ -102,7 +102,8 @@ def _other_git_versions(residue: Residue, provider: str, root: Path) -> list[dic
 
 def store_rows(root: Path) -> list[dict[str, Any]]:
     """One row for each provider of each bundled platform: whether the store at `root` holds the
-    pinned version, and where. An `orfs` row also lists the other versions that the store holds."""
+    pinned version, and where. A row of a Git provider (`orfs`, `lambdapdk`) also lists the other versions that the
+    store holds."""
     from .introspect import provider_status
     from .platforms import bundled_platform_names, load_residue
 
@@ -354,7 +355,7 @@ def pdk_install(
     commands, and it asks for confirmation. `--yes` skips the question. `--json`, `--format json`,
     `--format jsonl` and `--format yaml` install without a question, because a program cannot
     answer. If the store holds the files already, the command says so and runs nothing. A failed
-    `orfs` install leaves the store as it was. A failed `ciel` install may leave files of `ciel`
+    `orfs` or `lambdapdk` install leaves the store as it was. A failed `ciel` install may leave files of `ciel`
     in the store. Only one install at a time can use a store. The install refuses a symbolic link
     inside the store; the root itself may be one."""
     from .cli_utils import emit_structured, machine_readable_mode, resolve_format

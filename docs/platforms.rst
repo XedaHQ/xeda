@@ -339,8 +339,7 @@ does nothing. The other commands only look at the files.
 
 An ``orfs`` or ``lambdapdk`` install fetches into a partial directory in the store, checks every
 file of every corner, writes the receipt and then moves the directory of the platform to its place
-in one step. If anything fails,
-the store is as it was. The command refuses to install over a platform directory that is there
+in one step. If anything fails, the store is as it was. The command refuses to install over a platform directory that is there
 but incomplete, and tells you to move it away. A ``ciel`` install runs ``ciel``, which writes into
 the store itself, so a failed install may leave files of ``ciel`` behind. See
 :doc:`machine-readable` for their JSON output.
@@ -367,8 +366,8 @@ Settings of the PDK
     except ``HOME`` for the default.
 
 ``pdk_provider``
-    The provider (``orfs``, ``ciel``, ``lambdapdk`` or ``directory``). The default is the default provider of the
-    platform.
+    The provider (``orfs``, ``ciel``, ``lambdapdk`` or ``directory``). The default is the default
+    provider of the platform.
 
 ``pdk_version``
     The version of the PDK files, the pin: a full commit hash for ``orfs`` and ``lambdapdk``, the
@@ -454,9 +453,9 @@ from OpenROAD-flow-scripts, at the commit that the residue file pins, and only w
 it. ``xeda pdk install sky130hd`` runs ``ciel``, which fetches the open_pdks build of SKY130 into
 the store, and only when you ask for it. ``xeda pdk install sky130hd --provider lambdapdk``
 fetches files of the lambdapdk repository, and only when you ask for it. The files stay under
-their own license. Read the license of a PDK before you use it. The file ``NOTICE.md`` in the platform directory of the Xeda package
-lists the sources of the values that the residue files take from OpenROAD-flow-scripts and from
-open_pdks.
+their own license. Read the license of a PDK before you use it. The file ``NOTICE.md`` in the
+platform directory of the Xeda package lists the sources of the values that the residue files take
+from OpenROAD-flow-scripts, from open_pdks and from lambdapdk.
 
 Checking a platform against OpenROAD-flow-scripts
 =================================================

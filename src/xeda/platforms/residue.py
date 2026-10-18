@@ -391,14 +391,13 @@ class Residue(XedaBaseModel):
                     f" ({', '.join(self.files.liberty)})"
                 )
         self.resolve_corner(None)
-        for name in ("lambdapdk",):
-            entry = self.providers.entry(name)
-            if entry is not None and entry.files is not None:
-                try:
-                    # The view validates the default corner and the aliases against the files.
-                    self.for_provider(name)
-                except ValidationError as error:
-                    raise ValueError(f"providers.{name}: {_problems(error)}") from None
+        entry = self.providers.lambdapdk
+        if entry is not None and entry.files is not None:
+            try:
+                # The view validates the default corner and the aliases against the files.
+                self.for_provider("lambdapdk")
+            except ValidationError as error:
+                raise ValueError(f"providers.lambdapdk: {_problems(error)}") from None
 
     def _given_value_leaves(self) -> dict[str, Any]:
         dumped = self.values.model_dump(mode="json", exclude_unset=True)
