@@ -62,11 +62,11 @@ is within 0.07 % of the nominal one. Switch 0 is `sw[0]`, the lowest bit.
 The FT2232H of the Arty can generate 12, 8, 6, 4, 3, 2, 1.5 and 1 Mbaud and the usual slower rates
 exactly; the FT231X of the ULX3S is limited to 3 Mbaud.
 
-A new setting takes effect only when the echo is idle: the transmitter has nothing left to send and
-the receive line has been high for 11 bit times of the slowest rate (9549 clocks, 95 us at 100 MHz),
-so no frame is in progress. Changing a switch in the middle of traffic cannot cut a frame; the new
-rate starts after the traffic has stopped. The host must start at the new rate after that. The
-switches and the button go through two flops each.
+A new setting takes effect only when the echo is idle: the transmitter has nothing left to send, the
+receive line has been high for 11 bit times of the slowest rate (9550 clocks, 95 us at 100 MHz: 11 x
+100e6 / 115200 rounded up, plus one) and is high now, so no frame is in progress. Changing a switch
+in the middle of traffic cannot cut a frame; the new rate starts after the traffic has stopped. The
+host must start at the new rate after that. The switches and the button go through two flops each.
 
 **Reset.** The board needs no reset pin: `mkUartEcho` holds the reset of everything else for a few
 clocks after power-up, from a 3-bit counter `held` that counts up to 7 (the library's `MakeReset0` is
@@ -133,7 +133,7 @@ commands are under "Results" below):
 |---|---|---|---|
 | Vivado 2024.2, xc7a100t, switches (default) | 168 | 187 | 76 slices, WNS +3.26 ns |
 | Vivado 2024.2, `FIXED_BAUD` | **96** | **139** | 54 slices, WNS +3.52 ns |
-| Yosys 0.70+post `synth_xilinx -family xc7 -flatten`, default / `FIXED_BAUD` | 190 / 115 | 206 / 142 | |
+| Yosys 0.70+post `synth_xilinx -family xc7 -flatten`, default / `FIXED_BAUD` | 193 / 115 | 206 / 142 | |
 | Yosys 0.69+286 and nextpnr-ecp5 0.11.1 (ULX3S, 25 MHz, 3 Mbaud), default / `FIXED_BAUD` | 352 / 231 | 225 / 169 | |
 
 So `FIXED_BAUD` takes about 40 % of the logic away (72 LUT and 48 FF in Vivado): the run-time
@@ -243,15 +243,23 @@ xeda run bsc_sim uart_echo.yaml --target fixed_baud       # the testbench of tha
 | `arty`: Vivado 2024.2 (`xeda run vivado_synth`), xc7a100t | 168 | 187 | 1 RAMB18 | 100 MHz met, WNS +3.26 ns (Fmax 148 MHz), 76 slices |
 | `arty_nextpnr`: Yosys 0.69, nextpnr-himbaechel 1.0.0 (openXC7) | 275 (222 in Yosys) | 206 | 1 RAMB18 | 100 MHz met, Fmax 176 MHz |
 | `ulx3s`: Yosys 0.69+286, nextpnr-ecp5 0.11.1, LFE5U-85F | 352 (LUT4 with carry and mux) | 225 | 1 EBR | 25 MHz met, Fmax 110 MHz |
-| Yosys 0.70+post, `synth_xilinx -family xc7 -flatten` | 190 | 206 | 1 RAMB18 | |
+| Yosys 0.70+post, `synth_xilinx -family xc7 -flatten` | 193 | 206 | 1 RAMB18 | |
 
 The first three rows are the chains of the commands above, from the Verilog of Xeda's `bsc` flow.
-The last row, and the Yosys figures of the `FIXED_BAUD` table, are
-`bsc -u -verilog -p +:../uart/rtl:rtl rtl/UartEcho.bsv` (plus `-D FIXED_BAUD`) and then
-`yosys -p "read_verilog -sv -DBSV_NO_INITIAL_BLOCKS mkUartEcho.v <bsc>/lib/Verilog/{BRAM2,MakeReset0}.v;
-hierarchy -top mkUartEcho; synth_xilinx -family xc7 -flatten -top mkUartEcho; stat"`. The Verilog that
-Xeda's `bsc` flow writes, with its own optimization flags, comes out at 195 / 116 LUT in the same
-Yosys command: the figure depends on the bsc flags by a few LUT.
+The last row, and the Yosys figures of the `FIXED_BAUD` table, are (in `uart_echo/`; `$BSV_VERILOG` is
+bsc's Verilog library, `<bsc>/lib/Verilog`, or `<bsc>/libexec/lib/Verilog` with Homebrew):
+
+```bash
+mkdir -p build
+bsc -u -verilog -p +:../uart/rtl:rtl -bdir build -vdir build rtl/UartEcho.bsv   # plus -D FIXED_BAUD
+yosys -p "read_verilog -sv -DBSV_NO_INITIAL_BLOCKS build/mkUartEcho.v build/mkUart.v \
+             $BSV_VERILOG/BRAM2.v $BSV_VERILOG/MakeReset0.v;
+             hierarchy -top mkUartEcho; synth_xilinx -family xc7 -flatten -top mkUartEcho;
+             stat" | tail -n 40
+```
+
+The Verilog that Xeda's `bsc` flow writes, with its own optimization flags, comes out at 193 / 116
+LUT in the same Yosys command: the figure depends on the bsc flags by a LUT or two.
 
 Almost half is the PHY with a run-time baud rate; the idle detector (14 bits), the LED prescaler (20
 bits) and the 12-bit FIFO pointers are most of the rest.
@@ -272,8 +280,9 @@ because the reader does nothing but read and compare (no sleeps, no per-byte Pyt
 compared with the payload in one memory compare, and the payload is made on the fly), the writer
 uses 512-byte writes and sleeps 0.1 ms only when the window is full, and pyftdi reads one USB packet
 at a time (512 bytes on the FT2232H; the notes say why not its 4 KiB default). `--ftdi` also counts
-the packets in which the chip flags an overrun (`chip errors` in the report), so a host that did not
-read in time can be told apart from an FPGA problem.
+the packets in which the chip flags an overrun (`chip errors` in the report) and fails the run if
+there is one, so a host that did not read in time can be told apart from an FPGA problem. With
+`--ftdi` a `--window` or `--chunk` above the chip's receive buffer minus 64 bytes is refused.
 
 ```bash
 python3 host/uart_echo_test.py --loopback-selftest        # no hardware: both modes, faults, overflow
@@ -335,7 +344,8 @@ shorter runs of the table.
   drops to 40 to 42 % (the window is small and the reader is late). The chip's 4 KiB buffer is
   never overrun because the window is below it. The FT231X of the ULX3S has a 512-byte buffer: a
   window above 512 (`--window 1792`) loses bytes on a loaded host (`chip errors`: 2 to 11 packets
-  in the failing runs; one such run is in the measurements), so the tool's default there is 448.
+  in the failing runs; one such run is in the measurements), so the tool's default there is 448,
+  and with `--ftdi` it refuses a larger window.
   That costs speed (full-speed USB, a longer round trip): 56 to 74 % of the 300 kB/s, depending on
   the host load. pyserial on the same board did 99.5 % without loss, but has no protection against
   the same overrun.

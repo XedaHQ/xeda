@@ -43,8 +43,9 @@ modes, with planted faults and a FIFO overflow that the check must catch:
 
     python3 uart_echo_test.py --loopback-selftest
 
-Exit status: 0 only for a perfect echo (every byte back, in order, and nothing extra). 1 for an
-echo failure. 2 for a usage or setup error.
+Exit status: 0 only for a perfect echo (every byte back, in order, nothing extra, and with
+--ftdi no packet flagged by the chip for an overrun). 1 for an echo failure. 2 for a usage or setup
+error.
 
 Notes
 -----
@@ -92,9 +93,10 @@ import random
 import sys
 import threading
 import time
+import types
 from collections import deque
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -235,6 +237,7 @@ class FtdiLink:
             ftdi.read_data_set_chunksize(self._packet)
             ftdi.purge_buffers()
         except BaseException:
+            logging.getLogger("pyftdi.ftdi").removeHandler(self._errors)
             ftdi.close()
             raise
 
@@ -570,7 +573,9 @@ def report(run: Run, *, baud: int, how: str, target: str) -> bool:
     """Print the result. Return True only for a perfect echo. `how` describes the mode."""
     comp = run.comp
     line_rate = baud / BITS_PER_BYTE
-    perfect = comp.ok == comp.sent == comp.received and run.extra == 0
+    # A packet flagged by the FTDI chip (overrun) is a run that was not clean, whatever the compare
+    # says: the chip lost data once, and may have done it where the compare cannot see.
+    perfect = comp.ok == comp.sent == comp.received and run.extra == 0 and not run.chip_errors
     rate = comp.received / run.elapsed if run.elapsed > 0 else 0.0
     print(f"target:      {target}")
     print(f"line:        {baud} baud, {BITS_PER_BYTE} bits per byte, {line_rate:,.0f} B/s")
@@ -585,6 +590,8 @@ def report(run: Run, *, baud: int, how: str, target: str) -> bool:
         print(f"in flight:   at most {run.peak_in_flight} bytes")
     if run.chip_errors is not None:
         print(f"chip errors: {run.chip_errors} packets flagged by the FTDI chip (overrun)")
+        if run.chip_errors:
+            print("             the chip lost data or reported an error: the run fails")
     if run.timed_out_at is not None:
         print(f"timeout:     no echo at offset {run.timed_out_at}")
     if comp.first_mismatch is not None and comp.preview is not None:
@@ -614,19 +621,32 @@ def open_link(args: argparse.Namespace) -> Link:
 
 
 def choose_window(args: argparse.Namespace, link: Link | None) -> None:
-    """Fill in --window, --block and --chunk when they were not given.
+    """Fill in --window, --block and --chunk when they were not given, and check them.
 
     With pyftdi the window and the chunk stay below the chip's receive buffer (RX_MARGIN under
     it), so even a host that stalls cannot overflow the chip, whatever the line does: 1792 and
-    2048 bytes on the FT2232H (4 KiB buffer), 448 on the FT231X of the ULX3S (512 bytes).
-    Otherwise they are 1792 and 2048."""
-    room = DEFAULT_WINDOW
+    2048 bytes on the FT2232H (4 KiB buffer), 448 on the FT231X of the ULX3S (512 bytes). The
+    defaults are clamped to that limit, and a --window (pipelined mode) or --chunk (chunked mode)
+    above it is refused with a LinkError. Otherwise the limits are those of the design and the
+    defaults are 1792 and 2048."""
+    window, chunk = DEFAULT_WINDOW, DEFAULT_CHUNK
     if isinstance(link, FtdiLink):
         room = max(1, link.rx_buffer - RX_MARGIN)
+        if args.mode == "pipelined" and args.window is not None and args.window > room:
+            raise LinkError(
+                f"--window {args.window} is above {room} bytes, the receive buffer of this FTDI "
+                f"chip ({link.rx_buffer} bytes) minus {RX_MARGIN}: the chip could overflow"
+            )
+        if args.mode == "chunked" and args.chunk is not None and args.chunk > room:
+            raise LinkError(
+                f"--chunk {args.chunk} is above {room} bytes, the receive buffer of this FTDI "
+                f"chip ({link.rx_buffer} bytes) minus {RX_MARGIN}: the chip could overflow"
+            )
+        window, chunk = min(window, room), min(chunk, room)
     if args.window is None:
-        args.window = min(DEFAULT_WINDOW, room)
+        args.window = window
     if args.chunk is None:
-        args.chunk = min(DEFAULT_CHUNK, room)
+        args.chunk = chunk
     if args.block is None:
         args.block = min(DEFAULT_BLOCK, args.window)
     elif args.block > args.window:
@@ -657,6 +677,47 @@ def run_echo(link: Link, args: argparse.Namespace) -> tuple[Run, str]:
         progress if args.progress else None,
     )
     return run, how
+
+
+def _check_window_choice() -> int:
+    """The defaults and limits of --window and --chunk, with and without an FTDI chip (a stand-in
+    object with the chip's buffer size). Return the number of wrong outcomes."""
+
+    def chip(buffer: int) -> FtdiLink:
+        link = FtdiLink.__new__(FtdiLink)  # no USB: only rx_buffer is read
+        link._ftdi = types.SimpleNamespace(fifo_sizes=(0, buffer))  # type: ignore[assignment]
+        return link
+
+    def choose(
+        link: Link | None, mode: str, window: int | None = None, chunk: int | None = None
+    ) -> tuple[int, int] | str:
+        ns = argparse.Namespace(mode=mode, window=window, chunk=chunk, block=None)
+        try:
+            choose_window(ns, link)
+        except LinkError:
+            return "refused"
+        return ns.window, ns.chunk
+
+    cases = [
+        ("no chip", choose(None, "pipelined"), (1792, 2048)),
+        ("no chip, chunked", choose(None, "chunked"), (1792, 2048)),
+        ("FT2232H", choose(chip(4096), "pipelined"), (1792, 2048)),
+        ("FT231X", choose(chip(512), "pipelined"), (448, 448)),
+        ("FT231X, window 448", choose(chip(512), "pipelined", window=448), (448, 448)),
+        ("FT231X, window 1792", choose(chip(512), "pipelined", window=1792), "refused"),
+        ("FT231X, chunk 2048", choose(chip(512), "chunked", chunk=2048), "refused"),
+        ("FT231X, chunk 448", choose(chip(512), "chunked", chunk=448), (448, 448)),
+        ("FT2232H, chunk 4000", choose(chip(4096), "chunked", chunk=4000), (1792, 4000)),
+        ("FT2232H, chunk 4095", choose(chip(4096), "chunked", chunk=4095), "refused"),
+        ("no chip, window 2040", choose(None, "pipelined", window=2040), (2040, 2048)),
+    ]
+    wrong = 0
+    for title, got, want in cases:
+        if got != want:
+            wrong += 1
+            print(f"SELFTEST: window choice, {title}: got {got}, want {want}", file=sys.stderr)
+    print(f"== window and chunk limits: {len(cases) - wrong} of {len(cases)} as expected\n")
+    return wrong
 
 
 def selftest(args: argparse.Namespace) -> int:
@@ -733,6 +794,18 @@ def selftest(args: argparse.Namespace) -> int:
         lambda r: r.comp.missing > 0,
     )
 
+    # a packet flagged by the FTDI chip fails an otherwise perfect run
+    clean = pipe(LoopbackLink(latency=latency, capacity=capacity))
+    check(
+        "pipelined, perfect echo but the FTDI chip flagged an overrun",
+        replace(clean, chip_errors=1),
+        pipelined,
+        False,
+    )
+    check("pipelined, perfect echo, no chip errors", replace(clean, chip_errors=0), pipelined, True)
+
+    failures += _check_window_choice()
+
     # the payload does not depend on how it is cut into reads
     payload = Payload(args.seed)
     at = PAYLOAD_BLOCK - 3
@@ -781,8 +854,8 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         type=int,
         default=None,
         help=f"pipelined: bytes in flight, 1..{MAX_WINDOW}, below the design's echo FIFO "
-        f"(default: {DEFAULT_WINDOW}; with --ftdi at most the chip's receive buffer minus "
-        f"{RX_MARGIN}: 448 for the FT231X)",
+        f"(default: {DEFAULT_WINDOW}; with --ftdi the default is clamped to the chip's receive "
+        f"buffer minus {RX_MARGIN} (448 for the FT231X), and a larger value is refused)",
     )
     parser.add_argument(
         "--block",
@@ -796,8 +869,8 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         type=int,
         default=None,
         help=f"chunked: bytes written before the echo is read back, 1..{MAX_CHUNK} "
-        f"(default: {DEFAULT_CHUNK}; with --ftdi at most the chip's receive buffer minus "
-        f"{RX_MARGIN})",
+        f"(default: {DEFAULT_CHUNK}; with --ftdi the default is clamped to the chip's receive "
+        f"buffer minus {RX_MARGIN}, and a larger value is refused)",
     )
     parser.add_argument("--seed", type=int, default=1, help="random seed (default: %(default)s)")
     parser.add_argument(
@@ -842,9 +915,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     target = args.ftdi or args.port
     try:
         link = open_link(args)
-        choose_window(args, link)
     except (LinkError, OSError) as exc:
         print(f"error: cannot open {target}: {exc}", file=sys.stderr)
+        return 2
+    try:
+        choose_window(args, link)
+    except LinkError as exc:
+        link.close()
+        print(f"error: {exc}", file=sys.stderr)
         return 2
     try:
         run, how = run_echo(link, args)

@@ -190,15 +190,18 @@ Measured with **bsc 2026.07.1** (`bsc -u -verilog`, no other flags) and **Yosys 
 which is one FF more than the source has), at 12 Mbaud and 100 MHz:
 
 ```bash
-bsc -u -verilog -p +:rtl -bdir build -vdir build rtl/Uart.bsv        # the Verilog of mkUart
-yosys -q -p "read_verilog -sv -DBSV_NO_INITIAL_BLOCKS mkUart.v <bsc>/lib/Verilog/RegFile.v;
-             hierarchy -top mkUart; synth_xilinx -family xc7 -flatten -top mkUart; stat"
+mkdir -p build
+bsc -u -verilog -p +:rtl -bdir build -vdir build rtl/Uart.bsv        # build/mkUart.v
+yosys -p "read_verilog -sv -DBSV_NO_INITIAL_BLOCKS build/mkUart.v $BSV_VERILOG/RegFile.v;
+             hierarchy -top mkUart; synth_xilinx -family xc7 -flatten -top mkUart;
+             stat" | tail -n 40
 ```
 
-(`<bsc>/lib/Verilog` is bsc's library. The receiver, transmitter and buffers alone are small
-`(* synthesize *)` wrappers of `mkUartRx`, `mkUartTx` and `mkSmallFIFOF`, through the same two
-commands.) The Verilog from the Xeda `bsc` flow (`-lift -aggressive-conditions` and more) is 2 LUT
-larger for `mkUart`: 62.
+(`$BSV_VERILOG` is bsc's Verilog library, `<bsc>/lib/Verilog`, or `<bsc>/libexec/lib/Verilog` with
+Homebrew. The last 40 lines of the log are the cell statistics.
+The receiver, transmitter and buffers alone are small `(* synthesize *)` wrappers of `mkUartRx`,
+`mkUartTx` and `mkSmallFIFOF`, through the same two commands.) The Verilog from the Xeda `bsc` flow
+(`-lift -aggressive-conditions` and more) is 2 LUT larger for `mkUart`: 62.
 
 | block | LUT | FF | notes |
 |---|---|---|---|

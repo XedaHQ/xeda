@@ -218,7 +218,11 @@ module mkEcho(UartEcho);
 `elsif XEDA_INJECT_BUG_ECHO
       Bool idle = True;
 `else
-      Bool idle = lineQuiet && !uart.txBusy && !echoQ.notEmpty;
+      // lineSync2 is the PHY's rxSync2 (the same two flops on the same pin). With HOLD 1 the
+      // receiver starts a frame in the cycle where it goes low, while `quiet` is still full and
+      // clears only at the end of that cycle: without `lineSync2 == 1` the rate could change in
+      // that very cycle and the frame would start with the old period and go on with the new one.
+      Bool idle = lineQuiet && lineSync2 == 1 && !uart.txBusy && !echoQ.notEmpty;
 `endif
       if (idle)
          selected <= unpack(swSync2);

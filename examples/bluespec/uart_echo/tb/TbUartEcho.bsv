@@ -21,6 +21,9 @@
 //     3 Mbaud and at 921600 baud are echoed.
 //     With FIXED_BAUD the switches are ignored: the same flips must change nothing, the bursts
 //     before and after come back at the one rate.
+//  8. A switch is changed in the very clock where a start bit reaches the synchronizers: the
+//     frame still comes back whole at the old rate, and the new rate takes effect after it.
+//     Not with FIXED_BAUD.
 //
 // A failed check ends the run with $fatal. `XEDA_INJECT_BUG` makes the echo take a new baud rate
 // at once instead of when it is idle (and also plants the PHY bug of the uart example), which the
@@ -197,6 +200,7 @@ module mkTbUartEcho(Empty);
       dut.inputs(host.line, sw, btn);
       receiver.line(dut.txd);
    endrule
+
 
    (* fire_when_enabled, no_implicit_conditions *)
    rule watchdog;
@@ -386,6 +390,44 @@ module mkTbUartEcho(Empty);
                 receiver.frames, receiver.missing);
    endseq;
 
+`ifndef FIXED_BAUD
+   // The switch changes in the very clock where the line is first seen low: the start bit is on
+   // the line one clock after the sender's phase is set (`u` = 2), `sw` is a register, and both go
+   // through two flops. In `u` = 3 the two arrive together. The echo has been idle, so it takes
+   // the new rate, but only after this frame, which it must echo at the old one: a rate change
+   // landing in the clock where the line is seen low would start the frame with the old period
+   // (HOLD=1) or the new one (HOLD=3), and the host's frame would be lost. One clock earlier the
+   // switch does win, and the frame is lost on purpose (not tried). The frame is tried from
+   // 921600 baud to 12 Mbaud and back.
+   Reg#(Bit#(4)) current <- mkReg(8);
+   Reg#(UInt#(4)) trial <- mkReg(0);
+   Reg#(UInt#(4)) u <- mkReg(0);
+   Stmt collide = seq
+      for (trial <= 0; trial < 2; trial <= trial + 1) seq
+         pause(quiet);
+         action
+            if (current == 8) setRate(8, 0); else setRate(0, 0);
+            receiver.startCounting;
+         endaction
+         u <= 0;
+         while (u < 8) action
+            if (u == 1) hostByte(8'h00);
+            if (u == 2) host.setPhase(0);
+            if (u == 3) sw <= (current == 8) ? 4'd0 : 4'd8;
+            u <= u + 1;
+         endaction
+         action hostByte(8'h01); endaction
+         action hostByte(8'h02); endaction
+         settle;
+         pause(5 * 10 * (clkHz / baudOf(8)));   // the three frames come back at the old rate
+         if (receiver.frames != 3 || receiver.missing != 0)
+            $fatal(1, "FAIL: a switch meeting a start bit (%0d): %0d of 3 bytes came back", trial,
+                   receiver.frames);
+         current <= (current == 8) ? 4'd0 : 4'd8;
+      endseq
+   endseq;
+`endif
+
    Stmt script = seq
       note("power", cycle); power;
       note("corners", cycle); corners;
@@ -393,6 +435,9 @@ module mkTbUartEcho(Empty);
       note("errors", cycle); errors;
       note("overrun", cycle); overrun;
       note("retune", cycle); retune;
+`ifndef FIXED_BAUD
+      note("collide", cycle); collide;
+`endif
       action
 `ifdef FIXED_BAUD
          $display("PASS: fixed baud rate echo checked, switches ignored, %0d cycles (%0d frames back to back)",

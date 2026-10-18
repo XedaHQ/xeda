@@ -89,11 +89,13 @@ endfunction
 // clockHz/baud with aw fraction bits, i.e. TLog of floor(P + 2**-(aw+1)), the largest D that
 // rounding can give. Size the counter with it from numeric macros:
 // `typedef StaticCntBits#(`CLK_HZ, `BAUD, 6) CntBits;`
-typedef TLog#(TDiv#(TSub#(TAdd#(TMul#(TMul#(2, clockHz), TExp#(aw)), baud),
+typedef TLog#(TDiv#(TSub#(TAdd#(TAdd#(TMul#(TMul#(2, clockHz), TExp#(aw)), baud), 1),
                           TMul#(TMul#(2, baud), TExp#(aw))),
                     TMul#(TMul#(2, baud), TExp#(aw))))
         StaticCntBits#(numeric type clockHz, numeric type baud, numeric type aw);
-// (floor(a/b) is TDiv#(a+1-b, b), since TDiv rounds up; a+1-b is the numerator above.)
+// (With a = 2*clockHz*2**aw + baud and b = 2*baud*2**aw, floor(a/b) is TDiv#(a+1-b, b), since
+// TDiv rounds up; a+1-b is the numerator above. Without the 1 the tie where a/b is an integer,
+// like 71 Hz / 8 baud with aw = 2 (8.875 rounds up to 9), would be one too small.)
 
 function BitTiming#(wc, aw) staticTiming(Integer clockHz, Integer baud, Integer adjust);
    Integer m = 2 ** valueOf(aw);

@@ -99,9 +99,16 @@ def test_bsc_collects_every_verilog_file_of_the_top(design_file, generated, tmp_
         check=True,
     )
     require_verilator()
-    lint = ["verilator", "--lint-only", "-Wno-lint", "-Wno-style", "--no-timing"]
-    if any(Path(f).name.startswith(("MakeReset", "SyncReset")) for f in files):
-        lint.append("-Wno-STMTDLY")  # bsc's reset generators have `#0` in an initial block
+    # bsc's own reset generators have `#0` in an initial block: waive STMTDLY for those files only,
+    # so that a delay in the design's Verilog is still reported
+    waiver = flow.run_path / "lint_waivers.vlt"
+    waiver.write_text(
+        "`verilator_config\n"
+        + "".join(
+            f'lint_off -rule STMTDLY -file "*/{name}*.v"\n' for name in ("MakeReset", "SyncReset")
+        )
+    )
+    lint = ["verilator", "--lint-only", "-Wno-lint", "-Wno-style", "--no-timing", str(waiver)]
     subprocess.run([*lint, "--top-module", top, *files], check=True, cwd=flow.run_path)
 
 
