@@ -1,0 +1,51 @@
+# ULX3S (v2.x and v3.0.x) pins for the uart_echo top, mkUartEcho, ECP5 (nextpnr, LPF).
+#
+# Port names are those of the top module: CLK, rxd, txd, led[3:0], sw[3:0], btn.
+# Pins are from the upstream ULX3S constraints (emard/ulx3s, doc/constraints/ulx3s_v20.lpf) and
+# match src/xeda/data/boards/ulx3s/board.lpf, which the bundled file uses for clk_25mhz.
+#
+# Clock: 25 MHz oscillator on G2. There is no FREQUENCY line on purpose: the flow's clock setting
+# (nextpnr clock.freq: 25 MHz in uart_echo.yaml) gives the period, and a clock with two
+# constraints is an error. With another tool flow, add `FREQUENCY PORT "CLK" 25 MHZ;`.
+#
+# The asynchronous inputs (rxd, sw, btn) go through two flops each inside the design, so they need
+# no constraint in this file: nextpnr has no false-path or ASYNC_REG command for ECP5.
+
+## Clock, 25 MHz oscillator
+LOCATE COMP "CLK" SITE "G2";
+IOBUF PORT "CLK" PULLMODE=NONE IO_TYPE=LVCMOS33;
+
+## Configuration. Keep the SPI flash port enabled, as on the bundled board file.
+SYSCONFIG CONFIG_IOVOLTAGE=3.3 COMPRESS_CONFIG=ON MCCLK_FREQ=62 SLAVE_SPI_PORT=DISABLE MASTER_SPI_PORT=ENABLE SLAVE_PARALLEL_PORT=DISABLE;
+
+## USB-UART through the on-board FT231X (one channel). Names are from the FPGA side.
+## rxd receives what the FTDI transmits (ftdi_txd, M1). txd transmits to the FTDI (ftdi_rxd, L4).
+LOCATE COMP "rxd" SITE "M1";  # ftdi_txd: FPGA receives
+LOCATE COMP "txd" SITE "L4";  # ftdi_rxd: FPGA transmits
+IOBUF PORT "rxd" PULLMODE=UP IO_TYPE=LVCMOS33;
+IOBUF PORT "txd" PULLMODE=UP IO_TYPE=LVCMOS33 DRIVE=4;
+
+## LEDs, led[0] to led[3], active high
+LOCATE COMP "led[0]" SITE "B2";
+LOCATE COMP "led[1]" SITE "C2";
+LOCATE COMP "led[2]" SITE "C1";
+LOCATE COMP "led[3]" SITE "D2";
+IOBUF PORT "led[0]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "led[1]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "led[2]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "led[3]" PULLMODE=NONE IO_TYPE=LVCMOS33 DRIVE=4;
+
+## Button, btn: FIRE1 (user button, active high). Not BTN_PWRn (D6), which is inverted and
+## belongs to the power circuit.
+LOCATE COMP "btn" SITE "R1";
+IOBUF PORT "btn" PULLMODE=DOWN IO_TYPE=LVCMOS33 DRIVE=4;
+
+## DIP switches, sw[0] to sw[3] (SW1 to SW4), active high (baud-rate select)
+LOCATE COMP "sw[0]" SITE "E8";
+LOCATE COMP "sw[1]" SITE "D8";
+LOCATE COMP "sw[2]" SITE "D7";
+LOCATE COMP "sw[3]" SITE "E7";
+IOBUF PORT "sw[0]" PULLMODE=DOWN IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "sw[1]" PULLMODE=DOWN IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "sw[2]" PULLMODE=DOWN IO_TYPE=LVCMOS33 DRIVE=4;
+IOBUF PORT "sw[3]" PULLMODE=DOWN IO_TYPE=LVCMOS33 DRIVE=4;

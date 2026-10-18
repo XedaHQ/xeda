@@ -99,12 +99,10 @@ def test_bsc_collects_every_verilog_file_of_the_top(design_file, generated, tmp_
         check=True,
     )
     require_verilator()
-    subprocess.run(
-        ["verilator", "--lint-only", "-Wno-lint", "-Wno-style", "--no-timing"]
-        + ["--top-module", top, *files],
-        check=True,
-        cwd=flow.run_path,
-    )
+    lint = ["verilator", "--lint-only", "-Wno-lint", "-Wno-style", "--no-timing"]
+    if any(Path(f).name.startswith(("MakeReset", "SyncReset")) for f in files):
+        lint.append("-Wno-STMTDLY")  # bsc's reset generators have `#0` in an initial block
+    subprocess.run([*lint, "--top-module", top, *files], check=True, cwd=flow.run_path)
 
 
 @pytest.mark.parametrize("design_file", EXAMPLES, ids=lambda p: p.stem)
