@@ -2328,6 +2328,24 @@ def test_the_technology_file_escapes_the_lef_paths_as_xml_text(tmp_path, monkeyp
     assert "&amp; &lt;macros&gt;" in path.read_text()
 
 
+def test_a_technology_file_with_a_lefdef_section_and_no_list_gets_the_list(tmp_path, monkeypatch):
+    """The technology file of lambdapdk has a `<lefdef>` section and no `<lef-files>`."""
+    fake_klayout(tmp_path, monkeypatch)
+    flow = gds_flow(tmp_path)
+    flow.platform_model.files["klayout_tech"][0].write_text(
+        "<technology>\n <lefdef>\n  <dbu>0.001</dbu>\n </lefdef>\n <other/>\n</technology>\n"
+    )
+    in_run_directory(flow, monkeypatch)
+    flow.set_final_outputs()
+    path = flow.write_klayout_tech()
+    values = flow.effective()
+    listed = [element.text for element in ElementTree.parse(path).iter("lef-files")]
+    assert listed == [str(lef) for lef in (values.tech_lef, *values.cell_lefs)]
+    text = path.read_text()
+    assert text.index("<dbu>") < text.index("<lef-files>") < text.index("</lefdef>")
+    assert "<other/>" in text
+
+
 def test_a_technology_file_without_the_list_of_lef_files_is_refused_with_the_way_out(
     tmp_path, monkeypatch
 ):

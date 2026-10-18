@@ -45,6 +45,7 @@ from .tool_utils import (
     pdk_test_pairs,
     pdk_test_platforms,
     require_bsc,
+    require_klayout,
     require_openroad,
     require_pdk_store,
     require_yosys,
@@ -537,6 +538,7 @@ def test_gcd_runs_on_sky130hd_from_lambdapdk(tmp_path):
     require_bsc()
     require_openroad()
     require_yosys()
+    require_klayout()
     store = require_pdk_store()
     if ("sky130hd", "lambdapdk") not in pdk_test_pairs():
         pytest.skip("set XEDA_TESTS_PDK_PROVIDERS to sky130hd:lambdapdk for this test")
@@ -551,6 +553,7 @@ def test_gcd_runs_on_sky130hd_from_lambdapdk(tmp_path):
         *(f"flows.yosys.{setting}" for setting in chosen),
         "flows.yosys.clock.period=4ns",
         "flows.openroad_place.clock.period=4ns",
+        "write_gds=true",
         flow="bsc+openroad",
     )
     assert flow.succeeded, flow.results.get("error")
@@ -559,6 +562,7 @@ def test_gcd_runs_on_sky130hd_from_lambdapdk(tmp_path):
     assert results["wns"] == 0 and results["worst_slack"] > 0, results["worst_slack"]
     assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
     assert results["tap_cells"] > 0
+    assert (flow.run_path / "final.gds").stat().st_size > 0  # the KLayout file of lambdapdk
     view = load_residue("sky130hd").for_provider("lambdapdk")
     excluded = set(view.value_leaves()["dont_use_cells"])
     netlist = (tmp_path / "run" / "gcd" / "yosys" / "netlist.v").read_text()

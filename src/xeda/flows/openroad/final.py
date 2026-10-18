@@ -903,25 +903,27 @@ class Openroad(OpenroadStage):
         """Write the technology file of KLayout into the run directory and return its path.
 
         The file is the one of the platform with its list of LEF files replaced by the technology
-        LEF file and the LEF files of the cells, as absolute paths. Each path is escaped as XML
+        LEF file and the LEF files of the cells, as absolute paths. A file that has a `<lefdef>`
+        section and no list gets the list at the end of the section. Each path is escaped as XML
         text, so a path with `&` or `<` stays one element. KLayout reads the DEF file of the
         routed design with these. Raise `FlowSettingsException` if the file of the platform has
-        no list of LEF files to replace."""
+        neither a list of LEF files nor a `<lefdef>` section."""
         model = self.platform_model
         assert model is not None, "prepare_inputs() builds the platform model"
         template = model.files["klayout_tech"][0]
         values = self.effective()
         lefs = [*([values.tech_lef] if values.tech_lef is not None else []), *values.cell_lefs]
+        elements = "".join(f"<lef-files>{xml_escape(str(lef))}</lef-files>" for lef in lefs)
         text, replaced = re.subn(
-            r"<lef-files>.*?</lef-files>",
-            lambda _: "".join(f"<lef-files>{xml_escape(str(lef))}</lef-files>" for lef in lefs),
-            template.read_text(),
+            r"<lef-files>.*?</lef-files>", lambda _: elements, template.read_text()
         )
+        if not replaced:
+            text, replaced = re.subn(r"</lefdef>", lambda _: f"{elements}</lefdef>", text, count=1)
         if not replaced:
             raise FlowSettingsException(
                 f"the KLayout technology file {template} of the platform {model.name!r} has no "
-                "`<lef-files>` element, so KLayout cannot read the LEF files with the DEF file: "
-                "add the element to the file, or set `write_gds: false`"
+                "`<lef-files>` element and no `<lefdef>` section, so KLayout cannot read the LEF "
+                "files with the DEF file: add the element to the file, or set `write_gds: false`"
             )
         path = self.run_directory.writable(self.klayout_tech_file)
         with replacing_file(path) as handle:

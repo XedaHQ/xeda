@@ -389,6 +389,10 @@ def require_yosys() -> None:
     _require_command("yosys", ["yosys", "-V"])
 
 
+def require_klayout() -> None:
+    _require_command("klayout", ["klayout", "-v"])
+
+
 def require_yosys_config() -> None:
     """The `yosys-config` executable, which a yosys install need not ship.
 
