@@ -22,7 +22,8 @@ pytest tests/test_bsc_examples.py tests/test_ascon_example.py -k ascon
 ## Synthesis and physical implementation
 
 These commands ran from the root directory of the repository with the settings of `ascon.yaml`.
-Each of them ran `bsc` first, to convert the design to Verilog.
+The simulation commands compile the design with `bsc_sim`. The three synthesis commands ran `bsc`
+first, to convert the design to Verilog.
 
 | Command | Result |
 | --- | --- |

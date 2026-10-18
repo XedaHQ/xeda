@@ -190,9 +190,10 @@ Measured with **bsc 2026.07.1** (`bsc -u -verilog`, no other flags) and **Yosys 
 which is one FF more than the source has), at 12 Mbaud and 100 MHz:
 
 ```bash
-mkdir -p build
-bsc -u -verilog -p +:rtl -bdir build -vdir build rtl/Uart.bsv        # build/mkUart.v
-yosys -p "read_verilog -sv -DBSV_NO_INITIAL_BLOCKS build/mkUart.v $BSV_VERILOG/RegFile.v;
+BUILD=$(mktemp -d)
+bsc -u -verilog -p +:examples/bluespec/uart/rtl -bdir $BUILD -vdir $BUILD \
+    examples/bluespec/uart/rtl/Uart.bsv                               # $BUILD/mkUart.v
+yosys -p "read_verilog -sv -DBSV_NO_INITIAL_BLOCKS $BUILD/mkUart.v $BSV_VERILOG/RegFile.v;
              hierarchy -top mkUart; synth_xilinx -family xc7 -flatten -top mkUart;
              stat" | tail -n 40
 ```

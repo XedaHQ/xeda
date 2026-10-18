@@ -17,6 +17,8 @@ from xeda.cli import cli
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Openroad
 
+from .launch_utils import empty_project
+
 EXAMPLES = Path(__file__).parent.parent / "examples" / "bluespec"
 
 #: (design, target, request, the flows the plan runs, in order)
@@ -67,12 +69,6 @@ COMMANDS = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def outside_the_examples(tmp_path, monkeypatch):
-    """Xeda reads a project file in the current directory: start in an empty one."""
-    monkeypatch.chdir(tmp_path)
-
-
 @pytest.mark.parametrize(
     "name, target, request_, flows",
     COMMANDS,
@@ -81,6 +77,7 @@ def outside_the_examples(tmp_path, monkeypatch):
 def test_the_documented_command_plans(name, target, request_, flows, tmp_path):
     args = ["run", request_, str(EXAMPLES / name / f"{name}.yaml"), "--dry-run", "--json"]
     args += ["--run-root", str(tmp_path / "xeda_run")]
+    args += ["--xedaproject", empty_project(tmp_path)]
     if target:
         args += ["--target", target]
     result = CliRunner().invoke(cli, args)
@@ -93,7 +90,9 @@ def test_the_documented_command_plans(name, target, request_, flows, tmp_path):
 def test_the_ascon_clock_reaches_synthesis_and_placement(tmp_path):
     """The `yosys` section of the design file sets the clock of the whole OpenROAD chain."""
     design = Design.from_file(EXAMPLES / "ascon" / "ascon.yaml")
-    plan = DefaultRunner(tmp_path / "plan", display_results=False).plan(Openroad, design)
+    plan = DefaultRunner(tmp_path / "plan", display_results=False).plan(
+        Openroad, design, xedaproject=empty_project(tmp_path)
+    )
     for name in ("yosys", "openroad_place"):
         clock = next(iter(plan.node(name).settings.clocks.values()))
         assert clock.period.to("ns") == 2

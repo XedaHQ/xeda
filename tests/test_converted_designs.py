@@ -34,6 +34,7 @@ from xeda.introspect import plan_info
 
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
+from .launch_utils import empty_project
 from .settings_samples import flow_classes, minimal_settings
 
 BSV = "package Top;\n// a comment\nendpackage\n"
@@ -363,7 +364,9 @@ def test_a_bluespec_design_plans_a_conversion_with_its_reason_or_fails_with_a_re
     design = _bluespec_sweep_design(tmp_path / "d", bluespec_testbench=bluespec_testbench)
     the_runner = runner(tmp_path)
     try:
-        plan = the_runner.plan(name, design, flow_settings=minimal_settings(cls))
+        plan = the_runner.plan(
+            name, design, empty_project(tmp_path), flow_settings=minimal_settings(cls)
+        )
     except (FlowSettingsException, FlowSettingsError) as refusal:
         message = str(refusal)
         # the refusal may come from a flow that the request plans first (`vivado_power` plans
@@ -406,7 +409,9 @@ def test_the_sweep_design_reaches_both_outcomes(tmp_path) -> None:
     planned, refused = set(), set()
     for cls, name in flow_classes():
         try:
-            runner(tmp_path).plan(name, design, flow_settings=minimal_settings(cls))
+            runner(tmp_path).plan(
+                name, design, empty_project(tmp_path), flow_settings=minimal_settings(cls)
+            )
             planned.add(name)
         except (FlowSettingsException, FlowSettingsError):
             refused.add(name)

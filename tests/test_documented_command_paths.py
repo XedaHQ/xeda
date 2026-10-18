@@ -103,3 +103,16 @@ def test_a_command_with_a_design_name_names_its_project_file(document):
         and "--xedaproject" not in line
     ]
     assert not found, "\n".join(found)
+
+
+@pytest.mark.parametrize("document", EXAMPLE_DOCUMENTS, ids=lambda p: str(p.relative_to(ROOT)))
+def test_a_bluespec_source_of_a_compiler_command_is_named_from_the_repository_root(document):
+    """The raw `bsc` recipes of the READMEs run in the root directory too."""
+    wrong = [
+        name
+        for line in document.read_text(encoding="utf-8").splitlines()
+        if re.match(r"\s*bsc\s|\s+-bdir|\s+examples/\S+\.bsv", line)
+        for name in re.findall(r"(?<![\w$/.-])((?:[\w.-]+/)+[\w.-]+\.bsv)\b", line)
+        if not (ROOT / name).is_file()
+    ]
+    assert not wrong, wrong

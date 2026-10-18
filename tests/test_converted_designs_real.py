@@ -17,18 +17,13 @@ import yaml
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
 
+from .launch_utils import empty_project
 from .tool_utils import _require_command, require_bsc, require_nextpnr_ecp5, require_yosys
 
 GCD = Path(__file__).parent.parent / "examples" / "bluespec" / "gcd"
 
 EXTRA_VERILOG = "module spare(input a, output y); assign y = ~a; endmodule\n"
 CONSTRAINTS = "# no constraints\n"
-
-
-@pytest.fixture(autouse=True)
-def outside_the_examples(tmp_path, monkeypatch):
-    """Xeda reads a project file in the current directory: start in an empty one."""
-    monkeypatch.chdir(tmp_path)
 
 
 class Gcd:
@@ -152,7 +147,9 @@ def test_gcd_goes_to_ecp5_through_bsc_yosys_fpga_and_nextpnr(tmp_path) -> None:
     require_bsc()
     require_nextpnr_ecp5()
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run("yosys_fpga+nextpnr", GCD / "gcd.yaml", target="ecp5")
+    flow = runner.run(
+        "yosys_fpga+nextpnr", GCD / "gcd.yaml", empty_project(tmp_path), target="ecp5"
+    )
     assert flow is not None and flow.succeeded, flow and flow.results.get("error")
     assert [f.name for f in runner.launched] == ["bsc", "yosys_fpga", "nextpnr"]
     assert flow.name == "nextpnr"
@@ -169,7 +166,7 @@ def test_gcd_on_ecp5_runs_nextpnr_alone_on_the_part_of_the_design_file(tmp_path)
     require_bsc()
     require_nextpnr_ecp5()
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run("nextpnr", GCD / "gcd.yaml", target="ecp5")
+    flow = runner.run("nextpnr", GCD / "gcd.yaml", empty_project(tmp_path), target="ecp5")
     assert flow is not None and flow.succeeded, flow and flow.results.get("error")
     assert [f.name for f in runner.launched] == ["bsc", "yosys_fpga", "nextpnr"]
     assert flow.settings.fpga.part == "LFE5U-85F-6BG381C"
@@ -182,7 +179,7 @@ def test_gcd_on_artix7_is_a_synthesis_estimate_of_bsc_and_yosys_fpga(tmp_path) -
     require_bsc()
     require_yosys()
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run("yosys_fpga", GCD / "gcd.yaml", target="artix7")
+    flow = runner.run("yosys_fpga", GCD / "gcd.yaml", empty_project(tmp_path), target="artix7")
     assert flow is not None and flow.succeeded, flow and flow.results.get("error")
     assert [f.name for f in runner.launched] == ["bsc", "yosys_fpga"]
     assert flow.settings.fpga.part == "xc7a100tcsg324-1"
@@ -199,7 +196,9 @@ def test_gcd_on_ecp5_packs_a_bitstream_through_bsc_yosys_fpga_nextpnr_and_fpga_p
     require_nextpnr_ecp5()
     _require_command("ecppack", ["ecppack", "--help"])
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run("yosys_fpga+nextpnr+fpga_pack", GCD / "gcd.yaml", target="ecp5")
+    flow = runner.run(
+        "yosys_fpga+nextpnr+fpga_pack", GCD / "gcd.yaml", empty_project(tmp_path), target="ecp5"
+    )
     assert flow is not None and flow.succeeded, flow and flow.results.get("error")
     assert [f.name for f in runner.launched] == ["bsc", "yosys_fpga", "nextpnr", "fpga_pack"]
     assert flow.outputs.bitstream == flow.run_path / "outputs" / "gcd.bit"
@@ -267,7 +266,7 @@ def test_a_generator_writes_the_bluespec_that_bsc_converts(tmp_path) -> None:
 
     def launch() -> tuple[dict[str, bool], Any]:
         runner = DefaultRunner(tmp_path / "run", display_results=False)
-        flow = runner.run("yosys", file)
+        flow = runner.run("yosys", file, empty_project(tmp_path))
         assert flow is not None and flow.succeeded, flow and flow.results.get("error")
         return {f.name: f.reused for f in runner.launched}, flow
 

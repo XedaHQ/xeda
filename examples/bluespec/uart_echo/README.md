@@ -247,13 +247,15 @@ xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --target fixed_baud 
 | Yosys 0.70+post, `synth_xilinx -family xc7 -flatten` | 193 | 206 | 1 RAMB18 | |
 
 The first three rows are the chains of the commands above, from the Verilog of Xeda's `bsc` flow.
-The last row, and the Yosys figures of the `FIXED_BAUD` table, are (in `uart_echo/`; `$BSV_VERILOG` is
-bsc's Verilog library, `<bsc>/lib/Verilog`, or `<bsc>/libexec/lib/Verilog` with Homebrew):
+The last row, and the Yosys figures of the `FIXED_BAUD` table, come from the commands below. Run
+them from the root directory of the repository. `$BSV_VERILOG` is bsc's Verilog library:
+`<bsc>/lib/Verilog`, or `<bsc>/libexec/lib/Verilog` with Homebrew.
 
 ```bash
-mkdir -p build
-bsc -u -verilog -p +:../uart/rtl:rtl -bdir build -vdir build rtl/UartEcho.bsv   # plus -D FIXED_BAUD
-yosys -p "read_verilog -sv -DBSV_NO_INITIAL_BLOCKS build/mkUartEcho.v build/mkUart.v \
+BUILD=$(mktemp -d)
+bsc -u -verilog -p +:examples/bluespec/uart/rtl:examples/bluespec/uart_echo/rtl \
+    -bdir $BUILD -vdir $BUILD examples/bluespec/uart_echo/rtl/UartEcho.bsv   # plus -D FIXED_BAUD
+yosys -p "read_verilog -sv -DBSV_NO_INITIAL_BLOCKS $BUILD/mkUartEcho.v $BUILD/mkUart.v \
              $BSV_VERILOG/BRAM2.v $BSV_VERILOG/MakeReset0.v;
              hierarchy -top mkUartEcho; synth_xilinx -family xc7 -flatten -top mkUartEcho;
              stat" | tail -n 40

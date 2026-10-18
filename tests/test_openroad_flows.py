@@ -21,6 +21,7 @@ from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
 
 from .bluespec_sources import COUNTER_BSV
+from .launch_utils import empty_project
 from .openroad_utils import (
     OPENROAD_FLOWS,
     openroad_design,
@@ -832,17 +833,18 @@ def test_a_comment_edit_of_a_bluespec_source_reruns_bsc_and_nothing_after_it(tmp
     design = tmp_path / "design" / "design.yaml"
     given = dict(text.split("=", 1) for text in chain_settings(tmp_path, "fail_timing=false"))
     names = ["bsc", "yosys", *NAMES]
+    project = empty_project(tmp_path)
 
     def launch_chain() -> dict[str, bool]:
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-        flow = runner.run("openroad", design, flow_settings=given)
+        flow = runner.run("openroad", design, project, flow_settings=given)
         assert flow is not None and flow.succeeded
         return {f.name: f.reused for f in runner.launched}
 
     def judged() -> dict[str, str]:
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
         _, states = runner.plan_with_freshness(
-            "openroad", Design.from_file(design), flow_settings=given
+            "openroad", Design.from_file(design), project, flow_settings=given
         )
         return {name: state.state for name, state in states.items()}
 
