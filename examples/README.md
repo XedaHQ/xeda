@@ -29,7 +29,7 @@ Other VHDL examples:
 - `vhdl/Trivium`: the Trivium stream cipher with a cocotb testbench that calls a C reference model.
   See its README.
 - `vhdl/xedaproject.yaml`: a project file with one design, `full-adder`, and settings for several
-  flows (`xeda run ghdl_sim --design-name full-adder`).
+  flows (`xeda run ghdl_sim --xedaproject examples/vhdl/xedaproject.yaml --design-name full-adder`).
 
 ## SystemVerilog and mixed languages
 

@@ -263,7 +263,6 @@ DUT C is reset by a `mkReset` around it, so the rules of its bench use two reset
 the design file suppresses bsc's warning about it (G0043) for `bsc_sim`.
 
 ```bash
-cd examples/bluespec/uart
 xeda run bsc_sim examples/bluespec/uart/uart.yaml                          # Bluesim
 xeda run bsc_sim examples/bluespec/uart/uart.yaml -s simulator=verilator
 xeda run bsc_sim examples/bluespec/uart/uart.yaml -s simulator=iverilog

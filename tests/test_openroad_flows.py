@@ -20,6 +20,7 @@ from xeda.flow import FlowSettingsException
 from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
 
+from .bluespec_sources import COUNTER_BSV
 from .openroad_utils import (
     OPENROAD_FLOWS,
     openroad_design,
@@ -35,7 +36,6 @@ from .test_openroad_final import (
     fake_klayout,
     variant_residue,
 )
-from .bluespec_sources import COUNTER_BSV
 from .tiny_platform import TINY_RESIDUE, tiny_store
 from .tool_utils import (
     fake_returns,
@@ -812,12 +812,14 @@ def test_a_missing_metrics_file_fails_the_run_with_no_trace(tmp_path, monkeypatc
 # ------------------------------------------------------------------------------ a Bluespec design
 
 
+@pytest.mark.real_tool
 def test_a_comment_edit_of_a_bluespec_source_reruns_bsc_and_nothing_after_it(tmp_path, monkeypatch):
     """The chain `bsc+openroad` on a Bluespec design: a comment in the source runs `bsc` again,
     which writes the same Verilog, and every flow after it is reused. An edit that changes the
     Verilog runs `yosys` again. A dry run said the first before."""
     require_bsc()
     require_tclsh()
+    monkeypatch.chdir(tmp_path)  # Xeda reads a project file in the current directory
     use_fake_openroad(monkeypatch)
     use_fake_asic_tools(monkeypatch, tmp_path / "bin")
     monkeypatch.setenv("XEDA_FAKE_OPENROAD_TOP", "mkCounter")

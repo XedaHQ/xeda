@@ -11,7 +11,8 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoPostsynthSim, VivadoPower, VivadoSim
 from xeda.tool import Tool
 
-from .tool_utils import fake_calls, use_fake_tools
+from .bluespec_sources import COUNTER_BSV
+from .tool_utils import fake_calls, require_bsc, use_fake_tools
 
 
 def design_at(root: Path, vhdl=False) -> Design:
@@ -354,12 +355,10 @@ def test_vivado_cannot_disable_required_source_provenance(tmp_path, monkeypatch)
         launch(tmp_path, monkeypatch, "vhdl_stop", {"elab_debug": "off"})
 
 
+@pytest.mark.real_tool
 def test_vivado_sim_reads_what_bsc_converted_in_the_chain_bsc_vivado_sim(tmp_path, monkeypatch):
     """The skill says `bsc+vivado_sim` works: bsc converts the Bluespec design, and the simulator
     reads the Verilog that bsc wrote, with the Verilog testbench of the design."""
-    from .bluespec_sources import COUNTER_BSV
-    from .tool_utils import require_bsc
-
     require_bsc()
     use_fake_tools(monkeypatch)
     monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "clock")

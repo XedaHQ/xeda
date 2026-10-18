@@ -67,6 +67,12 @@ COMMANDS = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def outside_the_examples(tmp_path, monkeypatch):
+    """Xeda reads a project file in the current directory: start in an empty one."""
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.mark.parametrize(
     "name, target, request_, flows",
     COMMANDS,

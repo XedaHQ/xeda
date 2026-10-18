@@ -25,6 +25,12 @@ EXTRA_VERILOG = "module spare(input a, output y); assign y = ~a; endmodule\n"
 CONSTRAINTS = "# no constraints\n"
 
 
+@pytest.fixture(autouse=True)
+def outside_the_examples(tmp_path, monkeypatch):
+    """Xeda reads a project file in the current directory: start in an empty one."""
+    monkeypatch.chdir(tmp_path)
+
+
 class Gcd:
     """The Bluespec example in a directory of the test, with a Verilog and a constraint source
     beside the Bluespec sources, and the flow `yosys` set up to read it."""
@@ -226,6 +232,7 @@ endpackage
 """
 
 
+@pytest.mark.real_tool
 def test_a_generator_writes_the_bluespec_that_bsc_converts(tmp_path) -> None:
     """`rtl.generator` and the conversion compose: the generator writes the Bluespec source while
     the design loads, `bsc` converts it, and `yosys` reads the Verilog. A second launch runs
@@ -264,7 +271,7 @@ def test_a_generator_writes_the_bluespec_that_bsc_converts(tmp_path) -> None:
         assert flow is not None and flow.succeeded, flow and flow.results.get("error")
         return {f.name: f.reused for f in runner.launched}, flow
 
-    first, flow = launch()
+    first, _ = launch()
     assert first == {"bsc": False, "yosys": False}
     assert "UInt#(8)" in (root / "rtl" / "Counter.bsv").read_text()
     verilog = tmp_path / "run" / "counter" / "bsc"

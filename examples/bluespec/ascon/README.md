@@ -134,7 +134,7 @@ To reproduce the committed vectors, run the generator against a BlueLight checko
 in `NOTICE.md`:
 
 ```bash
-python tb/generate_vectors.py /path/to/bluelight --check
+python examples/bluespec/ascon/tb/generate_vectors.py /path/to/bluelight --check
 ```
 
 See [VALIDATION.md](VALIDATION.md) for the tools and configurations used to validate this port.
