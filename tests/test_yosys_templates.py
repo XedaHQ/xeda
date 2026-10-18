@@ -748,8 +748,10 @@ def test_slang_gets_the_parameters_of_the_top_and_chparam_does_not(
     script = _render(Yosys, {}, out, design)
     slang = [line for line in script.splitlines() if "read_slang" in line]
     assert len(slang) == 1, slang
-    quote = '\\"' if script_format == "tcl" else '"'
-    expected = f"-G W=8 -G BV=7'b0101001 -G F=1'b1 -G S={quote}abcd{quote} -G R=1.5"
+    if script_format == "tcl":
+        expected = ' -G "W=8" -G "BV=7\'b0101001" -G "F=1\'b1" -G "S=\\"abcd\\"" -G "R=1.5"'
+    else:
+        expected = " -G W=8 -G BV=7'b0101001 -G F=1'b1 -G S=\"abcd\" -G R=1.5"
     assert slang[0].endswith(expected), slang[0]
     assert "chparam" not in script
 
@@ -785,6 +787,8 @@ def test_a_string_parameter_with_whitespace_is_refused_for_slang(tmp_path: Path)
     inside the text), so the check refuses the value before anything runs. Another reader, or
     no SystemVerilog source, has no such limit."""
     design, out = _mixed_design(tmp_path)
+    (design.design_root / "inv.vhd").write_text("-- a source\n")
+    (design.design_root / "tb.sv").write_text("module tb; endmodule\n")
 
     def checked(parameters: dict[str, Any], sources: list[str], **settings: Any) -> None:
         refused = Design(
@@ -795,12 +799,27 @@ def test_a_string_parameter_with_whitespace_is_refused_for_slang(tmp_path: Path)
         Yosys.check_design_supported(refused, Yosys.Settings(**settings))
 
     sources = ["gate.v", "top.sv"]
+    # the testbench of `yosys_sim` is a source that slang reads too
+    with pytest.raises(FlowSettingsException, match="read_slang -G"):
+        YosysSim.check_design_supported(
+            Design(
+                name="top",
+                design_root=design.design_root,
+                rtl={"sources": ["gate.v"], "top": "gate", "parameters": {"S": "a b"}},
+                tb={"sources": ["tb.sv"], "top": "tb"},
+            ),
+            YosysSim.Settings(systemverilog="slang"),
+        )
     for text in ("a b", 'a"b'):
         with pytest.raises(FlowSettingsException, match="`S`.*read_slang -G"):
             checked({"S": text}, sources)
     checked({"S": "ab"}, sources)
     checked({"S": "a b"}, sources, systemverilog="default")
     checked({"S": "a b"}, ["gate.v"])
+    # a VHDL top gets its generics from GHDL; a VHDL helper under a SystemVerilog top does not
+    checked({"S": "a b"}, ["top.sv", "inv.vhd"], top_is_vhdl=True)
+    with pytest.raises(FlowSettingsException, match="read_slang -G"):
+        checked({"S": "a b"}, ["inv.vhd", "top.sv"])
 
 
 @pytest.mark.parametrize("script_format", ["ys", "tcl"])

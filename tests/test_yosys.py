@@ -819,6 +819,25 @@ def test_yosys_sets_every_type_of_parameter_through_read_slang(tmp_path, script_
     }
 
 
+def test_a_tcl_script_gives_slang_a_string_parameter_with_whitespace(tmp_path, script_format="tcl"):
+    """A Tcl script has no tokenizer limit: the whole `NAME=VALUE` is one word, so whitespace, a
+    double quote and a `$` reach slang as they are. (A `.ys` script refuses such a value.)"""
+    require_yosys_tcl()
+    _require("the yosys slang plugin", _probe_yosys_slang(), "`plugin -i slang`")
+    _write(tmp_path / "top.sv", PARAMETERIZED_TOP)
+    design = Design(
+        name="params",
+        design_root=tmp_path,
+        rtl={"sources": ["top.sv"], "top": "top", "parameters": {"S": 'a b"$'}},
+    )
+    flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, {})
+    assert flow is not None and flow.succeeded
+    ports = json.loads((flow.run_path / "netlist.json").read_text())["modules"]["top"]["ports"]
+    assert "".join(str(b) for b in reversed(ports["s_o"]["bits"])) == "".join(
+        f"{ord(c):08b}" for c in 'a b"$'
+    )
+
+
 @pytest.mark.parametrize("script_format", ["ys", "tcl"])
 def test_yosys_resolves_an_instance_of_a_verilog_lib_module_for_slang(tmp_path, script_format):
     """slang resolves every instance while it reads the sources, so the script reads a

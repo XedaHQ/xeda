@@ -70,7 +70,7 @@ yosys read_verilog {{lib.flags|join(" ")}} {{lib.path|read_path}}
             {%- for sv in slang_files %}
 yosys log -stdout "** Reading {{sv|tcl_quote}} **"
             {%- endfor %}
-yosys read_slang --extern-modules --best-effort-hierarchy{% if settings.read_systemverilog_flags %} {{settings.read_systemverilog_flags|join(" ")}}{% endif %} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{slang_files|map("verbatim_path")|join(" ")}}{% if slang_params %}{% for key, value in parameters.items() %} -G {{key}}={{value|esc}}{% endfor %}{% endif %}
+yosys read_slang --extern-modules --best-effort-hierarchy{% if settings.read_systemverilog_flags %} {{settings.read_systemverilog_flags|join(" ")}}{% endif %} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{slang_files|map("verbatim_path")|join(" ")}}{% if slang_params %}{% for key, value in parameters.items() %} -G {{(key ~ "=" ~ value)|tcl_word}}{% endfor %}{% endif %}
         {%- endif %}
     {% elif src.type.name == "Verilog" -%}
 yosys log -stdout "** Reading {{src|tcl_quote}} **"

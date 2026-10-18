@@ -508,19 +508,27 @@ class YosysBase(Flow):
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
         """Refuse a parameter that a yosys script cannot give to `read_slang -G`.
 
-        With the slang front end, `-G NAME="text"` sets a string parameter. The script tokenizer
-        of yosys ends such a word at whitespace, and a double quote inside the text ends it too.
-        A Tcl script has no such limit, but Xeda selects the format from the settings alone, so
-        the rule holds for every flow that can write a yosys script. A design with a VHDL source
-        has its generics set by GHDL, and the rule leaves it alone.
+        With the slang front end, `-G NAME="text"` sets a string parameter. The tokenizer of a
+        yosys (`.ys`) script ends such a word at whitespace, and a double quote inside the text
+        ends it too. A Tcl script has no such limit. Xeda selects the format from the settings
+        alone, so the check refuses the value when the format is `.ys`. GHDL sets the generics of
+        a VHDL top, and the check leaves such a design alone.
         """
         super().check_design_supported(design, settings)
         if not isinstance(settings, cls.Settings) or settings.systemverilog != "slang":
             return
         if cls.script_format(settings) != "ys":
             return
-        types = {src.type for src in design.rtl.sources}
-        if SourceType.SystemVerilog not in types or SourceType.Vhdl in types:
+        reads = cls.reads_sources or frozenset()
+        read = [src for src in design.rtl.sources if src.type in reads]
+        tb = (
+            [src for src in design.tb.sources if src.type in reads]
+            if "tb" in cls.design_parts
+            else []
+        )
+        if SourceType.SystemVerilog not in {src.type for src in [*read, *tb]}:
+            return
+        if cls.vhdl_top_of(settings, read):
             return
         for name, value in design.rtl.parameters.items():
             if isinstance(value, str) and re.search(r'[\s"]', value):
@@ -571,9 +579,15 @@ class YosysBase(Flow):
         computed.
         """
         assert isinstance(self.settings, self.Settings)
-        if self.settings.top_is_vhdl is not None:
-            return self.settings.top_is_vhdl
-        units = [src for src in self.sources_read(rtl=True, tb=False) if src.type in LANGUAGE_TYPES]
+        return self.vhdl_top_of(self.settings, self.sources_read(rtl=True, tb=False))
+
+    @staticmethod
+    def vhdl_top_of(settings: "YosysBase.Settings", rtl_sources: List[Any]) -> bool:
+        """Return whether the top is VHDL, given the RTL sources that the flow reads (see
+        `top_is_vhdl`)."""
+        if settings.top_is_vhdl is not None:
+            return settings.top_is_vhdl
+        units = [src for src in rtl_sources if src.type in LANGUAGE_TYPES]
         return bool(units) and units[-1].type is SourceType.Vhdl
 
     def verbatim_path(self, path: str | os.PathLike[str]) -> str:
