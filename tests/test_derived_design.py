@@ -483,7 +483,7 @@ def test_the_input_design_of_a_record_is_provenance_and_nothing_compares_it(tmp_
     the hash of the design it was made from, but the hand-over judges the files and the sources
     that pass through, never that hash: the converter's own trace decides whether it ran again
     for the design. A converter that reads fewer parts of the design than it records would
-    otherwise refuse its own record for ever."""
+    otherwise refuse its own record forever."""
     design = _design(tmp_path / "d")
     flow = _launched(tmp_path, design)
     other = design.model_copy(deep=True)

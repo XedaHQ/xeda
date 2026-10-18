@@ -811,10 +811,10 @@ def fitting_outputs(
     input, because they are many-valued and the input takes one file.
 
     The kind of value decides first: the design input fits the design output of a converter and
-    nothing else, and an input of files never fits a design output. An output of files fits when the types it can
-    make are nonempty and a subset of the types the input accepts (an output that may be of a
-    kind the input cannot take does not fit), and a many-valued output feeds only a many-valued
-    input. `output` restricts the question to one key. When several outputs fit and the default
+    nothing else, and an input of files never fits a design output. An output of files fits when
+    the types it can make are nonempty and a subset of the types the input accepts (an output that
+    may be of a kind the input cannot take does not fit), and a many-valued output feeds only a
+    many-valued input. `output` restricts the question to one key. When several outputs fit and the default
     producer of the input is `producer`, the declared default output decides.
     """
     takes = tuple(declaration.types if accepted is None else accepted)
