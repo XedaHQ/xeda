@@ -687,7 +687,7 @@ def _pin_pdks(requests: list[_Request], context: dict[str, Any]) -> None:
             raise _error(
                 first.cls, "platform_file" if platform_file else "platform", str(error)
             ) from error
-        residue = effective_residue(bundled, user)
+        residue = effective_residue(bundled, user, provider)
         if provider is None:
             provider = residue.providers.default
         if provider in PROVIDERS and version is None:

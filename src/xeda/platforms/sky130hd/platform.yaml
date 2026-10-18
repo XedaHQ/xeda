@@ -4,6 +4,78 @@ description: SkyWater SKY130 with the high density standard cell library (sky130
 providers:
   default: ciel
   ciel: {family: sky130, variant: sky130A, library: sky130_fd_sc_hd, version: 8afc8346a57fe1ab7934ba5a6056ea8b43078e71, download_mib: 128}
+  # lambdapdk v0.2.22. Its layout and its values are its own: `files` and `values` below are what
+  # Xeda gives for this provider (see platforms/NOTICE.md). Move the pin with the tag.
+  lambdapdk:
+    version: cf52b12cb5fe88f911c9666441f32ba7e076d1e3
+    directory: lambdapdk/sky130
+    fetch: [base, libs/sky130hd]
+    download_mib: 8
+    files:
+      liberty:
+        tt_025C_1v80: [libs/sky130hd/nldm/sky130_fd_sc_hd__tt_025C_1v80.lib.gz]
+        ss_n40C_1v40: [libs/sky130hd/nldm/sky130_fd_sc_hd__ss_n40C_1v40.lib.gz]
+        ff_100C_1v95: [libs/sky130hd/nldm/sky130_fd_sc_hd__ff_100C_1v95.lib.gz]
+      tech_lef: base/apr/sky130_fd_sc.tlef
+      cell_lef: [libs/sky130hd/lef/sky130_fd_sc_hd_merged.lef]
+      gds: [libs/sky130hd/gds/sky130_fd_sc_hd.gds]
+      rcx_rules: base/pex/openroad/typical.rules
+      klayout_tech: base/setup/klayout/skywater130.lyt
+      klayout_layer_props: base/setup/klayout/sky130A.lyp
+      latch_map: libs/sky130hd/techmap/yosys/cells_latch.v
+      adder_map: libs/sky130hd/techmap/yosys/cells_adders.v
+    values:
+      tap_cell: sky130_fd_sc_hd__tapvpwrvgnd_1
+      endcap_cell: sky130_fd_sc_hd__decap_4
+      tapcell: {distance: 14}
+      min_buffer: {cell: sky130_fd_sc_hd__buf_4, input: A, output: X}
+      abc_driver_cell: sky130_fd_sc_hd__buf_4
+      abc_load_in_ff: 11
+      antenna_cell: {cell: sky130_fd_sc_hd__diode_2, port: DIODE}
+      diode_usable: true
+      fill_cells: [
+        sky130_fd_sc_hd__fill_1, sky130_fd_sc_hd__fill_2, sky130_fd_sc_hd__fill_4,
+        sky130_fd_sc_hd__fill_8]
+      cts_buffers: [
+        sky130_fd_sc_hd__clkbuf_1, sky130_fd_sc_hd__clkbuf_2, sky130_fd_sc_hd__clkbuf_4,
+        sky130_fd_sc_hd__clkbuf_8, sky130_fd_sc_hd__clkbuf_16]
+      dont_use_cells: [
+        sky130_fd_sc_hd__probe_p_8, sky130_fd_sc_hd__probec_p_8,
+        sky130_fd_sc_hd__lpflow_bleeder_1, sky130_fd_sc_hd__lpflow_clkbufkapwr_1,
+        sky130_fd_sc_hd__lpflow_clkbufkapwr_16, sky130_fd_sc_hd__lpflow_clkbufkapwr_2,
+        sky130_fd_sc_hd__lpflow_clkbufkapwr_4, sky130_fd_sc_hd__lpflow_clkbufkapwr_8,
+        sky130_fd_sc_hd__lpflow_clkinvkapwr_1, sky130_fd_sc_hd__lpflow_clkinvkapwr_16,
+        sky130_fd_sc_hd__lpflow_clkinvkapwr_2, sky130_fd_sc_hd__lpflow_clkinvkapwr_4,
+        sky130_fd_sc_hd__lpflow_clkinvkapwr_8, sky130_fd_sc_hd__lpflow_decapkapwr_12,
+        sky130_fd_sc_hd__lpflow_decapkapwr_3, sky130_fd_sc_hd__lpflow_decapkapwr_4,
+        sky130_fd_sc_hd__lpflow_decapkapwr_6, sky130_fd_sc_hd__lpflow_decapkapwr_8,
+        sky130_fd_sc_hd__lpflow_inputiso0n_1, sky130_fd_sc_hd__lpflow_inputiso0p_1,
+        sky130_fd_sc_hd__lpflow_inputiso1n_1, sky130_fd_sc_hd__lpflow_inputiso1p_1,
+        sky130_fd_sc_hd__lpflow_inputisolatch_1, sky130_fd_sc_hd__lpflow_isobufsrc_1,
+        sky130_fd_sc_hd__lpflow_isobufsrc_16, sky130_fd_sc_hd__lpflow_isobufsrc_2,
+        sky130_fd_sc_hd__lpflow_isobufsrc_4, sky130_fd_sc_hd__lpflow_isobufsrc_8,
+        sky130_fd_sc_hd__lpflow_isobufsrckapwr_16,
+        sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_1,
+        sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_2,
+        sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_4,
+        sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_4,
+        sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_1,
+        sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_2,
+        sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_4]
+      routing:
+        min_layer: met1
+        max_layer: met5
+        layer_adjustments: {li1: 1.0, met1: 0.4, met2: 0.4, met3: 0.3, met4: 0.3, met5: 0.3}
+      io_layers: {horizontal: met3, vertical: met2}
+      wire_rc: {signal_layer: met3, clock_layer: met5}
+      # The straps are the upper limits of the pitches that the power grid script of lambdapdk
+      # computes from the size of the core. The offset is a quarter of the pitch.
+      pdn:
+        rails: [{layer: met1, width: 0.48, pitch: 5.44, offset: 0}]
+        straps: [
+          {layer: met4, width: 1.6, pitch: 27.14, offset: 6.785},
+          {layer: met5, width: 1.6, pitch: 27.2, offset: 6.8}]
+        pin_layers: [met5]
   directory: {layout: open_pdks, variant: sky130A, library: sky130_fd_sc_hd}
 upstream:
   adapter: open_pdks_config

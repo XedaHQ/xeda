@@ -106,7 +106,9 @@ def test_the_bundled_nangate45_residue_is_a_small_file() -> None:
 
 def test_the_bundled_sky130hd_residue_is_a_small_file() -> None:
     size = (PLATFORMS / "sky130hd" / "platform.yaml").stat().st_size
-    assert size <= 3072, f"platform.yaml of sky130hd is {size} bytes"
+    # Most of the size is the entry of the lambdapdk provider: lambdapdk has no configuration file
+    # that Xeda can read, so the entry holds the values and the dont-use list.
+    assert size <= 7168, f"platform.yaml of sky130hd is {size} bytes"
 
 
 def test_a_bundled_name_that_is_unknown_lists_the_known_ones() -> None:
@@ -752,7 +754,7 @@ def test_effective_residue_takes_the_users_entry_where_it_gives_one() -> None:
             "values": {"place_density": 0.9},
         }
     )
-    effective = effective_residue(bundled, user)
+    effective = effective_residue(bundled, user, None)
     assert effective.extends is None
     assert effective.name == "mine"
     assert effective.providers.default == "directory"
@@ -770,24 +772,24 @@ def test_an_explicit_null_upstream_clears_the_inherited_one_and_an_omitted_one_k
     bundled = make_residue(upstream={"adapter": "orfs_config_mk", "files": ["config.mk"]})
     cleared = Residue.model_validate({"name": "mine", "extends": "tiny", "upstream": None})
     kept = Residue.model_validate({"name": "mine", "extends": "tiny"})
-    assert effective_residue(bundled, cleared).upstream is None
-    assert effective_residue(bundled, kept).upstream == bundled.upstream
+    assert effective_residue(bundled, cleared, None).upstream is None
+    assert effective_residue(bundled, kept, None).upstream == bundled.upstream
 
 
 def test_an_explicit_null_description_clears_the_inherited_one() -> None:
     bundled = make_residue(description="the bundled one")
     cleared = Residue.model_validate({"name": "mine", "extends": "tiny", "description": None})
     kept = Residue.model_validate({"name": "mine", "extends": "tiny"})
-    assert effective_residue(bundled, cleared).description is None
-    assert effective_residue(bundled, kept).description == "the bundled one"
+    assert effective_residue(bundled, cleared, None).description is None
+    assert effective_residue(bundled, kept, None).description == "the bundled one"
 
 
 def test_effective_residue_of_one_residue_is_that_residue() -> None:
     residue = make_residue()
-    assert effective_residue(residue, None) is residue
-    assert effective_residue(None, residue) is residue
+    assert effective_residue(residue, None, None) is residue
+    assert effective_residue(None, residue, None) is residue
     with pytest.raises(ValueError):
-        effective_residue(None, None)
+        effective_residue(None, None, None)
 
 
 def test_a_user_file_that_extends_may_leave_out_what_the_base_gives() -> None:

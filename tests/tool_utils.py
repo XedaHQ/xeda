@@ -23,7 +23,7 @@ import tempfile
 from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, List, NamedTuple, Optional, Sequence
+from typing import Any, List, NamedTuple, Optional, Sequence, Tuple
 
 import pytest
 
@@ -1287,6 +1287,59 @@ def pdk_test_platforms() -> List[str]:
             f"(the bundled platforms are: {', '.join(bundled)})"
         )
     return names
+
+
+def pdk_test_pairs() -> List[Tuple[str, Optional[str]]]:
+    """Return the (platform, provider) pairs that the PDK conformance tests run. Each platform of
+    `pdk_test_platforms()` comes with its default provider (the provider `None`). The variable
+    `XEDA_TESTS_PDK_PROVIDERS` (comma-separated `platform:provider`, for example
+    `sky130hd:lambdapdk`) adds the pairs of another provider that the same store holds.
+
+    Without `XEDA_TESTS_PDK_ROOT`, every provider with its own layout of a bundled platform is
+    listed, so that pytest collects the tests and each skips with the variable named. With it, an
+    entry must name a listed platform and a provider that serves it, other than the default one
+    and `directory`; anything else fails."""
+    from xeda.platforms import load_residue
+
+    platforms = pdk_test_platforms()
+    pairs: List[Tuple[str, Optional[str]]] = [(name, None) for name in platforms]
+    listed = os.environ.get("XEDA_TESTS_PDK_PROVIDERS", "")
+    if not os.environ.get("XEDA_TESTS_PDK_ROOT", ""):
+        for name in platforms:
+            residue = load_residue(name)
+            for provider in ("ciel", "orfs", "lambdapdk"):
+                if provider != residue.providers.default and residue.providers.entry(provider):
+                    pairs.append((name, provider))
+        return pairs
+    for part in listed.split(",") if listed else []:
+        item = part.strip()
+        name, _, provider = item.partition(":")
+        if not name or not provider or ":" in provider:
+            pytest.fail(f"XEDA_TESTS_PDK_PROVIDERS has `{item}`: write platform:provider")
+        if name not in platforms:
+            pytest.fail(
+                f"XEDA_TESTS_PDK_PROVIDERS names the platform {name!r}, which "
+                f"XEDA_TESTS_PLATFORMS does not list ({', '.join(platforms)})"
+            )
+        residue = load_residue(name)
+        if (
+            provider in ("directory", residue.providers.default)
+            or residue.providers.entry(provider) is None
+        ):
+            pytest.fail(
+                f"XEDA_TESTS_PDK_PROVIDERS names the provider {provider!r} for {name}: give a "
+                "provider other than the default one and `directory` that serves the platform"
+            )
+        if (name, provider) in pairs:
+            pytest.fail(f"XEDA_TESTS_PDK_PROVIDERS lists {item} twice")
+        pairs.append((name, provider))
+    return pairs
+
+
+def pdk_pair_id(pair: Tuple[str, Optional[str]]) -> str:
+    """The test id of a (platform, provider) pair."""
+    name, provider = pair
+    return name if provider is None else f"{name}-{provider}"
 
 
 @lru_cache(maxsize=None)

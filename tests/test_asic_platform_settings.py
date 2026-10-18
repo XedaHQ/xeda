@@ -328,6 +328,26 @@ def test_a_bundled_platform_gives_its_pin(tmp_path):
         assert (node.settings.pdk_provider, node.settings.pdk_version) == ("orfs", entry.version)
 
 
+def test_the_provider_that_is_given_takes_its_own_pin_from_its_own_entry(tmp_path):
+    from xeda.platforms import load_residue
+
+    entry = load_residue("sky130hd").providers.lambdapdk
+    assert entry is not None
+    plan = _plan(tmp_path, tmp_path / "d", ["platform=sky130hd", "pdk_provider=lambdapdk"])
+    for node in plan.nodes:
+        assert (node.settings.pdk_provider, node.settings.pdk_version) == (
+            "lambdapdk",
+            entry.version,
+        ), node.name
+
+
+def test_a_corner_of_ciel_only_is_refused_at_planning_when_lambdapdk_is_selected(tmp_path):
+    chosen = ["platform=sky130hd", "corner=ss_100C_1v60"]
+    _plan(tmp_path, tmp_path / "d", chosen)  # ciel has this corner
+    with pytest.raises(FlowSettingsException, match="ss_n40C_1v40.*provider .lambdapdk."):
+        _plan(tmp_path, tmp_path / "d", [*chosen, "pdk_provider=lambdapdk"])
+
+
 def test_nothing_is_filled_in_without_a_platform(tmp_path):
     plan = _plan(tmp_path, tmp_path / "d", flow=_AsicMaker)
     (node,) = plan.nodes

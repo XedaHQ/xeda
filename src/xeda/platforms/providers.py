@@ -6,11 +6,12 @@ no process, opens no connection, writes nothing and creates no directory. So pla
 `--dry-run` can run it. Only `install`, which the command `xeda pdk install` runs, uses the
 network and writes the store.
 
-Three providers serve a platform. A residue lists the ones that serve it in `providers`:
+Four providers serve a platform. A residue lists the ones that serve it in `providers`:
 
 | provider | the directory of the platform | the version |
 | --- | --- | --- |
 | `orfs` | `<root>/xeda/orfs/<commit>/<directory>`, the platform directory of a sparse checkout of OpenROAD-flow-scripts | the commit |
+| `lambdapdk` | `<root>/xeda/lambdapdk/<commit>/<directory>`, a directory of a sparse checkout of lambdapdk | the commit |
 | `ciel` | `<root>/ciel/<family>/versions/<hash>/<variant>`, as `ciel fetch` writes it | the hash |
 | `directory` | `<root>/<platform>` (layout `orfs`: `<root>` is `flow/platforms` of a checkout) or `<root>/<variant>` (layout `open_pdks`) | `pdk_version` as given, else `unpinned` |
 
@@ -35,7 +36,7 @@ from typing import Any, Optional
 
 from xeda.flow import FlowFatalError
 from xeda.platforms.model import Located
-from xeda.platforms.residue import COMMIT, Residue
+from xeda.platforms.residue import COMMIT, LambdapdkSource, Residue
 from xeda.proc_utils import run_process
 from xeda.utils import NonZeroExitCode, replacing_file
 from xeda.version import __version__
@@ -45,6 +46,8 @@ if sys.platform != "win32":
 
 __all__ = [
     "CIEL_VERSION",
+    "GIT_PROVIDERS",
+    "LAMBDAPDK_URL",
     "ORFS_URL",
     "PROVIDERS",
     "UNPINNED",
@@ -62,19 +65,25 @@ __all__ = [
     "plan_install",
     "store_holds",
     "locate",
+    "git_checkout_directory",
     "orfs_checkout_directory",
+    "resolve_corner",
     "platform_directory",
     "verify_pin",
 ]
 
 #: The providers, in the order that messages list them.
-PROVIDERS = ("orfs", "ciel", "directory")
+PROVIDERS = ("orfs", "ciel", "lambdapdk", "directory")
+#: The providers that a sparse Git checkout of one commit serves.
+GIT_PROVIDERS = ("orfs", "lambdapdk")
 #: The version of a `directory` that the user gives no pin for.
 UNPINNED = "unpinned"
 #: The version of `ciel` that the installer runs. It has nothing to do with the pin of any PDK.
 CIEL_VERSION = "3.0.1"
 #: The repository that the `orfs` provider fetches.
 ORFS_URL = "https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts"
+#: The repository that the `lambdapdk` provider fetches.
+LAMBDAPDK_URL = "https://github.com/siliconcompiler/lambdapdk"
 
 log = logging.getLogger(__name__)
 
@@ -110,9 +119,20 @@ def default_root() -> Path:
     return Path.home() / ".ciel"
 
 
+def git_checkout_directory(root: Path, provider: str, commit: str) -> Path:
+    """Return the directory that holds the platform directories of a commit of a Git provider."""
+    return root / "xeda" / provider / commit
+
+
 def orfs_checkout_directory(root: Path, commit: str) -> Path:
     """Return the directory that holds the platform directories of an ORFS commit."""
-    return root / "xeda" / "orfs" / commit
+    return git_checkout_directory(root, "orfs", commit)
+
+
+def git_url(provider: str) -> str:
+    """Return the repository that a Git provider fetches (read when called, so a test can patch
+    the constants)."""
+    return {"orfs": ORFS_URL, "lambdapdk": LAMBDAPDK_URL}[provider]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -160,6 +180,25 @@ def _serving(residue: Residue) -> list[str]:
     return [name for name in PROVIDERS if residue.providers.entry(name) is not None]
 
 
+def _viewed(residue: Residue, provider: Optional[str]) -> Residue:
+    """Return the residue as the provider sees it (`Residue.for_provider`). Raise `ValueError`
+    for a provider that does not serve the platform."""
+    return residue.for_provider(_provider_name(residue, provider))
+
+
+def resolve_corner(residue: Residue, provider: Optional[str], corner: Optional[str]) -> str:
+    """Return the token of the corner as the provider sees the platform. Raise `ValueError` for a
+    corner that the provider does not have; for a provider with a layout of its own, the message
+    says whose corners it names."""
+    name = _provider_name(residue, provider)
+    try:
+        return residue.for_provider(name).resolve_corner(corner)
+    except ValueError as error:
+        if not isinstance(residue.providers.entry(name), LambdapdkSource):
+            raise
+        raise ValueError(f"{error}. These are the corners of provider '{name}'") from None
+
+
 def _target(
     residue: Residue, provider: Optional[str], version: Optional[str], root: Path
 ) -> _Target:
@@ -175,8 +214,8 @@ def _target(
                 f"`{pinned}` is not a full commit hash (40 lowercase hexadecimal digits): "
                 f"the version of provider '{name}' names a directory of the store"
             )
-    if name == "orfs":
-        directory = orfs_checkout_directory(root, pinned) / entry.directory
+    if name in GIT_PROVIDERS:
+        directory = git_checkout_directory(root, name, pinned) / entry.directory
     elif name == "ciel":
         directory = root / "ciel" / entry.family / "versions" / pinned / entry.variant
     elif entry.layout == "orfs":
@@ -216,8 +255,9 @@ def _missing_files(residue: Residue, corner: str, directory: Path) -> list[str]:
 
 def _first_line(residue: Residue, target: _Target) -> str:
     entry = target.entry
-    if target.provider == "orfs":
-        what, source = entry.directory, f"orfs {target.version[:SHORT_HASH]}"
+    if target.provider in GIT_PROVIDERS:
+        what = entry.directory
+        source = f"{target.provider} {target.version[:SHORT_HASH]}"
     elif target.provider == "ciel":
         what, source = entry.library, f"ciel {target.version[:SHORT_HASH]}"
     else:
@@ -285,7 +325,8 @@ def locate(
 
     Raise `ValueError` for a provider that does not serve the platform, a version that is no
     commit hash (`orfs`, `ciel`) and an unknown corner."""
-    token = residue.resolve_corner(corner)
+    token = resolve_corner(residue, provider, corner)
+    residue = _viewed(residue, provider)
     target = _target(residue, provider, version, root)
     missing = _missing_files(residue, token, target.directory)
     if missing:
@@ -398,7 +439,7 @@ def verify_pin(located: Located, residue: Residue) -> None:
     * `directory`, layout `open_pdks`: the `open_pdks` line of `<variant>/SOURCES` (lines
       `<name> <hash>`), or else `commit.open_pdks` of `<variant>/.config/nodeinfo.json`;
     * `ciel`: the `open_pdks` line of `<variant>/SOURCES` when it exists;
-    * `orfs`: the pin is the name of the directory, so there is nothing to read.
+    * `orfs`, `lambdapdk`: the pin is the name of the directory, so there is nothing to read.
 
     The pin must equal the version that the marker names, as exact text. A hash of another
     source in the marker (`magic`, ...) does not count. The pin `unpinned` checks nothing. A
@@ -448,13 +489,16 @@ def _ciel_plan(residue: Residue, target: _Target) -> list[list[str]]:
     )
 
 
-def _orfs_plan(target: _Target, partial: str, url: str) -> list[list[str]]:
+def _git_plan(target: _Target, partial: str, url: str) -> list[list[str]]:
     work = str(target.root / "xeda" / f".partial-{partial}")
     git = ["git", "-C", work]
+    entry = target.entry
+    # The paths are relative to the top of the repository, where the Git commands run.
+    paths = [f"{entry.directory}/{item}" for item in entry.fetch] or [entry.directory]
     return [
         ["git", "init", "--quiet", work],
         [*git, "remote", "add", "origin", url],
-        [*git, "sparse-checkout", "set", "--cone", target.entry.directory],
+        [*git, "sparse-checkout", "set", "--cone", *paths],
         [*git, "fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", target.version],
         [*git, "checkout", "--quiet", "FETCH_HEAD"],
     ]
@@ -475,14 +519,15 @@ def install_plan(
     * `ciel`: one vector. The first of `uv tool run`, `pipx run` and a `ciel` on `PATH` that
       `shutil.which` finds. Whether that `ciel` is version 3 is for the installer to probe.
       Raise `PdkInstallerMissing` if there is none.
-    * `orfs`: the Git commands that fetch the platform directory of the commit into
+    * `orfs`, `lambdapdk`: the Git commands that fetch the platform directory of the commit into
       `<root>/xeda/.partial-<partial>`. The first command creates that directory. `partial` is
       required, and the installer chooses it, so that the plan is deterministic. `url` is the
-      repository to fetch from, and the default is `ORFS_URL`. After the last command, the
+      repository to fetch from, and the default is that of the provider. After the last command, the
       installer moves the platform directory of the partial checkout (`directory` of the
-      entry) to the same path below `orfs_checkout_directory(root, commit)`.
+      entry) to the same path below `git_checkout_directory(root, provider, commit)`. An entry
+      with `fetch` fetches only those paths below the directory.
     * `directory`: nothing to install. Raise `ValueError`."""
-    target = _target(residue, provider, version, root)
+    target = _target(_viewed(residue, provider), provider, version, root)
     if target.provider == "directory":
         raise ValueError(
             f"the directory provider has nothing to install: the directory must hold the files "
@@ -491,8 +536,10 @@ def install_plan(
     if target.provider == "ciel":
         return _ciel_plan(residue, target)
     if partial is None:
-        raise ValueError("the plan of provider 'orfs' needs the name of its partial directory")
-    return _orfs_plan(target, partial, ORFS_URL if url is None else url)
+        raise ValueError(
+            f"the plan of provider '{target.provider}' needs the name of its partial directory"
+        )
+    return _git_plan(target, partial, git_url(target.provider) if url is None else url)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -521,7 +568,7 @@ class InstallPlan:
 
     platform: str
     provider: str
-    #: The pin: a commit (`orfs`) or a hash (`ciel`).
+    #: The pin: a commit (`orfs`, `lambdapdk`) or a hash (`ciel`).
     version: str
     root: Path
     #: The directory of the platform when the install is done.
@@ -557,8 +604,8 @@ def plan_install(
 ) -> InstallPlan:
     """Return what `install` would do with the same arguments, without a file system access
     beyond the search for the programs that install. `partial` stands for the random name of the
-    partial directory of provider `orfs`. Raise what `install_plan` raises."""
-    target = _target(residue, provider, version, root)
+    partial directory of a Git provider. Raise what `install_plan` raises."""
+    target = _target(_viewed(residue, provider), provider, version, root)
     commands = install_plan(residue, provider, version, root, partial=partial, url=url)
     return InstallPlan(
         platform=residue.name,
@@ -576,9 +623,10 @@ def _locate_everywhere(
 ) -> Located:
     """Locate the platform for every corner of the residue, and return the default corner.
     Raise `PdkNotInstalled` for the first corner that lacks a file."""
-    corners = list(residue.files.liberty)
+    view = _viewed(residue, provider)
+    corners = list(view.files.liberty)
     found = [locate(residue, provider, version, root, corner) for corner in corners]
-    default = residue.resolve_corner(None)
+    default = view.resolve_corner(None)
     return next((located for located in found if located.corner == default), found[0])
 
 
@@ -700,7 +748,7 @@ def _written_paths(plan: "InstallPlan") -> list[Path]:
     path stands for each directory above it too. The platform directory of provider `ciel` is
     not one: `ciel` writes it."""
     paths = [plan.root / "xeda" / ".lock", _receipt_path(plan.root, plan.platform, plan.version)]
-    if plan.provider == "orfs":
+    if plan.provider in GIT_PROVIDERS:
         paths += [plan.directory, Path(plan.commands[0][-1])]
     return paths
 
@@ -767,18 +815,20 @@ def _restore_receipt(root: Path, path: Path, earlier: Optional[bytes]) -> None:
         log.warning("cannot restore %s: %s; check it", path, error)
 
 
-def _install_orfs(residue: Residue, plan: InstallPlan) -> Path:
+def _install_git(residue: Residue, plan: InstallPlan) -> Path:
     """Run the Git commands in a partial directory, check that it holds every file of the
     platform for every corner, write the receipt, and move the directory of the platform to its
     place in the store. The move is the last step, and a rename is whole or not done: the store
     holds a directory of the platform only after an install that finished. Several platforms of
-    one commit share `<root>/xeda/orfs/<commit>/`, and each install adds only its own directory.
+    one commit share `<root>/xeda/<provider>/<commit>/`, and each install adds only its own
+    directory.
     The partial directory, with its `.git`, is removed at the end. Whatever goes wrong, the store
     keeps neither the partial directory, nor a new receipt (an earlier receipt is put back), nor
     the directory of the platform.
     Return the receipt."""
-    entry = residue.providers.orfs
+    entry = residue.providers.entry(plan.provider)
     assert entry is not None
+    residue = residue.for_provider(plan.provider)
     if os.path.lexists(plan.directory):
         raise PdkInstallFailed(
             f"cannot install platform '{plan.platform}': {plan.directory} exists, but it lacks "
@@ -870,8 +920,8 @@ def _install_locked(
     if found is not None:
         return found
     receipt: Optional[Path] = None
-    if plan.provider == "orfs":
-        receipt = _install_orfs(residue, plan)
+    if plan.provider in GIT_PROVIDERS:
+        receipt = _install_git(residue, plan)
     else:
         _fetch_ciel(plan)
     try:
@@ -898,9 +948,9 @@ def install(
 ) -> InstallResult:
     """Install the files of the platform into the store at `root`, and write a receipt.
 
-    Arguments are as for `locate`. `url` is the repository that provider `orfs` fetches from,
-    and the default is `ORFS_URL`. The root may be a symbolic link: the install resolves it
-    first. Below it, the install refuses a symbolic link on the way to anything that it writes,
+    Arguments are as for `locate`. `url` is the repository that a Git provider (`orfs`,
+    `lambdapdk`) fetches from, and the default is that of the provider (`ORFS_URL`,
+    `LAMBDAPDK_URL`). The root may be a symbolic link: the install resolves it first. Below it, the install refuses a symbolic link on the way to anything that it writes,
     publishes, removes or locks (everything under `<root>/xeda`, but not `<root>/ciel`), before
     it writes, and again before each step that publishes or rolls back. So it writes and deletes
     only inside the store. If the store holds every file already, nothing runs and
@@ -908,10 +958,10 @@ def install(
     plan, checks every file of every corner with `locate`, checks the pin with `verify_pin` and
     writes `<root>/xeda/receipts/<platform>-<pin>.json`.
 
-    * `orfs`: the Git commands fill `<root>/xeda/.partial-<random>`. The install writes the
-      receipt, and one rename then moves the directory of the platform to
-      `<root>/xeda/orfs/<commit>/<directory>`, so that the store never holds a part of a platform
-      under that name. Platforms of one commit share the directory of the commit, and the store
+    * `orfs`, `lambdapdk`: the Git commands fill `<root>/xeda/.partial-<random>`. The install
+      writes the receipt, and one rename then moves the directory of the platform to
+      `<root>/xeda/<provider>/<commit>/<directory>`, so that the store never holds a part of a
+      platform under that name. Platforms of one commit share the directory of the commit, and the store
       keeps no `.git`. If a command fails, a file is missing or the receipt cannot be written,
       the store is as it was. Every `git` command gets a controlled environment: no `GIT_DIR`,
       no configuration of the user and no hook.

@@ -1720,11 +1720,17 @@ def test_the_openroad_job_has_no_pin_of_the_platform_files_of_its_own():
     `XEDA_TESTS_PLATFORMS`, at the version that the platform file of the checkout pins, so the job
     tests the installer and cannot disagree with the pin."""
     text = OPENROAD_WORKFLOW.read_text(encoding="utf-8")
-    install = openroad_step("xeda pdk install")["run"]
+    install = openroad_step("Install the PDK files")["run"]
     assert "for platform in ${XEDA_TESTS_PLATFORMS//,/ }; do" in install
     assert re.search(r'xeda pdk install "\$platform" --root "\$RUNNER_TEMP/pdk"', install)
     assert "--version" not in install and "--provider" not in install
     assert "--platform-file" not in install
+    # the second provider of sky130hd has a step of its own, at the pin of the platform file
+    second = openroad_step("Install sky130hd from lambdapdk")["run"]
+    assert (
+        'xeda pdk install sky130hd --provider lambdapdk --root "$RUNNER_TEMP/pdk" --yes' in second
+    )
+    assert "--version" not in second and "--platform-file" not in second
     assert "ORFS_PLATFORM_REV" not in text
     assert not re.search(r"\bgit (clone|fetch|init|sparse-checkout)\b", text)
     # the only digests and commits in the file are the image's and the bsc tarball's
@@ -1739,10 +1745,12 @@ def test_the_openroad_job_runs_the_real_tool_tests_with_every_layer_switched_on(
     assert environment["XEDA_TESTS_REQUIRE_TOOLS"] == "1"
     # every bundled platform, so a platform that xeda ships is tested with its real PDK files
     assert environment["XEDA_TESTS_PLATFORMS"].split(",") == bundled_platform_names()
+    # the platforms that a second provider serves, with that provider's own files
+    assert environment["XEDA_TESTS_PDK_PROVIDERS"] == "sky130hd:lambdapdk"
     run = openroad_step("Run the OpenROAD tests")["run"]
     assert 'XEDA_TESTS_PDK_ROOT="$RUNNER_TEMP/pdk"' in run
     # the store the install step fills is the store the tests read
-    assert '--root "$RUNNER_TEMP/pdk"' in openroad_step("xeda pdk install")["run"]
+    assert '--root "$RUNNER_TEMP/pdk"' in openroad_step("Install the PDK files")["run"]
     for test_file in (
         "tests/test_openroad_real.py",
         "tests/test_platform_conformance.py",

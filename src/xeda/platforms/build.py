@@ -79,7 +79,12 @@ def build_platform(
     from the residue, never from a derivation. `sources` says which layer gave each leaf.
     """
     _check_bases(residue, user)
-    structure = effective_residue(residue, user)
+    # The residues as the provider that served the files sees them (idempotent for a view).
+    if residue is not None:
+        residue = residue.for_provider(located.provider)
+    if user is not None:
+        user = user.for_provider(located.provider)
+    structure = effective_residue(residue, user, located.provider)
     corner = structure.resolve_corner(located.corner)
 
     stack: list[tuple[Layer, dict[str, Any]]] = [

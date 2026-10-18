@@ -35,7 +35,8 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
   `XEDA_TESTS_REQUIRE_TOOLS=1` (set in CI) makes a skip fail. Opt-in layers: `XEDA_TESTS_VIVADO`,
   `XEDA_TESTS_DOCKER`, `XEDA_TESTS_EXTERNAL`, `XEDA_TESTS_OPENXC7`, `XEDA_TESTS_OPENROAD`,
   `XEDA_TESTS_YOSYS_TCL` (a yosys with Tcl), `XEDA_TESTS_PDK_ROOT` (a PDK store) with
-  `XEDA_TESTS_PLATFORMS` (the bundled platforms it holds), `XEDA_TESTS_ASIC_QOR` with
+  `XEDA_TESTS_PLATFORMS` (the bundled platforms it holds) and `XEDA_TESTS_PDK_PROVIDERS` (extra
+  `platform:provider` pairs it holds), `XEDA_TESTS_ASIC_QOR` with
   `XEDA_TESTS_ORFS` (an OpenROAD-flow-scripts checkout).
 - `pytest &` in a non-interactive shell ignores SIGINT: a test that interrupts a tool sets
   `DEFAULT_SIGINT` (`tests/test_proc_utils.py`) and waits for a ready signal, never a sleep.
@@ -132,6 +133,9 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   destination (`tests/test_deliverable_identity.py`).
 - A setting that names where installed data lives (`pdk_root`) carries `LOCATOR`: no part of the
   identity, never traversed; the flow registers the exact files (`tests/test_locator_settings.py`).
+- A provider with a layout of its own (`lambdapdk`) gives its own `files` and `values` in its
+  residue entry; every `effective_residue` call names the provider whose view it takes
+  (`tests/test_lambdapdk_provider.py`).
 
 ### Settings and pydantic
 

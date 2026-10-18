@@ -95,3 +95,27 @@ The Yosys techmap files for latches and full adders stay in the build of `open_p
 Xeda reads the configuration files of an installed `open_pdks` build when a platform asks for
 them, and it copies no file of it. `open_pdks` is licensed under the Apache License, Version 2.0
 (https://github.com/RTimothyEdwards/open_pdks).
+
+## lambdapdk
+
+`sky130hd/platform.yaml` has an entry for the provider `lambdapdk` with file names and values from
+the repository https://github.com/siliconcompiler/lambdapdk at the commit named in the file
+(release v0.2.22). lambdapdk is licensed under the Apache License, Version 2.0. Xeda copies no file
+of it. The values come from these files of the repository, under `lambdapdk/sky130`:
+
+* the paths of the platform files, from `libs/sky130sc.py` and `__init__.py`;
+* the tap cell and its distance, from `libs/sky130hd/apr/openroad/tapcell.tcl`;
+* the end cap, the antenna diode, the filler cells, the clock buffers, the dont-use cells, the
+  smallest buffer and the driver cell, and the load of the technology mapping, from
+  `libs/sky130sc.py`;
+* the routing layers, the global-route derates, the layers of the pins and the layers for the wire
+  estimates, from `__init__.py`;
+* the rails and the layer of the pins of the power grid, and the upper limits of the pitches of
+  the straps, from `libs/sky130hd/apr/openroad/pdngen.tcl`. The offset of a strap is a quarter of
+  its pitch, as in that script.
+
+Xeda does not copy the measured resistance and capacitance of the layers (`__init__.py`), and it
+keeps the net names and the global connections of the `ciel` entry.
+
+lambdapdk also holds the Nangate Open Cell Library, with its own license text. Xeda has no entry
+for it.

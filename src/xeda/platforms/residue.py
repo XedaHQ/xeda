@@ -24,7 +24,7 @@ import yaml
 from pydantic import ValidationError
 
 from xeda.dataclass import Field, XedaBaseModel, field_validator, model_validator
-from xeda.platforms.model import PlatformValues, flatten_leaves, normalize_leaf
+from xeda.platforms.model import PlatformValues, flatten_leaves, nest_leaves, normalize_leaf
 from xeda.yaml_loader import load_yaml
 
 __all__ = [
@@ -32,6 +32,8 @@ __all__ = [
     "CielSource",
     "DirectorySource",
     "Files",
+    "GitSource",
+    "LambdapdkSource",
     "OrfsSource",
     "Override",
     "Providers",
@@ -42,10 +44,13 @@ __all__ = [
     "bundled_platform_names",
     "effective_residue",
     "load_residue",
+    "selected_provider",
 ]
 
 #: The name of a platform or of a bundled platform directory.
 PLATFORM_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+#: The keys of a provider entry that a view moves to the top level of the residue.
+VIEWED_KEYS = ("files", "upstream", "values")
 #: A commit of a Git repository, written in full.
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
@@ -82,11 +87,15 @@ def _pin(value: str) -> str:
     return value
 
 
-class OrfsSource(XedaBaseModel):
-    """A platform directory in the OpenROAD-flow-scripts repository."""
+class GitSource(XedaBaseModel):
+    """A directory in a Git repository, fetched at one commit with a sparse checkout."""
 
     version: str = Field(description="The commit of the repository that holds the files.")
     directory: str = Field(description="Path of the platform directory inside the repository.")
+    fetch: list[str] = Field(
+        default_factory=list,
+        description="Paths below `directory` that the install fetches. Empty: all of `directory`.",
+    )
     download_mib: Optional[float] = Field(
         None, description="Size in MiB of the download, which the install command shows first."
     )
@@ -100,6 +109,15 @@ class OrfsSource(XedaBaseModel):
     @classmethod
     def _directory_is_relative(cls, value: str) -> str:
         return relative_posix_path(value)
+
+    @field_validator("fetch", mode="after")
+    @classmethod
+    def _fetch_is_relative(cls, value: list[str]) -> list[str]:
+        return [relative_posix_path(item) for item in value]
+
+
+class OrfsSource(GitSource):
+    """A platform directory in the OpenROAD-flow-scripts repository."""
 
 
 class CielSource(XedaBaseModel):
@@ -155,23 +173,6 @@ class DirectorySource(XedaBaseModel):
             if extra:
                 raise ValueError(f"the layout `orfs` takes no {' and no '.join(extra)}")
         return self
-
-
-class Providers(XedaBaseModel):
-    """The providers that serve the platform. A provider without an entry does not serve it."""
-
-    default: Optional[Literal["orfs", "ciel", "directory"]] = Field(
-        None, description="The provider that serves the platform unless the user names another."
-    )
-    orfs: Optional[OrfsSource] = Field(None, description="The ORFS provider of the platform.")
-    ciel: Optional[CielSource] = Field(None, description="The ciel provider of the platform.")
-    directory: Optional[DirectorySource] = Field(
-        None, description="The directory provider of the platform."
-    )
-
-    def entry(self, provider: str) -> Any:
-        """Return the entry of the provider, or `None` if the provider does not serve."""
-        return getattr(self, provider)
 
 
 class Upstream(XedaBaseModel):
@@ -257,6 +258,46 @@ class ResidueValues(PlatformValues):
     """The leaves a residue gives under `values`, as nested tables that mirror the platform
     model. Every field is optional. The name, the corner, the files and the sources are no
     leaves of a residue: the residue gives the first three in its own keys."""
+
+
+class LambdapdkSource(GitSource):
+    """A directory in the lambdapdk repository. Its layout is its own, so the entry may give the
+    files and the values of the platform for this provider (`Residue.for_provider`)."""
+
+    files: Optional[Files] = Field(
+        None, description="The files of the platform in this layout, in place of the top level."
+    )
+    upstream: Optional[Upstream] = Field(
+        None,
+        description="The configuration file of the PDK in this layout, in place of the top level. "
+        "Used only with `files`.",
+    )
+    values: Optional[ResidueValues] = Field(
+        None, description="Leaves for this provider, over the top-level `values`."
+    )
+
+
+class Providers(XedaBaseModel):
+    """The providers that serve the platform. A provider without an entry does not serve it."""
+
+    default: Optional[Literal["orfs", "ciel", "lambdapdk", "directory"]] = Field(
+        None, description="The provider that serves the platform unless the user names another."
+    )
+    orfs: Optional[OrfsSource] = Field(None, description="The ORFS provider of the platform.")
+    ciel: Optional[CielSource] = Field(None, description="The ciel provider of the platform.")
+    lambdapdk: Optional[LambdapdkSource] = Field(
+        None, description="The lambdapdk provider of the platform."
+    )
+    directory: Optional[DirectorySource] = Field(
+        None, description="The directory provider of the platform."
+    )
+
+    def entry(self, provider: str) -> Any:
+        """Return the entry of the provider, or `None` if the provider does not serve (or is no
+        provider)."""
+        if provider == "default" or provider not in type(self).model_fields:
+            return None
+        return getattr(self, provider)
 
 
 class Override(XedaBaseModel):
@@ -350,6 +391,14 @@ class Residue(XedaBaseModel):
                     f" ({', '.join(self.files.liberty)})"
                 )
         self.resolve_corner(None)
+        for name in ("lambdapdk",):
+            entry = self.providers.entry(name)
+            if entry is not None and entry.files is not None:
+                try:
+                    # The view validates the default corner and the aliases against the files.
+                    self.for_provider(name)
+                except ValidationError as error:
+                    raise ValueError(f"providers.{name}: {_problems(error)}") from None
 
     def _given_value_leaves(self) -> dict[str, Any]:
         dumped = self.values.model_dump(mode="json", exclude_unset=True)
@@ -382,6 +431,39 @@ class Residue(XedaBaseModel):
                 f"the corners are: {', '.join(known)}; the aliases are: {aliases}"
             )
         return token
+
+    def for_provider(self, name: Optional[str]) -> "Residue":
+        """Return the residue as the provider `name` sees it (`None`: the default provider).
+
+        A provider entry that has `files` describes its own layout. The view takes the `files` and
+        the `upstream` of the entry in place of the top-level ones, and merges the `values` of the
+        entry over the top-level `values` leaf by leaf. It clears these three keys in the entry,
+        so a second call returns an equal residue. A provider whose entry has no `files` sees the
+        residue unchanged (this object)."""
+        name = self.providers.default if name is None else name
+        entry = None if name is None else self.providers.entry(name)
+        if name is None or entry is None or getattr(entry, "files", None) is None:
+            return self
+        leaves = flatten_leaves(_dumped(self.values))
+        if entry.values is not None:
+            leaves.update(flatten_leaves(_dumped(entry.values)))
+        providers = _dumped(self.providers)
+        providers[name] = {
+            key: value for key, value in providers[name].items() if key not in VIEWED_KEYS
+        }
+        return Residue.model_validate(
+            {
+                "name": self.name,
+                "description": self.description,
+                "extends": self.extends,
+                "providers": providers,
+                "upstream": None if entry.upstream is None else _dumped(entry.upstream),
+                "corners": _dumped(self.corners),
+                "files": _dumped(entry.files),
+                "values": nest_leaves(leaves),
+                "overrides": {key: _dumped(item) for key, item in self.overrides.items()},
+            }
+        )
 
 
 # ---------------------------------------------------------------------------------------------
@@ -444,15 +526,36 @@ def _dumped(model: XedaBaseModel) -> dict[str, Any]:
     return model.model_dump(mode="json", exclude_unset=True)
 
 
-def effective_residue(residue: Optional[Residue], user: Optional[Residue]) -> Residue:
+def selected_provider(
+    residue: Optional[Residue], user: Optional[Residue], provider: Optional[str]
+) -> Optional[str]:
+    """Return the provider whose view the layers take: `provider`, else the default of the layered
+    `providers` (the user file wins), else `None`."""
+    if provider is not None:
+        return provider
+    if user is not None and "default" in user.providers.model_fields_set:
+        return user.providers.default
+    return None if residue is None else residue.providers.default
+
+
+def effective_residue(
+    residue: Optional[Residue], user: Optional[Residue], provider: Optional[str]
+) -> Residue:
     """Return the residue that finds the files of a platform: `residue` (the bundled platform)
-    with the structure that the user file gives on top. A key that the user file gives wins
-    (a provider entry, the upstream files, a file role, the default corner), and
+    with the structure that the user file gives on top, as the provider `provider` sees both
+    (`None`: the default provider of the layers, see `selected_provider`). Each layer is viewed on
+    its own (`Residue.for_provider`) and the views are then merged. A key that the user file gives
+    wins (a provider entry, the upstream files, a file role, the default corner), and
     `files.liberty` and the aliases merge per key. A key that the user file writes as `null`
     clears what the platform gives. The result has no `values` and no `overrides`,
     since those stay in their own layers."""
     if residue is None and user is None:
         raise ValueError("a platform needs a bundled residue, a user file, or both")
+    name = selected_provider(residue, user, provider)
+    if residue is not None:
+        residue = residue.for_provider(name)
+    if user is not None:
+        user = user.for_provider(name)
     if user is None:
         assert residue is not None
         return residue

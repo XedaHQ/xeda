@@ -16,7 +16,8 @@ name: OpenROAD
 #
 # The PDK files are not pinned here. The job installs each platform of XEDA_TESTS_PLATFORMS with
 # `xeda pdk install`, at the version that the platform file of the checkout pins. So the installer
-# is tested too (sky130hd through ciel), and the job cannot disagree with the platform files.
+# is tested too (sky130hd through ciel), and the job cannot disagree with the platform files. A
+# second step installs sky130hd through lambdapdk, and XEDA_TESTS_PDK_PROVIDERS tells the tests.
 on:
   push:
     branches: ["main", "release/*"]
@@ -44,6 +45,8 @@ jobs:
       ORFS_INSTALL: /OpenROAD-flow-scripts/tools/install
       XEDA_TESTS_OPENROAD: "1"
       XEDA_TESTS_PLATFORMS: nangate45,sky130hd
+      # The same store holds sky130hd from a second provider (the step that installs it).
+      XEDA_TESTS_PDK_PROVIDERS: sky130hd:lambdapdk
       # A missing tool fails a test, and does not skip it.
       XEDA_TESTS_REQUIRE_TOOLS: "1"
     steps:
@@ -118,6 +121,15 @@ jobs:
           for platform in ${XEDA_TESTS_PLATFORMS//,/ }; do
             xeda pdk install "$platform" --root "$RUNNER_TEMP/pdk" --yes
           done
+          xeda pdk list --root "$RUNNER_TEMP/pdk"
+
+      - name: Install sky130hd from lambdapdk
+        # The version is the one that the platform file pins. The pins of the providers change on
+        # their own: a bump of lambdapdk is a reviewed change of the platform file.
+        run: |
+          set -euo pipefail
+          export PATH="$PATH:$RUNNER_TEMP/venv/bin"
+          xeda pdk install sky130hd --provider lambdapdk --root "$RUNNER_TEMP/pdk" --yes
           xeda pdk list --root "$RUNNER_TEMP/pdk"
 
       - name: Check whether yosys runs a Tcl script
