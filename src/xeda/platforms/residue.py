@@ -21,7 +21,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Optional
 
 import yaml
-from pydantic import ValidationError
+from pydantic import PrivateAttr, ValidationError
 
 from xeda.dataclass import Field, XedaBaseModel, field_validator, model_validator
 from xeda.platforms.model import PlatformValues, flatten_leaves, nest_leaves, normalize_leaf
@@ -45,6 +45,7 @@ __all__ = [
     "effective_residue",
     "load_residue",
     "selected_provider",
+    "validation_problems",
 ]
 
 #: The name of a platform or of a bundled platform directory.
@@ -340,6 +341,9 @@ class Residue(XedaBaseModel):
         description="Leaves that a lower layer gives and that this platform sets differently.",
     )
 
+    #: The provider whose view this residue is, or `None` for a residue that is not a view.
+    _view_of: Optional[str] = PrivateAttr(default=None)
+
     @field_validator("name", "extends", mode="after")
     @classmethod
     def _name_is_a_plain_name(cls, value: Optional[str]) -> Optional[str]:
@@ -397,7 +401,7 @@ class Residue(XedaBaseModel):
                 # The view validates the default corner and the aliases against the files.
                 self.for_provider("lambdapdk")
             except ValidationError as error:
-                raise ValueError(f"providers.lambdapdk: {_problems(error)}") from None
+                raise ValueError(f"providers.lambdapdk: {validation_problems(error)}") from None
 
     def _given_value_leaves(self) -> dict[str, Any]:
         dumped = self.values.model_dump(mode="json", exclude_unset=True)
@@ -438,7 +442,15 @@ class Residue(XedaBaseModel):
         the `upstream` of the entry in place of the top-level ones, and merges the `values` of the
         entry over the top-level `values` leaf by leaf. It clears these three keys in the entry,
         so a second call returns an equal residue. A provider whose entry has no `files` sees the
-        residue unchanged (this object)."""
+        residue unchanged (this object). A view is the view of one provider: asking it for another
+        provider raises `ValueError`, since the view has dropped what the other layout needs."""
+        if self._view_of is not None:
+            if name is not None and name != self._view_of:
+                raise ValueError(
+                    f"this residue is the view of provider '{self._view_of}', not of '{name}': "
+                    "take the view from the residue of the platform"
+                )
+            return self
         name = self.providers.default if name is None else name
         entry = None if name is None else self.providers.entry(name)
         if name is None or entry is None or getattr(entry, "files", None) is None:
@@ -450,7 +462,7 @@ class Residue(XedaBaseModel):
         providers[name] = {
             key: value for key, value in providers[name].items() if key not in VIEWED_KEYS
         }
-        return Residue.model_validate(
+        view = Residue.model_validate(
             {
                 "name": self.name,
                 "description": self.description,
@@ -463,6 +475,8 @@ class Residue(XedaBaseModel):
                 "overrides": {key: _dumped(item) for key, item in self.overrides.items()},
             }
         )
+        view._view_of = name
+        return view
 
 
 # ---------------------------------------------------------------------------------------------
@@ -480,7 +494,7 @@ def bundled_platform_names() -> list[str]:
     )
 
 
-def _problems(error: ValidationError) -> str:
+def validation_problems(error: ValidationError) -> str:
     return "; ".join(
         (".".join(str(part) for part in problem["loc"]) + ": " if problem["loc"] else "")
         + str(problem["msg"]).removeprefix("Value error, ")
@@ -498,7 +512,7 @@ def _read(path: Path, label: str) -> Residue:
     try:
         return Residue.model_validate(table)
     except ValidationError as error:
-        raise ResidueError(f"{label}: {_problems(error)}") from None
+        raise ResidueError(f"{label}: {validation_problems(error)}") from None
 
 
 def load_residue(name_or_path: str | Path) -> Residue:
@@ -569,13 +583,21 @@ def effective_residue(
     description = (
         user.description if "description" in user.model_fields_set else residue.description
     )
-    return Residue.model_validate(
+    providers = {**_dumped(residue.providers), **_dumped(user.providers)}
+    # The result is the view of one provider. An entry of another provider keeps its identity and
+    # drops the layout, which the merged top level does not describe.
+    for key, entry in providers.items():
+        if isinstance(entry, dict):
+            providers[key] = {k: v for k, v in entry.items() if k not in VIEWED_KEYS}
+    merged = Residue.model_validate(
         {
             "name": user.name,
             "description": description,
-            "providers": {**_dumped(residue.providers), **_dumped(user.providers)},
+            "providers": providers,
             "upstream": None if upstream is None else _dumped(upstream),
             "corners": corners,
             "files": files,
         }
     )
+    merged._view_of = name
+    return merged

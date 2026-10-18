@@ -123,8 +123,9 @@ The keys are:
     none. Each provider has its own entry (see `Providers and layouts`_). A provider without an
     entry does not serve the platform. The entry of a Git provider (``orfs``, ``lambdapdk``) may
     list ``fetch``, the paths below its ``directory`` that the install fetches. The entry of
-    ``lambdapdk`` may also hold ``files``, ``upstream`` and ``values`` for this provider: they
-    take the place of the top-level keys of the same name (see `The lambdapdk provider`_).
+    ``lambdapdk`` may also hold ``files``, ``upstream`` and ``values`` for this provider. Its
+    ``files`` and ``upstream`` take the place of the top-level keys of the same name, and its
+    ``values`` override the top-level ``values`` leaf by leaf (see `The lambdapdk provider`_).
 
 ``upstream``
     The adapter (``orfs_config_mk`` or ``open_pdks_config``) and the configuration files it reads.

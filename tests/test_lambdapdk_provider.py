@@ -184,6 +184,15 @@ def test_the_view_is_idempotent_and_clears_the_entry():
     assert cleared.version == entry().version
 
 
+def test_a_view_is_the_view_of_one_provider_only():
+    seen = view()
+    assert seen.for_provider(None) is seen and seen.for_provider("lambdapdk") is seen
+    with pytest.raises(ValueError, match="view of provider 'lambdapdk', not of 'ciel'"):
+        seen.for_provider("ciel")
+    with pytest.raises(ValueError, match="view of provider 'lambdapdk'"):
+        locate(seen, "ciel", None, Path("/nowhere"), None)
+
+
 def test_a_provider_without_a_layout_of_its_own_sees_the_residue_itself():
     residue = sky130()
     assert residue.for_provider("ciel") is residue
@@ -221,6 +230,28 @@ def test_a_corner_of_the_user_file_is_judged_against_the_provider_that_is_select
     assert merged.resolve_corner(None) == "ff_100C_1v95"
     with pytest.raises(ValueError, match="ff_100C_1v95"):
         effective_residue(sky130(), user, "ciel")
+
+
+def test_a_corner_of_ciel_only_in_a_user_file_is_valid_with_ciel(tmp_path):
+    """The lambdapdk entry of the platform must not judge the corners of a layout that it does
+    not describe."""
+    user = user_file(
+        tmp_path,
+        "name: sky130hd\nextends: sky130hd\ncorners: {default: ss_100C_1v60, aliases: {slow: "
+        "ss_100C_1v60}}\n",
+    )
+    merged = effective_residue(sky130(), user, "ciel")
+    assert merged.resolve_corner(None) == "ss_100C_1v60" and merged.resolve_corner("slow")
+    with pytest.raises(ValueError, match="ss_100C_1v60"):
+        effective_residue(sky130(), user, "lambdapdk")
+    settings = settings_of(tmp_path, platform="sky130hd", platform_file="mine.yaml")
+    assert settings.residue().resolve_corner(None) == "ss_100C_1v60"
+    check_platform_settings(settings)
+    selected = settings_of(
+        tmp_path, platform="sky130hd", platform_file="mine.yaml", pdk_provider="lambdapdk"
+    )
+    with pytest.raises(FlowSettingsException, match="ss_100C_1v60"):
+        check_platform_settings(selected)
 
 
 def test_the_provider_of_the_layers_is_the_argument_else_the_default_of_the_user_file(tmp_path):
@@ -618,11 +649,48 @@ def test_a_rename_that_fails_restores_the_earlier_receipt(tmp_path, repository, 
     assert not (root / "xeda" / "lambdapdk").exists()
 
 
-def test_both_git_providers_share_a_store_without_touching_each_other(tmp_path, repository):
+def snapshot(root: Path) -> dict[str, bytes]:
+    """The content of every file below `root` except the lock, by relative name."""
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and path.name != ".lock"
+    }
+
+
+@pytest.mark.parametrize("first", ["orfs", "lambdapdk"])
+def test_both_git_providers_share_a_store_without_touching_each_other(
+    tmp_path, repository, quiet_git, monkeypatch, first  # noqa: F811
+):
+    from xeda.platforms.providers import orfs_checkout_directory
+
+    from .test_pdk_cli import Upstream
+
+    orfs_repository = Upstream(tmp_path / "orfs-upstream")
+    monkeypatch.setattr("xeda.platforms.providers.ORFS_URL", orfs_repository.url)
+    nangate = load_residue("nangate45")
+    installs = {
+        "orfs": lambda root: install(nangate, "orfs", orfs_repository.commit, root),
+        "lambdapdk": lambda root: install(sky130(), "lambdapdk", repository.commit, root),
+    }
+    second = "lambdapdk" if first == "orfs" else "orfs"
     root = tmp_path / "store"
-    install(sky130(), "lambdapdk", repository.commit, root)
-    assert sorted(p.name for p in (root / "xeda").iterdir()) == [".lock", "lambdapdk", "receipts"]
-    assert not (root / "xeda" / "orfs").exists()
+    installs[first](root)
+    before = snapshot(root)
+    installs[second](root)
+    after = snapshot(root)
+    assert {name: after[name] for name in before} == before  # the first install is unchanged
+    assert set(after) - set(before)  # the second one added its files
+    assert sorted(p.name for p in (root / "xeda").iterdir()) == [
+        ".lock",
+        "lambdapdk",
+        "orfs",
+        "receipts",
+    ]
+    assert installed(nangate, "orfs", orfs_repository.commit, root) is not None
+    assert installed(sky130(), "lambdapdk", repository.commit, root) is not None
+    assert orfs_checkout_directory(root, orfs_repository.commit).is_dir()
+    assert git_checkout_directory(root, "lambdapdk", repository.commit).is_dir()
 
 
 def test_the_default_url_of_the_other_git_provider_is_unchanged():
@@ -702,6 +770,21 @@ def test_the_path_command_without_the_files_says_how_to_install_them(monkeypatch
     )  # fmt: skip
     assert result.exit_code != 0
     assert "xeda pdk install sky130hd --provider lambdapdk" in result.output
+
+
+def test_a_corner_of_ciel_only_in_a_user_file_is_valid_for_the_commands_of_ciel(
+    monkeypatch, tmp_path, store
+):
+    mine = tmp_path / "mine.yaml"
+    mine.write_text(
+        "name: mine\nextends: sky130hd\ncorners: {default: ss_100C_1v60}\n", encoding="utf-8"
+    )
+    result = command(
+        monkeypatch, tmp_path, "path", "--platform-file", str(mine), "--root", str(tmp_path / "no")
+    )
+    # the corner is accepted; only the missing PDK files stop the command
+    assert result.exit_code != 0 and "xeda pdk install --platform-file" in result.output
+    assert "unknown corner" not in result.output
 
 
 def test_a_user_file_over_the_platform_is_viewed_for_the_provider_of_the_command(

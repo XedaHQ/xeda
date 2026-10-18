@@ -223,10 +223,16 @@ class AsicPlatformSettings(Flow.Settings):
         """Return the effective residue: the bundled one of `platform`, or the user file of
         `platform_file` over the bundled one that it extends, as the selected provider sees it.
         This reads the residue files only."""
-        from ..platforms.residue import effective_residue
+        from pydantic import ValidationError
+
+        from ..platforms.residue import effective_residue, validation_problems
 
         bundled, user = self.residue_layers()
-        return effective_residue(bundled, user, self.pdk_provider)
+        try:
+            return effective_residue(bundled, user, self.pdk_provider)
+        except ValidationError as error:
+            # The file loads alone and is wrong over the platform, or for this provider.
+            raise FlowSettingsException(validation_problems(error)) from None
 
     def locate_platform(self) -> "Located":
         """Find the PDK files of the platform in the store, with `stat` only.
