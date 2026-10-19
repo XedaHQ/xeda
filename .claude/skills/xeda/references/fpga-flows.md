@@ -76,7 +76,7 @@ path (`fpga.part: P` is `fpga: {part: P}`). A flow that shares
 
 - List pin files in `rtl.sources` with their types (`Lpf`, `Pcf`, `Pdc`, `Xdc`). `nextpnr` merges
   the selected family's files in source order and falls back to the board's file when there are
-  none. The settings `lpf_cfg`, `pcf_cfg` and `pdc_cfg` were removed.
+  none. Xeda refuses the removed settings `lpf_cfg`, `pcf_cfg` and `pdc_cfg`.
 - `Sdc` sources merge in source order, then the `sdc` setting's file; the result reaches
   `--sdc` once.
 - A clock needs one timing authority across pin files, SDC files and settings. A duplicate fails and

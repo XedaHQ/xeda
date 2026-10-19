@@ -157,8 +157,8 @@ In each flow, set ``clock.period`` or ``clock.freq`` with a unit: ``clock.period
 ``clock.freq: 200 MHz``. A number without a unit is an error. Units are case-sensitive, as in SI:
 ``200 mhz`` is an error that names ``MHz``. See :ref:`quantities` for the kinds and the units.
 
-The design key ``clock_port`` and the flow setting ``clock_period`` were removed. Xeda refuses both
-and names the replacement: write ``clock: <port>`` in the design and ``clock.period`` in a flow.
+Xeda refuses the design key ``clock_port`` and the flow setting ``clock_period``, and names the
+replacement: write ``clock: <port>`` in the design and ``clock.period`` in a flow.
 
 .. _tb:
 
@@ -252,7 +252,7 @@ used for many kinds of file. The error suggests ``JsonNetlist`` for ``.json`` an
 ``OpenroadDbCts``, ``OpenroadDbGlobalRouted`` or ``OpenroadDbRouted``). A suffix that is not in the table names nothing that Xeda knows. Some types are only ever given this
 way: ``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``GenericVerilogNetlist``, ``VhdlNetlist``, ``FpgaNetlist``,
 ``FpgaTimingNetlist``, ``SynthCheckpoint``, ``RoutedCheckpoint``, the four ``OpenroadDb`` types, the
-four ``OpenroadSdc`` types, ``Chipdb``, ``Data`` and the legacy ``Checkpoint`` and ``Odb``, which no
+four ``OpenroadSdc`` types, ``Chipdb``, ``Data`` and the ``Checkpoint`` and ``Odb``, which no
 flow takes. Type names are case-tolerant, and suffixes are not.
 ``Data`` is for a file with no automatic HDL front end, such as test vectors or the input of a
 script. A flow or the design can still read it. An invalid ``type`` is an error that names the
@@ -754,7 +754,7 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
   ``clock: false``) is an error at the key as written, in a target as well (at
   ``targets.<name>.rtl.clock``). Two spellings of the clock in the design, or in the selected
   target, are an error. Xeda checks a target that is not selected only for the form of its values.
-  The removed ``clock_port`` is an error in the design, in a target (selected or not) and in
+  ``clock_port`` is an error in the design, in a target (selected or not) and in
   ``--design-overrides``. The error says to write ``clock: <port>``.
 * A value that is no table, and no short form of one, where a table is expected is an error,
   whichever target you select. Examples are ``tb: 3`` and ``keep: 3`` in ``rtl.attributes``,

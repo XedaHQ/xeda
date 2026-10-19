@@ -278,8 +278,8 @@ full-duplex line utilization. The **chunked** mode (`--mode chunked`) writes a c
 and only then writes the next, so the line idles for a round trip after every chunk (79 % of the
 line rate at 12 Mbaud with 4000-byte chunks).
 
-The pipelined mode reaches 99.6 to 100 % of the line rate (an earlier version of the tool got 40 %)
-because the reader does nothing but read and compare (no sleeps, no per-byte Python: each chunk is
+The pipelined mode reaches 99.6 to 100 % of the line rate because
+the reader does nothing but read and compare (no sleeps, no per-byte Python: each chunk is
 compared with the payload in one memory compare, and the payload is made on the fly), the writer
 uses 512-byte writes and sleeps 0.1 ms only when the window is full, and pyftdi reads one USB packet
 at a time (512 bytes on the FT2232H; the notes say why not its 4 KiB default). `--ftdi` also counts
@@ -332,15 +332,15 @@ chip, cable, the FPGA's receiver and transmitter, at 12 Mbaud and 100 MHz) is be
 Vivado bitstream (`arty`) is the one in the soak; `FIXED_BAUD` and the open-source builds ran the
 shorter runs of the table.
 
-* **pyserial on macOS.** The first versions of the tool lost and corrupted bytes with pyserial at
-  every rate from 1 Mbaud up, within the first kilobytes. The cause was the tool, not the rate:
-  assigning `ser.timeout` on an open port makes pyserial rewrite the termios settings, and Apple's
-  FTDI driver turns that into USB control transfers in the middle of the traffic (see the notes in
-  the script). The timeout is now set once. Then pyserial echoed 4 MiB at every rate up to 12 Mbaud
-  (tens of runs at 8 and 12 Mbaud, also with 20 busy loops competing for the CPU: 89 to 95 % of the
-  line rate). Two early runs at 8 and 12 Mbaud still lost bytes (a 330-byte gap, and a stall after
-  2 MiB); about 40 later runs did not reproduce them, so the cause is unknown. pyserial cannot tell
-  that the driver dropped bytes, and it cannot set the latency timer (16 ms by default: with a
+* **pyserial on macOS.** Assigning `ser.timeout` on an open port makes pyserial rewrite the termios
+  settings, and Apple's FTDI driver turns that into USB control transfers in the middle of the
+  traffic (see the notes in the script). That loses and corrupts bytes at every rate from 1 Mbaud
+  up, within the first kilobytes. The tool sets the timeout once. With that, pyserial echoed 4 MiB
+  at every rate up to 12 Mbaud (tens of runs at 8 and 12 Mbaud, also with 20 busy loops competing
+  for the CPU: 89 to 95 % of the line rate). Two runs at 8 and 12 Mbaud lost bytes (a 330-byte gap,
+  and a stall after 2 MiB); about 40 other runs did not reproduce them, so the cause is unknown.
+  pyserial cannot tell that
+  the driver dropped bytes, and it cannot set the latency timer (16 ms by default: with a
   window of 512 bytes it is down to 4 % at 8 Mbaud). So **on macOS use `--ftdi` from 8 Mbaud up**;
   pyserial passed everything up to 6 Mbaud.
 * **Host load.** With 20 busy loops on 10 cores, pyftdi at 12 Mbaud still passes every byte but

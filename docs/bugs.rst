@@ -40,9 +40,10 @@ Also include:
 Rejected settings
 =================
 
-Xeda rejects an unknown setting, so a typo is a ``FlowSettingsError``. A setting that Xeda removed
-is rejected too, and the error names the setting to use instead. If Xeda rejects a setting that
-you expected to work, compare the spelling with the output of::
+Xeda rejects an unknown setting, so a typo is a ``FlowSettingsError``. A removed setting is
+rejected too. Its error names the setting to use, or, when nothing replaces it, says why and to
+delete it. If Xeda rejects a setting that you expected to work, compare the spelling with the
+output of::
 
     xeda list-settings <flow>
 

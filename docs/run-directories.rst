@@ -36,8 +36,7 @@ names, such as a ``.gitignore`` of your own, stays as it is. The exception looks
 path only, not at the option that produced it. An explicit ``--run-root`` (or ``XEDA_RUN_ROOT``, or
 the API's ``run_root``) that resolves to ``xeda_run`` directly under the start directory is adopted
 in the same way as the default. Any other name is not, and neither is ``xeda_run`` in any other
-place. An older Xeda wrote ``xeda_run_dse`` and ``xeda_run_<optimizer>`` for ``xeda dse``. Xeda does
-not adopt those either: delete them, or create a ``.xeda-run-root`` file in them.
+place.
 
 Inside the run root, the layout depends on ``--hashed-run-dirs``:
 
@@ -74,9 +73,6 @@ consumer with unchanged settings therefore gets another directory when its produ
 change, or when another producer or output feeds it. Editing a source file never moves a directory.
 The run hash reads no file, and a source counts only as the origin of an input. The trace notices a
 changed file (see `trace.json`_).
-
-An earlier Xeda also used a third level, ``<design>_<design_hash>/``, when ``--incremental`` was
-off. That level is gone and Xeda no longer looks for it. Delete such directories by hand.
 
 A run directory is a directory named ``<flow>`` or ``<flow>_<16-char run hash>``. It can also be a
 symbolic link, but only a link that leads to such a directory of the same flow in the same parent
@@ -405,10 +401,10 @@ later checks do not read it again.
 ------------
 
 ``--clean`` empties the run directory of each flow before the flow runs, and runs every flow. It is
-"make clean, then make". Several older names did the same job and now fail with a message that says
-what to use: ``--no-incremental``, the per-flow ``clean`` setting, GHDL's ``clean`` (now
-``clean_before_analyze``), Verilator's ``clean_before_run`` and the launcher setting
-``cleanup_before_run``.
+"make clean, then make". Xeda refuses several other names, and the message says what to use:
+``--no-incremental``, the per-flow ``clean`` setting, Verilator's ``clean_before_run`` and the
+launcher setting ``cleanup_before_run``. GHDL's ``clean`` is refused too. Its message names
+``--clean`` and ``clean_before_analyze``, which runs ``ghdl remove`` before the analysis.
 
 Flows that always run
 ----------------------
@@ -558,7 +554,7 @@ Remote runs
 ===========
 
 A remote host must run Xeda 0.4.4 or newer (a development build of this release line counts), with
-remote protocol 1 or newer. Protocol 1 is the first one released. It provides:
+remote protocol 1 or newer. Protocol 1 provides:
 
 - canonical resolved settings;
 - relocated read inputs, with their original path identities;

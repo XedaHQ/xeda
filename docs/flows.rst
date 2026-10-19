@@ -51,9 +51,8 @@ Discovering flows and their settings
     The bundled boards have lower-case names, and Xeda finds them by their name in any letter
     case: ``ARTY_A7_100T``, ``arty_a7_100t`` and ``Arty_A7_100T`` select the same board, which
     Xeda stores as ``arty_a7_100t``. The names in your own database are case-sensitive, like file
-    names: ``MY_BOARD`` is not found as ``my_board``. The ``name`` key of a database entry was
-    renamed ``openfpgaloader_board``, and an entry that still has ``name`` is an error that says
-    so.
+    names: ``MY_BOARD`` is not found as ``my_board``. An entry with a ``name`` key is an error that
+    says to use ``openfpgaloader_board``.
 
 ``asic_synthesis``
     Builds a design for a standard-cell process (``dc``). ``dc`` takes the libraries of the
@@ -104,21 +103,20 @@ wrote, whichever spelling each used. A value that is no table where a table is e
 
 A flow's settings are written in one place, its own ``flows.<flow_name>`` section, whichever
 flow's run needs them. For example, ``-s flows.yosys_fpga.flatten=true`` sets the synthesis that
-``nextpnr`` places. The ``yosys`` section that ``nextpnr`` used to have was removed, and using it
-is an error that names ``flows.yosys_fpga.<key>``. The Vivado simulation and power flows follow
-the same rule:
+``nextpnr`` places. ``nextpnr`` has no ``yosys`` section, and using one is an error that names
+``flows.yosys_fpga.<key>``. The Vivado simulation and power flows follow the same rule:
 
-* The ``synth`` section of ``vivado_postsynth_sim`` was removed. Its error names
+* ``vivado_postsynth_sim`` has no ``synth`` section. Using one is an error that names
   ``flows.vivado_synth.<key>``.
-* The ``postsynthsim`` section of ``vivado_power`` was removed, and so were its simulation
-  settings (``elab_debug``, ``saif``, ``stop_time``, ``prerun_time``, ``timeout`` and
-  ``fail_severity``). The errors name ``flows.vivado_postsynth_sim.<key>``.
+* ``vivado_power`` has no ``postsynthsim`` section and none of the simulation settings
+  (``elab_debug``, ``saif``, ``stop_time``, ``prerun_time``, ``timeout`` and ``fail_severity``).
+  The errors name ``flows.vivado_postsynth_sim.<key>``.
 * ``vivado_power`` takes timing activity from ``vivado_postsynth_sim`` by default, which switches
   on the ``timing_sim`` setting of that flow. ``vivado_power`` itself has no ``timing_sim`` setting
   (see :ref:`the functional alternative <power-activity>`).
 
-The single ``openroad`` flow was replaced by four flows (see `OpenROAD place and route`_). Each
-setting that the old flow had fails and names its replacement.
+OpenROAD place and route is a chain of four flows (see `OpenROAD place and route`_). ``openroad``
+refuses its removed settings. Each error names the setting to use, or says why there is none.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its producers. When ``nextpnr`` is the requested flow, ``-s flows.nextpnr.seed=2`` and
@@ -950,8 +948,8 @@ constraints and output formats for ECP5 (Trellis ``textcfg``), iCE40 (``asc``), 
 and Xilinx 7-series (``fasm``, with the ``nextpnr-himbaechel`` of openXC7). ``fpga_pack`` packs
 ECP5 with ``ecppack``, iCE40 with ``icepack`` and 7-series with ``fpga-as``, and ``openfpgaloader``
 programs the bitstream. Each flow rejects a family for which it has no tested mapping or packer,
-before any synthesis runs. The ``open_xc7`` flow was removed: use ``fpga_pack`` to build and
-``openfpgaloader`` to program.
+before any synthesis runs. ``open_xc7`` is a removed flow name: build with ``fpga_pack`` and
+program with ``openfpgaloader``.
 
 The options of the Yosys synthesis passes changed between releases, so ``yosys_fpga`` chooses them
 by the installed Yosys version. Yosys 0.63 is the minimum, and Xeda checked the options through
@@ -996,8 +994,8 @@ separately, appends the file of the optional ``sdc`` setting, and passes the res
 ``--sdc``. A clock may have only one timing constraint across pin files, SDC files and flow
 settings. An error for a duplicate names both original paths and lines, or the clock setting and
 its period. A clock that only a file constrains gets its timing from the file, with no generated
-frequency. The ``lpf_cfg``, ``pcf_cfg`` and ``pdc_cfg`` settings were removed. Using one is an
-error that names the typed pin file to list in ``rtl.sources`` instead
+frequency. Xeda refuses the removed ``lpf_cfg``, ``pcf_cfg`` and ``pdc_cfg`` settings. The error
+names the typed pin file to list in ``rtl.sources`` instead
 (``{file: "pins.lpf", type: Lpf}``).
 
 The ``sdc`` setting, the hooks and ``py_script`` name files relative to the design root (or with
@@ -1055,8 +1053,8 @@ selects ``flow3``, and a constrained clock supplies a clock-derived ABC9 delay (
 In pass-only mode, an unset script leaves the choice to the Yosys synthesis pass, and Xeda adds no
 clock-derived delay. ``abc9_script`` can choose one of the scripts that Yosys includes, in either
 mode: ``default``, ``default.area``, ``default.fast``, ``flow``, ``flow2``, ``flow3`` or
-``flow3mfs``. The script names come from the installed Yosys build. The legacy ``flow3`` setting is
-still accepted: ``true`` selects ``flow3``, and ``false`` leaves the script to Yosys. Do not set
+``flow3mfs``. The script names come from the installed Yosys build. The ``flow3`` setting is
+also accepted: ``true`` selects ``flow3``, and ``false`` leaves the script to Yosys. Do not set
 both ``abc9_script`` and ``flow3``. The script selection matters only when ABC9 mapping is enabled.
 
 .. code-block:: bash
@@ -1352,13 +1350,13 @@ from its own installation are not inputs, and ``--rebuild-all`` runs everything.
 a new directory for the exact part either. A ``prjxray_db`` that you set is a setting that names a
 directory, and Xeda tracks it as it tracks any such setting.
 
-The ``open_xc7`` flow was removed. Running it, or keeping a ``flows.open_xc7`` section in a design
+There is no ``open_xc7`` flow. Running it, or keeping a ``flows.open_xc7`` section in a design
 file or project file, fails with "``open_xc7`` was removed: use fpga_pack to build,
-openfpgaloader to program". Move its ``nextpnr`` settings to ``flows.nextpnr``, its synthesis
-settings to ``flows.yosys_fpga``, and its pin files into ``rtl.sources``. The ``nextpnr``,
-``packer_args`` and ``bitstream_file`` settings of ``openfpgaloader`` were removed in the same way:
-use the ``nextpnr`` and ``fpga_pack`` sections, and a ``Bitstream`` source for a prebuilt file.
-``xeda scrub open_xc7 <design>`` still removes the run directories that the removed flow left.
+openfpgaloader to program". Put the ``nextpnr`` settings in ``flows.nextpnr``, the synthesis
+settings in ``flows.yosys_fpga``, and the pin files in ``rtl.sources``. The ``openfpgaloader``
+flow refuses the ``nextpnr``, ``packer_args`` and ``bitstream_file`` settings in the same way: use
+the ``nextpnr`` and ``fpga_pack`` sections, and a ``Bitstream`` source for a prebuilt file.
+``xeda scrub open_xc7 <design>`` removes the run directories that an ``open_xc7`` flow left.
 
 .. _vivado-impl:
 
@@ -1623,8 +1621,8 @@ settings of one stage, and its common settings are these:
     The logic mapping with ABC: the strategy, the driving cell and the load of the ports, and the
     delay target. Common settings: ``abc.strategy``, ``abc.driver_cell`` and ``abc.load``. The
     mapping passes no ``-D`` option to ``abc`` unless ``abc.delay_target`` is set, as
-    OpenROAD-flow-scripts does. Earlier releases passed the clock period whenever the flow had a
-    clock; ``abc.delay_target: auto`` does that again. ``abc.delay_target`` and ``abc.max_slew``
+    OpenROAD-flow-scripts does. ``abc.delay_target: auto`` passes the clock period whenever the flow
+    has a clock. ``abc.delay_target`` and ``abc.max_slew``
     are times and ``abc.load`` is a capacitance. Each needs a unit, such as ``500 ps`` or
     ``3.9 fF`` (see :ref:`quantities`). ABC reads picoseconds and femtofarads, and Xeda converts.
     ``abc.max_slew`` is at least 1 ps and a whole number of picoseconds. ``abc.dress`` passes
@@ -1718,7 +1716,7 @@ replace the Liberty files of the platform. ``dont_use_cells`` adds to the cells 
 Removed settings
 ----------------
 
-These settings were removed from ``yosys``. Each one fails and names its replacement.
+``yosys`` refuses these settings. Each error names the replacement.
 
 .. list-table::
    :header-rows: 1
@@ -1726,7 +1724,7 @@ These settings were removed from ``yosys``. Each one fails and names its replace
    * - Removed setting
      - Use instead
    * - ``optimize``
-     - ``abc.strategy``. ``speed`` became ``speed_roundtrip``, and ``null`` became ``yosys``.
+     - ``abc.strategy``. Use ``speed_roundtrip`` for ``speed`` and ``yosys`` for ``null``.
    * - ``abc_driver_cell``
      - ``abc.driver_cell``
    * - ``abc_load_in_ff``
@@ -1745,7 +1743,7 @@ These settings were removed from ``yosys``. Each one fails and names its replace
    * - ``insbuf``
      - ``finish.buffer_cell``
    * - ``merge_libs_to``
-     - None. Xeda no longer merges Liberty files. Delete the setting, since ``dont_use_cells``
+     - None. Xeda does not merge Liberty files. Delete the setting, since ``dont_use_cells``
        reaches ``dfflibmap`` and ``abc`` as ``-dont_use``.
    * - ``retime``
      - ``abc_dff``, which passes ``-dff`` to ``abc`` (not with a liberty mapping), and
@@ -1966,7 +1964,8 @@ The design has Bluespec sources, so ``xeda run openroad examples/bluespec/gcd/gc
 estimates without pins. A board build needs an I/O wrapper and constraints.
 
 The physical settings take a quantity with its unit (see `Physical quantities and units`_). The
-settings of the old single ``openroad`` flow fail, and each message names its replacement.
+``openroad`` refuses its removed settings, and each message names the setting to use or says why
+there is none.
 
 Bluespec
 ========
@@ -2102,8 +2101,8 @@ Every flow reports a common set of keys (``success``, ``runtime``, ``tools``, ``
 ``run_path``, ``timestamp`` and the hashes). Each flow also reports keys of its own. Run ``xeda
 list-results <flow>`` for the list.
 
-Different flows used to report some quantities under different names. Xeda now also records a
-canonical name next to the name that the flow reported, so a script does not need to know which
+Different flows report some quantities under different names. Xeda also records a canonical name
+next to the name that the flow reported, so a script does not need to know which
 flow produced the file:
 
 .. list-table::
@@ -2118,7 +2117,7 @@ flow produced the file:
    * - ``ff``
      - ``FF``
 
-The original keys are kept, so nothing that already reads ``results.json`` breaks.
+The original keys stay in ``results.json``.
 
 .. note::
    ``clock_frequency`` has no alias ``Fmax`` on purpose. It is the frequency that was constrained,
@@ -2169,8 +2168,8 @@ default threshold. VHDL ``std.env.stop`` is accepted as completion.
 GHDL and nvc keep the actual end time of the simulator. A stop whose observed time differs from the
 requested ``stop_time`` fails, which matters for designs with sparse clock events. Xeda does not
 rewrite the reported time to the request. NVC uses a passive VHPI helper for the end time, so a C++
-compiler is needed when that helper must be built. The ``exit_severity`` setting of NVC was
-removed: use ``fail_severity``. A Bluesim ``max_cycles`` passes only when the recorded cycle count
+compiler is needed when that helper must be built. NVC has no ``exit_severity`` setting: use
+``fail_severity``. A Bluesim ``max_cycles`` passes only when the recorded cycle count
 equals the request and the record includes a measured final time and unit. CXXRTL links an exit
 monitor and an RTL assertion hook into a C++ driver that the user owns. An observed driver exit 0
 is valid evidence even when the simulated time is unknown, but missing records or abnormal exits
@@ -2239,8 +2238,8 @@ A waveform setting is named after its format, so the same name means the same th
 simulator. The one exception is ``wave`` of ``ghdl_sim``, which writes GHW, the waveform format of
 GHDL itself.
 
-The shared ``vcd`` setting writes a VCD file. Its former alias ``waveform`` was removed from every
-simulator; an error says to use ``vcd``.
+The shared ``vcd`` setting writes a VCD file. No simulator has a ``waveform`` setting; the error
+says to use ``vcd``.
 
 .. list-table::
    :header-rows: 1
@@ -2257,7 +2256,7 @@ simulator; an error says to use ``vcd``.
      - ``vcd`` (``--wave=<file> --format=vcd``) and ``fst`` (``--wave=<file>``). Only one of
        the two may be set. ``wave_include_glob``, ``wave_exclude_glob`` and ``wave_arrays`` apply
        to the waveform, and need one of the two unless they are set to their default values.
-       ``wave`` and ``wave_format`` were removed: use ``fst``, or ``vcd`` for a VCD file.
+       ``wave`` and ``wave_format`` are errors: use ``fst``, or ``vcd`` for a VCD file.
    * - ``modelsim``
      - ``vcd``. ModelSim dumps nothing unless it is set.
    * - ``vivado_sim``, ``vivado_postsynth_sim``
@@ -2337,7 +2336,7 @@ Defaults and limits:
   default) or a level of ``0``, ``1``, ``2`` or ``3``. Write the level only: ``2``, not ``-O2``.
   Planning refuses any other value, an empty one included.
 * ``random_init`` defaults to false, as in Verilator, and ``random_seed`` is used only with it.
-  ``x_initial`` and ``x_assign`` default to ``"0"`` (earlier releases used ``"unique"``).
+  ``x_initial`` and ``x_assign`` default to ``"0"``.
 * ``timing`` is on by default. It enables the ``--timing`` support of Verilator for delays and
   event controls, which needs a compiler with C++20 coroutine support. The C++ standard that
   Verilator requires takes precedence over a ``-std=`` flag in ``cflags``. Set ``timing: false`` to
@@ -2401,8 +2400,8 @@ start of the ``init()`` of a new flow.
 
 A simulator that needs no ``tb.top`` for some designs overrides
 ``runs_without_testbench_top(cls, design, settings=None)``. Both methods take the settings of the
-flow as an optional second argument, which every launch passes. An override with the old signature,
-which takes the design alone, fails with a ``TypeError`` when the launch is planned: add the
+flow as an optional second argument, which every launch passes. An override with the signature
+that takes the design alone fails with a ``TypeError`` when the launch is planned: add the
 argument.
 
 Registration is automatic. ``Flow.__init_subclass__`` derives the flow name from the class name
