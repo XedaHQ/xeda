@@ -768,7 +768,7 @@ def test_the_built_in_reader_keeps_chparam(tmp_path: Path, script_format: str) -
 def test_slang_reads_a_library_before_the_sources(tmp_path: Path, script_format: str) -> None:
     """slang resolves every instance when it reads the sources, so a `verilog_lib` file (and
     the Liberty files of a flow that reads them itself) comes first. With another reader,
-    the libraries stay after the sources, as before."""
+    the libraries stay after the sources."""
     design, out = _mixed_design(tmp_path)
     (design.design_root / "lib.v").write_text("module libcell(input a); endmodule\n")
     settings = {"verilog_lib": [str(design.design_root / "lib.v")]}
@@ -783,9 +783,10 @@ def test_slang_reads_a_library_before_the_sources(tmp_path: Path, script_format:
 
 
 def test_a_string_parameter_with_whitespace_is_refused_for_slang(tmp_path: Path) -> None:
-    """The script tokenizer of yosys ends `-G S="a b"` at the space, and no script has a form for
-    a double quote inside the text, so the check refuses the value before anything runs. A Tcl
-    script takes whitespace. Another reader, or no SystemVerilog source, has no such limit."""
+    """The script tokenizer of yosys ends `-G S="a b"` at the space, and Xeda writes the text
+    between double quotes without an escape, so the check refuses whitespace (`.ys` only) and a
+    double quote before anything runs. Another reader, or no SystemVerilog source, has no such
+    limit."""
     design, out = _mixed_design(tmp_path)
     (design.design_root / "inv.vhd").write_text("-- a source\n")
     (design.design_root / "tb.sv").write_text("module tb; endmodule\n")
@@ -845,7 +846,7 @@ def test_the_built_in_reader_keeps_a_read_verilog_per_source(
     tmp_path: Path, script_format: str
 ) -> None:
     """When the user picks yosys' own SystemVerilog reader, every source has its own
-    `read_verilog`, as before."""
+    `read_verilog`."""
     design, out = _mixed_design(tmp_path)
     script = _render(Yosys, {"systemverilog": "default"}, out, design)
     lines = script.splitlines()

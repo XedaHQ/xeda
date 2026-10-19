@@ -508,8 +508,9 @@ class YosysBase(Flow):
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
         """Refuse a string parameter that a yosys script cannot give to `read_slang -G`.
 
-        With the slang front end, `-G NAME="text"` sets a string parameter. The script has no
-        form for a double quote inside the text. The tokenizer of a yosys (`.ys`) script also ends
+        With the slang front end, `-G NAME="text"` sets a string parameter. Xeda writes the text
+        between double quotes without an escape, so a double quote inside it would end the
+        string. The tokenizer of a yosys (`.ys`) script also ends
         the word at whitespace, and a Tcl script does not. Xeda selects the format from the
         settings alone, so the check refuses whitespace when the format is `.ys`. GHDL sets the
         generics of a VHDL top, and the check leaves such a design alone.
