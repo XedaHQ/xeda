@@ -1282,6 +1282,78 @@ in place. The log has the same text without the escape codes, with one line for 
 a terminal (a pipe, a file, a CI log), or with ``console_colors`` switched off, the loader writes a
 line for each update of the bar.
 
+openFPGALoader opens the first probe whose USB id fits the cable (``digilent`` is
+``0x0403:0x6010``). It does this before it reads the ID code of any FPGA, and ``--fpga-part`` does
+not change it. With two boards of one kind connected, for example an Arty A7-100T and a Basys 3, it
+can program the wrong one. So the flow chooses the probe when the run names none. It does this when
+all of these hold:
+
+* The run names no probe: no ``usb_serial_num``, no ``cable_index``, and none of ``--ftdi-serial``,
+  ``--usb-serial-num``, ``--cable-index``, ``--busdev-num``, ``--vid``, ``--pid``, ``--device`` or
+  ``-d`` in ``extra_args``.
+* ``extra_args`` gives no other cable or board (``-c``, ``--cable``, ``-b``, ``--board``).
+* The cable is known: the ``cable`` setting, else the cable that ``openFPGALoader --list-boards``
+  gives the board. A board whose cable is ``Undefined``, or that the loader does not list, has none.
+* The part is known: ``fpga.part``, which ``board`` fills in.
+
+The flow asks the loader for the cables, the boards (when the cable comes from the board) and the
+probes with the USB id of the cable (``--list-cables``, ``--scan-usb``). With none or one probe,
+there is no choice to make. With two or more, it reads the FPGA of each probe with ``openFPGALoader
+--board <board> --ftdi-serial <serial> --detect``. When the ``cable`` setting gives the cable, it
+passes ``--cable <cable>`` instead of ``--board``. A board gives the loader its pins and clock,
+which a bit-bang cable such as the ULX3S one (``ft231X``) needs.
+
+``--detect`` reads the JTAG ID code. It does not configure or reset the FPGA, but it resets the
+JTAG state machine, sets the lines of the FTDI chip, and opens every probe with that USB id,
+whether it is a programmer or not. For example, the cable of the ``stlv7325_v2`` board is
+``ft4232`` (``0x0403:0x6011``), the id of the FT4232H in a Xilinx debugger, so Xeda opens a
+connected debugger too. ``usb_serial_num`` names the probe and skips all of this.
+
+A detected model matches the part when both, in lower case and without punctuation, start alike
+and the part does not continue with a digit: ``xc7a35`` matches ``xc7a35tcpg236-1``, not
+``xc7a350t``. With ``index_chain``, the device at that index of the chain is the one that counts.
+Without it, any FPGA of the chain counts. The matching knows the model names of Xilinx 7 series,
+UltraScale and UltraScale+, Lattice ECP5, MachXO2 and Nexus, Gowin (by series and capacity), and the
+Intel MAX II, MAX 10, Cyclone II to V and Agilex families.
+
+The flow programs a probe only when exactly one probe matches and every other probe was read and
+shows another device. It then adds ``--ftdi-serial <serial>`` to the command line and logs the
+probe it chose and the devices on the others. Every supported loader has ``--ftdi-serial``. Release
+1.2.0 prefers ``--usb-serial-num`` and keeps ``--ftdi-serial`` as a deprecated spelling. The
+``usb_serial_num`` setting passes ``--ftdi-serial`` too.
+
+A probe whose device cannot be read (it is busy, a permission is missing, or the cable prints no
+device) is unknown, not excluded. It may be a second board with the same FPGA, and the part cannot
+tell two such boards apart. So the run fails before it programs anything when no probe matches,
+when several match, and when one matches beside an unknown probe. The message lists every probe
+with its serial number, its bus and device number, the device that was detected or why it could not
+be read, and the ``usb_serial_num`` setting that names it. ``cable_index`` also works.
+
+When two or more probes fit the cable, the flow does not choose and warns in these cases.
+openFPGALoader then opens the first probe that fits:
+
+* No part is known.
+* Xeda cannot match the part to the loader's model names reliably: iCE40 (it has no JTAG ID code),
+  Spartan-6, MachXO3, Arria 10 and others.
+* The cable is a bit-bang cable given with ``cable`` (``ft231X``, ``ft232RL``). Its pins come only
+  from a board.
+* The probes are not FTDI chips. A USB-Blaster, CMSIS-DAP or J-Link cable opens the first device
+  of its id.
+* A probe has no serial number, or shares it with another.
+* The scan prints no table that Xeda can read, or says that it could not open a probe of that id
+  (for example a missing permission).
+
+Xeda names a probe only by the serial number of an FTDI chip. It does not use ``--busdev-num``,
+which the loader honors for an FTDI probe only when it was built with libftdi 1.4 or newer, and Xeda
+cannot detect the build. In these cases, name the probe with ``cable_index``, or with
+``usb_serial_num`` when its serial number is unique. To list the serial numbers, run
+``openFPGALoader --scan-usb``.
+
+The queries run in a real run only, never in a plan or ``--dry-run``. They run outside the run
+directory, so they write nothing there, and their output is not in ``openfpgaloader.log``. Each has
+a time limit. If Xeda cannot get the cable or probe list, openFPGALoader chooses the probe.
+If Xeda cannot read a probe with ``--detect``, the flow stops before programming.
+
 Xeda needs openFPGALoader 0.13.1 or newer. It asks the loader for its version (``-V``) before any
 flow of the chain runs, so an older loader fails the launch at once, before Xeda builds anything.
 The error has the version that Xeda found and the version it needs. The loader prints the DONE
@@ -1297,10 +1369,13 @@ log that show it. Xeda looks for these signs:
 * DONE stayed low after a load into a Xilinx FPGA. The loader prints a line such as ``ir: 1
   isc_done 0 isc_ena 0 init 1 done 0`` and then the status register of the FPGA. If the register
   reports an ID error, the bitstream is for another device than the one on the cable, so check the
-  board. The loader uses the first cable that matches. With several boards of the same kind
-  connected, it can program the wrong one, unless ``cable_index`` or ``usb_serial_num`` (the serial
-  number of an FTDI probe) names another. If the register reports a CRC error, the bitstream is
-  damaged or incomplete.
+  board. The loader uses the first cable that matches. With several boards of one kind connected,
+  the flow chooses the probe whose FPGA matches the part (see above). It does not choose when the
+  part is unknown or Xeda cannot match it, when the run names a probe (``cable_index``,
+  ``usb_serial_num`` or ``extra_args``), or when the probes cannot be told apart. Then the loader
+  can program the wrong board. The error tells whether Xeda chose the probe, and which settings
+  name one.
+  If the register reports a CRC error, the bitstream is damaged or incomplete.
 * A step that printed ``FAIL`` or ``Fail``, such as a bitstream file that the loader cannot parse.
 * An error message that the loader prints before it ends with status 0. A flash write that fails
   does this: the loader prints why and exits with status 0. Xeda knows the lines that start with

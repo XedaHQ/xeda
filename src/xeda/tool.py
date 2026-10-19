@@ -615,8 +615,16 @@ class Tool(XedaBaseModel):
         env: Optional[Dict[str, Any]] = None,
         raise_on_error: bool = True,
         merge_stderr: bool = False,
+        timeout: float | None = None,
     ) -> Optional[str]:
-        out = self.run(*args, env=env, stdout=True, check=raise_on_error, merge_stderr=merge_stderr)
+        out = self.run(
+            *args,
+            env=env,
+            stdout=True,
+            check=raise_on_error,
+            merge_stderr=merge_stderr,
+            timeout=timeout,
+        )
         if raise_on_error or out is not None:
             assert isinstance(out, str)
         return out
@@ -627,9 +635,12 @@ class Tool(XedaBaseModel):
         env: dict[str, Any] | None = None,
         raise_on_error: bool = True,
         merge_stderr: bool = False,
+        timeout: float | None = None,
     ) -> str | None:
         """Run `run_get_stdout` for a query about the tool itself (its version) in a temporary
-        working directory, so that nothing stays behind where the flow runs.
+        working directory, so that nothing stays behind where the flow runs. A flow also asks the
+        tool this way for what it sees of the machine (the probes that `openFPGALoader` finds),
+        with a `timeout` so that a query that hangs does not hang the launch.
 
         A flow creates its tools in `init()`, and that probes their version. `init()` runs in the
         run directory, before the launcher checks whether the last run is up to date. Every file
@@ -640,7 +651,11 @@ class Tool(XedaBaseModel):
         with tempfile.TemporaryDirectory(prefix="xeda-probe-") as scratch:
             with WorkingDirectory(scratch):
                 return self.run_get_stdout(
-                    *args, env=env, raise_on_error=raise_on_error, merge_stderr=merge_stderr
+                    *args,
+                    env=env,
+                    raise_on_error=raise_on_error,
+                    merge_stderr=merge_stderr,
+                    timeout=timeout,
                 )
 
     def run_stdout_to_file(

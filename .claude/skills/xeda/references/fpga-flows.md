@@ -96,7 +96,28 @@ anything and refuses an older loader. It loads SRAM by default.
 | `cable` | Pass `--cable` instead of a board name, and `--fpga-part` when the part is known. |
 
 With no board, a known part becomes `--fpga-part` (a Xilinx part without its speed grade); with
-no part, the loader detects the device. The flow fails on a nonzero exit and also when
+no part, the loader detects the device.
+
+With several probes of one kind connected (two Digilent boards are both `0x0403:0x6010`), the
+loader opens the first one. The flow chooses the probe when the cable and the part are known and
+the run names no probe (`usb_serial_num`, `cable_index`, or `--ftdi-serial`, `--usb-serial-num`,
+`--cable-index`, `--busdev-num`, `--vid`, `--pid`, `--device`, `-d` in `extra_args`). It lists the
+probes (`--scan-usb`) and reads the FPGA of each (`--detect`, through the board when the cable
+comes from it). It programs the probe whose FPGA matches the part, with `--ftdi-serial <serial>`,
+only if every other probe was read and shows another device. `--detect` opens every probe with that
+USB id, a debugger included. `usb_serial_num` skips it.
+
+The flow fails before it programs when no probe matches, when several match, or when one matches
+beside a probe that could not be read (it may be a second board with the same FPGA). The message
+lists the probes and the `usb_serial_num` that names each.
+
+Xeda does not choose a probe and warns when it cannot name a probe reliably: no part, a part Xeda
+cannot match (iCE40, Spartan-6, MachXO3, Arria 10), a bit-bang `cable` (`ft231X`), probes that are
+not FTDI chips, a probe with no serial number or a shared one, or an unreadable scan. If Xeda
+cannot get the cable or probe list, it warns too. openFPGALoader then chooses the first probe that
+fits the cable. Xeda never uses `--busdev-num`, which works only with libftdi 1.4 or newer.
+
+The flow fails on a nonzero exit and also when
 `openfpgaloader.log` shows the device was not programmed although the loader exited 0
 (`ReportedFailure`, quoting the lines). A load that fails in another way passes: read the log.
 

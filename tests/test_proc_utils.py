@@ -437,6 +437,17 @@ def test_a_captured_process_past_its_time_limit_is_stopped(tmp_path):
         )
 
 
+@pytest.mark.parametrize("method", ["probe_stdout", "run_get_stdout"])
+def test_a_tool_query_past_its_time_limit_is_stopped(method):
+    """`Tool.probe_stdout` and `Tool.run_get_stdout` hand their `timeout` down (the
+    `openfpgaloader` flow asks the loader about the probes with it, and a hung USB query must
+    not hang a launch)."""
+    tool = Tool(executable=sys.executable, version_flag=None)
+    with pytest.raises(ProcessTimeout), _stopped_within(0.5):
+        getattr(tool, method)("-c", "import time; time.sleep(60)", timeout=0.5)
+    assert getattr(tool, method)("-c", "print('ok')", timeout=30) == "ok"
+
+
 def test_a_highlighted_process_past_its_time_limit_is_stopped():
     with pytest.raises(ProcessTimeout), _stopped_within(0.5):
         run_process(

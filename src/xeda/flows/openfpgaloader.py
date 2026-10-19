@@ -8,9 +8,32 @@ from typing import Any, ClassVar, List, Literal, Optional, Tuple, Union
 from ..board import WithFpgaBoardSettings
 from ..dataclass import Field, model_validator
 from ..design import SourceType
-from ..flow import FPGA, Flow, FpgaSynthFlow, In
+from ..flow import FPGA, Flow, FlowFatalError, FpgaSynthFlow, In
 from ..tool import Tool
 from ..units import count, data_size
+from ..utils import ToolException
+from .openfpgaloader_probes import (
+    BITBANG_CABLES,
+    Chosen,
+    Detection,
+    Reading,
+    changes_the_cable,
+    choice_text,
+    choose_probe,
+    describe_probe,
+    names_a_probe,
+    parse_board_cables,
+    parse_cable_ids,
+    parse_detect,
+    parse_scan_usb,
+    part_is_matchable,
+    probe_selector,
+    probes_without_a_name,
+    refusal_text,
+    scan_failure,
+    scan_open_errors,
+    selectable_usb_id,
+)
 
 __all__ = ["Openfpgaloader"]
 
@@ -147,6 +170,35 @@ _ESCAPE_CODES = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 MAX_REPORTED_LINES = 6
 
 
+#: What an ID error says about the probe when the flow made no statement about it.
+PROBE_NOTE_DEFAULT = (
+    "The loader opens the first cable that matches. Xeda chooses the probe only when the run "
+    "names none, the part is known, several probes fit the cable, and the part matches exactly "
+    "one of them. In any other case the loader can program the wrong board: name its probe with "
+    "`usb_serial_num` (the serial number) or `cable_index`."
+)
+#: The run names the probe, so Xeda does not choose.
+PROBE_NOTE_NAMED = (
+    "The run names the probe (`usb_serial_num`, `cable_index` or a probe option in "
+    "`extra_args`), so Xeda did not choose it. Check that this probe is on the board you meant."
+)
+#: Only one probe fits the cable, so the loader had no other to open.
+PROBE_NOTE_SINGLE = (
+    "Only one probe fits the cable, so the loader programmed the board on it. Connect the board "
+    "you meant, or check which device the bitstream was built for."
+)
+#: Xeda chose the probe; `{probe}`, `{model}` and `{part}` are filled in.
+PROBE_NOTE_CHOSEN = (
+    "Xeda chose the probe with {probe}, because its FPGA ({model}) matches the part {part}. "
+    "So the board on the cable is the one this flow is set up to program. Check which device "
+    "the bitstream was built for."
+)
+
+#: The most seconds that a query about the probes (`--list-cables`, `--scan-usb`, `--detect`) may
+#: take. A probe that does not answer must not hang the launch.
+PROBE_QUERY_TIMEOUT = 30.0
+
+
 @dataclass(frozen=True)
 class LoaderFailure:
     """A failure that the output of the loader shows and its exit status does not.
@@ -178,11 +230,14 @@ def _output_lines(text: str) -> list[str]:
     return [line for line in (raw.strip() for raw in plain.split("\n")) if line]
 
 
-def _unfinished_load(lines: list[str], target: Optional[str]) -> tuple[list[str], list[str]]:
+def _unfinished_load(
+    lines: list[str], target: Optional[str], probe_note: Optional[str] = None
+) -> tuple[list[str], list[str]]:
     """Return the sentences and the lines that show that a Xilinx FPGA did not finish configuring.
 
     The readback of its state shows DONE low. Without such a readback, return two empty lists.
-    `target`, when known, names the board or part that the flow is set up to program."""
+    `target`, when known, names the board or part that the flow is set up to program.
+    `probe_note` is how the flow chose the probe, which an ID error explains."""
     for index, line in enumerate(lines):
         found = _DONE_READBACK.fullmatch(line)
         if found and found.group(1) == "0":
@@ -224,11 +279,7 @@ def _unfinished_load(lines: list[str], target: Optional[str]) -> tuple[list[str]
         # The loader opens the first cable that matches, unless the cable index names another
         # (ftdipp_mpsse.cpp:50-53, main.cpp:289). It never compares the FPGA it finds with the
         # part of the board it was given (main.cpp:216-219 uses the part for the flash only).
-        sentences.append(
-            "The loader uses the first cable that matches unless the `cable_index` or "
-            "`usb_serial_num` setting names another, so with several boards connected it can "
-            "program the wrong one."
-        )
+        sentences.append(probe_note or PROBE_NOTE_DEFAULT)
     if crc_error:
         sentences.append(
             "The configuration logic reports a CRC error: the bitstream is damaged or incomplete."
@@ -353,6 +404,7 @@ def loader_failure(
     flash_writes: int = 0,
     verify: bool = False,
     quiet: bool = False,
+    probe_note: Optional[str] = None,
 ) -> Optional[LoaderFailure]:
     """Return the failure that the output `text` of the loader shows (see above), or `None`.
 
@@ -360,9 +412,10 @@ def loader_failure(
     `flash_writes` is the number of flash writes that the loader has to report as finished (a
     flash write on a Xilinx FPGA: one for each flash chip). `verify` tells whether the loader had
     to read the flash back. `quiet` tells whether it had quiet progress bars. In that case the
-    message names the line that a finished write prints."""
+    message names the line that a finished write prints. `probe_note` says how the flow chose the
+    probe, for the hint that an ID error gives about the cable (`PROBE_NOTE_DEFAULT` without it)."""
     lines = _output_lines(text)
-    sentences, evidence = _unfinished_load(lines, target)
+    sentences, evidence = _unfinished_load(lines, target, probe_note)
     reported = [line for line in _reported_failures(lines) if line not in evidence]
     if not sentences and not reported:
         finished, after = _finished_flash_writes(lines)
@@ -450,9 +503,42 @@ class Openfpgaloader(FpgaSynthFlow):
     board has one. The flow passes the FPGA part when the part is known and either `cable` is set
     or no board name is passed: a Xilinx part without its speed grade, any other part as it is.
     Without a part, openFPGALoader detects the device. Programming the flash (`write_flash`)
-    needs the part. The flow keeps the output of the loader in `openfpgaloader.log` in the run
-    directory. It needs openFPGALoader 0.13.1 or newer and refuses an older loader before it
-    builds or programs anything. The run fails when the loader exits with a nonzero status. It
+    needs the part.
+
+    The loader opens the first probe that fits the cable's USB id, before it reads any ID code, so
+    with two boards of one kind connected it can program the wrong one. The flow chooses the probe
+    when the run names none (no `usb_serial_num`, no `cable_index`, and none of `--ftdi-serial`,
+    `--usb-serial-num`, `--cable-index`, `--busdev-num`, `--vid`, `--pid`, `--device` or `-d` in
+    `extra_args`), `extra_args` gives no other cable or board, and the cable and the part are
+    known. The cable is the `cable` setting, else the cable that openFPGALoader lists for the
+    board. The flow asks the loader for the probes that fit the cable (`--scan-usb`). With two or
+    more, it reads the FPGA of each (`--detect`, with `--board` when the cable comes from the
+    board, else with `--cable`) and programs the probe whose FPGA matches the part, named by its
+    serial number (`--ftdi-serial`). `--detect` reads the JTAG ID code and does not configure or
+    reset the FPGA, but it opens every probe with that USB id, a debugger included.
+    `usb_serial_num` skips it.
+
+    The flow programs a probe only when exactly one probe matches and every other probe was read
+    and shows another device. Otherwise it fails before it programs anything: no probe matches,
+    several match, or one matches beside a probe that could not be read (that probe may be a
+    second board with the same FPGA). The message lists each probe with its device, or why it
+    could not be read, and the `usb_serial_num` setting that names it.
+
+    Xeda does not choose a probe and warns when several probes fit the cable and Xeda cannot name
+    one reliably: no part is known; Xeda cannot match the part to the loader's model names (iCE40,
+    Spartan-6, MachXO3, Arria 10 and others); the cable is a bit-bang cable given with `cable`
+    (`ft231X`); the probes are not FTDI chips; or a probe has no serial number or shares it with
+    another. It also warns when the loader cannot list its boards, cables or probes, or when the
+    scan cannot be read or could not open a probe. In these cases openFPGALoader then chooses the
+    first probe that fits the cable. Xeda names a probe only by the serial number of an FTDI chip,
+    because `--busdev-num` works only with libftdi 1.4 or newer, which Xeda cannot detect.
+
+    The queries run in `run()` only, outside the run directory, with a time limit, and never
+    write `openfpgaloader.log`. The flow logs its choice.
+
+    The flow keeps the output of the loader in `openfpgaloader.log` in the run directory. It needs
+    openFPGALoader 0.13.1 or newer and refuses an older loader before it builds or programs
+    anything. The run fails when the loader exits with a nonzero status. It
     also fails when the output shows that the device was not programmed although the status is
     0: DONE low after a Xilinx load (with the ID or CRC error that the FPGA reports), a step that
     printed FAIL, or an error message such as a flash that does not answer. A flash write on a
@@ -475,6 +561,10 @@ class Openfpgaloader(FpgaSynthFlow):
 
     #: The loader's tool, made in `init()`.
     loader: OpenfpgaloaderTool
+
+    #: How `run()` chose the probe, for the hint of an ID error (`loader_failure`). `None`: the
+    #: flow made no statement.
+    probe_note: Optional[str] = None
 
     class Settings(WithFpgaBoardSettings):
         removed_settings = {
@@ -627,6 +717,180 @@ class Openfpgaloader(FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
         return self.settings.verbose_level == -1 or "--quiet" in self.settings.extra_args
 
+    def _ask(self, *args: str) -> Optional[str]:
+        """Ask the loader about the machine. Return what it printed, or `None` when the query
+        failed to run (loader not found, time limit).
+
+        The loader runs outside the run directory (`Tool.probe_stdout`), so the query writes no
+        file there and nothing reaches `openfpgaloader.log`. Both output streams come back
+        whatever the exit status, because a loader that cannot open a probe says why in them."""
+        try:
+            return self.loader.probe_stdout(
+                *args, merge_stderr=True, raise_on_error=False, timeout=PROBE_QUERY_TIMEOUT
+            )
+        except (ToolException, OSError) as error:
+            log.debug("openFPGALoader %s: %s", " ".join(args), error)
+            return None
+
+    def _probe_arguments(self, board_name: Optional[str]) -> list[str]:
+        """Return the loader's arguments that name the probe whose FPGA matches the part.
+
+        Return none, and the loader opens the first probe that fits, when:
+
+        * the run names a probe or another cable,
+        * the cable is unknown or has no USB id,
+        * fewer than two probes fit the cable,
+        * the loader cannot be asked, or its scan is unreadable or could not open a probe
+          (these log a warning),
+        * several probes fit but Xeda cannot tell them apart (no part, a part it cannot match,
+          probes that no option can name, a bit-bang cable without its board). These log a
+          warning too.
+
+        Otherwise read the device of each probe (through the board when the cable comes from it).
+        Return the arguments for the probe whose FPGA matches, or raise a `FlowFatalError` that
+        lists the probes (`choose_probe`). The text for an ID error goes to `probe_note`."""
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        self.probe_note = None
+        if ss.usb_serial_num is not None or ss.cable_index is not None:
+            self.probe_note = PROBE_NOTE_NAMED
+            return []
+        if names_a_probe(ss.extra_args):
+            self.probe_note = PROBE_NOTE_NAMED
+            return []
+        if changes_the_cable(ss.extra_args):
+            log.debug("`extra_args` gives another cable or board: the loader chooses the probe.")
+            return []
+        # The loader reads the pins, the clock and the cable of a board only when it is given
+        # the board (`main.cpp:207-228`). The flow passes `--board` unless `cable` is set.
+        from_board = not ss.cable and bool(board_name)
+        cable = ss.cable
+        if from_board:
+            boards = self._ask("--list-boards")
+            if boards is None:
+                log.warning("Could not ask openFPGALoader for its boards. It chooses the probe.")
+                return []
+            cable = parse_board_cables(boards).get(board_name or "")
+        if not cable:
+            log.debug("The cable is not known: the loader chooses the probe.")
+            return []
+        cables = self._ask("--list-cables")
+        scan = self._ask("--scan-usb") if cables is not None else None
+        if cables is None or scan is None:
+            log.warning("Could not ask openFPGALoader for its probes. It chooses the probe.")
+            return []
+        usb_id = parse_cable_ids(cables).get(cable)
+        if usb_id is None:
+            log.debug("The cable %s has no USB id: the loader chooses the probe.", cable)
+            return []
+        unreadable = scan_failure(scan)
+        if unreadable is not None:
+            log.warning(
+                "openFPGALoader --scan-usb printed no table that Xeda can read (%s). The loader "
+                "chooses the probe.",
+                unreadable,
+            )
+            return []
+        probes = [probe for probe in parse_scan_usb(scan) if probe.usb_id == usb_id]
+        unopened = scan_open_errors(scan, usb_id)
+        if unopened:
+            log.warning(
+                "openFPGALoader could not open a probe of the cable %s (USB %s), so more probes may "
+                "fit than the %d it lists: %s. Check the permissions of the device. The loader "
+                "chooses the probe.",
+                cable,
+                usb_id,
+                len(probes),
+                " ".join(unopened),
+            )
+            return []
+        if len(probes) < 2:
+            if probes:
+                self.probe_note = PROBE_NOTE_SINGLE
+            return []
+        part = ss.fpga.part if ss.fpga is not None else None
+        listed = "; ".join(describe_probe(probe) for probe in probes)
+        if not part:
+            log.warning(
+                "%d probes fit the cable %s (USB %s): %s. The flow has no part to compare with "
+                "their FPGAs, so openFPGALoader opens the first one. Set `usb_serial_num` to the "
+                "serial number of the probe to program, or give the part (`fpga.part`, or a "
+                "`board` that has one).",
+                len(probes),
+                cable,
+                usb_id,
+                listed,
+            )
+            return []
+        if not part_is_matchable(part):
+            log.warning(
+                "%d probes fit the cable %s (USB %s): %s. Xeda cannot match the part %s to the "
+                "devices that openFPGALoader detects (this family has no JTAG ID code, or its "
+                "model names differ from its part numbers), so openFPGALoader opens the first "
+                "one. Set `usb_serial_num` to the serial number of the probe to program.",
+                len(probes),
+                cable,
+                usb_id,
+                listed,
+                part,
+            )
+            return []
+        if not selectable_usb_id(usb_id):
+            log.warning(
+                "%d probes fit the cable %s (USB %s): %s. Xeda names only FTDI probes, by serial "
+                "number, so openFPGALoader opens the first one.",
+                len(probes),
+                cable,
+                usb_id,
+                listed,
+            )
+            return []
+        nameless = probes_without_a_name(probes)
+        if nameless:
+            log.warning(
+                "%d probes fit the cable %s (USB %s): %s. Xeda names a probe by its serial number, "
+                "and %s no serial number of its own, so openFPGALoader opens the first one. Name "
+                "the probe with `cable_index`, or with `usb_serial_num` if its serial number is "
+                "unique.",
+                len(probes),
+                cable,
+                usb_id,
+                listed,
+                "; ".join(describe_probe(probe) for probe in nameless)
+                + (" has" if len(nameless) == 1 else " have"),
+            )
+            return []
+        if cable in BITBANG_CABLES and not from_board:
+            log.warning(
+                "%d probes fit the cable %s (USB %s): %s. A bit-bang cable has its pins only from "
+                "a board (`board`), so Xeda cannot read the FPGA of a probe and openFPGALoader "
+                "opens the first one. Set `usb_serial_num` to the serial number of the probe to "
+                "program.",
+                len(probes),
+                cable,
+                usb_id,
+                listed,
+            )
+            return []
+        # `--detect` opens every probe with the USB id, programmer or not, and drives its pins as
+        # the cable says. A board gives the loader its pins and its clock as well.
+        how = ("--board", board_name or "") if from_board else ("--cable", cable)
+        readings = []
+        for probe in probes:
+            text = self._ask(*how, *probe_selector(probe), "--detect")
+            detection = parse_detect(text) if text is not None else Detection((), "no answer")
+            readings.append(Reading(probe, detection))
+        decision = choose_probe(readings, part, ss.index_chain)
+        if not isinstance(decision, Chosen):
+            sentences, lines = refusal_text(decision, cable=cable, usb_id=usb_id, part=part)
+            raise FlowFatalError(LoaderFailure(sentences, lines, "Probes:").message())
+        log.info("%s", choice_text(decision, cable=cable, usb_id=usb_id, part=part))
+        probe = decision.reading.probe
+        self.probe_note = PROBE_NOTE_CHOSEN.format(
+            probe=describe_probe(probe), model=decision.device.model, part=part
+        )
+        return probe_selector(probe)
+
     def parse_reports(self) -> bool:
         """Judge the run.
 
@@ -655,6 +919,7 @@ class Openfpgaloader(FpgaSynthFlow):
                 flash_writes=self._flash_writes(),
                 verify=self.settings.verify,
                 quiet=self._quiet_bars(),
+                probe_note=self.probe_note,
             )
         if failure is None:
             return True
@@ -707,7 +972,9 @@ class Openfpgaloader(FpgaSynthFlow):
             value = getattr(ss, name)
             if value is not None:
                 args.extend([option, str(value)])
+        # The probe whose FPGA matches the part, when the run names none.
+        args.extend(self._probe_arguments(board_name))
         args.extend(ss.extra_args)
-        # The flow starts the loader twice: `init` asks for its version, and this call programs.
-        # The output goes to the log, which the flow makes anew before the loader starts.
+        # Only this call writes the log, which the flow makes anew before the loader starts. The
+        # version query (`init`) and the probe queries (`_ask`) write nothing in the run directory.
         self.loader.run(*args, tee=self.run_directory.writable(LOADER_LOG), merge_stderr=True)

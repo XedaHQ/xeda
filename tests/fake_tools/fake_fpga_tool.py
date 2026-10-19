@@ -7,12 +7,25 @@ partial, no-output, malformed-report, fail, or signal; DELAY is seconds before o
 Only version/help probes bypass input validation and call recording. openFPGALoader answers
 its version as the real one does: `-V` or `--Version` (capital V) print `openFPGALoader v1.0.0`,
 and the conventional `--version` is rejected, so a flow that asks the wrong way gets no version.
-It rejects an option it does not have (`LOADER_OPTIONS`, the table of v1.1.1), as the real parser does.
+It rejects an option it does not have (`LOADER_OPTIONS`, the table of v1.1.1 and `--usb-serial-num`
+of v1.2.0), as the real parser does, and `--ftdi-serial` together with `--usb-serial-num`.
 XEDA_FAKE_FPGA_LOADER_VERSION replaces the line it prints for `-V` (an empty one: no version).
 When it programs, openFPGALoader prints XEDA_FAKE_FPGA_LOADER_STDOUT on stdout and
 XEDA_FAKE_FPGA_LOADER_STDERR on stderr (nothing, by default) and exits with the status in
 XEDA_FAKE_FPGA_LOADER_STATUS (0, by default): the real one exits with status 0 after several
 failures and tells them in its output.
+openFPGALoader also answers the four queries that a flow asks about the machine: `--list-boards`,
+`--list-cables`, `--scan-usb` and `--detect`. It never opens a device. The answers come from the
+JSON file that XEDA_FAKE_FPGA_LOADER_WORLD names: `list_boards`, `list_cables` and `scan_usb` are
+the texts the real loader prints, and `detect` maps the probe a call names (the serial of
+`--ftdi-serial`, or `<bus>:<device>` of `--busdev-num`, numbers as written without leading zeros)
+to `{"stdout": ..., "status": ...}`. What the file does not give is empty (a header only for a
+list) and, for a probe it does not know, the failure that the real loader prints for a device that
+is not there. XEDA_FAKE_FPGA_LOADER_QUERIES names a file (an absolute path) that gets one JSON
+line for each query, `{"argv": [...]}`. XEDA_FAKE_FPGA_LOADER_QUERY_DELAY (seconds) delays every
+answer, so a test can make a query hang. `--detect` with a bit-bang cable (`ft231X`, `ft232RL`) and
+no `--board` finds no device, as the real loader does: such a cable has no pins without a board.
+A query is never recorded in `fake_fpga.calls.jsonl`, which holds the calls that program.
 """
 
 import argparse
@@ -47,6 +60,7 @@ LOADER_OPTIONS = {
     "pid": True,
     "cable-index": True,
     "busdev-num": True,
+    "usb-serial-num": True,
     "ftdi-serial": True,
     "ftdi-channel": True,
     "device": True,
@@ -185,6 +199,7 @@ VALUE_OPTIONS = {
     "fpga-part",
     "offset",
     "cable-index",
+    "busdev-num",
     "ftdi-serial",
     "index-chain",
     "file-type",
@@ -400,6 +415,63 @@ def loader_option_error(args):
     return None
 
 
+#: What the real loader prints, and the status it exits with, for a probe that is not there.
+LOADER_NO_DEVICE = (
+    "unable to open ftdi device: -3 (device not found)\n"
+    "JTAG init failed with: unable to open ftdi device\n"
+)
+#: What a list prints with no entry: the header of the real output.
+LOADER_EMPTY_LISTS = {
+    "list_boards": "board name                 cable_name         fpga_part                \n",
+    "list_cables": "cable name               vid:pid\n",
+    "scan_usb": "Bus device vid:pid       probe_type manufacturer serial product\n",
+}
+
+
+def loader_world():
+    """The machine that a test describes, from the file XEDA_FAKE_FPGA_LOADER_WORLD names."""
+    path = os.environ.get("XEDA_FAKE_FPGA_LOADER_WORLD")
+    return json.loads(Path(path).read_text(encoding="utf-8")) if path else {}
+
+
+def loader_query(args):
+    """Answer a query about the machine, and return the status, or None when `args` ask for none.
+
+    The queries are `--list-boards`, `--list-cables`, `--scan-usb` and `--detect`, in a call with
+    no `--bitstream`. The call is recorded in the file that XEDA_FAKE_FPGA_LOADER_QUERIES names, if
+    any.
+    """
+    names = {"list-boards": "list_boards", "list-cables": "list_cables", "scan-usb": "scan_usb"}
+    asked = [arg[2:] for arg in args if arg.startswith("--") and arg[2:] in (*names, "detect")]
+    if not asked or "--bitstream" in args:  # a call that has a bitstream programs
+        return None
+    log = os.environ.get("XEDA_FAKE_FPGA_LOADER_QUERIES")
+    if log:
+        with open(log, "a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"argv": args}) + "\n")
+    time.sleep(float(os.environ.get("XEDA_FAKE_FPGA_LOADER_QUERY_DELAY", "0")))
+    world = loader_world()
+    if asked[0] in names:
+        sys.stdout.write(world.get(names[asked[0]], LOADER_EMPTY_LISTS[names[asked[0]]]))
+        return 0
+    options_, _ = options(args)
+    if options_.get("cable") in ("ft231X", "ft232RL") and "board" not in options_:
+        # a bit-bang cable has no pins without a board: the loader finds no device on it
+        sys.stdout.write("Jtag probe limited to 3MHz\nret 0\n")
+        return 0
+    probe = options_.get("ftdi-serial") or options_.get("usb-serial-num") or ""
+    if options_.get("busdev-num"):
+        bus, _, device = options_["busdev-num"].partition(":")
+        probe = f"{int(bus)}:{int(device)}"
+    answer = world.get("detect", {}).get(probe)
+    if answer is None:
+        sys.stderr.write(LOADER_NO_DEVICE)
+        return 1
+    sys.stdout.write(answer.get("stdout", ""))
+    sys.stderr.write(answer.get("stderr", ""))
+    return int(answer.get("status", 0))
+
+
 def loader_output():
     """What the loader prints once it has read its bitstream, and the status it exits with."""
     for stream, name in ((sys.stdout, "STDOUT"), (sys.stderr, "STDERR")):
@@ -580,6 +652,15 @@ def main():
         if error:
             print(error, file=sys.stderr)
             return 1
+        if "ftdi-serial" in options(args)[0] and "usb-serial-num" in options(args)[0]:
+            print(
+                "Error: ftdi-serial and usb-serial-num can't be used at the same time.",
+                file=sys.stderr,
+            )
+            return 1
+        status = loader_query(args)
+        if status is not None:
+            return status
     if probe_args in (["--version"], ["-V"], ["--help"], ["-h"]):
         if tool.startswith("nextpnr-"):
             print(
