@@ -238,8 +238,9 @@ tools. The dependency groups are not part of the published package: `pip install
 none of them.
 
 The marked command runs the compatibility cases that CI runs on Python 3.11 through 3.14. CI runs
-the full tool-backed suite on Python 3.15, and one Verilator cocotb smoke test on Python 3.11. The
-other pytest commands run every test.
+the full tool-backed suite on Python 3.15 as four parallel jobs, one shard each, and one Verilator
+cocotb smoke test on Python 3.11. A `--shard K/N` command runs only one of N disjoint parts of the
+suite. The first two commands run every test.
 
 Bare `tox` runs those compatibility checks, the full Python 3.15 suite and the quality checks. To
 run the full test suite on every supported Python version, use
