@@ -99,7 +99,7 @@ dev = [
     "isort",
     "pylint",
     "tox>=4.65.4",
-    "ruff>=0.17.0",
+    "ruff>=0.17.1",
 ]
 
 [tool.uv]
