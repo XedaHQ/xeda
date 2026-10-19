@@ -68,9 +68,9 @@ __all__ = [
 ]
 
 
-#: The timeout, in seconds, of a test's subprocess that is no test of a timeout. It guards against
-#: a hang: a child that is CPU-bound (it imports Xeda, or builds a design) is several times slower
-#: on a busy runner, and the test must not fail for that.
+#: The timeout, in seconds, of a subprocess that a test runs without testing the timeout. It only
+#: stops a hang. A child that is CPU-bound (it imports Xeda, or builds a design) is several times
+#: slower on a busy runner, and a shorter limit would fail the test for the load alone.
 HANG_GUARD = 300
 
 
