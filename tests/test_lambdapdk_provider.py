@@ -289,6 +289,53 @@ def test_a_user_residue_with_an_entry_of_its_own_is_viewed_on_its_own(tmp_path):
     assert residue.for_provider(None).value_leaves()["place_density"] == 0.5
 
 
+COMPLETE_ENTRY = """
+name: mylib
+providers:
+  default: {default}
+  lambdapdk:
+    version: "1111111111111111111111111111111111111111"
+    directory: lambdapdk/mine
+    files:
+      liberty: {{typical: [libs/mine.lib.gz]}}
+      tech_lef: base/mine.tlef
+      cell_lef: [libs/mine.lef]
+  directory: {{layout: orfs}}
+corners: {{default: typical{aliases}}}
+{top}
+"""
+
+
+def complete_file(
+    tmp_path: Path, default: str = "lambdapdk", aliases: str = "", top: str = ""
+) -> Residue:
+    text = COMPLETE_ENTRY.format(default=default, aliases=aliases, top=top)
+    return user_file(tmp_path, text)
+
+
+def test_a_complete_residue_may_give_its_files_only_under_its_default_provider(tmp_path):
+    residue = complete_file(tmp_path)
+    assert not residue.files.liberty and residue.providers.default == "lambdapdk"
+    seen = effective_residue(None, residue, None)
+    assert seen.files.liberty == {"typical": ["libs/mine.lib.gz"]}
+    assert residue.for_provider("lambdapdk").resolve_corner(None) == "typical"
+    root = tmp_path / "store"
+    directory = git_checkout_directory(root, "lambdapdk", "1" * 40) / "lambdapdk/mine"
+    for name in ("libs/mine.lib.gz", "base/mine.tlef", "libs/mine.lef"):
+        (directory / name).parent.mkdir(parents=True, exist_ok=True)
+        (directory / name).write_text("")
+    assert locate(residue, None, None, root, None).provider == "lambdapdk"
+
+
+def test_a_complete_residue_needs_files_for_the_provider_that_is_its_default(tmp_path):
+    with pytest.raises(ResidueError, match="files.liberty is missing"):
+        complete_file(tmp_path, default="directory")
+    with pytest.raises(ResidueError, match="providers.lambdapdk: .*not a corner of files.liberty"):
+        complete_file(tmp_path, aliases=", aliases: {fast: nowhere}")
+    top = "files: {liberty: {typical: [top.lib]}}"
+    assert complete_file(tmp_path, default="directory", top=top).providers.default == "directory"
+
+
 def test_every_call_of_effective_residue_in_the_package_names_a_provider():
     """The residue of a platform depends on the provider that serves it. A call that leaves the
     provider out would read the layout of the default provider for every provider."""

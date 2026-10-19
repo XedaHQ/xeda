@@ -22,12 +22,14 @@ import sys
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Optional
+from xml.etree import ElementTree
 
 import pytest
 
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Yosys
+from xeda.flows.openroad.final import klayout_tech_with_lef_files
 from xeda.platforms import PdkNotInstalled, Residue, build_platform, bundled_platform_names
 from xeda.platforms import load_residue, locate
 from xeda.platforms.build import residue_problems
@@ -304,6 +306,25 @@ def test_the_residue_has_no_line_that_a_lower_layer_makes_useless(pair):
     name, provider = pair
     _, residue, _, derived, upstream = _layers(name, provider)
     assert residue_problems(residue, derived, upstream) == []
+
+
+@pytest.mark.parametrize("pair", PAIRS, ids=IDS)
+def test_the_klayout_technology_file_takes_one_list_of_lef_files(pair):
+    """The merge of the layout writes the technology file of the platform with its own list of LEF
+    files. The result is XML with that list once, and the rest of the file is as it was."""
+    _, _, located, _, _ = _layers(*pair)
+    template = located.files["klayout_tech"][0]
+    lefs = [Path("/x/tech.lef"), Path("/x/cells.lef")]
+    original = template.read_text()
+    text = klayout_tech_with_lef_files(original, lefs)
+    assert text is not None
+    listed = [element.text for element in ElementTree.fromstring(text).iter("lef-files")]
+    assert listed == [str(lef) for lef in lefs]
+
+    def without_lists(source: str) -> str:
+        return re.sub(r"\s+", "", re.sub(r"<lef-files>.*?</lef-files>", "", source, flags=re.S))
+
+    assert without_lists(text) == without_lists(original)
 
 
 def _liberty_cells(files: list[Path]) -> dict[str, bool]:

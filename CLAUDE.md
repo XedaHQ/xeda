@@ -134,7 +134,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - A setting that names where installed data lives (`pdk_root`) carries `LOCATOR`: no part of the
   identity, never traversed; the flow registers the exact files (`tests/test_locator_settings.py`).
 - A provider with a layout of its own (`lambdapdk`) gives its own `files` and `values` in its
-  residue entry; every `effective_residue` call names the provider whose view it takes
+  residue entry. Every `effective_residue` call passes the provider argument explicitly: the
+  selected provider, or `None` for the default provider of the layers
   (`tests/test_lambdapdk_provider.py`).
 
 ### Settings and pydantic

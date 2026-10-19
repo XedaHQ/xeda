@@ -374,7 +374,10 @@ class Residue(XedaBaseModel):
         return self
 
     def _is_complete(self) -> None:
-        """Check what a platform needs when no bundled platform supplies the rest."""
+        """Check what a platform needs when no bundled platform supplies the rest. The default
+        provider decides what the top level must hold: a provider with a layout of its own gives
+        the files, so the check looks at its view. Every other provider that has a layout of its
+        own must make a complete view too."""
         provider = self.providers.default
         if provider is None:
             raise ValueError("providers.default is missing: name the provider that serves it")
@@ -382,6 +385,21 @@ class Residue(XedaBaseModel):
             raise ValueError(
                 f"providers.default is `{provider}`, but `providers.{provider}` is missing"
             )
+        for name in dict.fromkeys([provider, *self._providers_with_a_layout()]):
+            try:
+                view = self.for_provider(name)
+            except ValidationError as error:
+                raise ValueError(f"providers.{name}: {validation_problems(error)}") from None
+            if view is self:
+                self._check_layout()
+
+    def _providers_with_a_layout(self) -> list[str]:
+        """The providers whose entry has files of its own."""
+        entry = self.providers.lambdapdk
+        return [] if entry is None or entry.files is None else ["lambdapdk"]
+
+    def _check_layout(self) -> None:
+        """Check that the files, the default corner and the aliases of this residue fit."""
         if not self.files.liberty:
             raise ValueError("files.liberty is missing: the platform needs a Liberty file")
         if self.corners.default is None:
@@ -395,13 +413,6 @@ class Residue(XedaBaseModel):
                     f" ({', '.join(self.files.liberty)})"
                 )
         self.resolve_corner(None)
-        entry = self.providers.lambdapdk
-        if entry is not None and entry.files is not None:
-            try:
-                # The view validates the default corner and the aliases against the files.
-                self.for_provider("lambdapdk")
-            except ValidationError as error:
-                raise ValueError(f"providers.lambdapdk: {validation_problems(error)}") from None
 
     def _given_value_leaves(self) -> dict[str, Any]:
         dumped = self.values.model_dump(mode="json", exclude_unset=True)

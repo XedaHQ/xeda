@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
-from typing import ClassVar, Dict, List, Optional
+from typing import ClassVar, Dict, List, Optional, Sequence
 from xml.sax.saxutils import escape as xml_escape
 
 from ...dataclass import Field, tier
@@ -94,6 +94,36 @@ IMAGE_NAMES = (
     "final_congestion",
     "final_worst_path",
 )
+
+
+#: A `<lef-files>` element of a KLayout technology file, over lines if need be, with the
+#: indentation before it and the end of its line after it.
+LEF_FILES_ELEMENT = re.compile(
+    r"(?P<indent>[ \t]*)<lef-files>.*?</lef-files>[ \t]*(?P<eol>\r?\n)?", re.DOTALL
+)
+
+
+def klayout_tech_with_lef_files(text: str, lefs: Sequence[Path]) -> Optional[str]:
+    """Return the text of a KLayout technology file with one list of LEF files.
+
+    The function removes every `<lef-files>` element (an element may span lines) and writes the
+    list once, where the first element was. A text with a `<lefdef>` section and no element gets
+    the list at the end of the section. Each path is escaped as XML text. Return `None` if the
+    text has neither an element nor a `<lefdef>` section."""
+    elements = "".join(f"<lef-files>{xml_escape(str(lef))}</lef-files>" for lef in lefs)
+    found = list(LEF_FILES_ELEMENT.finditer(text))
+    if not found:
+        listed, count = re.subn(r"</lefdef>", lambda _: f"{elements}</lefdef>", text, count=1)
+        return listed if count else None
+    parts: list[str] = []
+    end = 0
+    for number, match in enumerate(found):
+        parts.append(text[end : match.start()])
+        if number == 0:
+            parts.append(f"{match['indent']}{elements}{match['eol'] or ''}")
+        end = match.end()
+    parts.append(text[end:])
+    return "".join(parts)
 
 
 @dataclass(frozen=True)
@@ -903,23 +933,20 @@ class Openroad(OpenroadStage):
         """Write the technology file of KLayout into the run directory and return its path.
 
         The file is the one of the platform with its list of LEF files replaced by the technology
-        LEF file and the LEF files of the cells, as absolute paths. A file that has a `<lefdef>`
-        section and no list gets the list at the end of the section. Each path is escaped as XML
-        text, so a path with `&` or `<` stays one element. KLayout reads the DEF file of the
-        routed design with these. Raise `FlowSettingsException` if the file of the platform has
-        neither a list of LEF files nor a `<lefdef>` section."""
+        LEF file and the LEF files of the cells, as absolute paths. Xeda removes every
+        `<lef-files>` element of the file (an element may span lines) and writes the new list
+        once, where the first element was. A file that has a `<lefdef>` section and no element
+        gets the list at the end of the section. Each path is escaped as XML text, so a path with
+        `&` or `<` stays one element. KLayout reads the DEF file of the routed design with these.
+        Raise `FlowSettingsException` if the file of the platform has neither a `<lef-files>`
+        element nor a `<lefdef>` section."""
         model = self.platform_model
         assert model is not None, "prepare_inputs() builds the platform model"
         template = model.files["klayout_tech"][0]
         values = self.effective()
         lefs = [*([values.tech_lef] if values.tech_lef is not None else []), *values.cell_lefs]
-        elements = "".join(f"<lef-files>{xml_escape(str(lef))}</lef-files>" for lef in lefs)
-        text, replaced = re.subn(
-            r"<lef-files>.*?</lef-files>", lambda _: elements, template.read_text()
-        )
-        if not replaced:
-            text, replaced = re.subn(r"</lefdef>", lambda _: f"{elements}</lefdef>", text, count=1)
-        if not replaced:
+        text = klayout_tech_with_lef_files(template.read_text(), lefs)
+        if text is None:
             raise FlowSettingsException(
                 f"the KLayout technology file {template} of the platform {model.name!r} has no "
                 "`<lef-files>` element and no `<lefdef>` section, so KLayout cannot read the LEF "
