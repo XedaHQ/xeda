@@ -2358,7 +2358,7 @@ LISTED = "<lef-files>/a/tech.lef</lef-files><lef-files>/b/cells &amp; &lt;x&gt;.
             "<t>\n <lefdef>\n  <lef-files>old.lef</lef-files>\n  <dbu>1</dbu>\n </lefdef>\n</t>\n",
             f"<t>\n <lefdef>\n  {LISTED}\n  <dbu>1</dbu>\n </lefdef>\n</t>\n",
         ),
-        # several elements: the list once, where the first was, and no old entry
+        # several elements: the list once, where the first was, and no entry from the input
         (
             "<lefdef>\n <a/>\n <lef-files>x.lef</lef-files>\n <b/>\n"
             " <lef-files>y.lef</lef-files>\n <lef-files>z.lef</lef-files>\n <c/>\n</lefdef>\n",

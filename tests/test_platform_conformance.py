@@ -311,7 +311,7 @@ def test_the_residue_has_no_line_that_a_lower_layer_makes_useless(pair):
 @pytest.mark.parametrize("pair", PAIRS, ids=IDS)
 def test_the_klayout_technology_file_takes_one_list_of_lef_files(pair):
     """The merge of the layout writes the technology file of the platform with its own list of LEF
-    files. The result is XML with that list once, and the rest of the file is as it was."""
+    files. The result is XML with that list once, and the rest of the file is unchanged."""
     _, _, located, _, _ = _layers(*pair)
     template = located.files["klayout_tech"][0]
     lefs = [Path("/x/tech.lef"), Path("/x/cells.lef")]

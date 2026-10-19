@@ -934,7 +934,7 @@ class Openroad(OpenroadStage):
 
         The file is the one of the platform with its list of LEF files replaced by the technology
         LEF file and the LEF files of the cells, as absolute paths. Xeda removes every
-        `<lef-files>` element of the file (an element may span lines) and writes the new list
+        `<lef-files>` element of the file (an element may span lines) and writes the list
         once, where the first element was. A file that has a `<lefdef>` section and no element
         gets the list at the end of the section. Each path is escaped as XML text, so a path with
         `&` or `<` stays one element. KLayout reads the DEF file of the routed design with these.
