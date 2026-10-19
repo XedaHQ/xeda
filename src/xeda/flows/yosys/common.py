@@ -269,8 +269,9 @@ class YosysBase(Flow):
         )
         read_systemverilog_flags: List[str] = Field(
             [],
-            description="Flags passed to the SystemVerilog front-end selected by `systemverilog`. "
-            "With `slang`, they also apply to the Verilog sources, which the same `read_slang` "
+            description="Flags passed to the SystemVerilog front-end selected by `systemverilog`, "
+            "`uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` "
+            "instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` "
             "reads when the design has a SystemVerilog source. A flag that the script gives to "
             "`read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, "
             "`--extern-modules`, `--best-effort-hierarchy`) is refused.",

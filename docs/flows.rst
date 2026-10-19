@@ -1499,9 +1499,10 @@ file declares is known in all the others. ``read_systemverilog_flags`` apply to 
 ``read_verilog_flags`` do not apply to the Verilog sources it reads. The ``yosys_sim`` flow reads
 SystemVerilog with the built-in reader unless ``systemverilog`` says otherwise.
 
-When the top module is not VHDL, the command also sets the parameters of the top module, with
-``-G NAME=VALUE`` as OpenROAD-flow-scripts does, and the script has no ``chparam``. GHDL sets the
-generics of a VHDL top module, and the command then has no ``-G``. slang elaborates a module while
+When ``read_slang`` reads the design and its top module is not VHDL, the command also sets the
+parameters of the top module, with ``-G NAME=VALUE`` as OpenROAD-flow-scripts does, and the script
+has no ``chparam``. GHDL sets the generics of a VHDL top module, and the command then has no
+``-G``. slang elaborates a module while
 it reads the sources, so ``chparam`` cannot change a parameter afterwards. An integer, a sized
 literal such as ``7'b0101001``, a boolean (``1'b1`` or ``1'b0``), a string and a real number all
 reach the top in the form that slang needs. Xeda writes a string value between double quotes
