@@ -382,8 +382,9 @@ or produced has changed. Xeda judges this by content and never by modification t
 
 A generator may write sources of any language that a flow reads or converts. If it writes Bluespec,
 ``bsc`` converts the generated files as it converts hand-written ones (see
-:ref:`converted-designs`). A change to what the generator reads changes the Bluespec, and the
-flows after ``bsc`` run again only if the Verilog changes.
+:ref:`converted-designs`). A change to what the generator reads changes the Bluespec, and
+``bsc`` runs again. Each flow after ``bsc`` runs again only if one of its own inputs changed, such
+as the Verilog that ``bsc`` writes or a source that ``bsc`` passes through.
 
 ``sources``
     The files that the generator reads, named as the ``sources`` of a design are (patterns

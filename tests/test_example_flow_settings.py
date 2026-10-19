@@ -76,7 +76,11 @@ def _flow_sections(path, index, target):
 
 def _cases():
     for path in FILES:
-        for index, target in _targets(path):
+        try:
+            selections = _targets(path)
+        except Exception:  # an unreadable file fails its own case, not the collection
+            selections = [(0, None)]
+        for index, target in selections:
             label = str(path.relative_to(EXAMPLES_DIR)) + (f"[{target}]" if target else "")
             yield pytest.param(path, index, target, id=label)
 

@@ -86,7 +86,7 @@ def test_a_script_of_an_example_is_named_from_the_repository_root(document):
 @pytest.mark.parametrize("document", EXAMPLE_DOCUMENTS, ids=lambda p: str(p.relative_to(ROOT)))
 def test_a_command_of_an_example_does_not_change_the_directory_first(document):
     lines = document.read_text(encoding="utf-8").splitlines()
-    assert not [line for line in lines if re.match(r"\s*cd examples/", line)]
+    assert not [line for line in lines if re.match(r"\s*cd\s", line)]
 
 
 @pytest.mark.parametrize(
