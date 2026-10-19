@@ -52,5 +52,8 @@ def test_project_python_support_matches_tox_and_github_actions():
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     tox_job = workflow["jobs"]["tox"]
     assert tox_job["env"]["FULL_PYTHON"] == f"3.{supported[-1]}"
-    matrix = tox_job["strategy"]["matrix"]["python-version"]
-    assert matrix == [f"3.{minor}" for minor in supported]
+    # The full suite is sharded: the matrix lists the Python versions that run the compatibility
+    # set, and `include` adds the jobs of the newest one (tests/test_sharding.py).
+    strategy = tox_job["strategy"]["matrix"]
+    assert strategy["python-version"] == [f"3.{minor}" for minor in supported[:-1]]
+    assert {entry["python-version"] for entry in strategy["include"]} == {f"3.{supported[-1]}"}

@@ -327,7 +327,7 @@ def early_clock(monkeypatch):
     which a record of a file changed that recently is still not settled -- `settled_before(t)` is
     `max(mtime, ctime) + RACY_NS < t`, so that boundary is false either way. The marker is really
     made and its device really checked. This makes a test assert the behavior at a chosen moment
-    instead of racing a real clock, which on a shared runner under `-n auto` it would lose."""
+    instead of racing a real clock, which on a shared runner under `-n logical` it would lose."""
     original = deliver._destination_clock
 
     def early(destination):

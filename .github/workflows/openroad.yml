@@ -156,7 +156,7 @@ jobs:
           if [ "${XEDA_TESTS_YOSYS_TCL:-}" = 1 ]; then
             files+=(tests/test_yosys_asic_tcl.py)
           fi
-          "$python" -m pytest -n auto -v -rs --durations=10 --junitxml="$RUNNER_TEMP/openroad-tests.xml" \
+          "$python" -m pytest -n logical -v -rs --durations=10 --junitxml="$RUNNER_TEMP/openroad-tests.xml" \
             "${files[@]}"
           # A skipped test checks nothing. Without this check, a renamed opt-in variable or a
           # changed probe in tests/tool_utils.py would leave the job green with no real run. The

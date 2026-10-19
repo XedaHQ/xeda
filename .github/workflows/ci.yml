@@ -21,7 +21,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        # The full suite (the FULL_PYTHON leg) runs as four parallel jobs, one shard each: a
+        # test belongs to exactly one shard (tests/sharding.py). The jobs are "tox (3.15, 1/4)"
+        # to "tox (3.15, 4/4)". The other legs have no shard and keep the names "tox (3.11)" ...
+        include:
+          - python-version: "3.15"
+            shard: "1/4"
+          - python-version: "3.15"
+            shard: "2/4"
+          - python-version: "3.15"
+            shard: "3/4"
+          - python-version: "3.15"
+            shard: "4/4"
 
     # Pinned, not ubuntu-latest: the bsc release tarball installed below is built for
     # ubuntu-24.04, and so is the tcl8.6 package it needs.
@@ -88,11 +100,19 @@ jobs:
           python -m pip install --upgrade tox tox-gh-actions
       - name: "Run tox targets for ${{ matrix.python-version }}"
         # Python 3.11–3.14 run the marked compatibility set. Python 3.11 also runs a Verilator
-        # cocotb smoke. Python 3.15 runs the full tool-backed suite and pinned external bsc tests.
+        # cocotb smoke. Python 3.15 runs the full tool-backed suite and pinned external bsc tests,
+        # one shard of it per job. Every shard installs the same tools, so a skipped test fails
+        # (XEDA_TESTS_REQUIRE_TOOLS) in each of them.
         env:
           XEDA_TESTS_REQUIRE_TOOLS: "1"
           XEDA_TESTS_EXTERNAL: ${{ matrix.python-version == env.FULL_PYTHON && '1' || '' }}
-        run: "python -m tox"
+          SHARD: ${{ matrix.shard }}
+        run: |
+          if [ -n "$SHARD" ]; then
+            python -m tox -- --shard "$SHARD"
+          else
+            python -m tox
+          fi
 
   # The tox job runs on Linux only. This job runs on macOS, with the oldest supported Python,
   # the test files whose code differs by operating system. A call that exists on Linux only, such
@@ -145,7 +165,7 @@ jobs:
           python -m pip install --editable . pytest pytest-xdist
       - name: Run the operating-system-sensitive tests
         run: >-
-          python -m pytest -n auto
+          python -m pytest -n logical
           tests/test_proc_utils.py
           tests/test_proc_utils_terminal.py
           tests/test_remote_streaming.py
