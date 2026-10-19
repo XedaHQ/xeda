@@ -260,7 +260,8 @@ A Bluespec design runs on every flow that reads Verilog sources (`yosys`, `yosys
 and one flow converts it, that flow (today `bsc`) is the default producer of the `design` input:
 `xeda run yosys examples/bluespec/gcd/gcd.yaml` plans `design <- bsc.design (the design has
 Bluespec sources, which yosys does not read)`. The OpenROAD flows read no design sources: `xeda run
-openroad` gets its netlist from `yosys`, so `bsc` converts the design for `yosys`. `bsc+openroad` and
+openroad examples/bluespec/gcd/gcd.yaml` gets its netlist from `yosys`, so `bsc` converts the design
+for `yosys`. `bsc+openroad` and
 `flows.yosys.inputs.design: bsc` give the same plan. Two fitting
 converters are an error that names the chain and the binding to choose one. `bsc` passes the other
 sources of `rtl` through in order and carries `tb`: a Bluespec testbench needs `bsc_sim`. A comment
