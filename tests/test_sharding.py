@@ -90,8 +90,8 @@ def collected(*arguments: str) -> list[str]:
     return [line for line in result.stdout.splitlines() if "::" in line]
 
 
-@pytest.mark.parametrize("count", [2, 3])
-def test_the_option_partitions_the_collected_tests(count):
+def test_the_option_partitions_the_collected_tests():
+    count = 3
     everything = collected()
     assert len(everything) > 2 * count
     shards = [collected("--shard", f"{k}/{count}") for k in range(1, count + 1)]

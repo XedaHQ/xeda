@@ -11,6 +11,7 @@ the design's sources declares what it reads, and selects it with `Flow.sources_r
 declaration is what the tool gets. A flow that declares nothing reads only its declared inputs."""
 
 import ast
+import functools
 import importlib.util
 import inspect
 import re
@@ -1297,15 +1298,22 @@ def test_the_helpers_cover_the_flows_packages_and_cocotb():
     assert "xeda.flow.sim" in HELPER_MODULES
 
 
+@functools.cache
+def judged_reads() -> frozenset[str]:
+    """The reads (`where: what`) of every flow's own code, which the tests of each flow judge
+    with its declaration. The scan is the same for every caller, so it runs once per process."""
+    return frozenset(
+        f"{where}: {what}" for cls, _ in flow_classes() for where, _, what in source_reads(cls)
+    )
+
+
 @pytest.mark.parametrize("module_name", HELPER_MODULES)
 def test_no_helper_reads_the_design_s_sources_around_a_declaration(module_name):
     """What a flow's helpers read of the design's sources -- the evidence readers a simulator
     calls, cocotb's support, another flow's static method -- is held to the review as the
     flows' own code is: a read other than `sources_read()` is reviewed, or it is a finding."""
     # a flow's own code is judged with its declaration, by the tests above
-    judged = {
-        f"{where}: {what}" for cls, _ in flow_classes() for where, _, what in source_reads(cls)
-    }
+    judged = judged_reads()
     direct = [
         f"{where}:{line}: {what}"
         for where, line, what in helper_reads(module_name)
@@ -1320,9 +1328,7 @@ def test_no_helper_reads_the_design_s_sources_around_a_declaration(module_name):
 
 
 def test_every_reviewed_direct_read_is_still_there():
-    places = {
-        f"{where}: {what}" for cls, _ in flow_classes() for where, _, what in source_reads(cls)
-    }
+    places = set(judged_reads())
     places |= {
         f"{where}: {what}" for name in HELPER_MODULES for where, _, what in helper_reads(name)
     }
