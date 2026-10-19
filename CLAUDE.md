@@ -102,7 +102,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   converter: the resolver plans it as the default producer of a flow that cannot read the
   sources, and a binding follows the rule of a chain. A design output without a conversion is
   allowed and is never a producer of a `design` input. A generated source counts by its content,
-  type and name within the converter's output; the name replaces only the location path
+  type and name within the converter's output, never by its path
   (`tests/test_design_edges.py`, `tests/test_generated_names.py`).
 - A node's identity is its settings hash plus its ordered input origins
   (`bindings.node_identity`). A producer's settings never depend on which consumer asked.

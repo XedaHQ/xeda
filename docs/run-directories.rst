@@ -132,8 +132,8 @@ what the inputs mean, not on where they are:
   It also covers the RTL and testbench metadata that affects behavior. Each source also counts by
   its path relative to the design root, outside the root too (``../lib/defs.vh``), because a tool
   can find other files from the location of a source. A source that a converter flow generated
-  (the Verilog of ``bsc``) counts by its name within the run directory of the converter, not by a
-  path from the design root, so the hash does not depend on where the run root is.
+  (the Verilog of ``bsc``) counts by its name within the run directory of the converter, never by
+  a path from the design root, so the hash does not depend on where the run root is.
 * The design hash covers the parts of the design that the flow reads. These are the RTL, and the
   testbench for a flow that reads it (a simulation, ``bsc`` and ``vivado_project``). A synthesis
   flow therefore stays up to date when only a testbench changes, and its trace records no testbench

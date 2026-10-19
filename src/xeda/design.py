@@ -960,10 +960,10 @@ class DesignSource(FileResource):
         # is part of the design's identity.
         self._stated: dict[str, Any] = {"type": str(self.type)} if typ is not None else {}
         #: The place of a source that a converter flow generated, in the output of that flow. Only
-        #: the design a converter derives sets it (`xeda.flow.derived`). It stands for the path
-        #: from the design root in the identity of the design (`Design._source_fingerprint`),
-        #: since the path into a run directory depends on where the run root is. It is no part of
-        #: the table of a source, and a design that is loaded from a file never has it.
+        #: the design a converter derives sets it (`xeda.flow.derived`). The identity of the design
+        #: counts the source by this name, never by its path (`Design._source_fingerprint`),
+        #: because the path into a run directory depends on where the run root is. It is no part
+        #: of the table of a source, and a design that is loaded from a file never has it.
         self.generated_name: str | None = None
 
     def as_json_value(self) -> Union[str, Dict[str, Any]]:

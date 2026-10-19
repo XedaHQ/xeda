@@ -83,8 +83,8 @@ class Generated:
     """A source that the converter wrote: its file and its language.
 
     `name` is the place of the file in the output of the converter (the path within its run
-    directory, in POSIX form). It stands for the file in the identity of the derived design, in
-    place of a path that leads from the design root into the run directory (`generated_name` of a
+    directory, in POSIX form). The identity of the derived design counts the file by this name,
+    never by a path from the design root into the run directory (`generated_name` of a
     `DesignSource`). A flow leaves it out: the record of the run sets it."""
 
     path: Path
@@ -215,7 +215,7 @@ def derive_design(design: Design, record: Mapping[str, Any], base: Path) -> Desi
     """Return the design that a converter derived from `design`, from the record of its run.
 
     `record` is the verified record of the design output, and `base` the run directory of the
-    converter. Whether the converter ran now or an earlier run is reused, the same record gives
+    converter. Whether the converter ran in this launch or its run is reused, the same record gives
     the same design. Its identity does not depend on where `base` is (`generated_name`)."""
     return _derived(design, derived_sources(record, base), checked=True)
 
