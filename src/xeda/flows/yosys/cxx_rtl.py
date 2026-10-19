@@ -88,7 +88,9 @@ class YosysSim(YosysBase, SimFlow):
         systemverilog: Literal["default", "uhdm", "slang"] = Field(
             "default",
             description="SystemVerilog reader for CXXRTL. For common designs, the built-in "
-            "reader generates cells that `write_cxxrtl` accepts.",
+            "reader generates cells that `write_cxxrtl` accepts. With `slang`, one `read_slang` "
+            "reads the Verilog and SystemVerilog sources of the design and of the testbench, "
+            "when they include a SystemVerilog source.",
         )
         cxxrtl: CxxRtl = Field(
             CxxRtl(), description="Settings for the generated CXXRTL C++ simulation model."

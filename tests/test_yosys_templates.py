@@ -18,12 +18,12 @@ from pydantic import ValidationError
 
 from xeda import Design
 from xeda.design import SourceType
-from xeda.flow import FPGA
+from xeda.flow import FPGA, FlowSettingsException
 from xeda.flows import Yosys, YosysFpga, YosysSim
 from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS, process_parameters
 
 from .tool_utils import require_tclsh
-from .yosys_format import force_script_format
+from .yosys_format import force_script_format, forced_script_format
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -662,30 +662,193 @@ def test_the_scripts_hand_yosys_the_sources_the_flow_reads_and_no_others(
         assert passed_over not in script, passed_over
 
 
-@pytest.mark.parametrize("script_format", ["ys", "tcl"])
-def test_slang_reads_every_systemverilog_source_in_one_command(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script_format: Any
-) -> None:
-    """slang elaborates what one `read_slang` reads as one compilation, so a package that one
-    file declares is unknown in another file that a second `read_slang` reads. The script gives
-    every SystemVerilog source to one `read_slang`, in the order of the design, as
-    OpenROAD-flow-scripts does. A Verilog source keeps its own `read_verilog -defer`."""
+def _mixed_design(tmp_path: Path) -> tuple[Design, Path]:
     root = tmp_path / "design"
     root.mkdir()
     (root / "pkg.sv").write_text("package p; localparam int W = 4; endpackage\n")
     (root / "top.sv").write_text("module top import p::*; (output logic [W-1:0] q); endmodule\n")
     (root / "gate.v").write_text("module gate(input a, output b); assign b = a; endmodule\n")
+    (root / "last.v").write_text("module last(input a, output b); assign b = ~a; endmodule\n")
     design = Design(
         name="top",
         design_root=root,
-        rtl={"sources": ["pkg.sv", "gate.v", "top.sv"], "top": "top"},
+        rtl={"sources": ["gate.v", "pkg.sv", "top.sv", "last.v"], "top": "top"},
     )
     out = tmp_path / "out"
     out.mkdir()
-    force_script_format(monkeypatch, script_format)
+    return design, out
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_slang_reads_every_verilog_and_systemverilog_source_in_one_command(
+    tmp_path: Path, script_format: str
+) -> None:
+    """slang elaborates what one `read_slang` reads as one compilation, so a package that one
+    file declares is unknown in another file that a second `read_slang` reads. When a design has
+    a SystemVerilog source and slang reads it, the script gives every Verilog and SystemVerilog
+    source to one `read_slang`, in the order of the design, as OpenROAD-flow-scripts does
+    (`synth_preamble.tcl`, `VERILOG_FILES`). No `read_verilog` reads a source."""
+    design, out = _mixed_design(tmp_path)
+    script = _render(Yosys, {}, out, design)
+    lines = script.splitlines()
+    slang = [line for line in lines if "read_slang" in line]
+    assert len(slang) == 1, slang
+    names = ["gate.v", "pkg.sv", "top.sv", "last.v"]
+    assert [slang[0].index(n) for n in names] == sorted(slang[0].index(n) for n in names)
+    assert not [line for line in lines if "read_verilog" in line and ".v" in line]
+    assert len([line for line in lines if "Reading" in line]) == len(names)
+
+
+@pytest.mark.parametrize(
+    "flow_cls, script_format",
+    [(Yosys, "ys"), (Yosys, "tcl"), (YosysFpga, "ys"), (YosysSim, "ys")],
+    ids=["yosys-ys", "yosys-tcl", "yosys_fpga-ys", "yosys_sim-ys"],
+)
+def test_every_yosys_flow_gives_the_verilog_sources_to_slang(
+    tmp_path: Path, script_format: str, flow_cls
+) -> None:
+    design, out = _mixed_design(tmp_path)
+    settings: dict[str, Any] = {}
+    if flow_cls is YosysFpga:
+        settings["fpga"] = FPGA(part="xc7a12tcsg325-1")
+    if flow_cls is YosysSim:  # reads SystemVerilog with the built-in reader unless told otherwise
+        settings["systemverilog"] = "slang"
+    script = _render(flow_cls, settings, out, design)
+    slang = [line for line in script.splitlines() if "read_slang" in line]
+    assert len(slang) == 1 and "gate.v" in slang[0] and "last.v" in slang[0], slang
+
+
+SLANG_PARAMETERS = {"W": 8, "BV": "7'b0101001", "F": True, "S": "abcd", "R": 1.5}
+
+
+def _parameterized_design(tmp_path: Path, sources: list[str], top: str) -> tuple[Design, Path]:
+    design, out = _mixed_design(tmp_path)
+    return (
+        Design(
+            name=top,
+            design_root=design.design_root,
+            rtl={"sources": sources, "top": top, "parameters": SLANG_PARAMETERS},
+        ),
+        out,
+    )
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize(
+    "sources, top", [(["pkg.sv", "top.sv"], "top"), (["gate.v", "top.sv"], "gate")]
+)
+def test_slang_gets_the_parameters_of_the_top_and_chparam_does_not(
+    tmp_path: Path, script_format: str, sources: list[str], top: str
+) -> None:
+    """slang elaborates a module while it reads it, and `chparam` cannot change the result. The
+    script gives the parameters to `read_slang -G`, as OpenROAD-flow-scripts does, whether the
+    top is SystemVerilog or Verilog. Each value is in the form that its type needs: an
+    integer, a sized literal, a boolean as `1'b1`, a string in double quotes, a real number."""
+    design, out = _parameterized_design(tmp_path, sources, top)
     script = _render(Yosys, {}, out, design)
     slang = [line for line in script.splitlines() if "read_slang" in line]
     assert len(slang) == 1, slang
-    assert slang[0].index("pkg.sv") < slang[0].index("top.sv")
-    assert "gate.v" not in slang[0]
-    assert any("read_verilog" in line and "gate.v" in line for line in script.splitlines())
+    if script_format == "tcl":
+        expected = ' -G "W=8" -G "BV=7\'b0101001" -G "F=1\'b1" -G "S=\\"abcd\\"" -G "R=1.5"'
+    else:
+        expected = " -G W=8 -G BV=7'b0101001 -G F=1'b1 -G S=\"abcd\" -G R=1.5"
+    assert slang[0].endswith(expected), slang[0]
+    assert "chparam" not in script
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_the_built_in_reader_keeps_chparam(tmp_path: Path, script_format: str) -> None:
+    design, out = _parameterized_design(tmp_path, ["gate.v", "top.sv"], "gate")
+    script = _render(Yosys, {"systemverilog": "default"}, out, design)
+    assert "read_slang" not in script and " -G " not in script
+    assert "chparam -set W 8 gate" in script
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_slang_reads_a_library_before_the_sources(tmp_path: Path, script_format: str) -> None:
+    """slang resolves every instance when it reads the sources, so a `verilog_lib` file (and
+    the Liberty files of a flow that reads them itself) comes first. With another reader,
+    the libraries stay after the sources."""
+    design, out = _mixed_design(tmp_path)
+    (design.design_root / "lib.v").write_text("module libcell(input a); endmodule\n")
+    settings = {"verilog_lib": [str(design.design_root / "lib.v")]}
+    lines = _render(Yosys, settings, out, design).splitlines()
+    lib = [i for i, line in enumerate(lines) if "read_verilog -lib" in line]
+    slang = [i for i, line in enumerate(lines) if "read_slang" in line]
+    assert len(lib) == 1 and len(slang) == 1 and lib[0] < slang[0]
+    lines = _render(Yosys, {**settings, "systemverilog": "default"}, out, design).splitlines()
+    lib = [i for i, line in enumerate(lines) if "read_verilog -lib" in line]
+    last = max(i for i, line in enumerate(lines) if "read_verilog" in line and "-defer" in line)
+    assert len(lib) == 1 and lib[0] > last
+
+
+def test_a_string_parameter_with_whitespace_is_refused_for_slang(tmp_path: Path) -> None:
+    """The script tokenizer of yosys ends `-G S="a b"` at the space, and Xeda writes the text
+    between double quotes without an escape, so the check refuses whitespace (`.ys` only) and a
+    double quote before anything runs. Another reader, or no SystemVerilog source, has no such
+    limit."""
+    design, out = _mixed_design(tmp_path)
+    (design.design_root / "inv.vhd").write_text("-- a source\n")
+    (design.design_root / "tb.sv").write_text("module tb; endmodule\n")
+
+    def checked(parameters: dict[str, Any], sources: list[str], **settings: Any) -> None:
+        refused = Design(
+            name="top",
+            design_root=design.design_root,
+            rtl={"sources": sources, "top": "top", "parameters": parameters},
+        )
+        Yosys.check_design_supported(refused, Yosys.Settings(**settings))
+
+    sources = ["gate.v", "top.sv"]
+    # the testbench of `yosys_sim` is a source that slang reads too
+    with pytest.raises(FlowSettingsException, match="read_slang -G"):
+        YosysSim.check_design_supported(
+            Design(
+                name="top",
+                design_root=design.design_root,
+                rtl={"sources": ["gate.v"], "top": "gate", "parameters": {"S": "a b"}},
+                tb={"sources": ["tb.sv"], "top": "tb"},
+            ),
+            YosysSim.Settings(systemverilog="slang"),
+        )
+    for text in ("a b", 'a"b'):
+        with pytest.raises(FlowSettingsException, match="`S`.*read_slang -G"):
+            checked({"S": text}, sources)
+    checked({"S": "ab"}, sources)
+    checked({"S": "a b"}, sources, systemverilog="default")
+    checked({"S": "a b"}, ["gate.v"])
+    with forced_script_format("tcl"):
+        checked({"S": "a b"}, sources)
+        with pytest.raises(FlowSettingsException, match="double quote"):
+            checked({"S": 'a"b'}, sources)
+    # a VHDL top gets its generics from GHDL; a VHDL helper under a SystemVerilog top does not
+    checked({"S": "a b"}, ["top.sv", "inv.vhd"], top_is_vhdl=True)
+    with pytest.raises(FlowSettingsException, match="read_slang -G"):
+        checked({"S": "a b"}, ["inv.vhd", "top.sv"])
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_a_verilog_only_design_keeps_read_verilog(tmp_path: Path, script_format: str) -> None:
+    design, out = _mixed_design(tmp_path)
+    design = Design(
+        name="top",
+        design_root=design.design_root,
+        rtl={"sources": ["gate.v", "last.v"], "top": "gate"},
+    )
+    script = _render(Yosys, {}, out, design)
+    lines = script.splitlines()
+    assert not [line for line in lines if "read_slang" in line]
+    assert len([line for line in lines if "read_verilog -defer" in line]) == 2
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_the_built_in_reader_keeps_a_read_verilog_per_source(
+    tmp_path: Path, script_format: str
+) -> None:
+    """When the user picks yosys' own SystemVerilog reader, every source has its own
+    `read_verilog`."""
+    design, out = _mixed_design(tmp_path)
+    script = _render(Yosys, {"systemverilog": "default"}, out, design)
+    lines = script.splitlines()
+    assert not [line for line in lines if "read_slang" in line]
+    assert len([line for line in lines if "read_verilog" in line and "-defer" in line]) == 4

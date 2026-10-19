@@ -24,6 +24,7 @@ from .tool_utils import (
     _require,
     require_yosys,
     require_yosys_ghdl_plugin,
+    require_yosys_tcl,
     yosys_json_attribute_holders,
 )
 
@@ -721,6 +722,154 @@ def test_yosys_elaborates_a_package_that_another_systemverilog_file_declares(tmp
     )
     flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, {})
     assert flow is not None and flow.succeeded
+
+
+def test_yosys_reads_verilog_with_the_systemverilog_of_a_design_in_one_read_slang(tmp_path):
+    """A design with a SystemVerilog source gives its Verilog sources to the same `read_slang`,
+    as OpenROAD-flow-scripts does. The Verilog modules and the SystemVerilog modules then see one
+    another in one compilation, and the include directories reach both."""
+    require_yosys()
+    _require("the yosys slang plugin", _probe_yosys_slang(), "`plugin -i slang`")
+    _write(tmp_path / "inc" / "defs.vh", "`define W 4\n")
+    _write(tmp_path / "pkg.sv", "package p;\n  localparam int W = 4;\nendpackage\n")
+    _write(
+        tmp_path / "gate.v",
+        '`include "defs.vh"\n'
+        "module gate(input [`W-1:0] a, output [`W-1:0] y);\n"
+        "  assign y = ~a;\n"
+        "endmodule\n",
+    )
+    _write(
+        tmp_path / "top.sv",
+        "module top import p::*; (input logic [W-1:0] a, output logic [W-1:0] y);\n"
+        "  gate u_gate(.a(a), .y(y));\n"
+        "endmodule\n",
+    )
+    design = Design(
+        name="mixed",
+        design_root=tmp_path,
+        rtl={"sources": ["inc/defs.vh", "gate.v", "pkg.sv", "top.sv"], "top": "top"},
+    )
+    flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, {})
+    assert flow is not None and flow.succeeded
+    log = (flow.run_path / "yosys.log").read_text()
+    assert len(re.findall(r"^\d+\. Executing SLANG frontend", log, re.MULTILINE)) == 1
+    assert not [
+        line for line in log.splitlines() if "Verilog-2005 frontend" in line and "gate.v" in line
+    ]
+    modules = json.loads((flow.run_path / "netlist.json").read_text())["modules"]
+    assert "top" in modules
+
+
+PARAMETERIZED_TOP = (
+    "module top #(parameter W = 4, parameter [6:0] BV = 7'd1, parameter F = 1'b0,\n"
+    '             parameter S = "zzzz", parameter [7:0] N = 0, parameter real R = 1.0)\n'
+    "  (output [W-1:0] y, output [6:0] bv_o, output f_o, output [7:0] n_o,\n"
+    "   output [$bits(S)-1:0] s_o, output [7:0] r_o);\n"
+    "  assign y = {W{1'b1}};\n"
+    "  assign bv_o = BV;\n"
+    "  assign f_o = F;\n"
+    "  assign n_o = N;\n"
+    "  assign s_o = S;\n"
+    "  assign r_o = $rtoi(R * 2.0);\n"
+    "endmodule\n"
+)
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize("top_file", ["top.sv", "top.v"])
+def test_yosys_sets_every_type_of_parameter_through_read_slang(tmp_path, script_format, top_file):
+    """slang elaborates a module while it reads it, so `chparam` cannot change the parameters of
+    the top afterwards. The script gives them to `read_slang -G`, whatever the language of the
+    top: an integer, a sized literal, a boolean, a string and a real number. A Verilog top is
+    read by `read_slang` when the design has a SystemVerilog source too."""
+    require_yosys_tcl() if script_format == "tcl" else require_yosys()
+    _require("the yosys slang plugin", _probe_yosys_slang(), "`plugin -i slang`")
+    _write(tmp_path / top_file, PARAMETERIZED_TOP)
+    _write(tmp_path / "other.sv", "module other(input logic a);\nendmodule\n")
+    sources = [top_file] if top_file == "top.sv" else [top_file, "other.sv"]
+    design = Design(
+        name="params",
+        design_root=tmp_path,
+        rtl={
+            "sources": sources,
+            "top": "top",
+            "parameters": {
+                "W": 3,
+                "BV": "7'b0101001",
+                "F": True,
+                "N": 5,
+                "S": "abcd",
+                "R": 1.5,
+            },
+        },
+    )
+    flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, {})
+    assert flow is not None and flow.succeeded
+    assert "chparam" not in (flow.run_path / f"yosys_synth.{script_format}").read_text()
+    ports = json.loads((flow.run_path / "netlist.json").read_text())["modules"]["top"]["ports"]
+    bits = {name: "".join(str(b) for b in reversed(port["bits"])) for name, port in ports.items()}
+    assert bits == {
+        "y": "111",
+        "bv_o": "0101001",
+        "f_o": "1",
+        "n_o": "00000101",
+        "s_o": "".join(f"{ord(c):08b}" for c in "abcd"),
+        "r_o": "00000011",
+    }
+
+
+@pytest.mark.parametrize("script_format", ["tcl"])
+def test_a_tcl_script_gives_slang_a_string_parameter_with_whitespace(tmp_path, script_format):
+    """A Tcl script has no tokenizer limit: the whole `NAME=VALUE` is one word, so whitespace and a
+    `$` reach slang as they are. (A `.ys` script refuses whitespace in the value.)"""
+    require_yosys_tcl()
+    _require("the yosys slang plugin", _probe_yosys_slang(), "`plugin -i slang`")
+    _write(tmp_path / "top.sv", PARAMETERIZED_TOP)
+    design = Design(
+        name="params",
+        design_root=tmp_path,
+        rtl={"sources": ["top.sv"], "top": "top", "parameters": {"S": "a b$"}},
+    )
+    flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, {})
+    assert flow is not None and flow.succeeded
+    ports = json.loads((flow.run_path / "netlist.json").read_text())["modules"]["top"]["ports"]
+    assert "".join(str(b) for b in reversed(ports["s_o"]["bits"])) == "".join(
+        f"{ord(c):08b}" for c in "a b$"
+    )
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_yosys_resolves_an_instance_of_a_verilog_lib_module_for_slang(tmp_path, script_format):
+    """slang resolves every instance while it reads the sources, so the script reads a
+    `verilog_lib` file (a black box) before them. Instances in a SystemVerilog and in a Verilog
+    source both resolve."""
+    require_yosys_tcl() if script_format == "tcl" else require_yosys()
+    _require("the yosys slang plugin", _probe_yosys_slang(), "`plugin -i slang`")
+    _write(
+        tmp_path / "libcell.v", "module libcell(input a, output y);\n  assign y = ~a;\nendmodule\n"
+    )
+    _write(
+        tmp_path / "gate.v",
+        "module gate(input a, output y);\n  libcell u_lib(.a(a), .y(y));\nendmodule\n",
+    )
+    _write(
+        tmp_path / "top.sv",
+        "module top(input logic a, output logic y);\n  gate u_gate(.a(a), .y(y));\nendmodule\n",
+    )
+    design = Design(
+        name="withlib", design_root=tmp_path, rtl={"sources": ["gate.v", "top.sv"], "top": "top"}
+    )
+    flow = DefaultRunner(tmp_path / "xeda run").run_flow(
+        Yosys, design, {"verilog_lib": ["libcell.v"]}
+    )
+    assert flow is not None and flow.succeeded
+    netlist = json.loads((flow.run_path / "netlist.json").read_text())["modules"]
+    assert any(
+        cell["type"] == "libcell"
+        for module in netlist.values()
+        for cell in module["cells"].values()
+    )
 
 
 def test_yosys_passes_vhdl_top_generics_to_ghdl_and_leaves_the_design_alone(tmp_path):

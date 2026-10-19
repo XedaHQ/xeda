@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple
 
 from ...dataclass import WORKING, Field, deliverable, field_validator
-from ...design import LANGUAGE_TYPES, SourceType
+from ...design import LANGUAGE_TYPES, Design, SourceType
 from ...flow import Flow, FlowException, FlowSettingsError, FlowSettingsException, NoReplacement
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
@@ -262,16 +262,19 @@ class YosysBase(Flow):
         )
         read_verilog_flags: List[str] = Field(
             ["-noautowire", "-sv"],
-            description="Flags passed to yosys' `read_verilog` for each Verilog source. When "
-            "`yosys` maps to a liberty library, it refuses a flag that the script or a setting "
-            "gives (`-defer`, `-D`, `-I`).",
+            description="Flags passed to yosys' `read_verilog` for each Verilog source. They do "
+            "not apply to the Verilog sources of a design that `slang` reads together with its "
+            "SystemVerilog sources. When `yosys` maps to a liberty library, it refuses a flag that "
+            "the script or a setting gives (`-defer`, `-D`, `-I`).",
         )
         read_systemverilog_flags: List[str] = Field(
             [],
-            description="Flags passed to the SystemVerilog front-end selected by `systemverilog`. "
-            "With `slang`, a flag that the script gives to `read_slang` itself (`--top`, `-D`, "
-            "`-I`, `-G`, `--blackboxed-module`, `--extern-modules`, "
-            "`--best-effort-hierarchy`) is refused.",
+            description="Flags passed to the SystemVerilog front-end selected by `systemverilog`, "
+            "`uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` "
+            "instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` "
+            "reads when the design has a SystemVerilog source. A flag that the script gives to "
+            "`read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, "
+            "`--extern-modules`, `--best-effort-hierarchy`) is refused.",
         )
         check_assert: bool = Field(
             True,
@@ -315,7 +318,9 @@ class YosysBase(Flow):
         systemverilog: Literal["default", "uhdm", "slang"] = Field(
             "slang",
             description="Front-end used for SystemVerilog sources: yosys' built-in reader "
-            "(`default`), Surelog/UHDM (`uhdm`), or the slang plugin (`slang`).",
+            "(`default`), Surelog/UHDM (`uhdm`), or the slang plugin (`slang`). With `slang`, "
+            "one `read_slang` reads the Verilog sources of a design that has a SystemVerilog "
+            "source too.",
         )
         use_slang_plugin: bool = Field(
             True,
@@ -500,6 +505,36 @@ class YosysBase(Flow):
                 [(key, message, None, "value_error") for key, message in problems], cls.Settings
             )
 
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """Refuse a string parameter that a yosys script cannot give to `read_slang -G`.
+
+        With the slang front end, `-G NAME="text"` sets a string parameter. Xeda writes the text
+        between double quotes without an escape, so a double quote inside it would end the
+        string. The tokenizer of a yosys (`.ys`) script also ends
+        the word at whitespace, and a Tcl script does not. Xeda selects the format from the
+        settings alone, so the check refuses whitespace when the format is `.ys`. GHDL sets the
+        generics of a VHDL top, and the check leaves such a design alone.
+        """
+        super().check_design_supported(design, settings)
+        if not isinstance(settings, cls.Settings) or settings.systemverilog != "slang":
+            return
+        reads = cls.reads_sources or frozenset()
+        read = [src for src in design.rtl.sources if src.type in reads]
+        listed = [src for part in sorted(cls.design_parts) for src in getattr(design, part).sources]
+        if SourceType.SystemVerilog not in {src.type for src in listed if src.type in reads}:
+            return
+        if cls.vhdl_top_of(settings, read):
+            return
+        ys = cls.script_format(settings) == "ys"
+        for name, value in design.rtl.parameters.items():
+            if isinstance(value, str) and re.search(r'"|\s' if ys else '"', value):
+                raise FlowSettingsException(
+                    f"The value of the parameter `{name}` has {'whitespace or ' if ys else ''}a "
+                    "double quote, and the script cannot give it to `read_slang -G`. Remove "
+                    f"{'them' if ys else 'it'} from the value, or set `systemverilog: \"default\"`."
+                )
+
     def init(self):
         """Prepare the template helpers and the settings that every yosys flow shares."""
         assert isinstance(self.settings, self.Settings)
@@ -541,9 +576,15 @@ class YosysBase(Flow):
         computed.
         """
         assert isinstance(self.settings, self.Settings)
-        if self.settings.top_is_vhdl is not None:
-            return self.settings.top_is_vhdl
-        units = [src for src in self.sources_read(rtl=True, tb=False) if src.type in LANGUAGE_TYPES]
+        return self.vhdl_top_of(self.settings, self.sources_read(rtl=True, tb=False))
+
+    @staticmethod
+    def vhdl_top_of(settings: "YosysBase.Settings", rtl_sources: List[Any]) -> bool:
+        """Return whether the top is VHDL, given the RTL sources that the flow reads (see
+        `top_is_vhdl`)."""
+        if settings.top_is_vhdl is not None:
+            return settings.top_is_vhdl
+        units = [src for src in rtl_sources if src.type in LANGUAGE_TYPES]
         return bool(units) and units[-1].type is SourceType.Vhdl
 
     def verbatim_path(self, path: str | os.PathLike[str]) -> str:

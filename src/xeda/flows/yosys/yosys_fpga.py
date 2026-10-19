@@ -228,10 +228,11 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         )
         read_verilog_flags: list[str] = Field(
             ["-sv"],
-            description="Flags passed to yosys' `read_verilog` for each Verilog source. Add "
-            "`-noautowire` explicitly if its stricter undeclared-net behavior is required. "
-            "Must be `[]` under `synth_pass_only`, which reads sources as plain `yosys <file>` "
-            "does.",
+            description="Flags passed to yosys' `read_verilog` for each Verilog source. They do "
+            "not apply to the Verilog sources of a design that `slang` reads together with its "
+            "SystemVerilog sources. Add `-noautowire` explicitly if its stricter undeclared-net "
+            "behavior is required. Must be `[]` under `synth_pass_only`, which reads sources as "
+            "plain `yosys <file>` does.",
         )
         abc9: bool = Field(
             True,

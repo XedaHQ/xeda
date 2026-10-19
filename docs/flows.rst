@@ -1487,6 +1487,38 @@ the mapping files, the tie and buffer cells, and the defaults that this section 
 ``platform`` to a bundled platform name, or ``platform_file`` to a platform of your own (see
 :doc:`platforms`).
 
+Reading the sources
+-------------------
+
+``yosys``, ``yosys_fpga`` and ``yosys_sim`` read Verilog sources with ``read_verilog``. ``yosys`` and
+``yosys_fpga`` read the sources of ``rtl``. ``yosys_sim`` reads the sources of ``rtl`` and of ``tb``.
+When these sources include a SystemVerilog source and ``systemverilog`` is ``slang``, one
+``read_slang`` reads all their Verilog and SystemVerilog sources together, in design order, as
+OpenROAD-flow-scripts does. The sources are then one compilation. A module or a package that one
+file declares is known in all the others. ``read_systemverilog_flags`` apply to that command, and
+``read_verilog_flags`` do not apply to the Verilog sources it reads. The ``yosys_sim`` flow reads
+SystemVerilog with the built-in reader unless ``systemverilog`` says otherwise.
+
+When ``read_slang`` reads the design and its top module is not VHDL, the command also sets the
+parameters of the top module, with ``-G NAME=VALUE`` as OpenROAD-flow-scripts does, and the script
+has no ``chparam``. GHDL sets the generics of a VHDL top module, and the command then has no
+``-G``. slang elaborates a module while
+it reads the sources, so ``chparam`` cannot change a parameter afterwards. An integer, a sized
+literal such as ``7'b0101001``, a boolean (``1'b1`` or ``1'b0``), a string and a real number all
+reach the top in the form that slang needs. Xeda writes a string value between double quotes
+without an escape, so a double quote inside the value would end it, and Xeda refuses such a
+parameter when slang reads the design. The tokenizer of a Yosys script (not of a Tcl script) also
+ends a value at whitespace, so Xeda refuses whitespace when it writes a Yosys script. Change the
+value, or set ``systemverilog: default``.
+
+slang resolves every module instance when it reads the sources. So the script reads the files of
+``verilog_lib``, and the Liberty files that the flow reads itself, before the ``read_slang``
+command. The script reads VHDL sources after it. A top module in Verilog or
+SystemVerilog cannot instantiate a VHDL entity.
+
+A design with Verilog sources only still uses ``read_verilog`` and ``chparam``, and so does a design
+that sets ``systemverilog: default``.
+
 The mapping script
 ------------------
 

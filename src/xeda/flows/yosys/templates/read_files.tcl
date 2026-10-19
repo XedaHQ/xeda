@@ -23,32 +23,60 @@ yosys plugin -i {{plugin|tcl_word}}
 yosys plugin -i systemverilog
 {% endif -%}
 {% set slang_plugin = (settings.systemverilog == "slang") and sv_files -%}
+{#- With slang, one `read_slang` reads the Verilog sources too, and `read_slang -G` sets the
+    parameters of the top module while it elaborates, as OpenROAD-flow-scripts does. `chparam`
+    cannot change a module that slang elaborated. -#}
+{% set slang_params = slang_plugin and not top_is_vhdl() -%}
+{% set slang_files = sources|selectattr("type.name", "in", ("Verilog", "SystemVerilog"))|list if slang_plugin else [] -%}
 {% if slang_plugin and settings.use_slang_plugin and "slang" not in settings.plugins -%}
 yosys plugin -i slang
 {% endif -%}
 
+{#- With slang, a library that the sources instantiate (`liberty`, `verilog_lib`) is read before
+    them: slang resolves every instance when it reads the sources. -#}
+{%- macro read_libraries() -%}
+{#- The mapping to a standard cell library sets `liberty_read`: it has read its Liberty files
+    before the sources, with the attribute that marks library cells. -#}
+{% if settings.liberty is defined and not liberty_read|default(false) -%}
+{% for lib in settings.liberty -%}
+yosys read_liberty -lib {{lib|read_path}}
+{% endfor -%}
+{% endif -%}
+
+{#- `yosys_fpga` passes `verilog_libs`: `verilog_lib` without the entries that are a library the
+    synthesis pass reads itself. It decides by the file that each entry names
+    (`YosysFpga.verilog_libraries_to_read`), whatever this script reads. Every other flow reads
+    its `verilog_lib` as given. -#}
+{% for src in verilog_libs|default(settings.verilog_lib) -%}
+yosys read_verilog -lib {{src|read_path}}
+{% endfor -%}
+{%- endmacro -%}
 {% for lib in primitive_libraries|default([]) -%}
 yosys read_verilog {{lib.flags|join(" ")}} {{lib.path|read_path}}
 {% endfor -%}
 
+{% if slang_plugin -%}
+{{ read_libraries() }}
+{%- endif -%}
+
 {% for src in sources -%}
 {% if src.type is not none -%}
-    {% if src.type.name == "Verilog" -%}
+    {% if slang_plugin and src.type.name in ("Verilog", "SystemVerilog") %}
+        {#- the slang front end does not strip quotes, so use `verbatim_path`. slang elaborates
+            what one `read_slang` reads as one compilation, so the first Verilog or SystemVerilog
+            source reads them all: a package of one file is then known in the others, as in
+            OpenROAD-flow-scripts. #}
+        {%- if src is sameas slang_files[0] %}
+            {%- for sv in slang_files %}
+yosys log -stdout "** Reading {{sv|tcl_quote}} **"
+            {%- endfor %}
+yosys read_slang --extern-modules --best-effort-hierarchy{% if settings.read_systemverilog_flags %} {{settings.read_systemverilog_flags|join(" ")}}{% endif %} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{slang_files|map("verbatim_path")|join(" ")}}{% if slang_params %}{% for key, value in parameters.items() %} -G {{(key ~ "=" ~ value)|tcl_word}}{% endfor %}{% endif %}
+        {%- endif %}
+    {% elif src.type.name == "Verilog" -%}
 yosys log -stdout "** Reading {{src|tcl_quote}} **"
 yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|read_path}}
     {% elif src.type.name == "SystemVerilog" %}
-        {#- the slang and uhdm plugin front ends do not strip quotes, so use `verbatim_path`.
-            slang elaborates what one `read_slang` reads as one compilation, so the first
-            SystemVerilog source reads them all: a package of one file is then known in the
-            others, as in OpenROAD-flow-scripts. #}
-        {%- if slang_plugin %}
-            {%- if src is sameas sv_files[0] %}
-                {%- for sv in sv_files %}
-yosys log -stdout "** Reading {{sv|tcl_quote}} **"
-                {%- endfor %}
-yosys read_slang --extern-modules --best-effort-hierarchy{% if settings.read_systemverilog_flags %} {{settings.read_systemverilog_flags|join(" ")}}{% endif %} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{sv_files|map("verbatim_path")|join(" ")}}
-            {%- endif %}
-        {%- elif uhdm_plugin %}
+        {%- if uhdm_plugin %}
 yosys log -stdout "** Reading {{src|tcl_quote}} **"
 yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src|verbatim_path}}
         {%- else %}
@@ -66,24 +94,13 @@ yosys plugin -i ghdl
 yosys ghdl {{ghdl_args|map("ghdl_arg")|join(" ")}} {{vhdl_files|map("verbatim_path")|join(" ")}} -e {% if vhdl_top -%} {{vhdl_top}} {%- endif %}
 {% endif -%}
 
-{#- The mapping to a standard cell library sets `liberty_read`: it has read its Liberty files
-    before the sources, with the attribute that marks library cells. -#}
-{% if settings.liberty is defined and not liberty_read|default(false) -%}
-{% for lib in settings.liberty -%}
-yosys read_liberty -lib {{lib|read_path}}
-{% endfor -%}
-{% endif -%}
+{% if not slang_plugin -%}
+{{ read_libraries() }}
+{%- endif -%}
 
-{#- `yosys_fpga` passes `verilog_libs`: `verilog_lib` without the entries that are a library the
-    synthesis pass reads itself. It decides by the file that each entry names
-    (`YosysFpga.verilog_libraries_to_read`), whatever this script reads. Every other flow reads
-    its `verilog_lib` as given. -#}
-{% for src in verilog_libs|default(settings.verilog_lib) -%}
-yosys read_verilog -lib {{src|read_path}}
-{% endfor -%}
-
-{#- a VHDL top module got its generics from GHDL and has no parameters left #}
-{% if not top_is_vhdl() -%}
+{#- a VHDL top module got its generics from GHDL and has no parameters left, and slang
+    got the parameters in its `read_slang` #}
+{% if not top_is_vhdl() and not slang_params -%}
 {% for key, value in parameters.items() -%}
 yosys chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
 {% endfor -%}
