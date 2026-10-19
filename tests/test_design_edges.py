@@ -761,15 +761,18 @@ def test_a_flow_that_defines_a_conversion_declares_one_design_output() -> None:
     assert not is_converter(design_output_flow())
 
 
-def _switched_converter() -> type[Flow]:
-    """A converter of Bluespec into Verilog whose `convert` setting switches the conversion on:
-    under the default settings it converts nothing."""
+def _switched_converter(
+    reads: frozenset[SourceType] = frozenset({SourceType.Bluespec, SourceType.Verilog}),
+    converts: SourceType = SourceType.Bluespec,
+) -> type[Flow]:
+    """A converter of `converts` into Verilog whose `convert` setting switches the conversion on:
+    under the default settings it converts nothing. It reads `reads`."""
 
     class _Switched(Flow):
         """Converts Bluespec when its setting says so."""
 
         results_description: ClassVar[dict[str, str]] = {}
-        reads_sources = frozenset({SourceType.Bluespec, SourceType.Verilog})
+        reads_sources = reads
 
         class Settings(Flow.Settings):
             convert: bool = False
@@ -781,9 +784,7 @@ def _switched_converter() -> type[Flow]:
         def design_conversion(cls, settings):
             if not getattr(settings, "convert", False):
                 return None
-            return DesignConversion(
-                frozenset({SourceType.Bluespec}), frozenset({SourceType.Verilog})
-            )
+            return DesignConversion(frozenset({converts}), frozenset({SourceType.Verilog}))
 
         def run(self) -> None:
             pass
@@ -827,3 +828,31 @@ def test_a_chain_decides_a_conversion_by_the_agreed_settings(tmp_path) -> None:
     assert [node.name for node in plan.nodes] == [switched.name, "yosys"]
     with pytest.raises(FlowSettingsException, match=r"yosys\.design.*no compatible output"):
         runner.plan(request, _bluespec_design(tmp_path))
+
+
+def test_a_converter_that_may_convert_has_no_edge_to_itself_or_through_another_converter() -> None:
+    """A conversion is one hop. The graph of a flow that reads Verilog and VHDL holds no edge into
+    a converter, whether the converter is the root or a flow that the graph reaches."""
+    switched = _switched_converter()
+    assert [edge.producer for edge in converter_edges(switched)] == []
+    reached = _switched_converter(
+        reads=frozenset({SourceType.Verilog, SourceType.Vhdl}), converts=SourceType.Vhdl
+    )
+    graph = default_graph(Yosys)
+    assert reached in graph.flows()
+    assert not [edge for edge in graph.edges if edge.consumer is reached]
+    assert graph.between(Bsc) == ()
+
+
+def test_a_chain_and_a_binding_refuse_a_converter_before_a_converter_alike(tmp_path) -> None:
+    """The producer may convert under some settings, and the consumer converts the design itself
+    (bsc): the declarations refuse it, for the chain and for the binding, in the same words."""
+    switched = _switched_converter()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    with pytest.raises(FlowSettingsException) as chained:
+        runner.plan(parse_request(f"{switched.name}+bsc"), _bluespec_design(tmp_path))
+    assert "one hop" in str(chained.value)
+    bound = _bluespec_design(tmp_path, flows={"bsc": {"inputs": {"design": switched.name}}})
+    with pytest.raises(FlowSettingsException) as refused:
+        runner.plan("bsc", bound)
+    assert str(chained.value).split(": ", 1)[1] in str(refused.value)

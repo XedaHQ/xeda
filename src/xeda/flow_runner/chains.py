@@ -314,6 +314,11 @@ def _no_conversion(producer: type[Flow], consumer: type[Flow]) -> str:
     """Return why the converter `producer` cannot precede `consumer`: `consumer` converts the
     design itself (a conversion is one hop), or no flow that `consumer` runs reads what the
     converter writes without reading what it converts."""
+    if default_conversion(consumer) is not None:
+        return (
+            f"`{producer.name}+{consumer.name}`: {consumer.name} converts the design itself, "
+            f"and a conversion is one hop."
+        )
     conversion = default_conversion(producer)
     if conversion is None:
         if is_converter(producer):
@@ -322,11 +327,6 @@ def _no_conversion(producer: type[Flow], consumer: type[Flow]) -> str:
                 "design of a converter."
             )
         return _converts_no_design(producer)
-    if default_conversion(consumer) is not None:
-        return (
-            f"`{producer.name}+{consumer.name}`: {consumer.name} converts the design itself, "
-            f"and a conversion is one hop."
-        )
     converts, writes = _writes_and_converts(conversion)
     return (
         f"`{producer.name}+{consumer.name}`: {producer.name} converts {converts} to {writes}, "
@@ -386,15 +386,13 @@ def design_edge_refusal(
     if not is_converter(producer):
         return _converts_no_design(producer)
     agreed = producer_settings is not None or consumer_settings is not None
+    if not agreed and not _binding_edges(default_graph(consumer), producer):
+        return _no_conversion(producer, consumer)
     conversion = producer.design_conversion(
         producer.Settings() if producer_settings is None else producer_settings
     )
     if conversion is None:
         return _converts_no_design(producer) if agreed else None
-    if not agreed:
-        graph = default_graph(consumer)
-        if not _binding_edges(graph, producer):
-            return _no_conversion(producer, consumer)
     return _own_refusal(
         producer,
         conversion,
@@ -563,6 +561,8 @@ def converter_edges(consumer: type[Flow]) -> list[DefaultEdge]:
     found: list[DefaultEdge] = []
     registered = tuple(sorted({cls for _module, cls in registered_flows.values()}, key=_name))
     for converter, output in _converters(registered):
+        if converter is consumer:
+            continue  # a converter reads the design as it is
         conversion = default_conversion(converter)
         if conversion is None or (conversion.produces <= reads and conversion.transforms - reads):
             found.append(DefaultEdge(consumer, declaration.name, converter, output))
