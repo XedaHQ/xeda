@@ -14,12 +14,11 @@ it checks any output, and each pass-through entry against the design it is hande
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import Any
 
-from ..design import DESIGN_PARTS, Design, SourceType
+from ..design import DESIGN_PARTS, Design, SourceType, root_relative_text
 from ..digest import content_digest
 from ..equivalence import digests
 from ..flow import Flow, FlowDependencyFailure
@@ -124,8 +123,8 @@ def _source_file(design: Design, index: int) -> str:
     """Return the path of source `index` of `design` relative to its root, as the record names it.
 
     The path may begin with `..` for a source outside the root. It is `posix` text, whatever the
-    system."""
-    return Path(os.path.relpath(design.rtl.sources[index].file, design.root_path)).as_posix()
+    system. A source with no relative path (on another drive) is named by its absolute path."""
+    return root_relative_text(design.root_path, design.rtl.sources[index].file)
 
 
 def _design_record(flow: Flow, name: str, value: Any, problems: list[str]) -> dict[str, Any] | None:
@@ -355,14 +354,13 @@ def verified_design(
 
     This is the one rule of the hand-over (`handed_design`, under the read lease of the producer)
     and of the dry run, which reads the files and holds no lease. `run_directory` is the one of
-    the producer. The record has the shape `recorded_entries` checks. It names the design it was
-    made from (`input_design`). The generated files are checked as `handed_over` checks them.
-    Each source that passes through must still be the same file, of the same type, at its index
-    in `design.rtl.sources`: a design that was edited or reordered since the run recorded it is a
-    changed record. Last, as a guard, it refuses a record whose `input_design` differs from the
-    hash of `design`. A fresh run always records that hash, so the guard changes no freshness
-    rule. Return the derived design and the entries of the generated files, in order, which the
-    consumer compares with what it consumed."""
+    the producer. The record has the shape `recorded_entries` checks. The generated files are
+    checked as `handed_over` checks them. Each source that passes through must still be the same
+    file, of the same type, at its index in `design.rtl.sources`: a design that was edited or
+    reordered since the run recorded it is a changed record. The `input_design` of the record is provenance: nothing compares it, since
+    the trace of the producer decides whether its design changed. Return the derived design and
+    the entries of the generated files, in order, which the consumer compares with what it
+    consumed."""
     entries = recorded_entries(recorded, False, label, design=True)
     _verified_files(run_directory, entries, label)
     for item in recorded["sources"]:
@@ -378,10 +376,8 @@ def verified_design(
                 f"{label} changed since its run recorded it: source {index} of the design "
                 f"was {item['file']} ({item['type']}) and is not any more. Run again"
             )
-    if recorded["input_design"] != design.parts_hash(DESIGN_PARTS):
-        raise FlowDependencyFailure(f"{label} was recorded for another design: run again")
     try:
-        derived = derive_design(design, recorded)
+        derived = derive_design(design, recorded, run_directory.path)
     except ValueError as error:
         raise FlowDependencyFailure(f"{label} cannot derive a design: {error}") from error
     return derived, entries

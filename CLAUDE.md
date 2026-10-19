@@ -98,8 +98,12 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   matching design source, else the default producer. A new edge between netlist or checkpoint
   types needs `REVIEWED_EDGES` (`tests/test_stage_types.py`).
 - `In(DESIGN)` / `Out(DESIGN)` is the design kind: a flow that reads design sources has a `design`
-  input. A design output needs `design_conversion`, which the resolver plans as the default
-  producer of a flow that cannot read the sources (`tests/test_design_edges.py`).
+  input. Only a flow that defines `design_conversion` (and then declares one design output) is a
+  converter: the resolver plans it as the default producer of a flow that cannot read the
+  sources, and a binding follows the rule of a chain. A design output without a conversion is
+  allowed and is never a producer of a `design` input. A generated source counts by its content,
+  type and name within the converter's output, never by its path
+  (`tests/test_design_edges.py`, `tests/test_generated_names.py`).
 - A node's identity is its settings hash plus its ordered input origins
   (`bindings.node_identity`). A producer's settings never depend on which consumer asked.
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`,

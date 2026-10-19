@@ -26,7 +26,7 @@ from xeda.board import WithFpgaBoardSettings
 from xeda.design import LANGUAGE_TYPES, SOURCE_SUFFIXES, SourceType
 from xeda.flow import Flow, FlowSettingsException, In
 from xeda.flow.flow import registered_flows
-from xeda.flow.io import declared_inputs, declared_outputs
+from xeda.flow.io import declared_inputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.chains import converter_edges
 from xeda.flows import Nextpnr
@@ -127,12 +127,12 @@ READS_NO_SOURCE = [
     "vivado_impl",
     "vivado_power",
 ]
-#: The flows that convert the design (they declare a design output). They refuse no language:
+#: The flows that convert the design (they define a conversion). They refuse no language:
 #: a source they do not convert passes through to the flow that reads the derived design.
 CONVERTERS = [
     flow
     for flow in EXPECTED_READS
-    if any(out.is_design for out in declared_outputs(registered_flows[flow][1]).values())
+    if registered_flows[flow][1].design_conversion(registered_flows[flow][1].Settings()) is not None
 ]
 #: The languages of `rtl` that a converter turns into ones each flow reads: not refused, but
 #: converted first. The planning of the conversion is in `test_converted_designs.py`.

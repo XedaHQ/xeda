@@ -10,11 +10,13 @@ after the generated files and the pass-through entries verify.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from xeda import Design
+from xeda.deliver import outputs_to_deliveries, recorded_artifacts
 from xeda.design import DesignSource, SourceType
 from xeda.flow import FlowDependencyFailure, FlowSettingsException
 from xeda.flow.derived import (
@@ -279,7 +281,7 @@ def test_ran_or_reused_the_derived_design_is_the_same(tmp_path) -> None:
     assert reloaded == record
 
     ran, entries = handed_design(flow, "design", design)
-    reused = derive_design(design, reloaded)
+    reused = derive_design(design, reloaded, flow.run_directory.path)
     assert ran.model_dump(mode="json") == reused.model_dump(mode="json")
     for parts in ({"rtl"}, {"rtl", "tb"}):
         assert ran.parts_hash(parts) == reused.parts_hash(parts)
@@ -323,7 +325,7 @@ def test_deriving_a_design_validates_nothing_again(tmp_path, monkeypatch) -> Non
 
     monkeypatch.setattr(Design, "__init__", refused)
     monkeypatch.setattr(Design, "model_validate", refused)
-    assert derive_design(design, record).rtl.top == "mkTop"
+    assert derive_design(design, record, flow.run_directory.path).rtl.top == "mkTop"
     assert planned_design(design, DesignConversion(BLUESPEC, VERILOG), tmp_path / "run").rtl.sources
 
 
@@ -332,10 +334,65 @@ def test_the_derivation_of_a_malformed_record_is_a_value_error(tmp_path) -> None
     with pytest.raises(ValueError, match="malformed"):
         derived_sources({"top": "mkTop"})
     with pytest.raises(ValueError, match="source 9"):
-        derive_design(design, {"top": "mkTop", "sources": [{"source": 9}]})
+        derive_design(design, {"top": "mkTop", "sources": [{"source": 9}]}, tmp_path)
 
 
 # ------------------------------------------------------------------------ the hand-over
+
+
+def _handed(tmp_path, run_root: str, design: Design) -> Design:
+    """The design that the converter derives, with its run directory under `run_root`."""
+    fake, _rival, _to_vhdl = converter_flows()
+    flow = DefaultRunner(tmp_path / run_root, display_results=False).run_flow(fake, design, {})
+    assert flow is not None and flow.succeeded, flow.results
+    derived, _entries = handed_design(flow, "design", design)
+    return derived
+
+
+def test_the_hash_of_a_derived_design_does_not_depend_on_where_the_run_directory_is(
+    tmp_path,
+) -> None:
+    """The generated files are named by their place in the converter's output and their content,
+    not by a path from the design root to the run directory."""
+    design = _design(tmp_path / "d")
+    near = _handed(tmp_path, "run", design)
+    far = _handed(tmp_path, "deeper/elsewhere/run", design)
+    generated = [src.file for src in near.rtl.sources if src.file.name == "Top.v"]
+    assert generated != [src.file for src in far.rtl.sources if src.file.name == "Top.v"]
+    for parts in ({"rtl"}, {"rtl", "tb"}):
+        assert near.parts_hash(parts) == far.parts_hash(parts)
+    assert near.rtl_hash == far.rtl_hash
+    text = json.dumps(near.rtl_fingerprint)
+    assert str(tmp_path) not in text and "run" not in text.replace("rtl", "")
+
+
+def test_a_source_on_another_drive_has_no_path_from_the_design_root(tmp_path, monkeypatch) -> None:
+    """On Windows, `os.path.relpath` raises a `ValueError` for a path on another drive. Such a
+    source is named by its absolute path, in the hash of the design and in the record."""
+    real = os.path.relpath
+
+    def relpath(path, start=os.curdir):
+        if "elsewhere" in os.fspath(path):
+            raise ValueError("path is on mount 'D:', start on mount 'C:'")
+        return real(path, start)
+
+    monkeypatch.setattr(os.path, "relpath", relpath)
+    root = tmp_path / "d"
+    _write(root, {"Top.bsv": TOP_PKG})
+    outside = tmp_path / "elsewhere" / "ext.v"
+    outside.parent.mkdir()
+    outside.write_text("module ext(); endmodule\n")
+    design = Design(
+        name="d", design_root=root, rtl={"sources": ["Top.bsv", str(outside)], "top": "mkTop"}
+    )
+    assert design.rtl_fingerprint["sources"][1]["path"] == outside.as_posix()
+    flow = _launched(tmp_path, design)
+    assert flow.results["outputs"]["design"]["sources"][-1] == {
+        "source": 1,
+        "file": outside.as_posix(),
+        "type": "Verilog",
+    }
+    handed_design(flow, "design", design)
 
 
 def test_the_hand_over_of_an_untouched_record_succeeds(tmp_path) -> None:
@@ -421,17 +478,22 @@ def test_the_hand_over_refuses_a_source_of_another_type_at_the_same_place(tmp_pa
         handed_design(flow, "design", retyped)
 
 
-def test_the_hand_over_refuses_a_design_that_is_not_the_one_the_run_recorded(tmp_path) -> None:
-    """The sources are the same files in the same places, and a define differs: the record was
-    made for another design."""
+def test_the_input_design_of_a_record_is_provenance_and_nothing_compares_it(tmp_path) -> None:
+    """The sources are the same files in the same places, and a define differs. The record names
+    the hash of the design it was made from, but the hand-over judges the files and the sources
+    that pass through, never that hash: the converter's own trace decides whether it ran again
+    for the design. A converter that reads fewer parts of the design than it records would
+    otherwise refuse its own record forever."""
     design = _design(tmp_path / "d")
     flow = _launched(tmp_path, design)
     other = design.model_copy(deep=True)
     other.rtl.defines["STEP"] = "3"
     other.rtl.invalidate_cached_properties()
     other.invalidate_cached_properties()
-    with pytest.raises(FlowDependencyFailure, match="recorded for another design: run again"):
-        handed_design(flow, "design", other)
+    assert flow.results["outputs"]["design"]["input_design"] == design.parts_hash({"rtl", "tb"})
+    derived, _entries = handed_design(flow, "design", other)
+    assert derived.rtl.defines == {"STEP": "3"}
+    flow.results["outputs"]["design"]["input_design"] = "provenance"
     handed_design(flow, "design", design)
 
 
@@ -495,6 +557,28 @@ def test_bsc_records_the_design_from_what_it_collected(tmp_path, capfd) -> None:
     assert derived.rtl.sources[-5:-2] == [design.rtl.sources[i] for i in (0, 3, 4)]
     assert derived.rtl.top == "mkTop" and derived.rtl.parameters == {}
     assert derived.tb.sources == design.tb.sources
+
+
+def test_the_generated_files_of_bsc_are_delivered_once_by_outputs_to(tmp_path, capfd) -> None:
+    """The generated files are listed under `artifacts.verilog` and in the record of the design
+    output. `--outputs-to` copies each file of the run directory once, and none that the design
+    passes through from outside it."""
+    require_bsc()
+    design = _design(tmp_path / "d")
+    flow = _bsc(design, tmp_path)
+    assert flow.succeeded, run_report(flow, capfd.readouterr())
+    recorded = recorded_artifacts(flow.run_path / "results.json")
+    assert set(recorded) == {"artifacts", "outputs"}
+    deliveries = outputs_to_deliveries(recorded, flow.run_path, tmp_path / "out")
+    names = [delivery.name for delivery in deliveries]
+    assert len(names) == len(set(names))
+    generated = [
+        Path(item["generated"]).name
+        for item in flow.results["outputs"]["design"]["sources"]
+        if "generated" in item
+    ]
+    assert generated and set(generated) <= {name.name for name in names}
+    assert "ext.v" not in {name.name for name in names}
 
 
 def test_bsc_without_the_reset_macro_has_no_defining_file(tmp_path, capfd) -> None:

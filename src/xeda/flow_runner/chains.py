@@ -8,10 +8,11 @@ A link `a+b` is valid when `a` feeds a required input of `b` directly, or when t
 producers of `b` reach `a`: the link then passes through the flows between them, and binds each
 required input that `a` feeds. Planning runs the flows between exactly as it does for `b` alone.
 
-A converter flow (it declares a design output) feeds the `design` input of a flow that cannot read
-what it converts. Those edges belong to the default graph (`converter_edges`). A link from a
-converter binds the `design` input of every flow of the graph that the converter fits, the second
-element's own included.
+A converter flow (it defines `Flow.design_conversion`) feeds the `design` input of a flow that
+cannot read what it converts. Those edges belong to the default graph (`converter_edges`). A link
+from a converter binds the `design` input of every flow of the graph that the converter fits, the
+second element's own included. An explicit binding of a `design` input follows the same rule
+(`design_edge_refusal`).
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from typing import Any
 
 from ..design import SourceType
 from ..flow import Flow, FlowSettingsException, registered_flows
+from ..flow.derived import DesignConversion
 from ..flow.io import declared_inputs, declared_outputs, kinds_text
 
 __all__ = [
@@ -38,10 +40,13 @@ __all__ = [
     "close_names",
     "complete_request",
     "converter_edges",
+    "default_conversion",
     "default_graph",
+    "design_edge_refusal",
     "edges",
     "fitting_outputs",
     "followers",
+    "is_converter",
     "match_required_inputs",
     "parse_request",
     "predecessors",
@@ -228,14 +233,34 @@ def _check_chain(elements: Sequence[ChainElement]) -> tuple[ChainLink, ...]:
 
 
 @cache
-def _is_converter(flow_class: type[Flow]) -> bool:
-    """Whether the flow declares a design output. The declarations of a class never change."""
+def is_converter(flow_class: type[Flow]) -> bool:
+    """Whether the flow may convert a design: it defines `Flow.design_conversion`.
+
+    A design output alone does not make a converter. Whether a converter converts anything is
+    for its settings to decide (`default_conversion` is what the default settings say). The
+    declarations of a class never change."""
+    return getattr(flow_class.design_conversion, "__func__") is not getattr(
+        Flow.design_conversion, "__func__"
+    )
+
+
+def default_conversion(flow_class: type[Flow]) -> DesignConversion | None:
+    """Return the conversion of the flow under its default settings, or None.
+
+    None for a flow that is no converter, and for a converter that converts nothing until a
+    setting says so. Such a converter is never a default producer, and the declarations cannot
+    judge it: a chain or a binding accepts it, and the final check under the agreed settings
+    decides."""
+    return flow_class.design_conversion(flow_class.Settings())
+
+
+def _has_design_output(flow_class: type[Flow]) -> bool:
     return any(made.is_design for made in declared_outputs(flow_class).values())
 
 
 def _link(index: int, producer: ChainElement, consumer: ChainElement) -> ChainLink:
     """Return how `producer` feeds `consumer`, or raise `_EdgeFailure` for the pair at `index`."""
-    converter = _is_converter(producer.flow_class)
+    converter = is_converter(producer.flow_class)
     if converter:
         link = _converter_link(index, producer, consumer)
         if link is not None:
@@ -264,6 +289,8 @@ def _link(index: int, producer: ChainElement, consumer: ChainElement) -> ChainLi
     graph = default_graph(consumer.flow_class)
     through = graph.between(producer.flow_class)
     if not through or not _binding_edges(graph, producer.flow_class):
+        if not converter and _has_design_output(producer.flow_class):
+            refusal = _converts_no_design(producer.flow_class)
         raise _EdgeFailure(index, refusal)
     try:
         points = binding_points(graph, producer.flow_class, producer.output)
@@ -272,19 +299,107 @@ def _link(index: int, producer: ChainElement, consumer: ChainElement) -> ChainLi
     return ChainLink(through, tuple((edge.consumer, edge.input, made) for edge, made in points))
 
 
-def _no_conversion(producer: type[Flow], consumer: type[Flow]) -> str:
-    """Return why the converter `producer` cannot precede `consumer`: no flow that `consumer` runs
-    reads what the converter writes without reading what it converts."""
-    conversion = producer.design_conversion(producer.Settings())
-    if conversion is None:
-        return f"Flow `{producer.name}` converts no design."
-    converts, writes = (
+def _converts_no_design(producer: type[Flow]) -> str:
+    return f"Flow `{producer.name}` converts no design."
+
+
+def _writes_and_converts(conversion: DesignConversion) -> tuple[str, str]:
+    return tuple(  # type: ignore[return-value]
         "/".join(sorted(member.name for member in types))
         for types in (conversion.transforms, conversion.produces)
     )
+
+
+def _no_conversion(producer: type[Flow], consumer: type[Flow]) -> str:
+    """Return why the converter `producer` cannot precede `consumer`: `consumer` converts the
+    design itself (a conversion is one hop), or no flow that `consumer` runs reads what the
+    converter writes without reading what it converts."""
+    if default_conversion(consumer) is not None:
+        return (
+            f"`{producer.name}+{consumer.name}`: {consumer.name} converts the design itself, "
+            f"and a conversion is one hop."
+        )
+    conversion = default_conversion(producer)
+    if conversion is None:
+        if is_converter(producer):
+            return (
+                f"`{producer.name}+{consumer.name}`: no flow that {consumer.name} runs takes the "
+                "design of a converter."
+            )
+        return _converts_no_design(producer)
+    converts, writes = _writes_and_converts(conversion)
     return (
         f"`{producer.name}+{consumer.name}`: {producer.name} converts {converts} to {writes}, "
         f"and no flow that {consumer.name} runs reads {writes} without reading {converts} itself."
+    )
+
+
+def _own_refusal(
+    producer: type[Flow],
+    conversion: DesignConversion,
+    consumer: type[Flow],
+    consumer_conversion: DesignConversion | None,
+) -> str | None:
+    """Return why the converter `producer` (with its `conversion`) cannot supply the `design`
+    input of `consumer` itself, or None. `consumer_conversion` is the conversion of `consumer`."""
+    where = f"`{producer.name}` cannot supply `{consumer.name}.design`: "
+    reads = consumer.reads_sources or frozenset()
+    converts, writes = _writes_and_converts(conversion)
+    if consumer_conversion is not None:
+        return where + f"{consumer.name} converts the design itself, and a conversion is one hop."
+    if not conversion.produces <= reads:
+        return where + f"{producer.name} writes {writes}, and {consumer.name} does not read it."
+    if not conversion.transforms - reads:
+        return where + (
+            f"{consumer.name} reads {converts} itself, so converting it with {producer.name} "
+            "gains nothing."
+        )
+    return None
+
+
+def design_edge_refusal(
+    producer: type[Flow],
+    consumer: type[Flow],
+    *,
+    producer_settings: Flow.Settings | None = None,
+    consumer_settings: Flow.Settings | None = None,
+) -> str | None:
+    """Return why `producer` cannot supply the `design` input of `consumer`, or None.
+
+    This is the one rule of the design edge, for a chain link (`consumer` the end of the chain,
+    from the declarations under the default settings) and for an explicit binding of the input
+    (`flows.<consumer>.inputs.design: <producer>`). A binding that a chain would refuse for lack
+    of a conversion edge gets the text of the chain. The settings, when given, are the agreed
+    settings of the two flows, and the rule asks for their conversions.
+
+    A producer that declares no design output is judged by the fit of the outputs, not here.
+    Rules, in order: the producer is no converter; the chain `producer+consumer` has no converter
+    edge (the text of `_no_conversion`); the consumer itself cannot take it (it converts the
+    design itself, which makes a conversion two hops; it does not read what the converter writes;
+    it reads what the converter converts).
+
+    A converter whose conversion is None under the default settings may convert under others, so
+    the declarations accept it: its conversion, and the consumer's, are judged once the settings
+    agree (the settings arguments)."""
+    if not _has_design_output(producer):
+        return None
+    if not is_converter(producer):
+        return _converts_no_design(producer)
+    agreed = producer_settings is not None or consumer_settings is not None
+    if not agreed and not _binding_edges(default_graph(consumer), producer):
+        return _no_conversion(producer, consumer)
+    conversion = producer.design_conversion(
+        producer.Settings() if producer_settings is None else producer_settings
+    )
+    if conversion is None:
+        return _converts_no_design(producer) if agreed else None
+    return _own_refusal(
+        producer,
+        conversion,
+        consumer,
+        consumer.design_conversion(
+            consumer.Settings() if consumer_settings is None else consumer_settings
+        ),
     )
 
 
@@ -425,25 +540,31 @@ class DefaultGraph:
 def converter_edges(consumer: type[Flow]) -> list[DefaultEdge]:
     """Return the edges by which a converter flow can feed the `design` input of `consumer`.
 
-    A registered converter (a flow with a design output) has an edge when its static conversion
+    A registered converter (a flow that defines a conversion) has an edge when its static conversion
     (`Flow.design_conversion` under the default settings) writes only languages that `consumer`
     reads, and converts one that `consumer` cannot read. So there is no edge to a flow that reads
     the converted language itself (`bsc_sim`), or to a flow that reads none of the output
-    (`ghdl_sim`), and none to a converter: a conversion is one hop. The edges are in the
-    canonical order of the converter names. Declarations alone decide: no design is loaded."""
+    (`ghdl_sim`), and none to a converter: a conversion is one hop. A converter that converts
+    nothing under the default settings has an edge too (`default_conversion`): the declarations
+    cannot tell what it converts, so it never becomes a default producer, and the final check under
+    the agreed settings judges it. The edges are in the canonical order of the converter names.
+    Declarations alone decide: no design is loaded."""
     declaration = declared_inputs(consumer).get("design")
     reads = consumer.reads_sources
-    if declaration is None or not declaration.is_design or reads is None or _is_converter(consumer):
+    if (
+        declaration is None
+        or not declaration.is_design
+        or reads is None
+        or default_conversion(consumer) is not None
+    ):
         return []
     found: list[DefaultEdge] = []
     registered = tuple(sorted({cls for _module, cls in registered_flows.values()}, key=_name))
     for converter, output in _converters(registered):
-        conversion = converter.design_conversion(converter.Settings())
-        if (
-            conversion is not None
-            and conversion.produces <= reads
-            and conversion.transforms - reads
-        ):
+        if converter is consumer:
+            continue  # a converter reads the design as it is
+        conversion = default_conversion(converter)
+        if conversion is None or (conversion.produces <= reads and conversion.transforms - reads):
             found.append(DefaultEdge(consumer, declaration.name, converter, output))
     return found
 
@@ -454,7 +575,7 @@ def _converters(registered: tuple[type[Flow], ...]) -> tuple[tuple[type[Flow], s
     return tuple(
         (flow_class, made.name)
         for flow_class in registered
-        if _is_converter(flow_class)
+        if is_converter(flow_class)
         for made in declared_outputs(flow_class).values()
         if made.is_design
     )
@@ -476,15 +597,20 @@ def default_graph(consumer: type[Flow]) -> DefaultGraph:
 
     found: list[DefaultEdge] = []
     expanded = {consumer}
+    #: The flows that the walk reached as the converter of a `design` input.
+    converting: set[type[Flow]] = set()
     queue = deque([consumer])
     while queue:
         current = queue.popleft()
         for declaration in declared_inputs(current).values():
             if declaration.is_design:
-                for edge in converter_edges(current):
+                # A flow that converts the design of another reads its own design as it is: one
+                # hop. A converter that is reached as the producer of a file is no such flow.
+                for edge in [] if current in converting else converter_edges(current):
                     found.append(edge)
                     if edge.producer not in expanded:
                         expanded.add(edge.producer)
+                        converting.add(edge.producer)
                         queue.append(edge.producer)
                 continue
             if declaration.producer is None:
@@ -720,11 +846,11 @@ def fitting_outputs(
     is a pair of lists. The second holds the outputs of a fitting kind that cannot supply the
     input, because they are many-valued and the input takes one file.
 
-    The kind of value decides first: the design input fits a design output and nothing else, and
-    an input of files never fits a design output. An output of files fits when the types it can
-    make are nonempty and a subset of the types the input accepts (an output that may be of a
-    kind the input cannot take does not fit), and a many-valued output feeds only a many-valued
-    input. `output` restricts the question to one key. When several outputs fit and the default
+    The kind of value decides first: the design input fits the design output of a converter and
+    nothing else, and an input of files never fits a design output. An output of files fits when
+    the types it can make are nonempty and a subset of the types the input accepts (an output that
+    may be of a kind the input cannot take does not fit), and a many-valued output feeds only a
+    many-valued input. `output` restricts the question to one key. When several outputs fit and the default
     producer of the input is `producer`, the declared default output decides.
     """
     takes = tuple(declaration.types if accepted is None else accepted)
@@ -736,7 +862,8 @@ def fitting_outputs(
         if made.is_design != declaration.is_design:
             continue
         if declaration.is_design:
-            fitting.append(name)
+            if is_converter(producer):
+                fitting.append(name)
             continue
         produced = tuple((selected_output_types or {}).get(name, made.types))
         if not produced or not set(produced).issubset(takes):
