@@ -18,7 +18,7 @@ from click.testing import CliRunner
 from xeda.cli import cli
 from xeda.design import SourceType
 from xeda.flow import Flow, FlowSettingsException, In
-from xeda.flow.io import declared_inputs
+from xeda.flow.io import declared_inputs, forget_declarations
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.settings_layers import registered_flow
 from xeda.flows import VivadoPostsynthSim, VivadoPower
@@ -298,13 +298,18 @@ def test_without_the_declaration_the_resolver_accepts_the_mix(tmp_path, monkeypa
     bad = [f"{SIM}.netlist_timing=vivado_alt_synth.netlist_timing"]
     refusal(tmp_path, "vivado_postsynth_sim", *bad)
     inputs = VivadoPostsynthSim.Inputs
-    for name in ("netlist", "sdf"):
-        info = inputs.model_fields[name]
-        extra = dict(info.json_schema_extra["x-xeda-io"], same_producer_as=None)
-        monkeypatch.setitem(info.json_schema_extra, "x-xeda-io", extra)
     other = tmp_path / "other"
     other.mkdir()
-    mixed = plan(other, "vivado_postsynth_sim", *bad)
+    try:
+        with monkeypatch.context() as edited:
+            for name in ("netlist", "sdf"):
+                info = inputs.model_fields[name]
+                extra = dict(info.json_schema_extra["x-xeda-io"], same_producer_as=None)
+                edited.setitem(info.json_schema_extra, "x-xeda-io", extra)
+            forget_declarations()  # the declarations are kept per model
+            mixed = plan(other, "vivado_postsynth_sim", *bad)
+    finally:
+        forget_declarations()  # and the model is as it was again
     assert producers(mixed) == {"vivado_alt_synth", "vivado_synth", "vivado_postsynth_sim"}
 
 

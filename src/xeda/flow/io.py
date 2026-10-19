@@ -312,6 +312,14 @@ def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
     return {name: declaration for name, declaration in inputs.items() if not declaration.is_design}
 
 
+def forget_declarations() -> None:
+    """Drop the declarations that `declared_inputs` and `declared_outputs` keep. Only a change to
+    the field metadata of a model in place needs this; a test that makes one calls it twice, for
+    the change and for the undoing of it."""
+    _inputs_of_model.cache_clear()
+    _outputs_of_model.cache_clear()
+
+
 def declared_outputs(flow_cls: Any) -> dict[str, OutputDeclaration]:
     """Return the declared outputs of `flow_cls`, by name, in declaration order."""
     return dict(_outputs_of_model(flow_cls.Outputs))
