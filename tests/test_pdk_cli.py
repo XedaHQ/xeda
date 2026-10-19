@@ -24,6 +24,7 @@ from xeda.cli import cli
 from xeda.introspect import provider_status
 from xeda.platforms import Residue, load_residue, locate
 from xeda.platforms.providers import PROVIDERS
+from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.python_compat
 
@@ -40,7 +41,7 @@ def run_xeda(*args: str, home: Path) -> subprocess.CompletedProcess:
         env=env,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=HANG_GUARD,
     )
 
 
@@ -654,7 +655,7 @@ def test_the_default_root_follows_home_and_not_a_variable_of_xeda(home, store):
         env=env,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=HANG_GUARD,
     )
     assert proc.returncode != 0
     assert document(proc)["error"]["type"] == "PdkNotInstalled"
@@ -1305,7 +1306,7 @@ def test_the_tool_output_of_a_json_install_stays_off_stdout(home, tmp_path):
         env=env,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=HANG_GUARD,
     )
     assert proc.returncode == 1
     assert document(proc)["success"] is False

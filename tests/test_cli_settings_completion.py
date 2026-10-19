@@ -27,6 +27,7 @@ from xeda.cli_settings_completion import (
 from xeda.flow_catalog import _builtin_flows
 
 from .test_cli_completion import _require_shell
+from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.python_compat
 
@@ -328,7 +329,7 @@ def test_bash_raw_line_recovers_a_value_split_at_equals(tmp_path) -> None:
         env=env,
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=HANG_GUARD,
         check=False,
     )
     assert result.returncode == 0, result.stderr
@@ -387,7 +388,7 @@ print(json.dumps([name for name in heavy if name in sys.modules]))
         env=env,
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=HANG_GUARD,
         check=False,
     )
     assert result.returncode == 0, result.stderr

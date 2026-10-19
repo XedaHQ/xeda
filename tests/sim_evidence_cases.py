@@ -22,6 +22,7 @@ from xeda.tool import Tool
 
 from .settings_samples import minimal_settings
 from .tool_utils import fake_calls, use_fake_tools
+from .tool_utils import HANG_GUARD
 
 
 @dataclass(frozen=True)
@@ -211,7 +212,7 @@ def launch_case(
                 f"source {{{script}}}\n"
                 "close $xeda_channel\n"
             )
-            if subprocess.run(["tclsh", str(model)], cwd=cwd, timeout=10).returncode:
+            if subprocess.run(["tclsh", str(model)], cwd=cwd, timeout=HANG_GUARD).returncode:
                 return 1
             (cwd / "fake_xsim.runtime").write_text("runtime executed")
             (cwd / "oracle.runtime").write_text("runtime executed")

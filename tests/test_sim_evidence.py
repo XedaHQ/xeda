@@ -629,22 +629,26 @@ def test_normalized_native_writer_refuses_links_and_retains_events(tmp_path, lan
     subprocess.run(
         [compiler, "-Wall", "-Werror", "-I", str(header.parent), str(src), "-o", str(binary)],
         check=True,
-        timeout=30,
+        timeout=HANG_GUARD,
     )
     canary = tmp_path / "canary"
     canary.write_text("untouched")
     record, events = tmp_path / "end.json", tmp_path / "events.jsonl"
     temporary = tmp_path / "end.json.tmp"
     temporary.symlink_to(canary)
-    result = subprocess.run([str(binary), str(record), str(events)], timeout=10)
+    result = subprocess.run([str(binary), str(record), str(events)], timeout=HANG_GUARD)
     assert result.returncode != 0 and canary.read_text() == "untouched"
     temporary.unlink()
     events.unlink()
     events.symlink_to(canary)
-    assert subprocess.run([str(binary), str(record), str(events)], timeout=10).returncode != 0
+    assert (
+        subprocess.run([str(binary), str(record), str(events)], timeout=HANG_GUARD).returncode != 0
+    )
     assert canary.read_text() == "untouched"
     events.unlink()
-    assert subprocess.run([str(binary), str(record), str(events)], timeout=10).returncode == 0
+    assert (
+        subprocess.run([str(binary), str(record), str(events)], timeout=HANG_GUARD).returncode == 0
+    )
     assert json.loads(record.read_text()) == {"ended_by": "finish"}
     assert json.loads(events.read_text()) == {"kind": "warning"}
 
@@ -662,6 +666,7 @@ def test_behavioral_manifest_covers_registry_and_backend_literal():
 
 
 from .sim_evidence_cases import CASES
+from .tool_utils import HANG_GUARD
 
 
 def test_a_new_unadapted_simulator_cannot_pass_on_silent_exit_zero(tmp_path):

@@ -15,6 +15,7 @@ import pytest
 import yaml
 
 from .sharding import parse_shard, shard_of
+from .tool_utils import HANG_GUARD
 
 ROOT = Path(__file__).parent.parent
 
@@ -84,7 +85,7 @@ def collected(*arguments: str) -> list[str]:
         env=environment,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=HANG_GUARD,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     return [line for line in result.stdout.splitlines() if "::" in line]
@@ -107,7 +108,7 @@ def test_a_malformed_shard_is_a_usage_error():
         env=dict(environment, PYTHONDONTWRITEBYTECODE="1"),
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=HANG_GUARD,
     )
     assert result.returncode == 4
     assert "K/N" in result.stderr

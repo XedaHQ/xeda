@@ -24,6 +24,7 @@ from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS, process_parameters
 
 from .tool_utils import require_tclsh
 from .yosys_format import force_script_format, forced_script_format
+from .tool_utils import HANG_GUARD
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -511,7 +512,7 @@ def test_the_tcl_script_hands_yosys_each_rtl_command_and_stops_where_it_should(
     harness = tmp_path / "harness.tcl"
     harness.write_text(TCL_HARNESS)
     result = subprocess.run(
-        ["tclsh", str(harness), str(script)], capture_output=True, text=True, timeout=60
+        ["tclsh", str(harness), str(script)], capture_output=True, text=True, timeout=HANG_GUARD
     )
     assert result.returncode == 0, f"{result.stderr}\n{script.read_text()}"
     calls = [

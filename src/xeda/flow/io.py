@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from types import UnionType
 from typing import Any, Union, get_args, get_origin
@@ -268,7 +269,15 @@ def _design_value(marker: dict[str, Any]) -> str:
 
 def _input_declarations(flow_cls: Any) -> dict[str, InputDeclaration]:
     """Return all declared inputs of `flow_cls`, including a hidden base design input."""
-    model = flow_cls.Inputs
+    return dict(_inputs_of_model(flow_cls.Inputs))
+
+
+@cache
+def _inputs_of_model(model: type[BaseModel]) -> dict[str, InputDeclaration]:
+    """The declarations of one `Inputs` model. Planning asks for them again and again, and the
+    fields of a model never change after the class is defined: keyed by the model, not by the
+    flow, so a flow that gets another model gets its own declarations. Callers get a copy of
+    the dict (`_input_declarations`); the declarations are frozen."""
     return {
         name: InputDeclaration(
             name=name,
@@ -305,7 +314,12 @@ def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
 
 def declared_outputs(flow_cls: Any) -> dict[str, OutputDeclaration]:
     """Return the declared outputs of `flow_cls`, by name, in declaration order."""
-    model = flow_cls.Outputs
+    return dict(_outputs_of_model(flow_cls.Outputs))
+
+
+@cache
+def _outputs_of_model(model: type[BaseModel]) -> dict[str, OutputDeclaration]:
+    """The declarations of one `Outputs` model (see `_inputs_of_model`)."""
     return {
         name: OutputDeclaration(
             name=name,

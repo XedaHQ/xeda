@@ -20,6 +20,7 @@ from xeda.cli import cli
 from xeda.console import console
 from xeda.flow_runner.default_runner import scrub_runs
 from xeda.run_root import ensure_run_root
+from .tool_utils import HANG_GUARD
 
 TESTS_DIR = Path(__file__).parent.absolute()
 
@@ -124,7 +125,7 @@ def _run_xeda(*args: str, cwd=None, input_text: str = "yes\n") -> subprocess.Com
         input=input_text,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=HANG_GUARD,
     )
 
 

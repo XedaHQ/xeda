@@ -13,6 +13,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoPostsynthSim
 
 from .test_tool_input_equivalence import REQUESTS, launch, write_vivado_design
+from .tool_utils import HANG_GUARD
 
 
 @pytest.mark.parametrize("saif", [None, Path("chosen.saif")])
@@ -123,7 +124,7 @@ def test_removed_synth_reports_its_replacement_from_every_origin(tmp_path, origi
             command.extend(["--xedaproject", str(project)])
         else:
             command.extend(["-s", "flows.vivado_postsynth_sim.synth.write_checkpoint=true"])
-        proc = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        proc = subprocess.run(command, capture_output=True, text=True, timeout=HANG_GUARD)
         document = json.loads(proc.stdout)
         assert proc.returncode != 0 and not document["success"]
         message = document["error"]["message"]

@@ -18,6 +18,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoPower
 
 from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
+from .tool_utils import HANG_GUARD
 
 REMOVED = {
     "postsynthsim": ({}, "flows.vivado_postsynth_sim.<key>"),
@@ -104,7 +105,7 @@ def test_removed_power_setting_names_its_replacement_from_every_origin(tmp_path,
         else:
             value = "{}" if name == "postsynthsim" else str(given).lower()
             command.extend(["-s", f"flows.vivado_power.{name}={value}"])
-        proc = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        proc = subprocess.run(command, capture_output=True, text=True, timeout=HANG_GUARD)
         document = json.loads(proc.stdout)
         assert proc.returncode != 0 and not document["success"]
         message = document["error"]["message"]

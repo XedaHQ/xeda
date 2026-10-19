@@ -30,6 +30,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import FpgaPack
 
 from . import tool_utils
+from .tool_utils import HANG_GUARD
 
 PART = "xc7a100tcsg324-1"
 FABRIC = "xc7a100t"  # the die of the part, and the name of its chip database
@@ -303,7 +304,7 @@ def test_the_tree_snapshot_sees_what_a_child_process_writes(tmp_path):
         "(root / 'gen/__pycache__/tool.pyc').write_bytes(b'bytecode')\n"
         "(root / 'gen/tool.py').write_text('x = 2\\n')\n"
     )
-    subprocess.run([sys.executable, "-c", script, str(tree)], check=True, timeout=60)
+    subprocess.run([sys.executable, "-c", script, str(tree)], check=True, timeout=HANG_GUARD)
     after = _tree_state(tree)
     assert {name for name in after if before.get(name) != after[name]} == {
         "gen/__pycache__",

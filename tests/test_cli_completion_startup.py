@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 import pytest
+from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.python_compat
 
@@ -46,7 +47,7 @@ def _complete(shell, words, *, cwd=None):
         capture_output=True,
         text=True,
         check=False,
-        timeout=30,
+        timeout=HANG_GUARD,
     )
     assert result.returncode == 0, result.stderr
     assert result.stderr == ""
@@ -76,7 +77,7 @@ def _normal_cli(*args):
         capture_output=True,
         text=True,
         check=False,
-        timeout=30,
+        timeout=HANG_GUARD,
     )
 
 
@@ -121,7 +122,7 @@ def _completion_and_modules_seen(shell, words, tmp_path):
         capture_output=True,
         text=True,
         check=False,
-        timeout=30,
+        timeout=HANG_GUARD,
     )
     assert result.returncode == 0, result.stderr
     assert result.stderr == ""
@@ -212,7 +213,7 @@ def test_opaque_setting_context_completion_does_not_load_flow_implementations(tm
         capture_output=True,
         text=True,
         check=False,
-        timeout=30,
+        timeout=HANG_GUARD,
     )
 
     assert result.returncode == 0, result.stderr

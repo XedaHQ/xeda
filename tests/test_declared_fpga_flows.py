@@ -24,6 +24,7 @@ from xeda.units import Time
 from .project_files import PROJECT_FILE
 from .settings_samples import flow_classes, minimal_settings
 from .tool_utils import producers_of
+from .tool_utils import HANG_GUARD
 
 PART = "LFE5U-25F-6BG381C"
 OTHER_PART = "LFE5U-85F-6BG381C"
@@ -542,7 +543,7 @@ def test_two_unchanged_cli_processes_reuse_both_recorded_flows(tmp_path):
             env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=HANG_GUARD,
         )
         assert result.returncode == 0, result.stderr
         documents.append(json.loads(result.stdout))
@@ -564,7 +565,7 @@ def test_cli_device_conflict_names_both_files_and_override_wins(tmp_path, cli_le
     command = [sys.executable, "-c", _CLI_STANDINS, "run", "nextpnr", str(spec), "--json"]
     env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
     refused = subprocess.run(
-        command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60
+        command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=HANG_GUARD
     )
     assert refused.returncode != 0
     message = json.loads(refused.stdout)["error"]["message"]
@@ -577,7 +578,7 @@ def test_cli_device_conflict_names_both_files_and_override_wins(tmp_path, cli_le
         env=env,
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=HANG_GUARD,
     )
     assert ran.returncode == 0, ran.stderr
     document = json.loads(ran.stdout)

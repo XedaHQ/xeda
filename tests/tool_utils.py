@@ -28,6 +28,7 @@ from typing import Any, List, NamedTuple, Optional, Sequence, Tuple
 import pytest
 
 __all__ = [
+    "HANG_GUARD",
     "OPENROAD_COMMANDS",
     "fake_calls",
     "fake_returns",
@@ -65,6 +66,12 @@ __all__ = [
     "run_outputs_state",
     "run_report",
 ]
+
+
+#: The timeout, in seconds, of a test's subprocess that is no test of a timeout. It guards against
+#: a hang: a child that is CPU-bound (it imports Xeda, or builds a design) is several times slower
+#: on a busy runner, and the test must not fail for that.
+HANG_GUARD = 300
 
 
 def run_report(flow: Any, captured: Any, tail: int = 4000) -> str:

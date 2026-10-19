@@ -13,6 +13,7 @@ from xeda.flows.bsc import BscSim
 from xeda.utils import WorkingDirectory
 
 from .tool_utils import require_bluesim_evidence
+from .tool_utils import HANG_GUARD
 
 
 def bsv_design(work, body):
@@ -562,15 +563,15 @@ def test_iverilog_builtin_registration_capability(tmp_path, task):
             + task
             + '; $display("AFTER_TASK"); end endmodule\n'
         )
-        subprocess.run(["iverilog", "-o", "probe.vvp", source], check=True, timeout=30)
+        subprocess.run(["iverilog", "-o", "probe.vvp", source], check=True, timeout=HANG_GUARD)
         native = subprocess.run(
-            ["vvp", "-n", "probe.vvp"], capture_output=True, text=True, timeout=10
+            ["vvp", "-n", "probe.vvp"], capture_output=True, text=True, timeout=HANG_GUARD
         )
         hooked = subprocess.run(
             ["vvp", "-n", "-m", "./iverilog_evidence.vpi", "probe.vvp"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=HANG_GUARD,
             env={**os.environ, "XEDA_END_RECORD": "xeda_end.json"},
         )
         assert hooked.returncode == native.returncode == 0
@@ -589,11 +590,11 @@ def test_iverilog_builtin_registration_capability(tmp_path, task):
         Path("xeda_end.json").unlink()
         Path("xeda_end.json.tmp").unlink(missing_ok=True)
         source.write_text("`timescale 1ns/1ps\nmodule probe; initial #5; endmodule\n")
-        subprocess.run(["iverilog", "-o", "probe.vvp", source], check=True, timeout=30)
+        subprocess.run(["iverilog", "-o", "probe.vvp", source], check=True, timeout=HANG_GUARD)
         drained = subprocess.run(
             ["vvp", "-n", "-m", "./iverilog_evidence.vpi", "probe.vvp"],
             capture_output=True,
-            timeout=10,
+            timeout=HANG_GUARD,
             env={**os.environ, "XEDA_END_RECORD": "xeda_end.json"},
         )
         assert drained.returncode == 0

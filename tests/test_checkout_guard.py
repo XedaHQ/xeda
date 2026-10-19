@@ -18,6 +18,7 @@ import pytest
 
 from . import conftest as guard
 from . import sharding
+from .tool_utils import HANG_GUARD
 
 #: Files that a checkout has when the session starts, in places that the guard watches.
 EXISTING = {
@@ -287,7 +288,7 @@ def pytest_session(tmp_path: Path, conftest: str, module: str) -> subprocess.Com
         env=environment,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=HANG_GUARD,
     )
 
 

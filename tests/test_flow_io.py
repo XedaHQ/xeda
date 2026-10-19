@@ -76,6 +76,28 @@ def test_the_declarations_are_read_from_the_nested_models():
     assert declared_inputs(_Place)["netlist"].producer == "__synth"
 
 
+def test_the_declarations_are_kept_per_model_and_a_caller_cannot_change_them():
+    """Planning asks for the declarations thousands of times, so they are built once per
+    `Inputs` or `Outputs` model. A result is the caller's own dict, and a flow that gets another
+    model gets the declarations of that model."""
+    for declare in (declared_inputs, declared_outputs):
+        for flow in (_Maker, _Taker, _Place):
+            first = declare(flow)
+            before = dict(first)
+            first.clear()
+            first["other"] = None
+            assert declare(flow) == before
+
+    class Other(_Maker):
+        class Outputs(_Maker.Outputs):
+            extra: Path | None = Out(SourceType.Data, description="Another file.")
+
+    assert list(declared_outputs(Other)) == ["made", "extra"]
+    assert list(declared_outputs(_Maker)) == ["made"]
+    Other.Outputs = _Maker.Outputs
+    assert list(declared_outputs(Other)) == ["made"]
+
+
 def test_a_flow_with_no_declaration_declares_nothing():
     assert declared_outputs(_Maker) and declared_inputs(_Taker) and declared_inputs(_Place)
     assert not declared_inputs(_ChainUndeclared) and not declared_outputs(_ChainUndeclared)
