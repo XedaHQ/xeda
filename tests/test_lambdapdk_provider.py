@@ -336,6 +336,18 @@ def test_a_complete_residue_needs_files_for_the_provider_that_is_its_default(tmp
     assert complete_file(tmp_path, default="directory", top=top).providers.default == "directory"
 
 
+def test_a_view_stays_valid_when_it_is_validated_again_or_a_field_changes():
+    """The default provider of the view of lambdapdk is ciel. Validating the view again, or
+    assigning a field of it, judges its layout and selects no other provider."""
+    seen = view()
+    assert seen.providers.default == "ciel"
+    seen.description = "another line"
+    assert seen.description == "another line"
+    again = Residue.model_validate(seen)
+    assert again.files.liberty == seen.files.liberty
+    assert again.for_provider("lambdapdk").resolve_corner(None) == "tt_025C_1v80"
+
+
 def test_every_call_of_effective_residue_in_the_package_names_a_provider():
     """The residue of a platform depends on the provider that serves it. A call that leaves the
     provider out would read the layout of the default provider for every provider."""

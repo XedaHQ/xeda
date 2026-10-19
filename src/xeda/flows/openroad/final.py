@@ -103,18 +103,29 @@ LEF_FILES_ELEMENT = re.compile(
 )
 
 
+#: A comment or a CDATA section of an XML text. Text inside is no element.
+XML_VERBATIM = re.compile(r"<!--.*?-->|<!\[CDATA\[.*?\]\]>", re.DOTALL)
+
+
 def klayout_tech_with_lef_files(text: str, lefs: Sequence[Path]) -> Optional[str]:
     """Return the text of a KLayout technology file with one list of LEF files.
 
     The function removes every `<lef-files>` element (an element may span lines) and writes the
     list once, where the first element was. A text with a `<lefdef>` section and no element gets
-    the list at the end of the section. Each path is escaped as XML text. Return `None` if the
-    text has neither an element nor a `<lefdef>` section."""
+    the list at the end of the section. Each path is escaped as XML text. A comment or a CDATA
+    section is left as it is: it holds no element. Return `None` if the text has neither an
+    element nor a `<lefdef>` section."""
     elements = "".join(f"<lef-files>{xml_escape(str(lef))}</lef-files>" for lef in lefs)
-    found = list(LEF_FILES_ELEMENT.finditer(text))
+    # Blank out the comments and the CDATA sections with a character that no pattern below matches,
+    # so that the search sees only real markup. The blanked text has the same length, so a position
+    # in it is a position in the text.
+    markup = XML_VERBATIM.sub(lambda match: "\0" * len(match.group()), text)
+    found = list(LEF_FILES_ELEMENT.finditer(markup))
     if not found:
-        listed, count = re.subn(r"</lefdef>", lambda _: f"{elements}</lefdef>", text, count=1)
-        return listed if count else None
+        closing = markup.find("</lefdef>")
+        if closing < 0:
+            return None
+        return f"{text[:closing]}{elements}{text[closing:]}"
     parts: list[str] = []
     end = 0
     for number, match in enumerate(found):

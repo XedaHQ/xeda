@@ -385,6 +385,10 @@ class Residue(XedaBaseModel):
             raise ValueError(
                 f"providers.default is `{provider}`, but `providers.{provider}` is missing"
             )
+        if self._view_of is not None:
+            # A view holds the layout of one provider at the top level, whatever its default is.
+            self._check_layout()
+            return
         for name in dict.fromkeys([provider, *self._providers_with_a_layout()]):
             try:
                 view = self.for_provider(name)

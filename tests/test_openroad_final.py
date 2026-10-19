@@ -2385,6 +2385,39 @@ def test_the_list_of_lef_files_replaces_every_element_with_one_list(text, expect
     assert klayout_tech_with_lef_files(text, LEFS) == expected
 
 
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # a commented example before the real list
+        (
+            "<t>\n <!-- e.g. <lef-files>example.lef</lef-files> -->\n <lefdef>\n"
+            "  <lef-files>actual.lef</lef-files>\n </lefdef>\n</t>\n",
+            f"<t>\n <!-- e.g. <lef-files>example.lef</lef-files> -->\n <lefdef>\n"
+            f"  {LISTED}\n </lefdef>\n</t>\n",
+        ),
+        # a CDATA section that holds the text of an element
+        (
+            "<t><![CDATA[<lef-files>x</lef-files>]]><lefdef><lef-files>y</lef-files></lefdef></t>",
+            f"<t><![CDATA[<lef-files>x</lef-files>]]><lefdef>{LISTED}</lefdef></t>",
+        ),
+        # a comment that opens a fragment before the real element, and a comment after a gap
+        (
+            "<lefdef><!-- <lef-files> -->  <lef-files>y</lef-files></lefdef>",
+            f"<lefdef><!-- <lef-files> -->  {LISTED}</lefdef>",
+        ),
+        # a commented closing tag before the real one of a section without a list
+        (
+            "<lefdef>\n <!-- </lefdef> -->\n</lefdef>\n",
+            f"<lefdef>\n <!-- </lefdef> -->\n{LISTED}</lefdef>\n",
+        ),
+    ],
+)
+def test_a_comment_or_a_cdata_section_is_no_element_and_stays_as_it_is(text, expected):
+    from xeda.flows.openroad.final import klayout_tech_with_lef_files
+
+    assert klayout_tech_with_lef_files(text, LEFS) == expected
+
+
 def test_a_text_with_neither_an_element_nor_a_section_gets_no_list():
     from xeda.flows.openroad.final import klayout_tech_with_lef_files
 
