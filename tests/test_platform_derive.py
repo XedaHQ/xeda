@@ -689,6 +689,8 @@ def test_a_unit_stated_only_in_an_included_file_is_seen(tmp_path: Path) -> None:
     top = tmp_path / "top.lib"
     top.write_text(
         f"library (t) {{\n  include_file({tmp_path / 'units.lib'});\n"
+        # a space before the parenthesis or before the semicolon is no part of the name; a space just
+        # inside the parentheses is
         f"  include_file ({tmp_path / 'cell.lib'}) ;\n}}\n"
     )
     summary = read_liberty_summary(top)
@@ -878,3 +880,32 @@ def test_a_compressed_file_has_its_include_names_renamed(tmp_path: Path) -> None
     text = liberty_text_with_includes_renamed(top, lambda included: f"/remote/{included.name}")
     assert text.count("include_file(/remote/units.lib);") == 1
     assert str(tmp_path) in text, "the include in the comment stays as it is"
+
+
+def test_an_escaped_quote_does_not_end_a_string_in_any_scan(tmp_path: Path) -> None:
+    """One rule for strings: a backslash escapes the next character. The statement splitter, the
+    comment scan and the include scan agree on a string that holds `\\"`, `;`, `/*` and
+    `include_file(...)`."""
+    from xeda.platforms.derive import liberty_included_files
+
+    top = tmp_path / "top.lib"
+    top.write_text(
+        'library (t) {\n  comment : "a \\" ; /* include_file(/gone.lib); b";\n'
+        '  time_unit : "1ns";\n  cell (C) { area : 1; }\n}\n'
+    )
+    summary = read_liberty_summary(top)
+    assert summary.time_unit == "1ns" and list(summary.cells) == ["C"]
+    assert liberty_included_files(top) == []
+
+
+def test_the_rewrite_scan_passes_over_a_string_with_an_escaped_quote(tmp_path: Path) -> None:
+    from xeda.platforms.derive import liberty_text_with_includes_renamed
+
+    top = tmp_path / "top.lib"
+    top.write_text(
+        'library (t) {\n  comment : "a \\" include_file(/fake.lib); b";\n'
+        "  include_file(/real.lib);\n}\n"
+    )
+    text = liberty_text_with_includes_renamed(top, lambda included: f"/remote/{included.name}")
+    assert 'include_file(/fake.lib); b"' in text
+    assert text.count("include_file(/remote/real.lib);") == 1

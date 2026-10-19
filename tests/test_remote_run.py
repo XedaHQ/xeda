@@ -2194,6 +2194,8 @@ def test_the_files_a_liberty_file_includes_travel_with_it(tmp_path, remote_host,
 
     store_home = tmp_path / "store_home"
     store = tiny_store(store_home, ".ciel")
+    # the default PDK store is under HOME, for this side's plan and for the worker, which inherits
+    # the environment
     monkeypatch.setenv("HOME", str(store_home))
     parts = tmp_path / "libs" / "parts"
     parts.mkdir(parents=True)
@@ -2213,6 +2215,9 @@ def test_the_files_a_liberty_file_includes_travel_with_it(tmp_path, remote_host,
     settings = [
         f"platform_file={TINY_OPENROAD_RESIDUE}",
         f"liberty={library}",
+        # the section of a flow that is not in the plan lists the same file, which then also
+        # travels as a plain path setting
+        f"flows.yosys.liberty={library}",
         "clock.period=2ns",
     ]
     expected = (

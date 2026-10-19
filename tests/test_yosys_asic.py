@@ -1076,3 +1076,46 @@ def test_real_yosys_uses_the_cells_of_every_liberty_file(tmp_path):
     assert script.count("read_liberty") == 2
     (dfflibmap,) = [line for line in script.splitlines() if line.startswith("dfflibmap ")]
     assert dfflibmap.count("-liberty") == 2
+
+
+def test_a_liberty_file_that_includes_another_is_refused_before_yosys_starts(tmp_path, monkeypatch):
+    """The Liberty reader of yosys does not read `include_file`, so the flow refuses it, in the
+    launch and in the dry run, for the files of `liberty`, for the files of a platform and for
+    `sequential.dff_liberty`. It refuses before the script of yosys is written."""
+    from xeda.flow import FlowException
+    from .tool_utils import use_fake_asic_tools
+
+    use_fake_asic_tools(monkeypatch, tmp_path / "bin")
+    design = _design(tmp_path / "design")
+    units = tmp_path / "units.lib"
+    units.write_text('time_unit : "1ns";\n')
+    own = tmp_path / "own.lib"
+    own.write_text(f"library (t) {{ include_file({units}); }}\n")
+    clean = tmp_path / "clean.lib"
+    shutil.copy(TINY / "tiny.lib", clean)
+    store_settings = _tiny(tmp_path)
+    platform_lib = tmp_path / "store" / "tiny" / "tiny.lib"
+    platform_lib.write_text(
+        platform_lib.read_text().replace('  time_unit : "1ns";\n', f"  include_file({units});\n")
+    )
+    cases = {
+        "liberty": ({"liberty": [str(own)], "clock": {"period": "2 ns"}}, str(own)),
+        "dff_liberty": (
+            {
+                "liberty": [str(clean)],
+                "sequential": {"dff_liberty": str(own)},
+                "clock": {"period": "2 ns"},
+            },
+            str(own),
+        ),
+        "platform": (store_settings, "tiny.lib"),
+    }
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    for name, (settings, named) in cases.items():
+        with pytest.raises(FlowException, match="Liberty reader of yosys does not read") as refused:
+            runner.launch_flow(Yosys, design, settings)
+        assert named in str(refused.value), name
+        assert not list((tmp_path / "xeda_run").glob("mac/yosys*/yosys_synth.ys")), name
+        _plan, states = runner.plan_with_freshness("yosys", design, flow_settings=settings)
+        assert states["yosys"].state == "unknown", name
+        assert "Liberty reader of yosys" in states["yosys"].reason, name

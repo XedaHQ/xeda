@@ -1498,8 +1498,9 @@ the defaults that this section describes. Set ``platform`` to a bundled platform
 ``yosys`` has two netlist outputs. A run that writes the Verilog netlist (``netlist_verilog``)
 writes exactly one of them. ``netlist`` (type ``VerilogNetlist``) is written when the run maps to a
 Liberty library: ``liberty``, ``platform`` or ``platform_file`` is set, and ``gates`` and ``lut``
-are not. ``netlist_generic`` (type ``GenericVerilogNetlist``) is written in all other cases:
-``gates``, ``lut``, ``nosynth``, or no platform and no ``liberty``. ``results.json`` records the
+are not. A Liberty mapping with ``nosynth`` is refused. ``netlist_generic`` (type
+``GenericVerilogNetlist``) is written in all other cases: ``gates``, ``lut``, ``nosynth``, or no
+platform and no ``liberty``. ``results.json`` records the
 netlist of a run under ``outputs.netlist`` or ``outputs.netlist_generic``, whichever the run
 wrote. The ``netlist_verilog`` setting and the delivered file are the same for both.
 ``openroad_place`` takes only ``netlist``, because a netlist of the cells of Yosys has no Liberty

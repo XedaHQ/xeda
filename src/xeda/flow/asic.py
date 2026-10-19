@@ -266,7 +266,7 @@ class AsicPlatformSettings(Flow.Settings):
             raise FlowSettingsException(str(error)) from None
 
     @staticmethod
-    def _included_by(liberty: Path) -> List[Path]:
+    def included_by(liberty: Path) -> List[Path]:
         """Return the files that the Liberty file `liberty` includes (`include_file(...)`), which
         the derivation and the time-unit check read through. A file that is not there gives none:
         the check that needs it reports it. Raise `FlowSettingsException` for an include that the
@@ -300,7 +300,7 @@ class AsicPlatformSettings(Flow.Settings):
             listed.update(dict.fromkeys(located.files.get(role, [])))
         listed.update(dict.fromkeys(located.upstream_files))
         for liberty in (*located.files.get("liberty", []), *self.liberty_files()):
-            listed.update(dict.fromkeys(self._included_by(liberty)))
+            listed.update(dict.fromkeys(self.included_by(liberty)))
         user = self.user_platform_file()
         if user is not None:
             listed.setdefault(user)

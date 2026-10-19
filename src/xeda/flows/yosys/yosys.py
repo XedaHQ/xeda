@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
-from typing import Callable, ClassVar, Dict, List, Literal, Optional, Tuple
+from typing import Callable, ClassVar, Dict, List, Literal, Mapping, Optional, Tuple
 
 from ...dataclass import Field
 from ...design import SourceType
@@ -17,6 +17,7 @@ from ...flow import (
     describe_results,
 )
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
+from ...flow.flow import FlowSettingsException
 from ...flow.settings_group import SettingsGroup, render_flags
 from ...tool import NonZeroExitCode
 from ...utils import replacing_copy, replacing_file, tcl_word
@@ -382,12 +383,13 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             None,
             description="Map to this generic gate set instead of a liberty library, e.g. "
             '["AND", "OR", "NOT"]. Accepts a comma-separated string. Refused together with '
-            "`platform` or `platform_file`.",
+            "`platform`, `platform_file` or `liberty`.",
         )
         lut: Optional[str] = Field(
             None,
             description='Map to LUTs of this size instead of standard cells, e.g. "4" or a '
-            '"<width>:<cost>" pair. Refused together with `platform` or `platform_file`.',
+            '"<width>:<cost>" pair. Refused together with `platform`, `platform_file` or '
+            "`liberty`.",
         )
         stop_after: Optional[Literal["rtl"]] = Field(None, description=STOP_AFTER_DESCRIPTION)
         hierarchy: HierarchyGroup = Field(
@@ -695,15 +697,49 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         """Build the platform model, when abc maps to the liberty library of a platform."""
         super().prepare_inputs()
         assert isinstance(self.settings, self.Settings)
-        if self.settings.uses_platform():
-            self.prepare_platform(PLATFORM_ROLES)
+        model = self.prepare_platform(PLATFORM_ROLES) if self.settings.uses_platform() else None
+        self._refuse_liberty_includes(None if model is None else model.files)
+
+    def _liberty_files_read(self, platform_files: Optional[Mapping[str, List[Path]]]) -> List[Path]:
+        """Return the Liberty files that the mapping reads: those of `liberty`, else those of the
+        platform (`platform_files`, by role), and `sequential.dff_liberty`."""
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        files = ss.liberty_files() or list((platform_files or {}).get("liberty", []))
+        dff = ss.sequential.dff_liberty
+        if dff is not None and ss.maps_to_liberty():
+            files.append(self.normalize_path_to_design_root(dff))
+        return files
+
+    def _refuse_liberty_includes(self, platform_files: Optional[Mapping[str, List[Path]]]) -> None:
+        """Refuse a Liberty file that includes another with `include_file(...)`.
+
+        The Liberty reader of yosys does not read `include_file`, and it stops with a syntax
+        error at the statement. So the flow refuses it before it starts yosys, in the launch and
+        in the dry run (`locate_prepared_inputs`)."""
+        assert isinstance(self.settings, self.Settings)
+        for liberty in self._liberty_files_read(platform_files):
+            included = self.settings.included_by(liberty)
+            if included:
+                raise FlowSettingsException(
+                    f"the Liberty file {liberty} includes {included[0]} with `include_file`, which "
+                    "the Liberty reader of yosys does not read. Put the text of the included "
+                    "files in the Liberty file"
+                )
 
     def locate_prepared_inputs(self) -> Optional[List[Path]]:
-        """Return the ABC script file, then the files of the platform that `prepare_inputs` reads."""
+        """Return the ABC script file, then the files of the platform that `prepare_inputs` reads.
+
+        It refuses what `prepare_inputs` refuses (`_refuse_liberty_includes`)."""
         assert isinstance(self.settings, self.Settings)
         located = super().locate_prepared_inputs()
-        if located is not None and self.settings.uses_platform():
+        if located is None:
+            return None
+        platform_files = None
+        if self.settings.uses_platform():
             located = [*located, *self.locate_platform_inputs(PLATFORM_ROLES)]
+            platform_files = self.settings.locate_platform().files
+        self._refuse_liberty_includes(platform_files)
         return located
 
     def _derive_from_platform(self) -> None:

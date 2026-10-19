@@ -518,7 +518,7 @@ def send_design(
 
             def place(local: Path) -> Path:
                 digest = hashlib.sha256(str(local.resolve()).encode()).hexdigest()[:16]
-                return Path("_setting_inputs") / digest / local.name
+                return Path("_liberty_inputs") / digest / local.name
 
             def remote_name(local: Path) -> str:
                 return str(remote_physical_root() / place(local).as_posix())
@@ -527,7 +527,7 @@ def send_design(
             for local in (path, *included):
                 try:
                     if local.suffix.lower() == ".gz" and not liberty_included_files(local):
-                        archive_entries.setdefault(place(local), local)  # nothing to rename
+                        archive_entries[place(local)] = local  # nothing to rename
                         continue
                     text = liberty_text_with_includes_renamed(local, lambda inc: remote_name(inc))
                 except ValueError as error:
@@ -540,9 +540,9 @@ def send_design(
                     with gzip.open(copy, "wt", encoding="utf-8") as stream:
                         stream.write(text)
                 else:
-                    with open(copy, "w") as f:
+                    with open(copy, "w", encoding="utf-8") as f:
                         f.write(text)
-                archive_entries.setdefault(place(local), copy)
+                archive_entries[place(local)] = copy
             if path_identities is not None:
                 roots = location_roots(design.root_path, Path.cwd())
                 path_identities[str(Path(remote_path) / place(path))] = str(

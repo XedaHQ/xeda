@@ -345,13 +345,16 @@ class LibertySummary:
     capacitive_load_unit: Optional[str] = None
 
 
+#: A quoted string as OpenSTA lexes it: a backslash escapes the next character, so `\"` does not end
+#: the string. Every scan of Liberty text uses this one rule.
+_QUOTED = r'"(?:[^"\\]|\\.)*+"'
 # One statement or group header of Liberty: the text up to the next `{`, `}` or `;` outside a
 # quoted string. Possessive quantifiers keep the match linear.
-_STATEMENT = re.compile(r'(?:[^{};"]++|"[^"]*+")*+[{};]')
+_STATEMENT = re.compile(rf"(?:[^{{}};\"]++|{_QUOTED})*+[{{}};]", re.DOTALL)
 #: A quoted string, a block comment, or a line comment (`//`, which yosys reads as a comment). A
 #: scan for comments passes over the strings, as OpenSTA does, so that `"/*"` in a string starts no
 #: comment.
-_STRING_OR_COMMENT = re.compile(r'"(?:[^"\\]|\\.)*+"|/\*.*?\*/|//[^\n]*', re.DOTALL)
+_STRING_OR_COMMENT = re.compile(rf"{_QUOTED}|/\*.*?\*/|//[^\n]*", re.DOTALL)
 
 
 def _without_comments(text: str) -> str:
@@ -364,7 +367,7 @@ def _without_comments(text: str) -> str:
 _CALL = re.compile(r"\s*([A-Za-z_][\w.$]*)\s*\((.*)\)\s*", re.DOTALL)
 _ATTRIBUTE = re.compile(r"\s*([A-Za-z_][\w.$]*)\s*:\s*(.*?)\s*", re.DOTALL)
 _PIN_GROUPS = ("pin", "bus", "bundle")
-_NAME = re.compile(r'"([^"]*)"|([^,"]+)')
+_NAME = re.compile(r'"((?:[^"\\]|\\.)*+)"|([^,"]+)')
 
 
 def _unquote(text: str) -> str:
@@ -400,9 +403,9 @@ def _liberty_statements(text: str) -> Iterator[tuple[str, str]]:
 #: stands in its place. OpenSTA takes everything between the parentheses as the name, spaces and
 #: quotes included. The pattern also matches a quoted string, so that the same scan can pass over
 #: `"... include_file(x) ..."` and leave it as it is.
-_INCLUDE = re.compile(r'"(?:[^"\\]|\\.)*+"|(?<![\w.$])include_file\s*\(([^)]*+)\)\s*;?')
+_INCLUDE = re.compile(rf"{_QUOTED}|(?<![\w.$])include_file\s*\(([^)]*+)\)\s*;?", re.DOTALL)
 #: What is left of a file after the includes are replaced and the strings are taken out.
-_STRING = re.compile(r'"(?:[^"\\]|\\.)*+"')
+_STRING = re.compile(_QUOTED, re.DOTALL)
 _INCLUDE_WORD = re.compile(r"(?<![\w.$])include_file\b")
 #: The deepest chain of `include_file` that the reader follows.
 MAX_INCLUDE_DEPTH = 8
@@ -417,7 +420,7 @@ def _liberty_text(
     The reader takes a name as OpenSTA does, so that it sees the text that OpenROAD reads. OpenSTA
     opens the name between the parentheses as written, in its working directory: a relative name
     is not relative to the file that includes it, a name in quotes keeps its quotes, and spaces
-    next to the parentheses belong to the name. So the name must be an absolute path without
+    just inside the parentheses belong to the name. So the name must be an absolute path without
     quotes. A name of another kind, an `include_file` that is no statement of this form, a file
     that includes itself (directly or through other files), a chain deeper than
     `MAX_INCLUDE_DEPTH`, and a file that does not exist are errors. All raise `ValueError`.
@@ -450,7 +453,7 @@ def _liberty_text(
         if not target.is_absolute():
             raise ValueError(
                 f"the Liberty file {path} includes {name!r}, which is no absolute name: OpenSTA "
-                "opens the name as written (spaces next to the parentheses belong to it) in its "
+                "opens the name as written (spaces just inside the parentheses belong to it) in its "
                 "working directory, not next to the including file. Write the absolute path"
             )
         if not target.is_file():
@@ -471,7 +474,7 @@ def _liberty_text(
 #: A string, a comment, or an include statement, in the text of a file as it is written. Only the
 #: include statement is replaced when a copy of a Liberty file is written for another machine.
 _RAW_INCLUDE = re.compile(
-    r'"(?:[^"\\]|\\.)*+"|/\*.*?\*/|//[^\n]*|(?<![\w.$])(include_file\s*\()([^)]*+)(\)\s*;?)',
+    rf"{_QUOTED}|/\*.*?\*/|//[^\n]*|(?<![\w.$])(include_file\s*\()([^)]*+)(\)\s*;?)",
     re.DOTALL,
 )
 

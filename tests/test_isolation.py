@@ -1808,7 +1808,7 @@ REVIEWED_WRITES = [
     ),
     (
         "flow_runner/remote.py",
-        'with open(copy, "w") as f:',
+        'with open(copy, "w", encoding="utf-8") as f:',
         f"`send_design`: a copy of a Liberty file with its include names changed, in the "
         f"`TemporaryDirectory` it made: {_OUTSIDE_RUNS}",
     ),

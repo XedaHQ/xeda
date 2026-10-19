@@ -452,7 +452,12 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         1,
         "reads the time unit that a file of `liberty` states, which is no time unit",
     ),
-    "xeda.flow.asic:AsicPlatformSettings._included_by": (
+    "xeda.flows.yosys.yosys:Yosys._refuse_liberty_includes": (
+        1,
+        "reads the Liberty files on disk to find an include that the Liberty reader of yosys "
+        "cannot read",
+    ),
+    "xeda.flow.asic:AsicPlatformSettings.included_by": (
         1,
         "reads a Liberty file on disk to find the files it includes, and refuses an include that "
         "OpenSTA cannot open or that is missing",

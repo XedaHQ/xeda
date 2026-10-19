@@ -399,12 +399,12 @@ Two more limits apply:
 Xeda follows ``include_file(...)`` in a Liberty file when it reads the time unit and the facts of
 a platform, as OpenSTA does. OpenSTA takes the text between the parentheses as the name, as written,
 and opens it in its working directory. A name therefore must be an absolute path, without quotes
-and without spaces next to the parentheses. A relative name and a quoted name cannot be opened by
+and without spaces just inside the parentheses. A relative name and a quoted name cannot be opened by
 OpenSTA, and Xeda refuses them. Each included file is an input of the run, like the Liberty file
-that includes it. The Liberty reader of Yosys does not read ``include_file``, so only the OpenROAD
-flows can use a Liberty file that includes another. A remote run ships the included files of a
-``liberty`` file in places of their own, and the copies of the Liberty files on the remote name
-them by those places.
+that includes it. The Liberty reader of Yosys does not read ``include_file``, so ``yosys`` refuses a
+Liberty file that includes another, and only the OpenROAD flows can use one. A remote run ships
+each file that a ``liberty`` file includes to a place of its own on the remote. It writes copies of
+the Liberty files that name each included file by that place.
 
 An OpenROAD stage writes a database (``.odb``) and the SDC file that goes with it. Each stage has
 its own type for both. For example, the clock tree stage writes ``OpenroadDbCts`` and

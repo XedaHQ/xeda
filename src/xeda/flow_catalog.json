@@ -13905,12 +13905,12 @@
       "gates": {
         "children": false,
         "assignable": true,
-        "help": "Map to this generic gate set instead of a liberty library, e.g. [\"AND\", \"OR\", \"NOT\"]. Accepts a comma-separated string. Refused together with `platform` or `platform_file`."
+        "help": "Map to this generic gate set instead of a liberty library, e.g. [\"AND\", \"OR\", \"NOT\"]. Accepts a comma-separated string. Refused together with `platform`, `platform_file` or `liberty`."
       },
       "lut": {
         "children": false,
         "assignable": true,
-        "help": "Map to LUTs of this size instead of standard cells, e.g. \"4\" or a \"<width>:<cost>\" pair. Refused together with `platform` or `platform_file`."
+        "help": "Map to LUTs of this size instead of standard cells, e.g. \"4\" or a \"<width>:<cost>\" pair. Refused together with `platform`, `platform_file` or `liberty`."
       },
       "stop_after": {
         "children": false,
