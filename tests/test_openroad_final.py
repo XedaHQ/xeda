@@ -2364,6 +2364,13 @@ LISTED = "<lef-files>/a/tech.lef</lef-files><lef-files>/b/cells &amp; &lt;x&gt;.
             " <lef-files>y.lef</lef-files>\n <lef-files>z.lef</lef-files>\n <c/>\n</lefdef>\n",
             f"<lefdef>\n <a/>\n {LISTED}\n <b/>\n <c/>\n</lefdef>\n",
         ),
+        # empty elements, alone and among others
+        (
+            "<lefdef>\n <lef-files/>\n <b/>\n <lef-files />\n <lef-files\n />\n"
+            " <lef-files>x.lef</lef-files>\n</lefdef>\n",
+            f"<lefdef>\n {LISTED}\n <b/>\n</lefdef>\n",
+        ),
+        ("<lefdef><lef-files/></lefdef>", f"<lefdef>{LISTED}</lefdef>"),
         # elements over several lines
         (
             "<lefdef>\n <lef-files>\n  x.lef\n </lef-files>\n <b/>\n"

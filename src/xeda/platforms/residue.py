@@ -392,8 +392,8 @@ class Residue(XedaBaseModel):
         for name in dict.fromkeys([provider, *self._providers_with_a_layout()]):
             try:
                 view = self.for_provider(name)
-            except ValidationError as error:
-                raise ValueError(f"providers.{name}: {validation_problems(error)}") from None
+            except ResidueError as error:
+                raise ValueError(f"providers.{name}: {error}") from None
             if view is self:
                 self._check_layout()
 
@@ -477,19 +477,22 @@ class Residue(XedaBaseModel):
         providers[name] = {
             key: value for key, value in providers[name].items() if key not in VIEWED_KEYS
         }
-        view = Residue.model_validate(
-            {
-                "name": self.name,
-                "description": self.description,
-                "extends": self.extends,
-                "providers": providers,
-                "upstream": None if entry.upstream is None else _dumped(entry.upstream),
-                "corners": _dumped(self.corners),
-                "files": _dumped(entry.files),
-                "values": nest_leaves(leaves),
-                "overrides": {key: _dumped(item) for key, item in self.overrides.items()},
-            }
-        )
+        try:
+            view = Residue.model_validate(
+                {
+                    "name": self.name,
+                    "description": self.description,
+                    "extends": self.extends,
+                    "providers": providers,
+                    "upstream": None if entry.upstream is None else _dumped(entry.upstream),
+                    "corners": _dumped(self.corners),
+                    "files": _dumped(entry.files),
+                    "values": nest_leaves(leaves),
+                    "overrides": {key: _dumped(item) for key, item in self.overrides.items()},
+                }
+            )
+        except ValidationError as error:
+            raise ResidueError(validation_problems(error)) from None
         view._view_of = name
         return view
 
@@ -576,7 +579,8 @@ def effective_residue(
     wins (a provider entry, the upstream files, a file role, the default corner), and
     `files.liberty` and the aliases merge per key. A key that the user file writes as `null`
     clears what the platform gives. The result has no `values` and no `overrides`,
-    since those stay in their own layers."""
+    since those stay in their own layers. Raise `ResidueError` (a `ValueError`) for layers that do
+    not make a valid residue for the provider."""
     if residue is None and user is None:
         raise ValueError("a platform needs a bundled residue, a user file, or both")
     name = selected_provider(residue, user, provider)
@@ -604,15 +608,18 @@ def effective_residue(
     for key, entry in providers.items():
         if isinstance(entry, dict):
             providers[key] = {k: v for k, v in entry.items() if k not in VIEWED_KEYS}
-    merged = Residue.model_validate(
-        {
-            "name": user.name,
-            "description": description,
-            "providers": providers,
-            "upstream": None if upstream is None else _dumped(upstream),
-            "corners": corners,
-            "files": files,
-        }
-    )
+    try:
+        merged = Residue.model_validate(
+            {
+                "name": user.name,
+                "description": description,
+                "providers": providers,
+                "upstream": None if upstream is None else _dumped(upstream),
+                "corners": corners,
+                "files": files,
+            }
+        )
+    except ValidationError as error:
+        raise ResidueError(validation_problems(error)) from None
     merged._view_of = name
     return merged

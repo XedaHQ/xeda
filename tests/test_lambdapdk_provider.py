@@ -885,3 +885,43 @@ def test_the_list_shows_a_row_for_the_provider_and_the_other_installed_commits(
         "3" * 40: False,  # one corner is missing
     }
     assert rows["sky130hd", "ciel"]["default"] is True
+
+
+# ---------------------------------------------------------------------------- invalid layers
+
+
+BAD_FILE = "name: sky130hd\nextends: sky130hd\ncorners: {aliases: {fast: nowhere}}\n"
+
+
+@pytest.mark.parametrize("provider", ["ciel", "lambdapdk"])
+def test_a_user_file_that_is_invalid_for_its_provider_is_a_settings_error_at_planning(
+    tmp_path, monkeypatch, provider
+):
+    """The error reaches the user as a settings error naming `platform_file`, and `--json` gives
+    its document, whichever provider's view is invalid."""
+    (tmp_path / "top.v").write_text("module top(input clk, output reg q);\nendmodule\n")
+    (tmp_path / "d.yaml").write_text(
+        "name: top\nrtl: {sources: [top.v], top: top, clock.port: clk}\n", encoding="utf-8"
+    )
+    (tmp_path / "mine.yaml").write_text(BAD_FILE, encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    result = CliRunner().invoke(
+        cli,
+        [
+            *["run", "--json", "--dry-run", "yosys", str(tmp_path / "d.yaml")],
+            *["-s", f"platform_file={tmp_path / 'mine.yaml'}", "-s", "clock.period=10ns"],
+            *["-s", f"pdk_provider={provider}"],
+        ],
+    )
+    document = json.loads(result.stdout)
+    assert result.exit_code != 0 and document["success"] is False
+    assert document["error"]["type"] == "FlowSettingsError"
+    assert "corners.aliases.fast" in document["error"]["message"]
+    assert "platform_file" in document["error"]["message"]
+
+
+def test_the_residue_functions_raise_a_residue_error_for_layers_that_do_not_fit(tmp_path):
+    user = user_file(tmp_path, BAD_FILE)
+    for provider in ("ciel", "lambdapdk"):
+        with pytest.raises(ResidueError, match="corners.aliases.fast"):
+            effective_residue(sky130(), user, provider)

@@ -96,10 +96,11 @@ IMAGE_NAMES = (
 )
 
 
-#: A `<lef-files>` element of a KLayout technology file, over lines if need be, with the
-#: indentation before it and the end of its line after it.
+#: A `<lef-files>` element of a KLayout technology file (`<lef-files>x</lef-files>`, over lines if
+#: need be, or the empty `<lef-files/>`), with the indentation before it and the end of its line
+#: after it.
 LEF_FILES_ELEMENT = re.compile(
-    r"(?P<indent>[ \t]*)<lef-files>.*?</lef-files>[ \t]*(?P<eol>\r?\n)?", re.DOTALL
+    r"(?P<indent>[ \t]*)<lef-files(?:\s*/>|>.*?</lef-files>)[ \t]*(?P<eol>\r?\n)?", re.DOTALL
 )
 
 
@@ -110,11 +111,11 @@ XML_VERBATIM = re.compile(r"<!--.*?-->|<!\[CDATA\[.*?\]\]>", re.DOTALL)
 def klayout_tech_with_lef_files(text: str, lefs: Sequence[Path]) -> Optional[str]:
     """Return the text of a KLayout technology file with one list of LEF files.
 
-    The function removes every `<lef-files>` element (an element may span lines) and writes the
-    list once, where the first element was. A text with a `<lefdef>` section and no element gets
-    the list at the end of the section. Each path is escaped as XML text. A comment or a CDATA
-    section is left as it is: it holds no element. Return `None` if the text has neither an
-    element nor a `<lefdef>` section."""
+    The function removes every `<lef-files>` element (an element may span lines or be empty) and
+    writes the list once, where the first element was. A text with a `<lefdef>` section and no
+    element gets the list at the end of the section. Each path is escaped as XML text. A comment
+    or a CDATA section is left as it is: it holds no element. Return `None` if the text has
+    neither an element nor a `<lefdef>` section."""
     elements = "".join(f"<lef-files>{xml_escape(str(lef))}</lef-files>" for lef in lefs)
     # Blank out the comments and the CDATA sections with a character that no pattern below matches,
     # so that the search sees only real markup. The blanked text has the same length, so a position
@@ -945,10 +946,11 @@ class Openroad(OpenroadStage):
 
         The file is the one of the platform with its list of LEF files replaced by the technology
         LEF file and the LEF files of the cells, as absolute paths. Xeda removes every
-        `<lef-files>` element of the file (an element may span lines) and writes the list
-        once, where the first element was. A file that has a `<lefdef>` section and no element
-        gets the list at the end of the section. Each path is escaped as XML text, so a path with
-        `&` or `<` stays one element. KLayout reads the DEF file of the routed design with these.
+        `<lef-files>` element of the file (an element may span lines or be empty) and writes the
+        list once, where the first element was. A file that has a `<lefdef>` section and no
+        element gets the list at the end of the section. Each path is escaped as XML text, so a
+        path with `&` or `<` stays one element. KLayout reads the DEF file of the routed design
+        with these.
         Raise `FlowSettingsException` if the file of the platform has neither a `<lef-files>`
         element nor a `<lefdef>` section."""
         model = self.platform_model
