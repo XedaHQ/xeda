@@ -10,7 +10,6 @@ Trivium has two design files:
 Both use the 64-bit input and output configuration of the cocotb reference testbench.
 
 ```bash
-cd examples/vhdl/Trivium
-xeda run ghdl_sim trivium.yaml           # simulate with GHDL
-xeda run yosys_fpga trivium.yaml         # synthesize with Yosys for the Xilinx 7 series part
+xeda run ghdl_sim examples/vhdl/Trivium/trivium.yaml     # simulate with GHDL
+xeda run yosys_fpga examples/vhdl/Trivium/trivium.yaml   # synthesize with Yosys for the Xilinx 7 series part
 ```

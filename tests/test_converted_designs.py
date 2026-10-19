@@ -14,6 +14,7 @@ of that flow, and the flow is built on the design the converter derived.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ from xeda.introspect import plan_info
 
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
+from .launch_utils import empty_project
 from .settings_samples import flow_classes, minimal_settings
 
 BSV = "package Top;\n// a comment\nendpackage\n"
@@ -324,34 +326,71 @@ def test_a_bluespec_testbench_on_a_verilog_simulator_names_the_simulator_that_re
 # ----------------------------------------------------------------- the sweep over every flow
 
 
-def _bluespec_sweep_design(root: Path) -> Design:
-    return Design.from_file(write_design(root, tb={"sources": ["tb.v"], "top": "tb"}))
+def _bluespec_sweep_design(root: Path, *, bluespec_testbench: bool = False) -> Design:
+    """A design with Bluespec, Verilog and VHDL sources and a testbench, so every flow meets a
+    language it reads and one it does not."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pass.vhd").write_text("entity pass is end;\n")
+    if bluespec_testbench:
+        (root / "Tb.bsv").write_text(BSV)
+        tb = {"sources": ["Tb.bsv"], "top": "mkTb", "uut": "dut"}
+    else:
+        tb = {"sources": ["tb.v"], "top": "tb", "uut": "dut"}
+    return Design.from_file(write_design(root, sources=("Top.bsv", "pass.v", "pass.vhd"), tb=tb))
 
 
+def _unreadable(flow_class: type[Flow], design: Design) -> set[SourceType]:
+    """The languages of the design's sources that the flow reads neither itself nor through the
+    converter: what a refusal of the flow is about."""
+    assert flow_class.reads_sources is not None
+    sources = [*design.rtl.sources, *design.tb.sources]
+    return {
+        source.type
+        for source in sources
+        if source.type in LANGUAGE_TYPES and source.type not in flow_class.reads_sources
+    }
+
+
+@pytest.mark.parametrize("bluespec_testbench", [False, True], ids=["verilog_tb", "bluespec_tb"])
 @pytest.mark.parametrize("cls, name", flow_classes(), ids=[name for _cls, name in flow_classes()])
 def test_a_bluespec_design_plans_a_conversion_with_its_reason_or_fails_with_a_refusal(
-    cls, name, tmp_path
+    cls, name, bluespec_testbench, tmp_path
 ) -> None:
     """For every registered flow: the plan converts the Bluespec sources before any flow that
-    cannot read them (and says why), or the request fails with a refusal. No plan hands a
-    Bluespec source to a flow that does not read Bluespec."""
-    design = _bluespec_sweep_design(tmp_path / "d")
+    cannot read them (and says why), or the request fails with a refusal about a language that
+    the flow does not read (a flow that does not read VHDL refuses the VHDL source, and a flow
+    that does not read Bluespec refuses a Bluespec testbench). No plan hands a source to a flow
+    that does not read it, and every refusal on the sweep design is about a language."""
+    design = _bluespec_sweep_design(tmp_path / "d", bluespec_testbench=bluespec_testbench)
     the_runner = runner(tmp_path)
     try:
-        plan = the_runner.plan(name, design, flow_settings=minimal_settings(cls))
+        plan = the_runner.plan(
+            name, design, empty_project(tmp_path), flow_settings=minimal_settings(cls)
+        )
     except (FlowSettingsException, FlowSettingsError) as refusal:
-        assert str(refusal), "a refusal says why"
+        message = str(refusal)
+        # the refusal may come from a flow that the request plans first (`vivado_power` plans
+        # `vivado_postsynth_sim`), and the message starts with that flow's name
+        match = re.match(r"(\w+) cannot read the design's", message)
+        assert match, f"{name} refuses without a language: {message}"
+        refusing = dict((n, c) for c, n in flow_classes())[match.group(1)]
+        sources_of_design = [*design.rtl.sources, *design.tb.sources]
+        refused = {s.type for s in sources_of_design if s.type.name in message}
+        assert refused & _unreadable(refusing, design), f"{name} refuses wrongly: {message}"
         return
     for node in plan.nodes:
         flow_class = node.flow_class
         if flow_class.reads_sources is None:
             continue
         view = planned_design_of(plan, node, design, the_runner.run_path_of)
+        conversion = flow_class.design_conversion(node.settings)
         handed = [
             source
             for part in sorted(flow_class.design_parts)
             for source in getattr(view, part).sources
-            if source.type in LANGUAGE_TYPES and source.type not in flow_class.reads_sources
+            if source.type in LANGUAGE_TYPES
+            and source.type not in flow_class.reads_sources
+            and not (conversion and conversion.passes_through(source))  # a converter passes on
         ]
         assert handed == [], f"{node.name} would be handed {[str(s.file) for s in handed]}"
         converted = any(item.name == "design" and item.origin == "producer" for item in node.inputs)
@@ -361,6 +400,23 @@ def test_a_bluespec_design_plans_a_conversion_with_its_reason_or_fails_with_a_re
             assert converted == (flow_class.name not in ("bsc",)), node.name
             reasons = [item.reason for item in node.inputs if item.name == "design"]
             assert all(reasons), f"{node.name}: a conversion says why"
+
+
+def test_the_sweep_design_reaches_both_outcomes(tmp_path) -> None:
+    """The sweep is not vacuous: on the sweep design some flows plan with a conversion, and some
+    refuse a language they do not read."""
+    design = _bluespec_sweep_design(tmp_path / "d")
+    planned, refused = set(), set()
+    for cls, name in flow_classes():
+        try:
+            runner(tmp_path).plan(
+                name, design, empty_project(tmp_path), flow_settings=minimal_settings(cls)
+            )
+            planned.add(name)
+        except (FlowSettingsException, FlowSettingsError):
+            refused.add(name)
+    assert {"yosys", "yosys_fpga", "vivado_synth", "openroad", "dc", "bsc"} <= planned
+    assert {"ghdl_sim", "nvc", "ghdl_synth", "verilator", "bsc_sim"} <= refused
 
 
 # ------------------------------------------------------------------------- the launch order

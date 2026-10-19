@@ -20,6 +20,8 @@ from xeda.flow import FlowSettingsException
 from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
 
+from .bluespec_sources import COUNTER_BSV
+from .launch_utils import empty_project
 from .openroad_utils import (
     OPENROAD_FLOWS,
     openroad_design,
@@ -36,7 +38,13 @@ from .test_openroad_final import (
     variant_residue,
 )
 from .tiny_platform import TINY_RESIDUE, tiny_store
-from .tool_utils import fake_returns, require_tclsh, use_fake_openroad
+from .tool_utils import (
+    fake_returns,
+    require_bsc,
+    require_tclsh,
+    use_fake_asic_tools,
+    use_fake_openroad,
+)
 
 CTS_PAIR = [("cts.odb", "OpenroadDbCts"), ("cts.sdc", "OpenroadSdcCts")]
 
@@ -800,3 +808,56 @@ def test_a_missing_metrics_file_fails_the_run_with_no_trace(tmp_path, monkeypatc
     monkeypatch.setenv("XEDA_FAKE_OPENROAD_METRICS", str(directory))
     _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false")
     failed_without_trace(tmp_path, flow)
+
+
+# ------------------------------------------------------------------------------ a Bluespec design
+
+
+@pytest.mark.real_tool
+def test_a_comment_edit_of_a_bluespec_source_reruns_bsc_and_nothing_after_it(tmp_path, monkeypatch):
+    """The chain `bsc+openroad` on a Bluespec design: a comment in the source runs `bsc` again,
+    which writes the same Verilog, and every flow after it is reused. An edit that changes the
+    Verilog runs `yosys` again. A dry run said the first before."""
+    require_bsc()
+    require_tclsh()
+    monkeypatch.chdir(tmp_path)  # Xeda reads a project file in the current directory
+    use_fake_openroad(monkeypatch)
+    use_fake_asic_tools(monkeypatch, tmp_path / "bin")
+    monkeypatch.setenv("XEDA_FAKE_OPENROAD_TOP", "mkCounter")
+    source = tmp_path / "design" / "Counter.bsv"
+    source.parent.mkdir()
+    source.write_text(COUNTER_BSV)
+    (tmp_path / "design" / "design.yaml").write_text(
+        "name: counter\nrtl:\n  sources: [Counter.bsv]\n  top: mkCounter\n  clock.port: CLK\n"
+    )
+    design = tmp_path / "design" / "design.yaml"
+    given = dict(text.split("=", 1) for text in chain_settings(tmp_path, "fail_timing=false"))
+    names = ["bsc", "yosys", *NAMES]
+    project = empty_project(tmp_path)
+
+    def launch_chain() -> dict[str, bool]:
+        runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+        flow = runner.run("openroad", design, project, flow_settings=given)
+        assert flow is not None and flow.succeeded
+        return {f.name: f.reused for f in runner.launched}
+
+    def judged() -> dict[str, str]:
+        runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+        _, states = runner.plan_with_freshness(
+            "openroad", Design.from_file(design), project, flow_settings=given
+        )
+        return {name: state.state for name, state in states.items()}
+
+    assert launch_chain() == dict.fromkeys(names, False)
+    assert launch_chain() == dict.fromkeys(names, True)
+    assert judged() == dict.fromkeys(names, "fresh")
+
+    source.write_text(source.read_text().replace("// A counter.", "// A counter, edited."))
+    states = judged()
+    assert states["bsc"] == "stale" and set(states.values()) <= {"stale", "unknown"}
+    assert launch_chain() == {"bsc": False, **dict.fromkeys(names[1:], True)}
+    assert judged() == dict.fromkeys(names, "fresh")
+
+    source.write_text(source.read_text().replace("count + 1", "count + 2"))
+    ran = launch_chain()
+    assert not ran["bsc"] and not ran["yosys"]

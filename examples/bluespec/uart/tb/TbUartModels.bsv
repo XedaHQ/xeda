@@ -1,4 +1,4 @@
-// Models for the UART testbench: a pseudo-random generator, a behavioural remote that drives a
+// Models for the UART testbench: a pseudo-random generator, a behavioral remote that drives a
 // line with a chosen bit period and phase, a checker that watches a line the DUT drives, and
 // a bench that wires those to one DUT.
 //
@@ -107,7 +107,7 @@ interface LineSender;
    method Action setPhase(UInt#(16) f);
    method Action send(Bit#(16) bits, UInt#(5) n);
    method Action glitch(Bit#(1) level, UInt#(8) clocks);
-   // Invert the line for `clocks` clocks at the centre of the next bit that starts: the farthest
+   // Invert the line for `clocks` clocks at the center of the next bit that starts: the farthest
    // a glitch can be from the edges of that bit.
    method Action glitchMidBit(UInt#(8) clocks);
    // The same in bit `k` of the next frame that is sent (0 is the start bit), however long the
@@ -220,7 +220,7 @@ endmodule
 // A train of frames starts at the first low clock after idle, which is the time reference.
 // From then on
 //  * every edge must lie within half a clock of the ideal bit grid, and
-//  * every bit, sampled at its ideal centre, must be the expected one.
+//  * every bit, sampled at its ideal center, must be the expected one.
 // A frame marked "continuous" must follow the previous one with no gap, on the same grid, so
 // the checker verifies the exact long-run baud rate and the zero gap at the same time.
 
@@ -305,7 +305,7 @@ module mkLineChecker#(String name, Integer room)(LineChecker);
                       name, now / oneClock, dev);
             if (dev > worst) worst <= dev;
          end
-         if (now + oneClock > nextSample) begin   // the centre of the next bit is in this clock
+         if (now + oneClock > nextSample) begin   // the center of the next bit is in this clock
             Bit#(16) b = bits;
             UInt#(5) n = length;
             UInt#(5) i = index;

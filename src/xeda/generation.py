@@ -148,7 +148,7 @@ def _source_digests(generator: Generator, design_root: Path) -> Tuple[Tuple[str,
 
 
 class Generation:
-    """The judgement on one generator, and the record of what it produced.
+    """The judgment on one generator, and the record of what it produced.
 
     `reason` is why the generator must run, in the words of a stale reason. It is None when the
     sources of the last generation are still there with the content that it left. `produced()`
@@ -216,7 +216,7 @@ class Generation:
                 "generator": self._generator.name,
                 "outputs": [[name, sha] for name, sha in outputs],
             }
-            # Reentrant where the judgement already holds this entry exclusively.
+            # Reentrant where the judgment already holds this entry exclusively.
             with _locked(entry):
                 owner.unlinked(entry)
                 with replacing_file(entry) as stream:
@@ -370,7 +370,7 @@ def _judging_generation_unlocked(
     identity = generation_identity(stated, design_root)
 
     def judged(why: Optional[str], root: Optional[Path] = None) -> Generation:
-        """Return the judgement with what it takes to record the generation afterwards.
+        """Return the judgment with what it takes to record the generation afterwards.
 
         When planning, it takes nothing: a plan writes no record and creates no run root.
         """

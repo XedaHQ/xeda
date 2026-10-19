@@ -72,42 +72,39 @@ implements Ascon v1.2. It does not claim compliance with a newer NIST standard.
 
 ## Compile and simulate
 
-Install bsc 2026.07.1 or newer. Run from any directory with Xeda installed. Replace the path
-below with the location of this repository:
+Install bsc 2026.07.1 or newer. Run the commands from the root directory of the repository:
 
 ```bash
-xeda run bsc /path/to/xeda/examples/bluespec/ascon/ascon.yaml
-xeda run bsc_sim /path/to/xeda/examples/bluespec/ascon/ascon.yaml
-xeda run bsc_sim /path/to/xeda/examples/bluespec/ascon/ascon.yaml -s simulator=verilator
-xeda run bsc_sim /path/to/xeda/examples/bluespec/ascon/ascon.yaml -s simulator=iverilog
-python /path/to/xeda/examples/bluespec/ascon/run.py sim --simulator=verilator
+xeda run bsc examples/bluespec/ascon/ascon.yaml
+xeda run bsc_sim examples/bluespec/ascon/ascon.yaml
+xeda run bsc_sim examples/bluespec/ascon/ascon.yaml -s simulator=verilator
+xeda run bsc_sim examples/bluespec/ascon/ascon.yaml -s simulator=iverilog
 ```
 
-The default build selects Ascon-128 AEAD. To select Ascon-128a with the helper, add
-`--ascon128a` after the `sim`, `fpga`, or `asic` command. For direct Xeda commands, use
-`--design-overrides rtl.defines.ASCON128A=true`. To change the unroll factor, add
-`--unroll-factor 2` after the helper command; the helper checks the selected AEAD round counts.
+The default build selects Ascon-128 AEAD. To select Ascon-128a, add
+`--design-overrides rtl.defines.ASCON128A=true` to any command. To change the unroll factor, add
+`--design-overrides rtl.defines.UNROLL_FACTOR=2`. The factor must divide the round counts of the
+selected build. If it does not, bsc stops with an error.
 
 ## Synthesize
 
-`run.py` compiles the BSV with Xeda's `Bsc` flow, takes the complete `artifacts.verilog` file set,
-and passes it to Xeda's regular synthesis or place-and-route flow. This makes the handoff visible
-and keeps generated Verilog inside the chosen run root.
+The design file holds the settings of the synthesis flows. Because `rtl.sources` are Bluespec
+files, Xeda runs `bsc` first, to convert the design to Verilog. The next flows read that Verilog
+through their declared inputs:
 
 ```bash
-python /path/to/xeda/examples/bluespec/ascon/run.py fpga \
-  --run-root ./xeda_run --part xc7a100tftg256-2L --clock-period 10ns
-python /path/to/xeda/examples/bluespec/ascon/run.py asic \
-  --run-root ./xeda_run --platform nangate45 --pdk-root ./pdks --clock-period 10ns
+xeda pdk install nangate45                                                    # once
+xeda run openroad examples/bluespec/ascon/ascon.yaml                          # ASIC, nangate45, 2 ns
+xeda run vivado_synth examples/bluespec/ascon/ascon.yaml                      # Vivado, out of context
+xeda run yosys_fpga+nextpnr examples/bluespec/ascon/ascon.yaml --target ecp5  # ECP5 place and route
+xeda run yosys_fpga examples/bluespec/ascon/ascon.yaml --target artix7        # Xilinx synthesis only
 ```
 
-The FPGA command needs Yosys with the Xilinx synthesis pass. ASIC synthesis and place and route
-both need the platform's PDK files because Yosys uses its Liberty cell library. Install Nangate45
-in a local store with `xeda pdk install nangate45 --root ./pdks --yes`. The command passes that
-store with `--pdk-root ./pdks`. Add `--place-route` to run OpenROAD after synthesis; this uses a
-10 ns clock by default. Set `--clock-period` to change it. `run.py fpga --help` and
-`run.py asic --help` list the options. Every flow writes under `--run-root`, which defaults to
-`./xeda_run` from the current directory.
+Add `--dry-run` to see the plan without starting a tool. The ASIC chain needs the PDK files of the
+platform, because Yosys uses its Liberty cell library. The FPGA configurations are resource and
+timing estimates without pins. A board build needs an I/O wrapper and constraints. Every flow
+writes under `./xeda_run`, or under the directory of `--run-root`. Change a setting for one run
+with `-s`, for example `-s flows.yosys.clock.period=3ns` for the ASIC chain.
 
 ## Generated Verilog interface
 
@@ -137,7 +134,7 @@ To reproduce the committed vectors, run the generator against a BlueLight checko
 in `NOTICE.md`:
 
 ```bash
-python tb/generate_vectors.py /path/to/bluelight --check
+python examples/bluespec/ascon/tb/generate_vectors.py /path/to/bluelight --check
 ```
 
 See [VALIDATION.md](VALIDATION.md) for the tools and configurations used to validate this port.

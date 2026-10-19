@@ -44,7 +44,7 @@ The same setting in a design file is `defines.XEDA_INJECT_BUG: true` under `tb`.
 ## Other flows
 
 The design files of `gcd` and `ascon` also hold the settings for the flows that read Verilog. Xeda
-runs `bsc` first, to convert the design:
+runs `bsc` first, to convert the design. These commands use `gcd`. For `ascon`, replace the path:
 
 ```bash
 xeda run openroad examples/bluespec/gcd/gcd.yaml  # ASIC place and route on nangate45
@@ -106,8 +106,9 @@ Bluesim cannot simulate imported Verilog, so the design file sets `simulator: ve
 ## ascon: standalone crypto core
 
 The [Ascon v1.2 example](ascon/README.md) adds a standalone 32-bit Put/Get core and a
-vector-driven testbench. Its `run.py` helper passes the complete `bsc` Verilog artifact list to
-Xeda's FPGA or ASIC synthesis flows.
+vector-driven testbench. Like `gcd`, its design file holds the settings for the ASIC chain, Vivado
+and the two FPGA targets, so the commands in [Other flows](#other-flows) work on it too. Its ASIC
+clock period is 2 ns.
 
 ## uart: a UART PHY
 
@@ -125,7 +126,7 @@ The [echo demo](uart_echo/README.md) sends everything it receives back, through 
 with the PHY of the `uart` example. Its source files come from `../uart/rtl` through relative paths
 in the design file. `mkUartEcho` is board agnostic: a clock, the UART, four switches that select the
 baud rate from a table made at elaboration, a button and four LEDs, and a power-on reset of its
-own. The testbench is a behavioural host at the pins (echo at three baud rates, LEDs, errors,
+own. The testbench is a behavioral host at the pins (echo at three baud rates, LEDs, errors,
 overrun, a baud rate switched in the middle of traffic). The targets `arty` (Vivado),
 `arty_nextpnr` (open-source tools) and `ulx3s` build bitstreams with pin files in `boards/`, and
 `host/uart_echo_test.py` checks the echo from a computer at the full line rate (99.6 to 100 % at

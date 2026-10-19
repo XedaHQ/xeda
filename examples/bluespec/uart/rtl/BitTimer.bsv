@@ -43,7 +43,7 @@ typedef struct {
 // The period as the timer consumes it. `modulus` is an elaboration-time number, the other
 // fields are values: constants or wires. `firstCnt`/`firstAcc` start the counter and the
 // accumulator when the receiver restarts at the start edge, so that its first tick falls at
-// the centre of the start bit: half of D-1+R/M, rounded down, plus the adjustment.
+// the center of the start bit: half of D-1+R/M, rounded down, plus the adjustment.
 // `txAcc`/`txPause` are the state the transmitter restarts in: the accumulator at R + M/2, the
 // fraction R of the start bit itself (a bit has its extra clock when the accumulator carries
 // *before* it, which the start bit would miss) plus one half, which keeps every bit edge of
@@ -64,10 +64,10 @@ typedef struct {
 interface BitTimer;
    // The bit ends in this clock.
    method Bool tick;
-   // Receiver: restart so that the first tick comes about half a bit later (start bit centre).
+   // Receiver: restart so that the first tick comes about half a bit later (start bit center).
    method Action restartHalf;
    // Transmitter: restart so that the first tick comes one bit later, with the accumulator
-   // centred so the bit edges stay within half a clock of the ideal grid.
+   // centered so the bit edges stay within half a clock of the ideal grid.
    method Action restartFull;
 endinterface
 

@@ -89,12 +89,11 @@ accepts only `true` or `false`, so `debug: yes` and `debug: 1` are errors.
 The same design file serves every flow:
 
 ```bash
-cd examples/vhdl/sqrt
-xeda run ghdl_sim sqrt.yaml                      # simulate with GHDL and run the cocotb tests
-xeda run nvc sqrt.yaml                           # the same design and testbench with NVC
-xeda run vivado_synth sqrt.yaml                  # synthesize and implement with Vivado
-xeda run vivado_synth sqrt.yaml -s clock.period=4.5ns   # change a setting for one run
-xeda dse vivado_synth --design sqrt.yaml         # search for the highest clock frequency
+xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml          # simulate with GHDL and run the cocotb tests
+xeda run nvc examples/vhdl/sqrt/sqrt.yaml               # the same design and testbench with NVC
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml      # synthesize and implement with Vivado
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns   # change one setting
+xeda dse vivado_synth --design examples/vhdl/sqrt/sqrt.yaml   # search for the highest clock frequency
 ```
 
 A flow whose inputs and outputs are declared can follow another flow. A chain joins them with
@@ -102,7 +101,7 @@ A flow whose inputs and outputs are declared can follow another flow. A chain jo
 the ULX3S example, in `examples/boards/ulx3s/blinky`, and programs no hardware:
 
 ```bash
-xeda run yosys_fpga+nextpnr+fpga_pack ../../boards/ulx3s/blinky/blinky.xeda.yaml --dry-run
+xeda run yosys_fpga+nextpnr+fpga_pack examples/boards/ulx3s/blinky/blinky.xeda.yaml --dry-run
 ```
 
 Flow names accept snake case, dashes, CamelCase class names and the documented aliases. Setting
@@ -123,7 +122,7 @@ The query commands accept `--json`. So do `run`, `dse` and `scrub`: they then wr
 and logs to stderr, and stdout holds one JSON document:
 
 ```bash
-xeda run vivado_synth sqrt.yaml --json | jq '.results.Fmax'
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json | jq '.results.Fmax'
 ```
 
 Xeda also ships a skill for coding agents. Its flow catalog comes from the installed version:

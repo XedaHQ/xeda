@@ -3,7 +3,8 @@
 The README, the quickstart, the tutorial and the agent skill (`SKILL.md` and its references) teach
 `xeda ...` commands against the `sqrt` example. A command that names a file or a setting that does
 not exist, or that fails on the design it is shown with, sends the reader away. So each command is
-extracted from the documents and run in `examples/vhdl/sqrt`, where the tutorial runs it:
+extracted from the documents and run in the root directory of the repository, where the documents
+show them:
 
 * a query command (`list-flows`, `design-schema`, `completion`, ...) runs as it is;
 * a simulation with an installed open-source simulator runs for real and must pass;
@@ -34,6 +35,7 @@ from . import tool_utils
 
 ROOT = Path(__file__).parent.parent
 SQRT_DIR = ROOT / "examples" / "vhdl" / "sqrt"
+SQRT_FILE = "examples/vhdl/sqrt/sqrt.yaml"
 AGENT = ROOT / "src" / "xeda" / "data" / "agent"
 
 DOCUMENTS = [
@@ -46,10 +48,10 @@ DOCUMENTS = [
 ]
 
 #: designs the documents invent; each stands for the example the commands use
-PLACEHOLDER_DESIGNS = {"blinky.yaml": "sqrt.yaml", "design.yaml": "sqrt.yaml"}
+PLACEHOLDER_DESIGNS = {"blinky.yaml": SQRT_FILE, "design.yaml": SQRT_FILE}
 
 #: what a template stands for: a flow whose settings and results the documents may name
-TEMPLATE_WORDS = {"<flow>": "vivado_synth", "<design>": "sqrt.yaml"}
+TEMPLATE_WORDS = {"<flow>": "vivado_synth", "<design>": SQRT_FILE}
 
 #: a documented pipeline (`where` of its command) that this test cannot check, with the reason;
 #: every other pipeline has its `jq` paths checked
@@ -176,7 +178,7 @@ def test_a_documented_command_works_where_it_is_shown(where, text, tmp_path, mon
     words = [TEMPLATE_WORDS.get(word, word) for word in _words(text)]
     if any("<" in word for word in words):
         pytest.skip("a template with a placeholder")
-    monkeypatch.chdir(SQRT_DIR)
+    monkeypatch.chdir(ROOT)
     # `list-platforms` looks in the default PDK store, which is under `HOME`.
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     words = [PLACEHOLDER_DESIGNS.get(word, word) for word in words]
@@ -191,7 +193,7 @@ def test_a_documented_command_works_where_it_is_shown(where, text, tmp_path, mon
         if flow in REAL_SIMULATORS:
             REAL_SIMULATORS[flow]()
             design_file = next(word for word in words[2:] if word.endswith(".yaml"))
-            if Design.from_file(SQRT_DIR / design_file).tb.cocotb:
+            if Design.from_file(ROOT / design_file).tb.cocotb:
                 tool_utils.require_cocotb()
         elif "--dry-run" not in words:
             words.append("--dry-run")

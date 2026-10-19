@@ -97,16 +97,16 @@ Run a flow
 
 ``xeda run <FLOW_NAME> <DESIGN_FILE>``. To simulate the design with GHDL::
 
-    xeda run ghdl_sim sqrt.yaml
+    xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml
 
 To synthesize it for an FPGA with Vivado::
 
-    xeda run vivado_synth sqrt.yaml
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml
 
 The ``flows.vivado_synth`` section of the design file holds the settings of that flow. Override
 any of them on the command line with ``-s``/``--settings``. Nested settings use dotted keys::
 
-    xeda run vivado_synth sqrt.yaml -s clock.period=4.5ns impl.strategy=Performance_ExplorePostRoutePhysOpt
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns impl.strategy=Performance_ExplorePostRoutePhysOpt
 
 Xeda rejects an unknown setting, so a typo is an error. A clock setting needs a unit: ``4.5ns`` is
 a time, and ``4.5`` is an error (see :ref:`quantities`).
@@ -116,9 +116,9 @@ A flow that declares its file inputs and outputs can follow another flow. Join t
 A link can pass through the flows between its two flows: ``yosys_fpga+fpga_pack`` runs ``nextpnr``
 in between. ``xeda list-flows`` shows which flows can follow which, and tab completion offers only
 those. This chain ends at the bitstream. It builds the ULX3S example from
-``examples/boards/ulx3s/blinky``, here named by its path from ``examples/vhdl/sqrt``::
+``examples/boards/ulx3s/blinky``, named by its path from the root directory of the repository::
 
-    xeda run yosys_fpga+nextpnr+fpga_pack ../../boards/ulx3s/blinky/blinky.xeda.yaml --dry-run
+    xeda run yosys_fpga+nextpnr+fpga_pack examples/boards/ulx3s/blinky/blinky.xeda.yaml --dry-run
 
 ``--dry-run`` shows the plan and runs nothing. The chain above programs no hardware. See
 :ref:`flow-chains`.
@@ -157,6 +157,6 @@ Explore the design space
 ``xeda dse`` runs many instances of a flow in parallel under an optimizer. The default optimizer
 searches for the highest clock frequency::
 
-    xeda dse vivado_synth --design sqrt.yaml
+    xeda dse vivado_synth --design examples/vhdl/sqrt/sqrt.yaml
 
 ``xeda list-optimizers`` shows the available optimizers and their settings.

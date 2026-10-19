@@ -1,7 +1,7 @@
 // Self-checking testbench for the UART PHY (mkUart and mkUartCore).
 //
 // Five DUTs run their scripts at the same time, each on its own bench (TbUartModels): a
-// behavioural remote on rxd that can run at any baud offset and phase and inject glitches and
+// behavioral remote on rxd that can run at any baud offset and phase and inject glitches and
 // bad frames, a checker on txd that holds every bit edge to the ideal grid, and a consumer that
 // compares what rx delivers with what was sent.
 //
@@ -10,7 +10,7 @@
 //     bytes (the checker verifies the zero gap and the exact long-run baud over the whole train);
 //     the remote at baud offsets from -4.5 % to +3.5 %, three phases each, back-to-back, and far
 //     outside the tolerance (the test must see errors there); framing error, breaks, glitches of
-//     1 and 2 clocks (shorter than the hold filter) on an idle line and at the centre of bits
+//     1 and 2 clocks (shorter than the hold filter) on an idle line and at the center of bits
 //     (random, and every bit of a frame in turn), false starts, overrun, `clearFlags` in the very
 //     cycle of an error event.
 //  B  mkUartCore, 7E2 at 8 Mbaud (bit period 25/2 clocks): the same checks for another format,
@@ -236,7 +236,7 @@ module mkScriptA#(Bench#(8) b, Rng rng)(FSM);
 
    Stmt glitches = seq
       // low glitches on an idle line, 1 and 2 clocks (the filter holds 3), and false starts of 3
-      // and 4 clocks, which pass the filter but are no longer low at the centre of the start bit
+      // and 4 clocks, which pass the filter but are no longer low at the center of the start bit
       b.resetCounters;
       for (i <= 0; i < 12; i <= i + 1) seq
          action b.glitch(0, truncate(i % 2) + 1); endaction
@@ -248,7 +248,7 @@ module mkScriptA#(Bench#(8) b, Rng rng)(FSM);
       endseq
       expectCounts("A idle glitches", b, 0, 0, 0, 0, 0);
 
-      // glitches of 1 and 2 clocks at the centre of a random bit of a frame (or just before it)
+      // glitches of 1 and 2 clocks at the center of a random bit of a frame (or just before it)
       b.resetCounters;
       for (i <= 0; i < 60; i <= i + 1) seq
          action
@@ -267,7 +267,7 @@ module mkScriptA#(Bench#(8) b, Rng rng)(FSM);
       expectCounts("A glitches in frames", b, 60, 0, 0, 0, 0);
       if (b.midBitGlitches != 60) fail("A: the glitches were not all put on the line");
 
-      // the same at the centre of every bit of a frame in turn, start bit to stop bit
+      // the same at the center of every bit of a frame in turn, start bit to stop bit
       b.resetCounters;
       for (glitchLength <= 1; glitchLength <= 2; glitchLength <= glitchLength + 1)
          for (glitchBit <= 0; glitchBit < 10; glitchBit <= glitchBit + 1) seq

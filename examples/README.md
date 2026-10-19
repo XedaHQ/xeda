@@ -1,8 +1,8 @@
 # Examples
 
 Each example has a design file that says what to build. The flows you run on it choose how. Run
-the commands below from the directory of the example. Add `--dry-run` to any `xeda run` command to
-see the plan without starting a tool.
+the commands below from the root directory of the repository. Xeda writes the run directories to
+`./xeda_run`. Add `--dry-run` to any `xeda run` command to see the plan without starting a tool.
 
 The cocotb testbenches need the Python packages of the dependency group `examples`. From the root
 of the repository, `uv sync` installs them, and so does `pip install --group examples` (pip 25.1 or
@@ -16,12 +16,11 @@ Vivado and so on.
 simulators and three synthesis flows:
 
 ```bash
-cd examples/vhdl/sqrt
-xeda run ghdl_sim sqrt.yaml          # simulate with GHDL and run the cocotb tests
-xeda run nvc sqrt.yaml               # the same design and testbench with NVC
-xeda run yosys_fpga sqrt.yaml        # synthesize with Yosys
-xeda run vivado_synth sqrt.yaml      # synthesize with Vivado
-xeda run vivado_synth sqrt.yaml -s clock.period=4ns   # change one setting for this run
+xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml          # simulate with GHDL and run the cocotb tests
+xeda run nvc examples/vhdl/sqrt/sqrt.yaml               # the same design and testbench with NVC
+xeda run yosys_fpga examples/vhdl/sqrt/sqrt.yaml        # synthesize with Yosys
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml      # synthesize with Vivado
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4ns   # change one setting
 ```
 
 Other VHDL examples:
@@ -30,18 +29,15 @@ Other VHDL examples:
 - `vhdl/Trivium`: the Trivium stream cipher with a cocotb testbench that calls a C reference model.
   See its README.
 - `vhdl/xedaproject.yaml`: a project file with one design, `full-adder`, and settings for several
-  flows (`xeda run ghdl_sim --design-name full-adder`).
+  flows (`xeda run ghdl_sim --xedaproject examples/vhdl/xedaproject.yaml --design-name full-adder`).
 
 ## SystemVerilog and mixed languages
 
 ```bash
-cd examples/sv/fifo
-xeda run verilator fifo.xeda.yaml         # SystemVerilog testbench
-xeda run verilator fifo_cocotb.xeda.yaml  # the same FIFO with a cocotb testbench
-xeda run yosys_fpga fifo.xeda.yaml        # FPGA synthesis for a Xilinx 7-series part
-
-cd ../../mixed_language/blink
-xeda run yosys_sim blinky.xeda.yaml       # SystemVerilog design, C++ testbench, CXXRTL
+xeda run verilator examples/sv/fifo/fifo.xeda.yaml         # SystemVerilog testbench
+xeda run verilator examples/sv/fifo/fifo_cocotb.xeda.yaml  # the same FIFO with a cocotb testbench
+xeda run yosys_fpga examples/sv/fifo/fifo.xeda.yaml        # FPGA synthesis for a Xilinx 7-series part
+xeda run yosys_sim examples/mixed_language/blink/blinky.xeda.yaml   # SystemVerilog design, C++ testbench, CXXRTL
 ```
 
 ## FPGA boards
@@ -51,20 +47,17 @@ and `dvi_test`. A project holds its designs and the settings of the flows. Each 
 flows it needs first, so one command builds the bitstream:
 
 ```bash
-cd examples/boards/ulx3s/blinky
-xeda run yosys_fpga+nextpnr+fpga_pack --design-name blinky --dry-run   # show the chain
-xeda run fpga_pack --design-name blinky                                 # build the bitstream
-xeda run openfpgaloader --design-name blinky                            # build, then program
+xeda run yosys_fpga+nextpnr+fpga_pack --xedaproject examples/boards/ulx3s/blinky/xedaproject.yaml --design-name blinky --dry-run  # show the chain
+xeda run fpga_pack --xedaproject examples/boards/ulx3s/blinky/xedaproject.yaml --design-name blinky  # build the bitstream
+xeda run openfpgaloader --xedaproject examples/boards/ulx3s/blinky/xedaproject.yaml --design-name blinky  # build, then program
 ```
 
 Only the last command touches hardware. Use `--design-name blinky-vhdl` for the VHDL version.
 `blinky.xeda.yaml` and `blinky_vhdl.xeda.yaml` hold the same two designs as separate design
-files, with fewer flow settings. The
-`dvi_test` project is a VGA video generator with a DVI encoder:
+files, with fewer flow settings. The `dvi_test` project is a VGA video generator with a DVI encoder:
 
 ```bash
-cd examples/boards/ulx3s/dvi_test
-xeda run fpga_pack --design-name dvi_test
+xeda run fpga_pack --xedaproject examples/boards/ulx3s/dvi_test/xedaproject.yaml --design-name dvi_test
 ```
 
 ## ASIC
@@ -76,10 +69,9 @@ four OpenROAD flows place, route and finish it. Install the PDK files of the pla
 run the chain:
 
 ```bash
-xeda pdk install nangate45                       # download the PDK files that the platform pins
-cd examples/bluespec/gcd
-xeda run openroad gcd.yaml --dry-run             # show the six flows
-xeda run openroad gcd.yaml                       # run them: bsc, yosys and OpenROAD must be on PATH
+xeda pdk install nangate45                                      # download the PDK files that the platform pins
+xeda run openroad examples/bluespec/gcd/gcd.yaml --dry-run      # show the six flows
+xeda run openroad examples/bluespec/gcd/gcd.yaml                # run them: bsc, yosys and OpenROAD must be on PATH
 ```
 
 The routed design and its reports are in `xeda_run/gcd/openroad`.

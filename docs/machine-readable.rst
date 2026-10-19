@@ -51,8 +51,8 @@ document:
 
 .. code-block:: bash
 
-    xeda run vivado_synth sqrt.yaml --json
-    xeda dse vivado_synth --design sqrt.yaml --json
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
+    xeda dse vivado_synth --design examples/vhdl/sqrt/sqrt.yaml --json
     xeda scrub vivado_synth sqrt --json
 
 .. note::
@@ -779,7 +779,7 @@ To run a flow:
 
     from xeda import Design, DefaultRunner
 
-    design = Design.from_file("sqrt.yaml")
+    design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
     runner = DefaultRunner("xeda_run")
     flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5ns"])
     if flow and flow.results.success:
