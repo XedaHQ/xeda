@@ -40,6 +40,7 @@ __all__ = [
     "close_names",
     "complete_request",
     "converter_edges",
+    "default_conversion",
     "default_graph",
     "design_edge_refusal",
     "edges",
@@ -233,10 +234,24 @@ def _check_chain(elements: Sequence[ChainElement]) -> tuple[ChainLink, ...]:
 
 @cache
 def is_converter(flow_class: type[Flow]) -> bool:
-    """Whether the flow converts a design: it defines `Flow.design_conversion` (under its default
-    settings). A design output alone does not make a converter. The declarations of a class never
-    change."""
-    return flow_class.design_conversion(flow_class.Settings()) is not None
+    """Whether the flow may convert a design: it defines `Flow.design_conversion`.
+
+    A design output alone does not make a converter. Whether a converter converts anything is
+    for its settings to decide (`default_conversion` is what the default settings say). The
+    declarations of a class never change."""
+    return getattr(flow_class.design_conversion, "__func__") is not getattr(
+        Flow.design_conversion, "__func__"
+    )
+
+
+def default_conversion(flow_class: type[Flow]) -> DesignConversion | None:
+    """Return the conversion of the flow under its default settings, or None.
+
+    None for a flow that is no converter, and for a converter that converts nothing until a
+    setting says so. Such a converter is never a default producer, and the declarations cannot
+    judge it: a chain or a binding accepts it, and the final check under the agreed settings
+    decides."""
+    return flow_class.design_conversion(flow_class.Settings())
 
 
 def _has_design_output(flow_class: type[Flow]) -> bool:
@@ -299,10 +314,15 @@ def _no_conversion(producer: type[Flow], consumer: type[Flow]) -> str:
     """Return why the converter `producer` cannot precede `consumer`: `consumer` converts the
     design itself (a conversion is one hop), or no flow that `consumer` runs reads what the
     converter writes without reading what it converts."""
-    conversion = producer.design_conversion(producer.Settings())
+    conversion = default_conversion(producer)
     if conversion is None:
+        if is_converter(producer):
+            return (
+                f"`{producer.name}+{consumer.name}`: no flow that {consumer.name} runs takes the "
+                "design of a converter."
+            )
         return _converts_no_design(producer)
-    if is_converter(consumer):
+    if default_conversion(consumer) is not None:
         return (
             f"`{producer.name}+{consumer.name}`: {consumer.name} converts the design itself, "
             f"and a conversion is one hop."
@@ -353,18 +373,25 @@ def design_edge_refusal(
     settings of the two flows, and the rule asks for their conversions.
 
     A producer that declares no design output is judged by the fit of the outputs, not here.
-    Rules, in order: the producer converts no design; the chain `producer+consumer` has no
-    converter edge (the text of `_no_conversion`); the consumer itself cannot take it (it
-    converts the design itself, which makes a conversion two hops; it does not read what the
-    converter writes; it reads what the converter converts)."""
+    Rules, in order: the producer is no converter; the chain `producer+consumer` has no converter
+    edge (the text of `_no_conversion`); the consumer itself cannot take it (it converts the
+    design itself, which makes a conversion two hops; it does not read what the converter writes;
+    it reads what the converter converts).
+
+    A converter whose conversion is None under the default settings may convert under others, so
+    the declarations accept it: its conversion, and the consumer's, are judged once the settings
+    agree (the settings arguments)."""
     if not _has_design_output(producer):
         return None
+    if not is_converter(producer):
+        return _converts_no_design(producer)
+    agreed = producer_settings is not None or consumer_settings is not None
     conversion = producer.design_conversion(
         producer.Settings() if producer_settings is None else producer_settings
     )
     if conversion is None:
-        return _converts_no_design(producer)
-    if producer_settings is None and consumer_settings is None:
+        return _converts_no_design(producer) if agreed else None
+    if not agreed:
         graph = default_graph(consumer)
         if not _binding_edges(graph, producer):
             return _no_conversion(producer, consumer)
@@ -519,21 +546,25 @@ def converter_edges(consumer: type[Flow]) -> list[DefaultEdge]:
     (`Flow.design_conversion` under the default settings) writes only languages that `consumer`
     reads, and converts one that `consumer` cannot read. So there is no edge to a flow that reads
     the converted language itself (`bsc_sim`), or to a flow that reads none of the output
-    (`ghdl_sim`), and none to a converter: a conversion is one hop. The edges are in the
-    canonical order of the converter names. Declarations alone decide: no design is loaded."""
+    (`ghdl_sim`), and none to a converter: a conversion is one hop. A converter that converts
+    nothing under the default settings has an edge too (`default_conversion`): the declarations
+    cannot tell what it converts, so it never becomes a default producer, and the final check under
+    the agreed settings judges it. The edges are in the canonical order of the converter names.
+    Declarations alone decide: no design is loaded."""
     declaration = declared_inputs(consumer).get("design")
     reads = consumer.reads_sources
-    if declaration is None or not declaration.is_design or reads is None or is_converter(consumer):
+    if (
+        declaration is None
+        or not declaration.is_design
+        or reads is None
+        or default_conversion(consumer) is not None
+    ):
         return []
     found: list[DefaultEdge] = []
     registered = tuple(sorted({cls for _module, cls in registered_flows.values()}, key=_name))
     for converter, output in _converters(registered):
-        conversion = converter.design_conversion(converter.Settings())
-        if (
-            conversion is not None
-            and conversion.produces <= reads
-            and conversion.transforms - reads
-        ):
+        conversion = default_conversion(converter)
+        if conversion is None or (conversion.produces <= reads and conversion.transforms - reads):
             found.append(DefaultEdge(consumer, declaration.name, converter, output))
     return found
 
@@ -571,7 +602,9 @@ def default_graph(consumer: type[Flow]) -> DefaultGraph:
         current = queue.popleft()
         for declaration in declared_inputs(current).values():
             if declaration.is_design:
-                for edge in converter_edges(current):
+                # A converter that the graph reaches reads the design as it is: one hop.
+                reached_converter = current is not consumer and is_converter(current)
+                for edge in [] if reached_converter else converter_edges(current):
                     found.append(edge)
                     if edge.producer not in expanded:
                         expanded.add(edge.producer)

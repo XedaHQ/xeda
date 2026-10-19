@@ -10,6 +10,7 @@ question of the resolver and the launcher, not of these tests.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -738,3 +739,91 @@ def test_every_binding_that_a_chain_refuses_is_refused(tmp_path) -> None:
             assert chain.split(": ", 1)[1] in str(refused_binding.value), (converter, consumer)
             checked += 1
     assert checked >= 6
+
+
+# ------------------------------------------------------------------------ a conversion by settings
+
+
+def test_a_flow_that_defines_a_conversion_declares_one_design_output() -> None:
+    """The conversion and the design it derives go together: a flow cannot be a converter without
+    the output that carries the derived design."""
+    with pytest.raises(TypeError, match="exactly one design output"):
+
+        class _NoOutput(Flow):
+            reads_sources = frozenset({SourceType.Verilog})
+
+            @classmethod
+            def design_conversion(cls, settings):
+                return DesignConversion(
+                    frozenset({SourceType.Vhdl}), frozenset({SourceType.Verilog})
+                )
+
+    assert not is_converter(design_output_flow())
+
+
+def _switched_converter() -> type[Flow]:
+    """A converter of Bluespec into Verilog whose `convert` setting switches the conversion on:
+    under the default settings it converts nothing."""
+
+    class _Switched(Flow):
+        """Converts Bluespec when its setting says so."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        reads_sources = frozenset({SourceType.Bluespec, SourceType.Verilog})
+
+        class Settings(Flow.Settings):
+            convert: bool = False
+
+        class Outputs(Flow.Outputs):
+            design: DerivedSources | None = Out(DESIGN, description=DESCRIPTION)
+
+        @classmethod
+        def design_conversion(cls, settings):
+            if not getattr(settings, "convert", False):
+                return None
+            return DesignConversion(
+                frozenset({SourceType.Bluespec}), frozenset({SourceType.Verilog})
+            )
+
+        def run(self) -> None:
+            pass
+
+    return _Switched
+
+
+def test_a_conversion_that_the_settings_switch_on_makes_a_converter() -> None:
+    switched = _switched_converter()
+    assert switched.design_conversion(switched.Settings()) is None
+    assert is_converter(switched)
+
+
+def test_a_conversion_that_the_settings_switch_on_is_never_a_default_producer(tmp_path) -> None:
+    switched = _switched_converter()
+    plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
+        "yosys", _bluespec_design(tmp_path, flows={switched.name: {"convert": True}})
+    )
+    assert [node.name for node in plan.nodes] == ["bsc", "yosys"]
+
+
+def test_a_binding_decides_a_conversion_by_the_agreed_settings(tmp_path) -> None:
+    switched = _switched_converter()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flows = {"yosys": {"inputs": {"design": switched.name}}, switched.name: {"convert": True}}
+    plan = runner.plan("yosys", _bluespec_design(tmp_path, flows=flows))
+    assert [node.name for node in plan.nodes] == [switched.name, "yosys"]
+    flows[switched.name] = {"convert": False}
+    with pytest.raises(FlowSettingsException, match=r"yosys\.design.*no compatible output"):
+        runner.plan("yosys", _bluespec_design(tmp_path, flows=flows))
+
+
+def test_a_chain_decides_a_conversion_by_the_agreed_settings(tmp_path) -> None:
+    """The chain is valid by its declarations, as a binding is. The settings decide the rest."""
+    switched = _switched_converter()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    request = parse_request(f"{switched.name}+yosys")
+    plan = runner.plan(
+        request, _bluespec_design(tmp_path, flows={switched.name: {"convert": True}})
+    )
+    assert [node.name for node in plan.nodes] == [switched.name, "yosys"]
+    with pytest.raises(FlowSettingsException, match=r"yosys\.design.*no compatible output"):
+        runner.plan(request, _bluespec_design(tmp_path))
