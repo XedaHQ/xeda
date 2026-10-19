@@ -6,9 +6,12 @@ the commands below from the root directory of the repository. Xeda writes the ru
 
 The cocotb testbenches need the Python packages of the dependency group `examples`. From the root
 of the repository, `uv sync` installs them, and so does `pip install --group examples` (pip 25.1 or
-newer). On Python 3.15, pip needs `COCOTB_IGNORE_PYTHON_REQUIRES=1` to build cocotb: see
-"Development" in the main README. A flow needs its own tool: GHDL, NVC, Verilator, Yosys, nextpnr,
-Vivado and so on.
+newer). The group also has `pyserial`, which the host test of
+[`bluespec/uart_echo`](bluespec/uart_echo/README.md) needs. That test can use `pyftdi` too, which
+you install yourself (`pip install pyftdi`). On Python 3.15, pip needs
+`COCOTB_IGNORE_PYTHON_REQUIRES=1` to build cocotb:
+see "Development" in the main README. A flow needs its own tool: GHDL, NVC, Verilator, Yosys,
+nextpnr, Vivado and so on.
 
 ## VHDL
 

@@ -49,9 +49,8 @@ typedef enum {
 // The deepest hold filter that survives a glitch of hold-1 clocks at the center of any bit of at
 // least `bitClocks` clocks (D, the shortest bit). The glitch leaves ceil((D - hold + 1) / 2) clocks
 // of the bit's level before it, and the filter has switched to that level before the glitch only
-// if it saw `hold` of them: D >= 3 * hold - 2. Measured with the testbench's glitch matrix, this is
-// the deepest filter that passes for every D from 4 to 20, and one more fails. (R5 T4e's limit,
-// that a legal bit pulse must contain `hold` samples, is looser at the periods used here.)
+// if it saw `hold` of them: D >= 3 * hold - 2. With the testbench's glitch matrix, this is the
+// deepest filter that passes for every D from 4 to 20, and one more fails.
 function Integer maxHold(Integer bitClocks) = (bitClocks + 2) / 3;
 
 // `hold` must not exceed `maxHold` of the shortest bit of the timer's period, or glitches that the

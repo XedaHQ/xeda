@@ -150,4 +150,7 @@ def test_the_sweep_covers_the_targets_of_the_examples():
         ("gcd.yaml", "artix7"),
         ("uart_echo.yaml", "arty"),
         ("uart_echo.yaml", "ulx3s"),
+        ("uart_echo.yaml", "stlv7325"),
+        ("uart_echo.yaml", "switches"),
+        ("uart_echo.yaml", "echo_transform"),
     } <= swept

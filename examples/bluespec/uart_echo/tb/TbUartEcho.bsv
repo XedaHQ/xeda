@@ -7,7 +7,7 @@
 // in a few thousand clocks, and the activity LED stretch (ACTIVITY_US).
 //
 //  1. Power-up: the internal reset ends, the LEDs are off, the line is idle.
-//  2. Echo of corner and random bytes at 100 % utilization at 12 Mbaud (switches 0).
+//  2. Echo of corner and random bytes at 100 % utilization at 12 Mbaud (or the fixed rate).
 //  3. Full line utilization of the transmitter: with the host 0.5 % faster than the echo, the FIFO
 //     fills and every echoed frame starts in the clock where the previous one ended.
 //  4. LEDs: receive and send activity go on and, after the stretch, off.
@@ -19,11 +19,27 @@
 //  7. The baud rate: a switch is changed in the middle of a back-to-back burst (the burst comes
 //     back whole, at the old rate), and when the echo is idle the new rate takes effect: bytes at
 //     3 Mbaud and at 921600 baud are echoed.
-//     With FIXED_BAUD the switches are ignored: the same flips must change nothing, the bursts
+//     With FIXED_BAUD 1 the switches are ignored: the same flips must change nothing, the bursts
 //     before and after come back at the one rate.
 //  8. A switch is changed in the very clock where a start bit reaches the synchronizers: the
 //     frame still comes back whole at the old rate, and the new rate takes effect after it.
-//     Not with FIXED_BAUD.
+//     Not with FIXED_BAUD 1.
+//
+// The two on/off macros of the design, FIXED_BAUD and ECHO_TRANSFORM, are Bool parameters of
+// `mkEcho`, so one simulation runs all four combinations side by side (`mkBench`): the switches
+// and the fixed build, each with the plain and the transformed echo, every one with its own host,
+// receiver model and script. The combination that the macros select uses the real top `mkUartEcho`
+// (with its power-on reset, as built for a board); the three others use `mkEcho`. This file has no
+// `ifdef` for the macros: it reads them through `configFixedBaud` and `configEchoTransform`.
+//
+// ECHO_TRANSFORM: the echo returns f(b) = reverseBits(b) ^ 8'hB1 instead of b. Every check above
+// then expects f(b) where it expected b. The testbench has its own copy of f, written differently
+// from the design's, and elaboration refuses a build in which f(b) == b for some b, the two copies
+// differ, or the inverse is not the inverse. `XEDA_INJECT_BUG_PLAIN` makes the design send b back
+// unchanged, which the transformed configurations catch at the first byte.
+//
+// The top prints `PASS` once, when all four benches are done. Each bench says only that it is done,
+// so a bench that finishes early cannot print PASS while another can still fail.
 //
 // A failed check ends the run with $fatal. `XEDA_INJECT_BUG` makes the echo take a new baud rate
 // at once instead of when it is idle (and also plants the PHY bug of the uart example), which the
@@ -47,17 +63,44 @@ import TbUartModels :: *;
 `define MIN_BAUD 115200
 `endif
 
+// What the echo must send back for the byte b, and the byte that was sent given what came back.
+// Independent of the design's `echoByte`, which these are checked against below.
+function Bit#(8) expectedEcho(Bool transform, Bit#(8) b);
+   return transform ? {b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]} ^ 8'hB1 : b;
+endfunction
+
+function Bit#(8) sentFor(Bool transform, Bit#(8) y);
+   Bit#(8) x = y ^ 8'hB1;
+   return transform ? {x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]} : y;
+endfunction
+
+// Over all 256 bytes and both modes: the design's echo is this one, this one is undone by
+// `sentFor`, and with the transform no byte comes back as itself (so a wire loopback fails on
+// every byte).
+function Bool echoTableOk(Integer i);
+   Bit#(8) b = fromInteger(i);
+   Bool ok = True;
+   for (Integer m = 0; m < 2; m = m + 1) begin
+      Bool t = m == 1;
+      ok = ok && echoByte(t, b) == expectedEcho(t, b) && sentFor(t, expectedEcho(t, b)) == b;
+      if (t) ok = ok && expectedEcho(t, b) != b;
+   end
+   return ok;
+endfunction
+
+Bool echoTableChecked =
+   List::all(echoTableOk, List::upto(0, 255))
+   ? True
+   : error("the echo transform of the design and of the testbench differ, "
+           + "or a byte is its own echo");
+
 Integer clkHz = `CLK_HZ;
 UInt#(32) maxCycles = 200000;
 
-// The baud rate the switches select
-function Integer baudOf(Integer sw);
-`ifdef FIXED_BAUD
-   return `BAUD;
-`else
+// The baud rate the switches select (with the fixed rate, whatever they say)
+function Integer baudFor(Bool fixedBaud, Integer sw);
    List#(Integer) rates = echoRates(clkHz, `BAUD, `MIN_BAUD);
-   return rates[min(sw, List::length(rates) - 1)];
-`endif
+   return fixedBaud ? `BAUD : rates[min(sw, List::length(rates) - 1)];
 endfunction
 
 // progress messages, with -D TB_TRACE
@@ -93,7 +136,7 @@ interface EchoReceiver;
    method Bool idle;
 endinterface
 
-module mkEchoReceiver#(String name)(EchoReceiver);
+module mkEchoReceiver#(String name, Bool transform)(EchoReceiver);
    Wire#(Bit#(1)) pin <- mkBypassWire;
    RWire#(Fx) newPeriod <- mkRWire;
    PulseWire restart <- mkPulseWire;
@@ -147,8 +190,9 @@ module mkEchoReceiver#(String name)(EchoReceiver);
             previousEnd <= start + 10 * period;
             nextDone = done + 1;
             if (counting) begin
-               nextLost = lost + extend(unpack(data - nextData));
-               nextNext = data + 1;
+               Bit#(8) sentByte = sentFor(transform, data);
+               nextLost = lost + extend(unpack(sentByte - nextData));
+               nextNext = sentByte + 1;
             end
             else if (!want.notEmpty)
                $fatal(1, "FAIL: %s: unexpected byte %h at clock %0d", name, data, now / oneClock);
@@ -169,7 +213,7 @@ module mkEchoReceiver#(String name)(EchoReceiver);
    method Action line(Bit#(1) v) = pin._write(v);
    method Action setPeriod(Fx p) = newPeriod.wset(p);
    method Action announce(Bit#(8) b) if (want.notFull);
-      want.enq(b);
+      want.enq(expectedEcho(transform, b));
    endmethod
    method Action startCounting = restart.send;
    method UInt#(32) frames = done;
@@ -180,11 +224,15 @@ endmodule
 
 // ---------------------------------------------------------------------------------------
 
-(* synthesize *)
-module mkTbUartEcho(Empty);
-   UartEcho dut <- mkUartEcho;
+// One configuration of the echo, with its own host and receiver model, and the script that checks
+// it. `dut` is the echo that was built with `fixedBaud` and `transform`. The result says that the
+// script is done (it has not failed: a failed check ends the simulation).
+module mkBench#(String name, Bool fixedBaud, Bool transform, UartEcho dut)(ReadOnly#(Bool));
+   function Action fail(String msg) = action $fatal(1, "FAIL: " + name + ": " + msg); endaction;
+   function Integer baudOf(Integer sw) = baudFor(fixedBaud, sw);
+
    LineSender host <- mkLineSender;
-   EchoReceiver receiver <- mkEchoReceiver("echo txd");
+   EchoReceiver receiver <- mkEchoReceiver(name + " txd", transform);
    Rng rng <- mkRng(32'h2468ACE1);
 
    Reg#(Bit#(4)) sw <- mkReg(0);
@@ -203,14 +251,13 @@ module mkTbUartEcho(Empty);
 
 
    (* fire_when_enabled, no_implicit_conditions *)
-   rule watchdog;
+   rule count;
       cycle <= cycle + 1;
 `ifdef TB_TRACE
       if (cycle % 2000 == 0)
-         $display("%0d: leds %b frames %0d txd %b rxd %b", cycle, dut.led, receiver.frames, dut.txd,
-                  host.line);
+         $display("%0d: %s: leds %b frames %0d txd %b rxd %b", cycle, name, dut.led,
+                  receiver.frames, dut.txd, host.line);
 `endif
-      if (cycle == maxCycles) fail("timeout");
    endrule
 
    function Stmt pause(Integer n) = seq
@@ -236,7 +283,7 @@ module mkTbUartEcho(Empty);
 
    function Action expectLeds(String where, Bit#(4) mask, Bit#(4) value) = action
       if ((dut.led & mask) != value)
-         $fatal(1, "FAIL: %s: leds %b, want %b under the mask %b", where, dut.led, value, mask);
+         $fatal(1, "FAIL: " + name + ": %s: leds %b, want %b under the mask %b", where, dut.led, value, mask);
    endaction;
 
    // Wait for the host to be done, the echo to have arrived, and a little more.
@@ -252,6 +299,7 @@ module mkTbUartEcho(Empty);
 
    Stmt power = seq
       pause(200);
+      if (!echoTableChecked) fail("echo transform table");
       expectLeds("power-up", 4'b1111, 4'b0000);
       if (dut.txd != 1) fail("txd is not idle after reset");
       setRate(0, 0);
@@ -286,7 +334,7 @@ module mkTbUartEcho(Empty);
       settle;
       if (receiver.frames != 164) fail("not all of the 100 bytes came back");
       if (receiver.chained < 98)
-         $fatal(1, "FAIL: only %0d of 100 echoed frames are back to back", receiver.chained);
+         $fatal(1, "FAIL: " + name + ": only %0d of 100 echoed frames are back to back", receiver.chained);
       setRate(0, 0);
    endseq;
 
@@ -341,7 +389,7 @@ module mkTbUartEcho(Empty);
       if (sent >= 1000) fail("the echo FIFO did not overrun");
       if (receiver.missing == 0) fail("overrun: no byte is missing");
       if (extend(sent) != receiver.frames + receiver.missing)
-         $fatal(1, "FAIL: overrun: sent %0d bytes, %0d came back, %0d missing", sent,
+         $fatal(1, "FAIL: " + name + ": overrun: sent %0d bytes, %0d came back, %0d missing", sent,
                 receiver.frames, receiver.missing);
       expectLeds("overrun sticky", 4'b1000, 4'b1000);
       btn <= 1;
@@ -362,7 +410,7 @@ module mkTbUartEcho(Empty);
       await(host.idle);
       pause(20 * bits);
       if (receiver.frames != 40 || receiver.missing != 0)
-         $fatal(1, "FAIL: retune: %0d of 40 bytes came back, %0d missing", receiver.frames,
+         $fatal(1, "FAIL: " + name + ": retune: %0d of 40 bytes came back, %0d missing", receiver.frames,
                 receiver.missing);
       // idle: the echo takes the new rate
       pause(quiet);
@@ -374,7 +422,7 @@ module mkTbUartEcho(Empty);
       await(host.idle);
       pause(20 * 10 * (clkHz / baudOf(4)));
       if (receiver.frames != 20 || receiver.missing != 0)
-         $fatal(1, "FAIL: %0d Mbaud: %0d of 20 bytes came back, %0d missing", baudOf(4) / 1000000,
+         $fatal(1, "FAIL: " + name + ": %0d Mbaud: %0d of 20 bytes came back, %0d missing", baudOf(4) / 1000000,
                 receiver.frames, receiver.missing);
       sw <= 4'd8;
       pause(quiet);
@@ -386,11 +434,10 @@ module mkTbUartEcho(Empty);
       await(host.idle);
       pause(20 * 10 * (clkHz / baudOf(8)));
       if (receiver.frames != 6 || receiver.missing != 0)
-         $fatal(1, "FAIL: %0d baud: %0d of 6 bytes came back, %0d missing", baudOf(8),
+         $fatal(1, "FAIL: " + name + ": %0d baud: %0d of 6 bytes came back, %0d missing", baudOf(8),
                 receiver.frames, receiver.missing);
    endseq;
 
-`ifndef FIXED_BAUD
    // The switch changes in the very clock where the line is first seen low: the start bit is on
    // the line one clock after the sender's phase is set (`u` = 2), `sw` is a register, and both go
    // through two flops. In `u` = 3 the two arrive together. The echo has been idle, so it takes
@@ -421,12 +468,11 @@ module mkTbUartEcho(Empty);
          settle;
          pause(5 * 10 * (clkHz / baudOf(8)));   // the three frames come back at the old rate
          if (receiver.frames != 3 || receiver.missing != 0)
-            $fatal(1, "FAIL: a switch meeting a start bit (%0d): %0d of 3 bytes came back", trial,
+            $fatal(1, "FAIL: " + name + ": a switch meeting a start bit (%0d): %0d of 3 bytes came back", trial,
                    receiver.frames);
          current <= (current == 8) ? 4'd0 : 4'd8;
       endseq
    endseq;
-`endif
 
    Stmt script = seq
       note("power", cycle); power;
@@ -435,22 +481,99 @@ module mkTbUartEcho(Empty);
       note("errors", cycle); errors;
       note("overrun", cycle); overrun;
       note("retune", cycle); retune;
-`ifndef FIXED_BAUD
-      note("collide", cycle); collide;
-`endif
+      if (!fixedBaud) seq
+         note("collide", cycle); collide;
+      endseq
       action
-`ifdef FIXED_BAUD
-         $display("PASS: fixed baud rate echo checked, switches ignored, %0d cycles (%0d frames back to back)",
-                  cycle, receiver.chained);
-`else
-         $display("PASS: echo checked at 3 baud rates, %0d cycles (%0d frames back to back)", cycle,
+         $display("done: %s, %0d cycles (%0d frames back to back)", name, cycle,
                   receiver.chained);
-`endif
-         $finish(0);
       endaction
    endseq;
 
-   mkAutoFSM(script);
+   FSM fsm <- mkFSM(script);
+   Reg#(Bool) started <- mkReg(False);
+
+   rule begin_script (!started);
+      fsm.start;
+      started <= True;
+   endrule
+
+   method Bool _read = started && fsm.done;
+endmodule
+
+// The echo in the configuration `fixedBaud`, `transform`: the real top if the macros say so,
+// `mkEcho` otherwise.
+module mkBenchFor#(Bool fixedBaud, Bool transform)(ReadOnly#(Bool));
+   Bool isTop = fixedBaud == configFixedBaud && transform == configEchoTransform;
+   String name = (fixedBaud ? "fixed baud" : "switches") + ", "
+                 + (transform ? "transformed" : "plain")
+                 + " echo (" + (isTop ? "mkUartEcho" : "mkEcho") + ")";
+   UartEcho dut;
+   if (isTop)
+      dut <- mkUartEcho;
+   else
+      dut <- mkEcho(fixedBaud, transform);
+   ReadOnly#(Bool) bench <- mkBench(name, fixedBaud, transform, dut);
+   return bench;
+endmodule
+
+// The four configurations, each a module of its own: bsc then schedules each by itself, which
+// takes a fraction of the time of one module that holds all four.
+interface BenchDone;
+   (* always_ready *)
+   method Bool done;
+endinterface
+
+module mkBenchModule#(Bool fixedBaud, Bool transform)(BenchDone);
+   ReadOnly#(Bool) bench <- mkBenchFor(fixedBaud, transform);
+   method Bool done = bench;
+endmodule
+
+(* synthesize *)
+module mkBenchSwitchesPlain(BenchDone);
+   BenchDone b <- mkBenchModule(False, False);
+   return b;
+endmodule
+
+(* synthesize *)
+module mkBenchSwitchesTransformed(BenchDone);
+   BenchDone b <- mkBenchModule(False, True);
+   return b;
+endmodule
+
+(* synthesize *)
+module mkBenchFixedPlain(BenchDone);
+   BenchDone b <- mkBenchModule(True, False);
+   return b;
+endmodule
+
+(* synthesize *)
+module mkBenchFixedTransformed(BenchDone);
+   BenchDone b <- mkBenchModule(True, True);
+   return b;
+endmodule
+
+(* synthesize *)
+module mkTbUartEcho(Empty);
+   BenchDone switchesPlain <- mkBenchSwitchesPlain;
+   BenchDone switchesTransformed <- mkBenchSwitchesTransformed;
+   BenchDone fixedPlain <- mkBenchFixedPlain;
+   BenchDone fixedTransformed <- mkBenchFixedTransformed;
+   Reg#(UInt#(32)) cycle <- mkReg(0);
+
+   (* fire_when_enabled, no_implicit_conditions *)
+   rule watchdog;
+      cycle <= cycle + 1;
+      if (cycle == maxCycles) fail("timeout");
+   endrule
+
+   (* fire_when_enabled, no_implicit_conditions *)
+   rule finish (switchesPlain.done && switchesTransformed.done && fixedPlain.done
+                && fixedTransformed.done);
+      $display("PASS: switches and fixed baud rate, plain and transformed echo (four configurations, %0d cycles)",
+               cycle);
+      $finish(0);
+   endrule
 endmodule
 
 endpackage

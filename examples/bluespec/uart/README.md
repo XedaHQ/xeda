@@ -128,10 +128,10 @@ widths are chosen:
 
 ## Pin constraints
 
-The receiver's two synchronizer registers are named `rxSync1` and `rxSync2`; the cells in the
-netlist are `<hierarchy>rxSync1_reg` and `<hierarchy>rxSync2_reg` whatever the hierarchy. Tell Vivado
-that they are a synchronizer (it then places them in one slice) and that the pin has no timing
-relation to the clock, in the board's XDC file:
+The receiver's two synchronizer registers are named `rxSync1` and `rxSync2`. In the netlist the
+cells are `<hierarchy>rxSync1_reg` and `<hierarchy>rxSync2_reg`, whatever the hierarchy. In the
+board's XDC file, tell Vivado that they are a synchronizer (it then places them in one slice) and
+that the pin has no timing relation to the clock:
 
 ```tcl
 set sync_regs [get_cells -hierarchical -filter {NAME =~ *Sync1_reg* || NAME =~ *Sync2_reg*}]
@@ -139,8 +139,8 @@ set_property ASYNC_REG TRUE $sync_regs
 set_false_path -from [get_ports {rxd}]
 ```
 
-This is the form that the [uart_echo](../uart_echo/README.md) example uses, checked in a Vivado
-2024.2 implementation of the Arty A7-100T design: `ASYNC_REG` is set on the cells, a pair is in one
+This is the form that the [uart_echo](../uart_echo/README.md) example uses. In a Vivado 2024.2
+implementation of its Arty A7-100T design, `ASYNC_REG` is set on the cells, each pair is in one
 slice, the false path applies to the paths from the pin and `report_cdc` finds no unsafe crossing.
 Other tools have their own spelling: Quartus `SYNCHRONIZER_IDENTIFICATION`, a false path from the
 pin for any of them. The two registers reset to 0 (a line not yet seen high), see the receiver
@@ -148,22 +148,21 @@ below.
 
 ## Timing and tolerance
 
-At 12 Mbaud with a 100 MHz clock (the tolerances also come from a model of the receiver over all
-edge phases, which the testbench and a bisection of the baud offset confirm):
+At 12 Mbaud with a 100 MHz clock:
 
-* **Transmitter:** every bit edge of a frame, and of any number of back-to-back frames, lies within
+* Transmitter: every bit edge of a frame, and of any number of back-to-back frames, lies within
   0.5 clocks of the ideal grid `k * 25/3` clocks (the testbench measures at most 0.35, or 3.5 ns),
   and the frame period is 10 bit times exactly on average (240 frames checked against one grid).
   The bit timer is restarted only when a frame starts from idle. Its accumulator starts at R + M/2
   (the fraction of the start bit plus one half), which is what keeps the first edges of a frame
   centered.
-* **Receiver:** the first sample, at the center of the start bit, rejects a false start (a low
+* Receiver: the first sample, at the center of the start bit, rejects a false start (a low
   pulse shorter than 5 clocks, once past the filter). Then one sample per bit, at its center, and
   the stop bit is sampled at its center too, and the receiver hunts again one clock later. That is
   what keeps the baud tolerance at 100 % line utilization: **-5.0 % to +4.0 % measured** with the
   remote running back to back (model: -5.06 % / +4.17 %, ideal +-5.26 %). The testbench runs
   -4.5 % to +3.5 % at three phases each, and +7 % and -8 % must produce errors.
-* **Glitches:** with the default filter of 3 clocks a pulse of 1 or 2 clocks is invisible on an
+* Glitches: with the default filter of 3 clocks a pulse of 1 or 2 clocks is invisible on an
   idle line and at the center of a bit (the testbench puts one at the center of every bit of a
   frame, and at random bits). Near a bit edge it is not: a pulse right after an edge can delay the
   filtered edge by up to `pulse + HOLD - 1` clocks, which eats into the baud tolerance.
@@ -171,21 +170,18 @@ edge phases, which the testbench and a bisection of the baud offset confirm):
   a bit of D clocks (D is the shortest bit: 8 at 8.33 clocks per bit) leaves ceil((D-HOLD+1)/2)
   clocks of the bit's level before it, and the filter must have switched to that level before
   the pulse starts, which takes HOLD of them: **HOLD <= (D+2)/3** (`maxHold`). So 3 is the limit
-  at 12 Mbaud / 100 MHz, 2 at 6 clocks per bit and 7 at 20. A filter of 4 there corrupted 9 of the
-  22 glitch-matrix cases that the filter of 3 passes (all 22). With the testbench's glitch matrix
-  (every bit of a frame, pulses of 1 to HOLD-1 clocks) the deepest filter that passes is exactly
-  this bound for every D from 4 to 20, and one more fails. The filter delays every edge alike, so
-  it does not move the sampling point: the baud tolerance is the same for every HOLD (measured at
-  4 Mbaud with HOLD 1, 3, 6 and 9). R5's T4e limit, that the narrowest legal bit pulse must contain
-  HOLD samples, is looser than this at these periods. The bound is an elaboration error in
+  at 12 Mbaud / 100 MHz, 2 at 6 clocks per bit and 7 at 20. The testbench's glitch matrix (every
+  bit of a frame, pulses of 1 to HOLD-1 clocks) passes with this depth for every D from 4 to 20 and
+  fails with one more. The filter delays every edge alike, so it does not move the sampling
+  point: the baud tolerance is the same for every HOLD. A larger value is an elaboration error in
   `mkUartCore` (see above for run-time periods).
-* **Other rates:** the tolerance rises with the bit period, to about +-5.1 % from 33 clocks per bit
+* Other rates: the tolerance rises with the bit period, to about +-5.1 % from 33 clocks per bit
   (3 Mbaud at 100 MHz) on; the testbench runs 3 Mbaud and 921600 baud with the remote 3 % off.
   It falls below 8 clocks per bit: at 16 Mbaud (6.25 clocks) the testbench runs +-2 %.
 
 ## Area
 
-Measured with **bsc 2026.07.1** (`bsc -u -verilog`, no other flags) and **Yosys 0.70+post**
+Measured with bsc 2026.07.1 (`bsc -u -verilog`, no other flags) and Yosys 0.70+post
 (Homebrew), LUT6 on 7-series (LUTRAM is extra; Yosys re-encodes the receiver's state in one-hot,
 which is one FF more than the source has), at 12 Mbaud and 100 MHz:
 
@@ -213,14 +209,11 @@ The receiver, transmitter and buffers alone are small `(* synthesize *)` wrapper
 | buffer, depth 1 / 2 / 4 | 2 / 13 / 11 | 9 / 18 / 8 | depth 4: plus 8 LUTRAM |
 | `mkUart`, defaults (tx depth 1, rx depth 4) | 60 | 64 | plus 8 LUTRAM |
 
-A hand-written Verilog model of the same architecture (the research notes, same Yosys command) is
-22 LUT / 25 FF (receiver) and 25 / 17 (transmitter): within a LUT of the BSV, so the generated code
-is not bigger. Other tools, `mkUart` with the defaults, through Xeda from the Verilog of the `bsc`
-flow:
+Other tools, `mkUart` with the defaults, through Xeda from the Verilog of the `bsc` flow:
 
 | tool and flow | result |
 |---|---|
-| Vivado 2024.2, `xeda run vivado_synth examples/bluespec/uart/uart.yaml` (out of context, xc7a100tcsg324-1, 10 ns) | **49 LUT (43 logic, 6 LUTRAM), 59 FF, 19 slices, Fmax 238 MHz** |
+| Vivado 2024.2, `xeda run vivado_synth examples/bluespec/uart/uart.yaml` (out of context, xc7a100tcsg324-1, 10 ns) | 49 LUT (43 logic, 6 LUTRAM), 59 FF, 19 slices, Fmax 238 MHz |
 | Yosys 0.69+286, `xeda run yosys_fpga examples/bluespec/uart/uart.yaml --target artix7` (xc7a100t) | 76 LUT (68 logic, 8 LUTRAM), 64 FF |
 | Yosys 0.69+286 and nextpnr-ecp5 0.11.1, `xeda run yosys_fpga+nextpnr examples/bluespec/uart/uart.yaml --target ecp5` (LFE5U-85F, 50 MHz target) | 95 LUT4 (TRELLIS_COMB), 64 FF, Fmax 173 MHz |
 | Yosys 0.69+286, `xeda run yosys examples/bluespec/uart/uart.yaml` (nangate45, 1.5 ns) | 926 um2 |
@@ -255,9 +248,9 @@ The tests assume the default `HOLD` and an 8N1 `mkUart` at 12 Mbaud with 100 MHz
 of A follow `TX_DEPTH` and `RX_DEPTH`, and the testbench queues of expected bytes and frames are
 sized from them: it passes with a transmit depth of 1, 2, 4 and 16 and a receive depth of 1, 4, 8
 and 16 (`--design-overrides tb.defines.TX_DEPTH=16`; the defines of the testbench reach the
-design too). `RX_DEPTH=2` does not build the testbench: bsc finds a scheduling cycle
-between the bench's event counters and its consumer when the receive buffer is a `mkFIFOF`.
-Depth 2 is covered by DUT B. `HOLD=4` stops the build with the error of `mkUartCore`.
+design too). `RX_DEPTH=2` does not build the testbench, because bsc finds a scheduling cycle
+between the bench's event counters and its consumer; depth 2 is covered by DUT B. `HOLD=4` stops
+the build with the error of `mkUartCore`.
 
 DUT C is reset by a `mkReset` around it, so the rules of its bench use two reset domains on purpose;
 the design file suppresses bsc's warning about it (G0043) for `bsc_sim`.
