@@ -27,6 +27,7 @@ from .tool_utils import (
     require_yosys_tcl,
     yosys_json_attribute_holders,
 )
+from .tool_utils import HANG_GUARD
 
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
@@ -429,7 +430,7 @@ def test_a_hierarchical_yosys_netlist_would_define_two_cells(tmp_path):
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=HANG_GUARD,
     )
     assert run.returncode == 0, run.stderr
     assert _modules_of_the_design((tmp_path / "x.edif").read_text()) == 2

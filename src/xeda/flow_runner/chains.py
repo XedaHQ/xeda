@@ -244,13 +244,15 @@ def is_converter(flow_class: type[Flow]) -> bool:
     )
 
 
+@cache
 def default_conversion(flow_class: type[Flow]) -> DesignConversion | None:
     """Return the conversion of the flow under its default settings, or None.
 
     None for a flow that is no converter, and for a converter that converts nothing until a
     setting says so. Such a converter is never a default producer, and the declarations cannot
     judge it: a chain or a binding accepts it, and the final check under the agreed settings
-    decides."""
+    decides. The default settings of a class never change, and the checks of a chain ask for
+    this thousands of times (building the settings is the cost), so the result is kept."""
     return flow_class.design_conversion(flow_class.Settings())
 
 

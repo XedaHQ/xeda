@@ -12,6 +12,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from .tool_utils import HANG_GUARD
 
 TESTS = Path(__file__).parent
 HELPER = "flow_registry.py"
@@ -24,7 +25,7 @@ def _run(script: str) -> str:
         cwd=TESTS.parent,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=HANG_GUARD,
     )
     assert done.returncode == 0, done.stderr
     return done.stdout.strip()

@@ -32,6 +32,7 @@ from .test_yosys_asic import TINY_DONT_USE, _commands, _design, _scripted_launch
 from .test_yosys_templates import TCL_HARNESS
 from .tool_utils import require_tclsh, require_yosys, require_yosys_tcl
 from .yosys_format import force_script_format
+from .tool_utils import HANG_GUARD
 
 
 @pytest.fixture(autouse=True)
@@ -87,7 +88,7 @@ def _calls(run_dir: Path, tmp_path: Path, extracted: bool = False) -> list[list[
     )
     script = run_dir / "yosys_synth.tcl"
     result = subprocess.run(
-        ["tclsh", str(harness), str(script)], capture_output=True, text=True, timeout=60
+        ["tclsh", str(harness), str(script)], capture_output=True, text=True, timeout=HANG_GUARD
     )
     assert result.returncode == 0, f"{result.stderr}\n{script.read_text()}"
     calls = [

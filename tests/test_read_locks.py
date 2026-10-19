@@ -22,6 +22,7 @@ from xeda.run_root import ensure_run_root
 
 from .io_flows import _Maker, _Taker
 from .tool_utils import producers_of
+from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no run-directory locks")
 
@@ -165,7 +166,7 @@ with run_dir_lock(p):
                 ],
                 check=True,
                 env=_environment(),
-                timeout=20,
+                timeout=HANG_GUARD,
             )
         with original(producer):
             yield producer

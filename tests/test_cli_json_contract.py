@@ -19,6 +19,7 @@ from xeda.platforms import bundled_platform_names
 
 from .test_remote_run import _remote_with_fake_fpga_tools
 from .test_remote_run import remote_host  # noqa: F401  (the fixture of the remote harness)
+from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.python_compat
 
@@ -209,7 +210,7 @@ def test_generator_subprocess_output_does_not_corrupt_stdout(tmp_path):
         cwd=str(tmp_path),
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=HANG_GUARD,
     )
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout) == {"success": True}
@@ -239,7 +240,7 @@ def test_raw_generator_command_output_does_not_corrupt_stdout(tmp_path):
         cwd=str(tmp_path),
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=HANG_GUARD,
     )
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout) == {"success": True}
@@ -285,7 +286,7 @@ def test_remote_status_comes_from_the_remote_results(remote_success, expected_ex
         cwd=str(tmp_path),
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=HANG_GUARD,
     )
     document = json_stdout(proc)
     assert proc.returncode == expected_exit
@@ -431,7 +432,7 @@ def test_highlighted_tool_output_does_not_corrupt_stdout(tmp_path):
         capture_output=True,
         text=True,
         env=dict(os.environ, FORCE_COLOR="1"),
-        timeout=120,
+        timeout=HANG_GUARD,
     )
     assert proc.returncode == 0, proc.stderr
     # stdout carries the document and nothing else

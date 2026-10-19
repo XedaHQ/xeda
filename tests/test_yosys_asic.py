@@ -41,6 +41,7 @@ from .tiny_platform import TINY, TINY_RESIDUE, tiny_settings, tiny_store
 from .test_yosys import _yosys_has_tcl
 from .test_yosys_templates import TCL_HARNESS
 from .tool_utils import require_tclsh, require_yosys
+from .tool_utils import HANG_GUARD
 
 MAC = (
     "module mul8(input [7:0] a, b, output [15:0] p);\n"
@@ -106,7 +107,7 @@ def _commands(run_dir: Path, script_format: str, tmp_path: Path) -> list[list[st
             ["tclsh", str(harness), str(run_dir / "yosys_synth.tcl")],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=HANG_GUARD,
         )
         assert result.returncode == 0, f"{result.stderr}\n{text}"
         calls = [
@@ -579,7 +580,7 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
         ],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=HANG_GUARD,
     )
     document = json.loads(proc.stdout)
     assert proc.returncode == 0 and document["success"], proc.stderr[-3000:] or document

@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from .sharding import parse_shard, shard_of
 from .tool_utils import FAKE_TOOLS_DIR, _opted_in
 
 CHECKOUT = Path(__file__).parent.parent
@@ -111,6 +112,32 @@ def _nothing_is_written_into_the_checkout():
     yield
     changes = _changes_since_the_start()
     assert not changes, f"tests wrote into the checkout: {changes}"
+
+
+# ------------------------------------------------------------------------------ the shards
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--shard",
+        type=parse_shard,
+        metavar="K/N",
+        help="run only the K-th of N disjoint parts of the collected tests (see tests/sharding.py)",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """With `--shard K/N`, deselect every test that is not in shard K of N. Runs in each
+    pytest-xdist worker too, where the same node ids give the same shards."""
+    shard = config.getoption("--shard")
+    if shard is None:
+        return
+    index, count = shard
+    kept, dropped = [], []
+    for item in items:
+        (kept if shard_of(item.nodeid, count) == index else dropped).append(item)
+    items[:] = kept
+    config.hook.pytest_deselected(items=dropped)
 
 
 # ------------------------------------------------------------- the environment is left as found

@@ -25,6 +25,7 @@ from xeda.design import Design, DesignFileParseError, DesignValidationError
 from xeda.utils import XedaException
 
 from .project_files import PROJECT_FILE
+from .tool_utils import HANG_GUARD
 
 TESTS_DIR = Path(__file__).parent.absolute()
 SQRT_DIR = TESTS_DIR.parent / "examples" / "vhdl" / "sqrt"
@@ -62,7 +63,7 @@ def run_xeda(*args: str, cwd: Path, fake_tools: bool = False) -> subprocess.Comp
         env=env,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=HANG_GUARD,
     )
 
 

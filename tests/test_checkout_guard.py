@@ -17,6 +17,8 @@ from pathlib import Path
 import pytest
 
 from . import conftest as guard
+from . import sharding
+from .tool_utils import HANG_GUARD
 
 #: Files that a checkout has when the session starts, in places that the guard watches.
 EXISTING = {
@@ -274,6 +276,7 @@ def pytest_session(tmp_path: Path, conftest: str, module: str) -> subprocess.Com
     (tree / "pytest.ini").write_text("[pytest]\n")
     (tree / "tests" / "__init__.py").write_text("")
     (tree / "tests" / "tool_utils.py").write_text(STUB_TOOL_UTILS)
+    (tree / "tests" / "sharding.py").write_text(Path(sharding.__file__).read_text())
     (tree / "tests" / "fake_tools" / "fake_fpga_tool.py").write_text("")
     (tree / "tests" / "the_suites_conftest.py").write_text(Path(guard.__file__).read_text())
     (tree / "tests" / "conftest.py").write_text(conftest)
@@ -285,7 +288,7 @@ def pytest_session(tmp_path: Path, conftest: str, module: str) -> subprocess.Com
         env=environment,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=HANG_GUARD,
     )
 
 

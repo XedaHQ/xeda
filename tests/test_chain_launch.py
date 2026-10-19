@@ -21,6 +21,7 @@ from .flow_registry import preserved_flow_registry
 from . import tool_utils
 from .io_flows import _Join, _Taker
 from .test_read_locks import _environment, _probe
+from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
@@ -237,7 +238,7 @@ def test_a_bound_producer_changed_in_the_acquisition_gap_is_refused(tmp_path, mo
                 ],
                 check=True,
                 env=_environment(),
-                timeout=20,
+                timeout=HANG_GUARD,
             )
         with original(producer):
             yield producer

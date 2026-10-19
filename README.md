@@ -225,9 +225,10 @@ flow.
 git clone https://github.com/XedaHQ/xeda.git
 cd xeda
 uv sync
-uv run pytest tests/          # serial
-uv run pytest tests/ -n auto  # one worker per CPU, several times faster
-uv run pytest -n auto -m "python_compat and not real_tool"  # faster cross-version check
+uv run pytest tests/                      # serial
+uv run pytest tests/ -n logical           # one worker per logical CPU, several times faster
+uv run pytest -n logical -m "python_compat and not real_tool"  # faster cross-version check
+uv run pytest tests/ -n logical --shard 2/4  # the second of four disjoint parts, as CI runs it
 ```
 
 `uv sync` installs xeda in editable mode, with the dependency group `dev` of `pyproject.toml`. This
@@ -237,8 +238,9 @@ tools. The dependency groups are not part of the published package: `pip install
 none of them.
 
 The marked command runs the compatibility cases that CI runs on Python 3.11 through 3.14. CI runs
-the full tool-backed suite on Python 3.15, and one Verilator cocotb smoke test on Python 3.11. The
-other pytest commands run every test.
+the full tool-backed suite on Python 3.15 as four parallel jobs, one shard each, and one Verilator
+cocotb smoke test on Python 3.11. A `--shard K/N` command runs only one of N disjoint parts of the
+suite. The first two commands run every test.
 
 Bare `tox` runs those compatibility checks, the full Python 3.15 suite and the quality checks. To
 run the full test suite on every supported Python version, use

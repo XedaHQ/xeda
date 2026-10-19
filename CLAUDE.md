@@ -12,7 +12,7 @@ design files, read `.claude/skills/xeda/SKILL.md`. Write new designs and example
 
 ```bash
 uv sync                                   # or: python -m pip install -U --editable .
-pytest tests/ -n auto                     # full suite (pytest-xdist); serial: pytest tests/
+pytest tests/ -n logical                  # full suite (pytest-xdist); serial: pytest tests/
 tox -e mypy,black,ruff,docs               # the quality gates CI runs; all must exit 0
 tox                                       # py311..py314-compat + full py315 + mypy, black, ruff
 python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/flow_catalog.json
@@ -21,8 +21,9 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
 - Gates: `mypy src`; `black --check src tests tools` (line length 100); `ruff check --select
   F,PLW0133 src tests tools`. The full `ruff check` ruleset is not enforced: keep new code
   clean, do not mass-fix old findings. Sphinx docs build with warnings as errors.
-- CI runs the full suite on 3.15 only; 3.11-3.14 run `-m "python_compat and not real_tool"`, so
-  mark Python or dependency compatibility tests `python_compat`. A test of OS-dependent code
+- CI runs the full suite on 3.15 only, as four parallel jobs (`--shard K/N` keeps the tests whose
+  node id hashes to K, `tests/sharding.py`); 3.11-3.14 run `-m "python_compat and not real_tool"`,
+  so mark Python or dependency compatibility tests `python_compat`. A test of OS-dependent code
   (locks, process groups, pseudo-terminals, file copy, file-system clocks, links) goes into the
   file list of the `macos` job in `.github/workflows/ci.yml`.
 - The suite is parallel-safe and must stay so (`addopts` has no `-n` on purpose). A test writes

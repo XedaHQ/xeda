@@ -32,6 +32,7 @@ from xeda.units import Time
 from xeda.utils import replacing_file
 from xeda.flow import FpgaSynthFlow
 from .io_flows import _Place
+from .tool_utils import HANG_GUARD
 
 
 class _DsePlace(_Place):
@@ -316,7 +317,7 @@ def _dse(tmp_path, design_toml: str, *args):
         env={**os.environ, "PATH": str(TESTS_DIR / "fake_tools") + os.pathsep + os.environ["PATH"]},
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=HANG_GUARD,
     )
     return proc, json.loads(proc.stdout)
 

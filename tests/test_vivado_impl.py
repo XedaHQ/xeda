@@ -46,6 +46,7 @@ from .tool_utils import (
     use_fake_fpga_tools,
     use_fake_tools,
 )
+from .tool_utils import HANG_GUARD
 
 needs_tclsh = pytest.mark.skipif(
     not shutil.which("tclsh"), reason="the fake Vivado runs the TCL it is handed under tclsh"
@@ -447,7 +448,7 @@ def test_the_fake_vivado_finds_the_top_by_the_name_of_the_file_as_vivado_does(tm
             cwd=tmp_path,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=HANG_GUARD,
         )
         assert (result.returncode == 0) is ok, result.stderr
         if not ok:

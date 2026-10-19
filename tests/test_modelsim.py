@@ -19,6 +19,7 @@ from xeda.flows.modelsim import ModelsimTool
 from xeda.utils import LOCATION_FORMS
 
 from .tool_utils import fake_calls, use_fake_tools
+from .tool_utils import HANG_GUARD
 
 needs_tclsh = pytest.mark.skipif(
     not shutil.which("tclsh"), reason="tclsh is needed to run the TCL scripts"
@@ -381,7 +382,7 @@ def test_fake_vsim_batch_requires_explicit_transcript(capture, tmp_path, monkeyp
         ini.write_text("[vsim]\nBatchTranscriptFile = runtime.log\n")
         args += ["-modelsimini", str(ini)]
     result = subprocess.run(
-        args, cwd=tmp_path, capture_output=True, text=True, timeout=30, check=False
+        args, cwd=tmp_path, capture_output=True, text=True, timeout=HANG_GUARD, check=False
     )
     assert result.returncode == 0, result.stderr
     log = tmp_path / "runtime.log"

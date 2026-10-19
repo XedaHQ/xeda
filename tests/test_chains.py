@@ -512,8 +512,10 @@ def test_a_follow_relation_is_exactly_a_link_the_chain_validator_accepts():
     from xeda.flow_runner.chains import followers, predecessors
 
     classes = _classes()
+    # once per producer: the last check below reads every list again for every consumer
+    followed = {producer: followers(producer, classes) for producer in classes}
     for producer in classes:
-        listed = followers(producer, classes)
+        listed = followed[producer]
         assert [bool(e.through) for e in listed] == sorted(bool(e.through) for e in listed)
         for consumer in classes:
             found = [e for e in listed if e.consumer is consumer]
@@ -537,7 +539,7 @@ def test_a_follow_relation_is_exactly_a_link_the_chain_validator_accepts():
         assert {(e.producer, e.output) for e in predecessors(consumer, classes)} == {
             (e.producer, e.output)
             for producer in classes
-            for e in followers(producer, classes)
+            for e in followed[producer]
             if e.consumer is consumer
         }
 

@@ -26,6 +26,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import YosysFpga
 
 from .tool_utils import require_yosys, require_yosys_config
+from .tool_utils import HANG_GUARD
 
 PART = "xc7a100tcsg324-1"
 
@@ -202,7 +203,11 @@ def test_a_library_the_pass_reads_is_not_read_again_when_verilog_lib_spells_it_a
     require_yosys_config()
     datdir = Path(
         subprocess.run(
-            ["yosys-config", "--datdir"], capture_output=True, text=True, check=True, timeout=60
+            ["yosys-config", "--datdir"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=HANG_GUARD,
         ).stdout.strip()
     )
     library = datdir / "xilinx" / "cells_sim.v"

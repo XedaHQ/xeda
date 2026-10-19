@@ -16,6 +16,7 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 
 from . import tool_utils
+from .tool_utils import HANG_GUARD
 
 TOOLS = (
     "nextpnr-himbaechel",
@@ -37,7 +38,7 @@ def _run(name, args, cwd, env=None):
         cwd=cwd,
         env={**os.environ, **(env or {})},
         capture_output=True,
-        timeout=10,
+        timeout=HANG_GUARD,
     )
 
 
@@ -68,7 +69,7 @@ def test_fake_yosys_resolves_library_pseudo_paths_from_install_prefix(tmp_path, 
         [str(prefix / "bin/yosys"), "-s", str(script)],
         cwd=tmp_path,
         capture_output=True,
-        timeout=10,
+        timeout=HANG_GUARD,
     )
     assert result.returncode == 0, result.stderr
     (call,) = _calls(tmp_path)
@@ -331,7 +332,7 @@ def test_fake_prefix_models_generator_and_assembler(tmp_path, monkeypatch):
         [str(prefix / "bin/yosys"), "-T", "-Q", "-V"],
         cwd=tmp_path,
         capture_output=True,
-        timeout=10,
+        timeout=HANG_GUARD,
     )
     assert probe.returncode == 0 and b"Yosys 0.63" in probe.stdout, probe.stderr
     assert not (tmp_path / "fake_fpga.calls.jsonl").exists()
@@ -347,13 +348,15 @@ def test_fake_prefix_models_generator_and_assembler(tmp_path, monkeypatch):
         "--bba",
         "chip.bba",
     ]
-    result = subprocess.run(list(map(str, args)), cwd=tmp_path, capture_output=True, timeout=10)
+    result = subprocess.run(
+        list(map(str, args)), cwd=tmp_path, capture_output=True, timeout=HANG_GUARD
+    )
     assert result.returncode == 0, result.stderr
     result = subprocess.run(
         [str(prefix / "bin/bbasm"), "-l", "chip.bba", "chip.bin"],
         cwd=tmp_path,
         capture_output=True,
-        timeout=10,
+        timeout=HANG_GUARD,
     )
     assert result.returncode == 0, result.stderr
     binary = (tmp_path / "chip.bin").read_bytes()

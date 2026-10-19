@@ -18,6 +18,7 @@ from xeda.flow.flow import flowrun_hash
 from xeda.flow.synth import PhysicalClock
 from xeda.flows import Nextpnr, Quartus, VivadoSynth, Yosys, YosysFpga
 from xeda.units import Frequency, Time
+from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.python_compat
 
@@ -376,7 +377,7 @@ def test_a_bare_period_on_the_command_line_fails_with_the_unit_message_in_json(t
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=HANG_GUARD,
     )
     document = json.loads(proc.stdout)
     assert proc.returncode != 0

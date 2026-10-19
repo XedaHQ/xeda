@@ -18,6 +18,7 @@ from xeda.flows import Yosys
 from xeda.introspect import results_info
 
 from .tiny_platform import tiny_settings, tiny_store
+from .tool_utils import HANG_GUARD
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -273,10 +274,10 @@ def test_every_lut_based_primitive_of_the_installed_yosys_has_a_footprint():
     require_yosys()
     require_yosys_config()
     version = subprocess.run(
-        ["yosys", "-V"], capture_output=True, text=True, check=True, timeout=60
+        ["yosys", "-V"], capture_output=True, text=True, check=True, timeout=HANG_GUARD
     ).stdout.strip()
     datdir = subprocess.run(
-        ["yosys-config", "--datdir"], capture_output=True, text=True, check=True, timeout=60
+        ["yosys-config", "--datdir"], capture_output=True, text=True, check=True, timeout=HANG_GUARD
     ).stdout.strip()
     library = Path(datdir) / "xilinx" / "cells_sim.v"
     # The library comments out two superseded declarations, so read the code, not the comments.

@@ -12,6 +12,7 @@ from xeda.flow.io import declared_outputs
 
 from . import io_flows
 from .flow_registry import preserved_flow_registry
+from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.python_compat
 
@@ -25,7 +26,7 @@ def test_generated_flow_catalog_is_current():
         capture_output=True,
         text=True,
         check=False,
-        timeout=30,
+        timeout=HANG_GUARD,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -63,7 +64,7 @@ assert "vivado_synth" in catalog
         capture_output=True,
         text=True,
         check=False,
-        timeout=60,
+        timeout=HANG_GUARD,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -159,7 +160,7 @@ for incomplete in sorted(cases):
         capture_output=True,
         text=True,
         check=False,
-        timeout=60,
+        timeout=HANG_GUARD,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 

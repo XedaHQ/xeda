@@ -15,6 +15,7 @@ from xeda.flow import registered_flows
 
 from . import io_flows  # noqa: F401 - registers the declared test flows
 from .flow_registry import preserved_flow_registry
+from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.python_compat
 
@@ -40,7 +41,7 @@ def _require_shell(shell):
                 [executable, *SHELL_PROBES[shell]],
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=HANG_GUARD,
                 check=False,
                 env={**os.environ, "HOME": os.devnull},
             )
@@ -300,7 +301,7 @@ def test_shell_loads_completion_and_completes_commands(shell, setup, words, cand
             capture_output=True,
             text=True,
             check=True,
-            timeout=30,
+            timeout=HANG_GUARD,
         )
         assert result.stderr == ""
         source_file.write_text(result.stdout)
@@ -357,7 +358,7 @@ _xeda_completion
     for placeholder, value in substitutions.items():
         arguments = [argument.replace(placeholder, value) for argument in arguments]
     result = subprocess.run(
-        arguments, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30
+        arguments, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=HANG_GUARD
     )
     assert result.returncode == 0, result.stderr
     assert result.stderr == ""

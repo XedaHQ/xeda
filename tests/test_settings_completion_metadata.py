@@ -13,6 +13,7 @@ from xeda.flow import Flow
 from xeda.flow.settings_group import SettingsGroup
 from xeda.introspect import settings_completion_info
 from .flow_registry import preserved_flow_registry
+from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.python_compat
 
@@ -313,6 +314,6 @@ def test_generated_catalog_has_fresh_settings_metadata() -> None:
         capture_output=True,
         text=True,
         check=False,
-        timeout=60,
+        timeout=HANG_GUARD,
     )
     assert result.returncode == 0, result.stdout + result.stderr
