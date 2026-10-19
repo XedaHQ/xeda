@@ -29,6 +29,7 @@ from xeda.flow_runner.chains import (
     converter_edges,
     is_converter,
     default_graph,
+    design_edge_refusal,
     fitting_outputs,
     followers,
     match_required_inputs,
@@ -856,3 +857,34 @@ def test_a_chain_and_a_binding_refuse_a_converter_before_a_converter_alike(tmp_p
     with pytest.raises(FlowSettingsException) as refused:
         runner.plan("bsc", bound)
     assert str(chained.value).split(": ", 1)[1] in str(refused.value)
+
+
+def test_a_converter_that_a_file_dependency_reaches_may_take_a_converted_design() -> None:
+    """The graph of a flow that reads declared inputs only reaches the converter `switched` as
+    the default producer of a file, not as the converter of a design. `switched` reads the design
+    it is given, and bsc may supply it, so the chain `bsc+reader` binds `switched.design` and so
+    does the binding."""
+    switched = _switched_converter(
+        reads=frozenset({SourceType.Verilog, SourceType.Vhdl}), converts=SourceType.Vhdl
+    )
+
+    class _Reader(Flow):
+        """Takes a file from the converter, for the test."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        class Inputs(Flow.Inputs):
+            extra: Path = In(
+                SourceType.Verilog, producer=switched.name, description="A file of the converter."
+            )
+
+        def run(self) -> None:
+            pass
+
+    graph = default_graph(_Reader)
+    assert [(e.consumer, e.input, e.producer) for e in graph.edges] == [
+        (_Reader, "extra", switched),
+        (switched, "design", Bsc),
+    ]
+    assert graph.between(Bsc) == (switched,)
+    assert design_edge_refusal(Bsc, switched) is None

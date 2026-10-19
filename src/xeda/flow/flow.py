@@ -1123,7 +1123,12 @@ class Flow(metaclass=ABCMeta):
         (`Out(DESIGN, ...)`) that carries the design it derives (the class is refused
         otherwise). It returns None for settings under which it converts nothing. A design
         output without a conversion is allowed: such a flow is no converter and no flow takes
-        its design. Pure, like `input_types`."""
+        its design. Pure, like `input_types`.
+
+        The declarations (chains, bindings, default producers) judge a converter by its
+        conversion under the default settings: the languages it converts and writes there decide
+        which flows it may precede. A converter that returns None under the default settings
+        leaves the whole decision to the agreed settings, which the final check applies."""
         return None
 
     class Inputs(FlowInputs):

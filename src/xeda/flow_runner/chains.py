@@ -597,17 +597,20 @@ def default_graph(consumer: type[Flow]) -> DefaultGraph:
 
     found: list[DefaultEdge] = []
     expanded = {consumer}
+    #: The flows that the walk reached as the converter of a `design` input.
+    converting: set[type[Flow]] = set()
     queue = deque([consumer])
     while queue:
         current = queue.popleft()
         for declaration in declared_inputs(current).values():
             if declaration.is_design:
-                # A converter that the graph reaches reads the design as it is: one hop.
-                reached_converter = current is not consumer and is_converter(current)
-                for edge in [] if reached_converter else converter_edges(current):
+                # A flow that converts the design of another reads its own design as it is: one
+                # hop. A converter that is reached as the producer of a file is no such flow.
+                for edge in [] if current in converting else converter_edges(current):
                     found.append(edge)
                     if edge.producer not in expanded:
                         expanded.add(edge.producer)
+                        converting.add(edge.producer)
                         queue.append(edge.producer)
                 continue
             if declaration.producer is None:
