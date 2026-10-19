@@ -14759,7 +14759,7 @@
       "read_verilog_flags": {
         "children": false,
         "assignable": true,
-        "help": "Flags passed to yosys' `read_verilog` for each Verilog source. Add `-noautowire` explicitly if its stricter undeclared-net behavior is required. Must be `[]` under `synth_pass_only`, which reads sources as plain `yosys <file>` does."
+        "help": "Flags passed to yosys' `read_verilog` for each Verilog source. They do not apply to the Verilog sources of a design that `slang` reads together with its SystemVerilog sources. Add `-noautowire` explicitly if its stricter undeclared-net behavior is required. Must be `[]` under `synth_pass_only`, which reads sources as plain `yosys <file>` does."
       },
       "read_systemverilog_flags": {
         "children": false,
@@ -16216,7 +16216,7 @@
           "slang",
           "uhdm"
         ],
-        "help": "SystemVerilog reader for CXXRTL. For common designs, the built-in reader generates cells that `write_cxxrtl` accepts."
+        "help": "SystemVerilog reader for CXXRTL. For common designs, the built-in reader generates cells that `write_cxxrtl` accepts. With `slang`, one `read_slang` reads the Verilog and SystemVerilog sources of the design and of the testbench, when they include a SystemVerilog source."
       },
       "use_slang_plugin": {
         "children": false,

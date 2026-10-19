@@ -1490,15 +1490,18 @@ the mapping files, the tie and buffer cells, and the defaults that this section 
 Reading the sources
 -------------------
 
-``yosys``, ``yosys_fpga`` and ``yosys_sim`` read the Verilog sources of a design with
-``read_verilog``. When the design also has a SystemVerilog source and ``systemverilog`` is
-``slang``, one ``read_slang`` reads the Verilog and the SystemVerilog sources together, in the order
-of ``rtl.sources``, as OpenROAD-flow-scripts does. The sources are then one compilation. A module
-or a package that one file declares is known in all the others. ``read_systemverilog_flags`` apply to
-that command, and ``read_verilog_flags`` do not apply to the Verilog sources it reads.
+``yosys``, ``yosys_fpga`` and ``yosys_sim`` read Verilog sources with ``read_verilog``. ``yosys`` and
+``yosys_fpga`` read the sources of ``rtl``. ``yosys_sim`` reads the sources of ``rtl`` and of ``tb``.
+When these sources include a SystemVerilog source and ``systemverilog`` is ``slang``, one
+``read_slang`` reads all their Verilog and SystemVerilog sources together, in design order, as
+OpenROAD-flow-scripts does. The sources are then one compilation. A module or a package that one
+file declares is known in all the others. ``read_systemverilog_flags`` apply to that command, and
+``read_verilog_flags`` do not apply to the Verilog sources it reads. The ``yosys_sim`` flow reads
+SystemVerilog with the built-in reader unless ``systemverilog`` says otherwise.
 
-The command also sets the parameters of the top module, with ``-G NAME=VALUE`` as
-OpenROAD-flow-scripts does, and the script then has no ``chparam``. slang elaborates a module while
+When the top module is not VHDL, the command also sets the parameters of the top module, with
+``-G NAME=VALUE`` as OpenROAD-flow-scripts does, and the script has no ``chparam``. GHDL sets the
+generics of a VHDL top module, and the command then has no ``-G``. slang elaborates a module while
 it reads the sources, so ``chparam`` cannot change a parameter afterwards. An integer, a sized
 literal such as ``7'b0101001``, a boolean (``1'b1`` or ``1'b0``), a string and a real number all
 reach the top in the form that slang needs. Xeda writes a string value between double quotes
