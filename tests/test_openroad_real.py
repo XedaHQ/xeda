@@ -41,8 +41,10 @@ from .openroad_flags import (
 from .openroad_utils import render_driver
 from .tool_utils import (
     OPENROAD_COMMANDS,
+    pdk_test_pairs,
     pdk_test_platforms,
     require_bsc,
+    require_klayout,
     require_openroad,
     require_pdk_store,
     require_yosys,
@@ -522,6 +524,46 @@ def test_gcd_runs_through_the_chain(tmp_path):
     assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
     for name in CHAIN:
         assert (tmp_path / "run" / "gcd" / name / "trace.json").is_file(), name
+
+
+def test_gcd_runs_on_sky130hd_from_lambdapdk(tmp_path):
+    """The chain `bsc+openroad` on sky130hd with the files of lambdapdk: the files (`.lib.gz`
+    included) and the values of the entry take the GCD through the six flows with timing met, no
+    DRC error and no antenna violation, tap cells placed, and none of the dont-use cells in the
+    netlist. The platform of the design file is replaced for the two flows that take it."""
+    require_bsc()
+    require_openroad()
+    require_yosys()
+    require_klayout()
+    store = require_pdk_store()
+    if ("sky130hd", "lambdapdk") not in pdk_test_pairs():
+        pytest.skip("set XEDA_TESTS_PDK_PROVIDERS to sky130hd:lambdapdk for this test")
+    from xeda.platforms import load_residue
+
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    chosen = ["platform=sky130hd", "pdk_provider=lambdapdk"]
+    flow = run_gcd(
+        runner,
+        store,
+        *chosen,
+        *(f"flows.yosys.{setting}" for setting in chosen),
+        "flows.yosys.clock.period=4ns",
+        "flows.openroad_place.clock.period=4ns",
+        "write_gds=true",
+        flow="bsc+openroad",
+    )
+    assert flow.succeeded, flow.results.get("error")
+    results = flow.results
+    assert results["platform"]["provider"] == "lambdapdk"
+    assert results["wns"] == 0 and results["worst_slack"] > 0, results["worst_slack"]
+    assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
+    assert results["tap_cells"] > 0
+    assert (flow.run_path / "final.gds").stat().st_size > 0  # the KLayout file of lambdapdk
+    view = load_residue("sky130hd").for_provider("lambdapdk")
+    excluded = set(view.value_leaves()["dont_use_cells"])
+    netlist = (tmp_path / "run" / "gcd" / "yosys" / "netlist.v").read_text()
+    used = set(re.findall(r"^\s*(sky130_fd_sc_hd__\w+)\s", netlist, re.M))
+    assert used and not used & excluded, sorted(used & excluded)
 
 
 def test_gcd_at_a_clock_it_misses_is_rejected_and_reported_again(tmp_path):

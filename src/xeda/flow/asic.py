@@ -106,11 +106,11 @@ def check_platform_settings(settings: "AsicPlatformSettings") -> None:
                 "`corner` selects a corner of a platform: give `platform` or `platform_file` too"
             )
         return
-    from ..platforms.providers import platform_directory
+    from ..platforms.providers import platform_directory, resolve_corner
 
     residue = settings.residue()
     try:
-        residue.resolve_corner(settings.corner)
+        resolve_corner(residue, settings.pdk_provider, settings.corner)
         platform_directory(
             residue, settings.pdk_provider, settings.pdk_version, settings.store_root()
         )
@@ -145,17 +145,18 @@ class AsicPlatformSettings(Flow.Settings):
         description="Standard cells that the flow must not use, in addition to the cells that "
         "the platform lists. The default is none.",
     )
-    pdk_provider: Optional[Literal["orfs", "ciel", "directory"]] = Field(
+    pdk_provider: Optional[Literal["orfs", "ciel", "lambdapdk", "directory"]] = Field(
         None,
         description="Where the PDK files of the platform come from. `orfs`: a sparse checkout "
-        "of OpenROAD-flow-scripts. `ciel`: a PDK build that `ciel` installs. `directory`: a "
-        "directory that holds the files in a known layout. The default is the provider that the "
-        "platform names; the platform must have an entry for the provider.",
+        "of OpenROAD-flow-scripts. `ciel`: a PDK build that `ciel` installs. `lambdapdk`: a "
+        "sparse checkout of lambdapdk. `directory`: a directory that holds the files in a known "
+        "layout. The default is the provider that the platform names; the platform must have an "
+        "entry for the provider.",
     )
     pdk_version: Optional[str] = Field(
         None,
-        description="Version of the PDK files: the commit (`orfs`) or the hash (`ciel`). For "
-        "`directory`, a version that Xeda checks against the directory when it can, and "
+        description="Version of the PDK files: the commit (`orfs`, `lambdapdk`) or the hash "
+        "(`ciel`). For `directory`, a version that Xeda checks against the directory when it can, and "
         "`unpinned` when you give none. The default is the version that the platform pins for "
         "`pdk_provider`. The version is part of the identity of the run.",
     )
@@ -204,15 +205,32 @@ class AsicPlatformSettings(Flow.Settings):
     # --- the residue and the files ------------------------------------------------------------
 
     def residue_layers(self) -> "tuple[Optional[Residue], Optional[Residue]]":
-        """Return the bundled residue and the residue of the user (see `platform_residues`)."""
-        return platform_residues(self.platform, self.user_platform_file())
+        """Return the bundled residue and the residue of the user (see `platform_residues`), each
+        as the selected provider sees it (`pdk_provider`, else the default provider)."""
+        from ..platforms.residue import selected_provider
+
+        bundled, user = platform_residues(self.platform, self.user_platform_file())
+        provider = selected_provider(bundled, user, self.pdk_provider)
+        try:
+            return (
+                None if bundled is None else bundled.for_provider(provider),
+                None if user is None else user.for_provider(provider),
+            )
+        except ValueError as error:
+            raise FlowSettingsException(str(error)) from None
 
     def residue(self) -> "Residue":
         """Return the effective residue: the bundled one of `platform`, or the user file of
-        `platform_file` over the bundled one that it extends. This reads the residue files only."""
+        `platform_file` over the bundled one that it extends, as the selected provider sees it.
+        This reads the residue files only."""
         from ..platforms.residue import effective_residue
 
-        return effective_residue(*self.residue_layers())
+        bundled, user = self.residue_layers()
+        try:
+            return effective_residue(bundled, user, self.pdk_provider)
+        except ValueError as error:
+            # The file loads alone and is wrong over the platform, or for this provider.
+            raise FlowSettingsException(str(error)) from None
 
     def locate_platform(self) -> "Located":
         """Find the PDK files of the platform in the store, with `stat` only.
@@ -318,7 +336,8 @@ class AsicPlatformFlow(_FlowBase):
         The flow reads `roles` and the files that the derivation reads, and
         `locate_platform_inputs(roles)` returns the same list. Raise `PdkNotInstalled` if a file
         is missing, `PdkVersionMismatch` if the store holds another version than the pin, and
-        `FlowFatalError` for a file that cannot be read."""
+        `FlowFatalError` for a file that cannot be read and for a residue that is invalid for
+        the provider."""
         from ..platforms import build_platform
         from ..platforms.derive import derive
         from ..platforms.residue import effective_residue
@@ -327,8 +346,8 @@ class AsicPlatformFlow(_FlowBase):
         settings = self._platform_settings()
         located = self._verified_location()
         bundled, user = settings.residue_layers()
-        upstream = effective_residue(bundled, user).upstream
         try:
+            upstream = effective_residue(bundled, user, located.provider).upstream
             derived = derive(located.files, located.corner)
             read = (
                 {}

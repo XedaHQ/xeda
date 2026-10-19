@@ -57,7 +57,7 @@ def _fake_located(structure: Residue, directory: Path) -> Located:
 
 def test_the_file_extends_sky130hd_and_reads_the_layout_of_orfs(bundled, parity):
     assert parity.name == "sky130hd" and parity.extends == "sky130hd"
-    structure = effective_residue(bundled, parity)
+    structure = effective_residue(bundled, parity, None)
     assert structure.providers.default == "directory"
     assert structure.providers.directory is not None
     assert structure.providers.directory.layout == "orfs"
@@ -69,7 +69,7 @@ def test_the_file_extends_sky130hd_and_reads_the_layout_of_orfs(bundled, parity)
 
 
 def test_the_corner_is_that_of_the_bundled_platform(bundled, parity):
-    structure = effective_residue(bundled, parity)
+    structure = effective_residue(bundled, parity, None)
     assert structure.resolve_corner(None) == bundled.resolve_corner(None) == "tt_025C_1v80"
     assert structure.resolve_corner("tt") == "tt_025C_1v80"
     assert structure.files.liberty["tt_025C_1v80"] == ["lib/sky130_fd_sc_hd__tt_025C_1v80.lib"]
@@ -77,7 +77,7 @@ def test_the_corner_is_that_of_the_bundled_platform(bundled, parity):
 
 def test_every_role_of_the_bundled_platform_is_set_in_the_layout_of_orfs(bundled, parity):
     """No role keeps a path of the build of `ciel`, which a directory of ORFS lacks."""
-    structure = effective_residue(bundled, parity)
+    structure = effective_residue(bundled, parity, None)
     corner = structure.resolve_corner(None)
     roles = structure.files.role_paths(corner)
     assert set(roles) == set(bundled.files.role_paths(corner)) | {"clkgate_map"}
@@ -97,7 +97,7 @@ def test_an_override_changes_a_value_of_the_bundled_platform_and_a_value_adds_on
 
 
 def test_the_file_gives_the_values_of_orfs_in_the_model(bundled, parity, tmp_path):
-    structure = effective_residue(bundled, parity)
+    structure = effective_residue(bundled, parity, None)
     located = _fake_located(structure, tmp_path / "sky130hd")
     model = build_platform(located, bundled, parity, {}, {})
     assert model.pdn.power_net == "VDD" and model.pdn.ground_net == "VSS"
@@ -132,7 +132,7 @@ def orfs() -> Path:
 
 
 def test_the_directory_provider_resolves_every_role_to_a_file_of_orfs(bundled, parity, orfs):
-    structure = effective_residue(bundled, parity)
+    structure = effective_residue(bundled, parity, None)
     located = locate(structure, None, None, orfs, None)
     assert located.provider == "directory"
     assert located.directory == orfs / "sky130hd"
@@ -144,7 +144,7 @@ def test_the_directory_provider_resolves_every_role_to_a_file_of_orfs(bundled, p
 
 
 def _layers(bundled: Residue, parity: Residue, orfs: Path) -> tuple[Any, dict, dict]:
-    structure = effective_residue(bundled, parity)
+    structure = effective_residue(bundled, parity, None)
     located = locate(structure, None, None, orfs, None)
     derived = derive(located.files, located.corner)
     upstream = read_upstream(

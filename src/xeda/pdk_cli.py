@@ -28,7 +28,9 @@ if TYPE_CHECKING:
 __all__ = ["PROVIDER_NAMES", "add_pdk_commands"]
 
 #: The providers, as `xeda.platforms.providers.PROVIDERS` lists them. A test keeps both equal.
-PROVIDER_NAMES = ("orfs", "ciel", "directory")
+PROVIDER_NAMES = ("orfs", "ciel", "lambdapdk", "directory")
+#: The providers that serve a sparse checkout of one Git commit.
+GIT_PROVIDER_NAMES = ("orfs", "lambdapdk")
 
 #: How many digits of a commit the tables show. The JSON documents give it in full.
 SHORT_VERSION = 12
@@ -72,40 +74,36 @@ def _fail(error_type: str, message: str, fmt: str) -> NoReturn:
 # ---------------------------------------------------------------------------------------------
 
 
-def _other_orfs_versions(residue: Residue, root: Path) -> list[dict[str, Any]]:
+def _other_git_versions(residue: Residue, provider: str, root: Path) -> list[dict[str, Any]]:
     """The other commits that the store holds a directory of the platform for, sorted. Each has
-    its `version`, its `directory` and `installed`: whether every file of the platform is there.
-    A partial directory, which an interrupted install leaves, is not installed."""
-    from .platforms import PdkNotInstalled, locate
-    from .platforms.providers import orfs_checkout_directory
+    its `version`, its `directory` and `installed`: whether every file of the platform, for every
+    corner, is there. A partial directory, which an interrupted install leaves, is not
+    installed."""
+    from .platforms.providers import git_checkout_directory, installed
     from .platforms.residue import COMMIT
 
-    entry = residue.providers.orfs
+    entry = residue.providers.entry(provider)
     assert entry is not None
     root = root.absolute()
-    checkouts = orfs_checkout_directory(root, entry.version).parent
+    checkouts = git_checkout_directory(root, provider, entry.version).parent
     try:
         names = sorted(path.name for path in checkouts.iterdir())
     except OSError:
         return []
     found = []
     for name in names:
-        directory = orfs_checkout_directory(root, name) / entry.directory
+        directory = git_checkout_directory(root, provider, name) / entry.directory
         if name == entry.version or not COMMIT.fullmatch(name) or not directory.is_dir():
             continue
-        try:
-            locate(residue, "orfs", name, root, None)
-        except PdkNotInstalled:
-            installed = False
-        else:
-            installed = True
-        found.append({"version": name, "directory": str(directory), "installed": installed})
+        is_installed = installed(residue, provider, name, root) is not None
+        found.append({"version": name, "directory": str(directory), "installed": is_installed})
     return found
 
 
 def store_rows(root: Path) -> list[dict[str, Any]]:
     """One row for each provider of each bundled platform: whether the store at `root` holds the
-    pinned version, and where. An `orfs` row also lists the other versions that the store holds."""
+    pinned version, and where. A row of a Git provider (`orfs`, `lambdapdk`) also lists the other versions that the
+    store holds."""
     from .introspect import provider_status
     from .platforms import bundled_platform_names, load_residue
 
@@ -126,8 +124,8 @@ def store_rows(root: Path) -> list[dict[str, Any]]:
             }
             if "problem" in status:
                 row["problem"] = status["problem"]
-            if provider == "orfs":
-                row["other_versions"] = _other_orfs_versions(residue, root)
+            if provider in GIT_PROVIDER_NAMES:
+                row["other_versions"] = _other_git_versions(residue, provider, root)
             rows.append(row)
     return rows
 
@@ -136,8 +134,8 @@ def store_rows(root: Path) -> list[dict[str, Any]]:
 @_root_option
 def pdk_list(root: Optional[Path], output_format: str, json_flag: bool) -> None:
     """List the platforms with each provider that serves them. For each, show the version that
-    Xeda pins and whether the PDK store holds it. For a provider `orfs`, also list the other
-    versions that the store holds, by path."""
+    Xeda pins and whether the PDK store holds it. For a Git provider (`orfs`, `lambdapdk`), also
+    list the other versions that the store holds, by path."""
     from rich.markup import escape
 
     from .cli_utils import emit_structured, info_table, resolve_format
@@ -197,9 +195,12 @@ def _bundled(name: str, hint: str) -> Residue:
         raise click.BadParameter(str(error), param_hint=hint) from None
 
 
-def resolve_platform(platform: Optional[str], platform_file: Optional[Path]) -> Residue:
+def resolve_platform(
+    platform: Optional[str], platform_file: Optional[Path], provider: Optional[str]
+) -> Residue:
     """Return the residue that finds the files of the platform: a bundled platform, a complete
-    platform file, or a platform file over the bundled platform that it extends. Raise a
+    platform file, or a platform file over the bundled platform that it extends, as the provider
+    `provider` (`None`: the default) sees it. Raise a
     `click.UsageError` if the command line names both a platform and a file, or neither, or names
     what cannot be loaded, or a file that is wrong when it is merged with the platform that it
     extends."""
@@ -219,7 +220,7 @@ def resolve_platform(platform: Optional[str], platform_file: Optional[Path]) -> 
         return user
     base = _bundled(user.extends, "--platform-file")
     try:
-        return effective_residue(base, user)
+        return effective_residue(base, user, provider)
     except (ResidueError, ValueError) as error:
         # The file loads alone and is wrong over the platform that it extends.
         raise click.BadParameter(str(error), param_hint="--platform-file") from None
@@ -275,7 +276,7 @@ def pdk_path(
     from .platforms.providers import PdkVersionMismatch, verify_pin
 
     fmt = resolve_format(output_format, json_flag)
-    residue = resolve_platform(platform, platform_file)
+    residue = resolve_platform(platform, platform_file, provider)
     try:
         located = locate(
             residue, provider, version, _store_root(root), corner, platform_file=platform_file
@@ -354,7 +355,7 @@ def pdk_install(
     commands, and it asks for confirmation. `--yes` skips the question. `--json`, `--format json`,
     `--format jsonl` and `--format yaml` install without a question, because a program cannot
     answer. If the store holds the files already, the command says so and runs nothing. A failed
-    `orfs` install leaves the store as it was. A failed `ciel` install may leave files of `ciel`
+    `orfs` or `lambdapdk` install leaves the store as it was. A failed `ciel` install may leave files of `ciel`
     in the store. Only one install at a time can use a store. The install refuses a symbolic link
     inside the store; the root itself may be one."""
     from .cli_utils import emit_structured, machine_readable_mode, resolve_format
@@ -370,7 +371,7 @@ def pdk_install(
     fmt = resolve_format(output_format, json_flag)
     if fmt != "table":
         machine_readable_mode()  # stdout belongs to the document; tool output goes to stderr
-    residue = resolve_platform(platform, platform_file)
+    residue = resolve_platform(platform, platform_file, provider)
     # The install resolves the root, so the plan shows the paths that the install writes.
     store = _store_root(root).resolve()
     try:

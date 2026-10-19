@@ -55,6 +55,9 @@ Xeda ships two platforms:
     ``sky130hd`` with ``xeda pdk install sky130hd``, which downloads about 128 MiB (see
     `The PDK store`_).
 
+    The ``lambdapdk`` provider serves ``sky130hd`` too (see `The lambdapdk provider`_). Select it
+    with ``pdk_provider: lambdapdk``.
+
 The four layers
 ===============
 
@@ -118,7 +121,11 @@ The keys are:
 ``providers``
     The providers that serve the platform. ``default`` names the one that Xeda uses when you name
     none. Each provider has its own entry (see `Providers and layouts`_). A provider without an
-    entry does not serve the platform.
+    entry does not serve the platform. The entry of a Git provider (``orfs``, ``lambdapdk``) may
+    list ``fetch``, the paths below its ``directory`` that the install fetches. The entry of
+    ``lambdapdk`` may also hold ``files``, ``upstream`` and ``values`` for this provider. Its
+    ``files`` and ``upstream`` take the place of the top-level keys of the same name, and its
+    ``values`` override the top-level ``values`` leaf by leaf (see `The lambdapdk provider`_).
 
 ``upstream``
     The adapter (``orfs_config_mk`` or ``open_pdks_config``) and the configuration files it reads.
@@ -286,6 +293,12 @@ setting selects the provider. The default is the ``default`` of the residue file
        ``sky130hd``, the family is ``sky130`` and the variant is ``sky130A``. The role paths are
        relative to this directory (``libs.ref/<library>/...``, ``libs.tech/...``).
      - The hash of the PDK build.
+   * - ``lambdapdk``
+     - ``<root>/xeda/lambdapdk/<commit>/<directory>``, a directory of a sparse checkout of the
+       lambdapdk repository that ``xeda pdk install`` writes. For ``sky130hd``, ``<directory>``
+       is ``lambdapdk/sky130``, and the install fetches only ``base`` and ``libs/sky130hd`` of it.
+       The role paths are relative to this directory.
+     - The commit of lambdapdk.
    * - ``directory``, layout ``orfs``
      - ``<root>/<platform>``. The root is the ``flow/platforms`` directory of an
        OpenROAD-flow-scripts checkout, or a copy of it.
@@ -312,6 +325,7 @@ store than ``~/.ciel``.
 
     xeda pdk install nangate45          # download the PDK files that the platform pins
     xeda pdk install sky130hd           # download the open_pdks files of sky130hd with ciel
+    xeda pdk install sky130hd --provider lambdapdk   # the lambdapdk files of sky130hd
     xeda pdk list                       # each platform and provider, the pin, and whether installed
     xeda pdk path nangate45             # the directory of the platform in the store
     xeda list-platforms                 # the bundled platforms and whether they are installed
@@ -324,9 +338,9 @@ without asking, as ``--yes`` does. ``--platform-file`` installs the PDK of a pla
 The install is safe to repeat: when the store holds the files already, the command says so and
 does nothing. The other commands only look at the files.
 
-An ``orfs`` install fetches into a partial directory in the store, checks every file, writes the
-receipt and then moves the directory of the platform to its place in one step. If anything fails,
-the store is as it was. The command refuses to install over a platform directory that is there
+An ``orfs`` or ``lambdapdk`` install fetches into a partial directory in the store, checks every
+file of every corner, writes the receipt and then moves the directory of the platform to its place
+in one step. If anything fails, the store is as it was. The command refuses to install over a platform directory that is there
 but incomplete, and tells you to move it away. A ``ciel`` install runs ``ciel``, which writes into
 the store itself, so a failed install may leave files of ``ciel`` behind. See
 :doc:`machine-readable` for their JSON output.
@@ -353,11 +367,12 @@ Settings of the PDK
     except ``HOME`` for the default.
 
 ``pdk_provider``
-    The provider (``orfs``, ``ciel`` or ``directory``). The default is the default provider of the
-    platform.
+    The provider (``orfs``, ``ciel``, ``lambdapdk`` or ``directory``). The default is the default
+    provider of the platform.
 
 ``pdk_version``
-    The version of the PDK files, the pin. It is part of the identity of the run. When you give
+    The version of the PDK files, the pin: a full commit hash for ``orfs`` and ``lambdapdk``, the
+    hash of the build for ``ciel``. It is part of the identity of the run. When you give
     none, Xeda fills it in from the platform before it hashes anything: the commit or the hash of
     the residue file, or ``unpinned`` for a ``directory``. A flow chain agrees on one platform
     and one pin along every edge (see :doc:`flows`).
@@ -382,6 +397,54 @@ since the plan cannot say whether the run is fresh.
 A store that holds another version than the pin fails with a message that names both. Change
 ``pdk_version``, install the pinned version, or name another store.
 
+The lambdapdk provider
+======================
+
+lambdapdk (https://github.com/siliconcompiler/lambdapdk) is the PDK package of SiliconCompiler. It
+holds PDK files in a Git repository. Xeda uses it as a source of files only. It starts nothing from
+lambdapdk and imports no Python package of it. ``xeda pdk install sky130hd --provider lambdapdk``
+fetches the commit that the platform file pins, with a sparse Git checkout of the two directories
+that ``sky130hd`` needs. That is about 8 MiB. The pin is a commit hash, not a tag. The comment in
+``platform.yaml`` names the tag (``v0.2.22``).
+
+lambdapdk is less stable than ``ciel``. Its releases come often, and a release can move files.
+So the pin changes only with a reviewed change of ``platform.yaml``: replace the commit, replace
+the tag in the comment, and run the conformance tests (``XEDA_TESTS_PDK_ROOT``,
+``XEDA_TESTS_PLATFORMS`` and ``XEDA_TESTS_PDK_PROVIDERS=sky130hd:lambdapdk``) against the new
+commit. ``pdk_version`` selects another commit for one run.
+
+The layout and the values of lambdapdk differ from those of ``ciel``, so the ``lambdapdk`` entry of
+``sky130hd`` gives its own ``files`` and ``values``:
+
+- The Liberty files are ``.lib.gz``. yosys and OpenROAD read them as they are.
+- The corners are ``tt_025C_1v80``, ``ss_n40C_1v40`` and ``ff_100C_1v95``. A corner of ``ciel``
+  only, such as ``ss_100C_1v60``, is refused when you select ``lambdapdk``, and the message names
+  the corners of lambdapdk. The default corner and the alias ``tt`` are the same for both providers.
+- lambdapdk has no configuration file that Xeda can read. Its entry gives the values that
+  lambdapdk states in its own configuration: the tap cell and its distance (14 um), the end cap
+  ``decap_4``, the antenna diode, the smallest buffer and the driver cell of the technology
+  mapping, the filler cells, the clock buffers, the dont-use cells, the routing layers and the
+  global-route derates, the layers of the pins and the layers for the wire estimates, and the
+  power rails and straps. ``NOTICE.md`` in the platform directory of the Xeda package names the
+  source of each value.
+- The power grid has fixed pitches (27.14 um on ``met4`` and 27.2 um on ``met5``). These are the
+  upper limits of the pitches that lambdapdk computes from the size of the core. A core smaller
+  than 54 um gets fewer straps than lambdapdk would give. Give ``pdn.grid`` to change the grid.
+- Xeda does not copy the measured resistance and capacitance of each layer: the units of lambdapdk
+  are those of its own flow scripts. OpenROAD uses the values of the technology LEF, as it does
+  with ``ciel``. The power nets keep the names of ``ciel`` (``VPWR`` and ``VGND``), and the body
+  pins ``VPB`` and ``VNB`` stay connected.
+
+So a run on lambdapdk files differs from a run on ``ciel`` files in the end cap (``decap_4`` instead
+of ``decap_3``), the tap distance (14 instead of 13 um), the dont-use and clock buffer lists, the
+filler cells and the global-route derates. The two runs have different identities: the provider and
+the version are part of the settings.
+
+lambdapdk also holds the Nangate library, under the Nangate Open Cell Library License. That license
+says that the library is not intended for commercial use and prohibits benchmarking it against
+another library. Xeda offers ``nangate45`` from ``orfs`` only, and the license of the Nangate files
+is an open question (see `Licenses`_).
+
 Licenses
 ========
 
@@ -389,10 +452,11 @@ Xeda ships no Nangate file and no other PDK library file. The residue files hold
 and numbers. ``xeda pdk install nangate45`` fetches the files of the Nangate Open Cell Library
 from OpenROAD-flow-scripts, at the commit that the residue file pins, and only when you ask for
 it. ``xeda pdk install sky130hd`` runs ``ciel``, which fetches the open_pdks build of SKY130 into
-the store, and only when you ask for it. The files stay under their own license. Read the license
-of a PDK before you use it. The file ``NOTICE.md`` in the platform directory of the Xeda package
-lists the sources of the values that the residue files take from OpenROAD-flow-scripts and from
-open_pdks.
+the store, and only when you ask for it. ``xeda pdk install sky130hd --provider lambdapdk``
+fetches files of the lambdapdk repository, and only when you ask for it. The files stay under
+their own license. Read the license of a PDK before you use it. The file ``NOTICE.md`` in the
+platform directory of the Xeda package lists the sources of the values that the residue files take
+from OpenROAD-flow-scripts, from open_pdks and from lambdapdk.
 
 Checking a platform against OpenROAD-flow-scripts
 =================================================

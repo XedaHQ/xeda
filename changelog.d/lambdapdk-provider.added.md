@@ -1,0 +1,2 @@
+- The ASIC platform `sky130hd` can take its PDK files from lambdapdk: `xeda pdk install sky130hd
+  --provider lambdapdk` fetches about 8 MiB, and `pdk_provider: lambdapdk` selects them.

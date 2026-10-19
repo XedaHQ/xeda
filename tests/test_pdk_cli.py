@@ -207,6 +207,7 @@ def test_pdk_list_gives_every_provider_of_a_platform_with_its_pin(home, store):
         ("nangate45", "orfs"),
         ("nangate45", "directory"),
         ("sky130hd", "ciel"),
+        ("sky130hd", "lambdapdk"),
         ("sky130hd", "directory"),
     }
     entry = load_residue("nangate45").providers.orfs

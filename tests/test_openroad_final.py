@@ -2328,6 +2328,123 @@ def test_the_technology_file_escapes_the_lef_paths_as_xml_text(tmp_path, monkeyp
     assert "&amp; &lt;macros&gt;" in path.read_text()
 
 
+def test_a_technology_file_with_a_lefdef_section_and_no_list_gets_the_list(tmp_path, monkeypatch):
+    """The technology file of lambdapdk has a `<lefdef>` section and no `<lef-files>`."""
+    fake_klayout(tmp_path, monkeypatch)
+    flow = gds_flow(tmp_path)
+    flow.platform_model.files["klayout_tech"][0].write_text(
+        "<technology>\n <lefdef>\n  <dbu>0.001</dbu>\n </lefdef>\n <other/>\n</technology>\n"
+    )
+    in_run_directory(flow, monkeypatch)
+    flow.set_final_outputs()
+    path = flow.write_klayout_tech()
+    values = flow.effective()
+    listed = [element.text for element in ElementTree.parse(path).iter("lef-files")]
+    assert listed == [str(lef) for lef in (values.tech_lef, *values.cell_lefs)]
+    text = path.read_text()
+    assert text.index("<dbu>") < text.index("<lef-files>") < text.index("</lefdef>")
+    assert "<other/>" in text
+
+
+LEFS = [Path("/a/tech.lef"), Path("/b/cells & <x>.lef")]
+LISTED = "<lef-files>/a/tech.lef</lef-files><lef-files>/b/cells &amp; &lt;x&gt;.lef</lef-files>"
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # one element, kept in its place with its indentation and line end
+        (
+            "<t>\n <lefdef>\n  <lef-files>old.lef</lef-files>\n  <dbu>1</dbu>\n </lefdef>\n</t>\n",
+            f"<t>\n <lefdef>\n  {LISTED}\n  <dbu>1</dbu>\n </lefdef>\n</t>\n",
+        ),
+        # several elements: the list once, where the first was, and no entry from the input
+        (
+            "<lefdef>\n <a/>\n <lef-files>x.lef</lef-files>\n <b/>\n"
+            " <lef-files>y.lef</lef-files>\n <lef-files>z.lef</lef-files>\n <c/>\n</lefdef>\n",
+            f"<lefdef>\n <a/>\n {LISTED}\n <b/>\n <c/>\n</lefdef>\n",
+        ),
+        # empty elements, alone and among others
+        (
+            "<lefdef>\n <lef-files/>\n <b/>\n <lef-files />\n <lef-files\n />\n"
+            " <lef-files>x.lef</lef-files>\n</lefdef>\n",
+            f"<lefdef>\n {LISTED}\n <b/>\n</lefdef>\n",
+        ),
+        ("<lefdef><lef-files/></lefdef>", f"<lefdef>{LISTED}</lefdef>"),
+        # elements over several lines
+        (
+            "<lefdef>\n <lef-files>\n  x.lef\n </lef-files>\n <b/>\n"
+            " <lef-files>\n  y.lef\n  z.lef</lef-files>\n</lefdef>\n",
+            f"<lefdef>\n {LISTED}\n <b/>\n</lefdef>\n",
+        ),
+        # no element: the list at the end of the section
+        (
+            "<lefdef>\n <dbu>1</dbu>\n</lefdef>\n<other/>\n",
+            f"<lefdef>\n <dbu>1</dbu>\n{LISTED}</lefdef>\n<other/>\n",
+        ),
+        # an element on the same line as other text, and without a final newline
+        ("<lefdef><lef-files>x</lef-files></lefdef>", f"<lefdef>{LISTED}</lefdef>"),
+    ],
+)
+def test_the_list_of_lef_files_replaces_every_element_with_one_list(text, expected):
+    from xeda.flows.openroad.final import klayout_tech_with_lef_files
+
+    assert klayout_tech_with_lef_files(text, LEFS) == expected
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # a commented example before the real list
+        (
+            "<t>\n <!-- e.g. <lef-files>example.lef</lef-files> -->\n <lefdef>\n"
+            "  <lef-files>actual.lef</lef-files>\n </lefdef>\n</t>\n",
+            f"<t>\n <!-- e.g. <lef-files>example.lef</lef-files> -->\n <lefdef>\n"
+            f"  {LISTED}\n </lefdef>\n</t>\n",
+        ),
+        # a CDATA section that holds the text of an element
+        (
+            "<t><![CDATA[<lef-files>x</lef-files>]]><lefdef><lef-files>y</lef-files></lefdef></t>",
+            f"<t><![CDATA[<lef-files>x</lef-files>]]><lefdef>{LISTED}</lefdef></t>",
+        ),
+        # a comment that opens a fragment before the real element, and a comment after a gap
+        (
+            "<lefdef><!-- <lef-files> -->  <lef-files>y</lef-files></lefdef>",
+            f"<lefdef><!-- <lef-files> -->  {LISTED}</lefdef>",
+        ),
+        # a commented closing tag before the real one of a section without a list
+        (
+            "<lefdef>\n <!-- </lefdef> -->\n</lefdef>\n",
+            f"<lefdef>\n <!-- </lefdef> -->\n{LISTED}</lefdef>\n",
+        ),
+    ],
+)
+def test_a_comment_or_a_cdata_section_is_no_element_and_stays_as_it_is(text, expected):
+    from xeda.flows.openroad.final import klayout_tech_with_lef_files
+
+    assert klayout_tech_with_lef_files(text, LEFS) == expected
+
+
+def test_a_text_with_neither_an_element_nor_a_section_gets_no_list():
+    from xeda.flows.openroad.final import klayout_tech_with_lef_files
+
+    assert klayout_tech_with_lef_files("<technology/>\n", LEFS) is None
+
+
+def test_a_technology_file_with_several_elements_gets_the_list_once(tmp_path, monkeypatch):
+    fake_klayout(tmp_path, monkeypatch)
+    flow = gds_flow(tmp_path)
+    flow.platform_model.files["klayout_tech"][0].write_text(
+        "<technology>\n <lefdef>\n  <lef-files>a.lef</lef-files>\n"
+        "  <lef-files>\n   b.lef\n  </lef-files>\n </lefdef>\n</technology>\n"
+    )
+    in_run_directory(flow, monkeypatch)
+    flow.set_final_outputs()
+    values = flow.effective()
+    listed = [e.text for e in ElementTree.parse(flow.write_klayout_tech()).iter("lef-files")]
+    assert listed == [str(lef) for lef in (values.tech_lef, *values.cell_lefs)]
+
+
 def test_a_technology_file_without_the_list_of_lef_files_is_refused_with_the_way_out(
     tmp_path, monkeypatch
 ):

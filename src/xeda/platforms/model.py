@@ -379,7 +379,7 @@ class PlatformModel(PlatformValues):
 class Located:
     """Where the files of a platform are in a PDK store, as a provider finds them."""
 
-    #: The provider that served the platform: `orfs`, `ciel` or `directory`.
+    #: The provider that served the platform: `orfs`, `ciel`, `lambdapdk` or `directory`.
     provider: str
     #: The effective pin of the PDK files.
     version: str

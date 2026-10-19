@@ -228,7 +228,9 @@ def test_a_provider_without_an_entry_is_a_value_error_naming_the_providers_it_ha
     store = make_store(tmp_path, "orfs")
     with pytest.raises(ValueError, match=r"platform 'tiny'.*'ciel'.*serves.*orfs, directory"):
         locate(store.residue, "ciel", None, store.root, None)
-    with pytest.raises(ValueError, match="unknown provider 'volare'.*orfs, ciel, directory"):
+    with pytest.raises(
+        ValueError, match="unknown provider 'volare'.*orfs, ciel, lambdapdk, directory"
+    ):
         locate(store.residue, "volare", None, store.root, None)
 
 
@@ -259,7 +261,7 @@ def test_a_user_residue_is_located_the_same_way(tmp_path):
             "files": {"liberty": {"typical": ["lib/mine.lib"]}},
         }
     )
-    effective = effective_residue(store.residue, user)
+    effective = effective_residue(store.residue, user, None)
     (store.directory / "lib" / "mine.lib").write_text("library (mine) {}\n")
     found = locate(effective, "orfs", None, store.root, None)
     assert found.files["liberty"] == [store.directory / "lib" / "mine.lib"]
@@ -799,8 +801,8 @@ def test_a_directory_has_nothing_to_install(tmp_path):
         install_plan(store.residue, "directory", None, tmp_path)
 
 
-def test_providers_are_the_three_named_in_the_residue():
-    assert PROVIDERS == ("orfs", "ciel", "directory")
+def test_providers_are_the_four_named_in_the_residue():
+    assert PROVIDERS == ("orfs", "ciel", "lambdapdk", "directory")
 
 
 # ---------------------------------------------------------------------------------------------
