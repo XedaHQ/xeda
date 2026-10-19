@@ -34,7 +34,7 @@ yosys plugin -i slang
 
 {#- With slang, a library that the sources instantiate (`liberty`, `verilog_lib`) is read before
     them: slang resolves every instance when it reads the sources. -#}
-{% macro read_libraries() -%}
+{%- macro read_libraries() -%}
 {#- The mapping to a standard cell library sets `liberty_read`: it has read its Liberty files
     before the sources, with the attribute that marks library cells. -#}
 {% if settings.liberty is defined and not liberty_read|default(false) -%}
@@ -50,14 +50,14 @@ yosys read_liberty -lib {{lib|read_path}}
 {% for src in verilog_libs|default(settings.verilog_lib) -%}
 yosys read_verilog -lib {{src|read_path}}
 {% endfor -%}
-{%- endmacro %}
+{%- endmacro -%}
 {% for lib in primitive_libraries|default([]) -%}
 yosys read_verilog {{lib.flags|join(" ")}} {{lib.path|read_path}}
 {% endfor -%}
 
 {% if slang_plugin -%}
 {{ read_libraries() }}
-{%- endif %}
+{%- endif -%}
 
 {% for src in sources -%}
 {% if src.type is not none -%}
@@ -96,7 +96,7 @@ yosys ghdl {{ghdl_args|map("ghdl_arg")|join(" ")}} {{vhdl_files|map("verbatim_pa
 
 {% if not slang_plugin -%}
 {{ read_libraries() }}
-{%- endif %}
+{%- endif -%}
 
 {#- a VHDL top module got its generics from GHDL and has no parameters left, and slang
     got the parameters in its `read_slang` #}

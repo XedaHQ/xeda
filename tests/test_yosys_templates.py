@@ -23,7 +23,7 @@ from xeda.flows import Yosys, YosysFpga, YosysSim
 from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS, process_parameters
 
 from .tool_utils import require_tclsh
-from .yosys_format import force_script_format
+from .yosys_format import force_script_format, forced_script_format
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -783,9 +783,9 @@ def test_slang_reads_a_library_before_the_sources(tmp_path: Path, script_format:
 
 
 def test_a_string_parameter_with_whitespace_is_refused_for_slang(tmp_path: Path) -> None:
-    """The script tokenizer of yosys ends `-G S="a b"` at the space (and at a double quote
-    inside the text), so the check refuses the value before anything runs. Another reader, or
-    no SystemVerilog source, has no such limit."""
+    """The script tokenizer of yosys ends `-G S="a b"` at the space, and no script has a form for
+    a double quote inside the text, so the check refuses the value before anything runs. A Tcl
+    script takes whitespace. Another reader, or no SystemVerilog source, has no such limit."""
     design, out = _mixed_design(tmp_path)
     (design.design_root / "inv.vhd").write_text("-- a source\n")
     (design.design_root / "tb.sv").write_text("module tb; endmodule\n")
@@ -816,6 +816,10 @@ def test_a_string_parameter_with_whitespace_is_refused_for_slang(tmp_path: Path)
     checked({"S": "ab"}, sources)
     checked({"S": "a b"}, sources, systemverilog="default")
     checked({"S": "a b"}, ["gate.v"])
+    with forced_script_format("tcl"):
+        checked({"S": "a b"}, sources)
+        with pytest.raises(FlowSettingsException, match="double quote"):
+            checked({"S": 'a"b'}, sources)
     # a VHDL top gets its generics from GHDL; a VHDL helper under a SystemVerilog top does not
     checked({"S": "a b"}, ["top.sv", "inv.vhd"], top_is_vhdl=True)
     with pytest.raises(FlowSettingsException, match="read_slang -G"):

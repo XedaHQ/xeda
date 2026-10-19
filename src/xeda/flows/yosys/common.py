@@ -506,36 +506,31 @@ class YosysBase(Flow):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """Refuse a parameter that a yosys script cannot give to `read_slang -G`.
+        """Refuse a string parameter that a yosys script cannot give to `read_slang -G`.
 
-        With the slang front end, `-G NAME="text"` sets a string parameter. The tokenizer of a
-        yosys (`.ys`) script ends such a word at whitespace, and a double quote inside the text
-        ends it too. A Tcl script has no such limit. Xeda selects the format from the settings
-        alone, so the check refuses the value when the format is `.ys`. GHDL sets the generics of
-        a VHDL top, and the check leaves such a design alone.
+        With the slang front end, `-G NAME="text"` sets a string parameter. The script has no
+        form for a double quote inside the text. The tokenizer of a yosys (`.ys`) script also ends
+        the word at whitespace, and a Tcl script does not. Xeda selects the format from the
+        settings alone, so the check refuses whitespace when the format is `.ys`. GHDL sets the
+        generics of a VHDL top, and the check leaves such a design alone.
         """
         super().check_design_supported(design, settings)
         if not isinstance(settings, cls.Settings) or settings.systemverilog != "slang":
             return
-        if cls.script_format(settings) != "ys":
-            return
         reads = cls.reads_sources or frozenset()
         read = [src for src in design.rtl.sources if src.type in reads]
-        tb = (
-            [src for src in design.tb.sources if src.type in reads]
-            if "tb" in cls.design_parts
-            else []
-        )
-        if SourceType.SystemVerilog not in {src.type for src in [*read, *tb]}:
+        listed = [src for part in sorted(cls.design_parts) for src in getattr(design, part).sources]
+        if SourceType.SystemVerilog not in {src.type for src in listed if src.type in reads}:
             return
         if cls.vhdl_top_of(settings, read):
             return
+        ys = cls.script_format(settings) == "ys"
         for name, value in design.rtl.parameters.items():
-            if isinstance(value, str) and re.search(r'[\s"]', value):
+            if isinstance(value, str) and re.search(r'"|\s' if ys else '"', value):
                 raise FlowSettingsException(
-                    f"The value of the parameter `{name}` has whitespace or a double quote, and "
-                    "a yosys script cannot give it to `read_slang -G`. Remove them from the value, "
-                    'or set `systemverilog: "default"`.'
+                    f"The value of the parameter `{name}` has {'whitespace or ' if ys else ''}a "
+                    "double quote, and the script cannot give it to `read_slang -G`. Remove "
+                    f"{'them' if ys else 'it'} from the value, or set `systemverilog: \"default\"`."
                 )
 
     def init(self):

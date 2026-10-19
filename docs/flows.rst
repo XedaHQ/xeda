@@ -1501,9 +1501,11 @@ The command also sets the parameters of the top module, with ``-G NAME=VALUE`` a
 OpenROAD-flow-scripts does, and the script then has no ``chparam``. slang elaborates a module while
 it reads the sources, so ``chparam`` cannot change a parameter afterwards. An integer, a sized
 literal such as ``7'b0101001``, a boolean (``1'b1`` or ``1'b0``), a string and a real number all
-reach the top in the form that slang needs. The tokenizer of a Yosys script ends a string value
-at whitespace, so Xeda refuses a string parameter with whitespace or a double quote when slang
-reads the design. Remove them from the value, or set ``systemverilog: default``.
+reach the top in the form that slang needs. No script has a form for a double quote inside a
+string value, so Xeda refuses such a parameter when slang reads the design. The tokenizer of a
+Yosys script (not of a Tcl script) also ends a value at whitespace, so Xeda refuses whitespace
+when it writes a Yosys script. Remove the character from the value, or set
+``systemverilog: default``.
 
 slang resolves every module instance when it reads the sources. So the script reads the files of
 ``verilog_lib``, and the Liberty files that the flow reads itself, before the ``read_slang``
