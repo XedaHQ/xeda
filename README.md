@@ -225,8 +225,8 @@ flow.
 git clone https://github.com/XedaHQ/xeda.git
 cd xeda
 uv sync
-uv run pytest tests/          # serial
-uv run pytest tests/ -n logical  # one worker per logical CPU, several times faster
+uv run pytest tests/                      # serial
+uv run pytest tests/ -n logical           # one worker per logical CPU, several times faster
 uv run pytest -n logical -m "python_compat and not real_tool"  # faster cross-version check
 uv run pytest tests/ -n logical --shard 2/4  # the second of four disjoint parts, as CI runs it
 ```
