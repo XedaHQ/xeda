@@ -33,6 +33,7 @@ from ...flow import Flow
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from ...flow.flow import FlowSettingsException
 from ...flow.settings_group import render_flags
+from ...platforms.derive import liberty_mentions, read_liberty_summary
 from ...platforms.model import PlatformModel, WireRc
 from ...proc_utils import ProcessTimeout
 from ...tool import NonZeroExitCode, Tool
@@ -126,6 +127,50 @@ def _quantity(value: Any, kind: type[Q]) -> Q:
             f"got {value!r}"
         )
     return value
+
+
+#: The time unit of a Liberty file as OpenSTA reads it: 1, 10 or 100 and a unit, without spaces.
+#: OpenSTA warns about another multiplier and keeps the unit alone, and it reads a unit with a
+#: space or a fraction as one second.
+_OPENSTA_TIME_UNIT = re.compile(r"(?P<scale>1|10|100)(?P<unit>fs|ps|ns|us|ms|s)", re.IGNORECASE)
+
+
+def liberty_time_unit_seconds(unit: str) -> float:
+    """Return the time unit of a Liberty file (`1ns`, `10ps`) in seconds, as OpenSTA reads it.
+
+    Raise `ValueError` for a spelling that OpenSTA reads as another unit, such as `1000ps`
+    (OpenSTA reads `1ps`), `1.0ns` or `1 ns` (OpenSTA reads one second)."""
+    found = _OPENSTA_TIME_UNIT.fullmatch(unit)
+    if found is None:
+        raise ValueError(
+            f"the time unit {unit!r} is no unit that OpenSTA reads: write 1, 10 or 100 and fs, "
+            "ps, ns, us, ms or s, without spaces (`1ns`, `10ps`)"
+        )
+    return int(found["scale"]) * Time.of(1, found["unit"].lower()).to("s")
+
+
+_CAPACITANCE_UNIT = re.compile(r"(?P<scale>[0-9.]+)(?P<unit>[a-z]*)", re.IGNORECASE)
+_FARADS = {"ff": 1e-15, "pf": 1e-12, "nf": 1e-9, "uf": 1e-6, "mf": 1e-3, "f": 1.0}
+
+
+def _capacitance_in_farads(unit: str) -> float:
+    """Return a capacitance unit as the platform model writes it (`1ff`, `0.1pf`) in farads."""
+    found = _CAPACITANCE_UNIT.fullmatch(unit.strip())
+    if found is None or found["unit"].lower() not in _FARADS:
+        raise ValueError(f"cannot read the capacitance unit {unit!r}")
+    return float(found["scale"]) * _FARADS[found["unit"].lower()]
+
+
+def model_time_unit_seconds(unit: str) -> float:
+    """Return the time unit of the platform model (`1ns`, `1 ns`, `0.001us`) in seconds. The model
+    takes the unit from a residue file or from the Liberty files of the platform, and the stages
+    scale times by its value (`to_lib_time`), so this reads the value and not the spelling that
+    OpenSTA requires of a Liberty file (`liberty_time_unit_seconds`)."""
+    found = _LIBERTY_TIME_UNIT.fullmatch(unit)
+    scale = float(found["scale"]) if found is not None and found["scale"] else 1.0
+    if found is None or scale <= 0:
+        raise ValueError(f"cannot read the time unit {unit!r} of the platform")
+    return scale * Time.of(1, found["unit"]).to("s")
 
 
 def to_lib_time(time: Any, unit: str) -> str:
@@ -283,7 +328,7 @@ class EffectiveBase:
     """The values of the platform and the settings that the restart header of every OpenROAD
     process reads. The values of each flow (`P` in its templates) inherit this class."""
 
-    #: The Liberty files of the corner.
+    #: The Liberty files: those of `liberty`, else those of the corner of the platform.
     liberty: tuple[Path, ...]
     #: The technology LEF file, or `None` if the platform has none.
     tech_lef: Optional[Path]
@@ -305,7 +350,7 @@ def base_values(settings: "OpenroadStage.Settings", model: PlatformModel) -> Dic
     only its arguments."""
     tech = model.files.get("tech_lef", [])
     return dict(
-        liberty=tuple(model.files.get("liberty", [])),
+        liberty=tuple(settings.liberty_files() or model.files.get("liberty", [])),
         tech_lef=tech[0] if tech else None,
         cell_lefs=tuple(model.files.get("cell_lef", [])),
         wire_rc=merge_wire_rc(model.wire_rc, settings.wire_rc),
@@ -404,7 +449,77 @@ class OpenroadStage(AsicPlatformFlow, Flow):
     def prepare_inputs(self) -> None:
         """Find the files of the platform and build the platform model."""
         super().prepare_inputs()
-        self.prepare_platform(self.platform_roles)
+        model = self.prepare_platform(self.platform_roles)
+        self._check_liberty_units(model)
+
+    def _check_liberty_units(self, model: PlatformModel) -> None:
+        """Refuse a file of `liberty` whose time or capacitance unit is not the platform's.
+
+        The stages scale times by the time unit of the platform model, which the platform's own
+        Liberty files give, and OpenROAD reads the wire capacitance of the platform in the
+        capacitance unit of the first Liberty file. A replacing file with another time unit, or a first
+        file with another capacitance unit, would shift every time or every wire capacitance
+        silently. The files are path settings, so the trace
+        records their content."""
+        settings = self.settings
+        assert isinstance(settings, self.Settings)
+        wanted = platform_time_unit(model)
+        for path in settings.liberty_files():
+            if not path.is_file():
+                raise FlowSettingsException(f"`liberty` names {path}, which is not a file")
+            try:
+                summary = read_liberty_summary(path)
+                for attribute, value in (
+                    ("time_unit", summary.time_unit),
+                    ("capacitive_load_unit", summary.capacitive_load_unit),
+                ):
+                    if value is None and liberty_mentions(path, attribute):
+                        raise ValueError(
+                            f"the reader cannot read its `{attribute}`: write `{attribute}` as "
+                            "a complete statement that ends in a semicolon"
+                        )
+                found = summary.time_unit or "1ns"
+            except ValueError as error:
+                raise FlowSettingsException(
+                    f"`liberty` file {path} cannot be read: {error}"
+                ) from None
+            try:
+                same = math.isclose(
+                    liberty_time_unit_seconds(found), model_time_unit_seconds(wanted)
+                )
+            except ValueError as error:
+                raise FlowSettingsException(f"`liberty` file {path}: {error}") from None
+            if not same:
+                raise FlowSettingsException(
+                    f"`liberty` file {path} has the time unit {found}, and the platform "
+                    f"{model.name!r} has {wanted}: the flow scales all times by the unit of the "
+                    "platform. Give Liberty files with the time unit of the platform"
+                )
+            if path == settings.liberty_files()[0]:
+                self._check_liberty_capacitance_unit(model, path, summary.capacitive_load_unit)
+
+    @staticmethod
+    def _check_liberty_capacitance_unit(
+        model: PlatformModel, path: Path, found: Optional[str]
+    ) -> None:
+        """Refuse the first file of `liberty` if its capacitance unit is not the platform's.
+
+        OpenROAD reads the capacitance of the wire RC of the platform in the capacitance unit of
+        the first Liberty file, so another unit would scale every wire capacitance. A later
+        file only scales its own cells, so its unit is free."""
+        # a Liberty file that states no capacitance unit has the default of OpenSTA, 1 pF
+        found, wanted = found or "1pf", model.capacitance_unit or "1pf"
+        try:
+            same = math.isclose(_capacitance_in_farads(found), _capacitance_in_farads(wanted))
+        except ValueError as error:
+            raise FlowSettingsException(f"`liberty` file {path}: {error}") from None
+        if not same:
+            raise FlowSettingsException(
+                f"`liberty` file {path} has the capacitance unit {found}, and the platform "
+                f"{model.name!r} has {wanted}: OpenROAD reads the wire capacitance of the "
+                "platform in the unit of the first Liberty file. Give Liberty files with the "
+                "capacitance unit of the platform"
+            )
 
     def locate_prepared_inputs(self) -> Optional[List[Path]]:
         """Return the files that `prepare_inputs()` registers, in the same order."""

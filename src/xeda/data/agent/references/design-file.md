@@ -178,7 +178,7 @@ A suffix gives the type when it is in this table:
 
 Suffixes match as written (`TOP.VHD` is an error naming `.vhd`). `.json`, `.bin`, `.cfg`,
 `.config`, `.dcp`, `.odb` and any suffix not in the table need `type`. These types are given only
-that way: `JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `VhdlNetlist`, `FpgaNetlist`,
+that way: `JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `GenericVerilogNetlist`, `VhdlNetlist`, `FpgaNetlist`,
 `FpgaTimingNetlist`, `SynthCheckpoint`, `RoutedCheckpoint`, `OpenroadDbPlaced`, `OpenroadDbCts`,
 `OpenroadDbGlobalRouted`, `OpenroadDbRouted`, `OpenroadSdcPlaced`, `OpenroadSdcCts`,
 `OpenroadSdcGlobalRouted`, `OpenroadSdcRouted`, `Chipdb`, `Data`. `.odb` is one of the four
@@ -208,14 +208,18 @@ Netlists and checkpoints are typed by stage:
 
 | Type | Is |
 | --- | --- |
-| `VerilogNetlist` | a standard-cell gate-level netlist. Give a gate-level `.v` this type, or it is `Verilog`. |
+| `VerilogNetlist` | a Verilog netlist mapped to the cells of a Liberty library. Give a gate-level `.v` this type, or it is `Verilog`. |
+| `GenericVerilogNetlist` | a Verilog netlist of the cells of `yosys` (gates, LUTs, coarse cells); no flow takes it, and alone it gives the error that no flow reads the design's sources |
 | `FpgaNetlist` | a Verilog netlist of FPGA primitives as Vivado writes it; `vivado_postsynth_sim` simulates it |
 | `FpgaTimingNetlist` | its timing netlist, simulated with an SDF; Verilog has no suffix for it, so give `type` |
 | `SynthCheckpoint`, `RoutedCheckpoint` | a Vivado checkpoint after synthesis, after routing (`vivado_power` takes only the routed one) |
 | `Checkpoint` | no stage; no flow takes it |
 
 A source of the wrong one of these types is not taken in its place: a `JsonNetlist` source does
-not replace the `Edif` netlist that `vivado_impl` reads.
+not replace the `Edif` netlist that `vivado_impl` reads. A listed netlist is your claim: Xeda does
+not parse it or compare it with `platform`, `liberty` or `fpga`. The tool that reads it reports
+cells it does not know. `yosys` writes `netlist` when it maps to a Liberty library, else
+`netlist_generic`.
 
 A source of a later stage replaces the flows that would build it: a `JsonNetlist` skips synthesis
 for `nextpnr`, an `Edif` netlist skips it for `vivado_impl`, a `Fasm`, `EcpConfig` or `IceAsc`

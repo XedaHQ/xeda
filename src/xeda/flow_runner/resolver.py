@@ -82,6 +82,7 @@ SHARED_SETTINGS = (
     "corner",
     "dont_use_cells",
     "platform_file",
+    "liberty",
     "pdk_provider",
     "pdk_version",
     "pdk_root",
@@ -91,6 +92,10 @@ SHARED_SETTINGS = (
 #: Shared settings that name a file or a directory. They are compared by the resolved path, a
 #: relative one against the design root.
 SHARED_PATH_SETTINGS = ("prjxray_db", "platform_file", "pdk_root")
+#: Shared settings that name an ordered list of files. They are compared, and propagated, as the
+#: list of the resolved paths, so the spelling of the node that wins does not change the identity
+#: of the others.
+SHARED_PATH_LIST_SETTINGS = ("liberty",)
 #: The settings that pin the PDK of a platform. The resolver fills them in when the user gives
 #: none (`_pin_pdks`).
 PIN_SETTINGS = ("pdk_provider", "pdk_version")
@@ -609,6 +614,13 @@ def _normalized_leaves(
                 # only after they agree; here check the same strict name syntax as the field.
                 if value is not None and not isinstance(value, str):
                     raise ValueError("board must be a string or None")
+            elif shared in SHARED_PATH_LIST_SETTINGS:
+                model = settings_in_context(request.cls, {shared: value}, **context)
+                value = [
+                    (context["design_root"] / item).resolve() for item in getattr(model, shared)
+                ]
+                if not value:
+                    continue  # no file says nothing: the flow reads the files of the platform
             elif shared in (*SHARED_PATH_SETTINGS, "dont_use_cells"):
                 model = settings_in_context(request.cls, {shared: value}, **context)
                 value = getattr(model, shared)
@@ -667,9 +679,10 @@ def _pin_pdks(requests: list[_Request], context: dict[str, Any]) -> None:
 
     for group in _components(requests, "platform"):
         for request in group:
-            if not all(name in request.cls.Settings.model_fields for name in PIN_SETTINGS):
+            needed = (*PIN_SETTINGS, *SHARED_PATH_LIST_SETTINGS)
+            if not all(name in request.cls.Settings.model_fields for name in needed):
                 raise TypeError(
-                    f"{request.cls.name} declares `platform` but not {' and '.join(PIN_SETTINGS)}: "
+                    f"{request.cls.name} declares `platform` but not {', '.join(needed)}: "
                     "its settings must inherit AsicPlatformSettings"
                 )
         provider = _group_value(group, "pdk_provider")

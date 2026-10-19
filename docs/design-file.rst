@@ -250,27 +250,161 @@ used for many kinds of file. The error suggests ``JsonNetlist`` for ``.json`` an
 ``.bin`` is a ``Bitstream`` or a ``Chipdb``, ``.dcp`` is a ``SynthCheckpoint`` or a
 ``RoutedCheckpoint``, and ``.odb`` is the OpenROAD database of one stage (``OpenroadDbPlaced``,
 ``OpenroadDbCts``, ``OpenroadDbGlobalRouted`` or ``OpenroadDbRouted``). A suffix that is not in the table names nothing that Xeda knows. Some types are only ever given this
-way: ``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``VhdlNetlist``, ``FpgaNetlist``,
+way: ``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``GenericVerilogNetlist``, ``VhdlNetlist``, ``FpgaNetlist``,
 ``FpgaTimingNetlist``, ``SynthCheckpoint``, ``RoutedCheckpoint``, the four ``OpenroadDb`` types, the
 four ``OpenroadSdc`` types, ``Chipdb``, ``Data`` and the legacy ``Checkpoint`` and ``Odb``, which no
 flow takes. Type names are case-tolerant, and suffixes are not.
 ``Data`` is for a file with no automatic HDL front end, such as test vectors or the input of a
 script. A flow or the design can still read it. An invalid ``type`` is an error that names the
 closest types. A ``.v`` file is ``Verilog``. To list a gate-level netlist, write ``{file: "net.v",
-type: VerilogNetlist}``.
+type: VerilogNetlist}``, or ``type: GenericVerilogNetlist`` for a netlist of the cells of Yosys.
 
-Xeda types a netlist and a checkpoint by what it is, and not only by its file format. A
-``VerilogNetlist`` is a standard-cell gate-level netlist. An ``FpgaNetlist`` is a
-Verilog netlist of FPGA primitives, as Vivado writes it, and ``vivado_postsynth_sim`` simulates
-it. An ``FpgaTimingNetlist`` is the timing netlist of the same design, and that flow simulates it
-with an SDF file. Verilog has no suffix of its own for a timing netlist, so a listed one needs
-``type: FpgaTimingNetlist``. Vivado writes a checkpoint (``.dcp``) after synthesis
-(``SynthCheckpoint``) and after routing (``RoutedCheckpoint``), and ``vivado_power`` reports power
-only on the routed one. The ``.dcp`` suffix therefore needs its ``type``, and Xeda never takes a
-netlist or checkpoint of one type in place of the other. A Vivado netlist that you list as
-``VerilogNetlist`` is taken by no Vivado flow. The type ``Checkpoint``, for a
-checkpoint of no stated stage, is kept for old settings files. No flow takes it, so a source with
-that type feeds nothing.
+Xeda types a netlist and a checkpoint by what it is, and not only by its file format. The
+following table lists the netlist, checkpoint and database types. Each type has three
+properties:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Type
+     - Container
+     - Abstraction
+     - Target
+     - Meaning
+   * - ``VerilogNetlist``
+     - verilog
+     - mapped
+     - standard_cells
+     - A Verilog netlist mapped to the cells of a Liberty library.
+   * - ``GenericVerilogNetlist``
+     - verilog
+     - generic
+     - none
+     - A Verilog netlist of the cells of yosys (gates, LUTs or coarse cells). No Liberty library holds them.
+   * - ``JsonNetlist``
+     - json
+     - mapped
+     - fpga_primitives
+     - The JSON netlist that the family pass of yosys writes, with the primitives of an FPGA family.
+   * - ``Edif``
+     - edif
+     - mapped
+     - fpga_primitives
+     - An EDIF netlist of the primitives of an FPGA family.
+   * - ``FpgaNetlist``
+     - verilog
+     - mapped
+     - fpga_primitives
+     - The functional Verilog netlist of FPGA primitives that Vivado writes.
+   * - ``FpgaTimingNetlist``
+     - verilog
+     - mapped
+     - fpga_timing_primitives
+     - The timing Verilog netlist of FPGA primitives that Vivado writes. A simulation reads it with an SDF file.
+   * - ``SynthCheckpoint``
+     - vivado_checkpoint
+     - mapped
+     - fpga_primitives
+     - A Vivado checkpoint after synthesis.
+   * - ``RoutedCheckpoint``
+     - vivado_checkpoint
+     - routed
+     - fpga_primitives
+     - A Vivado checkpoint after routing.
+   * - ``OpenroadDbPlaced``
+     - openroad_database
+     - placed
+     - standard_cells
+     - The OpenROAD database after placement.
+   * - ``OpenroadDbCts``
+     - openroad_database
+     - clock_tree
+     - standard_cells
+     - The OpenROAD database after clock tree synthesis.
+   * - ``OpenroadDbGlobalRouted``
+     - openroad_database
+     - global_routed
+     - standard_cells
+     - The OpenROAD database after global routing.
+   * - ``OpenroadDbRouted``
+     - openroad_database
+     - routed
+     - standard_cells
+     - The OpenROAD database of the routed design.
+   * - ``VhdlNetlist``
+     - vhdl
+     - unspecified
+     - unspecified
+     - A VHDL netlist. No flow declares it.
+   * - ``Blif``
+     - blif
+     - unspecified
+     - unspecified
+     - A BLIF netlist. No flow declares it.
+   * - ``Checkpoint``
+     - vivado_checkpoint
+     - unspecified
+     - unspecified
+     - A Vivado checkpoint of no stated stage. No flow takes it.
+   * - ``Odb``
+     - openroad_database
+     - unspecified
+     - unspecified
+     - An OpenROAD database of no stated stage. No flow takes it.
+
+The container is the file format that a reader parses. The abstraction is what the cells are, or
+the stage of a physical result. The target is the cell library that the file instantiates. The
+concrete library or family stays in the shared settings: ``platform``, ``corner`` and ``liberty``
+name the standard cells, and ``fpga`` names the FPGA family. The value ``unspecified`` marks a
+type that no flow declares.
+
+Verilog has no suffix of its own for a netlist type, so a listed one needs its ``type``. A
+``VerilogNetlist`` is a gate-level netlist of the cells of a Liberty library. A
+``GenericVerilogNetlist`` is a netlist of the cells of Yosys, and no flow takes it as an input. An
+``FpgaNetlist`` is a Verilog netlist of FPGA primitives, as Vivado writes it, and
+``vivado_postsynth_sim`` simulates it. An ``FpgaTimingNetlist`` is the timing netlist of the same
+design, and that flow simulates it with an SDF file. Vivado writes a checkpoint (``.dcp``) after
+synthesis (``SynthCheckpoint``) and after routing (``RoutedCheckpoint``), and ``vivado_power``
+reports power only on the routed one. The ``.dcp`` suffix therefore needs its ``type``, and Xeda
+never takes a netlist or checkpoint of one type in place of the other. A Vivado netlist that you
+list as ``VerilogNetlist`` is taken by no Vivado flow. The type ``Checkpoint``, for a checkpoint
+of no stated stage, is taken by no flow, so a source with that type feeds nothing.
+
+``GenericVerilogNetlist`` as the only source of a design gives the error that the flow reads none of the design's sources.
+Among other readable sources, Xeda ignores it, as it ignores any source type that no selected
+flow takes.
+
+.. _listed-netlist:
+
+A netlist that you list as a source is your statement of what it is. The type names the container
+and the kind of cells: a ``VerilogNetlist`` has the cells of a Liberty library, and a
+``JsonNetlist`` has the primitives of an FPGA family. Xeda does not parse the netlist to find its
+cells or its target. It does not compare the netlist with ``platform``, ``liberty`` or ``fpga``.
+The listed file replaces the flow that would make it, so no setting of that flow agrees with it.
+The tool that reads the netlist checks the content and reports a cell that it does not know. The
+same rule holds for a ``.dcp`` or ``.odb`` source.
+
+Two more limits apply:
+
+- The ``liberty`` agreement covers the Liberty files that ``yosys`` maps to. It does not cover the
+  cells that other settings of ``yosys`` instantiate: ``sequential.dff_liberty`` (a Liberty file
+  that ``dfflibmap`` reads in place of the shared list), and the maps ``latch_map``,
+  ``clockgate_map``, ``adder_map``, ``techmap_files``, ``dff_map`` and ``memory.libmap``.
+  OpenROAD reports a cell that it does not find when it links the design.
+- Xeda appends the ``synth_flags`` of ``yosys_fpga`` to the family pass as given. A flag that
+  stops the pass early (such as ``-run begin:coarse``) gives a JSON netlist with unmapped cells.
+  Xeda does not parse flags, and ``nextpnr`` reports the unknown cells. The ``JsonNetlist`` type
+  means the JSON netlist that the family pass writes under normal settings.
+
+Xeda follows ``include_file(...)`` in a Liberty file when it reads the time unit and the facts of
+a platform, as OpenSTA does. OpenSTA takes the text between the parentheses as the name, as written,
+and opens it in its working directory. A name therefore must be an absolute path, without quotes
+and without spaces just inside the parentheses. A relative name and a quoted name cannot be opened by
+OpenSTA, and Xeda refuses them. Each included file is an input of the run, like the Liberty file
+that includes it. The Liberty reader of Yosys does not read ``include_file``, so ``yosys`` refuses a
+Liberty file that includes another, and only the OpenROAD flows can use one. A remote run ships
+each file that a ``liberty`` file includes to a place of its own on the remote. It writes copies of
+the Liberty files that name each included file by that place.
 
 An OpenROAD stage writes a database (``.odb``) and the SDC file that goes with it. Each stage has
 its own type for both. For example, the clock tree stage writes ``OpenroadDbCts`` and

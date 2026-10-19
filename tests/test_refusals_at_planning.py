@@ -215,6 +215,14 @@ CASES: dict[str, Case] = {
         r"`lut` and `platform_file` cannot both be set",
         {"platform_file": str(TINY_RESIDUE), "lut": "4"},
     ),
+    "yosys-liberty-with-gates": Case(
+        Yosys,
+        r"`gates` and `liberty` cannot both be set",
+        {"liberty": ["cells.lib"], "gates": ["AND"]},
+    ),
+    "yosys-liberty-with-lut": Case(
+        Yosys, r"`lut` and `liberty` cannot both be set", {"liberty": ["cells.lib"], "lut": "4"}
+    ),
     "yosys-dont-use-cells-with-gates": Case(
         Yosys,
         r"`dont_use_cells` and `gates` cannot both be set",
@@ -421,6 +429,47 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
     "xeda.flow.asic:AsicPlatformSettings.locate_platform": (
         1,
         "looks for the PDK files in the store on disk",
+    ),
+    "xeda.flows.openroad.base:OpenroadStage._check_liberty_units": (
+        5,
+        "reads the files of `liberty` on disk: a file that is missing or unreadable, and one whose "
+        "time unit is not the platform's",
+    ),
+    "xeda.flows.openroad.base:OpenroadStage._check_liberty_capacitance_unit": (
+        2,
+        "reads the capacitance unit of a file of `liberty` on disk and refuses one that is not "
+        "the platform's",
+    ),
+    "xeda.flows.openroad.base:_capacitance_in_farads": (
+        1,
+        "reads the capacitance unit of the platform, which a residue file can state",
+    ),
+    "xeda.flows.openroad.base:model_time_unit_seconds": (
+        1,
+        "reads the time unit of the platform model, which a residue file can state in any form",
+    ),
+    "xeda.flows.openroad.base:liberty_time_unit_seconds": (
+        1,
+        "reads the time unit that a file of `liberty` states, which is no time unit",
+    ),
+    "xeda.flows.yosys.yosys:Yosys._refuse_liberty_includes": (
+        1,
+        "reads the Liberty files on disk to find an include that the Liberty reader of yosys "
+        "cannot read",
+    ),
+    "xeda.flow.asic:AsicPlatformSettings.included_by": (
+        1,
+        "reads a Liberty file on disk to find the files it includes, and refuses an include that "
+        "OpenSTA cannot open or that is missing",
+    ),
+    "xeda.platforms.derive:_liberty_text": (
+        6,
+        "follows `include_file(...)` on disk: a quoted or a relative name, which OpenSTA cannot "
+        "open, a file that includes itself, a chain that is too deep, and a file that is missing",
+    ),
+    "xeda.platforms.derive:_read_text": (
+        1,
+        "reads a Liberty or LEF file of the PDK, or a file of `liberty`, on disk",
     ),
     "xeda.flows.openroad.final:Openroad.prepare_inputs": (
         1,

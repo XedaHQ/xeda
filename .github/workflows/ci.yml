@@ -173,6 +173,8 @@ jobs:
           tests/test_fake_openroad.py
           tests/test_verilator_hooks_makefile.py
           tests/test_cli_settings_completion.py
+          tests/test_liberty_shared.py
+          tests/test_liberty_freshness.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only

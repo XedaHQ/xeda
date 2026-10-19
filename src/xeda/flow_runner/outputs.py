@@ -29,7 +29,7 @@ from ..flow.derived import (
     derive_design,
     recorded_files,
 )
-from ..flow.io import OutputDeclaration, declared_outputs, output_enabled
+from ..flow.io import OutputDeclaration, declared_outputs, output_enabled, output_required
 from ..run_dir import RunDirectory, RunDirectoryError
 from .trace import OutputEntry
 
@@ -85,7 +85,7 @@ def record_outputs(flow: Flow, *, record: bool = True) -> list[str]:
             problems.append(f"{flow.name}'s output `{name}` has an invalid value")
             continue
         paths = [] if value is None else (value if many else [value])
-        needed = declaration.cardinality in ("one", "many") or declaration.enabled_by is not None
+        needed = output_required(type(flow), flow.settings, declaration)
         if not paths:
             if needed:
                 problems.append(f"{flow.name} did not produce its output `{name}`")

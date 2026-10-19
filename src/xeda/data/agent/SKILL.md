@@ -177,6 +177,11 @@ Run the flow you want. Its default producers run first:
 A source of the input's type replaces the producer: a `JsonNetlist` source skips `yosys_fpga` for
 `nextpnr`. Set a producer's settings under `flows.<producer>`.
 
+`yosys` writes `netlist` (`VerilogNetlist`) when it maps to a Liberty library (`liberty`, `platform`
+or `platform_file`, and no `gates` or `lut`), else `netlist_generic` (`GenericVerilogNetlist`, which
+no flow takes). A listed netlist is your claim: Xeda does not parse it or compare it with
+`platform`, `liberty` or `fpga`, and the tool that reads it reports unknown cells.
+
 A chain runs flows in order and binds each output to the next flow's required input; the last flow
 is the one requested (its `results`, `--help-settings` and exit status):
 
@@ -246,10 +251,11 @@ with the synthesis behind its `activity`. A binding that splits them is refused;
 the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings that fix it.
 
 Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
-`platform`, `corner`, `dont_use_cells`, `platform_file`, `pdk_provider`, `pdk_version`,
+`platform`, `corner`, `dont_use_cells`, `platform_file`, `liberty`, `pdk_provider`, `pdk_version`,
 `pdk_root`, `hierarchical`, `wire_rc`, where both nodes declare them) must agree. `platform` is a
-bundled name; `platform_file` and `pdk_root` compare by resolved path; an unset `pdk_provider` or
-`pdk_version` is filled in from the platform before hashing. `hierarchical` and `wire_rc` are the
+bundled name; `platform_file` and `pdk_root` compare by resolved path; `liberty` compares as the
+list of resolved paths in order; an unset `pdk_provider` or `pdk_version` is filled in from the
+platform before hashing. `hierarchical` and `wire_rc` are the
 OpenROAD flows' (the database stores neither). Disjoint leaves combine; two values for one leaf
 fail and name both origins. A command-line leaf (`-s fpga.part=...` or
 `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group. A shared setting written under

@@ -10,6 +10,7 @@ which bootstraps the same way (see `test_remote_streaming.py`). The "remote" hom
 separate tree, so nothing the remote run needs can be found by accident on the local side.
 """
 
+import gzip
 import json
 import logging
 import os
@@ -63,6 +64,9 @@ class _LocalSftp:
 
     def stat(self, path):
         return os.stat(path)  # paramiko's raises FileNotFoundError too
+
+    def normalize(self, path):
+        return os.path.realpath(path)
 
 
 class _LocalConnection:
@@ -2129,6 +2133,170 @@ def test_a_platform_file_s_remote_run_has_this_side_s_identity(
     assert results["platform"]["name"] == "tiny"
 
 
+@pytest.mark.real_tool
+def test_a_liberty_file_s_remote_run_has_this_side_s_identity(tmp_path, remote_host, monkeypatch):
+    """The Liberty files of `liberty` are path settings: they are shipped, and the remote reads
+    its own copies. The remote's `flow_hash` equals this side's, and its netlist is mapped to
+    the cells of those files."""
+    require_yosys()
+    store_home = tmp_path / "store_home"
+    store = tiny_store(store_home, ".ciel")
+    monkeypatch.setenv("HOME", str(store_home))
+    library = tmp_path / "libs" / "own.lib"
+    library.parent.mkdir()
+    library.write_text((store / "tiny" / "tiny.lib").read_text())
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "mac.v").write_text(
+        "module mac(input clk, input [7:0] a, b, output reg [15:0] q);\n"
+        "  always @(posedge clk) q <= a * b;\nendmodule\n"
+    )
+    design = Design(
+        name="mac",
+        design_root=root,
+        rtl={"sources": ["mac.v"], "top": "mac", "clock": {"port": "clk"}},
+    )
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    settings = [f"platform_file={TINY_RESIDUE}", f"liberty={library}", "clock.period=2ns"]
+    expected = runner.plan("yosys", design, flow_settings=settings).node("yosys").flowrun_hash
+    results = runner.run_remote(design, "yosys", "fake", flow_settings=settings)
+    assert results and results["success"], results
+    assert results["flow_hash"] == expected
+    shipped = json.loads((_remote_run_dir(remote_host, "yosys") / "settings.json").read_text())
+    (given,) = shipped["flow_settings"]["liberty"]
+    assert Path(given).resolve().is_relative_to(remote_host.resolve())
+    assert "netlist_generic" not in results["outputs"]
+    assert "_X1 " in Path(results["outputs"]["netlist"]["path"]).read_text()
+
+
+def _mac_design(tmp_path: Path) -> Design:
+    root = tmp_path / "design"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "mac.v").write_text(
+        "module mac(input clk, input [7:0] a, b, output reg [15:0] q);\n"
+        "  always @(posedge clk) q <= a * b;\nendmodule\n"
+    )
+    return Design(
+        name="mac",
+        design_root=root,
+        rtl={"sources": ["mac.v"], "top": "mac", "clock": {"port": "clk"}},
+    )
+
+
+@pytest.mark.real_tool
+def test_the_files_a_liberty_file_includes_travel_with_it(tmp_path, remote_host, monkeypatch):
+    """A Liberty file of `liberty` that includes other files by their absolute names (OpenSTA
+    reads such an include; yosys does not): the remote receives the included files in places of
+    their own, and copies that name those places. The remote's `flow_hash` equals this side's,
+    the placement runs on the library, and the included files are inputs of its run."""
+    from .openroad_utils import openroad_design
+    from .tiny_platform import TINY_OPENROAD_RESIDUE
+
+    store_home = tmp_path / "store_home"
+    store = tiny_store(store_home, ".ciel")
+    # the default PDK store is under HOME, for this side's plan and for the worker, which inherits
+    # the environment
+    monkeypatch.setenv("HOME", str(store_home))
+    parts = tmp_path / "libs" / "parts"
+    parts.mkdir(parents=True)
+    original = (store / "tiny" / "tiny.lib").read_text()
+    unit = '  time_unit : "1ns";\n'
+    assert unit in original
+    units = parts / "units.lib.gz"
+    with gzip.open(units, "wt") as stream:
+        stream.write(unit)
+    nested = parts / "nested.lib.gz"
+    with gzip.open(nested, "wt") as stream:
+        stream.write(f"include_file({units});\n")
+    library = tmp_path / "libs" / "own.lib"
+    library.write_text(original.replace(unit, f"  include_file({nested});\n"))
+    design_file = openroad_design(tmp_path / "design")
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    settings = [
+        f"platform_file={TINY_OPENROAD_RESIDUE}",
+        f"liberty={library}",
+        # the section of a flow that is not in the plan lists the same file, which then also
+        # travels as a plain path setting
+        f"flows.yosys.liberty={library}",
+        "clock.period=2ns",
+    ]
+    expected = (
+        runner.plan("openroad_place", design_file, flow_settings=settings)
+        .node("openroad_place")
+        .flowrun_hash
+    )
+    results = runner.run_remote(design_file, "openroad_place", "fake", flow_settings=settings)
+    assert results and results["success"], results
+    assert results["flow_hash"] == expected
+    run_dir = _remote_run_dir(remote_host, "openroad_place")
+    (top,) = json.loads((run_dir / "settings.json").read_text())["flow_settings"]["liberty"]
+    remote_text = Path(top).read_text()
+    assert str(units) not in remote_text and str(nested) not in remote_text
+    assert str(remote_host.resolve()) in remote_text
+    calls = (run_dir / "fake_openroad.calls").read_text()
+    assert str(Path(top).resolve()) in calls
+    trace = json.loads((run_dir / "trace.json").read_text())
+    inputs = {Path(name).name for name in (*trace["inputs"], *trace["implicit_inputs"])}
+    assert {"nested.lib.gz", "units.lib.gz"} <= inputs
+    root = run_dir.parents[2]
+    for name in (*trace["inputs"], *trace["implicit_inputs"]):
+        if Path(name).name in ("nested.lib.gz", "units.lib.gz", "own.lib"):
+            assert Path(name).resolve().is_relative_to(root.resolve()), name
+    nested_copy = next(
+        Path(name)
+        for name in (*trace["inputs"], *trace["implicit_inputs"])
+        if Path(name).name == "nested.lib.gz"
+    )
+    with gzip.open(nested_copy, "rt") as stream:
+        nested_text = stream.read()
+    assert str(root.resolve()) in nested_text and str(parts) not in nested_text
+
+
+def test_the_liberty_files_of_a_flow_that_is_not_in_the_plan_are_not_read(tmp_path, remote_host):
+    """A listed netlist displaces `yosys`, and the `liberty` of its section is unused, so an
+    include in it that cannot be followed stops nothing."""
+    from .openroad_utils import openroad_design
+    from .tiny_platform import TINY_OPENROAD_RESIDUE
+
+    store_home = tmp_path / "store_home"
+    tiny_store(store_home, ".ciel")
+    library = tmp_path / "unused.lib"
+    library.write_text(f"library (t) {{ include_file({tmp_path / 'gone.lib'}); }}\n")
+    design_file = openroad_design(tmp_path / "design")
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    settings = [
+        f"platform_file={TINY_OPENROAD_RESIDUE}",
+        f"flows.yosys.liberty={library}",
+        "clock.period=2ns",
+    ]
+    plan = runner.plan("openroad_place", design_file, flow_settings=settings)
+    assert [node.name for node in plan.nodes] == ["openroad_place"]
+    # the packaging does not read the library of the section: the run is refused later, or not
+    # at all, but never for the include
+    try:
+        runner.run_remote(design_file, "openroad_place", "fake", flow_settings=settings)
+    except FlowSettingsException as error:
+        assert "gone.lib" not in str(error)
+
+
+def test_a_liberty_include_that_cannot_be_followed_stops_the_packaging(tmp_path, remote_host):
+    """The remote would read the name as it is, so a missing target and a relative name stop the
+    packaging before anything is shipped."""
+    library = tmp_path / "own.lib"
+    for number, statement in enumerate(
+        (f"include_file({tmp_path / 'gone.lib'});", "include_file(units.lib);")
+    ):
+        library.write_text(f"library (t) {{ {statement} }}\n")
+        runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+        with pytest.raises(FlowSettingsException, match=r"own\.lib"):
+            runner.run_remote(
+                _mac_design(tmp_path / f"case{number}"),
+                "yosys",
+                "fake",
+                flow_settings=[f"liberty={library}", "clock.period=2ns"],
+            )
+
+
 def test_a_remote_run_of_a_flow_that_declares_no_io_resolves_the_identity_it_was_sent(
     tmp_path, remote_host
 ):
@@ -2217,7 +2385,7 @@ def test_a_remote_run_converts_a_bluespec_design_for_yosys_on_the_remote(tmp_pat
     assert (
         _remote_run_dir(remote_host, "bsc").parent == _remote_run_dir(remote_host, "yosys").parent
     )
-    assert Path(results["outputs"]["netlist"]["path"]).read_text()
+    assert Path(results["outputs"]["netlist_generic"]["path"]).read_text()
 
 
 @pytest.mark.real_tool

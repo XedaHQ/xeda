@@ -674,3 +674,238 @@ def test_yosys_maps_a_counter_to_the_fixture_library(tmp_path: Path) -> None:
     }
     assert "DFF_X1" in cells
     assert cells <= {"DFF_X1", "INV_X1", "BUF_X1", "NAND2_X1", "NOR2_X1"}
+
+
+# ------------------------------------------------------------------------------ include_file
+#
+# OpenSTA opens the name of `include_file(...)` as written, in its working directory, and keeps the
+# quotes of a quoted name. Only an absolute name without quotes works, so the reader takes only
+# that, and it reads the text that OpenROAD reads.
+
+
+def test_a_unit_stated_only_in_an_included_file_is_seen(tmp_path: Path) -> None:
+    (tmp_path / "units.lib").write_text('time_unit : "1ps";\nnom_voltage : 0.9;\n')
+    (tmp_path / "cell.lib").write_text("cell (C) { area : 2; }\n")
+    top = tmp_path / "top.lib"
+    top.write_text(
+        f"library (t) {{\n  include_file({tmp_path / 'units.lib'});\n"
+        # a space before the parenthesis or before the semicolon is no part of the name; a space just
+        # inside the parentheses is
+        f"  include_file ({tmp_path / 'cell.lib'}) ;\n}}\n"
+    )
+    summary = read_liberty_summary(top)
+    assert (summary.time_unit, summary.nom_voltage) == ("1ps", 0.9)
+    assert list(summary.cells) == ["C"]
+
+
+def test_an_included_file_includes_another_by_its_absolute_name(tmp_path: Path) -> None:
+    (tmp_path / "outer.lib").write_text(f"include_file({tmp_path / 'inner.lib'});\n")
+    (tmp_path / "inner.lib").write_text('time_unit : "10ps";\n')
+    top = tmp_path / "top.lib"
+    top.write_text(f"library (t) {{ include_file({tmp_path / 'outer.lib'}); }}\n")
+    assert read_liberty_summary(top).time_unit == "10ps"
+
+
+def test_a_relative_or_a_quoted_name_is_refused_as_opensta_cannot_open_it(tmp_path: Path) -> None:
+    (tmp_path / "units.lib").write_text('time_unit : "1ps";\n')
+    top = tmp_path / "top.lib"
+    top.write_text("library (t) { include_file(units.lib); }\n")
+    with pytest.raises(ValueError, match="no absolute name.*working directory"):
+        read_liberty_summary(top)
+    top.write_text(f'library (t) {{ include_file("{tmp_path / "units.lib"}"); }}\n')
+    with pytest.raises(ValueError, match="in quotes.*keeps the quotes"):
+        read_liberty_summary(top)
+
+
+def test_a_missing_included_file_is_a_clear_error(tmp_path: Path) -> None:
+    top = tmp_path / "top.lib"
+    top.write_text(f"library (t) {{ include_file({tmp_path / 'gone.lib'}); }}\n")
+    with pytest.raises(ValueError, match=r"top\.lib includes .*gone\.lib, which is not a file"):
+        read_liberty_summary(top)
+
+
+def test_files_that_include_each_other_are_refused(tmp_path: Path) -> None:
+    (tmp_path / "a.lib").write_text(f"library (a) {{ include_file({tmp_path / 'b.lib'}); }}\n")
+    (tmp_path / "b.lib").write_text(f"include_file({tmp_path / 'a.lib'});\n")
+    with pytest.raises(ValueError, match="includes itself"):
+        read_liberty_summary(tmp_path / "a.lib")
+
+
+def chain_of_includes(tmp_path: Path, length: int) -> Path:
+    """Files f0 .. f<length>: each includes the next, the last states the unit."""
+    for number in range(length):
+        nxt = tmp_path / f"f{number + 1}.lib"
+        body = f"include_file({nxt});\n"
+        (tmp_path / f"f{number}.lib").write_text(
+            f"library (t) {{ {body} }}\n" if number == 0 else body
+        )
+    (tmp_path / f"f{length}.lib").write_text('time_unit : "1ps";\n')
+    return tmp_path / "f0.lib"
+
+
+def test_a_chain_of_includes_as_deep_as_the_limit_is_read_and_one_more_is_refused(
+    tmp_path: Path,
+) -> None:
+    from xeda.platforms.derive import MAX_INCLUDE_DEPTH
+
+    (tmp_path / "ok").mkdir()
+    allowed = chain_of_includes(tmp_path / "ok", MAX_INCLUDE_DEPTH)
+    assert read_liberty_summary(allowed).time_unit == "1ps"
+    (tmp_path / "deep").mkdir()
+    deeper = chain_of_includes(tmp_path / "deep", MAX_INCLUDE_DEPTH + 1)
+    with pytest.raises(ValueError, match="levels deep"):
+        read_liberty_summary(deeper)
+
+
+def test_the_derivation_reads_the_unit_of_an_included_file(tmp_path: Path) -> None:
+    (tmp_path / "units.lib").write_text('time_unit : "1ps";\n')
+    lib = library(f'include_file({tmp_path / "units.lib"});\ncell (T) {{ area : 1; }}\n')
+    assert derive_text(tmp_path, lib=lib)["time_unit"] == "1ps"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'comment : "Use include_file(optional.lib) for the cells.";',
+        'comment : "a \\" quote, then include_file(optional.lib)";',
+        "my_include_file(optional.lib);",
+    ],
+    ids=["in a string", "after an escaped quote", "a longer name"],
+)
+def test_text_that_is_no_include_statement_is_left_alone(tmp_path: Path, text: str) -> None:
+    top = tmp_path / "top.lib"
+    top.write_text(
+        f'library (t) {{\n  {text}\n  time_unit : "1ns";\n  cell (C) {{ area : 1; }}\n}}\n'
+    )
+    summary = read_liberty_summary(top)
+    assert summary.time_unit == "1ns" and list(summary.cells) == ["C"]
+
+
+def test_a_string_next_to_a_real_include_does_not_hide_it(tmp_path: Path) -> None:
+    (tmp_path / "units.lib").write_text('time_unit : "1ps";\n')
+    top = tmp_path / "top.lib"
+    top.write_text(
+        'library (t) {\n  comment : "include_file(optional.lib)";\n'
+        f"  include_file({tmp_path / 'units.lib'});\n}}\n"
+    )
+    assert read_liberty_summary(top).time_unit == "1ps"
+
+
+def test_the_included_files_are_listed_once_in_the_order_of_the_text(tmp_path: Path) -> None:
+    from xeda.platforms.derive import liberty_included_files
+
+    one, two, three = (tmp_path / name for name in ("one.lib", "two.lib", "three.lib"))
+    three.write_text("cell (C) { area : 1; }\n")
+    two.write_text(f"include_file({three});\n")
+    one.write_text('time_unit : "1ns";\n')
+    top = tmp_path / "top.lib"
+    top.write_text(
+        f"library (t) {{ include_file({one}); include_file({two}); include_file({three}); }}\n"
+    )
+    assert liberty_included_files(top) == [one, two, three]
+    assert liberty_included_files(three) == []
+
+
+def test_an_absolute_name_with_spaces_is_read_as_opensta_reads_it(tmp_path: Path) -> None:
+    """OpenSTA takes everything between the parentheses as the name, so a directory name with a
+    space works, and a space next to a parenthesis is part of the name."""
+    from xeda.platforms.derive import liberty_included_files
+
+    folder = tmp_path / "dir with space"
+    folder.mkdir()
+    (folder / "units.lib").write_text('time_unit : "1ps";\n')
+    top = tmp_path / "top.lib"
+    top.write_text(f"library (t) {{ include_file({folder / 'units.lib'}); }}\n")
+    assert read_liberty_summary(top).time_unit == "1ps"
+    assert liberty_included_files(top) == [folder / "units.lib"]
+    top.write_text(f"library (t) {{ include_file( {folder / 'units.lib'} ); }}\n")
+    with pytest.raises(ValueError, match="no absolute name"):
+        read_liberty_summary(top)
+
+
+@pytest.mark.parametrize("statement", ["include_file;", "include_file(a.lib", "include_file = x;"])
+def test_an_include_file_the_reader_cannot_read_is_an_error_and_not_skipped(
+    tmp_path: Path, statement: str
+) -> None:
+    top = tmp_path / "top.lib"
+    top.write_text(f'library (t) {{\n  {statement}\n  time_unit : "1ns";\n}}\n')
+    with pytest.raises(ValueError, match="include_file that the reader cannot read"):
+        read_liberty_summary(top)
+
+
+def test_comment_marks_inside_strings_start_no_comment(tmp_path: Path) -> None:
+    """OpenSTA lexes a string and a comment apart, so an include between two strings that hold
+    `/*` and `*/` is still an include."""
+    from xeda.platforms.derive import liberty_included_files
+
+    (tmp_path / "units.lib").write_text('time_unit : "1ps";\n')
+    top = tmp_path / "top.lib"
+    top.write_text(
+        'library (t) {\n  comment : "Opening token /*";\n'
+        f'  include_file({tmp_path / "units.lib"});\n  revision : "Closing token */";\n}}\n'
+        "/* a real comment: include_file(/gone.lib); */\n"
+    )
+    assert read_liberty_summary(top).time_unit == "1ps"
+    assert liberty_included_files(top) == [tmp_path / "units.lib"]
+
+
+def test_the_time_unit_keeps_the_spaces_inside_its_quotes(tmp_path: Path) -> None:
+    """OpenSTA reads `"1ns "` as an unknown suffix, so the reader does not tidy it."""
+    top = tmp_path / "top.lib"
+    top.write_text('library (t) { time_unit : "1ns "; }\n')
+    assert read_liberty_summary(top).time_unit == "1ns "
+
+
+def test_a_line_comment_that_mentions_include_file_is_no_include(tmp_path: Path) -> None:
+    from xeda.platforms.derive import liberty_included_files
+
+    top = tmp_path / "top.lib"
+    top.write_text(
+        'library (t) {\n  // include_file(/gone/optional.lib);\n  time_unit : "1ns";\n'
+        '  comment : "a // inside a string";\n}\n'
+    )
+    assert read_liberty_summary(top).time_unit == "1ns"
+    assert liberty_included_files(top) == []
+
+
+def test_a_compressed_file_has_its_include_names_renamed(tmp_path: Path) -> None:
+    from xeda.platforms.derive import liberty_text_with_includes_renamed
+
+    (tmp_path / "units.lib").write_text('time_unit : "1ns";\n')
+    top = tmp_path / "top.lib.gz"
+    with gzip.open(top, "wt") as stream:
+        stream.write(
+            f'/* include_file({tmp_path / "units.lib"}); */\ninclude_file({tmp_path / "units.lib"});\n'
+        )
+    text = liberty_text_with_includes_renamed(top, lambda included: f"/remote/{included.name}")
+    assert text.count("include_file(/remote/units.lib);") == 1
+    assert str(tmp_path) in text, "the include in the comment stays as it is"
+
+
+def test_an_escaped_quote_does_not_end_a_string_in_any_scan(tmp_path: Path) -> None:
+    """One rule for strings: a backslash escapes the next character. The statement splitter, the
+    comment scan and the include scan agree on a string that holds `\\"`, `;`, `/*` and
+    `include_file(...)`."""
+    from xeda.platforms.derive import liberty_included_files
+
+    top = tmp_path / "top.lib"
+    top.write_text(
+        'library (t) {\n  comment : "a \\" ; /* include_file(/gone.lib); b";\n'
+        '  time_unit : "1ns";\n  cell (C) { area : 1; }\n}\n'
+    )
+    summary = read_liberty_summary(top)
+    assert summary.time_unit == "1ns" and list(summary.cells) == ["C"]
+    assert liberty_included_files(top) == []
+
+
+def test_the_rewrite_scan_passes_over_a_string_with_an_escaped_quote(tmp_path: Path) -> None:
+    from xeda.platforms.derive import liberty_text_with_includes_renamed
+
+    top = tmp_path / "top.lib"
+    top.write_text(
+        'library (t) {\n  comment : "a \\" include_file(/fake.lib); b";\n'
+        "  include_file(/real.lib);\n}\n"
+    )
+    text = liberty_text_with_includes_renamed(top, lambda included: f"/remote/{included.name}")
+    assert 'include_file(/fake.lib); b"' in text
+    assert text.count("include_file(/remote/real.lib);") == 1

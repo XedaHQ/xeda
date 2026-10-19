@@ -1,4 +1,5 @@
 import contextlib
+import gzip
 import hashlib
 import json
 import logging
@@ -10,7 +11,7 @@ import tempfile
 import zipfile
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import IO, Any, Dict, Literal, Optional, Tuple, Union
 
 import execnet
@@ -41,7 +42,8 @@ from ..design import (
     loading_in_run_root,
     names_a_design_file,
 )
-from ..flow import Flow, FlowSettingsError
+from ..flow import Flow, FlowSettingsError, FlowSettingsException
+from ..flow.asic import AsicPlatformSettings
 from ..flow.flow import written_path_problems
 from ..flow.flow import map_keyed_path_leaves
 from ..dataclass import BaseModel, is_locator, written_role
@@ -315,8 +317,13 @@ def send_design(
     *,
     run_root: Path | None = None,
     path_identities: dict[str, str] | None = None,
+    planned_flows: Collection[str] | None = None,
 ) -> Tuple[str, str]:
-    """Archive the design and transfer it to the remote host."""
+    """Archive the design and transfer it to the remote host.
+
+    `planned_flows` names the flows of the plan. The Liberty files of those flows that include
+    others travel with the files they include. The settings of any other flow are not used, so
+    they travel as path settings do and are not read."""
     assert isinstance(conn, Connection)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -473,6 +480,76 @@ def send_design(
                     archive_entries.setdefault(relative / entry.relative_to(local), entry)
             return "$DESIGN_ROOT/" + relative.as_posix()
 
+        remote_root: list[PurePosixPath] = []
+        # whether the section that is packaged now belongs to a flow of the plan
+        in_plan = [True]
+
+        def remote_physical_root() -> PurePosixPath:
+            """The place of the unpacked archive on the remote, as its file system names it."""
+            if not remote_root:
+                remote_root.append(PurePosixPath(conn.sftp().normalize(remote_path)))
+            return remote_root[0]
+
+        def packaged_liberty(value: Any) -> Any:
+            """Return the Liberty file `value` as the remote receives it.
+
+            A file without `include_file` travels as any path setting does. For a file that
+            includes others, the included files travel too, each in a place of its own, and the
+            copies of all the files name the included files by their places on the remote, because
+            OpenSTA opens an include by its absolute name. The shipped value is the copy of the
+            file named by the setting, and the identity of the run is that of the original."""
+            from ..platforms.derive import (
+                liberty_included_files,
+                liberty_text_with_includes_renamed,
+            )
+
+            if not in_plan[0]:
+                return packaged_path(value)
+            path = Path(value)
+            if not path.is_absolute():
+                choices = [design.root_path / path, Path.cwd() / path]
+                path = next((p for p in choices if p.exists()), choices[0])
+            try:
+                included = liberty_included_files(path) if path.is_file() else []
+            except ValueError as error:
+                raise FlowSettingsException(f"`liberty` file {path}: {error}") from None
+            if not included:
+                return packaged_path(value)
+
+            def place(local: Path) -> Path:
+                digest = hashlib.sha256(str(local.resolve()).encode()).hexdigest()[:16]
+                return Path("_liberty_inputs") / digest / local.name
+
+            def remote_name(local: Path) -> str:
+                return str(remote_physical_root() / place(local).as_posix())
+
+            copies = temp_dir / "liberty_copies"
+            for local in (path, *included):
+                try:
+                    if local.suffix.lower() == ".gz" and not liberty_included_files(local):
+                        archive_entries[place(local)] = local  # nothing to rename
+                        continue
+                    text = liberty_text_with_includes_renamed(local, lambda inc: remote_name(inc))
+                except ValueError as error:
+                    raise FlowSettingsException(
+                        f"`liberty` file {path} cannot be shipped: {error}"
+                    ) from None
+                copy = copies / place(local)
+                copy.parent.mkdir(parents=True, exist_ok=True)
+                if local.suffix.lower() == ".gz":
+                    with gzip.open(copy, "wt", encoding="utf-8") as stream:
+                        stream.write(text)
+                else:
+                    with open(copy, "w", encoding="utf-8") as f:
+                        f.write(text)
+                archive_entries[place(local)] = copy
+            if path_identities is not None:
+                roots = location_roots(design.root_path, Path.cwd())
+                path_identities[str(Path(remote_path) / place(path))] = str(
+                    location_free(value, roots)
+                )
+            return "$DESIGN_ROOT/" + place(path).as_posix()
+
         def packaged_value(value: Any) -> Any:
             """Return `value` as the remote receives it: its paths archived and repointed.
 
@@ -486,6 +563,9 @@ def send_design(
                     item = getattr(value, name)
                     if is_locator(type(value), name):
                         values[name] = None
+                        continue
+                    if name == "liberty" and isinstance(value, AsicPlatformSettings):
+                        values[name] = [packaged_liberty(leaf) for leaf in item]
                         continue
                     if written_role(type(value), name) is None:
                         item = map_keyed_path_leaves(
@@ -512,6 +592,7 @@ def send_design(
             except FlowSettingsError:
                 shipped_sections[name] = section
             else:
+                in_plan[0] = planned_flows is None or name in planned_flows
                 # Preserve explicitness: a section contributes only the keys it states.
                 rewritten = packaged_value(model)
                 shipped_sections[name] = {key: rewritten[key] for key in model.model_fields_set}
@@ -1240,6 +1321,7 @@ class RemoteRunner(FlowLauncher):
                 all_flows_settings=sections,
                 run_root=self._run_root,
                 path_identities=path_identities,
+                planned_flows={node.name for node in plan.nodes},
             )
 
             # From the first write to the mirror to its delivery, the mirror is this run's

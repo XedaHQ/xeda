@@ -44,6 +44,7 @@ __all__ = [
     "declared_outputs",
     "kinds_text",
     "output_enabled",
+    "output_required",
     "selected_types",
     "switch_on",
 ]
@@ -482,6 +483,24 @@ def output_enabled(settings: Any, declaration: OutputDeclaration) -> bool:
     if value is None or value is False:
         return False
     return not (isinstance(value, (str, list, tuple, set, frozenset, dict)) and len(value) == 0)
+
+
+def output_required(flow_cls: Any, settings: Any, declaration: OutputDeclaration) -> bool:
+    """Return whether a run under `settings` must make the output `declaration` of `flow_cls`.
+
+    The output is enabled (`output_enabled`), it is not optional without a switch (`Path | None`
+    with no `enabled_by`), and, for a file output, the types that the flow selects for it under
+    these settings (`selected_types`) are not empty. A flow narrows an output to no type when the
+    settings write the other kind of file (`yosys` writes a mapped or a generic netlist). The
+    run need not make such an output, and a run that does not is not at fault. A design output
+    has no types: it is required when it is enabled."""
+    if not output_enabled(settings, declaration):
+        return False
+    if declaration.cardinality == "optional" and declaration.enabled_by is None:
+        return False
+    if declaration.is_design:
+        return True
+    return bool(selected_types(flow_cls, settings, declaration.name, output=True))
 
 
 def switch_on(settings: Any, declaration: OutputDeclaration) -> None:
