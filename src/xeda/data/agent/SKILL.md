@@ -153,7 +153,7 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   - The message says to delete it: `yosys_sim` refuses the synthesis settings of `yosys`
     (`splitnets` was removed: "CXXRTL simulation does not synthesize; delete it").
   - A removed setting fails with "`<name>` was removed: ...". If nothing replaces it, the message
-    says to delete it. `timeout_seconds` is now `timeout`, and `no_console` is gone.
+    says to delete it. The replacement of `timeout_seconds` is `timeout`, and `no_console` has none.
 - A setting accepts its declared type only. `true` and `false` are the only booleans, and a list
   setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
 

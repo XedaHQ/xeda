@@ -256,9 +256,8 @@ of A follow `TX_DEPTH` and `RX_DEPTH`, and the testbench queues of expected byte
 sized from them: it passes with a transmit depth of 1, 2, 4 and 16 and a receive depth of 1, 4, 8
 and 16 (`--design-overrides tb.defines.TX_DEPTH=16`; the defines of the testbench reach the
 design too). `RX_DEPTH=2` does not build the testbench: bsc finds a scheduling cycle
-between the bench's event counters and its consumer when the receive buffer is a `mkFIFOF` (it did
-before the reset test was added too); depth 2 is covered by DUT B. `HOLD=4` stops the build with the
-error of `mkUartCore`.
+between the bench's event counters and its consumer when the receive buffer is a `mkFIFOF`.
+Depth 2 is covered by DUT B. `HOLD=4` stops the build with the error of `mkUartCore`.
 
 DUT C is reset by a `mkReset` around it, so the rules of its bench use two reset domains on purpose;
 the design file suppresses bsc's warning about it (G0043) for `bsc_sim`.

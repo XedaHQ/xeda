@@ -30,7 +30,7 @@
 | `Extra inputs are not permitted: <name> (extra_forbidden)` | No such setting on this flow. A `did you mean` hint names the setting with the right case (settings are case-sensitive; a group leaf is `group.leaf`). `xeda list-settings <flow> --json \| jq -r '.fields[].name'`. A producer's setting goes under `-s flows.<producer>.<name>=...`. |
 | `` <flow> runs Vivado in non-project mode, which has no runs to use `<setting>` on: it is a setting of vivado_synth `` | A flow refuses a setting that belongs to a related flow and names that flow. Move the setting there (`flows.vivado_synth.<setting>`). |
 | `` `-s flows.<name>.*` names no flow of this run (<flow>) `` | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
-| `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says; when nothing replaces the setting, it says so (`` `no_console` was removed: no flow read it; delete it ``). Settings nothing used were removed, for example `timeout_seconds` (now `timeout`, on the simulators). For `open_xc7`, use `fpga_pack` to build and `openfpgaloader` to program: move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga` and its pin files to `rtl.sources`. |
+| `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says; when nothing replaces the setting, it says so (`` `no_console` was removed: no flow read it; delete it ``). For example, use `timeout` (on the simulators) for `timeout_seconds`. For `open_xc7`, use `fpga_pack` to build and `openfpgaloader` to program: move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga` and its pin files to `rtl.sources`. |
 | `` `yes` is text, not a boolean: write `true` `` | A boolean takes `true` or `false` only. |
 | `` `10` needs a unit, such as `10 ns`: a bare number does not mean anything `` | A setting of a kind (`time`, `frequency`, `capacitance`, ...) needs a unit: `clock.period: 10 ns`, `-s clock.period=10ns`. `list-settings` shows the kind as the `type`. See "Units" in `design-file.md`. |
 | `` `5 MHz` is a frequency, not a time `` | The unit is of another kind. Use a unit of the kind that the message names. |
@@ -134,9 +134,9 @@ A simulation passes only on recognized evidence that it ended, never on exit sta
   `vivado_sim` and `vivado_postsynth_sim` refuse an SDF file when neither `sdf.root` nor `tb.uut`
   is set. `prerun_time` opens the SAIF after the pre-run (the VCD
   starts at time 0).
-- `vcs`: `ucli` was removed (Xeda always runs VCS with `-ucli`); `ucli_script` still sets the
+- `vcs` has no `ucli` setting (Xeda always runs VCS with `-ucli`); `ucli_script` sets the
   script that drives `simv`.
-- `nvc` needs a C++ compiler for non-cocotb runs. Its `exit_severity` was removed: use
+- `nvc` needs a C++ compiler for non-cocotb runs. It has no `exit_severity`: use
   `fail_severity`. `optimization_flags` is a setting of `bsc_sim`, `ghdl_sim`, `vivado_sim` and
   `vivado_postsynth_sim` only; `nvc` has `optimization_level`.
 - ModelSim exits 0 whatever the testbench says; Xeda judges its owned batch log and
@@ -160,8 +160,8 @@ are refused.
 | `` vcs cannot write a waveform from `vcd`: ... set `vpd`, `fsdb` or `evcd` `` | `to_vcd` converts FSDB or VPD to VCD. |
 | `` yosys_sim cannot write a waveform from `vcd` `` | The design's C++ driver writes the waveform. |
 
-`waveform`, the old name of `vcd`, was removed on every simulator: use `vcd`.
-`nvc` has `vcd` and `fst` (`wave` and `wave_format` were removed). `ghdl_sim` has `vcd`, `vcdgz`,
+No simulator has a `waveform` setting: use `vcd`.
+`nvc` has `vcd` and `fst` (it refuses `wave` and `wave_format`). `ghdl_sim` has `vcd`, `vcdgz`,
 `fst` and `wave` (GHW). `modelsim` writes no dump unless `vcd` is set. `vivado_sim`'s `saif` is
 `outputs/<design>.saif`.
 

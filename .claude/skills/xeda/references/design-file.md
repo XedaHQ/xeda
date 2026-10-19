@@ -86,7 +86,7 @@ or a source that `bsc` passes through.
 ## Clocks
 
 `rtl` names the clock ports. The flow settings give the period or frequency, because they
-constrain one build. The settings `clock_port` (design) and `clock_period` (flow) were removed:
+constrain one build. Xeda refuses the settings `clock_port` (design) and `clock_period` (flow):
 use `clock: <port>` and `clock.period`.
 
 ```yaml
