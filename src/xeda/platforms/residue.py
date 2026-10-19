@@ -458,7 +458,8 @@ class Residue(XedaBaseModel):
         entry over the top-level `values` leaf by leaf. It clears these three keys in the entry,
         so a second call returns an equal residue. A provider whose entry has no `files` sees the
         residue unchanged (this object). A view is the view of one provider: asking it for another
-        provider raises `ValueError`, since the view has dropped what the other layout needs."""
+        provider raises `ValueError`, since the view has dropped what the other layout needs. A
+        view that is not a valid residue raises `ResidueError`."""
         if self._view_of is not None:
             if name is not None and name != self._view_of:
                 raise ValueError(

@@ -336,7 +336,8 @@ class AsicPlatformFlow(_FlowBase):
         The flow reads `roles` and the files that the derivation reads, and
         `locate_platform_inputs(roles)` returns the same list. Raise `PdkNotInstalled` if a file
         is missing, `PdkVersionMismatch` if the store holds another version than the pin, and
-        `FlowFatalError` for a file that cannot be read."""
+        `FlowFatalError` for a file that cannot be read and for a residue that is invalid for
+        the provider."""
         from ..platforms import build_platform
         from ..platforms.derive import derive
         from ..platforms.residue import effective_residue
