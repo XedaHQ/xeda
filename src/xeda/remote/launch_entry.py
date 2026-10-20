@@ -7,8 +7,13 @@ exit status is 0 when the launch succeeded and 1 when it did not. The result is 
 `result.json` in both cases.
 
 `result.json` is the document that `xeda run --json` prints (or the dry-run document), so the
-local xeda can report it as it reports a local run. It has one more key, `written`, for a launch
-that was not a dry run: the files that this launch wrote, for each node that ran.
+local xeda can report it as it reports a local run. It has two more keys for a launch that was
+not a dry run. `written` holds the files that this launch wrote, for each node that ran.
+`unreadable` holds the directories under a run directory that could not be read, so that the
+files under them are not in `written`.
+
+The launch ends with a result even when it ends in `SystemExit` or another `BaseException`. The
+entry writes the failure document first and then raises the exception again.
 """
 
 import json
@@ -85,8 +90,9 @@ class RunDirectorySnapshot:
 
     A file counts as written when its path was not here before, or its state changed
     (`FileState`). A directory that could not be read says nothing about the files under it, so
-    a file under one counts as not written. Only regular files count, and a symbolic link is
-    never followed: a tool may leave links anywhere in its run directory."""
+    a file under one counts as not written, and `written_under` names the directory. Only regular
+    files count, and a symbolic link is never followed, the run directory itself included: a
+    tool may leave links anywhere in its run directory, and a link there has no files."""
 
     def __init__(self, directories: Iterable[Path]) -> None:
         self.directories = [Path(os.path.abspath(directory)) for directory in directories]
@@ -97,6 +103,11 @@ class RunDirectorySnapshot:
 
     @staticmethod
     def _scan(top: Path, states: Dict[Path, FileState], unread: List[Path]) -> None:
+        try:
+            if not stat.S_ISDIR(os.lstat(top).st_mode):
+                return
+        except OSError:
+            return
         pending = [top]
         while pending:
             directory = pending.pop()
@@ -123,21 +134,26 @@ class RunDirectorySnapshot:
                         st.st_ctime_ns,
                     )
 
-    def written_under(self, directory: Path) -> List[str]:
-        """Return the files under `directory` that were written since the snapshot, relative to
-        it, sorted, with `/` as the separator."""
+    def written_under(self, directory: Path) -> Tuple[List[str], List[str]]:
+        """Return the files under `directory` that were written since the snapshot, and the
+        directories under it (relative to it, `.` for itself) that could not be read, before or
+        after the launch. Both are sorted and use `/` as the separator."""
         directory = Path(os.path.abspath(directory))
         after: Dict[Path, FileState] = {}
-        self._scan(directory, after, [])
-        unread = [
-            place for place in self.unread if place == directory or directory in place.parents
-        ]
-        return sorted(
+        unread_after: List[Path] = []
+        self._scan(directory, after, unread_after)
+        unread = {
+            place
+            for place in [*self.unread, *unread_after]
+            if place == directory or directory in place.parents
+        }
+        written = sorted(
             path.relative_to(directory).as_posix()
             for path, state in after.items()
             if self.states.get(path) != state
             and not any(path.is_relative_to(place) for place in unread)
         )
+        return written, sorted(place.relative_to(directory).as_posix() for place in unread)
 
 
 def write_result(launch_dir: Path, document: Mapping[str, Any]) -> None:
@@ -154,25 +170,44 @@ def _node_directories(plan: Any) -> Dict[str, Path]:
 
 def _written(
     snapshot: Optional[RunDirectorySnapshot], plan: Any, launched: Sequence[Any]
-) -> Dict[str, List[str]]:
-    """Return the files written by each node that ran in this launch, by node name.
+) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """Return the files written by each node that ran in this launch, by node name, and the
+    directories of each node that could not be read (only nodes that have some).
 
     A node that was reused or rejected again wrote nothing, so it has no entry. A node that a
     failed producer blocked has one: the launch rewrites its results.json."""
     if snapshot is None or plan is None:
-        return {}
+        return {}, {}
     directories = {os.path.abspath(path): name for name, path in _node_directories(plan).items()}
     written: Dict[str, List[str]] = {}
+    unreadable: Dict[str, List[str]] = {}
     for flow in launched:
         run_path = os.path.abspath(flow.run_path)
         if flow.reused or flow.rejected_again or run_path not in directories:
             continue
-        written[directories[run_path]] = snapshot.written_under(Path(run_path))
-    return written
+        name = directories[run_path]
+        written[name], unread = snapshot.written_under(Path(run_path))
+        if unread:
+            unreadable[name] = unread
+    return written, unreadable
 
 
-def execute(request: LaunchRequest) -> Dict[str, Any]:
-    """Run the request and return the result document. Any exception becomes a failure document.
+def _record_written(
+    document: Dict[str, Any],
+    snapshot: Optional[RunDirectorySnapshot],
+    plan: Any,
+    launched: Sequence[Any],
+) -> None:
+    """Add `written` and `unreadable` to a result document."""
+    document["written"], document["unreadable"] = _written(snapshot, plan, launched)
+
+
+def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseException]]:
+    """Run the request and return the result document and the exception to raise again, if any.
+
+    Any exception becomes a failure document. The exception to raise again is a `BaseException`
+    that is neither an `Exception` nor a `KeyboardInterrupt` (for example `SystemExit`): the
+    caller writes the document first.
 
     This changes the working directory of the process to `request.inputs_dir`, as a local launch
     runs in the directory of its design."""
@@ -228,7 +263,7 @@ def execute(request: LaunchRequest) -> Dict[str, Any]:
                     "dry_run": True,
                     "request": elements,
                     "plan": plan_info(plan, freshness),
-                }
+                }, None
             plan = launcher.plan(request.chain, **arguments)
             check_identity({n.name: n.flowrun_hash for n in plan.nodes}, request.expected)
             snapshot = RunDirectorySnapshot(_node_directories(plan).values())
@@ -245,20 +280,22 @@ def execute(request: LaunchRequest) -> Dict[str, Any]:
             launcher.design_name,
         )
         document["request"] = elements
-        document["written"] = _written(snapshot, plan, launcher.launched)
-        return document
-    except (Exception, KeyboardInterrupt) as e:
+        _record_written(document, snapshot, plan, launcher.launched)
+        return document, None
+    except BaseException as e:  # pylint: disable=broad-except
         if isinstance(e, KeyboardInterrupt):
             error = ("KeyboardInterrupt", "The launch was interrupted.")
-        else:
+        elif isinstance(e, Exception):
             error = _failure_of(e, flow, debug)
+        else:
+            error = (type(e).__name__, f"The launch ended with {type(e).__name__}: {e!r}.")
         log.critical("%s", error[1])
         document = _failure_document(flow, design, launcher, None, *error, elements)
         if not request.dry_run:
-            document["written"] = _written(
-                snapshot, plan, launcher.launched if launcher is not None else ()
+            _record_written(
+                document, snapshot, plan, launcher.launched if launcher is not None else ()
             )
-        return document
+        return document, None if isinstance(e, Exception | KeyboardInterrupt) else e
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -289,11 +326,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "request": [],
                 "nodes": [],
                 "written": {},
+                "unreadable": {},
             },
         )
         return 1
-    document = execute(request)
+    document, raised = execute(request)
     write_result(launch_dir, document)
+    if raised is not None:
+        raise raised
     if document.get("error", {}).get("type") == "KeyboardInterrupt":
         return 130
     return 0 if document["success"] else 1

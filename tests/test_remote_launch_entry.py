@@ -115,7 +115,7 @@ def test_result_is_the_json_document_of_a_local_run(tmp_path, fake_fpga):
     assert local.returncode == 0, local.stderr
     document = json.loads(local.stdout)
     assert result["success"] is True and document["success"] is True
-    assert set(result) == set(document) | {"written"}
+    assert set(result) == set(document) | {"written", "unreadable"}
     for key in ("flow", "design", "target", "request", "success"):
         assert result[key] == document[key], key
     assert set(result["results"]) == set(document["results"])
@@ -283,5 +283,124 @@ def test_snapshot_tells_new_changed_and_unchanged_files(tmp_path):
     (run_dir / "sub" / "new.txt").write_text("new")
     (run_dir / "old.txt").write_text("different size")
     (run_dir / "moved.txt").write_text("m")
-    assert snapshot.written_under(run_dir) == ["moved.txt", "old.txt", "sub/new.txt"]
-    assert RunDirectorySnapshot([tmp_path / "absent"]).written_under(tmp_path / "absent") == []
+    assert snapshot.written_under(run_dir) == (["moved.txt", "old.txt", "sub/new.txt"], [])
+    assert RunDirectorySnapshot([tmp_path / "absent"]).written_under(tmp_path / "absent") == (
+        [],
+        [],
+    )
+
+
+def test_snapshot_never_scans_through_a_link_to_the_run_directory(tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "file.txt").write_text("x")
+    run_dir = tmp_path / "run"
+    run_dir.symlink_to(elsewhere, target_is_directory=True)
+    snapshot = RunDirectorySnapshot([run_dir])
+    (elsewhere / "later.txt").write_text("y")
+    assert snapshot.states == {}
+    assert snapshot.written_under(run_dir) == ([], [])
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="needs a directory that denies")
+def test_snapshot_names_a_directory_that_became_unreadable(tmp_path):
+    run_dir = tmp_path / "run"
+    (run_dir / "closed").mkdir(parents=True)
+    (run_dir / "open").mkdir()
+    (run_dir / "closed" / "a.txt").write_text("a")
+    snapshot = RunDirectorySnapshot([run_dir])
+    (run_dir / "open" / "new.txt").write_text("n")
+    (run_dir / "closed" / "b.txt").write_text("b")
+    (run_dir / "closed").chmod(0)
+    try:
+        written, unreadable = snapshot.written_under(run_dir)
+    finally:
+        (run_dir / "closed").chmod(0o700)
+    assert written == ["open/new.txt"]
+    assert unreadable == ["closed"]
+
+
+#: Starts the entry in a process whose launcher raises `exception` instead of running. It leaves a
+#: file in the run directory of the requested node first, as a launch that did some work would.
+RAISING_LAUNCH = """
+import sys
+from xeda.flow_runner import DefaultRunner
+from xeda.remote.launch_entry import main
+
+def run(self, *args, **kwargs):
+    raise {exception}
+
+DefaultRunner.run = run
+sys.exit(main([sys.argv[1]]))
+"""
+
+
+def launch_raising(tmp_path: Path, exception: str) -> tuple[subprocess.CompletedProcess, dict]:
+    design = make_inputs(tmp_path)
+    launch_dir = tmp_path / "remote" / "launches" / "raising"
+    launch_dir.mkdir(parents=True)
+    request = LaunchRequest(
+        chain="nextpnr",
+        design_file=design.name,
+        inputs_dir=str(design.parent),
+        run_root=str(tmp_path / "remote" / "xeda_run"),
+        path_identities={},
+        hashed_run_dirs=False,
+        clean=False,
+        rebuild_all=False,
+        scrub=False,
+        dry_run=False,
+        log_level=20,
+        detailed_logs=False,
+        expected=expected_hashes(tmp_path, design),
+    )
+    (launch_dir / "request.json").write_text(request.model_dump_json())
+    process = subprocess.run(
+        [sys.executable, "-c", RAISING_LAUNCH.format(exception=exception), str(launch_dir)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    return process, json.loads((launch_dir / "result.json").read_text())
+
+
+def test_an_interrupt_gives_a_failure_document_and_status_130(tmp_path):
+    process, result = launch_raising(tmp_path, "KeyboardInterrupt()")
+    assert process.returncode == 130, process.stderr
+    assert result["success"] is False
+    assert result["error"]["type"] == "KeyboardInterrupt"
+    assert result["flow"] == "nextpnr"
+    assert result["written"] == {} and result["unreadable"] == {}
+
+
+def test_a_system_exit_gives_a_failure_document_and_is_raised_again(tmp_path):
+    process, result = launch_raising(tmp_path, "SystemExit(3)")
+    assert process.returncode == 3, process.stderr
+    assert result["success"] is False
+    assert result["error"]["type"] == "SystemExit"
+    assert "written" in result and "unreadable" in result
+
+
+def tree(root: Path) -> set[Path]:
+    return {Path(dirpath, name) for dirpath, dirs, files in os.walk(root) for name in dirs + files}
+
+
+def test_the_entry_writes_only_in_the_run_root_and_the_launch_directory(tmp_path, fake_fpga):
+    design = make_inputs(tmp_path)
+    expected = expected_hashes(tmp_path, design)
+    (tmp_path / "remote" / "launches" / "launch").mkdir(parents=True)
+    before = tree(tmp_path)
+    process, result = launch(tmp_path, design, expected=expected)
+    assert process.returncode == 0, process.stderr
+    new = tree(tmp_path) - before
+    run_root, launch_dir = (
+        tmp_path / "remote" / "xeda_run",
+        tmp_path / "remote" / "launches" / "launch",
+    )
+    outside = sorted(p for p in new if not p.is_relative_to(run_root) and p.parent != launch_dir)
+    assert new and not outside, outside
+    assert (tmp_path / "remote" / "launches" / "launch" / "result.json") in new
+    # The launch directory holds the request (written by `launch` above), the result, and nothing
+    # left over from the atomic write of the result.
+    assert {p.name for p in new if p.parent == launch_dir} == {"request.json", "result.json"}
