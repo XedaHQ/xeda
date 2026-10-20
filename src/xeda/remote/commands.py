@@ -451,11 +451,11 @@ def remote_attach(
     """Follow a launch that keeps running on HOST from its start and fetch its result.
 
     LAUNCH_ID is the id that `xeda run --remote HOST --keep-running` printed. Without it, the
-    command takes the newest launch that runs in the workspace of this machine, run root and host,
-    else the newest launch that finished, and says which. It shows the log from the start, waits for
-    the end, and fetches the result into the mirror as `xeda run --remote` does. It delivers
-    nothing: run the original command again to deliver (it reuses the finished run). Ctrl-C stops
-    following and leaves the launch running.
+    command takes the launch that started last among those that run in the workspace of this
+    machine, run root and host, else the one that started last, and says which. It shows the log
+    from the start, waits for the end, and fetches the result into the mirror as `xeda run
+    --remote` does. It delivers nothing: run the original command again to deliver (it reuses the
+    finished run). Ctrl-C stops following and leaves the launch running.
     """
     _set_up(ctx, json_flag)
     from ..cli_utils import emit_structured
@@ -484,8 +484,8 @@ def remote_cancel(
     """Cancel a running launch on HOST.
 
     LAUNCH_ID is the id that `xeda run --remote HOST --keep-running` printed. Without it, the
-    command takes the newest launch that runs in the workspace of this machine, run root and host.
-    It stops the launch as a Ctrl-C of a normal remote run does: SIGINT, then SIGTERM and SIGKILL
+    command takes the launch that started last among those that run in the workspace of this
+    machine, run root and host. It stops the launch as a Ctrl-C of a normal remote run does: SIGINT, then SIGTERM and SIGKILL
     after the grace periods, to the launch and to the processes it started.
     """
     _set_up(ctx, json_flag)

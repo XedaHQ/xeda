@@ -318,7 +318,8 @@ elsewhere on the host, such as the installation of a tool or a PDK store. The di
 ``.launches/`` in the mirror holds the records that ``xeda remote attach`` needs.
 
 Each fetch replaces the mirror directories of the planned flows. If a launch or a fetch fails,
-Xeda empties them, so that an older run never looks like the new one.
+also when the connection ends in the middle of the transfer, Xeda empties them, so that an older
+run or a part of the new one never looks like a whole result.
 
 What comes back
 ---------------
@@ -393,8 +394,8 @@ Xeda prints the launch id and follows the log. If you press Ctrl-C, or the conne
 leaves the launch running and stops with the error ``RemoteDetached``. Then:
 
 * ``xeda remote attach HOST [LAUNCH_ID]`` shows the log from its start, waits for the end and
-  fetches the result into the mirror. Without ``LAUNCH_ID`` it takes the newest launch that runs in
-  the workspace, else the newest launch, and says which one. It delivers nothing:
+  fetches the result into the mirror. Without ``LAUNCH_ID`` it takes the launch that started last
+  among those that run in the workspace, else the one that started last, and says which one. It delivers nothing:
   run the first command again to deliver. That command reuses the finished run.
 * ``xeda remote cancel HOST [LAUNCH_ID]`` stops a running launch as Ctrl-C stops a normal one. It
   exits with status 1 if a process of the launch survived SIGKILL.
