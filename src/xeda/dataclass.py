@@ -481,9 +481,9 @@ def names_are_escaped_by_a_peer() -> bool:
 
 
 def escape_opaque_names(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str, Any]:
-    """Return `values`, the settings of `model` as a table, with the dots of every name in a table
-    of `opaque_key_fields` (at any depth) written as `ESCAPED_DOT`. Nothing else changes, and
-    `values` stays as it is."""
+    """Return `values`, the settings of `model` as a table, with the dots of every name written as
+    `ESCAPED_DOT` in each table of `opaque_key_fields` (at any depth) that holds a name inside
+    another name (`A` and `A.B`). Nothing else changes, and `values` stays as it is."""
     names = input_names(model)
     opaque = opaque_key_fields_of(model)
     result: Dict[str, Any] = {}
@@ -492,7 +492,12 @@ def escape_opaque_names(model: Type[BaseModel], values: Mapping[str, Any]) -> Di
         info = model.model_fields.get(target)
         child = nested_model(info.annotation) if info is not None else None
         if target in opaque and isinstance(value, Mapping):
-            result[key] = {str(AtomicName.of(name)): item for name, item in value.items()}
+            # Only a table that holds a name inside another one (`A`, `A.B`) cannot be written
+            # as nested tables; any other table goes as it is, and every reader takes it.
+            if name_inside_another(map(str, value)) is None:
+                result[key] = value
+            else:
+                result[key] = {str(AtomicName.of(name)): item for name, item in value.items()}
         elif child is not None and isinstance(value, Mapping):
             result[key] = escape_opaque_names(child, value)
         else:

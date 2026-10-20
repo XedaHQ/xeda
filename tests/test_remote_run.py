@@ -844,6 +844,16 @@ def test_a_remote_run_keeps_names_of_a_group_setting_whole_when_one_starts_the_o
     assert dict(again.ir_drop.instance_power) == dict(settings.ir_drop.instance_power)
 
 
+def test_a_table_without_a_name_inside_another_is_shipped_as_it_is():
+    """Only `A` with `A.B` needs the escape. Every other table goes in the form that any remote
+    reads."""
+    from xeda.dataclass import escape_opaque_names
+    from xeda.flows.openroad import Openroad
+
+    plain = {"ir_drop": {"instance_power": {"u_core.reg_1": "0.001 W", "u_core.reg_2": "1 W"}}}
+    assert escape_opaque_names(Openroad.Settings, plain) == plain
+
+
 def test_a_remote_run_is_always_mirrored_in_hashed_run_directories(tmp_path):
     """Remote runs of different settings never share a local directory, nor a local run's."""
     assert RemoteRunner(tmp_path / "xeda_run").settings.hashed_run_dirs is True
