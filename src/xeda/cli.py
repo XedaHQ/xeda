@@ -1090,20 +1090,9 @@ def run(
         log.critical("%s", message)
         if json_flag:
             emit_structured(
-                {
-                    "flow": flow,
-                    **design_info(design, loaded_design()),
-                    "target": (launcher.target if launcher is not None else None) or target,
-                    "success": False,
-                    "results": {},
-                    "error": {"type": error_type, "message": message},
-                    "request": request_info(request),
-                    "nodes": (
-                        _node_states(launcher.launched, launcher.last_plan)
-                        if launcher is not None
-                        else []
-                    ),
-                },
+                _failure_document(
+                    flow, design, launcher, target, error_type, message, request_info(request)
+                ),
                 "json",
             )
         if debug:
@@ -1195,29 +1184,56 @@ def run(
             document["request"] = request_info(request)
             emit_structured(document, "json")
         sys.exit(0 if success else 1)
-    except FlowFatalError as e:
-        emit_failure(
-            "FlowFatalError",
-            f"Flow {flow} failed: FlowFatalException {' '.join(str(a) for a in e.args)}",
-            e,
-        )
-    except NonZeroExitCode as e:
-        emit_failure("NonZeroExitCode", f"Flow {flow} failed: {e}", e)
-    except ExecutableNotFound as e:
-        emit_failure(
-            "ExecutableNotFound",
-            f"Executable '{e.exec}' was not found in PATH. flow:{flow}, tool:{e.tool}"
-            + (f", PATH:{e.path}" if debug else ""),
-            e,
-        )
-    except XedaException as e:
-        # A user error is reported by its own class name: a design file or project file that
-        # does not load, an unknown flow or design, invalid settings or a failed producer.
-        emit_failure(type(e).__name__, _error_message(e), e)
     except Exception as e:
-        if not json_flag:
+        if not json_flag and not isinstance(e, XedaException):
             raise
-        emit_failure(type(e).__name__, _error_message(e), e)
+        emit_failure(*_failure_of(e, flow, debug), e)
+
+
+def _failure_of(exc: Exception, flow: str, debug: bool) -> Tuple[str, str]:
+    """Return the `error.type` and `error.message` that report why a run of `flow` failed. A
+    user error is reported by its own class name: a design file or project file that does not
+    load, an unknown flow or design, invalid settings or a failed producer."""
+    if isinstance(exc, FlowFatalError):
+        return (
+            "FlowFatalError",
+            f"Flow {flow} failed: FlowFatalException {' '.join(str(a) for a in exc.args)}",
+        )
+    if isinstance(exc, NonZeroExitCode):
+        return "NonZeroExitCode", f"Flow {flow} failed: {exc}"
+    if isinstance(exc, ExecutableNotFound):
+        return (
+            "ExecutableNotFound",
+            f"Executable '{exc.exec}' was not found in PATH. flow:{flow}, tool:{exc.tool}"
+            + (f", PATH:{exc.path}" if debug else ""),
+        )
+    return type(exc).__name__, _error_message(exc)
+
+
+def _failure_document(
+    flow_name: str,
+    design: Any,
+    launcher: Optional[DefaultRunner],
+    target: str | None,
+    error_type: str,
+    message: str,
+    request: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build the document that `xeda run --json` prints when the run failed outside any flow's
+    results: the error, the request, and every node that `launcher` had launched. `design` is
+    what the command line gave, and `request` is `request_info` of the request."""
+    return {
+        "flow": flow_name,
+        **design_info(design, launcher.design_name if launcher is not None else None),
+        "target": (launcher.target if launcher is not None else None) or target,
+        "success": False,
+        "results": {},
+        "error": {"type": error_type, "message": message},
+        "request": request,
+        "nodes": (
+            _node_states(launcher.launched, launcher.last_plan) if launcher is not None else []
+        ),
+    }
 
 
 def _remote_document(

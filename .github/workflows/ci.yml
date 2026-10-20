@@ -171,6 +171,7 @@ jobs:
           tests/test_proc_utils.py
           tests/test_proc_utils_terminal.py
           tests/test_remote_streaming.py
+          tests/test_remote_launch_entry.py
           tests/test_read_locks.py
           tests/test_target_scrub.py
           tests/test_generator_staleness.py
