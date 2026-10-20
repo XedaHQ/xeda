@@ -159,9 +159,8 @@ from .trace_inputs import (
 _drop_unwritten_artifacts = launch_report.drop_unwritten
 
 #: Names that the stage modules define, each with its module and its name there. Importing one
-#: from here works (`__getattr__`), but
-#: the launcher does not look them up here: a test that replaces one on this module changes
-#: nothing. `tests/test_launcher_modules.py` checks the table.
+#: from here works (`__getattr__`), but the launcher does not look them up here: a test that
+#: replaces one on this module changes nothing. `tests/test_launcher_modules.py` checks the table.
 MOVED_NAMES: dict[str, tuple[str, str]] = {
     "COMPLETION_DOCUMENTS": ("scrub", "COMPLETION_DOCUMENTS"),
     "LAUNCH_DOCUMENTS": ("scrub", "LAUNCH_DOCUMENTS"),

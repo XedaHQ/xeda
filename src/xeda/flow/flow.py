@@ -1238,8 +1238,8 @@ class Flow(metaclass=ABCMeta):
 
         #: Settings that Xeda refuses, with what to use instead (`NoReplacement(reason)` when
         #: nothing replaces one). Giving one is an error that says so, instead of pydantic's
-        #: "extra inputs are not permitted". A class lists only the names that its own settings
-        #: refuse.
+        #: "extra inputs are not permitted". Only a name that was a setting of this class belongs
+        #: here.
         removed_settings: ClassVar[Dict[str, str]] = {
             "clean": "the --clean option (clean=True on the launcher)",
             "timeout_seconds": "`timeout`, on the flows that have one (the simulators); no other "

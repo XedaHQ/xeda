@@ -1519,9 +1519,9 @@ class RtlSettings(DVSettings):
     # the first of them, and a property below derives it.
     clocks: List[Clock] = []
 
-    #: The inputs that Xeda refuses, with what to use instead for each. Giving one is an error that says
-    #: so, in place of "extra inputs are not permitted". It is the design's equivalent of
-    #: `Flow.Settings.removed_settings`. A flat top-level key, a target's key and
+    #: The inputs that Xeda refuses, with what to use instead for each. Giving one is an error
+    #: that says so, in place of "extra inputs are not permitted". It is the design's equivalent
+    #: of `Flow.Settings.removed_settings`. A flat top-level key, a target's key and
     #: `--design-overrides` reach the same check, because each is folded into `rtl` first.
     removed_inputs: ClassVar[Dict[str, str]] = {"clock_port": "`clock: <port>`"}
     #: One clock stands for a list of one (`clock_tables`).
