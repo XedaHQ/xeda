@@ -243,3 +243,14 @@ def test_a_key_starts_a_name_of_a_tool_after_a_path_of_identifiers_only():
     assert starts_opaque_key("flows.openroad.ir_drop.instance_power.a b", paths)
     assert not starts_opaque_key("ir_drop.instance_power", paths)
     assert not starts_opaque_key("x/ir_drop.instance_power.a b", paths)
+
+
+def test_a_path_variable_in_a_nested_name_expands_as_in_the_folded_name(tmp_path):
+    """The group folds `{"u_core": {"VDD": ...}}` to the one name `u_core.VDD`. The path is
+    expanded as the value of that name, so a reload of the settings gives the same path."""
+    root = tmp_path / "design"
+    given = {"ir_drop": {"vsrc_files": {"u_core": {"VDD": "$DESIGN_ROOT/vsrc.csv"}}}}
+    settings = Openroad.Settings.from_input(given, design_root=root)
+    assert dict(settings.ir_drop.vsrc_files) == {"u_core.VDD": root / "vsrc.csv"}
+    again = Openroad.Settings.from_input(settings.model_dump(mode="json"), design_root=root)
+    assert again.ir_drop.vsrc_files == settings.ir_drop.vsrc_files

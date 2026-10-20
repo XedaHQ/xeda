@@ -549,18 +549,22 @@ def _plain_model(annotation: Any) -> Optional[type[BaseModel]]:
 def _expand_model_paths(value: Any, model: type[BaseModel], overrides: Dict[str, Any]) -> Any:
     """Return `value` with the path variables of a plain nested model expanded.
 
-    In a mapping, the field of each key decides (`input_names`). An instance is copied deeply,
-    and only when a field changes, so the caller's instance stays as it is."""
+    In a mapping, the field of each key decides (`input_names`). A field in `opaque_key_fields`
+    has its dotted keys joined first (`fold_dotted_keys`), since the path variables are at its
+    values. An instance is copied deeply, and only when a field changes, so the caller's
+    instance stays as it is."""
     if isinstance(value, Mapping):
         names = input_names(model)
-        return {
-            key: (
-                _expand_path_values(item, model.model_fields[names[key]].annotation, overrides)
-                if key in names
-                else item
-            )
-            for key, item in value.items()
-        }
+        opaque = opaque_key_fields_of(model)
+
+        def expanded(key: Any, item: Any) -> Any:
+            if key not in names:
+                return item
+            if names[key] in opaque:
+                item = fold_dotted_keys(item)
+            return _expand_path_values(item, model.model_fields[names[key]].annotation, overrides)
+
+        return {key: expanded(key, item) for key, item in value.items()}
     if isinstance(value, model):
         changed = {}
         for name, info in type(value).model_fields.items():
