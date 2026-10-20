@@ -31,3 +31,11 @@ xc7vx485tffg1761-3:
   device: xc7vx485t
   package: ffg1761
   speedgrade: '3'
+xc7z007sclg225-1:
+  device: xc7z007s
+  package: clg225
+  speedgrade: '1'
+xc7z030sbg485-1:
+  device: xc7z030
+  package: sbg485
+  speedgrade: '1'
