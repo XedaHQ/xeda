@@ -22,8 +22,16 @@ directory that holds them. The residue files only say where each file is in such
 * the track pitches, from `make_tracks.tcl`.
 
 Xeda ships a Yosys techmap file (`*.v`) in a platform directory only when the source of the
-platform lacks it. Such a file is a copy from its source and keeps its license header.
-`nangate45` has none: its techmap files stay in the PDK store.
+platform lacks it, and the residue file names it in `shipped`. `nangate45` has none: its techmap
+files stay in the PDK store.
+
+`sky130hd/cells_clkgate.v` is such a file, and it is a file written for xeda. Neither `open_pdks`
+nor `lambdapdk` has a clock gate map for `sky130hd`. The file defines the module
+`OPENROAD_CLKGATE` with the ports `CK`, `E` and `GCK`, which is the interface that
+OpenROAD-flow-scripts uses for its clock gate maps, so that a design written for that flow maps
+in the same way. The cell it instantiates, `sky130_fd_sc_hd__dlclkp_1`, and its ports `CLK`,
+`GATE` and `GCLK` are those of the Liberty file of the library. The file is not a copy of a file
+of OpenROAD-flow-scripts.
 
 `sky130hd/platform.yaml` takes one value from the directory `flow/platforms/sky130hd` of
 OpenROAD-flow-scripts: the target density of global placement (`PLACE_DENSITY` of `config.mk`),

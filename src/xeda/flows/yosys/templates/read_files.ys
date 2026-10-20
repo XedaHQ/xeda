@@ -109,7 +109,7 @@ chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.top}} {
 {% endif -%}
 
 {% if clockgate_map is defined and clockgate_map -%}
-read_verilog -defer {{clockgate_map|read_path}}
+read_verilog -defer{% for define in defines %} {{define}}{% endfor %} {{clockgate_map|read_path}}
 {% endif -%}
 
 {% if uhdm_plugin -%}

@@ -107,7 +107,7 @@ yosys chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.t
 {% endif -%}
 
 {% if clockgate_map is defined and clockgate_map -%}
-yosys read_verilog -defer {{clockgate_map|read_path}}
+yosys read_verilog -defer{% for define in defines %} {{define}}{% endfor %} {{clockgate_map|read_path}}
 {% endif -%}
 
 {% if uhdm_plugin -%}

@@ -142,6 +142,16 @@ The keys are:
     ``latch_map``, ``clkgate_map`` and ``adder_map``. A role that holds one file is a string, and a role that
     holds several files is a list.
 
+``shipped``
+    Only a bundled platform has this key. It maps the role of a Yosys techmap (``latch_map``,
+    ``clkgate_map`` or ``adder_map``) to the name of a file that Xeda ships beside the residue
+    file. Use it for a map that the PDK does not have. The file is part of Xeda and not of the PDK
+    store, so the install does not fetch it, and Xeda locates it in the package. A flow reads it
+    as any other platform file, and its content is part of the identity of the run. A role in
+    ``files`` replaces the shipped file of the role. ``sky130hd`` ships ``cells_clkgate.v``, the
+    clock gate map, because neither ``open_pdks`` nor ``lambdapdk`` has one. A residue file of
+    your own cannot ship files: it names its files in ``files``.
+
 ``values``
     The values that the derived and upstream layers do not give, as nested YAML.
 

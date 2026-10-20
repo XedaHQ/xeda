@@ -84,6 +84,8 @@ upstream:
     libs.tech/openlane/config.tcl, libs.tech/openlane/sky130_fd_sc_hd/config.tcl,
     libs.tech/openlane/sky130_fd_sc_hd/drc_exclude.cells]
 corners: {default: tt_025C_1v80, aliases: {tt: tt_025C_1v80}}
+# Neither open_pdks nor lambdapdk has a clock gate map, so xeda ships one beside this file.
+shipped: {clkgate_map: cells_clkgate.v}
 files:
   liberty:
     tt_025C_1v80: [libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib]

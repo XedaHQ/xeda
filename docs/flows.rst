@@ -1721,6 +1721,11 @@ A leaf whose value is ``null`` takes the value of the platform when the platform
 and ``finish.buffer_cell``. Three leaves take the word ``platform``, which uses the map of the
 platform: ``arithmetic.adder_map``, ``sequential.latch_map`` and ``sequential.clockgate_map``. Each
 of them uses its ``*_file`` setting first, when that is set, and ``none`` turns the map off.
+The clock gate map of ``sky130hd`` is a file that Xeda ships. It defines the module
+``OPENROAD_CLKGATE`` (ports ``CK``, ``E`` and ``GCK``), as the clock gate maps of
+OpenROAD-flow-scripts do. The module is the cell ``sky130_fd_sc_hd__dlclkp_1`` when the macro
+``OPENROAD_CLKGATE`` is defined (``defines`` of the flow), and a wire from ``CK`` to ``GCK``
+otherwise. The flow reads the clock gate map with the same ``defines`` as the sources.
 A value that you set replaces the value of the platform. The Liberty files you list in ``liberty``
 replace the Liberty files of the platform. ``dont_use_cells`` adds to the cells of the platform.
 
