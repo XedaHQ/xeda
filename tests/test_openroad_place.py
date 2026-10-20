@@ -615,8 +615,6 @@ def test_a_polygon_is_not_refused_with_the_power_grid_or_the_concurrent_pins(tmp
         tmp_path,
         "floorplan.sizing=area",
         "io.flow=concurrent",
-        "global_placement.timing_driven.enabled=false",
-        "global_placement.routability_driven.enabled=false",
         typed={"floorplan.die_area": POLYGON_DIE, "floorplan.core_area": POLYGON_CORE},
     )
     from xeda.flows.openroad.place_groups import FloorplanGroup
@@ -1912,6 +1910,32 @@ def test_concurrent_placement_of_the_pins_stops_on_an_openroad_without_the_comma
 def test_the_annealing_of_the_pin_placer_is_refused_with_the_concurrent_placement(tmp_path):
     message = refusal(tmp_path, "io.flow=concurrent", "io.algorithm=annealing")
     assert "io.algorithm" in message and "io.flow: skip_io_pass" in message
+    message = refusal(tmp_path / "schedule", "io.flow=concurrent", "io.annealing.temperature=3")
+    assert "io.algorithm: annealing" in message and "io.flow: skip_io_pass" in message
+
+
+def test_the_annealing_of_the_pin_placer_is_refused_with_a_floorplan_from_a_def_file(tmp_path):
+    """No flow anneals the pins of a DEF floorplan, so the message does not offer
+    `io.flow: concurrent`, which refuses the annealing too."""
+    def_texts = ["floorplan.sizing=def", "floorplan.def_file=plan.def"]
+    message = refusal(tmp_path, *def_texts, "io.algorithm=annealing")
+    assert "io.flow: skip_io_pass" in message and "io.flow: concurrent" not in message
+
+
+def test_concurrent_placement_of_the_pins_sets_the_rules_of_the_pins_before_it(tmp_path):
+    io = {
+        "flow": "concurrent",
+        "groups": [{"pins": ["a", "b"]}],
+        "constraints": [{"direction": "input", "region": {"edge": "top"}}],
+        "mirrored_pins": [["c", "d"]],
+        "pin_length": {"horizontal": "0.5 um"},
+        "exclude": [{"edge": "left"}],
+    }
+    flow = place_flow(tmp_path, {"io": io})
+    rules = ["exclude_io_pin_region", "set_io_pin_constraint", "set_pin_length"]
+    calls = names(run_script(flow), *rules, "set_place_config", "global_placement")
+    assert calls[-2:] == ["set_place_config", "global_placement"]
+    assert set(calls[:-2]) == set(rules)
 
 
 def test_the_pins_stay_where_they_are_with_the_fixed_flow(tmp_path, monkeypatch):

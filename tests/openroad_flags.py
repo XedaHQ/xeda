@@ -406,6 +406,23 @@ COMPANIONS: tuple[tuple[str, str, dict[str, Any]], ...] = (
 )
 
 
+#: Whole settings that render flags no single leaf reaches with its own variants: a leaf renders
+#: with its first value that a flow accepts, and the concurrent placement of the pins gives the
+#: same leaves of `io` to `set_place_config` instead of `place_pins`.
+VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (
+    (
+        "openroad_place",
+        {
+            "io.flow": "concurrent",
+            "io.min_distance": "3 um",
+            "io.corner_avoidance": "1 um",
+            "io.exclude": [{"edge": "top"}],
+        },
+    ),
+    ("openroad_place", {"io.flow": "concurrent", "io.min_distance_tracks": 3}),
+)
+
+
 def companion(flow: str, key: str) -> dict[str, Any]:
     """Return the nested settings that `COMPANIONS` gives for the setting `key` of `flow`."""
     given: dict[str, Any] = {}
@@ -545,6 +562,14 @@ def render_variants(root: Path) -> Rendered:
             base_given = bench.base_settings(cls)
             if not collect(bench, cls, base_given):
                 raise AssertionError(f"{cls.name} does not render with its defaults")
+            for name, settings in VARIANTS:
+                if name != cls.name:
+                    continue
+                variant = base_given
+                for dotted, value in settings.items():
+                    variant = merge(variant, nested(tuple(dotted.split(".")), value))
+                if not collect(bench, cls, variant):
+                    raise AssertionError(f"{cls.name} does not render with {settings}")
             for path, annotation, default in leaves(cls.Settings):
                 if path[-1] == "extra_args":
                     continue

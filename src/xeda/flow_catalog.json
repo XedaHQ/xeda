@@ -7994,7 +7994,7 @@
           "fixed",
           "skip_io_pass"
         ],
-        "help": "How the pins get their places. `skip_io_pass` places the cells without the pins first, then places the pins, then places the cells again. `concurrent` places the pins together with the cells (`global_placement -place_ios`), and the global placement legalizes them with the pin placer. It takes the layers, `min_distance`, `min_distance_tracks` and `corner_avoidance` through `set_place_config` (the `-io_pin_` options), and needs OpenROAD 26Q4-11 or later, which has that command. `fixed` keeps the pins that the floorplan already placed: it needs a DEF file with placed pins (`floorplan.sizing: def`) or `fixed_pins`, else the global placement stops with GPL-0326 on the unplaced pins. With `floorplan.sizing: def` the pins of the DEF file stay, except with `concurrent`. The default is the one of OpenROAD-flow-scripts."
+        "help": "How the pins get their places. `skip_io_pass` places the cells without the pins first, then places the pins, then places the cells again. `concurrent` places the pins together with the cells (`global_placement -place_ios`), and the global placement legalizes them with the pin placer. `concurrent` gives the layers, `min_distance`, `min_distance_tracks` and `corner_avoidance` to `set_place_config` (the `-io_pin_` options) and needs OpenROAD 26Q4-11 or later, which has that command. It does not take `algorithm: annealing`. `fixed` keeps the pins that the floorplan already placed: it needs a DEF file with placed pins (`floorplan.sizing: def`) or `fixed_pins`, else the global placement stops with GPL-0326 on the unplaced pins. With `floorplan.sizing: def` the pins of the DEF file stay, except with `concurrent`. The default is the one of OpenROAD-flow-scripts."
       },
       "io.horizontal_layers": {
         "children": false,
@@ -8028,12 +8028,12 @@
           "annealing",
           "matching"
         ],
-        "help": "How the pins get their slots. `matching` assigns them with the Hungarian method, which is the default of the tool. `annealing` uses simulated annealing (`-annealing`), set by `annealing`, and only with `flow: skip_io_pass`."
+        "help": "How the pins get their slots. `matching` assigns them with the Hungarian method, which is the default of the tool. `annealing` uses simulated annealing (`-annealing`), set by `annealing`. Only `flow: skip_io_pass` takes `annealing`."
       },
       "io.annealing": {
         "children": true,
         "assignable": false,
-        "help": "The schedule of the simulated annealing. Needs `algorithm: annealing`."
+        "help": "The schedule of the simulated annealing. Needs `algorithm: annealing`, which needs `flow: skip_io_pass`."
       },
       "io.annealing.temperature": {
         "children": false,
@@ -8073,7 +8073,7 @@
       "io.mirrored_pins": {
         "children": false,
         "assignable": true,
-        "help": "Pairs of pins that the pin placer puts at mirrored places of opposite edges (`set_io_pin_constraint -mirrored_pins`). With `algorithm: matching`, OpenROAD v2.0-26132 can put another pin on the place that a mirrored pin takes, and the placement stops with PPL-0107 (seen on 3 of 4 trials on a netlist of 5 cells and 8 pins). `annealing` placed the pins in all of them. No upstream issue exists."
+        "help": "Pairs of pins that the pin placer puts at mirrored places of opposite edges (`set_io_pin_constraint -mirrored_pins`). With `algorithm: matching`, OpenROAD v2.0-26132 can put another pin on the place that a mirrored pin takes, and the placement stops with PPL-0107 (seen on 3 of 4 trials on a netlist of 5 cells and 8 pins). `annealing` (only with `flow: skip_io_pass`) placed the pins in all of them. No upstream issue exists."
       },
       "io.fixed_pins": {
         "children": false,
@@ -14347,7 +14347,7 @@
           "false",
           "true"
         ],
-        "help": "Warning: this step can stop ABC. On some real designs, ABC stopped on an assertion in `Abc_TtExpand`, with area and delay strategies: for example all seven composed strategies on the aes design, and some delay strategies on gcd and on a small multiply-accumulate design. This happened with OSS CAD yosys 0.69+286 and 0.70+179, Homebrew yosys 0.69+post, and yosys 0.68 and 0.66 on Linux. The cause is a bug in `mfs3 -e -m` of ABC (unsorted supports in `src/opt/sfm/sfmDec.c`), which berkeley-abc/abc commit a4fb2d39c fixes; the ABC of yosys does not have that fix yet. An ABC built without assertions can write a netlist that is not equivalent to the design instead. Where `mfs3` finished, it changed the area by at most 0.2%. Add a SAT-based remapping (`mfs3`) after the mapping."
+        "help": "Warning: this step can stop ABC. On some real designs, ABC stopped on an assertion in `Abc_TtExpand`, with area and delay strategies: for example all seven composed strategies on the aes design, and some delay strategies on gcd and on a small multiply-accumulate design. This happened with OSS CAD yosys 0.69+286 and 0.70+179, Homebrew yosys 0.69+post, and yosys 0.68 and 0.66 on Linux. The cause is a bug in `mfs3 -e -m` of ABC (unsorted supports in `src/opt/sfm/sfmDec.c`). Commit a4fb2d39c of berkeley-abc/abc fixes it; the ABC of yosys 0.70+179 does not include that commit. An ABC built without assertions can write a netlist that is not equivalent to the design instead. Where `mfs3` finished, it changed the area by at most 0.2%. Add a SAT-based remapping (`mfs3`) after the mapping."
       },
       "abc.area_mapper": {
         "children": false,

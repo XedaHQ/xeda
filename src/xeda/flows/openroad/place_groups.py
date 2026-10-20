@@ -944,7 +944,7 @@ class FixedPin(XedaBaseModel):
 
 class AnnealingGroup(SettingsGroup):
     """The schedule of the simulated annealing of the pin placer (`set_simulated_annealing`).
-    The pin placer uses it with `io.algorithm: annealing`."""
+    The pin placer uses it with `io.algorithm: annealing`, which needs `io.flow: skip_io_pass`."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
         Flag("temperature", "-temperature", "value"),
@@ -1045,7 +1045,8 @@ class PinThicknessGroup(SettingsGroup):
 
 
 class IoGroup(SettingsGroup):
-    """The placement of the pins of the design (`place_pins`).
+    """The placement of the pins of the design (`place_pins`, or `global_placement -place_ios`
+    with `set_place_config`).
 
     The flow does not write the placement of the pins to a file (`-write_pin_placement`).
     `-random` and `-random_seed` of `place_pins` are obsolete in OpenROAD: the command warns
@@ -1058,9 +1059,10 @@ class IoGroup(SettingsGroup):
         description="How the pins get their places. `skip_io_pass` places the cells without the "
         "pins first, then places the pins, then places the cells again. `concurrent` places the "
         "pins together with the cells (`global_placement -place_ios`), and the global placement "
-        "legalizes them with the pin placer. It takes the layers, `min_distance`, "
-        "`min_distance_tracks` and `corner_avoidance` through `set_place_config` (the "
-        "`-io_pin_` options), and needs OpenROAD 26Q4-11 or later, which has that command. "
+        "legalizes them with the pin placer. `concurrent` gives the layers, `min_distance`, "
+        "`min_distance_tracks` and `corner_avoidance` to `set_place_config` (the `-io_pin_` "
+        "options) and needs OpenROAD 26Q4-11 or later, which has that command. It does not "
+        "take `algorithm: annealing`. "
         "`fixed` keeps the pins that the floorplan already placed: it needs a DEF file with placed "
         "pins (`floorplan.sizing: def`) or `fixed_pins`, else the global placement stops with "
         "GPL-0326 on the unplaced pins. With `floorplan.sizing: def` the pins of the DEF file "
@@ -1103,12 +1105,13 @@ class IoGroup(SettingsGroup):
         "matching",
         description="How the pins get their slots. `matching` assigns them with the Hungarian "
         "method, which is the default of the tool. `annealing` uses simulated annealing "
-        "(`-annealing`), set by `annealing`, and only with `flow: skip_io_pass`.",
+        "(`-annealing`), set by `annealing`. Only `flow: skip_io_pass` takes `annealing`.",
         json_schema_extra=tier("advanced"),
     )
     annealing: AnnealingGroup = Field(
         default_factory=AnnealingGroup,
-        description="The schedule of the simulated annealing. Needs `algorithm: annealing`.",
+        description="The schedule of the simulated annealing. Needs `algorithm: annealing`, "
+        "which needs `flow: skip_io_pass`.",
     )
     exclude: list[EdgeInterval] = Field(
         [],
@@ -1135,7 +1138,8 @@ class IoGroup(SettingsGroup):
         "(`set_io_pin_constraint -mirrored_pins`). With `algorithm: matching`, OpenROAD "
         "v2.0-26132 can put another pin on the place that a mirrored pin takes, and the "
         "placement stops with PPL-0107 (seen on 3 of 4 trials on a netlist of 5 cells and 8 "
-        "pins). `annealing` placed the pins in all of them. No upstream issue exists.",
+        "pins). `annealing` (only with `flow: skip_io_pass`) placed the pins in all of them. No "
+        "upstream issue exists.",
         json_schema_extra=tier("advanced"),
     )
     fixed_pins: list[FixedPin] = Field(
@@ -1184,7 +1188,8 @@ class IoGroup(SettingsGroup):
                     (
                         leaf,
                         f"`{leaf}` has no effect with `{key}.algorithm: {self.algorithm}`: set "
-                        f"`{key}.algorithm: annealing` or delete `{leaf}`",
+                        f"`{key}.algorithm: annealing` (with `{key}.flow: skip_io_pass`) or "
+                        f"delete `{leaf}`",
                     )
                 )
         for leaf in ("horizontal_layers", "vertical_layers"):

@@ -748,8 +748,8 @@ class AbcGroup(SettingsGroup):
         "composed strategies on the aes design, and some delay strategies on gcd and on a small "
         "multiply-accumulate design. This happened with OSS CAD yosys 0.69+286 and 0.70+179, "
         "Homebrew yosys 0.69+post, and yosys 0.68 and 0.66 on Linux. The cause is a bug in "
-        "`mfs3 -e -m` of ABC (unsorted supports in `src/opt/sfm/sfmDec.c`), which "
-        "berkeley-abc/abc commit a4fb2d39c fixes; the ABC of yosys does not have that fix yet. "
+        "`mfs3 -e -m` of ABC (unsorted supports in `src/opt/sfm/sfmDec.c`). Commit a4fb2d39c "
+        "of berkeley-abc/abc fixes it; the ABC of yosys 0.70+179 does not include that commit. "
         "An ABC built without assertions can write a netlist that is not equivalent to the "
         "design instead. Where `mfs3` finished, it changed the area by at most 0.2%. Add a "
         "SAT-based remapping (`mfs3`) after the mapping.",
