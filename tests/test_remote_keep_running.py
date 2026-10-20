@@ -557,6 +557,25 @@ def test_attach_refuses_the_files_of_a_launch_that_a_later_launch_replaced(tmp_p
     assert "used the same inputs after launch" in outcome.document["error"]["message"]
 
 
+def test_the_order_of_execution_decides_replacement_and_the_newest_launch(
+    tmp_path, remote_host, monkeypatch
+):
+    """The ids are made before the wait for the workspace lock, so an id that sorts later can
+    belong to a launch that ran earlier."""
+    ids = iter(["300101000000-ffffffff", "300101000000-00000000"])
+    monkeypatch.setattr(client, "new_launch_id", lambda: next(ids))
+    _succeeded(_keep_running(tmp_path, _design(tmp_path)))
+    _succeeded(_keep_running(tmp_path, _design(tmp_path, freq="90 MHz")))
+
+    outcome = _attach(tmp_path, "300101000000-ffffffff")
+    assert outcome.error is not None
+    assert "used the same inputs after launch" in outcome.document["error"]["message"]
+
+    newest = _attach(tmp_path)
+    assert newest.error is None and newest.success, newest.document
+    assert newest.document["launch"]["id"] == "300101000000-00000000"
+
+
 # --- A second request ---------------------------------------------------------------------------
 
 

@@ -522,6 +522,14 @@ def _is_file_at(descriptor: int, path: Path) -> bool:
     return (opened.st_dev, opened.st_ino) == (named.st_dev, named.st_ino)
 
 
+def _order(state: dict[str, Any]) -> tuple[int, str]:
+    """The sort key of a launch: the order in which the launches ran in the workspace. The id does
+    not give it, because a client makes the id before it waits for the lock. A record without
+    a sequence number comes first, ordered by its id."""
+    sequence = state.get("sequence")
+    return (sequence if isinstance(sequence, int) else 0, state["id"])
+
+
 def _launch_states(workspace: Path) -> list[Any]:
     """The `state.json` documents of the launches of a workspace. The `launches` directory and
     each launch directory must be real directories: a link is not followed."""
@@ -872,6 +880,8 @@ class Session:
             )
         self.request = request
         launch_dir = self.workspace / "launches" / launch_id
+        # The workspace lock is held, so no other launch takes a number meanwhile.
+        sequence = 1 + max((_order(state)[0] for state in self.records()), default=0)
         launch_dir.parent.mkdir(parents=True, exist_ok=True)
         try:
             launch_dir.mkdir()
@@ -905,6 +915,7 @@ class Session:
         self.keep_running = keep_running
         state: dict[str, Any] = {
             "id": launch_id,
+            "sequence": sequence,
             "pid": child.pid,
             "pid_created": psutil.Process(child.pid).create_time(),
             "started": _now(),
@@ -1050,12 +1061,16 @@ class Session:
     # -- attach and cancel: a launch that this session did not start
 
     def records(self) -> list[dict[str, Any]]:
-        """The launch records of the workspace, the oldest first (the ids sort by time)."""
-        return [
-            state
-            for state in _launch_states(self.workspace)
-            if isinstance(state, dict) and isinstance(state.get("id"), str)
-        ]
+        """The launch records of the workspace, in the order in which the launches ran: the
+        oldest first."""
+        return sorted(
+            (
+                state
+                for state in _launch_states(self.workspace)
+                if isinstance(state, dict) and isinstance(state.get("id"), str)
+            ),
+            key=_order,
+        )
 
     def check_workspace(self, body: Any, what: str) -> Optional[str]:
         """Check the body of `attach` or `cancel`. Return the launch id that it names, or `None`."""
@@ -1178,8 +1193,10 @@ class Session:
     def check_not_replaced(self, launch_id: str, request: LaunchRequest) -> None:
         """Refuse to fetch the files of a launch if a later launch ran in the same inputs: the run
         directories may hold the files of the later launch now."""
-        for state in self.records():
-            if state["id"] <= launch_id:
+        records = self.records()
+        mine = next((state for state in records if state["id"] == launch_id), None)
+        for state in records:
+            if mine is None or _order(state) <= _order(mine):
                 continue
             later = _read_json(self.workspace / "launches" / state["id"] / REQUEST_FILE)
             if isinstance(later, dict) and later.get("inputs_dir") == request.inputs_dir:
