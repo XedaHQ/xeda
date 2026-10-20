@@ -78,7 +78,7 @@ Every flow declares its own settings. A setting can come from seven places. This
 the lowest to the highest precedence:
 
 1. the defaults of the flow
-2. with ``--remote``, the ``flows`` section of the host profile
+2. with ``--remote``, the ``flows`` section of the host profile (see :doc:`remote`)
 3. the ``flows.<flow_name>`` section of a project file (``xedaproject.yaml``)
 4. the ``flows.<flow_name>`` section of the design file
 5. the ``flows.<flow_name>`` section of the selected target, if you chose a target with
@@ -613,8 +613,8 @@ Xeda first refuses a request that the declarations of the design already rule ou
 generator runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch
 is refused before those side effects. Materialize the sources first, or pass an already
 materialized ``Design`` to ``DefaultRunner.plan`` of the library (``plan_with_freshness`` adds
-what each node would do). Planning does not call ``init()`` of a flow, and ``--dry-run --remote``
-is refused.
+what each node would do). Planning does not call ``init()`` of a flow. With ``--remote``, the
+host makes the plan (see :doc:`remote`).
 
 The plan also says what a run would do with each flow. The state is ``fresh`` (Xeda reuses the
 result), ``stale: <reason>`` (the flow runs, for the reason that the log would give),
@@ -918,9 +918,9 @@ sections, below those of the design:
         inputs:
           netlist: yosys_fpga
 
-Bindings are local, like chains. ``--remote`` and ``xeda dse`` refuse a chain and any binding that
-the request reaches, before they connect or start a worker. They ignore a binding saved for a flow
-that the request does not reach.
+``xeda dse`` refuses a chain and any binding that the request reaches, before it starts a worker.
+It ignores a binding saved for a flow that the request does not reach. A remote run takes chains
+and bindings (see :doc:`remote`).
 
 What is supported today
 -----------------------
@@ -2188,7 +2188,8 @@ sources, and more than one flow converts them``.
   simulator refuses it, and the error names ``bsc_sim``.
 * ``--dry-run`` judges the flow on the design that ``bsc`` would derive. While ``bsc`` is stale,
   it reports the later flow as ``unknown: depends on bsc``.
-* A remote run converts the design on the remote machine, so ``bsc`` must be installed there.
+* A remote run converts the design on the remote machine, so ``bsc`` must be installed there (see
+  :doc:`remote`).
 
 What reruns after an edit follows from what each flow reads:
 

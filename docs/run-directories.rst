@@ -554,11 +554,14 @@ Remote runs
 ===========
 
 A remote run (``--remote HOST``) runs the request on a Linux host over SSH. The run directories
-are on the remote host, below the run root of its workspace. Xeda mirrors the results, the logs, the
-reports and the declared outputs under ``<run root>/@<host>/``, with the same layout as a local run
-root (``<design>[/<target>]/<flow>[_<hash>]``). The mirror holds no ``trace.json``. A mirror
-directory is replaced by each fetch. ``--hashed-run-dirs``, ``--clean``, ``--rebuild-all`` and
-``--dry-run`` act on the remote run directories, as they do for a local run.
+are on the remote host, below the run root of a workspace that stays between runs. The reuse of
+earlier runs works there as it does locally. Xeda mirrors the results, the logs, the reports and
+the declared outputs under ``<run root>/@<host>/``, with the same layout as a local run root
+(``<design>[/<target>]/<flow>[_<hash>]``). The mirror holds no ``trace.json``, so a local run never
+reuses it. A mirror directory is replaced by each fetch. ``--hashed-run-dirs``, ``--clean``,
+``--rebuild-all``, ``--scrub`` and ``--dry-run`` act on the remote run directories, as they do for a
+local run. ``--post-cleanup`` and ``--post-cleanup-purge`` are refused, because the run directories
+are not on your machine: ``xeda remote clean`` frees the space on the host. See :doc:`remote`.
 
 Cleaning up
 ===========
@@ -858,9 +861,9 @@ one path. Xeda refuses a deliverable setting that is given as a location, or ``o
 the search starts.
 
 ``xeda run --remote`` delivers ``--outputs-to`` only after a run that succeeded, and only from its
-local mirror, once the remote's results are there. The mirror always uses the hashed layout,
-``<design>[/<target>]/<flow>_<hash>/``, whatever ``--hashed-run-dirs`` says for local runs. Xeda
-refuses a deliverable that is given as a location before it ships anything, because the flow runs on
+local mirror, once the results of the host are there. The mirror has the layout of the run
+directories of the host, so ``--hashed-run-dirs`` decides whether its directories carry the hash.
+Xeda refuses a deliverable that is given as a location before it connects, because the flow runs on
 the remote host and would write the location there, on the remote file system. Use ``--outputs-to``:
 it delivers from the artifacts that Xeda fetched into the local mirror. For a remote run,
 ``--outputs-to`` may never land on or in anything that the requested flow reads. Xeda takes this

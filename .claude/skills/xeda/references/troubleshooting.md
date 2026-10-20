@@ -74,7 +74,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 | a binding error naming the consumer, input and where it was written | `unknown input`, `unknown producer` or `declares no inputs`. A binding names a flow's output (`yosys_fpga.netlist`), never a file. A chain and a command-line or API binding of one input conflict even when equal: bind it in one place. |
 | `` vivado_power: `checkpoint` must come from the producer of the `netlist_timing` ... `` | Related inputs come from one producer. Add the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings the message lists. |
 
-`--remote` and `xeda dse` refuse chains and bindings; run locally.
+`xeda dse` refuses chains and bindings; run them with `xeda run`. `--remote` takes them.
 
 ### Run root, run directories and deliveries
 
@@ -104,6 +104,24 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 - `MissingOutput`: a declared output is absent, unreadable, outside the run directory or not
   written by this run. `nextpnr` reports its own missing configuration as `FlowFatalError`, naming
   the setting and path.
+
+### Remote runs
+
+`--remote` failures have their own types. The message names the step and the cause. Test the
+destination with `ssh HOST` first; add `--debug` for the commands and the output of the host.
+
+| `error.type` | Fix |
+| --- | --- |
+| `RemoteConnectionError` | OpenSSH could not connect or authenticate, or the connection ended, or `ssh` is not on `PATH`. The message has the OpenSSH text. Fix the destination or `~/.ssh/config`. A launch with no terminal needs a key and an agent. |
+| `RemoteProvisionError` | Installing Xeda on the host failed. The `code` in the message: `not-linux`, `unsupported-platform` (only x86_64 and aarch64, glibc or musl), `no-downloader` (no `curl` or `wget`), `no-sha256`, `download-failed` (check internet access, or set a proxy in the profile `env`), `checksum-mismatch`, `python-failed`, `env-failed` (the message has the output of `uv`), `no-space` (under 50 MiB free; free space or set `root`), `lock-timeout` (remove the lock directory the message names if its process is gone), `bad-request` (report it). |
+| `RemoteDependencyError` | A package cannot be installed on the host as it is here: an editable install, a local directory or a direct URL, or a package in `tb.python_packages` that is not installed locally. Install it from a package index. |
+| `RemoteIncompatible` | The host planned other flow identities than the local side did. Compare `--dry-run --json` with and without `--remote`; report a difference with no visible cause. |
+| `RemoteCanceled` | Ctrl-C, `xeda remote cancel` or a lost connection stopped the launch. Processes that survived SIGKILL are named; run the command again to start over. |
+| `RemoteInterrupted` | Ctrl-C came after the launch had finished. The results are on the host: run the command again to fetch them. |
+| `RemoteDetached` | A `--detach` launch keeps running; the document has `launch.id`. Use `xeda remote attach HOST ID` or `xeda remote cancel HOST ID` with the `--run-root` of the run. |
+| `RemoteFetchError` | A file did not come back whole, or a declared output is missing. Run the command again: the finished run is reused and only the fetch repeats. |
+| `RemoteConfigError` | `remotes.yaml` or one of its entries is invalid (the message names the host and field), or the `--remote` text is not a destination. |
+| `RemoteProtocolError` | The host sent output that Xeda does not understand, for example text from a login script. The message has the output. |
 
 ## Simulation verdicts
 

@@ -24,7 +24,8 @@ Xeda keeps four concerns separate.
 
 ``Tool``: the executable
     An executable that a flow runs. It runs natively or in a Docker container. Flows ask for
-    tools by name. With ``--remote``, Xeda runs the whole flow on another machine over SSH.
+    tools by name. With ``--remote``, Xeda runs the whole flow on another machine over SSH (see
+    :doc:`remote`).
 
 ``FlowLauncher``: the orchestration
     Creates the flows, runs their producers first, manages run directories and the reuse of

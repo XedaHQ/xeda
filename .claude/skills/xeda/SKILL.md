@@ -70,7 +70,9 @@ xeda run nextpnr blinky.yaml --dry-run --json
 A dry run runs no tool and changes no run root, trace, lock or delivery. It refuses what a run
 would refuse at planning: unknown or conflicting settings, a source type the flow cannot read, a
 missing required setting, a chain that does not fit. It refuses a design that needs a generator
-run or a Git fetch; materialize that design first. `--dry-run` with `--remote` is a usage error.
+run or a Git fetch; materialize that design first. With `--remote HOST`, the host makes the plan
+and judges freshness; the dry run may install Xeda on the host and sync the inputs, and it reports
+what it uploaded (`uploaded`).
 
 ## Design file
 
@@ -205,8 +207,8 @@ xeda run yosys_fpga+fpga_pack design.yaml   # same plan: nextpnr runs between th
   entry with `through` lists the flows its link passes through). `bsc_sim` runs alone.
   `vivado_project` and `vivado_sim` have no output, so they end a chain; `bsc` is the only flow
   before them (`bsc+vivado_sim`).
-- `--remote` and `xeda dse` refuse chains and bindings. The conversion of a Bluespec design
-  (below) is no chain or binding: they accept it.
+- `xeda dse` refuses chains and bindings. `--remote` takes them. The conversion of a Bluespec
+  design (below) is no chain or binding: both accept it.
 - A refused chain ends with `Did you mean ...?` when one valid request is near. Planning can still
   refuse a request the chain check passed (related inputs, below).
 
@@ -380,16 +382,45 @@ xeda run vivado_synth blinky.yaml --outputs-to ./out
 
 ## Remote runs
 
-`--remote HOST` runs the request, a chain too, on a Linux host over SSH. Xeda installs what it
-needs on the host at the first run. The run directories are on the host. The results, logs, reports
-and declared outputs are mirrored under `<run root>/@<host>/`. `--post-cleanup` and
-`--post-cleanup-purge` are refused; use `xeda remote clean`.
+`--remote HOST` runs the request, a chain too, on a Linux host over SSH. `HOST` is an OpenSSH
+destination; the user's `~/.ssh/config` holds user, port, keys and jump hosts, and OpenSSH asks for
+a password once per launch. Xeda needs on the host only `sh`, `bash`, `tar`, `curl` or `wget`, and
+internet access at the first run: it installs `uv`, the same Python and the same package versions
+under `${XDG_CACHE_HOME:-~/.cache}/xeda` and needs no administrator rights. The EDA tools must be
+on the login `PATH` of the host, or be set up by `setup` lines of the host profile.
 
-`--remote HOST --detach` keeps the launch running on the host when the connection ends or Ctrl-C
-stops the local follow. `xeda remote attach HOST [LAUNCH_ID]` shows the log from its start and
-fetches the result into the mirror (it delivers nothing; run the original command again to
-deliver). `xeda remote cancel HOST [LAUNCH_ID]` stops the launch. Both take the same `--run-root`
-as the run. Running the same request again attaches to the running launch.
+- Host profile: `${XDG_CONFIG_HOME:-~/.config}/xeda/remotes.yaml`, a `hosts` table keyed by the
+  exact text of `--remote`. Fields, all optional: `root` (the remote root), `setup` (shell lines
+  before every launch), `env` (variables for every remote command), `python` (`managed` or the
+  absolute path of a Python of the same version) and `flows` (flow settings for this host only,
+  the lowest layer above the defaults; a locator such as `pdk_root` reaches the host from here
+  only).
+- A cocotb testbench lists its Python packages in `tb.python_packages`; the host installs them at
+  the local versions.
+- The host keeps a workspace per local run root and destination. Runs are make-like there: an
+  unchanged flow is fresh, and only changed inputs are sent. `--hashed-run-dirs`, `--clean`,
+  `--rebuild-all` and `--scrub` act on the host. `--post-cleanup` and `--post-cleanup-purge` are
+  refused; use `xeda remote clean`. A chain with a programmer flow (`openfpgaloader`) is refused:
+  run the part before it with `--remote`, then program locally with a binding to the fetched file.
+- The mirror `<run root>/@<host>/<design>[/<target>]/<flow>` gets, for every flow of the plan,
+  `results.json`, `settings.json`, the top-level `*.log` files and `reports/`, and for the
+  requested flow its declared outputs. `--fetch-all` fetches every file. `--outputs-to` delivers
+  from the mirror after a success; a deliverable setting with a location is refused.
+- `--json` gives the document of a run plus `remote` and `mirror`; paths name the mirror.
+- Ctrl-C cancels the launch on the host (a second one closes the connection). A lost connection
+  cancels it too. Run the same command again to recover: a finished run is reused and only the
+  fetch repeats.
+- `--remote HOST --detach` keeps the launch running on the host when the connection ends or Ctrl-C
+  stops the local follow (the failure is `RemoteDetached`, and the document has `launch`).
+  `xeda remote attach HOST [LAUNCH_ID]` shows the log from its start and fetches the result into
+  the mirror (it delivers nothing; run the original command again to deliver). `xeda remote
+  cancel HOST [LAUNCH_ID]` stops the launch. Both take the `--run-root` of the run. Running the same
+  request again attaches to the running launch. A host with `KillUserProcesses=yes` may kill a
+  detached launch at logout.
+- `xeda remote check HOST` installs what is missing and reports the Python, the environment, the
+  free disk space, `KillUserProcesses` and the tools on the login `PATH` (it does not run `setup`).
+  `xeda remote clean HOST [--older-than DAYS] [--all] [--yes]` removes unused environments and
+  workspaces; `--json` does not ask.
 
 ## When a run fails
 
@@ -409,6 +440,7 @@ On failure `run` writes a document with `success: false` and `error`, and exits 
 | `FlowDependencyFailure` | A producer failed or its output could not be verified. Read the producer's `results.json`, named in the message. |
 | `RunRootError`, `RunDirectoryError`, `DeliveryError`, `OutputExistsError` | The message names the directory or setting and the fix. |
 | `NoSuccessfulRun` | `xeda dse` found no successful run. Inspect the attempted runs and adjust the search. |
+| `RemoteConnectionError`, `RemoteProvisionError`, `RemoteDependencyError`, `RemoteIncompatible`, `RemoteCanceled`, `RemoteInterrupted`, `RemoteDetached`, `RemoteFetchError`, `RemoteConfigError` | A `--remote` run failed outside the flow. The message names the step and the cause; `references/troubleshooting.md` has the fix for each type. |
 
 Add `--debug` for verbose logs and a traceback. Flow names accept `vivado_synth`, `vivado-synth`
 and `VivadoSynth`; setting names are exact.
