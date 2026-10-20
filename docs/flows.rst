@@ -1183,18 +1183,34 @@ second form gets no pull-up. The bundled pin files use neither form, and a pin f
 
 The bundled ``basys_3`` and ``stlv7325_v2`` files constrain the clock, every user LED, the user
 buttons and the USB-UART, and nothing else. A design that relies on them names its ports as
-follows. Each file gives the source of every group of pins, and none of the pins is checked on
-hardware.
+follows. Each file gives the source of every group of pins. The ``stlv7325_v2`` pins are checked on
+hardware, as described below. The ``basys_3`` pins are not.
 
 * ``basys_3`` uses the names of Digilent, all LVCMOS33: ``clk``, ``led[15:0]``, the buttons
   ``btnC``, ``btnU``, ``btnL``, ``btnR`` and ``btnD``, and the UART's ``RsRx`` (an input of the
   FPGA) and ``RsTx`` (an output). The LEDs and buttons are active high, and ``btnC`` is the reset
   button.
 * ``stlv7325_v2`` has no vendor names. Its ports are ``clk_p`` and ``clk_n`` (the differential
-  clock, DIFF_SSTL15: the design needs an ``IBUFDS`` and a ``BUFG``), ``led[7:0]`` and ``btn[1:0]``
-  (``btn[0]`` is the reset button), and the UART's ``uart_rx`` (an input) and ``uart_tx`` (an
-  output). The LEDs and buttons are active low. ``btn[1]`` and the UART are in a bank whose voltage
-  the jumper J4 of the board sets. Their standard, LVCMOS33, is right with J4 at 3.3 V.
+  clock, DIFF_SSTL15: the design needs an ``IBUFDS`` and a ``BUFG``), ``led[7:0]`` (LED0 to LED7),
+  ``btn[1:0]`` (``btn[0]`` is K2, ``btn[1]`` is K3), and the UART's ``uart_rx`` (an input) and
+  ``uart_tx`` (an output). The LEDs and buttons are active low. The jumper J4 sets the voltage of
+  the bank of ``btn[1]`` and the UART. Their standard, LVCMOS33, is right with J4 at 3.3 V. The file
+  is for the second (2023) revision of the board. The Vivado board files on GitHub (rriggs) describe
+  the first revision, which has other UART pins and a 100 MHz clock on F17 (the second has a 50 MHz
+  clock on F17, as listed in the `STLV7325 v2 platform source
+  <https://github.com/litex-hub/litex-boards/blob/10debf146d433ce8ac8aedcac84e97d252ff4d5b/litex_boards/platforms/sitlinv_stlv7325_v2.py#L19-L25>`_).
+  This target uses the separate 200 MHz differential input described below.
+
+  The clock, LED, button and UART pins are checked on one board. A counter behind an ``IBUFDS`` and
+  a ``BUFG`` on the clock pins ran at 200 MHz, read over JTAG. A static pattern and a walk lit LED0
+  to LED7 in order, and holding K2 or K3 lit ``led[0]`` or ``led[1]``. Text sent on ``uart_tx``
+  arrived through the board's USB-UART bridge (a WCH CH9102), and an echo design on ``uart_rx`` and
+  ``uart_tx`` answered at 115200 and 3 Mbaud. The FT4232H that programs the board is not that UART.
+  A plain echo test can pass through a wire loopback without testing the FPGA: a loopback plug, a
+  wrong port, or a programmer that ties TXD to RXD on a spare channel. Build with
+  ``ECHO_TRANSFORM=1`` and run with ``--transform`` to check that the FPGA is in the data path.
+  The four LEDs beside the SFP cages (LED8 to LED11) are not ports: they follow
+  ``led[2]``, ``led[3]``, ``led[1]`` and ``led[0]`` through a level shifter.
 
 The chip database
 ~~~~~~~~~~~~~~~~~

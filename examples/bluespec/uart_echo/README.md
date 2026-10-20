@@ -1,8 +1,8 @@
-# uart_echo: a UART echo demo for two boards
+# uart_echo: a UART echo demo for FPGA boards
 
-Everything the host sends comes back. It is the board demo of the [`uart`](../uart/README.md) PHY:
-a 12 Mbaud echo on the Arty A7-100T, a 3 Mbaud echo on the ULX3S, built from the same board-agnostic
-top `mkUartEcho`.
+Everything the host sends comes back. The design is the board demo of the
+[`uart`](../uart/README.md) PHY. One board-agnostic top, `mkUartEcho`, builds for three boards: the
+Arty A7-100T, the ULX3S and the STLV7325 v2.
 
 ```
 rxd -> UartCore (receiver) -> echo FIFO (block RAM) -> UartCore (transmitter) -> txd
@@ -11,42 +11,65 @@ sw[3:0] -> baud rate table ---^                       btn -> clear flags      le
 
 | file | content |
 |---|---|
-| `rtl/UartEcho.bsv` | `mkUartEcho`, the top: UART core with a run-time baud rate, echo FIFO, switches, button, LEDs, power-on reset |
-| `tb/TbUartEcho.bsv` | the testbench: a behavioral host at the pins and a receiver model (the line sender of `../uart/tb/TbUartModels.bsv` is reused) |
-| `boards/arty_a7_100t.xdc`, `boards/arty_a7_100t_sync.xdc` | Arty A7-100T: pins (also for openXC7), and the synchronizer and timing constraints of Vivado |
-| `boards/ulx3s.lpf` | ULX3S pins |
-| `host/uart_echo_test.py` | the computer's side: sends random bytes, reads the echo, compares, reports throughput |
-| `uart_echo.yaml` | the design file: simulation, Vivado out of context, the board targets, and `fixed_baud` (the `FIXED_BAUD` testbench) |
-
-The design file lists the PHY sources of `../uart/rtl` by relative path, which Xeda handles like any
-other source (bsc searches the directories of all its sources).
+| `rtl/UartEcho.bsv` | `mkUartEcho` (the top) and `mkEcho` (the core it wraps) |
+| `tb/TbUartEcho.bsv` | the testbench: a behavioral host at the pins |
+| `boards/` | pin and timing constraints of the Arty and the ULX3S; the Bluespec wrapper `Stlv7325V2.bsv` |
+| `host/uart_echo_test.py` | the host side: sends random bytes, checks the echo, reports throughput |
+| `uart_echo.yaml` | the design file: simulation, board targets |
 
 ## The design
 
-`mkUartEcho` has a clock `CLK` and no reset pin. Its ports:
+`mkUartEcho` has the clock `CLK` and no reset pin: it makes its own power-on reset.
 
 | port | direction | meaning |
 |---|---|---|
 | `rxd`, `txd` | in, out | the UART, 8N1 |
-| `sw[3:0]` | in | the baud rate (see below) |
+| `sw[3:0]` | in | the baud rate, with `FIXED_BAUD=0` (`sw[0]` is the lowest bit) |
 | `btn` | in | clears the sticky LEDs |
-| `led[3:0]` | out | `led[0]` frame received, `led[1]` byte sent (both stretched), `led[2]` sticky: framing error, parity error or break, `led[3]` sticky: overrun |
+| `led[0]` | out | a frame was received |
+| `led[1]` | out | a byte was sent |
+| `led[2]` | out | sticky: framing error, parity error or break |
+| `led[3]` | out | sticky: overrun (the PHY dropped a byte because its receive buffer was full) |
 
-The activity LEDs stay on for about 60 to 100 ms after the last event (`ACTIVITY_US`), so a human can
-see them even at 12 Mbaud. The sticky LEDs stay on until the button is pressed. An overrun means a
-byte arrived while the PHY's receive buffer was full: the new byte is dropped, the ones in the buffer
-stay in order. A full echo FIFO (a host sending faster than the echo can send back) is what keeps
-that buffer from emptying and so what leads to an overrun.
+The activity LEDs stay on for 0.4 to 1 times `ACTIVITY_US` after the last event, so a person can
+see them at 12 Mbaud. The echo FIFO is `ECHO_DEPTH` bytes of block RAM. The PHY buffers hold one
+byte each.
 
-**Baud rate.** The switches are an index into a table made at elaboration from `CLK_HZ`: index 0 is the
-default `BAUD`, then the rates that a USB UART bridge can generate (12 M, 8 M, 6 M, 4 M, 3 M, 2 M, 1.5 M,
-1 M, 921600, ... down to `MIN_BAUD`) that have at least 8 clocks per bit. An index past the end of the
-table selects the last (slowest) rate. The period of the PHY has 6 fraction bits, so each baud rate
-is within 0.07 % of the nominal one. Switch 0 is `sw[0]`, the lowest bit.
+Set the macros with `rtl.defines` in the design file, in a target, or with `--design-overrides`.
+All have defaults.
+
+| macro | meaning | default |
+|---|---|---|
+| `CLK_HZ` | clock frequency in Hz | 100000000 |
+| `BAUD` | the baud rate (with `FIXED_BAUD=0`: the rate for `sw` = 0000) | 12000000 |
+| `FIXED_BAUD` | 1: one baud rate, `BAUD`, and `sw` is ignored. 0: the switches select the rate | 1 |
+| `ECHO_TRANSFORM` | 1: the echo returns `reverseBits(b) ^ 8'hB1`, see [the transformed echo](#the-transformed-echo) | 0 |
+| `MIN_BAUD` | the slowest rate of the switch table (not used with `FIXED_BAUD=1`) | 115200 |
+| `ECHO_DEPTH` | echo FIFO size in bytes (one 18 Kbit block RAM) | 2047 |
+| `ACTIVITY_US` | the longest time an activity LED stays on, in microseconds | 100000 |
+| `HOLD` | the receiver's glitch filter depth in clocks; see the [`uart`](../uart/README.md) README | 3 |
+
+`FIXED_BAUD` and `ECHO_TRANSFORM` must be `0` or `1`. Xeda writes a YAML `true` as a bare `-D NAME`
+and leaves a YAML `false` out, so a number is the only value that can switch a macro off again in a
+target or an override. Any other input does not build: `false` gives the default, `true` and text
+such as `yes` are bsc errors, and `2` stops with `FIXED_BAUD is 2: write 0 or 1`.
+
+```bash
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --design-overrides rtl.defines.FIXED_BAUD=0
+xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target stlv7325 \
+    --design-overrides rtl.defines.ECHO_TRANSFORM=1 rtl.defines.BAUD=115200
+```
+
+### Switches (`FIXED_BAUD=0`)
+
+The switches index a table that the design computes at elaboration from `CLK_HZ`: index 0 is `BAUD`,
+then the rates a USB bridge can generate (12 M, 8 M, 6 M, 4 M, 3 M, 2 M, 1.5 M, 1 M, 921600, ...
+down to `MIN_BAUD`) that have at least 8 clocks per bit. An index past the end selects the slowest
+rate. Each rate is within 0.07 % of the nominal one.
 
 | `sw[3:0]` | Arty A7-100T, 100 MHz | ULX3S, 25 MHz |
 |---|---|---|
-| 0000 | 12 M (default) | 3 M (default) |
+| 0000 | 12 M | 3 M |
 | 0001 | 8 M | 2 M |
 | 0010 | 6 M | 1.5 M |
 | 0011 | 4 M | 1 M |
@@ -59,327 +82,218 @@ is within 0.07 % of the nominal one. Switch 0 is `sw[0]`, the lowest bit.
 | 1010 | 230400 | 115200 |
 | 1011 to 1111 | 115200 | 115200 |
 
-The FT2232H of the Arty can generate 12, 8, 6, 4, 3, 2, 1.5 and 1 Mbaud and the usual slower rates
-exactly; the FT231X of the ULX3S is limited to 3 Mbaud.
+A new setting takes effect only when the echo is idle: nothing is left to send and the receive line
+has been high for 11 bit times of the slowest rate. A frame in progress is never cut. After you flip
+a switch, wait a moment and restart the host at the new rate.
 
-A new setting takes effect only when the echo is idle: the transmitter has nothing left to send, the
-receive line has been high for 11 bit times of the slowest rate (9550 clocks, 95 us at 100 MHz: 11 x
-100e6 / 115200 rounded up, plus one) and is high now, so no frame is in progress. Changing a switch
-in the middle of traffic cannot cut a frame; the new rate starts after the traffic has stopped. The
-host must start at the new rate after that. The switches and the button go through two flops each.
+With `FIXED_BAUD=1` the design has no table, no switch synchronizers and no idle detector. In Vivado
+2024.2 at 12 Mbaud and 100 MHz that is 96 LUT and 139 FF instead of 168 LUT and 187 FF.
 
-**Reset.** The board needs no reset pin: `mkUartEcho` holds the reset of everything else for a few
-clocks after power-up, from a 3-bit counter `held` that counts up to 7 (the library's `MakeReset0` is
-the reset source; it registers the request, so the reset covers the clock after each count). The
-counter has no reset itself, so its start value depends on where it runs:
+## Boards
 
-| where | `held` starts at | reset lasts |
-|---|---|---|
-| FPGA (Vivado, openXC7, Yosys ECP5) | 0: every flip-flop is 0 after configuration, and bsc's initial blocks are between `synopsys translate_off` lines, so synthesis does not see them | 7 clocks |
-| Bluesim, Verilator, Icarus (initial blocks) | 3'h2: bsc initializes every register to the pattern 'hAAAA, cut to its width | 5 clocks |
-| four-state simulator with `BSV_NO_INITIAL_BLOCKS` | X, and X + 1 is X: `held != 7` never becomes false | no reset, ever |
+| target | board | tools | clock | default rate and mode | UART bridge |
+|---|---|---|---|---|---|
+| `arty` | Arty A7-100T | Vivado | 100 MHz | 12 Mbaud, switches | FT2232H, channel B |
+| `arty_nextpnr` | Arty A7-100T | openXC7 | 100 MHz | 12 Mbaud, switches | FT2232H, channel B |
+| `ulx3s` | ULX3S 85F | Yosys, nextpnr-ecp5 | 25 MHz | 3 Mbaud, switches | FT231X |
+| `stlv7325` | SITLINV STLV7325 v2 (Kintex-7) | openXC7 | 200 MHz | 3 Mbaud, fixed | WCH CH9102 |
 
-(Counted in a simulation of the generated Verilog: the reset is asserted in 5 or 7 consecutive
-clock edges, for either reset polarity; with the INIT value 0 forced onto `held` it is the
-FPGA's 7. An active-low reset on an FPGA is one clock longer, since `MakeReset0`'s flip-flop is 0
-at configuration, which is in reset for that polarity.) The last case is a limit of the mechanism: a
-simulation that removes the initial blocks needs `held` forced to a known value (a Verilog
-`initial` or the tool's INIT option); every other flow works. Any start value works, only
-the length of the reset changes; a counter without an initial value cannot do better than this, and
-a reset pin is the alternative for a board that has one.
+The ULX3S has four DIP switches, so the target uses them: it runs at 3 Mbaud only with all four off.
+For a rate that no switch changes, add `--design-overrides rtl.defines.FIXED_BAUD=1`.
 
-`txd` is held high until the reset is over, because the flip-flop that drives it is 0 at
-configuration and would show a start bit for a clock or two. The obvious `mkInitialReset` of the bsc
-library does not work in hardware: its body is between `synopsys translate_off` lines, so the
-synthesized design has no reset at all. The mechanism runs the same 107070 cycles in Bluesim,
-Verilator and Icarus. For the hardware, the Yosys netlist of the design (`synth_xilinx`, every
-flip-flop at 0) echoes two bytes in a simulation, with either reset polarity (Xeda's bsc flow makes
-resets active high); Vivado and the other flows build it, and the boards power up with no stray
-byte (see the hardware results). The sweep's Verilator lint (`tests/test_bsc_examples.py`) needs
-`-Wno-STMTDLY` for the `#0` that `MakeReset0.v` has, and passes it only for a design that contains a
-bsc reset generator.
+The STLV7325 v2 has no switches. Its target builds `boards/Stlv7325V2.bsv`, a Bluespec wrapper that
+adds the `IBUFDS` and `BUFG` of the differential clock and inverts the active-low LEDs and buttons
+(`led[3:0]` show the Arty's LEDs, `btn[1]` clears the flags). The pins come from Xeda's bundled
+board file (`nextpnr: board: stlv7325_v2`). Its UART goes through the board's CH9102 USB bridge, not
+through the FT4232H JTAG probe that programs the board.
 
-**Echo FIFO.** `ECHO_DEPTH` bytes of block RAM (the library's `mkSizedBRAMFIFOF`): 2047 by default,
-which is one 18 Kbit block RAM at 8 bits (the library FIFO holds 2**n - 1 bytes in 2**n entries). Why
-so large: a host needs the line to stay busy during the USB round trip (1 to 2 ms with the FTDI
-latency timer at 1 ms, which is 1.2 to 2.4 KB at 12 Mbaud), and the host sends only while fewer than
-`window` bytes are unechoed; the FIFO must hold a whole window. The PHY's receive and transmit
-buffers are one byte each, since the FIFO behind them does the buffering.
+## Build and program
 
-**Macros** (set them with `rtl.defines` in the design file, a target, or `-s`; all have defaults):
+Run the commands from the root directory of the repository. Use `--run-root` for a run directory
+outside the checkout, and an absolute path for the design file when you run Xeda with
+`uv run --directory`. The `bin` directory of openXC7 (for `arty_nextpnr` and `stlv7325`) or of
+oss-cad-suite (for `ulx3s`) must be first on `PATH`.
 
-| macro | meaning | default |
-|---|---|---|
-| `CLK_HZ` | clock frequency in Hz | 100000000 |
-| `BAUD` | the baud rate for switches 0000 | 12000000 |
-| `MIN_BAUD` | the slowest rate in the table; sizes the period counters | 115200 |
-| `ECHO_DEPTH` | the echo FIFO in bytes | 2047 |
-| `ACTIVITY_US` | the longest time an activity LED stays on, in microseconds | 100000 |
-| `HOLD` | the receiver's glitch filter depth in clocks; at most (D+2)/3 for D clocks in the shortest bit, which is that of the fastest rate in the table (3 at 12 Mbaud / 100 MHz); a larger value is an elaboration error | 3 |
-| `FIXED_BAUD` | defined (any value): one baud rate, `BAUD`, and the switches are ignored; see below | undefined |
+```bash
+xeda run vivado_synth examples/bluespec/uart_echo/uart_echo.yaml --target arty                              # about 3 minutes
+xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target arty_nextpnr      # openXC7
+xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target ulx3s
+xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target stlv7325
+```
 
-**Fixed baud rate (`FIXED_BAUD`).** When the macro is defined the design has the one rate `BAUD`:
-the PHY gets the static timing of `BAUD` (an exact fraction, constants in the timers, counters of
-just the bits they need) instead of the run-time period, and the table, the switch synchronizers
-and the idle detector that waits to retune are not built. The ports are the same (`sw` is an
-unused input), so the board files do not change. It is the choice when the baud rate is not a
-selection, or the switches are not free: the DIP switches of the ULX3S are not all off, and the
-default design then picks the rate they say (115200 on the board used for the measurements below).
-The testbench covers it too (`--target fixed_baud`: the same checks with the switches flipped to
-prove they are ignored). Area, same design and tools, 12 Mbaud at 100 MHz (the tool versions and
-commands are under "Results" below):
+The first openXC7 build of a chip makes its chip database, which takes minutes. Xeda keeps it under
+the run root (`--run-root DIR`).
 
-| | LUT | FF | slices / timing |
+To program the FPGA, add `+openfpgaloader` to the chain. It loads the SRAM through the board's USB
+cable: the design is gone at power-off.
+
+```bash
+xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target stlv7325
+xeda run vivado_synth+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target arty
+openFPGALoader -b arty_a7_100t uart_echo.bit        # from a bitstream; -b ulx3s, -b stlv7325
+```
+
+With several FTDI probes attached, select one with its serial number:
+`-s usb_serial_num=<serial>` (`--ftdi-serial` for `openFPGALoader`).
+
+## Run the host test
+
+`host/uart_echo_test.py` sends a pseudo-random payload and compares the echo as it arrives. It
+exits with 0 only for a perfect echo: every byte back, in order, nothing extra.
+
+1. Install the packages. From the root of the repository, `uv sync` or
+   `pip install --group examples` installs `pyserial`. For direct USB access to an FTDI chip, also
+   install `pyftdi` (and libusb: `brew install libusb` on macOS). Homebrew's Python finds
+   Homebrew's libusb. A uv-managed Python does not: if `--ftdi` reports `No backend available`,
+   set `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`. `--port` does not use libusb.
+2. Find the port.
+   * macOS: `ls /dev/cu.usbserial-*`
+   * Linux: `ls /dev/ttyUSB*` (or `/dev/ttyACM*`)
+   * Windows: the port in Device Manager, for example `COM5`
+   * any system: `python -m serial.tools.list_ports -v` shows the USB ids, and for pyftdi
+     `ftdi_urls.py` lists the URLs, such as `ftdi://ftdi:2232h:<serial>/2`. Channel B of the
+     FT2232H is interface 2. Give a serial number that has a letter in it: pyftdi reads an all-digit
+     field as a device index.
+3. Run it at the baud rate of the design.
+
+```bash
+python3 examples/bluespec/uart_echo/host/uart_echo_test.py --loopback-selftest                    # no hardware
+python3 examples/bluespec/uart_echo/host/uart_echo_test.py --port /dev/cu.usbserial-<serial> --baud 3000000
+python3 examples/bluespec/uart_echo/host/uart_echo_test.py --port COM5 --baud 3000000 --bytes 16777216
+python3 examples/bluespec/uart_echo/host/uart_echo_test.py --ftdi ftdi://ftdi:2232h:<serial>/2 --baud 12000000 --bytes 16777216
+```
+
+Add `--transform` for a design built with `ECHO_TRANSFORM=1`, `--progress` for a long run, and
+`--mode chunked` for a simpler test that writes a chunk and reads it back (79 % of the line rate at
+12 Mbaud with 4000-byte chunks). Run `--help` for all options.
+
+### Window and latency
+
+The default pipelined mode writes from one thread and reads from another, with at most `--window`
+bytes in flight (sent and not yet echoed). The window must be large enough to keep the line busy
+during the USB round trip: line rate in bytes per second times the round trip. It must be small
+enough that no buffer on the way overflows. The window must stay below `ECHO_DEPTH` (the script's
+limit is 2040) and below the receive buffer of the bridge. The script picks a default for
+`--ftdi` from the chip and for `--port` from the USB ids of the port.
+
+The listed defaults stay below the known bridge buffers. A manual `--window` (or `--chunk`, in
+chunked mode) overrides the default. With `--port` and a known bridge, a larger value makes the
+script print a `WARNING` and still run, so keep it at or below the listed default. With `--ftdi`,
+the script refuses a value above the chip's limit.
+
+| bridge | what limits it | default window | notes |
 |---|---|---|---|
-| Vivado 2024.2, xc7a100t, switches (default) | 168 | 187 | 76 slices, WNS +3.26 ns |
-| Vivado 2024.2, `FIXED_BAUD` | **96** | **139** | 54 slices, WNS +3.52 ns |
-| Yosys 0.70+post `synth_xilinx -family xc7 -flatten`, default / `FIXED_BAUD` | 193 / 115 | 206 / 142 | |
-| Yosys 0.69+286 and nextpnr-ecp5 0.11.1 (ULX3S, 25 MHz, 3 Mbaud), default / `FIXED_BAUD` | 352 / 231 | 225 / 169 | |
+| FT2232H (Arty) | 4 KiB receive buffer | 1792 | up to 12 Mbaud |
+| FT231X (ULX3S) | 512-byte receive buffer, full-speed USB | 448 | up to 3 Mbaud. With `--ftdi`, a larger window is refused |
+| CH9102 (STLV7325) | about 320-byte receive FIFO, no flow control | 256 | see [Limits](#limits) |
 
-So `FIXED_BAUD` takes about 40 % of the logic away (72 LUT and 48 FF in Vivado): the run-time
-period (counters one bit wider, the period mux and its table, an adder for the first sample) and
-the retune logic (a 14-bit idle counter, two more synchronizers).
+The FTDI latency timer defaults to 16 ms, which delays every partial USB packet. `--ftdi` sets it
+to 1 ms. With `--port` you set it yourself: on Linux,
+`echo 1 | sudo tee /sys/bus/usb-serial/devices/ttyUSB1/latency_timer` (or
+`setserial /dev/ttyUSB1 low_latency`), on Windows in the advanced properties of the port in Device
+Manager. macOS has no setting, so use `--ftdi` from 8 Mbaud up. The CH9102 has no latency timer.
+
+Two rules for host programs:
+
+* With pyserial, never assign `ser.timeout` (or another attribute) on an open port while data flows.
+  pyserial then rewrites the terminal settings. Apple's FTDI driver turns that into USB control
+  transfers in the middle of the traffic, and bytes are lost. The script sets the timeout once.
+* The script clears DTR and RTS on open. On the Arty with jumper JP2 shorted, DTR is wired to the
+  FPGA reset.
+
+## The transformed echo
+
+A plain echo test can pass through a wire loopback without testing the FPGA: a loopback plug, a
+wrong port, or a programmer that ties TXD to RXD on a spare channel. Build with `ECHO_TRANSFORM=1`
+and run with `--transform` to check that the FPGA is in the data path.
+
+With `ECHO_TRANSFORM=1` the design returns `f(b) = reverseBits(b) ^ 8'hB1`, and `--transform` makes
+the host expect that. The key is not a bit palindrome, so `f(b) != b` for all 256 bytes: a wire
+returns `b` and fails at the first byte. The transform is wiring and four inverters. It adds no
+state and no latency, and the line stays fully used. The key is `echoKey` in `rtl/UartEcho.bsv` and
+`ECHO_KEY` in the host script.
+
+```bash
+xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target stlv7325 \
+    --design-overrides rtl.defines.ECHO_TRANSFORM=1
+python3 examples/bluespec/uart_echo/host/uart_echo_test.py --port /dev/cu.usbserial-<serial> --baud 3000000 --transform
+```
+
+The report has an `echo:` line with the mode that ran. A mismatch of mode fails with a note: `the
+bytes came back unchanged: a wire loopback, or a design built without ECHO_TRANSFORM`, or `the bytes
+came back transformed ... run with --transform`. The `stlv7325` target builds a plain
+echo, because a terminal wants plain bytes.
 
 ## Simulation
 
-`tb/TbUartEcho.bsv` is a behavioral host at the pins of the real `mkUartEcho` (the design file sets
-`ECHO_DEPTH` to 3 and `ACTIVITY_US` to 20 for the simulation only, so that an overrun and the end of
-an LED stretch are reached in a few thousand clocks). The host drives `rxd`, the switches and the
-button; a receiver model decodes `txd` frame by frame from its own start edge and compares every byte
-with what was sent. It checks:
+The testbench is a behavioral host at the pins of the echo. A receiver model decodes `txd` frame
+by frame and compares every byte. It checks:
 
-1. the power-up: the internal reset ends, the LEDs are off, `txd` is idle;
-2. corner and random bytes, back to back, at 12 Mbaud;
-3. the full utilization of the transmitter: with the host 0.5 % faster than the echo, the FIFO fills
-   and at least 98 of 100 echoed frames start in the clock where the previous one ended;
-4. the activity LEDs, on during the echo and off after the stretch;
-5. a framing error and a break: nothing is echoed, the error LED is on and stays on, the button
-   clears it, bytes after the error come back;
-6. an overrun, with the host 3.5 % faster than the echo: the overrun LED is on, the bytes that came back
-   are in order, every missing byte is counted, the button clears the LED;
-7. the baud rate: a switch is changed in the middle of a burst (it comes back whole at the old rate),
-   then the new rate takes effect when the echo is idle: 3 Mbaud, then 921600 baud.
+* the power-up: the reset ends, the LEDs are off, `txd` is idle;
+* corner and random bytes back to back at 12 Mbaud;
+* full use of the transmitter: with the host 0.5 % faster than the echo, at least 98 of 100 echoed
+  frames start in the clock where the previous one ended;
+* the activity LEDs;
+* a framing error and a break: nothing is echoed, the error LED stays on until the button clears it;
+* an overrun with the host 3.5 % faster than the echo: the bytes that come back are in order and
+  every missing byte is counted;
+* a baud rate switched in the middle of a burst (the burst comes back whole), then at 3 Mbaud and
+  921600 baud when the echo is idle. With `FIXED_BAUD=1` the same flips change nothing.
 
-All three simulators run 107070 cycles with the same result. `--target fixed_baud` runs the same
-script on the `FIXED_BAUD` build (70761 cycles on all three; test 7 flips the switches and checks
-that the echo does not care, at the one rate; `XEDA_INJECT_BUG` is caught there too, by the receiver bug).
+One simulation runs all four combinations of `FIXED_BAUD` and `ECHO_TRANSFORM`, each with its own
+host and receiver model. The testbench shrinks `ECHO_DEPTH` to 3 and `ACTIVITY_US` to 20 so that an
+overrun and the end of an LED stretch come within a few thousand clocks. The target `switches`
+and `echo_transform` choose which combination uses the real top `mkUartEcho`.
 
 ```bash
-xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml                       # Bluesim, 11 s with the elaboration
-xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml -s simulator=verilator
-xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml -s simulator=iverilog
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml                              # Bluesim, about 45 s
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml -s simulator=verilator       # or iverilog
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --target switches
 xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --design-overrides tb.defines.XEDA_INJECT_BUG=true   # must fail
-xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --target fixed_baud           # the FIXED_BAUD build
 ```
 
-`XEDA_INJECT_BUG` makes the echo take a new baud rate at once instead of when it is idle (and plants
-the receiver bug of the `uart` example too, since both packages read the macro). The burst in test
-7 catches it. `XEDA_INJECT_BUG_ECHO` plants only the echo's bug.
+`XEDA_INJECT_BUG` plants a bug (the echo takes a new baud rate at once, even in the middle of a
+frame); `XEDA_INJECT_BUG_ECHO` plants only that one, and `XEDA_INJECT_BUG_PLAIN` sends every byte
+back unchanged, which the transformed benches catch at the first byte.
 
-## Building for a board
+## Measured results
 
-Commands run from the root directory of the repository. Use `--run-root` for the run directory
-somewhere outside the checkout, and an absolute path for the design file when you run Xeda with
-`uv run --directory`.
+Echo of random data, pipelined mode, with the default window of each bridge. Throughput is per
+direction, as a share of the line rate (baud / 10 bytes per second). A run passes when every byte
+comes back in order with no extra byte. With `--ftdi`, it also fails if the chip reports an overrun.
 
-**Arty A7-100T with Vivado** (about 3 minutes; 100 MHz, 10 ns):
-
-```bash
-xeda run vivado_synth examples/bluespec/uart_echo/uart_echo.yaml --target arty --run-root /path/to/runs
-```
-
-The bitstream is `uart_echo.bit` in the run directory (`.../uart_echo/arty/vivado_synth/`); add
-`-s bitstream=/path/to/uart_echo_arty.bit` to copy it somewhere. The XDC files give the pins, put
-`ASYNC_REG` on the synchronizer flops (the receiver's, the idle detector's, the switches' and the
-button's) and set a false path from `rxd`, `sw[*]` and `btn`. The clock is not in the XDC: `clock.period`
-of the flow writes `create_clock`, and a clock with two constraints is an error. XDC is not full Tcl
-(`if` is refused), so the `ASYNC_REG` line has no check: when no cell matches, Vivado warns. In the
-Vivado log, the lines `Applied set_property ASYNC_REG = true for echo_lineSync1_reg` say that it landed.
-(Vivado merges the receiver's `rxSync1/2` with `lineSync1/2`, two copies of the same synchronizer
-on the same pin, and keeps one pair, which carries the property.)
-
-**Arty A7-100T with the open-source openXC7 tools** (7 to 10 s; needs `/opt/openxc7/bin` first on
-`PATH`; nextpnr of openXC7 reads only pin lines, which is why the pins have a file of their own):
-
-```bash
-PATH=/opt/openxc7/bin:$PATH xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target arty_nextpnr
-```
-
-**ULX3S 85F** (about 5 s; needs the oss-cad-suite `bin` directory first on `PATH`, 25 MHz, 3 Mbaud
-default):
-
-```bash
-PATH=/path/to/oss-cad-suite/bin:$PATH xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target ulx3s
-```
-
-The LPF has no `FREQUENCY` line, because `nextpnr: clock.freq: 25 MHz` of the target gives the period.
-The ULX3S button is FIRE1 (`R1`, active high); the DIP switches SW1 to SW4 are `sw[0]` to `sw[3]` (ON is
-high).
-
-**Programming** is the same chain with `openfpgaloader` at the end. It loads the SRAM of the FPGA
-through the board's USB cable (the design is gone at power-off; there is no `write_flash`), so it
-runs only when you ask for it. The targets carry the board name for it:
-
-```bash
-xeda run vivado_synth+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target arty
-xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target arty_nextpnr   # 10 s
-xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target ulx3s
-openFPGALoader -b arty_a7_100t path/to/uart_echo.bit        # the same, from a bitstream
-openFPGALoader -b ulx3s path/to/uart_echo.bit
-```
-
-**A fixed baud rate** is a macro, so it is a design override on any target (`FIXED_BAUD`
-alone keeps the target's `BAUD`):
-
-```bash
-xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target arty_nextpnr \
-    --design-overrides rtl.defines.FIXED_BAUD=true rtl.defines.BAUD=6000000
-xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --target fixed_baud       # the testbench of that build
-```
-
-**Results** (Xeda reports, the design as in the design file; `FIXED_BAUD` is in its section above):
-
-| target and tools | LUT | FF | block RAM | timing |
-|---|---|---|---|---|
-| `arty`: Vivado 2024.2 (`xeda run vivado_synth`), xc7a100t | 168 | 187 | 1 RAMB18 | 100 MHz met, WNS +3.26 ns (Fmax 148 MHz), 76 slices |
-| `arty_nextpnr`: Yosys 0.69, nextpnr-himbaechel 1.0.0 (openXC7) | 275 (222 in Yosys) | 206 | 1 RAMB18 | 100 MHz met, Fmax 176 MHz |
-| `ulx3s`: Yosys 0.69+286, nextpnr-ecp5 0.11.1, LFE5U-85F | 352 (LUT4 with carry and mux) | 225 | 1 EBR | 25 MHz met, Fmax 110 MHz |
-| Yosys 0.70+post, `synth_xilinx -family xc7 -flatten` | 193 | 206 | 1 RAMB18 | |
-
-The first three rows are the chains of the commands above, from the Verilog of Xeda's `bsc` flow.
-The last row, and the Yosys figures of the `FIXED_BAUD` table, come from the commands below. Run
-them from the root directory of the repository. `$BSV_VERILOG` is bsc's Verilog library:
-`<bsc>/lib/Verilog`, or `<bsc>/libexec/lib/Verilog` with Homebrew.
-
-```bash
-BUILD=$(mktemp -d)
-bsc -u -verilog -p +:examples/bluespec/uart/rtl:examples/bluespec/uart_echo/rtl \
-    -bdir $BUILD -vdir $BUILD examples/bluespec/uart_echo/rtl/UartEcho.bsv   # plus -D FIXED_BAUD
-yosys -p "read_verilog -sv -DBSV_NO_INITIAL_BLOCKS $BUILD/mkUartEcho.v $BUILD/mkUart.v \
-             $BSV_VERILOG/BRAM2.v $BSV_VERILOG/MakeReset0.v;
-             hierarchy -top mkUartEcho; synth_xilinx -family xc7 -flatten -top mkUartEcho;
-             stat" | tail -n 40
-```
-
-The Verilog that Xeda's `bsc` flow writes, with its own optimization flags, comes out at 193 / 116
-LUT in the same Yosys command: the figure depends on the bsc flags by a LUT or two.
-
-Almost half is the PHY with a run-time baud rate; the idle detector (14 bits), the LED prescaler (20
-bits) and the 12-bit FIFO pointers are most of the rest.
-
-## The host test
-
-`host/uart_echo_test.py` (Python 3.11; `pyserial`, or `pyftdi` for libusb access with a 1 ms
-latency timer) sends a pseudo-random payload and checks the echo as it arrives. Its docstring has
-the options, the window limits, the notes (DTR and RTS, macOS, pyftdi) and the exit status. The
-**pipelined** mode (default) writes from a thread while the main thread reads, with at most
-`--window` bytes in flight, so both directions of the line are busy at once: this measures the
-full-duplex line utilization. The **chunked** mode (`--mode chunked`) writes a chunk, reads it back,
-and only then writes the next, so the line idles for a round trip after every chunk (79 % of the
-line rate at 12 Mbaud with 4000-byte chunks).
-
-The pipelined mode reaches 99.6 to 100 % of the line rate because
-the reader does nothing but read and compare (no sleeps, no per-byte Python: each chunk is
-compared with the payload in one memory compare, and the payload is made on the fly), the writer
-uses 512-byte writes and sleeps 0.1 ms only when the window is full, and pyftdi reads one USB packet
-at a time (512 bytes on the FT2232H; the notes say why not its 4 KiB default). `--ftdi` also counts
-the packets in which the chip flags an overrun (`chip errors` in the report) and fails the run if
-there is one, so a host that did not read in time can be told apart from an FPGA problem. With
-`--ftdi` a `--window` or `--chunk` above the chip's receive buffer minus 64 bytes is refused.
-
-```bash
-python3 examples/bluespec/uart_echo/host/uart_echo_test.py --loopback-selftest        # no hardware: both modes, faults, overflow
-python3 examples/bluespec/uart_echo/host/uart_echo_test.py --ftdi ftdi://ftdi:2232h:210319B9B557/2 --baud 12000000 --bytes 16777216
-python3 examples/bluespec/uart_echo/host/uart_echo_test.py --port /dev/cu.usbserial-210319B9B5571 --baud 3000000
-python3 examples/bluespec/uart_echo/host/uart_echo_test.py --ftdi ftdi://ftdi:ft-x:K00121/1 --baud 3000000       # ULX3S
-python3 examples/bluespec/uart_echo/host/uart_echo_test.py --ftdi ... --baud 12000000 --bytes 536870912 --progress   # soak
-```
-
-Exit status 0 only for a perfect echo; a run that stops echoing reports the offset of the first
-missing byte. On success it prints an upper bound of the bit error rate (95 % confidence, three
-events over the bits tested, with zero errors seen).
-
-## Measured on the boards
-
-Boards: Arty A7-100T (FT2232H, USB high speed, channel B), ULX3S 85F (FT231X, USB full speed),
-one Mac (macOS, Apple's DriverKit FTDI driver, pyserial 3.5, pyftdi 0.57, libusb 1.0.30), the host
-not otherwise idle. All runs are the pipelined mode with the defaults, 100 % PASS means every
-byte back in order, nothing extra, and no packet flagged by the chip. Throughput is per direction,
-as a percentage of the line rate (baud / 10 bytes per second). The bitstreams are `FIXED_BAUD`
-builds from openXC7 (Arty, 10 s each) and the open-source ECP5 flow (ULX3S, 5 s), except the
-Vivado rows.
-
-| board, build | baud | pyftdi: bytes, throughput | pyserial: bytes, throughput |
+| board | baud | host | result |
 |---|---|---|---|
-| Arty, Vivado, switches 0 | 12 M | 2 x 16 MiB: 100.0 %, 99.7 %; 512 MiB soak: 99.9 %; chunked 4000 B: 79.3 % | 16 MiB: 99.9 % |
-| Arty, Vivado, `FIXED_BAUD` | 12 M | 16 MiB: 99.7 % | 4 MiB: 99.5 % |
-| Arty, openXC7, `FIXED_BAUD` | 12 M | 16 MiB: 100.0 % | 3 x 4 MiB: 99.5 to 99.6 % |
-| | 8 M | 16 MiB: 99.9 % | 3 x 4 MiB: 99.7 % |
-| | 6 M | 16 MiB: 100.0 % | 4 MiB: 99.8 % |
-| | 4 M | 8 MiB: 99.8 % | 4 MiB: 99.8 % |
-| | 3 M | 8 MiB: 99.9 % | 4 MiB: 99.9 % |
-| | 2 M | 4 MiB: 99.9 % | 4 MiB: 99.9 % |
-| | 1 M | 4 MiB: 100.0 % | 4 MiB: 99.9 % |
-| | 921600 | 4 MiB: 100.0 % | 4 MiB: 100.0 % |
-| | 115200 | 1 MiB: 100.0 % | 1 MiB: 100.0 % |
-| ULX3S, `FIXED_BAUD` | 3 M | 4 MiB, window 448: 56 to 74 % | 2 x 4 MiB: 99.5 %, 99.7 % |
-| ULX3S, `FIXED_BAUD` | 115200 | 1 MiB: 97.2 % | 2 x 1 MiB: 100.0 % |
+| Arty A7-100T | 12 M | pyftdi | 16 MiB echoed without error at 99.7 to 100 % |
+| Arty A7-100T | 12 M | pyftdi | 512 MiB without error (bit error rate below 7e-10 at 95 % confidence) |
+| Arty A7-100T | 115200 to 6 M | pyserial | 4 MiB without error at 99.5 to 100 % |
+| ULX3S | 3 M | pyserial | 4 MiB without error at 99.5 %; with pyftdi, 56 to 74 % |
+| STLV7325 v2 | 3 M | pyserial | 16 MiB at about 45 %; a run can still fail, see [Limits](#limits) |
 
-Every run in the table passed with 0 mismatched, 0 missing and 0 extra bytes. The 512 MiB soak
-(`536870912` bytes, 447.8 s, 1,198,776 B/s, 0 chip errors, in flight at most 1536 bytes) is
-4.3e9 data bits with no error: with 95 % confidence the bit error rate of the echo path (USB, FTDI
-chip, cable, the FPGA's receiver and transmitter, at 12 Mbaud and 100 MHz) is below 7e-10. The
-Vivado bitstream (`arty`) is the one in the soak; `FIXED_BAUD` and the open-source builds ran the
-shorter runs of the table.
+On the Arty and the ULX3S, the echo recovers from wrong baud rates, breaks and framing errors: the
+next run at the right rate comes back exactly. After programming, the line stays silent: no stray
+byte, and no reset pin.
 
-* **pyserial on macOS.** Assigning `ser.timeout` on an open port makes pyserial rewrite the termios
-  settings, and Apple's FTDI driver turns that into USB control transfers in the middle of the
-  traffic (see the notes in the script). That loses and corrupts bytes at every rate from 1 Mbaud
-  up, within the first kilobytes. The tool sets the timeout once. With that, pyserial echoed 4 MiB
-  at every rate up to 12 Mbaud (tens of runs at 8 and 12 Mbaud, also with 20 busy loops competing
-  for the CPU: 89 to 95 % of the line rate). Two runs at 8 and 12 Mbaud lost bytes (a 330-byte gap,
-  and a stall after 2 MiB); about 40 other runs did not reproduce them, so the cause is unknown.
-  pyserial cannot tell that
-  the driver dropped bytes, and it cannot set the latency timer (16 ms by default: with a
-  window of 512 bytes it is down to 4 % at 8 Mbaud). So **on macOS use `--ftdi` from 8 Mbaud up**;
-  pyserial passed everything up to 6 Mbaud.
-* **Host load.** With 20 busy loops on 10 cores, pyftdi at 12 Mbaud still passes every byte but
-  drops to 40 to 42 % (the window is small and the reader is late). The chip's 4 KiB buffer is
-  never overrun because the window is below it. The FT231X of the ULX3S has a 512-byte buffer: a
-  window above 512 (`--window 1792`) loses bytes on a loaded host (`chip errors`: 2 to 11 packets
-  in the failing runs; one such run is in the measurements), so the tool's default there is 448,
-  and with `--ftdi` it refuses a larger window.
-  That costs speed (full-speed USB, a longer round trip): 56 to 74 % of the 300 kB/s, depending on
-  the host load. pyserial on the same board did 99.5 % without loss, but has no protection against
-  the same overrun.
-* **Recovery from errors** (Arty with Vivado, both builds, and ULX3S at 3 Mbaud, pyftdi): the
-  host sent 20 kB of random bytes and 20 kB of zeros at wrong baud rates (Arty: 6 M, 3 M, 1 M,
-  115200, 57600; ULX3S: 1 M, 115200, 57600; 10 to 12 kB came back as garbage when the wrong rate
-  was 6 M or 3 M on the Arty and 1 M on the ULX3S), then 5000 bytes of 0xFF, a 50 ms break, 1000
-  bytes, a 200 ms break, and a 0x00/0x55 pattern at half the baud rate: framing errors, breaks
-  and garbage frames at the receiver. After each, and a pause of 0.2 s, the next 1 MiB at the
-  right rate came back exactly: 15 of 15 on the Arty (Vivado default and `FIXED_BAUD`, each) and
-  11 of 11 on the ULX3S. A framing error does not wedge the echo.
-* **Power-up without a reset.** After `openFPGALoader` (SRAM load) the port was opened at once,
-  4 to 40 ms after the loader returned. The line was silent for 0.3 s (no byte from a glitch of
-  `txd` or the receiver), and 256 KiB echoed exactly: 4 times for the Arty Vivado default, 3 times
-  for each of the Vivado `FIXED_BAUD` and the two openXC7 builds, 4 times for the ULX3S at 3 Mbaud
-  and twice at 115200. No reset button, no reset pin.
-* **The switches on the ULX3S.** Its DIP switches are not all off. The default design (not
-  `FIXED_BAUD`) echoed at 115200 and not at 3 Mbaud, so the run-time period of the PHY and the
-  table work at 115200 on that board. On the Arty, the default design with switches 0 is the
-  12 Mbaud rows above.
+Area and timing (`arty`, `arty_nextpnr` and `ulx3s` are built with the switches, `stlv7325` with a
+fixed rate):
 
-Reproduce one row (Arty, 6 Mbaud, from the root directory of the repository; the paths are those of my machine):
+| target | tools | LUT | FF | block RAM | timing |
+|---|---|---|---|---|---|
+| `arty` | Vivado 2024.2 | 168 | 187 | 1 RAMB18 | 100 MHz met, WNS +3.26 ns |
+| `arty_nextpnr` | openXC7 | 275 | 206 | 1 RAMB18 | 100 MHz met, Fmax 176 MHz |
+| `ulx3s` | Yosys, nextpnr-ecp5 | 352 | 225 | 1 EBR | 25 MHz met, Fmax 110 MHz |
+| `stlv7325` | openXC7 | 197 | 151 | 1 RAMB18 | 200 MHz met, Fmax 242 MHz |
 
-```bash
-export PATH=/opt/openxc7/bin:$PATH
-xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target arty_nextpnr \
-    --run-root /path/to/runs --design-overrides rtl.defines.FIXED_BAUD=true rtl.defines.BAUD=6000000
-DYLD_LIBRARY_PATH=/opt/homebrew/lib python3 examples/bluespec/uart_echo/host/uart_echo_test.py \
-    --ftdi ftdi://ftdi:2232h:210319B9B557/2 --baud 6000000 --bytes 16777216
-python3 examples/bluespec/uart_echo/host/uart_echo_test.py --port /dev/cu.usbserial-210319B9B5571 --baud 6000000 --bytes 4194304
-```
+## Limits
 
-(`DYLD_LIBRARY_PATH` makes pyusb find Homebrew's libusb on macOS. The device names are those of
-my boards: `pyftdi-ftdi-urls` lists yours. pyftdi reads an all-digit serial number as an index.)
+* The CH9102 has a receive FIFO of about 320 bytes and no flow control. Keep at most 256 bytes in
+  flight (the default window). If the host does not read for longer than the FIFO takes to fill,
+  the bridge loses or repeats 64-byte USB packets. The STLV7325 target runs at 3 Mbaud. In testing
+  on macOS, the CH9102 worked at 3 Mbaud but not at 921600 baud; other hosts and drivers may differ.
+* The FT231X of the ULX3S generates at most 3 Mbaud. The FT2232H generates 12, 8, 6, 4, 3, 2, 1.5
+  and 1 Mbaud and the usual slower rates exactly.
+* pyserial cannot see that a driver dropped bytes. A USB bridge can lose data, so a link that must
+  not lose any needs a layer with a CRC and retransmission.
+* In a four-state simulator with `BSV_NO_INITIAL_BLOCKS`, the 3-bit counter of the power-on reset
+  has no start value and the reset never ends. Give it a known value (an `initial` block or the
+  tool's INIT option). FPGAs and the other simulators need nothing.

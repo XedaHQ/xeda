@@ -83,11 +83,13 @@ xeda = "xeda.cli:cli"
 [dependency-groups]
 # What the test suite needs.
 test = ["pytest>=9.1.1", "pytest-xdist", "jsonschema"]
-# What the cocotb testbenches of the examples need. The suite runs them.
+# What the cocotb testbenches of the examples need, and pyserial for the host test of the
+# `uart_echo` example. The suite runs the testbenches.
 examples = [
     "cocotb~=2.1.0",
     "cocotb-coverage~=2.0",
     "setuptools>=84.0",
+    "pyserial>=3.5",
     "cocolight @ git+https://github.com/kammoh/cocolight.git",
 ]
 # black >= 26.10.1 is the first release that knows the py314 target set in [tool.black].
