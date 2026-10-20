@@ -287,8 +287,9 @@ with SshSession(resolve_destination("venona")) as session:
     client.stdin.write(b"echo up\\n")
     client.stdin.flush()
     assert client.stdout.readline() == b"up\\n"  # the client runs
-    print("ready", flush=True)
     try:
+        # Inside `try`: a SIGINT right after the ready line must land in the handler below.
+        print("ready", flush=True)
         time.sleep(60)
     except KeyboardInterrupt:
         time.sleep(1)
