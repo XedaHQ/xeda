@@ -60,7 +60,8 @@ nested. Launch and `xeda scrub` share one rule, `run_dir.run_directory_problem`
   looks it up (`tests/test_patch_targets.py`). `resolver.py` plans every run before any flow is
   built. `xeda/introspect.py` is the one source of metadata for the CLI, docs and skill.
 - `--remote` runs the whole launch on the host (`xeda/remote/`): the user's OpenSSH client opens one
-  private master per launch and Xeda sets no SSH option, a shell script provisions content-keyed
+  private master per launch (Xeda adds only connection-sharing, keepalive and `BatchMode` options,
+  never one that weakens authentication or host keys), a shell script provisions content-keyed
   `uv`, Python, environment and code under `R/v1`, and an agent runs the normal launcher in a
   persistent workspace. Both ends run the same code, so there is no version check
   (`tests/test_remote_client.py`, `tests/test_remote_provision.py`, `tests/test_remote_agent.py`).
