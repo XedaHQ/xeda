@@ -3,7 +3,11 @@
    of the platform through the estimates from the placement. The clusters of instances come after
    the removal of buffers, because the placer keeps the instances that exist at that moment.
    Of the leaves of the global placement, the placement without pins takes only the density, the
-   padding, the seed and the perturbation (see `global_place_skip_io.tcl.j2`). #}
+   padding, the seed and the perturbation (see `global_place_skip_io.tcl.j2`). The concurrent
+   placement of the pins reads the layers and the spacing of the pins from `set_place_config`,
+   which stores them in the design, so the stage removes them again after the placement, as
+   OpenROAD-flow-scripts does. #}
+{% set io = settings.io %}
 {% set gp = settings.global_placement %}
 {% set concurrent = settings.io.flow == "concurrent" %}
 proc xeda_global_place {} {
@@ -28,9 +32,15 @@ proc xeda_global_place {} {
 {% for cluster in gp.clusters %}
     placement_cluster {{ cluster|tcl_list }}
 {% endfor %}
+{% if concurrent %}
+    if {[info commands set_place_config] eq ""} {
+        error "xeda: io.flow: concurrent needs an OpenROAD with set_place_config (26Q4-11 or later); this OpenROAD has none, so set io.flow: skip_io_pass or update OpenROAD"
+    }
+    {{ ["set_place_config", "-io_pin_hor_layers " ~ (P.io_horizontal|tcl_list), "-io_pin_ver_layers " ~ (P.io_vertical|tcl_list), ("-io_pin_min_distance " ~ (io.min_distance|micrometers)) if io.min_distance is not none else "", ("-io_pin_min_distance_in_tracks -io_pin_min_distance " ~ (io.min_distance_tracks|tcl_number)) if io.min_distance_tracks is not none else "", ("-io_pin_corner_avoidance " ~ (io.corner_avoidance|micrometers|tcl_word)) if io.corner_avoidance is not none else ""]|select|join(" ") }}
+{% endif %}
     {{ ["global_placement -density [xeda_density]", "-pad_left " ~ (gp.cell_padding|tcl_number), "-pad_right " ~ (gp.cell_padding|tcl_number), "-place_ios" if concurrent else "", render_flags(gp.routability_driven), "-routability_use_grt" if gp.routability_driven.estimator == "grt" else "", render_flags(gp.timing_driven), render_flags(gp.initial_place), render_flags(gp.nesterov), render_flags(gp), ("-perturb_dist " ~ (gp.perturb_distance|nanometers)) if gp.perturb_distance is not none else ""]|select|join(" ") }}
 {% if concurrent %}
-    xeda_place_pins
+    reset_place_config
 {% endif %}
     estimate_parasitics -placement
 {% if gp.flop_clustering.enabled %}

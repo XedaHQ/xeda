@@ -611,6 +611,18 @@ def write_def(openroad: Path, odb: Path, work: Path) -> bytes:
     return (work / "design.def").read_bytes()
 
 
+def test_gcd_places_its_pins_with_its_cells_in_the_timing_driven_placement(tmp_path):
+    """`io.flow: concurrent` places the pins in the global placement (`-place_ios`) together with
+    the timing-driven and the routability-driven placement, which are on by default."""
+    store = require_gcd_tools()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flow = run_gcd(runner, store, "io.flow=concurrent", flow="openroad_place")
+    assert flow.succeeded, flow.results.get("error")
+    log = (flow.run_path / "openroad_place.log").read_text()
+    (placement,) = [line for line in log.splitlines() if " -place_ios " in line]
+    assert "-timing_driven" in placement and "-routability_driven" in placement
+
+
 def test_two_runs_write_the_same_database(tmp_path):
     """`openroad_place` in two run roots writes the same SDC file and the same database, or at
     least the same design: the DEF files that OpenROAD writes from the two databases are equal.

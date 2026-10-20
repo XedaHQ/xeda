@@ -38,8 +38,8 @@ jobs:
         # The steps use Bash: arrays and `set -o pipefail`.
         shell: bash
     container:
-      # openroad/orfs:26Q4-132-g6b305a712
-      image: openroad/orfs@sha256:63981d1ac8990a9bee8bf874c95ee2c1ee3fe7b99f57d459282ab8c31a8ed663
+      # openroad/orfs:26Q4-171-gbf3f9b344
+      image: openroad/orfs@sha256:ac327587b71c3ce1fea813f4efcf966644daa90c9fadc8f93ee2e4b4c1d64842
     env:
       # Where the image installs its tools.
       ORFS_INSTALL: /OpenROAD-flow-scripts/tools/install

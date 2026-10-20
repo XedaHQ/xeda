@@ -1864,29 +1864,54 @@ def test_the_pins_are_placed_between_the_two_placements(tmp_path):
     assert names_in_order == ["global_placement", "place_pins", "buffer_ports", "global_placement"]
 
 
-def test_concurrent_placement_of_the_pins_places_them_with_the_cells_and_then_legalizes_them(
-    tmp_path,
-):
+def test_concurrent_placement_of_the_pins_places_them_with_the_cells(tmp_path):
+    """`global_placement -place_ios` reads the layers and the spacing of the pins from
+    `set_place_config` and legalizes the pins itself, so no `place_pins` follows. The
+    configuration is stored in the design, so the stage removes it after the placement."""
     flow = place_flow(
         tmp_path,
-        {
-            "io": {"flow": "concurrent"},
-            "global_placement": {
-                "timing_driven": {"enabled": False},
-                "routability_driven": {"enabled": False},
-            },
-        },
+        {"io": {"flow": "concurrent", "min_distance": "3 um", "corner_avoidance": "1 um"}},
     )
     script = render(flow)
+    assert "xeda_place_pins" not in script
     assert stage(script, "xeda_global_place_skip_io") == ["xeda_stage globalplace_skip_io"]
     assert stage(script, "xeda_io_placement") == ["xeda_stage io_placement"]
     body = stage(script, "xeda_global_place")
-    assert body.index(
-        "global_placement -density [xeda_density] -pad_left 0 -pad_right 0 -place_ios "
-        "-force_center_initial_place"
-    ) < body.index("xeda_place_pins")
+    configured = body.index(
+        'set_place_config -io_pin_hor_layers [list "m3"] -io_pin_ver_layers [list "m4"] '
+        '-io_pin_min_distance 3.0 -io_pin_corner_avoidance "1.0"'
+    )
+    (placement,) = [line for line in body if line.startswith("global_placement ")]
+    assert " -place_ios " in placement
+    assert "-timing_driven" in placement and "-routability_driven" in placement
+    assert configured < body.index(placement) < body.index("reset_place_config")
     calls = run_script(flow, script)
-    assert names(calls, "global_placement", "place_pins") == ["global_placement", "place_pins"]
+    assert names(
+        calls, "set_place_config", "global_placement", "reset_place_config", "place_pins"
+    ) == ["set_place_config", "global_placement", "reset_place_config"]
+
+
+def test_concurrent_placement_of_the_pins_gives_the_spacing_in_tracks(tmp_path):
+    flow = place_flow(tmp_path, {"io": {"flow": "concurrent", "min_distance_tracks": 3}})
+    (line,) = [
+        line
+        for line in stage(render(flow), "xeda_global_place")
+        if line.startswith("set_place_config ")
+    ]
+    assert line.endswith("-io_pin_min_distance_in_tracks -io_pin_min_distance 3")
+
+
+def test_concurrent_placement_of_the_pins_stops_on_an_openroad_without_the_command(tmp_path):
+    script = render(place_flow(tmp_path, {"io": {"flow": "concurrent"}}))
+    body = stage(script, "xeda_global_place")
+    check = body.index('if {[info commands set_place_config] eq ""} {')
+    assert "26Q4-11" in body[check + 1] and "io.flow: skip_io_pass" in body[check + 1]
+    assert check < next(i for i, line in enumerate(body) if line.startswith("set_place_config"))
+
+
+def test_the_annealing_of_the_pin_placer_is_refused_with_the_concurrent_placement(tmp_path):
+    message = refusal(tmp_path, "io.flow=concurrent", "io.algorithm=annealing")
+    assert "io.algorithm" in message and "io.flow: skip_io_pass" in message
 
 
 def test_the_pins_stay_where_they_are_with_the_fixed_flow(tmp_path, monkeypatch):
@@ -2855,13 +2880,7 @@ def test_the_metrics_stages_follow_the_stages_in_order(tmp_path):
     [
         {"io": {"flow": "skip_io_pass"}},
         {"io": {"flow": "fixed"}},
-        {
-            "io": {"flow": "concurrent"},
-            "global_placement": {
-                "timing_driven": {"enabled": False},
-                "routability_driven": {"enabled": False},
-            },
-        },
+        {"io": {"flow": "concurrent"}},
         {"io": {"min_distance": "3 um"}},
         {"io": {"min_distance_tracks": 3}},
         {"global_placement": {"density": {"mode": "fixed"}}},
@@ -2953,19 +2972,28 @@ def test_an_algorithm_in_capitals_is_refused(tmp_path):
     assert "annealing" in refusal(tmp_path, "io.algorithm=Annealing")
 
 
-def test_the_excluded_parts_of_the_edges_are_passed_one_flag_each(tmp_path):
+@pytest.mark.parametrize("io_flow", ["skip_io_pass", "concurrent"])
+def test_the_excluded_parts_of_the_edges_are_set_before_the_pins_are_placed(tmp_path, io_flow):
+    """`place_pins -exclude` runs `exclude_io_pin_region`, and `global_placement -place_ios`
+    reads only the command, so the stage gives the command for both flows."""
     exclude = [
         {"edge": "top"},
         {"edge": "right", "begin": "15 um", "end": "60.5 um"},
         {"edge": "left", "end": "2 um"},
         {"edge": "bottom", "begin": "3 um"},
     ]
-    flow = place_flow(tmp_path, {"io": {"exclude": exclude}})
-    (line,) = stage(render(flow), "xeda_place_pins")
-    assert line.endswith(
-        '-exclude "top:*" -exclude "right:15-60.5" -exclude "left:*-2" -exclude "bottom:3-*"'
+    flow, body = io_placement(tmp_path, {"flow": io_flow, "exclude": exclude})
+    assert body[1] == (
+        'exclude_io_pin_region -region "top:*" -region "right:15-60.5" -region "left:*-2" '
+        '-region "bottom:3-*"'
     )
-    run_script(flow)
+    assert "-exclude" not in render(flow)
+    calls = run_script(flow)
+    placing = ("place_pins",) if io_flow == "skip_io_pass" else ("global_placement",)
+    assert names(calls, "exclude_io_pin_region", *placing)[:2] == [
+        "exclude_io_pin_region",
+        placing[0],
+    ]
 
 
 @pytest.mark.parametrize(
@@ -3190,15 +3218,10 @@ def test_the_pins_by_hand_work_with_every_flow_and_with_a_floorplan_from_a_def_f
     fake_returns(monkeypatch, {("all_pins_placed",): "1"})
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "plan.def").write_text("VERSION 5.8 ;\n")
-    modes = {"enabled": False} if io_flow == "concurrent" else {}
     floorplan = {"sizing": "def", "def_file": "plan.def"} if sizing == "def" else {}
     flow = place_flow(
         tmp_path,
-        {
-            "io": {"flow": io_flow, "fixed_pins": FIXED_PINS},
-            "floorplan": floorplan,
-            "global_placement": {"timing_driven": modes, "routability_driven": modes},
-        },
+        {"io": {"flow": io_flow, "fixed_pins": FIXED_PINS}, "floorplan": floorplan},
         model={"site": None} if floorplan else None,
     )
     assert "xeda_fixed_pins" in render(flow)
@@ -3639,15 +3662,13 @@ def test_a_floorplan_from_a_def_file_refuses_a_setting_for_the_pins(tmp_path):
         *def_texts,
         "io.min_distance=3 um",
         "io.flow=concurrent",
-        "global_placement.timing_driven.enabled=false",
-        "global_placement.routability_driven.enabled=false",
     )
     plan(tmp_path / "plain", *def_texts)
 
 
 def test_the_concurrent_placement_of_the_pins_plans_with_the_default_placement_modes(tmp_path):
-    """OpenROAD refuses `-place_ios` together with `-timing_driven` and `-routability_driven`
-    (GPL-0179 and GPL-0181). The settings stay available, and the tool tells."""
+    """`global_placement -place_ios` takes `-timing_driven` and `-routability_driven`, which are
+    on by default."""
     plan(tmp_path, "io.flow=concurrent")
 
 

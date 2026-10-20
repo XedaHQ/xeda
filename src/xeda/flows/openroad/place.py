@@ -179,8 +179,9 @@ def _layer_adjustments(
 
 
 def places_pins(settings: "OpenroadPlace.Settings") -> bool:
-    """Return whether the flow runs `place_pins`: after a placement without pins, unless a DEF
-    file gives the pins, and after a placement of the pins together with the cells."""
+    """Return whether the flow places the pins: with `place_pins` after a placement without pins,
+    unless a DEF file gives the pins, or together with the cells (`global_placement
+    -place_ios`)."""
     flow = settings.io.flow
     return flow == "concurrent" or (flow == "skip_io_pass" and settings.floorplan.sizing != "def")
 
@@ -517,6 +518,13 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
                     f"of the DEF file: set `io.flow: concurrent` to place the pins again, or "
                     f"delete `{leaf}`",
                 )
+        if settings.io.flow == "concurrent" and settings.io.algorithm == "annealing":
+            refuse(
+                "io.algorithm",
+                "`io.algorithm: annealing` is an algorithm of `place_pins`, and `io.flow: "
+                "concurrent` places the pins with `global_placement -place_ios` instead: set "
+                "`io.flow: skip_io_pass`, or delete `io.algorithm`",
+            )
         if (
             settings.io.flow == "fixed"
             and settings.floorplan.sizing != "def"

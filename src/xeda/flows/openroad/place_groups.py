@@ -1057,10 +1057,10 @@ class IoGroup(SettingsGroup):
         "skip_io_pass",
         description="How the pins get their places. `skip_io_pass` places the cells without the "
         "pins first, then places the pins, then places the cells again. `concurrent` places the "
-        "pins together with the cells (`global_placement -place_ios`), then runs `place_pins` to "
-        "legalize them. OpenROAD v2.0-26132 refuses `-place_ios` together with the "
-        "timing-driven and the routability-driven placement (GPL-0179 and GPL-0181), so set both "
-        "modes off for it. "
+        "pins together with the cells (`global_placement -place_ios`), and the global placement "
+        "legalizes them with the pin placer. It takes the layers, `min_distance`, "
+        "`min_distance_tracks` and `corner_avoidance` through `set_place_config` (the "
+        "`-io_pin_` options), and needs OpenROAD 26Q4-11 or later, which has that command. "
         "`fixed` keeps the pins that the floorplan already placed: it needs a DEF file with placed "
         "pins (`floorplan.sizing: def`) or `fixed_pins`, else the global placement stops with "
         "GPL-0326 on the unplaced pins. With `floorplan.sizing: def` the pins of the DEF file "
@@ -1103,7 +1103,7 @@ class IoGroup(SettingsGroup):
         "matching",
         description="How the pins get their slots. `matching` assigns them with the Hungarian "
         "method, which is the default of the tool. `annealing` uses simulated annealing "
-        "(`-annealing`), set by `annealing`.",
+        "(`-annealing`), set by `annealing`, and only with `flow: skip_io_pass`.",
         json_schema_extra=tier("advanced"),
     )
     annealing: AnnealingGroup = Field(
@@ -1112,8 +1112,8 @@ class IoGroup(SettingsGroup):
     )
     exclude: list[EdgeInterval] = Field(
         [],
-        description="The parts of the edges where no pin may sit (`-exclude`, one flag for each "
-        "item).",
+        description="The parts of the edges where no pin may sit (`exclude_io_pin_region`, one "
+        "`-region` for each item).",
         json_schema_extra=tier("advanced"),
     )
     groups: list[PinGroup] = Field(
