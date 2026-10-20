@@ -150,8 +150,15 @@ _SCAN_OPEN_ERROR = re.compile(
 
 
 def _scan_header(lines: list[str]) -> Optional[str]:
+    numeric_columns = (r"\bBus\b", r"\bdevice\b", r"vid:pid")
     return next(
-        (line for line in lines if all(re.search(name, line) for name in _SCAN_COLUMNS)), None
+        (
+            line
+            for line in lines
+            if all(re.search(name, line) for name in _SCAN_COLUMNS)
+            and all(re.search(name, line, re.IGNORECASE) for name in numeric_columns)
+        ),
+        None,
     )
 
 
@@ -212,8 +219,8 @@ def parse_scan_usb(text: str) -> list[UsbProbe]:
     (`libusb_ll.cpp`). The manufacturer and the product can hold spaces (`Digilent USB Device`),
     so the reader reads the bus, the device and the USB id, then cuts the rest of the row at the
     offsets of the header's words. A probe with no serial prints `none`; that and an empty field
-    both mean no serial. Ambiguous column alignment leaves the serial unreadable. A row that is not
-    a probe is skipped. Without the header the result is empty."""
+    both mean no serial. For v0.13.1, ambiguous column alignment leaves the serial unreadable.
+    A row that is not a probe is skipped. Without the header the result is empty."""
     lines = _plain(text)
     header = _scan_header(lines)
     if header is None:
@@ -221,26 +228,61 @@ def parse_scan_usb(text: str) -> list[UsbProbe]:
     probe_at, manufacturer_at, serial_at, product_at = (
         re.search(name, header).start() for name in _SCAN_COLUMNS  # type: ignore[union-attr]
     )
+    old_scan = re.search(r"probe\s+type", header, re.IGNORECASE) is not None
+    if old_scan:
+        bus_at = device_at = vid_at = 0
+    else:
+        bus_at = re.search(r"\bBus\b", header, re.IGNORECASE).start()  # type: ignore[union-attr]
+        device_at = re.search(r"\bdevice\b", header, re.IGNORECASE).start()  # type: ignore[union-attr]
+        vid_at = re.search(r"vid:pid", header, re.IGNORECASE).start()  # type: ignore[union-attr]
     serial_width = max(1, product_at - serial_at - 1)
     probes = []
     for line in lines:
-        found = _SCAN_ROW.match(line)
-        if not found:
-            continue
+        if old_scan:
+            found = _SCAN_ROW.match(line)
+            if not found:
+                continue
+            bus = int(found["bus"]) % 256
+            device = int(found["device"]) % 256
+            vid, pid = int(found["vid"], 16), int(found["pid"], 16)
+        else:
+            # Current scan fields have fixed header widths. `formatDec(char, 3)` can print a
+            # signed char wider than three characters, without a separator before the next field.
+            bus_text = line[bus_at:device_at].strip().lstrip("0") or "0"
+            device_text = line[device_at:vid_at].strip().lstrip("0") or "0"
+            usb_id = re.match(
+                r"\s*(?:0x)?(?P<vid>[0-9a-f]{1,4}):(?:0x)?(?P<pid>[0-9a-f]{1,4})(?=\s|$)",
+                line[vid_at:],
+                re.IGNORECASE,
+            )
+            if not usb_id:
+                continue
+            try:
+                bus, device = int(bus_text) % 256, int(device_text) % 256
+            except ValueError:
+                continue
+            vid, pid = int(usb_id["vid"], 16), int(usb_id["pid"], 16)
         probe_type = line[probe_at:manufacturer_at].strip()
         serial_field = line[serial_at:product_at]
-        candidates = _scan_serial_candidates(line, serial_at, serial_width)
-        serial_readable = len(line) >= product_at and (
-            (not serial_field.strip() and not candidates)
-            or (len(candidates) == 1 and candidates[0][0] == serial_at)
-        )
-        serial = candidates[0][1] if serial_readable and candidates else ""
+        if old_scan:
+            candidates = _scan_serial_candidates(line, serial_at, serial_width)
+            serial_readable = len(line) >= product_at and (
+                (not serial_field.strip() and not candidates)
+                or (len(candidates) == 1 and candidates[0][0] == serial_at)
+            )
+            serial = candidates[0][1] if serial_readable and candidates else ""
+        else:
+            # Current openFPGALoader computes its column widths from all device strings before it
+            # prints the header. The manufacturer and serial columns therefore stay aligned even
+            # when their values are longer than the minimum width.
+            serial_readable = len(line) >= product_at
+            serial = serial_field.strip() if serial_readable else ""
         probes.append(
             UsbProbe(
                 # the loader prints the numbers with `std::to_string(char)`: above 127, negative
-                bus=int(found["bus"]) % 256,
-                device=int(found["device"]) % 256,
-                usb_id=UsbId(int(found["vid"], 16), int(found["pid"], 16)),
+                bus=bus,
+                device=device,
+                usb_id=UsbId(vid, pid),
                 probe_type=probe_type,
                 manufacturer=line[manufacturer_at:serial_at].strip(),
                 serial=None if serial in ("", "none") else serial,
