@@ -10,6 +10,7 @@ import xeda.flows  # noqa: F401  (registers every flow)
 from xeda import Design
 from xeda.design import DesignValidationError
 from xeda.flow import FlowSettingsException
+from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, Yosys
 
 MISSING = "xeda-no-such-distribution"
@@ -61,3 +62,11 @@ def test_only_a_distribution_name_is_accepted(name):
 @pytest.mark.parametrize("name", ["cocotb", "cocotb-bus", "zope.interface", "a_b", "7zip"])
 def test_a_distribution_name_is_accepted(name):
     assert _design([name]).tb.python_packages == [name]
+
+
+def test_planning_refuses_a_missing_package_before_any_run_directory(tmp_path):
+    run_root = tmp_path / "xeda_run"
+    with pytest.raises(FlowSettingsException) as raised:
+        DefaultRunner(run_root).plan("ghdl_sim", design=_design([MISSING], tmp_path))
+    assert MISSING in str(raised.value)
+    assert not run_root.exists() or not any(run_root.iterdir())

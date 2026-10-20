@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import re
-from importlib import metadata
 from abc import ABCMeta
+from importlib import metadata
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Literal, Mapping, Optional, Union
 
