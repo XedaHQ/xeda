@@ -164,7 +164,7 @@ name with a backslash before a dot (``A\.B``) is refused in every origin, becaus
 tool have no backslash.
 A remote run (``--remote``) refuses such a table when it holds a name that starts with another
 name and a dot (``A`` and ``A.B``), before it connects. The message names the table and the keys.
-A local run accepts the table.
+A local run accepts a table whose names come from different origins.
 
 A name with a space is a quoted shell item::
 

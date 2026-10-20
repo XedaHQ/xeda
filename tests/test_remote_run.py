@@ -835,7 +835,9 @@ def test_a_remote_run_refuses_an_openroad_table_that_holds_a_name_inside_another
     assert "A local run accepts both" in message
 
 
-def test_a_remote_run_with_one_dotted_name_in_such_a_table_works(tmp_path, remote_host):
+def test_a_remote_run_with_dotted_names_that_do_not_nest_in_such_a_table_works(
+    tmp_path, remote_host
+):
     design_root = tmp_path / "design"
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)

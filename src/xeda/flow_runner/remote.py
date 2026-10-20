@@ -1146,10 +1146,11 @@ class RemoteRunner(FlowLauncher):
                     continue
                 for table, outer, inner in names_inside_names(section_class.Settings, section):
                     raise FlowSettingsException(
-                        f"`{section_name}.{table}` holds the name `{outer}` and the name `{inner}`, "
-                        "which starts with it and a dot. A local run accepts both, but a remote "
-                        "run refuses them: the remote reads the design as one origin, which "
-                        f"cannot hold both. Give only one of them, or run `{section_name}` locally"
+                        f"`{section_name}.{table}` holds the name `{outer}` and the name "
+                        f"`{inner}`, which starts with it and a dot. A local run accepts both, "
+                        "but a remote run refuses them: the remote reads the design as one "
+                        "origin, which cannot hold both. Give only one of them, or run the "
+                        "request without `--remote`"
                     )
             # Hashed exactly as a local run would be, from the validated settings. Checked here
             # and not on the remote: a path that the flow writes and that leads out of its run
