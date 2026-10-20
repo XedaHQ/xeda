@@ -5,7 +5,8 @@ Calls are JSON lines in the working directory, after every input has been opened
 XEDA_FAKE_FPGA_TOOL optionally limits fault injection to one executable. MODE is
 partial, no-output, malformed-report, fail, or signal; DELAY is seconds before output.
 READY (the path of a FIFO) makes the tool report its process id there and block, to the end of
-a test that stops it; IGNORE_SIGNALS makes it ignore SIGINT and SIGTERM while it blocks.
+a test that stops it; IGNORE_SIGNALS makes it ignore SIGINT and SIGTERM while it blocks; FLOOD makes it print lines
+without a pause instead.
 Only version/help probes bypass input validation and call recording. openFPGALoader answers
 its version as the real one does: `-V` or `--Version` (capital V) print `openFPGALoader v1.0.0`,
 and the conventional `--version` is rejected, so a flow that asks the wrong way gets no version.
@@ -278,6 +279,9 @@ def record(tool, args, inputs, contents, seed=1):
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
         Path(ready).write_text(str(os.getpid()))
+        while os.environ.get("XEDA_FAKE_FPGA_FLOOD"):
+            # a tool that writes output without a pause, as a verbose tool does
+            print("flood line " + "x" * 100, flush=True)
         time.sleep(600)
     mode = os.environ.get("XEDA_FAKE_FPGA_MODE", "")
     if mode == "signal":

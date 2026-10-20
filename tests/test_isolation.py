@@ -2185,9 +2185,19 @@ REVIEWED_WRITES = [
     ),
     (
         "remote/agent.py",
-        'descriptor = os.open(self.workspace / "lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)',
+        "descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)",
         "the remote agent, outside a run directory: the lock file of a workspace, opened to be "
-        "locked, not written; `O_NOFOLLOW` makes the open fail on a link",
+        "locked, not written. `O_NOFOLLOW` makes the open fail on a link, and the agent checks "
+        "that the open file is a regular file and still the file at that name before it relies on "
+        "the lock",
+    ),
+    (
+        "remote/agent.py",
+        'descriptor = os.open(path / "lock", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)',
+        "`xeda.remote.agent clean`, outside a run directory: a read-only descriptor on the lock "
+        "file of a workspace, to try the lock. It creates and writes nothing, `O_NOFOLLOW` makes "
+        "it fail on a link, and `O_NONBLOCK` keeps a FIFO from blocking it (`clean` then skips a "
+        "lock that is no regular file)",
     ),
     (
         "remote/agent.py",

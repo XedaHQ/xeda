@@ -19,7 +19,8 @@ root `R`, and the workspace is `R/v1/ws/<key>/` with the directories `inputs/<de
 3. client: `J {"launch": {<LaunchRequest fields>}, "id": launch id, "setup": [lines]}`. The agent
    starts the launch in `launches/<id>/` and streams its log as `L` frames, one for each line. When
    the launch ends, the agent sends `J {"result": <result.json or null>, "canceled": bool,
-   "exit": n}`. While the launch runs, the client sends `H` frames, and `C` to cancel it.
+   "exit": n, "survivors": n}`. `survivors` counts the processes that SIGKILL did not remove.
+   While the launch runs, the client sends `H` frames, and `C` to cancel it.
 4. client: `J {"fetch": {"fetch_all": bool}}` (or none, for a dry run). The agent answers
    `J {"files": [entries]}` and then the tar of these files as `DATA` frames and an `END` frame.
 5. client: `J {"bye": true}`. The agent releases the lock and exits with status 0.
@@ -29,16 +30,22 @@ status 1. If the client cancels (`C`) or goes away before the launch starts, the
 `J {"canceled": true, "reason": text}` where it can, and exits with status 0.
 
 The client is gone when its stream ends, when it sends no frame for the lease after it began to
-send `H` frames, and (for a running launch) when it sends no frame for the lease at all. The
-agent cancels a running launch in that case, as for a `C` frame: SIGINT to the launch, SIGTERM
-to it and to its descendants after the first grace period, SIGKILL to what is left after the
-second. The result is sent only after all of them are gone.
+send `H` frames, when it sends no frame for the lease at all (for a running launch), and when it
+does not read: one write of a frame to it takes longer than the lease. A thread writes all frames,
+and the agent never waits for a write while a launch runs. So output cannot delay a cancel, the
+lease or the signals.
+
+The agent cancels a running launch in that case, as for a `C` frame: SIGINT to the launch,
+SIGTERM to it and to its descendants after the first grace period, SIGKILL to what is left after
+the second. The periods run on the clock of the agent. The result is sent only after all of them
+are gone.
 
 `check [--json] <executables...>` and `clean <root> [--older-than DAYS] [--all]` write `MAGIC` and
 then one JSON document and a newline.
 """
 
 import argparse
+import errno
 import fcntl
 import io
 import json
@@ -49,10 +56,12 @@ import shlex
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,7 +69,7 @@ from typing import Any, BinaryIO, Optional, cast
 
 import psutil
 
-from ..utils import replacing_file
+from ..utils import json_encodable, replacing_file
 from ..version import __version__
 from .constants import CANCEL_GRACE, LAYOUT, LEASE
 from .errors import RemoteError, RemoteProtocolError
@@ -95,6 +104,19 @@ _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 _DEFAULT_DAYS = 30.0
 
 _CHUNK = 1 << 20
+
+#: The size of a `DATA` frame that the agent sends. A write of one frame to a slow client counts as
+#: a stall when it takes longer than the lease, so a frame is small.
+_DATA_FRAME = 1 << 16
+
+#: The most log bytes that the agent sends in one look at the log (one tick).
+_PUMP_BYTES = 1 << 18
+
+#: The frames that wait for the writer thread.
+_QUEUE_DEPTH = 32
+
+#: Seconds that the agent waits to queue a closing message (an error, or a cancel notice).
+_TELL_WAIT = 2.0
 
 
 class _SessionEnded(Exception):
@@ -201,9 +223,87 @@ class _FrameSink(io.RawIOBase):
 
     def write(self, data: Any) -> int:
         view = memoryview(data).cast("B")
-        for start in range(0, len(view), _CHUNK):
-            self._send(DATA, bytes(view[start : start + _CHUNK]))
+        for start in range(0, len(view), _DATA_FRAME):
+            self._send(DATA, bytes(view[start : start + _DATA_FRAME]))
         return len(view)
+
+
+class _FdWriter:
+    """A binary file over a file descriptor. `write` writes every byte. It has no buffer and no
+    Python lock, so that a thread blocked in a write cannot stop the interpreter at exit."""
+
+    def __init__(self, descriptor: int) -> None:
+        self._descriptor = descriptor
+
+    def write(self, data: bytes) -> int:
+        view = memoryview(data)
+        while view:
+            view = view[os.write(self._descriptor, view) :]
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+
+class _Output:
+    """Send frames from one thread, so that a client that does not read blocks that thread only.
+
+    The session queues frames and never waits for the writer, except where it has nothing else to
+    do (`Session.send`). The output has failed when a write raised, or when one write has taken
+    longer than `stall` seconds. A failed output drops every frame."""
+
+    def __init__(self, writer: FrameWriter, stall: float) -> None:
+        self._writer = writer
+        self._stall = stall
+        self._queue: "queue.Queue[Optional[tuple[bytes, bytes]]]" = queue.Queue(
+            maxsize=_QUEUE_DEPTH
+        )
+        self._busy_since: Optional[float] = None
+        self._broken = False
+        self._thread = threading.Thread(target=self._run, name="frame-writer", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def failed(self) -> bool:
+        since = self._busy_since
+        if since is not None and time.monotonic() - since > self._stall:
+            self._broken = True
+        return self._broken
+
+    def offer(self, kind: bytes, payload: bytes = b"") -> bool:
+        """Queue a frame without waiting. Return `False` if the queue is full. A failed output
+        drops the frame and returns `True`."""
+        if self.failed():
+            return True
+        try:
+            self._queue.put_nowait((kind, payload))
+        except queue.Full:
+            return False
+        return True
+
+    def close(self) -> None:
+        """Let the writer send what is queued, as long as it makes progress."""
+        while not self.failed():
+            try:
+                self._queue.put(None, timeout=_TICK)
+                break
+            except queue.Full:
+                continue
+        while self._thread.is_alive() and not self.failed():
+            self._thread.join(_TICK)
+
+    def _run(self) -> None:
+        while (item := self._queue.get()) is not None:
+            if self._broken:
+                continue
+            self._busy_since = time.monotonic()
+            try:
+                self._writer.send(*item)
+            except BaseException:  # pylint: disable=broad-except
+                self._broken = True
+            finally:
+                self._busy_since = None
 
 
 # ---------------------------------------------------------------------------------------------
@@ -225,25 +325,44 @@ def _signal_process(process: psutil.Process, number: int) -> None:
 
 
 class _LogTail:
-    """Send the lines of a growing log file as `L` frames."""
+    """Send the lines of a growing log file as `L` frames, a bounded amount at a time."""
 
-    def __init__(self, path: Path, send: Callable[[bytes, bytes], None]) -> None:
+    def __init__(self, path: Path, offer: Callable[[bytes, bytes], bool]) -> None:
         self._file = path.open("rb")
-        self._send = send
+        self._offer = offer
+        self._lines: "deque[bytes]" = deque()
         self._rest = b""
+        self._at_end = False
 
-    def pump(self, final: bool = False) -> None:
-        """Send every line that is complete now. With `final`, send the incomplete last line too."""
-        while data := self._file.read(1 << 16):
-            *lines, self._rest = (self._rest + data).split(b"\n")
-            for line in lines:
-                self._send(LOG, line)
-            if len(self._rest) > _CHUNK:
-                self._send(LOG, self._rest)
-                self._rest = b""
-        if final and self._rest:
-            self._send(LOG, self._rest)
-            self._rest = b""
+    def pump(self, final: bool = False) -> int:
+        """Send the complete lines that are there now, at most `_PUMP_BYTES` bytes, and never
+        wait for room. A line that finds no room stays for the next call. With `final`, the
+        incomplete last line goes too. Return the number of bytes sent."""
+        sent = 0
+        while sent < _PUMP_BYTES:
+            if not self._lines:
+                data = self._file.read(1 << 16)
+                self._at_end = not data
+                if not data:
+                    if final and self._rest:
+                        self._lines.append(self._rest)
+                        self._rest = b""
+                        continue
+                    break
+                *lines, self._rest = (self._rest + data).split(b"\n")
+                self._lines.extend(lines)
+                if len(self._rest) > _CHUNK:
+                    self._lines.append(self._rest)
+                    self._rest = b""
+                continue
+            if not self._offer(LOG, self._lines[0]):
+                break
+            sent += len(self._lines.popleft()) + 1
+        return sent
+
+    def finished(self) -> bool:
+        """Whether `pump(final=True)` has sent everything."""
+        return self._at_end and not self._lines and not self._rest
 
     def close(self) -> None:
         self._file.close()
@@ -270,6 +389,23 @@ def _read_json(path: Path) -> Any:
         return None
 
 
+def _read_result(launch_dir: Path) -> Any:
+    """The `result.json` of a launch: `None` if the launch wrote none. A file that is not a JSON
+    object raises `RemoteProtocolError`."""
+    path = launch_dir / RESULT_FILE
+    if not os.path.lexists(path):
+        return None
+    try:
+        if os.path.islink(path) or not os.path.isfile(path):
+            raise ValueError("it is not a regular file")
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(document, dict):
+            raise ValueError("it is not a JSON object")
+    except (OSError, ValueError) as error:
+        raise RemoteProtocolError(f"{RESULT_FILE} of the launch is damaged: {error}") from error
+    return document
+
+
 def _launch_running(state: Any) -> bool:
     """Whether the launch that `state.json` describes still runs: its process is alive and has
     the start time that was recorded (a reused process id is another process)."""
@@ -281,6 +417,34 @@ def _launch_running(state: Any) -> bool:
         return _running(process) and abs(process.create_time() - created) < 1.0
     except (psutil.Error, KeyError, TypeError, ValueError):
         return False
+
+
+def _is_file_at(descriptor: int, path: Path) -> bool:
+    """Whether the open file `descriptor` is the file that is at `path` now."""
+    try:
+        opened, named = os.fstat(descriptor), os.lstat(path)
+    except OSError:
+        return False
+    return (opened.st_dev, opened.st_ino) == (named.st_dev, named.st_ino)
+
+
+def _launch_states(workspace: Path) -> list[Any]:
+    """The `state.json` documents of the launches of a workspace. The `launches` directory and
+    each launch directory must be real directories: a link is not followed."""
+    states: list[Any] = []
+    launches = workspace / "launches"
+    try:
+        if not stat.S_ISDIR(os.lstat(launches).st_mode):
+            return states
+        with os.scandir(launches) as listing:
+            directories = sorted(e.path for e in listing if e.is_dir(follow_symlinks=False))
+    except OSError:
+        return states
+    for directory in directories:
+        state = _read_json(Path(directory) / "state.json")
+        if state is not None:
+            states.append(state)
+    return states
 
 
 # ---------------------------------------------------------------------------------------------
@@ -314,7 +478,7 @@ class Session:
         root: Path,
         key: str,
         client: _Client,
-        out: FrameWriter,
+        out: _Output,
         *,
         lease: float = LEASE,
         grace: tuple[float, float] = CANCEL_GRACE,
@@ -330,7 +494,6 @@ class Session:
         self.grace = grace
         self.lock_notice = lock_notice
         self.signal_name: Optional[str] = None
-        self.broken = False
         self.request: Optional[LaunchRequest] = None
         self.design = ""
         self.result: Any = None
@@ -339,26 +502,32 @@ class Session:
 
     # -- sending
 
+    def offer(self, kind: bytes, payload: bytes = b"") -> bool:
+        """Queue a frame without waiting. Return `False` if there is no room now."""
+        return self.out.offer(kind, payload)
+
     def send(self, kind: bytes, payload: bytes = b"") -> None:
-        """Send a frame. A write that fails marks the connection as broken: the session goes on
-        to its end and sends nothing more."""
-        if self.broken:
-            return
-        try:
-            self.out.send(kind, payload)
-        except (OSError, RemoteProtocolError, ValueError):
-            self.broken = True
+        """Queue a frame, and wait for room while the client reads. If the client does not read,
+        or has gone, raise `_SessionEnded`. Only use it where the session has nothing else to
+        watch: a launch that runs is supervised without it."""
+        while not self.offer(kind, payload) or self.out.failed():
+            if self.out.failed() or self.client.gone.is_set():
+                raise _SessionEnded("the connection to the client failed", client_gone=True)
+            time.sleep(_TICK)
 
     def send_json(self, document: Any) -> None:
-        if self.broken:
-            return
-        try:
-            self.out.send_json(document)
-        except (OSError, RemoteProtocolError, ValueError):
-            self.broken = True
+        text = json.dumps(document, separators=(",", ":"), default=json_encodable)
+        self.send(JSON, text.encode("utf-8"))
+
+    def tell(self, document: Any) -> None:
+        """Queue a closing message if there is room soon. Never raise."""
+        text = json.dumps(document, separators=(",", ":"), default=json_encodable)
+        deadline = time.monotonic() + _TELL_WAIT
+        while not self.offer(JSON, text.encode("utf-8")) and time.monotonic() < deadline:
+            time.sleep(_TICK)
 
     def say(self, text: str) -> None:
-        self.send(LOG, f"xeda agent: {text}".encode())
+        self.offer(LOG, f"xeda agent: {text}".encode())
 
     # -- receiving
 
@@ -372,8 +541,8 @@ class Session:
         silent = time.monotonic() - self.client.last_seen
         if (launching or self.client.beating) and silent > self.lease:
             return f"the client sent nothing for {silent:.0f} s (the lease is {self.lease:g} s)"
-        if self.broken:
-            return "the connection to the client failed"
+        if self.out.failed():
+            return "the client does not read the output of the agent"
         if self.client.gone.is_set():
             return "the connection to the client ended"
         return None
@@ -383,7 +552,7 @@ class Session:
         while True:
             reason = self.lost(launching=False)
             if reason and not self.client.gone.is_set():
-                raise _SessionEnded(reason, client_gone=self.broken)
+                raise _SessionEnded(reason, client_gone=self.out.failed())
             try:
                 item = self.client.messages.get(timeout=_TICK)
             except queue.Empty:
@@ -410,8 +579,8 @@ class Session:
     # -- the session
 
     def run(self) -> int:
-        self.send_json({"hello": {"xeda": __version__, "pid": os.getpid()}})
         try:
+            self.send_json({"hello": {"xeda": __version__, "pid": os.getpid()}})
             message = self.take_json()
             if "bye" in message:
                 return 0
@@ -432,10 +601,10 @@ class Session:
                     raise RemoteProtocolError(f"expected `fetch` or `bye`, got {sorted(message)}")
         except _SessionEnded as ended:
             if self.result is None and not ended.client_gone:
-                self.send_json({"canceled": True, "reason": ended.reason})
+                self.tell({"canceled": True, "reason": ended.reason})
             return 0
         except Exception as error:  # pylint: disable=broad-except
-            self.send_json({"error": {"type": type(error).__name__, "message": str(error)}})
+            self.tell({"error": {"type": type(error).__name__, "message": str(error)}})
             print(f"xeda agent: {type(error).__name__}: {error}", file=sys.stderr)
             return 1
         finally:
@@ -443,20 +612,21 @@ class Session:
 
     def close(self) -> None:
         """Stop a launch that still runs, and release the lock."""
-        child = self._child
-        if child is not None and child.poll() is None:
-            self.stop_launch(child, None, "the session ends")
-        if self._lock_fd is not None:
-            os.close(self._lock_fd)
-            self._lock_fd = None
+        try:
+            child = self._child
+            if child is not None and child.poll() is None:
+                self.stop_launch(child, None, "the session ends")
+        finally:
+            if self._lock_fd is not None:
+                os.close(self._lock_fd)
+                self._lock_fd = None
 
     # -- step 2: the lock and the sync
 
     def holder(self) -> str:
         """Who holds the workspace lock, as far as the launch records say."""
         try:
-            for state_file in sorted((self.workspace / "launches").glob("*/state.json")):
-                state = _read_json(state_file)
+            for state in _launch_states(self.workspace):
                 if _launch_running(state):
                     return f"launch {state['id']} (since {state['started']})"
         except OSError:
@@ -464,23 +634,39 @@ class Session:
         return "another session"
 
     def take_lock(self) -> None:
-        self.workspace.mkdir(parents=True, exist_ok=True)
-        descriptor = os.open(self.workspace / "lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-        self._lock_fd = descriptor
+        """Take the lock of the workspace, and wait for it while the client is there. A lock file
+        that was removed or replaced while the agent waited (by `clean`) is not the lock of the
+        workspace any more: the agent opens the new file and waits for that one."""
+        path = self.workspace / "lock"
         next_notice = 0.0
         while True:
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                pass
-            if reason := self.lost(launching=False):
-                raise _SessionEnded(reason, client_gone=self.client.gone.is_set() or self.broken)
-            if time.monotonic() >= next_notice:
-                self.send(LOG, f"waiting for the workspace lock held by {self.holder()}".encode())
-                next_notice = time.monotonic() + self.lock_notice
-            time.sleep(_TICK)
-        os.utime(descriptor)  # the age of the workspace, for `clean`
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    raise RemoteProtocolError(f"the lock {path} is not a regular file")
+                while True:
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        pass
+                    if reason := self.lost(launching=False):
+                        raise _SessionEnded(reason, client_gone=self.out.failed())
+                    if time.monotonic() >= next_notice:
+                        self.offer(
+                            LOG, f"waiting for the workspace lock held by {self.holder()}".encode()
+                        )
+                        next_notice = time.monotonic() + self.lock_notice
+                    time.sleep(_TICK)
+                if _is_file_at(descriptor, path):
+                    os.utime(descriptor)  # the age of the workspace, for `clean`
+                    self._lock_fd = descriptor
+                    return
+            except BaseException:
+                os.close(descriptor)
+                raise
+            os.close(descriptor)
 
     def sync(self, message: dict[str, Any]) -> None:
         body = message.get("sync")
@@ -517,7 +703,12 @@ class Session:
 
     def check_paths(self, request: LaunchRequest) -> None:
         """Refuse a launch outside the workspace that the session holds: its inputs must be in the
-        design directory that the sync filled, and its run root must be the one of the workspace."""
+        design directory that the sync filled, its run root must be the one of the workspace, and
+        its design file must be a plain relative path."""
+        for name, value in (("inputs_dir", request.inputs_dir), ("run_root", request.run_root)):
+            if not os.path.isabs(value):
+                raise RemoteProtocolError(f"{name} {value!r} is not an absolute path")
+        safe_member_path(request.design_file)
         real = os.path.realpath
         if not self.design or not Path(real(request.inputs_dir)).is_relative_to(
             real(self.workspace / "inputs" / self.design)
@@ -541,7 +732,7 @@ class Session:
             raise RemoteProtocolError("`setup` of `launch` is not a list of text lines")
         try:
             request = LaunchRequest.model_validate(message["launch"])
-        except ValueError as error:
+        except (KeyError, ValueError) as error:
             raise RemoteProtocolError(f"`launch` is not a launch request: {error}") from None
         self.check_paths(request)
         bash = shutil.which("bash")
@@ -587,39 +778,51 @@ class Session:
             "state": "running",
         }
         _write_json(launch_dir / "state.json", state)
-        tail = _LogTail(log, self.send)
+        tail = _LogTail(log, self.offer)
         try:
-            canceled = self.supervise(child, tail)
-            tail.pump(final=True)
+            canceled, survivors = self.supervise(child, tail)
+            self.flush_log(tail)
         finally:
             tail.close()
         state.update(state="canceled" if canceled else "finished", exit=child.returncode)
         _write_json(launch_dir / "state.json", state)
-        self.result = _read_json(launch_dir / RESULT_FILE) or {}
+        result = _read_result(launch_dir)
+        self.result = result or {}
         self.send_json(
             {
-                "result": _read_json(launch_dir / RESULT_FILE),
+                "result": result,
                 "canceled": canceled,
                 "exit": child.returncode,
+                "survivors": survivors,
             }
         )
 
-    def supervise(self, child: "subprocess.Popen[bytes]", tail: _LogTail) -> bool:
-        """Stream the log until the child ends. Return whether the launch was canceled."""
+    def supervise(self, child: "subprocess.Popen[bytes]", tail: _LogTail) -> tuple[bool, int]:
+        """Stream the log until the child ends. Return whether the launch was canceled, and how
+        many processes of it survived SIGKILL. Nothing here waits for the client to read."""
         while child.poll() is None:
             tail.pump()
             if (reason := self.lost(launching=True)) is not None:
-                self.stop_launch(child, tail, reason)
-                return True
+                return True, self.stop_launch(child, tail, reason)
             time.sleep(_TICK)
-        return False
+        return False, 0
+
+    def flush_log(self, tail: _LogTail) -> None:
+        """Send the rest of the log, while the client reads it."""
+        while True:
+            sent = tail.pump(final=True)
+            if tail.finished() or self.out.failed():
+                return
+            if not sent:
+                time.sleep(_TICK)
 
     def stop_launch(
         self, child: "subprocess.Popen[bytes]", tail: Optional[_LogTail], reason: str
-    ) -> None:
+    ) -> int:
         """Stop the child and every process that it started: SIGINT to the child; after the first
-        grace period SIGTERM to all of them; after the second SIGKILL to what is left. Return
-        when none is left."""
+        grace period SIGTERM to all of them; after the second SIGKILL to what is left. The periods
+        run on the clock of the agent: no send of a frame waits for them or delays them. Return
+        the number of processes that are still there after SIGKILL and `_KILL_WAIT` seconds."""
         self.say(f"canceling the launch: {reason}")
         known: set[psutil.Process] = set()
         try:
@@ -661,17 +864,20 @@ class Session:
             except OSError:
                 pass
         if wait(self.grace[0]):
-            return
+            return 0
         look()
         for process in alive():
             _signal_process(process, signal.SIGTERM)
         if wait(self.grace[1]):
-            return
+            return 0
         look()
         for process in alive():
             _signal_process(process, signal.SIGKILL)
-        if not wait(_KILL_WAIT):
-            self.say(f"{len(alive())} processes of the launch did not stop after SIGKILL")
+        if wait(_KILL_WAIT):
+            return 0
+        survivors = len(alive())
+        self.say(f"{survivors} processes of the launch did not stop after SIGKILL")
+        return survivors
 
     # -- step 4: the fetch
 
@@ -705,7 +911,7 @@ class Session:
             )
         entries = build_manifest(files)
         self.send_json({"files": [entry.as_json_value() for entry in entries]})
-        sink = io.BufferedWriter(_FrameSink(self.send), buffer_size=_CHUNK)
+        sink = io.BufferedWriter(_FrameSink(self.send), buffer_size=_DATA_FRAME)
         write_tar(entries, files, {}, sink)
         sink.flush()
         self.send(END)
@@ -858,7 +1064,11 @@ def clean(root: Path, older_than: float, everything: bool) -> dict[str, Any]:
 
     A workspace is in use while its lock is held or a launch of it runs. An environment or a code
     copy is in use while a process runs from it, and the ones this process runs from are always
-    in use. Without `everything`, only what nobody touched for `older_than` days goes."""
+    in use. Without `everything`, only what nobody touched for `older_than` days goes.
+
+    A link is never entered, and a lock that is a link or no regular file is never opened for
+    more than a look. What cannot be examined or removed (an `OSError` or another error for one
+    candidate) is listed in `kept` with the reason, and the rest goes on."""
     removed: list[dict[str, str]] = []
     kept: list[dict[str, str]] = []
     base = root / LAYOUT
@@ -866,66 +1076,80 @@ def clean(root: Path, older_than: float, everything: bool) -> dict[str, Any]:
     strings = _strings_of_processes() + [sys.prefix, *sys.path]
     own = [Path(sys.prefix), Path(__file__).resolve().parent.parent.parent]
 
+    def keep(kind: str, path: Path, reason: str) -> None:
+        kept.append({"kind": kind, "path": str(path), "reason": reason})
+
+    def candidates_in(kind: str, directory: Path) -> list[Path]:
+        try:
+            return sorted(directory.iterdir())
+        except FileNotFoundError:
+            return []
+        except OSError as error:
+            keep(kind, directory, f"cannot be listed: {error}")
+            return []
+
     def old_enough(newest: float) -> bool:
         return everything or newest < limit
 
     busy = _provisioning(root)
     for kind in ("env", "code"):
-        directory = base / kind
+        for path in candidates_in(kind, base / kind):
+            try:
+                if path.is_symlink() or not path.is_dir():
+                    continue
+                if busy:
+                    keep(kind, path, "provisioning runs")
+                elif any(os.path.realpath(path) == os.path.realpath(p) for p in own) or _uses(
+                    strings, path
+                ):
+                    keep(kind, path, "in use")
+                elif not old_enough(_newest([path, path / "last-use"])):
+                    keep(kind, path, "recently used")
+                else:
+                    _remove_tree(path)
+                    removed.append({"kind": kind, "path": str(path)})
+            except Exception as error:  # pylint: disable=broad-except
+                keep(kind, path, f"error: {type(error).__name__}: {error}")
+    for path in candidates_in("workspace", base / "ws"):
+        descriptor: Optional[int] = None
         try:
-            candidates = sorted(directory.iterdir())
-        except OSError:
-            continue
-        for path in candidates:
             if path.is_symlink() or not path.is_dir():
                 continue
-            if busy:
-                kept.append({"kind": kind, "path": str(path), "reason": "provisioning runs"})
-            elif any(os.path.realpath(path) == os.path.realpath(p) for p in own) or _uses(
-                strings, path
-            ):
-                kept.append({"kind": kind, "path": str(path), "reason": "in use"})
-            elif not old_enough(_newest([path, path / "last-use"])):
-                kept.append({"kind": kind, "path": str(path), "reason": "recently used"})
-            else:
-                _remove_tree(path)
-                removed.append({"kind": kind, "path": str(path)})
-    workspaces = base / "ws"
-    try:
-        candidates = sorted(workspaces.iterdir())
-    except OSError:
-        candidates = []
-    for path in candidates:
-        if path.is_symlink() or not path.is_dir():
-            continue
-        try:
-            lock: Optional[BinaryIO] = open(path / "lock", "rb")
-        except OSError:
-            lock = None
-        try:
-            if lock is not None:
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    kept.append({"kind": "workspace", "path": str(path), "reason": "locked"})
+            try:
+                # Not `O_CREAT`; a link is refused; a FIFO does not block the open.
+                descriptor = os.open(path / "lock", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                if error.errno != errno.ELOOP:
+                    raise
+                keep("workspace", path, "the lock is a link")
+                continue
+            if descriptor is not None:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    keep("workspace", path, "the lock is not a regular file")
                     continue
-            if any(
-                _launch_running(_read_json(state))
-                for state in (path / "launches").glob("*/state.json")
-            ):
-                kept.append({"kind": "workspace", "path": str(path), "reason": "a launch runs"})
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    keep("workspace", path, "locked")
+                    continue
+            if any(_launch_running(state) for state in _launch_states(path)):
+                keep("workspace", path, "a launch runs")
             elif not old_enough(
                 _newest(
                     [path, path / "lock", path / "inputs", path / "launches", path / "xeda_run"]
                 )
             ):
-                kept.append({"kind": "workspace", "path": str(path), "reason": "recently used"})
+                keep("workspace", path, "recently used")
             else:
                 _remove_tree(path)
                 removed.append({"kind": "workspace", "path": str(path)})
+        except Exception as error:  # pylint: disable=broad-except
+            keep("workspace", path, f"error: {type(error).__name__}: {error}")
         finally:
-            if lock is not None:
-                lock.close()
+            if descriptor is not None:
+                os.close(descriptor)
     return {"removed": removed, "kept": kept}
 
 
@@ -969,31 +1193,45 @@ def _announce() -> BinaryIO:
     return protocol
 
 
+def _error_document(error: BaseException) -> dict[str, Any]:
+    return {"type": type(error).__name__, "message": str(error)}
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     arguments = _parser().parse_args(argv)
     protocol = _announce()
+    status = 0
     if arguments.command == "check":
         document: Any = check(arguments.executables)
     elif arguments.command == "clean":
         if not os.path.isabs(arguments.root):
-            print("xeda agent: the root must be an absolute path", file=sys.stderr)
-            return 2
-        document = clean(Path(arguments.root), arguments.older_than, arguments.everything)
+            error = RemoteProtocolError("the root must be an absolute path")
+            print(f"xeda agent: {error}", file=sys.stderr)
+            document, status = {"removed": [], "kept": [], "error": _error_document(error)}, 2
+        else:
+            try:
+                document = clean(Path(arguments.root), arguments.older_than, arguments.everything)
+            except Exception as error:  # pylint: disable=broad-except
+                print(f"xeda agent: {type(error).__name__}: {error}", file=sys.stderr)
+                document, status = {"removed": [], "kept": [], "error": _error_document(error)}, 1
     else:
         return _serve(arguments, protocol)
     protocol.write(json.dumps(document).encode("utf-8") + b"\n")
     protocol.flush()
-    return 0
+    return status
 
 
 def _serve(arguments: argparse.Namespace, protocol: BinaryIO) -> int:
+    writer = FrameWriter(cast(BinaryIO, _FdWriter(protocol.fileno())))
     if not os.path.isabs(arguments.root):
-        print("xeda agent: the root must be an absolute path", file=sys.stderr)
+        error = RemoteProtocolError(f"the root {arguments.root!r} is not an absolute path")
+        writer.send_json({"error": _error_document(error)})
+        print(f"xeda agent: {error}", file=sys.stderr)
         return 2
     # An unbuffered file: the reader thread may be blocked in a read when the process exits, and a
     # buffered reader that a thread holds makes the interpreter abort at shutdown.
     client = _Client(cast(BinaryIO, io.FileIO(sys.stdin.fileno(), "rb", closefd=False)))
-    out = FrameWriter(protocol)
+    out = _Output(writer, arguments.lease)
     try:
         session = Session(
             Path(arguments.root),
@@ -1005,7 +1243,8 @@ def _serve(arguments: argparse.Namespace, protocol: BinaryIO) -> int:
             lock_notice=arguments.lock_notice,
         )
     except RemoteProtocolError as error:
-        out.send_json({"error": {"type": type(error).__name__, "message": str(error)}})
+        writer.send_json({"error": _error_document(error)})
+        print(f"xeda agent: {error}", file=sys.stderr)
         return 1
 
     def on_signal(number: int, _frame: Any) -> None:
@@ -1014,10 +1253,12 @@ def _serve(arguments: argparse.Namespace, protocol: BinaryIO) -> int:
     # Handlers (not SIG_IGN) also make the child start with these signals at their default.
     for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(number, on_signal)
+    out.start()
     client.start()
     try:
         return session.run()
     finally:
+        out.close()
         client.stop()
 
 
