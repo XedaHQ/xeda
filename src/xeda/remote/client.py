@@ -1476,46 +1476,53 @@ def _finish(
     with ExitStack() as locked:
         for directory in sorted(replaced):
             locked.enter_context(run_dir_lock(directory, local_root))
-        for directory in sorted(replaced):
-            if directory.is_dir() and not directory.is_symlink():
-                RunDirectory.claimed(directory, local_root).clear()
-        log.info("Fetching %d file(s) from %s into %s", len(entries), host, mirror_root)
-        publish_mirror(
-            mirror_root,
-            entries,
-            cast(BinaryIO, io.BufferedReader(reader)),
-            remote_run_root=remote_run_root,
-        )
-        reader.drain()
-        results = result.get("results")
-        requested_dir: Optional[Path] = None
-        rewritten: Optional[Dict[str, Any]] = None
-        remote_deliverables: Any = None
-        success = bool(result.get("success"))
-        if isinstance(results, dict) and results and result.get("run_path"):
-            requested = local.requested
-            remote_run_dir = PurePosixPath(result["run_path"])
-            written = (result.get("written") or {}).get(requested)
-            mirror_dir = mirror_root / _place_below(
-                remote_run_root, remote_run_dir, "the run directory"
+        try:
+            for directory in sorted(replaced):
+                if directory.is_dir() and not directory.is_symlink():
+                    RunDirectory.claimed(directory, local_root).clear()
+            log.info("Fetching %d file(s) from %s into %s", len(entries), host, mirror_root)
+            publish_mirror(
+                mirror_root,
+                entries,
+                cast(BinaryIO, io.BufferedReader(reader)),
+                remote_run_root=remote_run_root,
             )
-            rewritten = rewrite_results(results, remote_run_dir, mirror_dir, written=written)
-            requested_dir = mirror_dir
-            output_paths = [str(path) for path in declared_output_files(results)]
-            remote_deliverables = (
-                {"artifacts": results.get("artifacts") or {}, "outputs": output_paths}
-                if output_paths and success
-                else results.get("artifacts")
-            )
-        # The records of the mirror are whole before anything is delivered: a refused delivery
-        # leaves them as they are.
-        for directory in sorted(set(directories.values())):
-            rewrite_records(
-                directory,
-                local_root,
-                translate,
-                results=rewritten if directory == requested_dir else None,
-            )
+            reader.drain()
+            results = result.get("results")
+            requested_dir: Optional[Path] = None
+            rewritten: Optional[Dict[str, Any]] = None
+            remote_deliverables: Any = None
+            success = bool(result.get("success"))
+            if isinstance(results, dict) and results and result.get("run_path"):
+                requested = local.requested
+                remote_run_dir = PurePosixPath(result["run_path"])
+                written = (result.get("written") or {}).get(requested)
+                mirror_dir = mirror_root / _place_below(
+                    remote_run_root, remote_run_dir, "the run directory"
+                )
+                rewritten = rewrite_results(results, remote_run_dir, mirror_dir, written=written)
+                requested_dir = mirror_dir
+                output_paths = [str(path) for path in declared_output_files(results)]
+                remote_deliverables = (
+                    {"artifacts": results.get("artifacts") or {}, "outputs": output_paths}
+                    if output_paths and success
+                    else results.get("artifacts")
+                )
+            # The records of the mirror are whole before anything is delivered: a refused delivery
+            # leaves them as they are.
+            for directory in sorted(set(directories.values())):
+                rewrite_records(
+                    directory,
+                    local_root,
+                    translate,
+                    results=rewritten if directory == requested_dir else None,
+                )
+        except BaseException:
+            # A cut in the transfer, or a failure while the records are rewritten, leaves some files
+            # of this run beside the records of an earlier one. The locks are held: the discard
+            # takes them again in this thread.
+            _discard_mirrors(local, mirror_root, local_root, nodes)
+            raise
         if rewritten is not None and requested_dir is not None:
             if outputs_to is not None and local.deliveries is not None:
                 run.phase = _DELIVERING

@@ -1008,3 +1008,20 @@ def test_an_error_while_fetching_clears_the_mirror(tmp_path, remote_host, monkey
     outcome = _request(tmp_path, design)
     assert isinstance(outcome.error, RemoteConnectionError)
     _assert_mirror_emptied(mirror)
+
+
+def test_a_cut_in_the_transfer_after_results_json_clears_the_mirror(
+    tmp_path, remote_host, monkeypatch
+):
+    design, mirror = _earlier_success(tmp_path)
+    published = client.publish_mirror
+
+    def cut_after_the_files(*arguments, **keywords):
+        published(*arguments, **keywords)
+        assert (mirror / "nextpnr" / "results.json").is_file()  # the new files are there
+        raise RemoteProtocolError("the connection ended inside a data stream")
+
+    monkeypatch.setattr(client, "publish_mirror", cut_after_the_files)
+    outcome = _request(tmp_path, design)
+    assert isinstance(outcome.error, RemoteProtocolError) and not outcome.success
+    _assert_mirror_emptied(mirror)
