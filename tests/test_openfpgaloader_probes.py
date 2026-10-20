@@ -315,11 +315,40 @@ def test_a_bus_or_device_number_above_127_is_read_as_the_loader_meant_it():
     assert (probe.bus, probe.device) == (161, 233)
 
 
+@pytest.mark.parametrize(
+    "bus_text, bus, device_text, device",
+    [
+        ("-128", 128, "004", 4),
+        ("0-1", 255, "004", 4),
+        ("001", 1, "-128", 128),
+        ("001", 1, "0-1", 255),
+    ],
+)
+def test_the_current_scan_reads_signed_char_values_that_fill_their_columns(
+    bus_text, bus, device_text, device
+):
+    """The loader's signed-char formatter can fill a numeric field and remove its separator."""
+    scan = _current_scan([(1, 4, "0x0403:0x6010", "FTDI2232", "Digilent", "ABC123", "Probe")])
+    scan = scan.replace("001 004    ", f"{bus_text:<4}{device_text:<7}")
+    (probe,) = parse_scan_usb(scan)
+    assert (probe.bus, probe.device, probe.serial) == (bus, device, "ABC123")
+
+
 def test_a_scan_that_printed_no_table_is_a_failure_with_its_last_line():
     assert scan_failure("") == "it printed nothing"
     assert scan_failure("Error: failed to allocate buffer\n") == "Error: failed to allocate buffer"
     table = "Bus device vid:pid       probe_type manufacturer serial product\n"
     assert scan_failure(table) is None  # no probe, but a table
+
+
+def test_a_partial_scan_header_is_not_treated_as_a_usb_table():
+    partial_header = "probe_type manufacturer serial product\n"
+    assert parse_scan_usb(partial_header) == []
+
+
+def test_a_scan_header_with_unrecognized_column_case_is_not_treated_as_a_table():
+    uppercase_header = "BUS DEVICE VID:PID PROBE_TYPE MANUFACTURER SERIAL PRODUCT\n"
+    assert parse_scan_usb(uppercase_header) == []
 
 
 def test_a_device_the_scan_could_not_open_is_reported_for_its_usb_id():
