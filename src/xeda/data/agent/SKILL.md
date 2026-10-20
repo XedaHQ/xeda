@@ -382,46 +382,101 @@ xeda run vivado_synth blinky.yaml --outputs-to ./out
 
 ## Remote runs
 
-`--remote HOST` runs the request, a chain too, on a Linux host over SSH. `HOST` is an OpenSSH
-destination; the user's `~/.ssh/config` holds user, port, keys and jump hosts, and OpenSSH asks for
-a password once per launch. Xeda needs on the host only `sh`, `bash`, `tar`, `curl` or `wget`,
-`sha256sum` or `shasum`, and internet access at the first run: it installs `uv`, the same Python
-and the same package versions under `${XDG_CACHE_HOME:-~/.cache}/xeda` and needs no administrator
-rights. The EDA tools must be on the login `PATH` of the host, or be set up by `setup` lines of the
-host profile.
+`--remote HOST` (env `XEDA_REMOTE`) runs the whole request on a Linux host over SSH and fetches the
+results. It takes everything a local run takes: chain, bindings, target, `--outputs-to`,
+`--dry-run`. Use it when the tools, licenses or cores are on a server. The host needs no Xeda: the
+first run installs `uv`, the local Python version and the local package versions under the remote
+root `${XDG_CACHE_HOME:-~/.cache}/xeda/v1`, without administrator rights.
 
-- Host profile: `${XDG_CONFIG_HOME:-~/.config}/xeda/remotes.yaml`, a `hosts` table keyed by the
-  exact text of `--remote`. Fields, all optional: `root` (the remote root), `setup` (shell lines
-  before every launch), `env` (variables for every remote command), `python` (`managed` or the
-  absolute path of a Python of the same version) and `flows` (flow settings for this host only,
-  the lowest layer above the defaults; a locator such as `pdk_root` reaches the host from here
-  only).
-- A cocotb testbench lists its Python packages in `tb.python_packages`; the host installs them at
-  the local versions.
-- The host keeps a workspace per local run root and destination. Runs are make-like there: an
-  unchanged flow is fresh, and only changed inputs are sent. `--hashed-run-dirs`, `--clean`,
-  `--rebuild-all` and `--scrub` act on the host. `--post-cleanup` and `--post-cleanup-purge` are
-  refused; use `xeda remote clean`. A chain with a programmer flow (`openfpgaloader`) is refused:
-  run the part before it with `--remote`, then program locally with a binding to the fetched file.
-- The mirror `<run root>/@<host>/<design>[/<target>]/<flow>` gets, for every flow of the plan,
-  `results.json`, `settings.json`, the top-level `*.log` files and `reports/`, and for the
-  requested flow its declared outputs. `--fetch-all` fetches every file. `--outputs-to` delivers
-  from the mirror after a success; a deliverable setting with a location is refused.
-- `--json` gives the document of a run plus `remote` and `mirror`; paths name the mirror.
-- Ctrl-C cancels the launch on the host (a second one closes the connection). A lost connection
-  cancels it too. Run the same command again to recover: a finished run is reused and only the
-  fetch repeats.
-- `--remote HOST --keep-running` keeps the launch running on the host when the connection ends or
-  Ctrl-C stops the local follow (the failure is `RemoteDetached`, and the document has `launch`).
-  `xeda remote attach HOST [LAUNCH_ID]` shows the log from its start and fetches the result into
-  the mirror (it delivers nothing; run the original command again to deliver). `xeda remote
-  cancel HOST [LAUNCH_ID]` stops the launch. Both take the `--run-root` of the run. Running the same
-  request again attaches to the running launch. A host with `KillUserProcesses=yes` may kill a
-  launch that keeps running at logout.
-- `xeda remote check HOST` installs what is missing and reports the Python, the environment, the
-  free disk space, `KillUserProcesses` and the tools on the login `PATH` (it does not run `setup`).
-  `xeda remote clean HOST [--older-than DAYS] [--all] [--yes]` removes unused environments and
-  workspaces; `--json` does not ask.
+Access:
+
+- `HOST` is an OpenSSH destination: an alias of `~/.ssh/config`, `user@host` or
+  `ssh://user@host:port`. Text that is empty, starts with `-` or has a space is `RemoteConfigError`.
+- The local client must be OpenSSH `ssh` (Xeda uses `ssh -G`, ControlMaster, `ssh -O check|exit`)
+  on Linux or macOS. Native Windows is refused (use WSL). The local Python must be CPython.
+- Authentication is the user's `ssh` configuration: keys, agent, `ProxyJump`, certificates. Xeda
+  opens one master connection per launch and OpenSSH asks on the terminal, once, for a password,
+  passphrase, second factor or new host key. Xeda stores no secret and adds no host key option.
+  Never handle or type a secret yourself. With no terminal a prompt cannot be answered: ask the
+  user to load a key (`ssh-add`) or to run `! ssh HOST true` once, then run again.
+- Host: Linux x86_64 or aarch64, glibc or musl; `sh`, `bash`, `tar`, `curl` or `wget`, `sha256sum`
+  or `shasum`; internet access at the first run (GitHub for `uv` and Python, the package index for
+  packages); the EDA tools on the login `PATH` or made available by `setup` lines; Docker for
+  dockerized flows.
+- First diagnostic: `xeda remote check HOST [--json]`. It installs what is missing and reports
+  `platform`, `xeda`, `python`, `environment` (`key`, `code`, `prefix`, `lock_file`, `lock`),
+  `disk` (`path`, `free`, `total`), `kill_user_processes` (`yes`, `no`, `unknown`), `executables`
+  (`found`, `missing`; the login `PATH`, `setup` is not run), `docker` and `warnings`. A missing
+  tool is no error. Exit 0 when the connection and the environment work. It builds the environment
+  of Xeda alone, without `tb.python_packages`.
+
+Profile `${XDG_CONFIG_HOME:-~/.config}/xeda/remotes.yaml` (optional; one invalid entry fails the
+load for every host with `RemoteConfigError`). The `hosts` table is keyed by the exact text of
+`--remote`. Fields, all optional:
+
+- `root`: the remote root; `~/<path>` or an absolute path of `[A-Za-z0-9._/+-]`. Default
+  `$XDG_CACHE_HOME/xeda`, else `~/.cache/xeda`.
+- `setup`: shell lines that run in the `bash -lc` of every launch, in order (`module load ...`,
+  `source settings64.sh`). Not used by the installation or `xeda remote check`.
+- `env`: variables for every remote command (proxy, `UV_INDEX_URL`, `SSL_CERT_FILE`, license
+  servers). Refused names: `PYTHONPATH`, `PYTHONHOME`, `VIRTUAL_ENV`, `UV_CACHE_DIR`,
+  `UV_PYTHON_INSTALL_DIR`, `UV_NO_CONFIG`, `XEDA_BOOT_*`.
+- `python`: `managed` (default; `uv` installs the local Python version) or the absolute path of a
+  Python of the host. Nothing checks that its version matches the local one.
+- `flows`: flow settings for this host, shaped like the `flows` section of a design file. It is the
+  lowest layer above the flow defaults. A locator setting (`pdk_root`) reaches the host from here
+  only; a local value is never sent.
+
+A cocotb testbench names its Python packages in `tb.python_packages`. The host installs them at the
+local versions, and the key of the environment covers them. A package that is not installed locally
+is `RemoteDependencyError`, before any connection.
+
+Behavior:
+
+- The host keeps a workspace (`v1/ws/<key>/`) per machine, resolved run root and `ssh -G` user,
+  host name and port. Another `--run-root` is another workspace. Runs there are make-like: only
+  changed inputs are sent, and a fresh flow is not run again. `--hashed-run-dirs`, `--clean`,
+  `--rebuild-all` and `--scrub` act on the host. A command waits for the workspace lock and logs
+  the launch that holds it.
+- Refused before any connection: `--post-cleanup`, `--post-cleanup-purge` (use `xeda remote clean`),
+  a deliverable setting that names a location (use `--outputs-to`), a chain with a programmer
+  flow (`openfpgaloader`; run the part before it with `--remote`, then program locally with a
+  binding to the fetched file), `--fetch-all` or `--keep-running` without `--remote`, and
+  `--keep-running` with `--dry-run`.
+- The mirror is `<run root>/@<host>/<design>[/<target>]/<flow>[_<hash>]`, `<host>` being the text of
+  `--remote` with each character outside `[A-Za-z0-9._@-]` replaced by `_`. Every flow of the plan
+  gets `results.json`, `settings.json`, the top-level `*.log` files and `reports/`; the requested
+  flow also its declared outputs and artifacts. A failed flow returns only the files its run wrote.
+  A file outside the run directory comes from a flow that succeeded, under `_external/<digest>/`.
+  `--fetch-all` fetches every file except `trace.json`. The mirror has no `trace.json`, so a local
+  run never reuses it. Paths in `results.json` and `settings.json` name the mirror where Xeda can
+  map them. `.launches/<id>.json` in the mirror is the record that `attach` needs.
+- `--outputs-to DIR` delivers from the mirror after a success.
+- `--json` writes one document: the document of a run plus `remote` (the text of `--remote`) and
+  `mirror`; paths name the mirror and `design_file` is the local file. A failed remote step has
+  `remote` and no `mirror`. A remote dry run adds `uploaded` (the input files it sent), and each
+  `plan` node has `run_path` (in the mirror) and `remote_run_path`. Tool output goes to stderr.
+- `--dry-run --remote HOST` plans and judges freshness on the host. It may install Xeda there and
+  sync the inputs; it writes no run directory.
+- Ctrl-C asks the host to cancel (SIGINT, after 15 s SIGTERM, after 10 s more SIGKILL, to the
+  launch and its descendants). A second Ctrl-C closes the connection, and the host cancels. A lost
+  connection cancels too (heartbeat every 5 s, 30 s lease). Recovery is the same command again:
+  a finished run is reused and only the fetch repeats; a canceled run starts over.
+- `--keep-running` keeps the launch on the host when the connection ends or Ctrl-C stops the
+  follow. The failure is `RemoteDetached` and the document has `launch` (`id`, `host`). Then
+  `xeda remote attach HOST [LAUNCH_ID] [--run-root DIR] [--json]` shows the log from its start and
+  fetches the result into the mirror (exit 0 on success; it delivers nothing, so run the original
+  command again to deliver), and `xeda remote cancel HOST [LAUNCH_ID] [--run-root DIR] [--json]`
+  stops it (document `success`, `host`, `launch`, `survivors`; exit 1 if a process survived
+  SIGKILL). Both need the `--run-root` (env `XEDA_RUN_ROOT`) of the `xeda run` that started the
+  launch, and `attach` needs the record in the mirror. Running the same request again follows the
+  running launch (same options and input content; log verbosity does not count); Ctrl-C then only
+  stops the follow. `KillUserProcesses=yes` on the host (`check` reports it) may kill the launch at
+  logout unless `loginctl enable-linger` is set.
+- `xeda remote clean HOST [--older-than DAYS] [--all] [--yes] [--json]` removes unused
+  environments, code copies and workspaces with their run directories. It lists, asks, and removes;
+  `--yes` and `--json` do not ask. The document has `success`, `host`, `removed` and `kept`; an
+  entry has `kind` (`env`, `code`, `workspace`) and `path`, and a `kept` entry a `reason`.
 
 ## When a run fails
 
@@ -441,7 +496,7 @@ On failure `run` writes a document with `success: false` and `error`, and exits 
 | `FlowDependencyFailure` | A producer failed or its output could not be verified. Read the producer's `results.json`, named in the message. |
 | `RunRootError`, `RunDirectoryError`, `DeliveryError`, `OutputExistsError` | The message names the directory or setting and the fix. |
 | `NoSuccessfulRun` | `xeda dse` found no successful run. Inspect the attempted runs and adjust the search. |
-| `RemoteConnectionError`, `RemoteProvisionError`, `RemoteDependencyError`, `RemoteIncompatible`, `RemoteCanceled`, `RemoteInterrupted`, `RemoteDetached`, `RemoteFetchError`, `RemoteConfigError` | A `--remote` run failed outside the flow. The message names the step and the cause; `references/troubleshooting.md` has the fix for each type. |
+| `RemoteConnectionError`, `RemoteProvisionError`, `RemoteDependencyError`, `RemoteIncompatible`, `RemoteCanceled`, `RemoteInterrupted`, `RemoteDetached`, `RemoteFetchError`, `RemoteConfigError`, `RemoteProtocolError`, `RemoteError` | A `--remote` run failed outside the flow. The message names the step and the cause; `references/troubleshooting.md` has the fix for each type. |
 
 Add `--debug` for verbose logs and a traceback. Flow names accept `vivado_synth`, `vivado-synth`
 and `VivadoSynth`; setting names are exact.

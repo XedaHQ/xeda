@@ -108,20 +108,23 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 ### Remote runs
 
 `--remote` failures have their own types. The message names the step and the cause. Test the
-destination with `ssh HOST` first; add `--debug` for the commands and the output of the host.
+destination with `ssh HOST true` first; `xeda remote check HOST --json` is the first diagnostic
+(connection, environment, disk, tools on the login `PATH`); add `--debug` for the commands and the
+output of the host. A login profile that prints text does no harm (up to 1 MiB before the agent).
 
 | `error.type` | Fix |
 | --- | --- |
-| `RemoteConnectionError` | OpenSSH could not connect or authenticate, or the connection ended, or `ssh` is not on `PATH`. The message has the OpenSSH text. Fix the destination or `~/.ssh/config`. A launch with no terminal needs a key and an agent. |
-| `RemoteProvisionError` | Installing Xeda on the host failed. The message starts with the code: `not-linux`, `unsupported-platform` (only x86_64 and aarch64, glibc or musl), `no-downloader` (no `curl` or `wget`), `no-sha256`, `download-failed` (check internet access, or set a proxy in the profile `env`), `checksum-mismatch`, `python-failed`, `env-failed` (the message has the output of `uv`), `no-space` (under 50 MiB free; free space or set `root`), `lock-timeout` (remove the lock directory the message names if its process is gone), `bad-request` (report it). |
-| `RemoteDependencyError` | A package cannot be installed on the host as it is here: an editable install, a local directory or a direct URL, or a package in `tb.python_packages` that is not installed locally. Install it from a package index. |
+| `RemoteConnectionError` | OpenSSH could not connect or authenticate (connection refused, No route to host, Could not resolve hostname, Permission denied), `ssh -G` could not resolve the destination, the connection ended or closed during a step, or `ssh` is not on `PATH`. The message has the OpenSSH text and exit status. Fix the destination, the network or `~/.ssh/config`. A launch with no terminal cannot answer a prompt: it needs a key in an agent. Never handle a secret; ask the user to load a key (`ssh-add`) or to run `! ssh HOST true`. |
+| `RemoteProvisionError` | Installing Xeda on the host failed. The message starts with the code: `not-linux`, `unsupported-platform` (only x86_64 and aarch64, glibc or musl; also when the C library cannot be identified), `no-downloader` (no `curl` or `wget`), `no-sha256`, `download-failed` (check internet access, or set a proxy in the profile `env`), `checksum-mismatch` (the `uv` archive differs from its pinned SHA-256; a proxy may have changed it), `python-failed` (`uv` cannot install the Python, or the profile `python` is not an executable file), `env-failed` (the message has the output of `uv`; also when the remote root is not writable, or a package has no Linux release), `no-space` (under 50 MiB free; free space or set `root`), `lock-timeout` (remove the lock directory the message names if its process is gone), `bad-request` (report it). |
+| `RemoteDependencyError` | A package cannot be installed on the host as it is here: an editable install, a local directory or a direct URL, or a package in `tb.python_packages` that is not installed locally, or the local Python is not CPython. Install the package from a package index. |
 | `RemoteIncompatible` | The host planned other flow identities than the local side did. Compare `--dry-run --json` with and without `--remote`; report a difference with no visible cause. |
-| `RemoteCanceled` | Ctrl-C, `xeda remote cancel` or a lost connection stopped the launch. Processes that survived SIGKILL are named; run the command again to start over. |
-| `RemoteInterrupted` | Ctrl-C came after the launch had finished. The results are on the host: run the command again to fetch them. |
-| `RemoteDetached` | A `--keep-running` launch keeps running; the document has `launch.id`. Use `xeda remote attach HOST ID` or `xeda remote cancel HOST ID` with the `--run-root` of the run. |
+| `RemoteCanceled` | Ctrl-C, `xeda remote cancel` or a lost connection stopped the launch. If processes survived SIGKILL the message counts them and they may still run on the host. Run the command again to start over. |
+| `RemoteInterrupted` | Ctrl-C came after the launch had finished, while Xeda fetched or delivered. The results are on the host, or in the mirror if it came during `--outputs-to` (the delivered files can be incomplete): run the command again. |
+| `RemoteDetached` | A `--keep-running` launch keeps running; the document has `launch.id`. Use `xeda remote attach HOST ID` or `xeda remote cancel HOST ID` with the `--run-root` of the run (attach needs the record in `<run root>/@<host>/.launches/`). |
 | `RemoteFetchError` | A file did not come back whole, or a declared output is missing. Run the command again: the finished run is reused and only the fetch repeats. |
-| `RemoteConfigError` | `remotes.yaml` or one of its entries is invalid (the message names the host and field), or the `--remote` text is not a destination. |
+| `RemoteConfigError` | `remotes.yaml` or one of its entries is invalid (the message names the host and field), or the `--remote` text is empty, starts with `-` or has a space, or the remote root has a character that cannot go in a command line (`"`, `\`, `$`, a backquote, `!`): set `root` in the profile to another path. |
 | `RemoteProtocolError` | The agent on the host did not start or sent data that Xeda cannot read: the stream ended before the agent marker, or more than 1 MiB of text came before it. Ordinary login text is skipped. The message has the output of the host. |
+| `RemoteError` | A plain remote failure; the message says what to do: no `bash` on the host (install it), a programmer flow in the chain (`openfpgaloader`; run it locally with a binding to the fetched file), or native Windows (use WSL). |
 
 ## Simulation verdicts
 
