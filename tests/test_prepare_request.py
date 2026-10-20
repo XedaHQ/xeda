@@ -12,9 +12,11 @@ from xeda import Design
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import PreparedRequest
+from xeda.flow_runner.dse import Dse
 from xeda.flow_runner.settings_layers import HOST_PROFILE_ORIGIN, host_profile_origin
 from xeda.design import DesignValidationError
 
+from .test_dse_run import _DeclaredOptimizer
 from .io_flows import _Maker, _Place, _Taker
 from .test_checks_before_generation import REFUSALS, XILINX, Generated
 from .test_checks_before_generation import _design as declared_design
@@ -231,3 +233,9 @@ def test_a_host_value_a_higher_layer_replaces_is_still_judged(tmp_path):
 def test_the_label_of_the_host_profile():
     assert host_profile_origin(HOST) == "the host profile of venona"
     assert host_profile_origin(None) == HOST_PROFILE_ORIGIN
+
+
+def test_a_launcher_that_takes_no_chain_refuses_before_it_loads_anything(tmp_path):
+    runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
+    with pytest.raises(FlowSettingsException, match="local"):
+        runner.prepare_request("__maker+__taker", tmp_path / "missing.yaml")

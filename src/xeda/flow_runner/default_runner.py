@@ -1905,6 +1905,8 @@ class FlowLauncher:
         names that profile in messages ("the host profile of <host>"). The table is the lowest
         layer of the settings of every flow, below the `flows` section of the project file. Only
         this method takes it."""
+        if not self.accepts_bindings:
+            self._refuse_unaccepted_request(flow, flow_settings, [], xedaproject)
         request, plan = self._judged_request(
             flow,
             design,
@@ -2286,13 +2288,12 @@ class FlowLauncher:
             command_line_sections(
                 explicit_flow_settings, flow_class, flow_class_for=_get_flow_class_if_known
             )
-        origins = [
+        file_origins = [
             *([host_sections] if host_layer is not None else []),
             project_sections,
             design_sections,
-            cli_sections,
-            api_sections,
         ]
+        origins = [*file_origins, cli_sections, api_sections]
         all_sections = merge_flow_sections(*origins, flow_class_for=_get_flow_class_if_known)
         # `-s` wins over the design and project files, as documented; see `settings_layers`.
         final_flow_settings = compose_flow_settings(flow_class, origins)
@@ -2301,7 +2302,7 @@ class FlowLauncher:
             # supplied contributions for nested-default diagnostics and shared agreement.
             final_flow_settings = compose_flow_settings(
                 flow_class,
-                origins[:-2],
+                file_origins,
                 flow_settings,
                 api_sections[flow_class.name],
             )
