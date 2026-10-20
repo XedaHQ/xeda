@@ -406,8 +406,8 @@ ALL_LOADER_SETTINGS = {
 def test_every_setting_of_the_loader_is_an_option_the_loader_has(tmp_path, fake_loader):
     """The fake rejects an option that openFPGALoader v1.1.1 does not have, as the real parser
     does (`fake_fpga_tool.LOADER_OPTIONS`, from the loader's `src/main.cpp`): so a setting passed
-    under a name that the loader does not know fails here, not on a board. `usb_serial_num` was
-    passed as `--usb-serial-num`; the option is `--ftdi-serial`."""
+    under a name that the loader does not know fails here, not on a board. `usb_serial_num` passes
+    `--ftdi-serial`, which every release has. `--usb-serial-num` is only in v1.2.0."""
     own = set(Openfpgaloader.Settings.model_fields) - set(WithFpgaBoardSettings.model_fields)
     assert own == set(ALL_LOADER_SETTINGS), "a setting of the loader that this table lacks"
     flow = _program(
@@ -451,7 +451,7 @@ def test_every_setting_of_the_loader_is_an_option_the_loader_has(tmp_path, fake_
 @pytest.mark.parametrize(
     "argument,message",
     [
-        (["--usb-serial-num", "FT123456"], "Option 'usb-serial-num' does not exist"),
+        (["--ftdi-serial-num", "FT123456"], "Option 'ftdi-serial-num' does not exist"),
         (["--no-such-option"], "Option 'no-such-option' does not exist"),
         (["-Z"], "Option 'Z' does not exist"),
         (["--cable"], "Option 'cable' requires an argument"),
