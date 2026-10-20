@@ -39,8 +39,7 @@ def test_uartlink_streaming_components(bench, simulator, tmp_path, capfd):
         require_bsc()
         (require_iverilog if simulator == "iverilog" else require_verilator)()
     design = Design.from_file(ROOT / "uart_link.yaml")
-    source = "TbReliableLink" if bench.startswith("TbReliableLink") else bench
-    design.tb.sources = [ROOT / "tb" / f"{source}.bsv"]
+    design.tb.sources = [ROOT / "tb" / f"{bench}.bsv"]
     design.tb.top = f"mk{bench}"
     flow = DefaultRunner(tmp_path, display_results=False).run_flow(
         BscSim, design, {"simulator": simulator, "promote_warnings": ["ALL"]}
