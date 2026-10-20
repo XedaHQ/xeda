@@ -10,6 +10,7 @@ registers it as an input. The real `yosys` and the real PDK files are in
 """
 
 import re
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,9 @@ from xeda.platforms.residue import ResidueError, effective_residue
 
 from .tool_utils import use_fake_asic_tools
 
-PACKAGE = Path(__file__).parent.parent / "src" / "xeda" / "platforms"
+#: The installed package, as the loader finds it: the source tree with an editable install, the
+#: environment's site-packages with an sdist install (as in the full CI suite).
+PACKAGE = Path(str(resources.files("xeda.platforms")))
 GATE = PACKAGE / "sky130hd" / "cells_clkgate.v"
 PROVIDERS = ("ciel", "lambdapdk")
 
