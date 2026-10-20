@@ -477,8 +477,8 @@ HAND_VARIANTS: Dict[str, List[Dict[str, Any]]] = {
     "dc": [{"__language": "2019"}, {"__language": "1993"}],
     "ise_synth": [{"__language": "2019"}],
 }
-#: The flows whose launch does not reach their `run()` in the sweep's world with their own
-#: settings, and why nothing is lost. Any other that does not is a failure of the sweep: it would
+#: The flows whose launch with the plain testbench (`variant_design`) does not reach their
+#: `run()`, and why nothing is lost. Any other that does not is a failure of the sweep: it would
 #: see nothing of it.
 NEVER_RUN: dict[str, str] = {}
 #: Settings that start a container or reach a machine: never flipped.
@@ -554,8 +554,8 @@ def flipped_settings(flow_class, base: dict, world: World) -> dict:
 def launch_plan(flow_class, world: World, scenario: str) -> Optional[List[Launch]]:
     """The launches of a case, or None for the scenario's own (`twice` launches twice, any other
     once). The launches the process oracle needs ride on the cases that already launch the flow:
-    `twice` adds a rebuild and the options that write what the settings derive; `clean` launches
-    with every option flipped, and with debug."""
+    `twice` adds a rebuild and the options that write what the settings derive; `clean` adds a
+    launch with every option flipped, and with debug."""
     base = sweep_settings(flow_class, world)
     if scenario == "twice":
         return [
@@ -564,7 +564,7 @@ def launch_plan(flow_class, world: World, scenario: str) -> Optional[List[Launch
             Launch(
                 "its own settings, rebuilt",
                 base,
-                {"rebuild_all": True, "display_results": False},
+                {"rebuild_all": True},
                 variant=True,
                 strict=False,
             ),
@@ -572,7 +572,7 @@ def launch_plan(flow_class, world: World, scenario: str) -> Optional[List[Launch
                 Launch(
                     f"options {extra}",
                     {**base, **extra},
-                    {"display_results": False},
+                    {},
                     variant=True,
                     strict=False,
                 )
@@ -581,13 +581,14 @@ def launch_plan(flow_class, world: World, scenario: str) -> Optional[List[Launch
         ]
     if scenario == "clean":
         return [
+            Launch("its own settings"),
             Launch(
                 "every option flipped, with debug",
                 flipped_settings(flow_class, base, world),
-                {"debug": True, "display_results": False},
+                {"debug": True},
                 variant=True,
                 strict=False,
-            )
+            ),
         ]
     return None
 
@@ -620,7 +621,7 @@ def _launch(
     monkeypatch.setattr(flow_class, "run", lambda self: reached.append(launching[0]) or run(self))
     monkeypatch.chdir(world.work)
     own_settings = sweep_settings(flow_class, world)
-    launcher: dict = {}
+    launcher: dict = {"display_results": False}
     if scenario == "clean":
         launcher["clean"] = True
     elif scenario == "purge":
