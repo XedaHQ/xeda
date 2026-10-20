@@ -198,6 +198,7 @@ jobs:
           tests/test_liberty_shared.py
           tests/test_liberty_freshness.py
           tests/test_remote_ssh.py
+          tests/test_remote_manifest.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only

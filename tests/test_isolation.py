@@ -1558,6 +1558,26 @@ REVIEWED_PY_DELETIONS = {
         "the install command writes the PDK store, outside a run: the partial directory that "
         "this install made, removed after a failure or an interrupt (`rmtree` follows no link)",
     ),
+    ("remote/manifest.py", "os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)"): (
+        1,
+        "the remote sync, outside a run directory (the inputs area of a workspace, or the "
+        "mirror's staging area): a file that passed its SHA-256 check, renamed from its "
+        "temporary name over the name in the same directory, which `parent` holds as an open "
+        "descriptor reached without a link; a link at the name is replaced, never followed",
+    ),
+    ("remote/manifest.py", "os.unlink(name, dir_fd=parent)"): (
+        1,
+        "the remote sync, outside a run directory: a file, or a link as itself, removed by name "
+        "in a directory that `parent` holds as an open descriptor reached without a link; "
+        "`_remove_entry` removes a stale input, a leftover temporary file, or what is at a "
+        "place that the manifest gives to another kind of entry",
+    ),
+    ("remote/manifest.py", "os.rmdir(name, dir_fd=parent)"): (
+        1,
+        "the remote sync, outside a run directory: a directory that `_remove_entry` has emptied "
+        "(it enters a directory only by `O_NOFOLLOW` and removes a link as a link); `rmdir` "
+        "removes no file",
+    ),
 }
 
 
@@ -2070,6 +2090,47 @@ REVIEWED_WRITES = [
         "the install command writes the PDK store, outside a run: the lock file of the store, "
         "opened to be locked, not written; `O_NOFOLLOW` makes the open fail on a link, and the "
         "install checked the way to the file for links just before",
+    ),
+    (
+        "remote/manifest.py",
+        "return os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)",
+        "the remote sync: a read-only descriptor on a directory; it creates and writes nothing, "
+        "and `O_NOFOLLOW` makes it fail on a link",
+    ),
+    (
+        "remote/manifest.py",
+        "descriptor = os.open(temporary, flags, 0o600, dir_fd=parent)",
+        "the remote sync, outside a run directory: a new temporary file in a directory reached "
+        "without a link, created exclusively with a random name (an existing entry, a link "
+        "included, is refused); it is checked against its SHA-256 and then renamed",
+    ),
+    (
+        "remote/manifest.py",
+        'with tarfile.open(fileobj=out, mode="w|", format=tarfile.PAX_FORMAT) as archive:',
+        "`write_tar`: writes to the stream that it is given and names no file",
+    ),
+    (
+        "remote/manifest.py",
+        'archive = tarfile.open(fileobj=tar_stream, mode="r|")',
+        "`iter_tar`: reads the stream that it is given and extracts nothing",
+    ),
+    (
+        "remote/manifest.py",
+        "descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)",
+        "the remote sync: a read-only descriptor on a file, to compare its digest; it creates and "
+        "writes nothing, `O_NOFOLLOW` makes it fail on a link and `O_NONBLOCK` keeps a pipe from "
+        "blocking it",
+    ),
+    (
+        "remote/manifest.py",
+        "os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)",
+        "the remote sync: a file that passed its SHA-256 check, renamed over its name; a link at "
+        "the name is replaced, never written through",
+    ),
+    (
+        "remote/manifest.py",
+        'with os.fdopen(descriptor, "wb") as out:',
+        "the remote sync: the temporary file that was just created exclusively",
     ),
 ]
 
