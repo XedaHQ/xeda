@@ -49,6 +49,7 @@ from .dataclass import (
     ValidationError,
     XedaBaseModel,
     canonical_tree,
+    escaped_names_atomic,
     field_validator,
     input_names,
     model_validator,
@@ -3198,7 +3199,11 @@ class Design(XedaBaseModel):
         (`xeda.remote.packaging`) and only for the remote launch entry. Such a document holds
         the design as its target made it, with the name of that target in `target`, so that the
         remote plans the run directories and identities of the local plan. A design file written
-        by a user never has the key, whatever its name.
+        by a user never has the key, whatever its name. The document also writes each name of a
+        table of tool or netlist names with its dots escaped (`dataclass.ESCAPED_DOT`), and the
+        loader reads that text as the merged name (`dataclass.AtomicName`). So the remote gets the
+        tables as the local layers merged them, even when they hold `A` and `A.B`. A user's design
+        file may not have such a key.
 
         A file that cannot be read as a design raises `DesignFileParseError`. A file whose design
         does not validate raises `DesignValidationError`. Both errors name the file.
@@ -3222,6 +3227,11 @@ class Design(XedaBaseModel):
                         [("target", problem, "", "value_error")], data=dict(design_dict)
                     )
             design_dict = cls.target_selected(design_dict, target, overrides)
+            if packaged:
+                # the names of a table that layers merged, `A` and `A.B` (`dataclass.AtomicName`)
+                for section in ("flow", "flows"):
+                    if section in design_dict:
+                        design_dict[section] = escaped_names_atomic(design_dict[section])
             if recorded_target is not None:
                 design_dict["target"] = recorded_target
             if "name" not in design_dict:

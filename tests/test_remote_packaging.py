@@ -241,6 +241,7 @@ def test_the_package_lists_only_regular_files_that_exist(tmp_path):
 # in the same places below the run root, as the request it was made from.
 
 TARGETS = Path(__file__).parent / "resources" / "targets"
+SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 PROJECT = {
     "flows": {"vivado_synth": {"clock": {"period": "5 ns"}}, "nextpnr": {"seed": 9}},
 }
@@ -289,6 +290,33 @@ def _sync(package: InputPackage, remote_dir: Path) -> None:
     apply_sync(remote_dir, entries, plan, io.BytesIO(stream.getvalue()), package.directories)
 
 
+def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
+    """Package a prepared request, put the package where the remote has it, load the document as
+    the launch entry does and plan it. Return the package, the plan of the remote, the run root of
+    the remote and the directory of the inputs."""
+    from xeda.flow.flow import using_path_identities
+    from xeda.flow_runner import DefaultRunner
+    from xeda.remote.launch_entry import load_packaged_design
+
+    remote_dir = tmp_path / "remote_inputs"
+    package = package_inputs(
+        prepared.design,
+        prepared.sections,
+        {node.name for node in prepared.plan.nodes},
+        run_root=local_root,
+        remote_inputs=PurePosixPath(remote_dir),
+    )
+    _sync(package, remote_dir)
+    remote_root = tmp_path / "remote" / "xeda_run"
+    remote = DefaultRunner(remote_root, display_results=False, hashed_run_dirs=hashed)
+    loaded = load_packaged_design(
+        remote, remote_dir / package.design_file, rebuild=False, dry_run=True
+    )
+    with using_path_identities(package.path_identities):
+        remote_plan = remote.plan(flow, design=loaded)
+    return package, remote_plan, remote_root, remote_dir
+
+
 @pytest.mark.parametrize("hashed", [False, True])
 @pytest.mark.parametrize(
     "case",
@@ -316,9 +344,7 @@ def _sync(package: InputPackage, remote_dir: Path) -> None:
     ],
 )
 def test_the_remote_plans_the_nodes_of_the_local_plan(tmp_path, case, hashed):
-    from xeda.flow.flow import using_path_identities
     from xeda.flow_runner import DefaultRunner
-    from xeda.remote.launch_entry import load_packaged_design
 
     directory = _targets_copy(tmp_path)
     local_root = tmp_path / "local" / "xeda_run"
@@ -336,29 +362,14 @@ def test_the_remote_plans_the_nodes_of_the_local_plan(tmp_path, case, hashed):
     )
     assert prepared.design.target == case["target"]
 
-    remote_dir = tmp_path / "remote_inputs"
-    package = package_inputs(
-        prepared.design,
-        prepared.sections,
-        {node.name for node in prepared.plan.nodes},
-        run_root=local_root,
-        remote_inputs=PurePosixPath(remote_dir),
+    package, remote_plan, remote_root, remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, case["flow"], hashed
     )
-    _sync(package, remote_dir)
     if case.get("directory"):
         assert any(name.endswith("deep/deeper/x.txt") for name in package.files)
         assert any(name.endswith("linked.txt") for name in package.files)
         (empty,) = package.directories
         assert empty.endswith("empty/inner") and (remote_dir / empty).is_dir()
-
-    # the remote loads the document as its launch entry does, then plans it
-    remote_root = tmp_path / "remote" / "xeda_run"
-    remote = DefaultRunner(remote_root, display_results=False, hashed_run_dirs=hashed)
-    loaded = load_packaged_design(
-        remote, remote_dir / package.design_file, rebuild=False, dry_run=True
-    )
-    with using_path_identities(package.path_identities):
-        remote_plan = remote.plan(case["flow"], design=loaded)
     assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
     assert [node.name for node in remote_plan.nodes][-1] == prepared.plan.nodes[-1].name
     if case["target"]:
@@ -394,6 +405,112 @@ def test_a_directory_setting_reaches_the_remote_as_it_is(tmp_path):
     assert not (remote_dir / relative / "empty").exists()
 
 
+def _table(plan, flow: str, *path: str) -> dict:
+    """The table of names (a setting in `opaque_key_fields`) that a node of `plan` holds."""
+    value = plan.node(flow).settings
+    for name in path:
+        value = getattr(value, name)
+    return {key: str(item) for key, item in value.items()}
+
+
+def _assert_tables_reach_the_remote(tmp_path, prepared, local_root, flow, *path, expected):
+    """The remote gets the table as the local layers merged it, and plans the local nodes."""
+    assert _table(prepared.plan, flow, *path) == expected
+    package, remote_plan, remote_root, _ = _remote_plan(
+        tmp_path, prepared, local_root, flow, hashed=False
+    )
+    assert _table(remote_plan, flow, *path) == expected
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+    return package
+
+
+def test_a_vivado_table_that_holds_a_name_inside_another_reaches_the_remote_whole(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", design_root)
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
+        "flows:\n  vivado_synth:\n    fpga.part: xc7a12tcsg325-1\n    clock.period: 5ns\n"
+        "    set_synth_properties: {A: 1}\n"
+    )
+    local_root = tmp_path / "local" / "xeda_run"
+    prepared = DefaultRunner(local_root, display_results=False).prepare_request(
+        "vivado_synth",
+        design=design_root / "sqrt.yaml",
+        flow_settings=["set_synth_properties.A.B=2"],
+    )
+    package = _assert_tables_reach_the_remote(
+        tmp_path,
+        prepared,
+        local_root,
+        "vivado_synth",
+        "set_synth_properties",
+        expected={"A": "1", "A.B": "2"},
+    )
+    shipped = _shipped(package)["flow"]["vivado_synth"]["set_synth_properties"]
+    assert shipped == {"A": 1, "A\\.B": "2"}, "the document writes the names with escaped dots"
+
+
+def test_dotted_names_of_a_vivado_table_reach_the_remote_whole(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", design_root)
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
+    )
+    local_root = tmp_path / "local" / "xeda_run"
+    prepared = DefaultRunner(local_root, display_results=False).prepare_request(
+        "vivado_synth",
+        design=design_root / "sqrt.yaml",
+        flow_settings=[
+            "fpga.part=xc7a12tcsg325-1",
+            "clock.period=5ns",
+            "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0",
+            "set_synth_properties.A.B=2",
+            "set_synth_properties.A.C=3",
+        ],
+    )
+    _assert_tables_reach_the_remote(
+        tmp_path,
+        prepared,
+        local_root,
+        "vivado_synth",
+        "set_synth_properties",
+        expected={"STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM": "0", "A.B": "2", "A.C": "3"},
+    )
+
+
+def test_an_openroad_table_that_holds_a_name_inside_another_reaches_the_remote_whole(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+
+    from .openroad_utils import openroad_design, openroad_settings, register_openroad_flows
+    from .tiny_platform import tiny_store
+
+    design = openroad_design(tmp_path / "design")
+    design.write_text(
+        design.read_text() + "flows:\n  openroad:\n    ir_drop.instance_power: {u_core: 2 mW}\n"
+    )
+    local_root = tmp_path / "local" / "xeda_run"
+    items = [*openroad_settings(tiny_store(tmp_path)), "ir_drop.instance_power.u_core.reg_1=1mW"]
+    with register_openroad_flows():
+        prepared = DefaultRunner(local_root, display_results=False).prepare_request(
+            "openroad", design=design, flow_settings=items
+        )
+        _assert_tables_reach_the_remote(
+            tmp_path,
+            prepared,
+            local_root,
+            "openroad",
+            "ir_drop",
+            "instance_power",
+            expected={"u_core": "0.002 W", "u_core.reg_1": "0.001 W"},
+        )
+
+
 def test_a_user_design_file_never_takes_a_target_whatever_its_name(tmp_path):
     from xeda.design import DesignValidationError
 
@@ -406,6 +523,29 @@ def test_a_user_design_file_never_takes_a_target_whatever_its_name(tmp_path):
             Design.from_file(path)
     loaded = Design.from_file(path, packaged=True)
     assert loaded.target == "arty"
+
+
+def test_only_a_packaged_document_takes_escaped_names_in_a_flow_table(tmp_path):
+    from xeda.dataclass import AtomicName
+
+    path = tmp_path / "d.xeda.json"
+    document = {
+        "name": "d",
+        "rtl": {"sources": [], "top": "t"},
+        "flow": {"vivado_synth": {"set_synth_properties": {"A": 1, "A\\.B": 2}}},
+    }
+    path.write_text(json.dumps(document))
+    table = Design.from_file(path, packaged=True).flow["vivado_synth"]["set_synth_properties"]
+    assert {type(key) for key in table} == {str, AtomicName}
+    assert {
+        key.name if isinstance(key, AtomicName) else key: item for key, item in table.items()
+    } == {
+        "A": 1,
+        "A.B": 2,
+    }
+    # A user's design file gets no such key: the setting refuses the name when it is read.
+    plain = Design.from_file(path).flow["vivado_synth"]["set_synth_properties"]
+    assert not any(isinstance(key, AtomicName) for key in plain)
 
 
 def test_a_packaged_document_names_its_target_by_the_rule_of_target_names(tmp_path):

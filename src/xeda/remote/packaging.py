@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict
 
-from ..dataclass import BaseModel, is_locator, written_role
+from ..dataclass import AtomicName, BaseModel, is_locator, opaque_key_fields_of, written_role
 from ..design import Design, DesignSource, DVSettings, FileResource
 from ..flow import FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
@@ -302,6 +302,10 @@ def package_inputs(
                     item = map_keyed_path_leaves(
                         item, field.annotation, lambda _key, leaf: packaged_path(leaf), name
                     )
+                if name in opaque_key_fields_of(type(value)) and isinstance(item, Mapping):
+                    # The names of the tool keep their dots whole: the table may hold `A` and
+                    # `A.B`, which the document cannot write as dotted keys of one origin.
+                    item = {AtomicName.of(str(key)): entry for key, entry in item.items()}
                 values[name] = packaged_value(item, given)
             return values
         if isinstance(value, Mapping):
