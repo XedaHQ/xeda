@@ -1370,9 +1370,12 @@ def _newest(paths: Iterable[Path]) -> float:
 
 def _strings_of_processes() -> list[str]:
     """The paths that other processes of this user are started from: their program, their
-    command line and their `PYTHONPATH`. An environment or a code copy named here is in use."""
+    command line and their `PYTHONPATH`. An environment or a code copy named here is in use. This
+    process is not one of them: the command line of `clean` names the paths to remove."""
     found: list[str] = []
     for process in psutil.process_iter():
+        if process.pid == os.getpid():
+            continue
         try:
             found.append(process.exe())
             found.extend(process.cmdline())

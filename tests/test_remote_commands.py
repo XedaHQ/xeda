@@ -211,6 +211,29 @@ def test_clean_removes_only_what_is_old_and_unused(remote_host):
     assert (remote.layout / "env").is_dir() and any((remote.layout / "env").iterdir())
 
 
+def test_clean_removes_an_old_environment_and_code_copy_that_nobody_uses(remote_host):
+    """The removal names the paths on the command line of the agent. That is no use of them."""
+    remote = remote_host.remote
+    assert _invoke("check", "somewhere").exit_code == 0
+    stale = [remote.layout / "env" / "stale-env", remote.layout / "code" / "stale-code"]
+    for path in stale:
+        (path / "lib").mkdir(parents=True)
+        (path / "lib" / "f").write_text(path.name)
+        _age(path, 60)
+
+    result = _invoke("clean", "somewhere", "--yes", "--json")
+
+    assert result.exit_code == 0, _text(result)
+    document = _document(result)
+    assert sorted(Path(item["path"]).name for item in document["removed"]) == [
+        "stale-code",
+        "stale-env",
+    ]
+    assert not any(path.exists() for path in stale)
+    # what the check made is kept (it is recent)
+    assert any((remote.layout / "env").iterdir()) and any((remote.layout / "code").iterdir())
+
+
 def test_clean_with_all_removes_what_nobody_holds_however_recent(remote_host):
     remote = remote_host.remote
     recent = _workspace(remote, "recent", 1)
