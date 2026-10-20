@@ -229,7 +229,7 @@ YOSYS_TEMPORARY_DIRECTORY = "yosys_tmp"
 class YosysBase(Flow):
     """The base of the flows that read a design with Yosys."""
 
-    executables = ("yosys",)
+    executables: ClassVar[tuple[str, ...]] = ("yosys", "yosys-config")
 
     # The generic synthesis flow accepts older yosys releases. `yosys_fpga` sets a higher minimum
     # for its pass flags.

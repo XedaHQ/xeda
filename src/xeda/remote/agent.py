@@ -40,9 +40,10 @@ SIGTERM to it and to its descendants after the first grace period, SIGKILL to wh
 the second. The periods run on the clock of the agent. The result is sent only after all of them
 are gone.
 
-`check [--json] <executables...>` and `clean <root> [--older-than DAYS] [--all] [--list]` write
-`MAGIC` and then one JSON document and a newline. With `--list`, `clean` removes nothing and
-reports what it would remove as `removable`, in place of `removed`.
+`check [--json] <executables...>` and `clean <root> [--older-than DAYS] [--all] [--list]
+[--only PATH]...` write `MAGIC` and then one JSON document and a newline. With `--list`, `clean`
+removes nothing and reports what it would remove as `removable`, in place of `removed`. With
+`--only`, it looks at the listed paths only, and each one still goes through every check.
 """
 
 import argparse
@@ -63,7 +64,7 @@ import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Optional, cast
@@ -1060,20 +1061,31 @@ def _provisioning(root: Path) -> bool:
     return False
 
 
-def clean(root: Path, older_than: float, everything: bool, remove: bool = True) -> dict[str, Any]:
+def clean(
+    root: Path,
+    older_than: float,
+    everything: bool,
+    remove: bool = True,
+    only: Optional[Collection[str]] = None,
+) -> dict[str, Any]:
     """Remove environments, code copies and workspaces that nobody uses.
 
     A workspace is in use while its lock is held or a launch of it runs. An environment or a code
     copy is in use while a process runs from it, and the ones this process runs from are always
     in use. Without `everything`, only what nobody touched for `older_than` days goes.
 
-    A link is never entered, and a lock that is a link or no regular file is never opened for
-    more than a look. What cannot be examined or removed (an `OSError` or another error for one
+    A link is never entered: not as `env`, `code` or `ws`, and not as an entry. A lock that is a
+    link or no regular file is never opened for more than a look. A directory of `ws` without a
+    `lock` file is not a workspace (a session makes the directory and then the lock), so it is
+    kept. What cannot be examined or removed (an `OSError` or another error for one
     candidate) is listed in `kept` with the reason, and the rest goes on.
 
     Without `remove`, nothing is removed. The document then lists what a call with `remove` would
     remove under `removable`, in place of `removed`. Both calls examine every candidate in the
-    same way."""
+    same way.
+
+    With `only`, the call looks at the entries with these paths and no others. A path in `only`
+    goes through the same checks, so an entry that was used since a listing stays."""
     removed: list[dict[str, str]] = []
     kept: list[dict[str, str]] = []
     base = root / LAYOUT
@@ -1086,7 +1098,11 @@ def clean(root: Path, older_than: float, everything: bool, remove: bool = True) 
 
     def candidates_in(kind: str, directory: Path) -> list[Path]:
         try:
-            return sorted(directory.iterdir())
+            if stat.S_ISLNK(directory.lstat().st_mode):
+                keep(kind, directory, "the directory is a link")
+                return []
+            names = sorted(directory.iterdir())
+            return [p for p in names if only is None or str(p) in only]
         except FileNotFoundError:
             return []
         except OSError as error:
@@ -1125,21 +1141,22 @@ def clean(root: Path, older_than: float, everything: bool, remove: bool = True) 
                 # Not `O_CREAT`; a link is refused; a FIFO does not block the open.
                 descriptor = os.open(path / "lock", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             except FileNotFoundError:
-                pass
+                keep("workspace", path, "it has no lock file, so it is not a workspace")
+                continue
             except OSError as error:
                 if error.errno != errno.ELOOP:
                     raise
                 keep("workspace", path, "the lock is a link")
                 continue
-            if descriptor is not None:
-                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                    keep("workspace", path, "the lock is not a regular file")
-                    continue
-                try:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    keep("workspace", path, "locked")
-                    continue
+            assert descriptor is not None
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                keep("workspace", path, "the lock is not a regular file")
+                continue
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                keep("workspace", path, "locked")
+                continue
             if any(_launch_running(state) for state in _launch_states(path)):
                 keep("workspace", path, "a launch runs")
             elif not old_enough(
@@ -1188,6 +1205,12 @@ def _parser() -> argparse.ArgumentParser:
     clean_command.add_argument("--older-than", type=float, metavar="DAYS", default=_DEFAULT_DAYS)
     clean_command.add_argument("--all", action="store_true", dest="everything")
     clean_command.add_argument(
+        "--only",
+        action="append",
+        metavar="PATH",
+        help="look at this entry and no other (repeat for more); it still must pass every check",
+    )
+    clean_command.add_argument(
         "--list", action="store_true", dest="list_only", help="remove nothing; list what would go"
     )
     return parser
@@ -1226,6 +1249,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     arguments.older_than,
                     arguments.everything,
                     not arguments.list_only,
+                    arguments.only,
                 )
             except Exception as error:  # pylint: disable=broad-except
                 print(f"xeda agent: {type(error).__name__}: {error}", file=sys.stderr)

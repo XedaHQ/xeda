@@ -161,7 +161,7 @@ class Verilator(SimFlow):
     the file. Xeda opens no waveform.
     """
 
-    executables = ("verilator",)
+    executables = ("verilator", "make")
 
     cocotb_sim_name = "verilator"
 

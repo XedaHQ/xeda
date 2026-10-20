@@ -955,9 +955,10 @@ class Flow(metaclass=ABCMeta):
     #: a separate, dynamic decision: the launcher asks it at run time whether the flow must run.
     action_reason: ClassVar[str | None] = None
 
-    #: The names of the programs that the flow starts. `xeda remote check` looks for them on the
-    #: login `PATH` of a remote host. List each program that a setting can select (every family
-    #: of `nextpnr`). Leave out a helper that only some designs need.
+    #: The names of every program that the flow may start, under any setting: its tools and the
+    #: helpers that only some settings need (a compiler, `make`). `xeda remote check` looks for
+    #: them on the login `PATH` of a remote host. A program that a run builds (`simv`) is not
+    #: one. `tests/test_flow_executables.py` finds the programs that the code names.
     executables: ClassVar[tuple[str, ...]] = ()
 
     @classmethod

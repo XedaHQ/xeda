@@ -34,6 +34,10 @@ _CHECK_TIMEOUT = 300.0
 #: Seconds that the agent may take to examine or remove the entries of the remote root.
 _CLEAN_TIMEOUT = 3600.0
 
+#: The program that a dockerized flow needs. The check reports it apart from the programs of the
+#: flows, which a native run needs.
+DOCKER = "docker"
+
 
 def _fail(error_type: str, message: str, json_flag: bool) -> NoReturn:
     """Report a failure as every command does: a document with `success` false with `--json`, else
@@ -179,7 +183,14 @@ def describe_host(
 
     names = introspect.flow_executables()
     report = _agent_document(
-        session, provisioned, "checking the host", "check", "--json", *names, timeout=_CHECK_TIMEOUT
+        session,
+        provisioned,
+        "checking the host",
+        "check",
+        "--json",
+        *names,
+        DOCKER,
+        timeout=_CHECK_TIMEOUT,
     )
     environment = report.get("environment") or {}
     prefix = environment.get("prefix", "")
@@ -215,9 +226,10 @@ def describe_host(
         "disk": report.get("disk"),
         "kill_user_processes": report.get("kill_user_processes"),
         "executables": {
-            "found": {name: path for name, path in found.items() if path},
+            "found": {name: path for name, path in found.items() if path and name in names},
             "missing": [name for name in names if not found.get(name)],
         },
+        "docker": {"found": bool(found.get(DOCKER)), "path": found.get(DOCKER) or None},
         "warnings": warnings,
     }
 
@@ -248,6 +260,11 @@ def _print_check(document: dict[str, Any]) -> None:
         click.echo(f"  found    {name}  {path}")
     for name in executables["missing"]:
         click.echo(f"  missing  {name}")
+    docker = document["docker"]
+    click.echo(
+        "docker (needed only for dockerized flows): "
+        + (f"found  {docker['path']}" if docker["found"] else "missing")
+    )
     for warning in document["warnings"]:
         click.echo(f"Warning: {warning}", err=True)
 
@@ -336,11 +353,16 @@ def _clean_host(
                 "No answer. Nothing was removed. Pass --yes to remove without asking.",
                 False,
             )
+    # Remove what the user saw and confirmed. The agent checks each path again.
+    only = [word for entry in removable for word in ("--only", entry["path"])]
     result = _agent_document(
-        session, provisioned, "removing the entries", *arguments, timeout=_CLEAN_TIMEOUT
+        session, provisioned, "removing the entries", *arguments, *only, timeout=_CLEAN_TIMEOUT
     )
     removed = result.get("removed") or []
+    # The listing kept what the removal did not look at; the removal kept what changed since.
     kept = result.get("kept") or []
+    seen = {entry["path"] for entry in kept}
+    kept += [entry for entry in listing.get("kept") or [] if entry["path"] not in seen]
     if not json_flag:
         _print_entries(f"Removed {len(removed)} entries on {host}:", removed, False, False)
         if kept:

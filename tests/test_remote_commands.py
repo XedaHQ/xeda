@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+import psutil
 import pytest
 from click.testing import CliRunner, Result
 
@@ -309,3 +310,110 @@ def test_the_remote_group_is_listed_in_the_help():
     assert "remote" in click.unstyle(result.output)
     help_text = click.unstyle(CliRunner().invoke(cli, ["remote", "--help"]).output)
     assert "check" in help_text and "clean" in help_text
+
+
+def test_check_reports_docker_apart_from_the_executables_of_the_flows(remote_host):
+    docker = remote_host.toolchain / "docker"
+    docker.write_text("#!/bin/sh\n")
+    docker.chmod(0o755)
+    (remote_host.home / ".bash_profile").write_text(f"export PATH={remote_host.toolchain}:$PATH\n")
+
+    document = _document(_invoke("check", "somewhere", "--json"))
+
+    assert document["docker"] == {"found": True, "path": str(docker)}
+    assert "docker" not in document["executables"]["found"]
+    assert "docker" not in document["executables"]["missing"]
+    text = _text(_invoke("check", "somewhere"))
+    assert f"docker (needed only for dockerized flows): found  {docker}" in text
+
+
+def test_check_reports_a_missing_docker_without_a_warning(remote_host, monkeypatch):
+    monkeypatch.setattr("xeda.remote.commands.DOCKER", "no-such-docker-xeda")
+
+    document = _document(_invoke("check", "somewhere", "--json"))
+
+    assert document["docker"] == {"found": False, "path": None}
+    assert not any("docker" in warning for warning in document["warnings"])
+
+
+# --- A failed connection, a running launch, and exactly what was confirmed ---------------------
+
+
+@pytest.mark.parametrize("command", ["check", "clean"])
+def test_a_failed_connection_gives_exit_1_and_one_document(remote_host, monkeypatch, command):
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
+
+    result = _invoke(command, "somewhere", "--json")
+
+    document = _document(result)  # the whole of stdout is this one document
+    assert result.exit_code == 1 and document["success"] is False
+    assert document["error"]["type"] == "RemoteConnectionError"
+    assert document["error"]["message"]
+
+
+@pytest.mark.parametrize("command", ["check", "clean"])
+def test_a_failed_connection_says_why_without_json(remote_host, monkeypatch, command):
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
+
+    result = _invoke(command, "somewhere")
+
+    assert result.exit_code == 1 and "somewhere" in _text(result)
+
+
+def test_clean_keeps_a_workspace_with_a_running_launch(remote_host):
+    remote = remote_host.remote
+    running = _workspace(remote, "running", 60)
+    idle = _workspace(remote, "idle", 60)
+    me = psutil.Process()
+    launch = running / "launches" / "x"
+    launch.mkdir(parents=True)
+    (launch / "state.json").write_text(
+        json.dumps({"id": "x", "pid": me.pid, "pid_created": me.create_time(), "state": "running"})
+    )
+    _age(running, 60)
+
+    document = _document(_invoke("clean", "somewhere", "--all", "--json"))
+
+    removed = {Path(item["path"]).name for item in document["removed"]}
+    reasons = {Path(item["path"]).name: item["reason"] for item in document["kept"]}
+    assert "idle" in removed and "running" not in removed
+    assert reasons["running"] == "a launch runs"
+    assert running.exists() and not idle.exists()
+
+
+def test_clean_keeps_a_directory_that_has_no_lock_file_yet(remote_host):
+    starting = remote_host.remote.layout / "ws" / "starting"
+    (starting / "inputs").mkdir(parents=True)
+    _age(starting, 60)
+
+    document = _document(_invoke("clean", "somewhere", "--all", "--json"))
+
+    assert not any(Path(i["path"]).name == "starting" for i in document["removed"])
+    assert any("no lock file" in item["reason"] for item in document["kept"])
+    assert starting.exists()
+
+
+def test_clean_removes_exactly_what_was_listed_and_confirmed(remote_host, monkeypatch):
+    remote = remote_host.remote
+    listed = _workspace(remote, "listed", 60)
+    used = _workspace(remote, "used-after", 60)
+    answers = []
+
+    def confirm(text: str, **keywords: Any) -> bool:
+        """The user says yes. Meanwhile, one workspace is used and another one is made."""
+        answers.append(text)
+        (used / "inputs" / "g").write_text("new")
+        os.utime(used / "inputs")  # the workspace was used after the listing
+        _workspace(remote, "late", 60)
+        return True
+
+    monkeypatch.setattr(click, "confirm", confirm)
+
+    result = _invoke("clean", "somewhere", "--older-than", "30")
+
+    text = _text(result)
+    assert result.exit_code == 0 and answers == ["Remove them?"], text
+    assert "Removed 1 entries on somewhere" in text and str(listed) in text
+    assert not listed.exists()
+    assert used.exists() and (remote.layout / "ws" / "late").exists()
+    assert "recently used" in text

@@ -733,6 +733,77 @@ def test_clean_by_age_keeps_what_was_used_lately(tmp_path):
     assert new.exists() and not old.exists()
 
 
+def test_clean_keeps_a_directory_without_a_lock_file(tmp_path):
+    """A session makes the directory of a workspace and then its lock: no lock, no workspace."""
+    (tmp_path / "home").mkdir()
+    base = tmp_path / "remote" / "v1" / "ws"
+    (base / "starting" / "inputs").mkdir(parents=True)
+    (base / "done").mkdir()
+    (base / "done" / "lock").write_text("")
+
+    report = run_command("clean", str(tmp_path / "remote"), "--all", tmp_path=tmp_path)
+
+    assert [Path(item["path"]).name for item in report["removed"]] == ["done"]
+    (kept,) = report["kept"]
+    assert Path(kept["path"]).name == "starting" and "no lock file" in kept["reason"]
+    assert (base / "starting" / "inputs").is_dir()
+
+
+@pytest.mark.parametrize("kind", ["ws", "env", "code"])
+def test_clean_does_not_enter_a_kind_directory_that_is_a_link(tmp_path, kind):
+    (tmp_path / "home").mkdir()
+    outside = tmp_path / "outside"
+    (outside / "entry").mkdir(parents=True)
+    (outside / "entry" / "lock").write_text("")
+    base = tmp_path / "remote" / "v1"
+    base.mkdir(parents=True)
+    (base / kind).symlink_to(outside, target_is_directory=True)
+
+    report = run_command("clean", str(tmp_path / "remote"), "--all", tmp_path=tmp_path)
+
+    assert report["removed"] == []
+    (kept,) = report["kept"]
+    assert (
+        kept["kind"] == ("workspace" if kind == "ws" else kind)
+        and kept["reason"] == "the directory is a link"
+    )
+    assert (outside / "entry" / "lock").exists()
+
+
+def test_clean_only_removes_the_listed_paths_and_checks_them_again(tmp_path):
+    (tmp_path / "home").mkdir()
+    base = tmp_path / "remote" / "v1"
+    for name in ("listed", "used-since", "other"):
+        (base / "ws" / name / "inputs").mkdir(parents=True)
+        (base / "ws" / name / "lock").write_text("")
+        old = time.time() - 60 * 86400
+        for path in (
+            (base / "ws" / name),
+            (base / "ws" / name / "lock"),
+            (base / "ws" / name / "inputs"),
+        ):
+            os.utime(path, (old, old))
+    os.utime(base / "ws" / "used-since" / "inputs")  # used after the listing
+    root = str(tmp_path / "remote")
+    only = [str(base / "ws" / name) for name in ("listed", "used-since", "gone")]
+
+    report = run_command(
+        "clean",
+        root,
+        "--older-than",
+        "30",
+        *[a for p in only for a in ("--only", p)],
+        tmp_path=tmp_path,
+    )
+
+    assert [Path(item["path"]).name for item in report["removed"]] == ["listed"]
+    assert [(Path(i["path"]).name, i["reason"]) for i in report["kept"]] == [
+        ("used-since", "recently used")
+    ]
+    assert (base / "ws" / "other").exists() and (base / "ws" / "used-since").exists()
+    assert not (base / "ws" / "listed").exists()
+
+
 def test_clean_list_removes_nothing_and_names_what_a_removal_would_remove(tmp_path):
     (tmp_path / "home").mkdir()
     base = tmp_path / "remote" / "v1"
@@ -1151,6 +1222,8 @@ def test_clean_reports_what_it_cannot_remove_and_goes_on(tmp_path, monkeypatch):
     base = tmp_path / "remote" / "v1"
     for kind, name in (("ws", "first"), ("ws", "second"), ("env", "e1")):
         (base / kind / name).mkdir(parents=True)
+    for name in ("first", "second"):
+        (base / "ws" / name / "lock").write_text("")
     real = agent_module._remove_tree
 
     def remove(path: Path) -> None:

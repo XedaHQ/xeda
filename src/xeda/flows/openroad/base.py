@@ -368,7 +368,7 @@ class OpenroadStage(AsicPlatformFlow, Flow):
     """The base class of the OpenROAD flows. Each stage works on a platform and reads only its
     declared inputs."""
 
-    executables = ("openroad",)
+    executables: ClassVar[tuple[str, ...]] = ("openroad",)
 
     reads_sources = None
     design_parts = frozenset({"rtl"})
