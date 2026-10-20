@@ -927,7 +927,10 @@ signal.signal(signal.SIGINT, note)
 signal.signal(signal.SIGTERM, note)
 if label == "leader":
     other = subprocess.Popen(
-        [sys.executable, sys.argv[0], log, "descendant"], stdout=subprocess.PIPE, text=True
+        [sys.executable, sys.argv[0], log, "descendant"],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=len(sys.argv) > 3,  # a tool that left the group
     )
     other.stdout.readline()
 print("ready", flush=True)
@@ -935,14 +938,15 @@ time.sleep(600)
 """
 
 
-def test_signals_come_in_order_on_the_clock_of_the_agent_even_when_output_is_blocked(tmp_path):
+def run_stop_launch(tmp_path, *leader_arguments):
+    """Stop a leader with one descendant. Return the signals of each, in order, with the time."""
     script = tmp_path / "leader.py"
     script.write_text(LEADER)
     notes = tmp_path / "signals"
     sink = StalledReader()
     session, out = make_session(tmp_path, sink, grace=(0.5, 0.5))
     child = subprocess.Popen(
-        [sys.executable, str(script), str(notes), "leader"],
+        [sys.executable, str(script), str(notes), "leader", *leader_arguments],
         stdout=subprocess.PIPE,
         start_new_session=True,
     )
@@ -966,11 +970,26 @@ def test_signals_come_in_order_on_the_clock_of_the_agent_even_when_output_is_blo
     events = [line.split() for line in notes.read_text().splitlines()]
     leader = [(name, float(at)) for label, name, at in events if label == "leader"]
     other = [(name, float(at)) for label, name, at in events if label == "descendant"]
+    return leader, other, started + elapsed
+
+
+def test_signals_come_in_order_on_the_clock_of_the_agent_even_when_output_is_blocked(tmp_path):
+    leader, other, ended = run_stop_launch(tmp_path)
+    # The tool in the group gets SIGINT with the leader, as at a terminal.
     assert [name for name, _ in leader] == ["SIGINT", "SIGTERM"]
-    assert [name for name, _ in other] == ["SIGTERM"]  # only the leader gets SIGINT
+    assert [name for name, _ in other] == ["SIGINT", "SIGTERM"]
+    assert abs(other[0][1] - leader[0][1]) < 0.3
     assert leader[1][1] - leader[0][1] >= 0.45  # the first period
+    assert other[1][1] >= leader[0][1] + 0.45
+    assert ended - leader[1][1] >= 0.45  # the second period, then SIGKILL
+
+
+def test_a_tool_that_left_the_group_gets_no_sigint_but_the_later_signals(tmp_path):
+    leader, other, ended = run_stop_launch(tmp_path, "own-session")
+    assert [name for name, _ in leader] == ["SIGINT", "SIGTERM"]
+    assert [name for name, _ in other] == ["SIGTERM"]
     assert other[0][1] >= leader[0][1] + 0.45
-    assert started + elapsed - leader[1][1] >= 0.45  # the second period, then SIGKILL
+    assert ended - leader[1][1] >= 0.45
 
 
 def test_a_stalled_write_fails_the_output_and_ends_the_lease_wait(tmp_path):

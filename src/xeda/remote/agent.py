@@ -50,9 +50,9 @@ does not read: one write of a frame to it takes longer than the lease. A thread 
 and the agent never waits for a write while a launch runs. So output cannot delay a cancel, the
 lease or the signals.
 
-The agent cancels a running launch in that case, as for a `C` frame: SIGINT to the launch,
-SIGTERM to it and to its descendants after the first grace period, SIGKILL to what is left after
-the second. The periods run on the clock of the agent. The result is sent only after all of them
+The agent cancels a running launch in that case, as for a `C` frame: SIGINT to the process group of
+the launch, SIGTERM to it and to its descendants after the first grace period, SIGKILL to what
+is left after the second. The periods run on the clock of the agent. The result is sent only after all of them
 are gone.
 
 `check [--json] <executables...>` and `clean <root> [--older-than DAYS] [--all] [--list]
@@ -965,8 +965,8 @@ class Session:
                 time.sleep(_TICK)
 
     def stop_launch(self, child: _Child, tail: Optional[_LogTail], reason: str) -> int:
-        """Stop the child and every process that it started: SIGINT to the child; after the first
-        grace period SIGTERM to all of them; after the second SIGKILL to what is left. "All of
+        """Stop the child and every process that it started: SIGINT to the process group of the
+        child, as Ctrl-C at a terminal does; after the first grace period SIGTERM to all of them; after the second SIGKILL to what is left. "All of
         them" is the process group of the child (it starts its own session), the descendants that
         were seen while it ran, and the descendants now. So a tool that its leader left behind
         is stopped too. The periods run on the clock of the agent: no send of a frame waits for
@@ -1024,7 +1024,8 @@ class Session:
         look()
         if child.poll() is None:
             try:
-                os.kill(child.pid, signal.SIGINT)  # xeda stops its own tools
+                # As Ctrl-C at a terminal: xeda and the tools in its group all get SIGINT.
+                os.killpg(pgid, signal.SIGINT)
             except OSError:
                 pass
         else:
