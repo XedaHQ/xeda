@@ -146,7 +146,7 @@ jobs:
   #   directory locks and their owner processes, a SIGTERM that stops a shell script and its child
   #     (kill, wait, trap), and the macOS userland (sh, tar, df, shasum): test_remote_provision
   #   process groups, signals, file locks (flock) and process trees (psutil): test_remote_agent
-  #   a SIGINT handler during a launch, a killed SSH client and the processes of a cancelled
+  #   a SIGINT handler during a launch, a killed SSH client and the processes of a canceled
   #     launch on the same machine: test_remote_client
   #   the file locks that `xeda remote clean` finds held, on a fake remote host: test_remote_commands
   #   a launch that keeps the workspace lock and its own session after the agent has exited, and
