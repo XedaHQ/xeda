@@ -2418,6 +2418,10 @@ TARGET_FORBIDDEN_KEYS = frozenset({"name", "targets", "target", "design_root"})
 # every flow that declares them. A target takes them only under its own `flows.<flow>`, for now.
 TARGET_FLOW_SETTING_KEYS = frozenset({"board", "fpga", "custom_boards_file"})
 
+#: The end of the name of a design document that Xeda packaged for a remote host. Only such a
+#: document may record the `target` that was applied to the design it holds.
+PACKAGED_DESIGN_SUFFIX = ".xeda.json"
+
 _NO_SINGULAR_TARGET = (
     "`target` is not a key of a design: targets are written as `targets.<name>`, and one is "
     "selected with `--target NAME` (`target=` in the API)"
@@ -3206,7 +3210,19 @@ class Design(XedaBaseModel):
         if allow_extra:
             cls = model_with_allow_extra(cls)
         try:
+            # A packaged document holds the design as its target made it, and the name of that
+            # target: the remote plans the run directories and identities of the local plan.
+            recorded_target = None
+            if design_file.name.endswith(PACKAGED_DESIGN_SUFFIX) and isinstance(design_dict, dict):
+                recorded_target = design_dict.pop("target", None)
+                problem = None if recorded_target is None else target_name_problem(recorded_target)
+                if problem:
+                    raise DesignValidationError(
+                        [("target", problem, "", "value_error")], data=dict(design_dict)
+                    )
             design_dict = cls.target_selected(design_dict, target, overrides)
+            if recorded_target is not None:
+                design_dict["target"] = recorded_target
             if "name" not in design_dict:
                 design_name = design_file.stem
                 design_name = removesuffix(design_name, ".xeda")

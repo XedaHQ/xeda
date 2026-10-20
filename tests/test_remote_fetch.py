@@ -1,0 +1,376 @@
+"""The fetch rules of a remote run: what comes back, how it lands in the mirror, and how the
+results point at it."""
+
+import io
+import json
+import os
+from pathlib import Path, PurePosixPath
+
+import pytest
+
+from xeda.deliver import DeliveryError
+from xeda.digest import content_digest
+from xeda.remote.errors import RemoteFetchError, RemoteProtocolError
+from xeda.remote.fetch import (
+    NodeResult,
+    external_place,
+    mirror_relative,
+    publish_mirror,
+    rewrite_results,
+    select_fetch,
+)
+from xeda.remote.manifest import Entry, build_manifest, write_tar
+
+pytestmark = pytest.mark.python_compat
+
+
+def _run_dir(root: Path, name: str = "d/flow") -> Path:
+    """A run directory with a file of every kind that the rules tell apart."""
+    run = root / name
+    (run / "reports").mkdir(parents=True)
+    (run / "reports" / "deep").mkdir()
+    (run / "other").mkdir()
+    for relative in (
+        "results.json",
+        "settings.json",
+        "trace.json",
+        "flow.log",
+        "notes.txt",
+        "out.bit",
+        "reports/timing.rpt",
+        "reports/deep/more.rpt",
+        "other/x.v",
+    ):
+        (run / relative).write_text(f"{name}/{relative}\n")
+    return run
+
+
+def _node(run: Path, *, named=False, success=True, written=None, **results) -> NodeResult:
+    document = {"success": success, **results}
+    return NodeResult(run.name, run, document, named, written)
+
+
+def test_fetch_default_selection(tmp_path):
+    run = _run_dir(tmp_path)
+    selected = select_fetch(tmp_path, [_node(run)], fetch_all=False)
+    assert set(selected) == {
+        "d/flow/results.json",
+        "d/flow/settings.json",
+        "d/flow/flow.log",
+        "d/flow/reports/timing.rpt",
+        "d/flow/reports/deep/more.rpt",
+    }
+    assert all(path.is_file() for path in selected.values())
+
+
+def test_a_named_node_also_fetches_its_outputs_and_artifacts(tmp_path):
+    run = _run_dir(tmp_path)
+    outside = tmp_path / "elsewhere" / "extra.bin"
+    outside.parent.mkdir()
+    outside.write_text("outside\n")
+    record = {"path": str(run / "other" / "x.v"), "sha": content_digest(run / "other" / "x.v")}
+    node = _node(
+        run,
+        named=True,
+        artifacts={"bitstream": "out.bit", "extra": str(outside), "trace": "trace.json"},
+        outputs={"netlist": record},
+    )
+    selected = select_fetch(tmp_path, [node], fetch_all=False)
+    assert set(selected) == {
+        "d/flow/results.json",
+        "d/flow/settings.json",
+        "d/flow/flow.log",
+        "d/flow/reports/timing.rpt",
+        "d/flow/reports/deep/more.rpt",
+        "d/flow/out.bit",
+        "d/flow/other/x.v",
+        f"d/flow/{external_place(str(outside))}",
+    }
+    assert selected[f"d/flow/{external_place(str(outside))}"] == outside
+
+
+def test_a_node_the_request_does_not_name_returns_no_outputs(tmp_path):
+    run = _run_dir(tmp_path)
+    selected = select_fetch(tmp_path, [_node(run, artifacts={"bit": "out.bit"})], fetch_all=False)
+    assert "d/flow/out.bit" not in selected
+
+
+def test_fetch_all_selection(tmp_path):
+    run = _run_dir(tmp_path)
+    selected = select_fetch(tmp_path, [_node(run)], fetch_all=True)
+    assert set(selected) == {
+        f"d/flow/{name}"
+        for name in (
+            "results.json",
+            "settings.json",
+            "flow.log",
+            "notes.txt",
+            "out.bit",
+            "reports/timing.rpt",
+            "reports/deep/more.rpt",
+            "other/x.v",
+        )
+    }
+
+
+def test_two_nodes_have_their_own_places(tmp_path):
+    first, second = _run_dir(tmp_path, "d/yosys"), _run_dir(tmp_path, "d/arty/nextpnr")
+    selected = select_fetch(tmp_path, [_node(first), _node(second)], fetch_all=False)
+    assert "d/yosys/results.json" in selected and "d/arty/nextpnr/results.json" in selected
+
+
+def test_failed_node_fetches_only_what_it_wrote(tmp_path):
+    run = _run_dir(tmp_path)  # every file is here, as an earlier successful run left it
+    outside = tmp_path / "elsewhere.bin"
+    outside.write_text("stale\n")
+    results = dict(
+        artifacts={"bit": "out.bit", "stale": str(outside)},
+        outputs={"x": {"path": str(run / "other" / "x.v"), "sha": "0"}},
+    )
+    written = frozenset({"results.json", "flow.log", "out.bit", "notes.txt"})
+    for fetch_all in (False, True):
+        node = _node(run, named=True, success=False, written=written, **results)
+        selected = select_fetch(tmp_path, [node], fetch_all=fetch_all)
+        expected = {"results.json", "flow.log", "out.bit"} | ({"notes.txt"} if fetch_all else set())
+        assert set(selected) == {f"d/flow/{name}" for name in expected}
+    # with no word from the remote about what the run wrote, nothing comes back
+    node = _node(run, named=True, success=False, written=None, **results)
+    assert select_fetch(tmp_path, [node], fetch_all=True) == {}
+
+
+def test_a_missing_file_of_a_passed_node_is_an_error_and_of_a_failed_node_is_not(tmp_path):
+    run = _run_dir(tmp_path)
+    artifacts = {"gone": "never.bit"}
+    with pytest.raises(RemoteFetchError, match="never.bit"):
+        select_fetch(tmp_path, [_node(run, named=True, artifacts=artifacts)], fetch_all=False)
+    failed = _node(
+        run, named=True, success=False, written=frozenset({"never.bit"}), artifacts=artifacts
+    )
+    assert "d/flow/never.bit" not in select_fetch(tmp_path, [failed], fetch_all=False)
+
+
+def test_a_declared_output_outside_the_run_directory_is_refused(tmp_path):
+    run = _run_dir(tmp_path)
+    other = tmp_path / "other.v"
+    other.write_text("x\n")
+    node = _node(run, named=True, outputs={"x": {"path": str(other), "sha": "0"}})
+    with pytest.raises(DeliveryError, match="outside its run directory"):
+        select_fetch(tmp_path, [node], fetch_all=False)
+
+
+def test_links_a_tool_left_are_not_followed_out(tmp_path):
+    run = _run_dir(tmp_path)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("secret\n")
+    (run / "reports" / "link.rpt").symlink_to(secret)
+    (run / "reports" / "inner.rpt").symlink_to(run / "reports" / "timing.rpt")
+    (run / "reports" / "dir").symlink_to(tmp_path)
+    selected = select_fetch(tmp_path, [_node(run)], fetch_all=True)
+    assert "d/flow/reports/link.rpt" not in selected
+    assert not any(name.startswith("d/flow/reports/dir") for name in selected)
+    assert "d/flow/reports/inner.rpt" in selected
+
+
+def test_mirror_relative_keeps_a_place_in_the_run_directory_and_files_the_rest_by_digest():
+    run = "/remote/xeda_run/d/flow"
+    assert mirror_relative("reports/a.rpt", run) == PurePosixPath("reports/a.rpt")
+    assert mirror_relative(f"{run}/out/b.bit", run) == PurePosixPath("out/b.bit")
+    outside = mirror_relative("/remote/other/b.bit", run)
+    assert outside == external_place("/remote/other/b.bit")
+    assert outside.parts[0] == "_external" and outside.name == "b.bit"
+    assert mirror_relative("../up/b.bit", run) == external_place("/remote/xeda_run/d/up/b.bit")
+    assert external_place("/a/x.bit") != external_place("/b/x.bit")
+
+
+# --------------------------------------------------------------------------------- the mirror
+
+
+def _publish(run_root: Path, selected: dict[str, Path], mirror: Path, **kwargs) -> dict[str, Path]:
+    entries = build_manifest(selected)
+    stream = io.BytesIO()
+    write_tar(entries, selected, {}, stream)
+    return publish_mirror(
+        mirror,
+        kwargs.pop("entries", entries),
+        io.BytesIO(stream.getvalue()),
+        remote_run_root=PurePosixPath("/remote/xeda_run"),
+    )
+
+
+def test_the_mirror_gets_the_selected_files(tmp_path):
+    remote_root = tmp_path / "remote"
+    run = _run_dir(remote_root)
+    (run / "out.bit").chmod(0o755)
+    selected = select_fetch(
+        remote_root, [_node(run, named=True, artifacts={"b": "out.bit"})], fetch_all=False
+    )
+    run_root = tmp_path / "local"
+    run_root.mkdir()
+    mirror = run_root / "@host"
+    published = _publish(remote_root, selected, mirror)
+    assert set(published) == {f"/remote/xeda_run/{name}" for name in selected}
+    for name, source in selected.items():
+        assert (mirror / name).read_text() == source.read_text()
+        assert published[f"/remote/xeda_run/{name}"] == mirror / name
+    assert os.access(mirror / "d/flow/out.bit", os.X_OK)
+    assert not os.access(mirror / "d/flow/flow.log", os.X_OK)
+
+
+def test_mirror_files_are_verified_and_published_atomically(tmp_path):
+    remote_root = tmp_path / "remote"
+    run = _run_dir(remote_root)
+    selected = {"d/flow/results.json": run / "results.json", "d/flow/flow.log": run / "flow.log"}
+    entries = build_manifest(selected)
+    wrong = [
+        (
+            Entry(entry.path, entry.size, "0" * 64, entry.executable)
+            if entry.path.endswith("flow.log")
+            else entry
+        )
+        for entry in entries
+    ]
+    run_root = tmp_path / "local"
+    run_root.mkdir()
+    mirror = run_root / "@host"
+    old = mirror / "d/flow/flow.log"
+    old.parent.mkdir(parents=True)
+    old.write_text("the earlier fetch\n")
+    stream = io.BytesIO()
+    write_tar(entries, selected, {}, stream)
+    with pytest.raises(RemoteFetchError, match="does not match its digest"):
+        publish_mirror(
+            mirror, wrong, io.BytesIO(stream.getvalue()), remote_run_root=PurePosixPath("/r")
+        )
+    assert old.read_text() == "the earlier fetch\n", "a bad file replaces nothing"
+    assert [p.name for p in old.parent.iterdir() if p.name.startswith(".")] == [], "no temporaries"
+
+
+def test_a_file_in_the_stream_that_was_not_asked_for_is_refused(tmp_path):
+    remote_root = tmp_path / "remote"
+    run = _run_dir(remote_root)
+    selected = {"d/flow/results.json": run / "results.json", "d/flow/flow.log": run / "flow.log"}
+    stream = io.BytesIO()
+    write_tar(build_manifest(selected), selected, {}, stream)
+    run_root = tmp_path / "local"
+    run_root.mkdir()
+    asked = build_manifest({"d/flow/results.json": run / "results.json"})
+    with pytest.raises(RemoteProtocolError):
+        publish_mirror(
+            run_root / "@host",
+            asked,
+            io.BytesIO(stream.getvalue()),
+            remote_run_root=PurePosixPath("/r"),
+        )
+    assert not (run_root / "@host" / "d/flow/flow.log").exists()
+
+
+def test_mirror_refuses_escape_and_maps_external_paths(tmp_path):
+    remote_root = tmp_path / "remote"
+    run = _run_dir(remote_root)
+    outside = tmp_path / "elsewhere" / "extra.bin"
+    outside.parent.mkdir()
+    outside.write_text("outside\n")
+    selected = select_fetch(
+        remote_root, [_node(run, named=True, artifacts={"x": str(outside)})], fetch_all=False
+    )
+    run_root = tmp_path / "local"
+    run_root.mkdir()
+    mirror = run_root / "@host"
+    published = _publish(remote_root, selected, mirror)
+    place = f"d/flow/{external_place(str(outside))}"
+    assert (mirror / place).read_text() == "outside\n"
+    assert all(path.is_relative_to(mirror) for path in published.values())
+
+    # a directory of the mirror that is a link out of it: nothing is written through it
+    target = tmp_path / "victim"
+    target.mkdir()
+    fresh = run_root / "@other"
+    (fresh / "d").mkdir(parents=True)
+    (fresh / "d" / "flow").symlink_to(target, target_is_directory=True)
+    with pytest.raises(RemoteFetchError, match="symbolic link"):
+        _publish(remote_root, selected, fresh)
+    assert list(target.iterdir()) == []
+
+
+def test_the_mirror_replaces_a_link_at_the_name_of_a_file(tmp_path):
+    remote_root = tmp_path / "remote"
+    run = _run_dir(remote_root)
+    selected = {"d/flow/results.json": run / "results.json"}
+    run_root = tmp_path / "local"
+    mirror = run_root / "@host"
+    (mirror / "d/flow").mkdir(parents=True)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep\n")
+    (mirror / "d/flow/results.json").symlink_to(victim)
+    _publish(remote_root, selected, mirror)
+    assert victim.read_text() == "keep\n"
+    assert not (mirror / "d/flow/results.json").is_symlink()
+    assert (mirror / "d/flow/results.json").read_text() == (run / "results.json").read_text()
+
+
+def test_the_mirror_must_lie_below_its_run_root(tmp_path):
+    run_root = tmp_path / "local"
+    run_root.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (run_root / "@host").symlink_to(elsewhere, target_is_directory=True)
+    with pytest.raises(RemoteFetchError, match="not below its run root"):
+        publish_mirror(run_root / "@host", [], io.BytesIO(), remote_run_root=PurePosixPath("/r"))
+
+
+# --------------------------------------------------------------------------------- the results
+
+
+def test_results_point_at_the_mirror(tmp_path):
+    remote = PurePosixPath("/remote/xeda_run/d/flow")
+    mirror_dir = tmp_path / "@host" / "d" / "flow"
+    (mirror_dir / "other").mkdir(parents=True)
+    output = mirror_dir / "other" / "x.v"
+    output.write_text("module x; endmodule\n")
+    external = mirror_dir / external_place("/remote/elsewhere/e.bin")
+    external.parent.mkdir(parents=True)
+    external.write_text("e\n")
+    results = {
+        "success": True,
+        "run_path": str(remote),
+        "artifacts": {
+            "netlist": "other/x.v",
+            "bit": [f"{remote}/out.bit", "/remote/elsewhere/e.bin"],
+            "none": None,
+        },
+        "outputs": {
+            "netlist": {"path": f"{remote}/other/x.v", "sha": content_digest(output)},
+        },
+    }
+    original = json.dumps(results)
+    rewritten = rewrite_results(results, remote, mirror_dir)
+    assert json.dumps(results) == original, "the argument stays as it is"
+    assert rewritten["run_path"] == str(mirror_dir)
+    assert rewritten["artifacts"] == {
+        "netlist": str(mirror_dir / "other/x.v"),
+        "bit": [str(mirror_dir / "out.bit"), str(external)],
+        "none": None,
+    }
+    assert rewritten["outputs"]["netlist"]["path"] == str(output)
+
+
+def test_a_declared_output_that_changed_during_the_transfer_is_refused(tmp_path):
+    remote = PurePosixPath("/remote/xeda_run/d/flow")
+    mirror_dir = tmp_path / "mirror"
+    mirror_dir.mkdir()
+    (mirror_dir / "x.v").write_text("different\n")
+    results = {
+        "success": True,
+        "outputs": {"n": {"path": f"{remote}/x.v", "sha": "0" * 32}},
+    }
+    with pytest.raises(DeliveryError, match="changed during transfer"):
+        rewrite_results(results, remote, mirror_dir)
+    (mirror_dir / "x.v").unlink()
+    with pytest.raises(DeliveryError, match="not in the mirror"):
+        rewrite_results(results, remote, mirror_dir)
+
+
+def test_a_failed_node_has_no_declared_outputs(tmp_path):
+    remote = PurePosixPath("/remote/xeda_run/d/flow")
+    results = {"success": False, "outputs": {"n": {"path": f"{remote}/x.v", "sha": "0"}}}
+    assert "outputs" not in rewrite_results(results, remote, tmp_path)

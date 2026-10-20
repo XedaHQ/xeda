@@ -1,6 +1,4 @@
 import contextlib
-import gzip
-import hashlib
 import json
 import logging
 import os
@@ -9,7 +7,7 @@ import socket
 import sys
 import tempfile
 import zipfile
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import IO, Any, Dict, Literal, Optional, Tuple, Union
@@ -20,14 +18,12 @@ from fabric.transfer import Transfer
 
 from ..artifacts import (
     ArtifactPath,
-    drop_unwritten_artifacts,
     iter_artifact_paths,
     map_artifact_paths,
 )
 from ..deliver import (
     Deliveries,
     DeliveryError,
-    ReadInputs,
     deliverable_locations,
     outputs_to_deliveries,
     recorded_artifacts,
@@ -35,35 +31,31 @@ from ..deliver import (
 )
 from ..design import (
     Design,
-    DesignSource,
-    DVSettings,
-    FileResource,
     deferring_load_side_effects,
     loading_in_run_root,
     names_a_design_file,
 )
-from ..flow import Flow, FlowSettingsError, FlowSettingsException
-from ..flow.asic import AsicPlatformSettings
+from ..flow import Flow, FlowSettingsError
 from ..flow.flow import written_path_problems
-from ..flow.flow import map_keyed_path_leaves
-from ..dataclass import BaseModel, is_locator, names_inside_names, written_role
-from ..listing import VCS_METADATA, directory_files
 from ..proc_utils import tool_output_stream
 from ..utils import (
     XedaException,
     dump_json,
-    json_encodable,
-    location_free,
-    location_roots,
     settings_to_dict,
 )
 from ..version import __version__
 from ..xedaproject import PROJECT_FILE_NAMES, XedaProject, resolve_project_file
+from ..remote.fetch import (
+    deliver_fetched,
+    keep_vouched,
+    mirror_relative,
+    remote_read_inputs,
+)
+from ..remote.packaging import package_inputs
 from .bindings import require_no_bindings, split_bindings
 from .default_runner import (
     FlowLauncher,
     FlowNotFoundError,
-    _get_flow_class_if_known,
     get_flow_class,
     print_results,
     with_debug_logging,
@@ -78,7 +70,6 @@ from .settings_layers import (
     merge_flow_sections,
 )
 from .trace import remove_trace
-from .trace_inputs import design_files, register_read_settings
 from .outputs import declared_output_files
 from ..flow.derived import recorded_files
 from .trace import as_recorded
@@ -99,13 +90,15 @@ def _transfer_artifacts(
     """Fetch path leaves and return the same artifact tree with local path strings.
 
     A missing artifact of a successful run is an error. Of a failed run, only the artifacts
-    that the remote vouched its run wrote are fetched and kept (`written_on_remote`, as each
-    is named in the results). The rest are dropped, as the launcher drops them
-    (`drop_unwritten_artifacts`). The remote may run an older Xeda, which lists every artifact
-    its flow recorded whether or not the run wrote it, and a file there may be an earlier
-    run's. Only the remote can tell, from its own file system (`remote_runner`), so a file that
-    merely exists there proves nothing, and with no word from the remote none is kept."""
+    that the remote vouched its run wrote are fetched and kept (`keep_vouched`)."""
     remote_root = os.path.normpath(remote_run_path)
+    if not succeeded:
+        artifacts = keep_vouched(artifacts, written_on_remote, flow_name)
+
+    local_dir.mkdir(exist_ok=True, parents=True)
+    local_root = local_dir.resolve()
+    remote_to_local: dict[str, str] = {}
+    destinations: dict[Path, str] = {}
 
     def remote_path_of(artifact: ArtifactPath) -> str:
         named_path = os.fspath(artifact)
@@ -113,31 +106,12 @@ def _transfer_artifacts(
             named_path if os.path.isabs(named_path) else os.path.join(remote_root, named_path)
         )
 
-    if not succeeded:
-        vouched = frozenset(written_on_remote or ())
-
-        def written(artifact: ArtifactPath) -> bool:
-            return os.fspath(artifact) in vouched
-
-        artifacts = drop_unwritten_artifacts(artifacts, written, flow_name)
-
-    local_dir.mkdir(exist_ok=True, parents=True)
-    local_root = local_dir.resolve()
-    remote_to_local: dict[str, str] = {}
-    destinations: dict[Path, str] = {}
-
     for artifact in iter_artifact_paths(artifacts):
         named_path = os.fspath(artifact)
         remote_path = remote_path_of(artifact)
         if remote_path in remote_to_local:
             continue
-        relative = Path(os.path.relpath(remote_path, remote_root))
-        if ".." in relative.parts:
-            # An absolute path or a relative ../ path outside the run must not escape the
-            # local artifacts directory. The digest keeps same-named external files apart.
-            digest = hashlib.sha256(remote_path.encode()).hexdigest()[:16]
-            relative = Path("_external") / digest / Path(remote_path).name
-        local_path = local_dir / relative
+        local_path = local_dir / mirror_relative(remote_path, remote_root)
         if local_path in destinations and destinations[local_path] != remote_path:
             raise ValueError(f"Artifacts have conflicting local destination: {local_path}")
         if not local_path.resolve().is_relative_to(local_root):
@@ -155,43 +129,6 @@ def _transfer_artifacts(
         return remote_to_local[remote_path_of(artifact)]
 
     return map_artifact_paths(artifacts, rewrite_path)
-
-
-def remote_read_inputs(
-    design: Design,
-    input_settings: Flow.Settings,
-    sections: Mapping[str, Any],
-    launch_inputs: Sequence[Path],
-    *,
-    flow_class: type[Flow],
-    run_path: Path,
-    run_root: Path,
-) -> ReadInputs:
-    """Return the inputs that the deliveries of a remote run protect.
-
-    They cover every file of the graph that this side can name: the files of the design, the
-    design file and project file given, and what the read settings of the requested flow
-    `flow_class` name, as the launch uses them. For the requested flow, `input_settings` are
-    its section with the settings of the command line over it, and never its section as
-    written, since no flow of the run reads what the command line replaced there. For every
-    other flow, the section sent with the design counts as written (`flows.<name>`, with the
-    project's merged in), since this side does not know which producers the remote launches, or
-    with what. A file, or a directory with every entry under it, is registered as a local
-    launch registers them (`trace_inputs.register_read_settings`, with `run_path`, the local
-    mirror, and `run_root` for where the listings stop). A section that does not validate names
-    nothing: the remote run of that flow fails before anything is delivered."""
-    inputs = ReadInputs([*design_files(design), *launch_inputs])
-    register_read_settings(inputs, input_settings, run_path, run_root)
-    for name, section in sections.items():
-        section_class = _get_flow_class_if_known(name)
-        if section_class is None or section_class is flow_class or not isinstance(section, Mapping):
-            continue
-        try:
-            settings = section_class.Settings.from_input(section, **input_settings.context)
-        except FlowSettingsError:
-            continue
-        register_read_settings(inputs, settings, run_path, run_root)
-    return inputs
 
 
 REMOTE_PYTHON_MIN_VERSION = (3, 11, 0)
@@ -319,300 +256,38 @@ def send_design(
     path_identities: dict[str, str] | None = None,
     planned_flows: Collection[str] | None = None,
 ) -> Tuple[str, str]:
-    """Archive the design and transfer it to the remote host.
-
-    `planned_flows` names the flows of the plan. The Liberty files of those flows that include
-    others travel with the files they include. The settings of any other flow are not used, so
-    they travel as path settings do and are not read."""
+    """Archive the design (`package_inputs`) and transfer it to the remote host."""
     assert isinstance(conn, Connection)
 
+    sections = dict(all_flows_settings) if all_flows_settings is not None else design.flow
+    package = package_inputs(
+        design,
+        sections,
+        set(sections) if planned_flows is None else planned_flows,
+        run_root=run_root or Path(os.devnull),
+        remote_inputs=PurePosixPath(remote_path),
+    )
+    if path_identities is not None:
+        path_identities.update(package.path_identities)
+    # The old runner reports the name of the target on this side and plans nothing there by it.
+    document = json.loads(package.generated[package.design_file])
+    if document.pop("target", None) is not None:
+        package.generated[package.design_file] = json.dumps(document).encode("utf-8")
     with tempfile.TemporaryDirectory() as tmpdirname:
-        temp_dir = Path(tmpdirname)
-        zip_file = temp_dir / f"{design.name}.zip"
+        zip_file = Path(tmpdirname) / f"{design.name}.zip"
         log.info("Preparing design archive: %s", zip_file)
-        # `mode="json"`: the fields kept as they are (`dependencies` and its `local_cache` /
-        # `clone_dir`) hold `Path`s, which a python-mode dump leaves as objects for the encoder
-        # to stringify by luck rather than by rule.
-        # Not `target`: the remote is sent the design a target yielded, as a design file is
-        # written, and the name of the target is this side's to report.
-        new_design: Dict[str, Any] = {
-            **design.model_dump(mode="json", exclude={"target"}),
-            "design_root": None,
-        }
-        rtl: Dict[str, Any] = {}
-        tb: Dict[str, Any] = {}
-        remote_sources_path = Path(design.name) / "sources"
-        design_file = temp_dir / f"{design.name}.xeda.json"
-        # Every place in the archive, and the local file that goes there. One table for both
-        # kinds of place (flat among the sources, or where a file lies under the design root),
-        # so neither can be handed a place the other already holds.
-        archive_entries: Dict[Path, Path] = {Path(design_file.name): design_file}
-        flat_places: Dict[Path, Path] = {}
-
-        def archived(resource: FileResource) -> Path:
-            """Return where `resource` lands among the archived sources.
-
-            The first time a resource is seen, add it. Two files may share a name under
-            different directories, and this part of the archive is flat, so a repeated name is
-            made unique by content. The same file listed twice still travels once.
-            """
-            local = resource.file.resolve()
-            place = flat_places.get(local)
-            if place is not None:
-                return place
-            place = remote_sources_path / local.name
-            if place in archive_entries:
-                digest = resource.content_hash[:8]
-                place = remote_sources_path / f"{local.stem}_{digest}{local.suffix}"
-                suffix = 2
-                while place in archive_entries:
-                    place = remote_sources_path / f"{local.stem}_{digest}_{suffix}{local.suffix}"
-                    suffix += 1
-            archive_entries[place] = local
-            flat_places[local] = place
-            return place
-
-        def archived_in_place(local: Path, relative: Path) -> bool:
-            """Archive `local` at `relative`, where it lies under the design root.
-
-            Then the remote finds it where this side does. Return False when that place holds
-            another file."""
-            return archive_entries.setdefault(relative, local.resolve()) == local.resolve()
-
-        def packaged_sources(sources: Iterable[DesignSource]) -> list[Dict[str, Any]]:
-            """Return the sources as the remote has to see them.
-
-            A source under the design root keeps its own place relative to the root, as it has
-            here. A Verilog `include` finds the header beside the including file first, so a
-            flattened layout could build another design, and it would hash as another
-            (`Design._source_fingerprint`). A source outside the root has no place there, and
-            travels among the flat sources."""
-            packaged: list[Dict[str, Any]] = []
-            for src in sources:
-                relative = design.relative_to_root(src.file)
-                if relative is not None and archived_in_place(src.file, relative):
-                    place = relative
-                else:
-                    place = archived(src)
-                spec: Dict[str, Any] = {"file": place.as_posix()}
-                spec["type"] = str(src.type)
-                packaged.append(spec)
-            return packaged
-
-        def packaged_parameters(dv: DVSettings) -> Dict[str, Any]:
-            """Return the parameters as the remote has to see them.
-
-            A parameter is text to the tool, but text that names a path on this machine names
-            nothing on the remote. So a path is re-rooted from its value alone:
-
-            - Under the design root, it keeps its place relative to the root. An existing file
-              is archived at that same place. A path with no file yet (an output) is only a
-              place for the remote to write. Counted relative to the root on both sides, the
-              remote hashes the design exactly as this side did.
-            - Elsewhere, an existing file is archived among the sources and repointed there.
-
-            Either way it travels as a table (`{file: ...}`, `{path: ...}`), which the remote
-            resolves against its own design root and not against whatever directory it runs in.
-            Anything else is a value, and travels as it is.
-            """
-            parameters: Dict[str, Any] = {}
-            for name, value in dv.parameters.items():
-                parameters[name] = value
-                if not (isinstance(value, str) and os.path.isabs(value)):
-                    continue
-                path = Path(value)
-                relative = design.relative_to_root(path)
-                if relative is not None and not path.exists():
-                    parameters[name] = {"path": relative.as_posix()}
-                elif relative is not None and path.is_file() and archived_in_place(path, relative):
-                    parameters[name] = {"file": relative.as_posix()}
-                elif path.is_file():
-                    parameters[name] = {"file": archived(FileResource(path)).as_posix()}
-            return parameters
-
-        rtl["sources"] = packaged_sources(design.rtl.sources)
-        rtl["defines"] = design.rtl.defines
-        rtl["attributes"] = design.rtl.attributes
-        rtl["parameters"] = packaged_parameters(design.rtl)
-        rtl["top"] = design.rtl.top
-        rtl["clocks"] = [clk.model_dump() for clk in design.rtl.clocks]
-        tb["sources"] = packaged_sources(design.tb.sources)
-        tb["top"] = design.tb.top
-        tb["cocotb"] = design.tb.cocotb.model_dump() if design.tb.cocotb is not None else None
-        if design.tb.uut:
-            tb["uut"] = design.tb.uut
-        if design.tb.parameters:
-            tb["parameters"] = packaged_parameters(design.tb)
-        if design.tb.defines:
-            tb["defines"] = design.tb.defines
-        new_design["rtl"] = rtl
-        new_design["tb"] = tb
-        # The remote does not receive the local project file. Materialize its merged flow
-        # sections into the shipped design, so that producers see exactly the same settings as
-        # in a local run. The explicit settings of the requested flow still take precedence on
-        # the remote command line.
-        sections = dict(all_flows_settings) if all_flows_settings is not None else design.flow
-
-        def packaged_path(value: Any) -> Any:
-            if not isinstance(value, (str, os.PathLike)) or not os.fspath(value):
-                return value
-            path = Path(value)
-            if not path.is_absolute():
-                choices = [design.root_path / path, Path.cwd() / path]
-                path = next((p for p in choices if p.exists()), choices[0])
-            local = path.resolve()
-            relative = design.relative_to_root(path)
-            if relative is None:
-                digest = hashlib.sha256(str(path).encode()).hexdigest()[:16]
-                relative = Path("_setting_inputs") / digest / local.name
-            if path_identities is not None:
-                roots = location_roots(design.root_path, Path.cwd())
-                path_identities[str(Path(remote_path) / relative)] = str(
-                    location_free(value, roots)
-                )
-            if local.is_file():
-                archive_entries.setdefault(relative, local)
-            elif local.is_dir():
-                archive_entries.setdefault(relative, local)
-                for entry in directory_files(
-                    local, [run_root] if run_root else [], VCS_METADATA, follow_links=True
-                ):
-                    archive_entries.setdefault(relative / entry.relative_to(local), entry)
-            return "$DESIGN_ROOT/" + relative.as_posix()
-
-        remote_root: list[PurePosixPath] = []
-        # whether the section that is packaged now belongs to a flow of the plan
-        in_plan = [True]
-
-        def remote_physical_root() -> PurePosixPath:
-            """The place of the unpacked archive on the remote, as its file system names it."""
-            if not remote_root:
-                remote_root.append(PurePosixPath(conn.sftp().normalize(remote_path)))
-            return remote_root[0]
-
-        def packaged_liberty(value: Any) -> Any:
-            """Return the Liberty file `value` as the remote receives it.
-
-            A file without `include_file` travels as any path setting does. For a file that
-            includes others, the included files travel too, each in a place of its own, and the
-            copies of all the files name the included files by their places on the remote, because
-            OpenSTA opens an include by its absolute name. The shipped value is the copy of the
-            file named by the setting, and the identity of the run is that of the original."""
-            from ..platforms.derive import (
-                liberty_included_files,
-                liberty_text_with_includes_renamed,
-            )
-
-            if not in_plan[0]:
-                return packaged_path(value)
-            path = Path(value)
-            if not path.is_absolute():
-                choices = [design.root_path / path, Path.cwd() / path]
-                path = next((p for p in choices if p.exists()), choices[0])
-            try:
-                included = liberty_included_files(path) if path.is_file() else []
-            except ValueError as error:
-                raise FlowSettingsException(f"`liberty` file {path}: {error}") from None
-            if not included:
-                return packaged_path(value)
-
-            def place(local: Path) -> Path:
-                digest = hashlib.sha256(str(local.resolve()).encode()).hexdigest()[:16]
-                return Path("_liberty_inputs") / digest / local.name
-
-            def remote_name(local: Path) -> str:
-                return str(remote_physical_root() / place(local).as_posix())
-
-            copies = temp_dir / "liberty_copies"
-            for local in (path, *included):
-                try:
-                    if local.suffix.lower() == ".gz" and not liberty_included_files(local):
-                        archive_entries[place(local)] = local  # nothing to rename
-                        continue
-                    text = liberty_text_with_includes_renamed(local, lambda inc: remote_name(inc))
-                except ValueError as error:
-                    raise FlowSettingsException(
-                        f"`liberty` file {path} cannot be shipped: {error}"
-                    ) from None
-                copy = copies / place(local)
-                copy.parent.mkdir(parents=True, exist_ok=True)
-                if local.suffix.lower() == ".gz":
-                    with gzip.open(copy, "wt", encoding="utf-8") as stream:
-                        stream.write(text)
-                else:
-                    with open(copy, "w", encoding="utf-8") as f:
-                        f.write(text)
-                archive_entries[place(local)] = copy
-            if path_identities is not None:
-                roots = location_roots(design.root_path, Path.cwd())
-                path_identities[str(Path(remote_path) / place(path))] = str(
-                    location_free(value, roots)
-                )
-            return "$DESIGN_ROOT/" + place(path).as_posix()
-
-        def packaged_value(value: Any) -> Any:
-            """Return `value` as the remote receives it: its paths archived and repointed.
-
-            A locator (`pdk_root`) is a place on this machine: the remote host uses its own. Its
-            key stays, with the value None."""
-            if isinstance(value, BaseModel):
-                values: Dict[str, Any] = {}
-                for name, field in type(value).model_fields.items():
-                    if name not in value.model_fields_set:
-                        continue
-                    item = getattr(value, name)
-                    if is_locator(type(value), name):
-                        values[name] = None
-                        continue
-                    if name == "liberty" and isinstance(value, AsicPlatformSettings):
-                        values[name] = [packaged_liberty(leaf) for leaf in item]
-                        continue
-                    if written_role(type(value), name) is None:
-                        item = map_keyed_path_leaves(
-                            item, field.annotation, lambda _key, leaf: packaged_path(leaf), name
-                        )
-                    values[name] = packaged_value(item)
-                return values
-            if isinstance(value, Mapping):
-                return {key: packaged_value(item) for key, item in value.items()}
-            if isinstance(value, (list, tuple)):
-                return [packaged_value(item) for item in value]
-            return value
-
-        shipped_sections = {}
-        for name, section in sections.items():
-            cls = _get_flow_class_if_known(name)
-            if cls is None:
-                shipped_sections[name] = section
-                continue
-            try:
-                model = cls.Settings.from_input(
-                    section, design_root=design.root_path, runner_cwd=Path.cwd()
-                )
-            except FlowSettingsError:
-                shipped_sections[name] = section
-            else:
-                in_plan[0] = planned_flows is None or name in planned_flows
-                # Preserve explicitness: a section contributes only the keys it states.
-                rewritten = packaged_value(model)
-                shipped_sections[name] = {key: rewritten[key] for key in model.model_fields_set}
-        new_design["flow"] = shipped_sections
-        with open(design_file, "w") as f:
-            # The encoder that `settings.json` uses: a pydantic model serializes through pydantic,
-            # so the serializers of its fields run.
-            json.dump(new_design, f, default=json_encodable)
         with zipfile.ZipFile(zip_file, mode="w") as archive:
-            for place, local in archive_entries.items():
+            for place, local in package.files.items():
                 archive.write(local, arcname=place)
-
+            for place, content in package.generated.items():
+                archive.writestr(place, content)
         if log.isEnabledFor(logging.DEBUG):
             with zipfile.ZipFile(zip_file, mode="r") as archive:
                 for info in archive.infolist():
                     log.debug("Archive entry: %s (%d bytes)", info.filename, info.file_size)
-
         log.info("Transferring design to %s in %s", conn.host, remote_path)
         conn.put(zip_file, remote=remote_path)
-        return zip_file.name, design_file.name
+        return zip_file.name, package.design_file
 
 
 def remote_runner(
@@ -1140,19 +815,6 @@ class RemoteRunner(FlowLauncher):
                 **{node.name: as_recorded(node.settings) for node in plan.nodes},
             }
             flow_settings = as_recorded(input_settings)
-            for section_name, section in sections.items():
-                section_class = _get_flow_class_if_known(section_name)
-                if section_class is None or not isinstance(section, Mapping):
-                    continue
-                for table, outer, inner in names_inside_names(section_class.Settings, section):
-                    raise FlowSettingsException(
-                        f"`{section_name}.{table}` holds the name `{outer}` and the name "
-                        f"`{inner}`, which starts with it and a dot. A local run accepts both, "
-                        "but a remote run refuses them: the remote reads the design as one "
-                        "origin, which cannot hold both. Give only one of them, or run the "
-                        "request without `--remote`"
-                    )
-            # Hashed exactly as a local run would be, from the validated settings. Checked here
             # and not on the remote: a path that the flow writes and that leads out of its run
             # directory, a missing setting, and a design that the flow cannot run are known
             # before anything is shipped, and a remote on an older release may not check them.
@@ -1518,26 +1180,12 @@ class RemoteRunner(FlowLauncher):
         remote_run_path: Optional[str],
         local_artifacts_dir: Path,
     ) -> None:
-        """Deliver `--outputs-to` from the artifacts fetched into `local_artifacts_dir`.
-
-        The artifacts are named by their paths in the remote run directory. Only a run that
-        succeeded delivers: the files of a failed run never replace earlier copies made by
-        Xeda. What was delivered goes into `results`."""
-        outputs_to = self.settings.outputs_to
-        if outputs_to is None or not remote_run_path or not remote_artifacts:
-            return
-        if not results.get("success"):
-            log.warning("The remote run failed: nothing is delivered to %s", outputs_to)
-            return
-        extra = outputs_to_deliveries(remote_artifacts, Path(remote_run_path), outputs_to)
-        delivery.collect(local_artifacts_dir, extra)
-        try:
-            delivered = delivery.deliver()
-        except Exception:
-            # As `_finish_launch` does for a local run: `deliver()` records, and reports through
-            # `delivery.delivered`, whatever it copied before raising (an `OSError` partway
-            # through). So `results["deliveries"]`, which a `--json` reader sees, still lists
-            # the copies that actually reached disk before the error propagates.
-            results["deliveries"] = [d.as_json_value() for d in delivery.delivered]
-            raise
-        results["deliveries"] = [d.as_json_value() for d in delivered]
+        """Deliver `--outputs-to` from the artifacts fetched into `local_artifacts_dir`."""
+        deliver_fetched(
+            delivery,
+            results,
+            remote_artifacts,
+            remote_run_path,
+            local_artifacts_dir,
+            outputs_to=self.settings.outputs_to,
+        )
