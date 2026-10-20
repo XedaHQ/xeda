@@ -1572,6 +1572,13 @@ REVIEWED_PY_DELETIONS = {
         "`_remove_entry` removes a stale input, a leftover temporary file, or what is at a "
         "place that the manifest gives to another kind of entry",
     ),
+    ("remote/agent.py", "shutil.rmtree(path)"): (
+        1,
+        "`xeda.remote.agent clean`, on the remote host outside any run directory: an environment, "
+        "a code copy or a workspace of the remote root that nothing uses (no live process runs "
+        "from it, no lock or running launch holds it). `clean` enters no link, and `rmtree` "
+        "follows none",
+    ),
     ("remote/manifest.py", "os.rmdir(name, dir_fd=parent)"): (
         1,
         "the remote sync, outside a run directory: a directory that `_remove_entry` has emptied "
@@ -2175,6 +2182,19 @@ REVIEWED_WRITES = [
         "the install command writes the PDK store, outside a run: the lock file of the store, "
         "opened to be locked, not written; `O_NOFOLLOW` makes the open fail on a link, and the "
         "install checked the way to the file for links just before",
+    ),
+    (
+        "remote/agent.py",
+        'descriptor = os.open(self.workspace / "lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)',
+        "the remote agent, outside a run directory: the lock file of a workspace, opened to be "
+        "locked, not written; `O_NOFOLLOW` makes the open fail on a link",
+    ),
+    (
+        "remote/agent.py",
+        "descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)",
+        "the remote agent, outside a run directory: the log of a launch, a new file in the new "
+        "directory of the launch, created exclusively (an existing entry, a link included, is "
+        "refused); the launch writes its output to it",
     ),
     (
         "remote/manifest.py",

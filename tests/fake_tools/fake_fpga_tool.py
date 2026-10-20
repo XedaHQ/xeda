@@ -4,6 +4,8 @@
 Calls are JSON lines in the working directory, after every input has been opened.
 XEDA_FAKE_FPGA_TOOL optionally limits fault injection to one executable. MODE is
 partial, no-output, malformed-report, fail, or signal; DELAY is seconds before output.
+READY (the path of a FIFO) makes the tool report its process id there and block, to the end of
+a test that stops it; IGNORE_SIGNALS makes it ignore SIGINT and SIGTERM while it blocks.
 Only version/help probes bypass input validation and call recording. openFPGALoader answers
 its version as the real one does: `-V` or `--Version` (capital V) print `openFPGALoader v1.0.0`,
 and the conventional `--version` is rejected, so a flow that asks the wrong way gets no version.
@@ -267,6 +269,16 @@ def record(tool, args, inputs, contents, seed=1):
     if selected and selected != tool:
         return ""
     time.sleep(float(os.environ.get("XEDA_FAKE_FPGA_DELAY", "0")))
+    ready = os.environ.get("XEDA_FAKE_FPGA_READY")
+    if ready:
+        # Block until a signal ends the tool. The ready path is a FIFO that the test reads: the
+        # tool writes its process id to it. XEDA_FAKE_FPGA_IGNORE_SIGNALS makes the tool ignore
+        # SIGINT and SIGTERM, as a tool that does not stop politely.
+        if os.environ.get("XEDA_FAKE_FPGA_IGNORE_SIGNALS"):
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        Path(ready).write_text(str(os.getpid()))
+        time.sleep(600)
     mode = os.environ.get("XEDA_FAKE_FPGA_MODE", "")
     if mode == "signal":
         os.kill(os.getpid(), signal.SIGTERM)
