@@ -1076,30 +1076,76 @@ def test_every_command_refuses_to_run_from_a_directory_that_clean_is_removing(
 
 
 def test_check_holds_the_locks_while_it_runs(tmp_path, provisioned):
-    """The locks are taken before the command starts: a command that holds none would let a
-    `clean` remove the directory under it."""
+    """`main` takes the locks before it runs the command: a command that holds none would let a
+    `clean` remove the directory under it. The command here reports who holds the locks."""
     program = (
         "import fcntl, os, sys\n"
         "from xeda.remote import agent\n"
-        "agent._hold_use_locks()\n"
-        "for d in agent._runtime_directories():\n"
-        f"    f = open(os.path.join(d, {USE_LOCK!r}), 'rb')\n"
-        "    try:\n"
-        "        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
-        "    except BlockingIOError:\n"
-        "        print('held', d)\n"
+        "def check(executables):\n"
+        "    held = []\n"
+        "    for d in agent._runtime_directories():\n"
+        f"        f = open(os.path.join(d, {USE_LOCK!r}), 'rb')\n"
+        "        try:\n"
+        "            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+        "        except BlockingIOError:\n"
+        "            held.append(str(d))\n"
+        "    return {'held': held}\n"
+        "agent.check = check\n"
+        "sys.exit(agent.main(['check']))\n"
     )
     done = subprocess.run(
         [provisioned.python, "-c", program],
         capture_output=True,
-        text=True,
         timeout=TIMEOUT,
-        env={**os.environ, "PYTHONPATH": str(provisioned.code)},
+        env={**os.environ, "HOME": str(tmp_path / "home"), "PYTHONPATH": str(provisioned.code)},
         check=True,
     )
-    assert sorted(done.stdout.split("\n")[:-1]) == sorted(
-        [f"held {provisioned.env}", f"held {provisioned.code}"]
+    stream = io.BytesIO(done.stdout)
+    skip_to_magic(stream)
+    assert sorted(json.loads(stream.read())["held"]) == sorted(
+        [str(provisioned.env), str(provisioned.code)]
     )
+
+
+@pytest.mark.parametrize("kind", ["env", "code", "ws"])
+def test_clean_skips_a_candidate_whose_lock_file_was_replaced_after_it_locked(
+    tmp_path, monkeypatch, kind
+):
+    """Another `clean` removed the directory and provisioning made it again: the file that this
+    `clean` opened is no longer the lock of the directory, so the lock means nothing."""
+    base = tmp_path / "remote" / "v1"
+    if kind == "ws":
+        directory = base / "ws" / "w"
+        directory.mkdir(parents=True)
+        lock = directory / "lock"
+        lock.write_text("")
+    else:
+        directory = make_entry(base, kind, "k")
+        lock = directory / USE_LOCK
+    real = fcntl.flock
+
+    def flock_then_replace(descriptor: Any, operation: int) -> None:
+        real(descriptor, operation)
+        os.unlink(lock)
+        lock.write_text("")
+
+    monkeypatch.setattr(agent_module.fcntl, "flock", flock_then_replace)
+    report = agent_module.clean(tmp_path / "remote", 30, everything=True)
+    assert report["removed"] == []
+    (kept,) = report["kept"]
+    assert kept["path"] == str(directory) and "changed" in kept["reason"]
+    assert directory.is_dir() and lock.is_file()
+
+
+def test_clean_does_not_look_at_a_stage_directory_that_provisioning_fills(tmp_path):
+    """`put-code` unpacks into `code/.<key>.<host>.<pid>` before it takes its lock. Bootstrap
+    sweeps the stage directory of a process that is gone."""
+    (tmp_path / "home").mkdir()
+    base = tmp_path / "remote" / "v1"
+    stage = make_entry(base, "code", ".0123abcd.somehost.4242", lock=False)
+    report = run_command("clean", str(tmp_path / "remote"), "--all", tmp_path=tmp_path)
+    assert report["removed"] == [] and report["kept"] == []
+    assert stage.is_dir()
 
 
 def test_a_session_outside_the_layout_takes_no_use_lock(tmp_path, start_agent):

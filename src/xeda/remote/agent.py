@@ -982,10 +982,11 @@ class Session:
                 cwd=launch_dir,
                 env={**os.environ, "PYTHONUNBUFFERED": "1"},
                 start_new_session=True,
-                # A launch that keeps running inherits the workspace lock and the locks on its
-                # environment and code copy, and holds them until it ends, also when this agent
-                # has exited. Its tools do not inherit them (they close the files).
-                pass_fds=self._inherited_locks() if keep_running else (),
+                # Every launch inherits the workspace lock and the locks on its environment and
+                # code copy, and holds them until it ends, also when this agent has exited or died.
+                # Its tools do not inherit them: a file from `os.open` is not inheritable, and the
+                # launcher starts its processes with `close_fds`.
+                pass_fds=self._inherited_locks(),
             )
         finally:
             os.close(descriptor)
@@ -1531,7 +1532,9 @@ def clean(
             if stat.S_ISLNK(directory.lstat().st_mode):
                 keep(kind, directory, "the directory is a link")
                 return []
-            names = sorted(p for p in directory.iterdir() if not p.name.startswith(_REMOVING))
+            # A name that starts with a dot is a directory that provisioning fills (`code/.<key>
+            # .<host>.<pid>`) or that a `clean` removes (`_REMOVING`): neither is a candidate.
+            names = sorted(p for p in directory.iterdir() if not p.name.startswith("."))
             return [p for p in names if only is None or str(p) in only]
         except FileNotFoundError:
             return []
@@ -1566,9 +1569,14 @@ def clean(
             else:
                 try:
                     fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    return descriptor
                 except BlockingIOError:
                     keep(kind, path, held)
+                else:
+                    # Another `clean` may have removed the directory, and provisioning made it
+                    # again, since the open: then this is the lock of a file that is gone.
+                    if _is_file_at(descriptor, path / name):
+                        return descriptor
+                    keep(kind, path, "it changed while clean looked at it")
         except BaseException:
             if descriptor is not None:
                 os.close(descriptor)

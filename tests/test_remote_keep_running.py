@@ -353,6 +353,7 @@ def _keep_running_agent(
     *arguments,
     beats=False,
     environment=None,
+    keep_running=True,
 ):
     """An agent with a launch that keeps running and whose tool blocks. Return the agent, the
     state of the launch and the beats (or `None`). With `environment` (a `Provisioned`), the agent
@@ -366,7 +367,7 @@ def _keep_running_agent(
     agent.sync(DESIGN, "run-1")
     beating = Beats(agent) if beats else None
     message = launch_message(tmp_path, "run-1", path_setup(toolchain))
-    agent.send({**message, "keep_running": True})
+    agent.send({**message, "keep_running": keep_running})
     agent.tool_pids.append(tool.wait(agent))
     state = json.loads((workspace(tmp_path) / "launches" / "run-1" / "state.json").read_text())
     leftovers.append(state["pid"])  # the test stops the launch if the agent did not
@@ -397,7 +398,36 @@ def test_a_launch_that_keeps_running_holds_its_environment_and_code_copy_after_t
     assert reasons["e0"] == "in use" and reasons["c0"] == "in use"
     assert not any(item["kind"] in ("env", "code") for item in report["removed"])
     assert (provisioned.env / USE_LOCK).exists() and (provisioned.code / USE_LOCK).exists()
-    # The locks end with the launch.
+    # The locks end with the launch, also while its tool runs on: the tool inherits none.
+    tool = agent.tool_pids[-1]
+    psutil.Process(state["pid"]).kill()
+    psutil.Process(state["pid"]).wait(timeout=TIMEOUT)
+    assert psutil.Process(tool).is_running()
+    for directory in (provisioned.env, provisioned.code):
+        assert not provisioned.lock_is_held(directory)
+    with (workspace(tmp_path) / "lock").open("rb") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_a_launch_that_does_not_keep_running_holds_the_locks_when_the_agent_is_killed(
+    tmp_path, toolchain, monkeypatch, start_agent, leftovers, provisioned
+):
+    """An agent that dies (out of memory, for example) cannot stop its launch: the launch holds
+    the workspace lock and the use locks, so that `clean` leaves them alone."""
+    agent, state, _ = _keep_running_agent(
+        tmp_path,
+        toolchain,
+        monkeypatch,
+        start_agent,
+        leftovers,
+        environment=provisioned,
+        keep_running=False,
+    )
+    agent.process.kill()
+    agent.process.wait(timeout=TIMEOUT)
+    _alive_and_holding(tmp_path, state)
+    for directory in (provisioned.env, provisioned.code):
+        assert provisioned.lock_is_held(directory)
     for pid in (state["pid"], *agent.tool_pids):
         psutil.Process(pid).kill()
     psutil.Process(state["pid"]).wait(timeout=TIMEOUT)
