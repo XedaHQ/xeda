@@ -652,15 +652,21 @@ def test_the_test_only_periods_refuse_values_above_the_constants(tmp_path, argum
 # check and clean
 
 
-def run_command(*arguments: str, tmp_path: Path) -> Any:
+def run_command(
+    *arguments: str,
+    tmp_path: Path,
+    python: str = sys.executable,
+    environment: Optional[dict[str, str]] = None,
+    check: bool = True,
+) -> Any:
     """Run a one-shot command of the agent and return its JSON document."""
     done = subprocess.run(
-        [sys.executable, "-m", "xeda.remote.agent", *arguments],
+        [python, "-m", "xeda.remote.agent", *arguments],
         capture_output=True,
         stdin=subprocess.DEVNULL,
         timeout=TIMEOUT,
-        env={**os.environ, "HOME": str(tmp_path / "home")},
-        check=True,
+        env={**os.environ, "HOME": str(tmp_path / "home"), **(environment or {})},
+        check=check,
     )
     stream = io.BytesIO(done.stdout)
     skip_to_magic(stream)
@@ -999,6 +1005,16 @@ class Provisioned:
                 return True
             return False
 
+    def command(self, *arguments: str, tmp_path: Path, check: bool = True) -> Any:
+        """Run a one-shot command of the agent from the environment and the code copy."""
+        return run_command(
+            *arguments,
+            tmp_path=tmp_path,
+            python=self.python,
+            environment={"PYTHONPATH": str(self.code)},
+            check=check,
+        )
+
     def start(self, start_agent: Callable[..., Agent], *arguments: str) -> Agent:
         environment = {**os.environ, "PYTHONPATH": str(self.code)}  # as the test has set it now
         return start_agent(*arguments, python=self.python, env=environment)
@@ -1029,6 +1045,61 @@ def test_a_session_holds_its_environment_and_code_copy_until_it_ends(
     assert not provisioned.lock_is_held(provisioned.code)
     removed = run_command("clean", root, "--all", tmp_path=tmp_path)["removed"]
     assert {Path(i["path"]).name for i in removed} == {"e0", "c0"}
+
+
+@pytest.mark.parametrize("option", ["--all", "--list"])
+def test_clean_keeps_the_environment_and_code_copy_it_runs_from(tmp_path, provisioned, option):
+    """`clean` holds the shared locks like every agent process, so its own exclusive lock on the
+    environment it runs from fails: no special rule keeps that environment."""
+    other = make_entry(provisioned.base, "env", "e1")
+    report = provisioned.command("clean", str(tmp_path / "remote"), option, tmp_path=tmp_path)
+    removable = report.get("removed", report.get("removable"))
+    assert [Path(item["path"]) for item in removable] == [other]
+    assert {Path(i["path"]).name: i["reason"] for i in report["kept"]} == {
+        "e0": "in use",
+        "c0": "in use",
+    }
+    assert provisioned.env.is_dir() and provisioned.code.is_dir()
+
+
+@pytest.mark.parametrize("command", [("check",), ("clean", "ROOT", "--list"), ("clean", "ROOT")])
+def test_every_command_refuses_to_run_from_a_directory_that_clean_is_removing(
+    tmp_path, provisioned, command
+):
+    arguments = [str(tmp_path / "remote") if a == "ROOT" else a for a in command]
+    with (provisioned.env / USE_LOCK).open("rb") as removing:
+        fcntl.flock(removing, fcntl.LOCK_EX)
+        report = provisioned.command(*arguments, tmp_path=tmp_path, check=False)
+    assert "xeda remote clean" in report["error"]["message"]
+    assert report.get("removed", []) == [] and report.get("removable", []) == []
+    assert provisioned.env.is_dir()
+
+
+def test_check_holds_the_locks_while_it_runs(tmp_path, provisioned):
+    """The locks are taken before the command starts: a command that holds none would let a
+    `clean` remove the directory under it."""
+    program = (
+        "import fcntl, os, sys\n"
+        "from xeda.remote import agent\n"
+        "agent._hold_use_locks()\n"
+        "for d in agent._runtime_directories():\n"
+        f"    f = open(os.path.join(d, {USE_LOCK!r}), 'rb')\n"
+        "    try:\n"
+        "        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+        "    except BlockingIOError:\n"
+        "        print('held', d)\n"
+    )
+    done = subprocess.run(
+        [provisioned.python, "-c", program],
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+        env={**os.environ, "PYTHONPATH": str(provisioned.code)},
+        check=True,
+    )
+    assert sorted(done.stdout.split("\n")[:-1]) == sorted(
+        [f"held {provisioned.env}", f"held {provisioned.code}"]
+    )
 
 
 def test_a_session_outside_the_layout_takes_no_use_lock(tmp_path, start_agent):

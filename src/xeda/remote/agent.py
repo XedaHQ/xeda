@@ -55,10 +55,11 @@ the launch, SIGTERM to it and to its descendants after the first grace period, S
 is left after the second. The periods run on the clock of the agent. The result is sent only after all of them
 are gone.
 
-A session that runs from an environment and a code copy in `R/v1/env/` and `R/v1/code/` takes a
-shared lock on the file `.xeda-lock` of each before it sends `hello`, and holds both until it ends.
-A launch that keeps running inherits both locks. If the directory is being removed or was removed
-(by `clean`), the agent sends an `error` and exits with status 1.
+An agent process (every command) that runs from an environment and a code copy in `R/v1/env/` and
+`R/v1/code/` takes a shared lock on the file `.xeda-lock` of each before it does anything else
+(before `hello`, for a session), and holds both until it ends. A launch that keeps running inherits
+both locks. If the directory is being removed or was removed (by `clean`), the agent reports an
+`error` (a session sends an `error` frame) and exits with status 1.
 
 `check [--json] <executables...>` and `clean <root> [--older-than DAYS] [--all] [--list]
 [--only PATH]...` write `MAGIC` and then one JSON document and a newline. With `--list`, `clean`
@@ -541,15 +542,30 @@ def _order(state: dict[str, Any]) -> tuple[int, str]:
 USE_LOCK = ".xeda-lock"
 
 
-def _runtime_directories(base: Path) -> list[Path]:
+def _runtime_directories() -> list[Path]:
     """The environment and the code copy that this process runs from, if they are in the layout
-    `base`. An agent that runs from a checkout or from another environment has none."""
-    own = ((base / "env", Path(sys.prefix)), (base / "code", Path(__file__).parent.parent.parent))
+    `<root>/v1/env/<key>` and `<root>/v1/code/<key>`. An agent that runs from a checkout or from
+    another environment has none."""
+    own = (("env", Path(sys.prefix)), ("code", Path(os.path.abspath(__file__)).parents[2]))
     return [
         directory
-        for parent, directory in own
-        if os.path.realpath(directory.parent) == os.path.realpath(parent)
+        for kind, directory in own
+        if directory.parent.name == kind and directory.parent.parent.name == LAYOUT
     ]
+
+
+def _hold_use_locks() -> list[int]:
+    """Take the shared locks on the environment and the code copy that this process runs from.
+    The process holds them until it ends, and a launch that keeps running inherits them."""
+    held: list[int] = []
+    try:
+        for directory in _runtime_directories():
+            held.append(_take_use_lock(directory))
+    except BaseException:
+        for descriptor in held:
+            os.close(descriptor)
+        raise
+    return held
 
 
 def _take_use_lock(directory: Path) -> int:
@@ -639,11 +655,11 @@ class Session:
         lease: float = LEASE,
         grace: tuple[float, float] = CANCEL_GRACE,
         lock_notice: float = LOCK_NOTICE,
+        use_locks: Sequence[int] = (),
     ) -> None:
         if not _NAME.fullmatch(key):
             raise RemoteProtocolError(f"{key!r} is not a workspace key")
-        self.base = root / LAYOUT
-        self.workspace = self.base / "ws" / key
+        self.workspace = root / LAYOUT / "ws" / key
         self.key = key
         self.client = client
         self.out = out
@@ -663,8 +679,9 @@ class Session:
         #: The digest of the request that `sync` named, if it named one.
         self.digest: Optional[str] = None
         self._lock_fd: Optional[int] = None
-        #: The shared locks on the environment and the code copy of this agent.
-        self._use_fds: list[int] = []
+        #: The shared locks on the environment and the code copy of this agent. The process owns
+        #: them (`_hold_use_locks`); the session passes them on to a launch that keeps running.
+        self._use_fds = tuple(use_locks)
         self._child: Optional["subprocess.Popen[bytes]"] = None
 
     # -- sending
@@ -747,8 +764,6 @@ class Session:
 
     def run(self) -> int:
         try:
-            for directory in _runtime_directories(self.base):
-                self._use_fds.append(_take_use_lock(directory))
             self.send_json({"hello": {"xeda": __version__, "pid": os.getpid()}})
             message = self.take_json()
             if "bye" in message:
@@ -787,7 +802,7 @@ class Session:
             self.close()
 
     def close(self) -> None:
-        """Stop a launch that still runs, and release the locks."""
+        """Stop a launch that still runs, and release the lock."""
         try:
             child = self._child
             if child is not None and child.poll() is None and not self.keep_running:
@@ -796,9 +811,6 @@ class Session:
             if self._lock_fd is not None:
                 os.close(self._lock_fd)
                 self._lock_fd = None
-            for descriptor in self._use_fds:
-                os.close(descriptor)
-            self._use_fds = []
 
     # -- step 2: the lock and the sync
 
@@ -1484,12 +1496,13 @@ def clean(
 ) -> dict[str, Any]:
     """Remove environments, code copies and workspaces that nobody uses.
 
-    One rule serves all three kinds: a directory is in use while another process holds its lock
-    file (`USE_LOCK` for an environment and a code copy, `lock` for a workspace; a workspace is
-    also in use while a launch of it runs). `clean` takes the exclusive lock, and keeps it while it
-    removes the directory, so that no session starts in a directory that goes. The environment and
-    the code copy that this process runs from are always in use. Without `everything`, only what
-    nobody touched for `older_than` days goes.
+    One rule serves all three kinds: a directory is in use while a process holds its lock file
+    (`USE_LOCK` for an environment and a code copy, `lock` for a workspace; a workspace is also in
+    use while a launch of it runs). `clean` takes the exclusive lock, and keeps it while it
+    removes the directory, so that no session starts in a directory that goes. Every agent process
+    holds the locks of its own environment and code copy (`_hold_use_locks`), `clean` included, so
+    the environment that `clean` runs from is in use. Without `everything`, only what nobody
+    touched for `older_than` days goes.
 
     A link is never entered: not as `env`, `code` or `ws`, and not as an entry. A lock that is a
     link or no regular file is never opened for more than a look. A directory without a lock file
@@ -1509,7 +1522,6 @@ def clean(
     kept: list[dict[str, str]] = []
     base = root / LAYOUT
     limit = time.time() - older_than * 86400
-    own = [Path(sys.prefix), Path(__file__).resolve().parent.parent.parent]
 
     def keep(kind: str, path: Path, reason: str) -> None:
         kept.append({"kind": kind, "path": str(path), "reason": reason})
@@ -1576,9 +1588,6 @@ def clean(
                     continue
                 if busy:
                     keep(kind, path, "provisioning runs")
-                    continue
-                if any(os.path.realpath(path) == os.path.realpath(p) for p in own):
-                    keep(kind, path, "in use")
                     continue
                 descriptor = lock_exclusively(
                     kind, path, USE_LOCK, "in use", "it has no lock file, so it may be in use"
@@ -1679,9 +1688,29 @@ def _error_document(error: BaseException) -> dict[str, Any]:
     return {"type": type(error).__name__, "message": str(error)}
 
 
+def _refuse(arguments: argparse.Namespace, protocol: BinaryIO, error: BaseException) -> int:
+    """Report that the agent cannot hold the locks of its environment and code copy, in the form
+    of the command, and return the exit status."""
+    print(f"xeda agent: {type(error).__name__}: {error}", file=sys.stderr)
+    document: dict[str, Any] = {"error": _error_document(error)}
+    if arguments.command == "session":
+        FrameWriter(cast(BinaryIO, _FdWriter(protocol.fileno()))).send_json(document)
+        return 1
+    if arguments.command == "clean":
+        key = "removable" if arguments.list_only else "removed"
+        document = {key: [], "kept": [], **document}
+    protocol.write(json.dumps(document).encode("utf-8") + b"\n")
+    protocol.flush()
+    return 1
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     arguments = _parser().parse_args(argv)
     protocol = _announce()
+    try:
+        use_locks = _hold_use_locks()
+    except Exception as refused:  # pylint: disable=broad-except
+        return _refuse(arguments, protocol, refused)
     status = 0
     if arguments.command == "check":
         document: Any = check(arguments.executables)
@@ -1704,13 +1733,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(f"xeda agent: {type(error).__name__}: {error}", file=sys.stderr)
                 document, status = {key: [], "kept": [], "error": _error_document(error)}, 1
     else:
-        return _serve(arguments, protocol)
+        return _serve(arguments, protocol, use_locks)
     protocol.write(json.dumps(document).encode("utf-8") + b"\n")
     protocol.flush()
     return status
 
 
-def _serve(arguments: argparse.Namespace, protocol: BinaryIO) -> int:
+def _serve(arguments: argparse.Namespace, protocol: BinaryIO, use_locks: Sequence[int]) -> int:
     writer = FrameWriter(cast(BinaryIO, _FdWriter(protocol.fileno())))
     if not os.path.isabs(arguments.root):
         error = RemoteProtocolError(f"the root {arguments.root!r} is not an absolute path")
@@ -1730,6 +1759,7 @@ def _serve(arguments: argparse.Namespace, protocol: BinaryIO) -> int:
             lease=arguments.lease,
             grace=arguments.grace,
             lock_notice=arguments.lock_notice,
+            use_locks=use_locks,
         )
     except RemoteProtocolError as error:
         writer.send_json({"error": _error_document(error)})
