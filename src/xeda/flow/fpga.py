@@ -187,8 +187,11 @@ class FPGA(XedaBaseModel):
                     set_if_not_exist("pins", try_convert(pins, int))
                 set_if_not_exist("speed", match_xc6.group("speed_grade"))
                 return values
+            # The device ends in `T` (transceivers) or, for the single-core Zynq-7000 devices
+            # 7Z007S, 7Z012S and 7Z014S, in `S`. Other Zynq packages start with `S` (`sbg485`),
+            # so only those three devices take the suffix.
             match_xc7 = re.match(
-                r"^(?P<device>XC7(?P<f>[ASKZV])(?:[HX])?(?P<lc>\d+)T?)"
+                r"^(?P<device>XC7(?P<f>[ASKZV])(?:[HX])?(?P<lc>\d+)(?:T|(?<=7Z007|7Z012|7Z014)S)?)"
                 r"(?P<pkg>[A-Z]{2,})(?P<pins>\d+)(?P<speed>-\d(?:IL|L|Q)?)?$",
                 part,
                 flags=re.IGNORECASE,

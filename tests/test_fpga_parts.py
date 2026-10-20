@@ -18,6 +18,12 @@ from xeda.flow import FPGA
         ("xc7s25csga225-1IL", "xc7s25", "spartan-7", "csga", 225, "-1IL"),
         ("xc7s50ftgb196-1Q", "xc7s50", "spartan-7", "ftgb", 196, "-1Q"),
         ("xc7z020clg400-1", "xc7z020", "zynq-7", "clg", 400, "-1"),
+        ("xc7z007sclg225-1", "xc7z007s", "zynq-7", "clg", 225, "-1"),
+        ("XC7Z012SCLG485-2", "xc7z012s", "zynq-7", "clg", 485, "-2"),
+        ("xc7z014sclg400-2", "xc7z014s", "zynq-7", "clg", 400, "-2"),
+        ("xc7z030sbg485-1", "xc7z030", "zynq-7", "sbg", 485, "-1"),
+        ("xc7z045sbg485-3", "xc7z045", "zynq-7", "sbg", 485, "-3"),
+        ("xc7z010clg225-1", "xc7z010", "zynq-7", "clg", 225, "-1"),
         ("xc7v2000tflg1925-2", "xc7v2000t", "virtex-7", "flg", 1925, "-2"),
         ("xc7vx485tffg1761-3", "xc7vx485t", "virtex-7", "ffg", 1761, "-3"),
         ("xc7a100tcsg324", "xc7a100t", "artix-7", "csg", 324, None),
@@ -75,7 +81,7 @@ def _check_mapping(path):
 
 
 def test_recorded_project_xray_part_mapping():
-    assert _check_mapping(Path(__file__).parent / "resources" / "fpga_parts.yaml") == 8
+    assert _check_mapping(Path(__file__).parent / "resources" / "fpga_parts.yaml") == 10
 
 
 def test_installed_project_xray_part_mappings():
