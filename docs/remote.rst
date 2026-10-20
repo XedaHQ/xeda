@@ -37,8 +37,8 @@ This is how a remote run works:
 Everything that Xeda installs on the host goes under one directory, the remote root. Xeda never
 installs anything outside it, and it needs no administrator rights on the host.
 
-What the host needs
-===================
+Requirements
+============
 
 On your machine:
 
@@ -56,9 +56,10 @@ On the host:
 * A POSIX shell (``sh``), ``bash``, ``tar``, ``curl`` or ``wget``, and ``sha256sum`` or ``shasum``.
   Xeda starts every launch with ``bash -lc``, so that your login profile applies.
 * Internet access on the first run: to GitHub, for the ``uv`` program and for a Python build, and
-  to the Python package index, for the packages of Xeda. Later runs need no internet access. A host
-  behind a proxy or with a package mirror gets the settings in the ``env`` table of its profile (see
-  `Host profiles`_).
+  to the Python package index, for the packages of Xeda. A later run needs it again only when the
+  package versions change, for example when you upgrade a dependency of Xeda on your machine or add
+  ``tb.python_packages``. A host behind a proxy or with a package mirror gets the settings in the
+  ``env`` table of its profile (see `Host profiles`_).
 * The EDA tools of the flows. Either they are on the ``PATH`` of the login shell, or the ``setup``
   lines of the host profile make them available (``module load vivado``, or a ``settings64.sh``
   file). A flow that runs a tool in Docker needs Docker on the host.
