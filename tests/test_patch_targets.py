@@ -596,8 +596,9 @@ def test_the_launcher_stage_names_are_looked_up_in_the_product(name: str):
 
 #: The launcher names a plain successful launch must go through, and `scrub_runs`, which needs
 #: `scrub_old_runs` with the hashed layout. `_drop_unwritten_artifacts` runs only on a failure,
-#: so it has its own cases below. No test of the suite patches it any more, so it is not in
-#: `LAUNCHER_TARGETS`.
+#: so it has its own cases below. They patch it through `_intercepting`, by a name in a
+#: variable that the scan of the suite cannot read, so it is not in `LAUNCHER_TARGETS`. The cases
+#: keep the lookup in the product honest.
 ON_A_SUCCESSFUL_LAUNCH = sorted(LAUNCHER_TARGETS)
 
 

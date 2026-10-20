@@ -161,4 +161,4 @@ def test_a_remote_run_does_not_ship_a_locator(tmp_path, remote_host, place):
             assert not path.name == "lib.txt", path
             data = path.read_bytes()
             assert secret.encode() not in data, path
-            assert str(store).encode() not in data or path.parent.name == "xeda_run", path
+            assert str(store).encode() not in data, path

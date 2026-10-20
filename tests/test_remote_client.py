@@ -13,7 +13,7 @@ import signal
 import subprocess
 import sys
 import threading
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional
 
 import psutil
@@ -29,6 +29,7 @@ from xeda.remote.errors import (
     RemoteConnectionError,
     RemoteError,
     RemoteInterrupted,
+    RemoteProtocolError,
 )
 from xeda.remote.ssh import Destination, SshSession
 
@@ -479,6 +480,22 @@ def test_an_error_before_the_connection_is_one_json_document(tmp_path, remote_ho
 # --- Cancel and disconnect ----------------------------------------------------------------------
 
 
+def _earlier_success(tmp_path: Path) -> tuple[Path, Path]:
+    """Run the design once with success; then change its clock, so that the next run runs the
+    tool again. Return the design file and the results of the earlier run in the mirror."""
+    _succeeded(_request(tmp_path, _design(tmp_path)))
+    mirror = tmp_path / "local" / "xeda_run" / "@somewhere" / "top"
+    assert json.loads((mirror / "nextpnr" / "results.json").read_text())["success"]
+    return _design(tmp_path, freq="90 MHz"), mirror
+
+
+def _assert_mirror_emptied(mirror: Path) -> None:
+    """No record of the earlier success is left in the mirror of any planned node."""
+    for name in ("yosys_fpga", "nextpnr"):
+        assert not (mirror / name / "results.json").exists(), name
+        assert not (mirror / name / "config.txt").exists(), name
+
+
 class Program:
     """The program under test: `xeda run --remote --json` in a process (and a process group) of
     its own. Its standard error is read by a thread, which tells when a text has appeared."""
@@ -538,7 +555,7 @@ class Program:
 
 
 def test_ctrl_c_cancels_and_prints_one_json_document(tmp_path, remote_host):
-    design = _design(tmp_path)
+    design, mirror = _earlier_success(tmp_path)
     ready = Ready(tmp_path, remote_host)
     program = Program(tmp_path, _cli_script(tmp_path, design, remote_host))
     try:
@@ -554,10 +571,11 @@ def test_ctrl_c_cancels_and_prints_one_json_document(tmp_path, remote_host):
     assert document["remote"] == "somewhere"
     _assert_gone(pid)
     assert "Canceling the launch" in program.stderr
+    _assert_mirror_emptied(mirror)
 
 
 def test_a_second_ctrl_c_closes_the_connection(tmp_path, remote_host):
-    design = _design(tmp_path)
+    design, mirror = _earlier_success(tmp_path)
     ready = Ready(tmp_path, remote_host)
     program = Program(tmp_path, _cli_script(tmp_path, design, remote_host))
     try:
@@ -573,10 +591,11 @@ def test_a_second_ctrl_c_closes_the_connection(tmp_path, remote_host):
     document = json.loads(program.out.read_text())
     assert document["error"]["type"] == "RemoteCanceled"
     _assert_gone(pid)
+    _assert_mirror_emptied(mirror)
 
 
 def test_dropped_connection_cancels(tmp_path, remote_host, monkeypatch):
-    design = _design(tmp_path)
+    design, mirror = _earlier_success(tmp_path)
     ready = Ready(tmp_path, remote_host)
     agents: list[Any] = []
     real_popen = SshSession.popen
@@ -602,6 +621,7 @@ def test_dropped_connection_cancels(tmp_path, remote_host, monkeypatch):
     assert outcome.document["error"]["type"] == "RemoteCanceled"
     assert "connection" in outcome.document["error"]["message"]
     _assert_gone(pids[0])
+    _assert_mirror_emptied(mirror)
 
 
 def test_rerun_after_late_disconnect_fetches_the_finished_result(
@@ -833,7 +853,10 @@ def test_ctrl_c_while_delivering_says_that_the_launch_finished(tmp_path, remote_
     monkeypatch.setattr(client, "deliver_fetched", interrupted)
     outcome = _request(tmp_path, design, outputs_to=tmp_path / "out")
     assert isinstance(outcome.error, RemoteInterrupted), outcome.document
-    assert "while delivering the outputs" in outcome.document["error"]["message"]
+    message = outcome.document["error"]["message"]
+    assert "while delivering the outputs" in message
+    assert f"in the mirror {tmp_path / 'local' / 'xeda_run' / '@somewhere'}" in message
+    assert "--outputs-to may be partly written" in message
 
 
 def test_ctrl_c_before_the_launch_says_it_never_started(tmp_path, remote_host, monkeypatch):
@@ -885,3 +908,94 @@ def test_heartbeats_start_before_the_launch_message(tmp_path, remote_host, monke
     _succeeded(_request(tmp_path, _design(tmp_path)))
     assert "launch" in events and events.index("heartbeat") < events.index("launch")
     assert events.index("heartbeat") < events.index("sync")
+
+
+# --- A result cannot send the client outside the mirror; an error clears the mirror --------------
+
+
+def test_the_run_directories_of_a_result_must_lie_below_the_remote_run_root():
+    root = PurePosixPath("/ws/xeda_run")
+    assert client._node_dirs({"nodes": [{"node": "a", "run_path": "/ws/xeda_run/d/a"}]}, root) == {
+        "a": PurePosixPath("d/a")
+    }
+    for path in (
+        "/ws/xeda_run/../other",
+        "/ws/xeda_run/d/../../other",
+        "/ws/xeda_run",
+        "/elsewhere/d/a",
+        "d/a",
+        None,
+    ):
+        with pytest.raises(RemoteProtocolError):
+            client._node_dirs({"nodes": [{"node": "a", "run_path": path}]}, root)
+    with pytest.raises(RemoteProtocolError):
+        client._node_dirs({"nodes": [{"run_path": "/ws/xeda_run/d/a"}]}, root)
+    mirror = Path("/mirror")
+    for document in (
+        {"nodes": [{"node": "a", "run_path": "/ws/xeda_run/../x"}]},
+        {"run_path": "/ws/xeda_run/d/../../x"},
+    ):
+        with pytest.raises(RemoteProtocolError):
+            client._mirror_document(
+                document, None, host="h", mirror_root=mirror, remote_run_root=root
+            )
+
+
+def test_a_result_with_a_run_directory_outside_the_mirror_changes_nothing_there(
+    tmp_path, remote_host, monkeypatch
+):
+    design = _design(tmp_path)
+    mirror = tmp_path / "local" / "xeda_run" / "@somewhere"
+    canary = tmp_path / "local" / "xeda_run" / "canary" / "results.json"
+    canary.parent.mkdir(parents=True)
+    (tmp_path / "local" / "xeda_run" / ".xeda-run-root").touch()
+    canary.write_text("the user's own file\n")
+    real = client._launch
+
+    def crafted(agent, request, launch_id, setup):
+        result = dict(real(agent, request, launch_id, setup))
+        result["nodes"] = [
+            {**node, "run_path": f"{request.run_root}/../canary"} for node in result["nodes"]
+        ]
+        return result
+
+    monkeypatch.setattr(client, "_launch", crafted)
+    outcome = _request(tmp_path, design)
+    assert isinstance(outcome.error, RemoteProtocolError), outcome.document
+    assert canary.read_text() == "the user's own file\n"
+    assert not mirror.exists() or not list(mirror.rglob("results.json"))
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RemoteProtocolError("the agent sent garbage"),
+        RemoteConnectionError("the connection broke"),
+        RemoteCanceled("canceled"),
+    ],
+    ids=lambda e: type(e).__name__,
+)
+def test_an_error_after_the_launch_started_clears_the_mirror(
+    tmp_path, remote_host, monkeypatch, error
+):
+    design, mirror = _earlier_success(tmp_path)
+
+    def failing(agent, request, launch_id, setup):
+        raise error
+
+    monkeypatch.setattr(client, "_launch", failing)
+    outcome = _request(tmp_path, design)
+    assert outcome.error is error and not outcome.success
+    _assert_mirror_emptied(mirror)
+
+
+def test_an_error_while_fetching_clears_the_mirror(tmp_path, remote_host, monkeypatch):
+    design, mirror = _earlier_success(tmp_path)
+
+    def failing(agent, fetch_all):
+        raise RemoteConnectionError("the connection broke")
+
+    monkeypatch.setattr(client, "_fetch", failing)
+    outcome = _request(tmp_path, design)
+    assert isinstance(outcome.error, RemoteConnectionError)
+    _assert_mirror_emptied(mirror)

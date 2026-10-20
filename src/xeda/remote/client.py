@@ -794,6 +794,28 @@ def _fetch(agent: _Agent, fetch_all: bool) -> tuple[list[Entry], DataReader]:
 # --- The documents ----------------------------------------------------------------------------
 
 
+def _place_below(root: PurePosixPath, path: Any, what: str) -> PurePosixPath:
+    """The place of `path` below `root`, for a path that a result of the remote names.
+
+    The path must be an absolute path strictly below `root`, with no `..` part. A result with
+    another path could make the client clear or write files outside the mirror."""
+    try:
+        place = PurePosixPath(path).relative_to(root)
+    except (TypeError, ValueError):
+        place = None
+    if place is None or not place.parts or ".." in place.parts:
+        raise RemoteProtocolError(f"The result names {what} {path!r}, which is not in {root}.")
+    return place
+
+
+def _mirror_place(mirror_root: Path, place: PurePosixPath | Path) -> Path:
+    """The mirror directory for the relative `place`. Raise `ValueError` if it is not strictly
+    below `mirror_root`."""
+    if place.is_absolute() or not place.parts or ".." in place.parts:
+        raise ValueError(f"{place} is not a place below the mirror")
+    return mirror_root / place
+
+
 def _node_dirs(
     document: Mapping[str, Any], remote_run_root: PurePosixPath
 ) -> dict[str, PurePosixPath]:
@@ -801,12 +823,10 @@ def _node_dirs(
     found: dict[str, PurePosixPath] = {}
     for node in document.get("nodes") or []:
         try:
-            path = PurePosixPath(node["run_path"])
-            found[node["node"]] = path.relative_to(remote_run_root)
-        except (KeyError, TypeError, ValueError):
-            raise RemoteProtocolError(
-                f"The result names a run directory that is not in {remote_run_root}: {node!r}"
-            ) from None
+            name, path = node["node"], node["run_path"]
+        except (KeyError, TypeError):
+            raise RemoteProtocolError(f"The result has a bad node: {node!r}") from None
+        found[name] = _place_below(remote_run_root, path, "a run directory")
     return found
 
 
@@ -826,11 +846,11 @@ def _mirror_document(
     mirrored["mirror"] = str(mirror_root)
     for node in mirrored.get("nodes") or []:
         node["run_path"] = str(
-            mirror_root / PurePosixPath(node["run_path"]).relative_to(remote_run_root)
+            mirror_root / _place_below(remote_run_root, node["run_path"], "a run directory")
         )
     run_path = document.get("run_path")
     if run_path:
-        directory = mirror_root / PurePosixPath(run_path).relative_to(remote_run_root)
+        directory = mirror_root / _place_below(remote_run_root, run_path, "the run directory")
         mirrored["run_path"] = str(directory)
         for key in ("results_json", "settings_json"):
             if mirrored.get(key):
@@ -844,10 +864,35 @@ def _planned_mirrors(prepared: "_Prepared", mirror_root: Path, local_root: Path)
     """The mirror directories of the nodes of the local plan."""
     found: set[Path] = set()
     for node in prepared.prepared.plan.nodes:
-        directory = Path(os.path.normpath(_mirror_of(mirror_root, local_root, Path(node.run_path))))
-        if directory.is_relative_to(mirror_root) and directory != mirror_root:
-            found.add(directory)
+        place = Path(os.path.relpath(node.run_path, local_root))
+        try:
+            found.add(_mirror_place(mirror_root, place))
+        except ValueError:
+            continue  # a plan outside the run root has no mirror
     return found
+
+
+def _discard_mirrors(
+    prepared: "_Prepared",
+    mirror_root: Path,
+    local_root: Path,
+    nodes: Optional[Mapping[str, PurePosixPath]] = None,
+) -> None:
+    """Empty the mirror directories of the planned nodes (and of `nodes`, the places that a
+    result names), under their locks. Call it when the launch or the fetch failed: the records
+    of an earlier run there would say that this run passed. A directory that is not there stays
+    absent. A failure here is logged and does not hide the error that called it."""
+    directories = _planned_mirrors(prepared, mirror_root, local_root)
+    directories |= {mirror_root / place for place in (nodes or {}).values()}
+    try:
+        with ExitStack() as locked:
+            existing = sorted(d for d in directories if d.is_dir() and not d.is_symlink())
+            for directory in existing:
+                locked.enter_context(run_dir_lock(directory, local_root))
+            for directory in existing:
+                RunDirectory.claimed(directory, local_root).clear()
+    except Exception as error:  # pylint: disable=broad-except
+        log.warning("Cannot empty the mirror of an unfinished run: %s", error)
 
 
 def _mirror_dry_run(
@@ -862,10 +907,9 @@ def _mirror_dry_run(
     if isinstance(plan, dict):
         nodes += list(plan.get("nodes") or [])
     for node in nodes:
-        try:
-            place = PurePosixPath(node["run_path"]).relative_to(remote_run_root)
-        except (KeyError, TypeError, ValueError):
+        if not isinstance(node, dict) or "run_path" not in node:
             continue
+        place = _place_below(remote_run_root, node["run_path"], "a run directory")
         node["remote_run_path"] = node["run_path"]
         node["run_path"] = str(mirror_root / place)
 
@@ -893,6 +937,8 @@ def _translation(
         if not text.startswith("/"):
             return None
         path = PurePosixPath(text)
+        if ".." in path.parts:
+            return None
         if path == remote_run_root or path.is_relative_to(remote_run_root):
             return str(mirror_root / path.relative_to(remote_run_root))
         if path == inputs_dir:
@@ -1096,7 +1142,11 @@ def _run(
             agent = _start_agent(session, provisioned, key)
             try:
                 uploaded = _sync(agent, package, design.name, key, launch_id)
-                result = _launch(agent, launch, launch_id, profile.setup)
+                try:
+                    result = _launch(agent, launch, launch_id, profile.setup)
+                except BaseException:
+                    _discard_mirrors(prepared, mirror_root, local_root)
+                    raise
                 run.phase = None if dry_run else _FETCHING
                 if dry_run:
                     document = _local_design(dict(result), run, design.name)
@@ -1132,6 +1182,12 @@ def _run(
             agent.close()
             return outcome
     except KeyboardInterrupt:
+        if run.phase == _DELIVERING:
+            raise RemoteInterrupted(
+                f"Canceled by Ctrl-C while {run.phase}. The launch on {destination_text} had "
+                f"finished, and its results are in the mirror {mirror_root}. The files in "
+                "--outputs-to may be partly written. Run the request again to deliver them."
+            ) from None
         if run.phase is not None:
             raise RemoteInterrupted(
                 f"Canceled by Ctrl-C while {run.phase}. The launch on {destination_text} had "
@@ -1170,7 +1226,11 @@ def _finish(
             name,
             ", ".join(places),
         )
-    entries, reader = _fetch(agent, fetch_all)
+    try:
+        entries, reader = _fetch(agent, fetch_all)
+    except BaseException:
+        _discard_mirrors(prepared, mirror_root, local_root, nodes)
+        raise
     directories = {name: mirror_root / place for name, place in nodes.items()}
     # The mirror of every planned node is replaced, also of a node that the launch never reached
     # (it failed before any node ran, or a producer failed): an earlier run's records there
@@ -1199,7 +1259,9 @@ def _finish(
             requested = prepared.requested
             remote_run_dir = PurePosixPath(result["run_path"])
             written = (result.get("written") or {}).get(requested)
-            mirror_dir = mirror_root / remote_run_dir.relative_to(remote_run_root)
+            mirror_dir = mirror_root / _place_below(
+                remote_run_root, remote_run_dir, "the run directory"
+            )
             rewritten = rewrite_results(results, remote_run_dir, mirror_dir, written=written)
             requested_dir = mirror_dir
             output_paths = [str(path) for path in declared_output_files(results)]
