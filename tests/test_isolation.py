@@ -2105,6 +2105,12 @@ REVIEWED_WRITES = [
         "included, is refused); it is checked against its SHA-256 and then renamed",
     ),
     (
+        "remote/environment.py",
+        'with tarfile.open(fileobj=out, mode="w", format=tarfile.GNU_FORMAT) as tar:',
+        "`write_code_tar`: writes the code snapshot to the stream that it is given and names no "
+        "file",
+    ),
+    (
         "remote/manifest.py",
         'with tarfile.open(fileobj=out, mode="w|", format=tarfile.PAX_FORMAT) as archive:',
         "`write_tar`: writes to the stream that it is given and names no file",
