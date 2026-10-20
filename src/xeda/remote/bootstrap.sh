@@ -209,6 +209,20 @@ lock_is_old() {
     [ $(($(date +%s) - XEDA_BOOT_MTIME)) -gt "$XEDA_BOOT_ORPHAN_GRACE" ]
 }
 
+# Whether the break directory $1 is older than the limit. Its age is the time in it, or, when the
+# process that made it stopped before it wrote the time, the modification time of the directory.
+break_is_old() {
+    XEDA_BOOT_BREAK_TIME=
+    read -r XEDA_BOOT_BREAK_TIME 2>/dev/null <"$1/time" || :
+    case $XEDA_BOOT_BREAK_TIME in
+        '' | *[!0-9]*) XEDA_BOOT_BREAK_TIME=$(mtime_of "$1") ;;
+    esac
+    case $XEDA_BOOT_BREAK_TIME in
+        '' | *[!0-9]*) return 1 ;;
+    esac
+    [ $(($(date +%s) - XEDA_BOOT_BREAK_TIME)) -gt "$XEDA_BOOT_LOCK_LIMIT" ]
+}
+
 # Break the lock directory $1 if its owner is still the one in $2, $3 and $4. Only one process
 # breaks a lock at a time, and it checks the owner again, so that no process breaks a new lock.
 # An owner that is not complete (no host, process or time) breaks the lock only if the lock is
@@ -230,15 +244,8 @@ break_lock() {
             rm -rf "$1"
         fi
         rm -rf "$XEDA_BOOT_BREAKER"
-    elif read -r XEDA_BOOT_BREAK_TIME 2>/dev/null <"$XEDA_BOOT_BREAKER/time"; then
-        case $XEDA_BOOT_BREAK_TIME in
-            '' | *[!0-9]*) ;;
-            *)
-                if [ $(($(date +%s) - XEDA_BOOT_BREAK_TIME)) -gt "$XEDA_BOOT_LOCK_LIMIT" ]; then
-                    rm -rf "$XEDA_BOOT_BREAKER"
-                fi
-                ;;
-        esac
+    elif break_is_old "$XEDA_BOOT_BREAKER"; then
+        rm -rf "$XEDA_BOOT_BREAKER"
     fi
 }
 

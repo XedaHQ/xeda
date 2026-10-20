@@ -691,7 +691,8 @@ def test_virtual_environment_variables_do_not_reach_uv(fake_remote, snapshot):
     assert any("ENV UV_NO_CONFIG=1" in c for c in fake_remote.calls("uv"))
 
 
-def test_stale_break_directory_is_removed(fake_remote, snapshot):
+@pytest.mark.parametrize("written", [True, False], ids=["old-time", "no-time-file"])
+def test_stale_break_directory_is_removed(fake_remote, snapshot, written):
     with SshSession(resolve_destination("venona")) as session:
         probe(session, HostProfile())
     locks = fake_remote.layout / "locks"
@@ -702,47 +703,81 @@ def test_stale_break_directory_is_removed(fake_remote, snapshot):
     (locks / f"{name}.lock" / "owner").write_text(
         f"{os.uname().nodename} {dead.pid} {int(time.time())}\n"
     )
-    # a process that broke the lock stopped three hours ago and left its break directory
-    (locks / f"{name}.lock.break").mkdir()
-    (locks / f"{name}.lock.break" / "time").write_text(f"{int(time.time()) - 10800}\n")
+    # a process that broke the lock stopped three hours ago and left its break directory, with
+    # or without the time in it
+    breaker = locks / f"{name}.lock.break"
+    breaker.mkdir()
+    old = time.time() - 10800
+    if written:
+        (breaker / "time").write_text(f"{int(old)}\n")
+    os.utime(breaker, (old, old))
     provision_once(snapshot)
     assert not list(locks.glob("*"))
+
+
+def _ownerless_uv_lock(fake_remote, owner: str | None, age: float):
+    """Make the uv lock without a complete owner, `age` seconds old. Return the lock and the
+    command of the provisioning step that takes it."""
+    profile = HostProfile(env=FAST)
+    with SshSession(resolve_destination("venona")) as session:
+        found = probe(session, profile)
+    lock = fake_remote.layout / "locks" / f"uv-{UV_VERSION}-{FAKE_TARGET}.lock"
+    lock.mkdir(parents=True)
+    if owner is not None:
+        (lock / "owner").write_text(owner)
+    made = time.time() - age
+    os.utime(lock, (made, made))
+    key = dependency_key(SPEC, python_choice(profile.python), probe_platform())
+    command = [
+        "sh",
+        found.boot,
+        "provision",
+        env_hash(profile.env),
+        key,
+        python_choice(profile.python).request,
+        UV_VERSION,
+        fake_remote.uv_url,
+        fake_remote.uv_sha256,
+    ]
+    return lock, command
 
 
 @pytest.mark.parametrize("owner", [None, ""], ids=["no-owner-file", "empty-owner-file"])
 def test_ownerless_lock_of_an_old_directory_is_broken(fake_remote, owner):
     # A process that stopped after it made the lock, and before it wrote the owner file.
-    profile = HostProfile(env=FAST)
-    with SshSession(resolve_destination("venona")) as session:
-        found = probe(session, profile)
-    locks = fake_remote.layout / "locks"
-    lock = locks / f"uv-{UV_VERSION}-{FAKE_TARGET}.lock"
-    lock.mkdir(parents=True)
-    if owner is not None:
-        (lock / "owner").write_text(owner)
-    old = time.time() - 3600
-    os.utime(lock, (old, old))
-    key = dependency_key(SPEC, python_choice(profile.python), probe_platform())
-    # The step that takes the uv lock. A script that never breaks the lock times out here.
+    lock, command = _ownerless_uv_lock(fake_remote, owner, age=3600)
+    # A script that never breaks the lock times out here.
     run = subprocess.run(
-        [
-            "sh",
-            found.boot,
-            "provision",
-            env_hash(profile.env),
-            key,
-            python_choice(profile.python).request,
-            UV_VERSION,
-            fake_remote.uv_url,
-            fake_remote.uv_sha256,
-        ],
+        command,
         input=b"R pydantic>=2\nC pydantic==2.14.1\n",
         capture_output=True,
         env=boot_environment(fake_remote),
         timeout=60,
     )
     assert run.returncode == 0, run.stderr.decode(errors="replace")
-    assert not list(locks.glob("*"))
+    assert not list(lock.parent.glob("*"))
+
+
+def test_young_ownerless_lock_is_waited_for(fake_remote):
+    # The process that made the lock may still be writing its owner file.
+    lock, command = _ownerless_uv_lock(fake_remote, None, age=0)
+    step = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=boot_environment(fake_remote),
+    )
+    try:
+        assert step.stdin is not None
+        step.stdin.write(b"R pydantic>=2\nC pydantic==2.14.1\n")
+        step.stdin.close()
+        with pytest.raises(subprocess.TimeoutExpired):
+            step.wait(timeout=3)
+        assert lock.is_dir() and not (lock / "owner").exists()
+    finally:
+        step.kill()
+        step.wait()
 
 
 def test_leftovers_of_dead_processes_are_removed_and_others_are_kept(fake_remote, snapshot):
