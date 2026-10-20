@@ -1,0 +1,1129 @@
+"""The client of a remote run: `run_remote` runs one request on a Linux host over SSH.
+
+The steps, in order:
+
+1. Load the host profile and resolve the destination. Plan the request with the normal launcher
+   (`FlowLauncher.prepare_request`), and refuse what a remote run cannot do. Nothing is
+   connected yet, so a mistake in the request shows before any connection exists.
+2. Open one SSH master connection, probe the host, and provision the environment and the code
+   snapshot (`provision`).
+3. Start the agent (`xeda.remote.agent`) and sync the inputs by digest.
+4. Launch under the agent. The client sends heartbeats, shows the log, and sends a cancel request
+   on Ctrl-C. A second Ctrl-C closes the connection.
+5. Fetch the selected files into the mirror `<run root>/@<host>/...`, rewrite the paths of the
+   result to the mirror, deliver `--outputs-to`, and say goodbye to the agent.
+
+The mirror files are kept as the remote wrote them and as their digests check. Only the document
+that `run_remote` returns names the paths of the mirror. The `results.json` in a mirror
+directory still names the paths of the remote.
+
+Every failure after step 1 is a `RemoteError` that names the step. `run_remote` returns a
+`RemoteOutcome` for every outcome, a failure too, so that the caller can always print one
+document.
+"""
+
+import copy
+import hashlib
+import io
+import json
+import logging
+import os
+import secrets
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+from collections import deque
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
+from typing import Any, BinaryIO, Deque, Dict, List, Optional, cast
+
+from ..deliver import (
+    Conflict,
+    Deliveries,
+    DeliveryError,
+    deliverable_locations,
+    outputs_to_deliveries,
+    recorded_artifacts,
+    split_deliveries,
+)
+from ..design import names_a_design_file
+from ..flow_runner import DefaultRunner
+from ..flow_runner.chains import parse_request
+from ..flow_runner.default_runner import PreparedRequest, print_results
+from ..flow_runner.outputs import declared_output_files
+from ..flow_runner.run_lock import run_dir_lock
+from ..proc_utils import tool_output_stream
+from ..run_dir import RunDirectory
+from ..xedaproject import resolve_project_file
+from .constants import HEARTBEAT, LAYOUT
+from .environment import CodeSnapshot, DependencySpec, code_snapshot, dependency_spec
+from .errors import (
+    RemoteCanceled,
+    RemoteConfigError,
+    RemoteConnectionError,
+    RemoteError,
+    RemoteProtocolError,
+)
+from .fetch import deliver_fetched, publish_mirror, remote_read_inputs, rewrite_results
+from .frames import (
+    BEAT,
+    CANCEL,
+    JSON,
+    LOG,
+    DataReader,
+    FrameWriter,
+    decode_json,
+    read_frame,
+    skip_to_magic,
+)
+from .launch_entry import LaunchRequest
+from .manifest import Entry, build_manifest, write_tar
+from .packaging import InputPackage, package_inputs
+from .profile import HostProfile, load_host_profile
+from .provision import Probe, Provisioned, agent_command, ensure_environment, probe
+from .ssh import Destination, SshSession, resolve_destination
+
+log = logging.getLogger(__name__)
+
+#: Seconds that a finished session may take to end its agent before the client stops it.
+_BYE_WAIT = 30.0
+
+#: Seconds to wait for the status of a client that lost its connection.
+_STATUS_WAIT = 10.0
+
+#: Lines of the standard error of the agent that go into an error message.
+_STDERR_LINES = 15
+
+#: The words of a message of `read_frame` that tell the stream ended in a frame.
+_ENDED_INSIDE = "the stream ended inside"
+
+
+@dataclass(frozen=True)
+class RemoteOutcome:
+    """The result of `run_remote`.
+
+    `document` is what `xeda run --json` prints: the result document of the remote with `remote`
+    and `mirror` and the paths of the mirror, or a failure document. `success` tells whether the
+    flow succeeded. `error` is the exception behind a failure document, if there is one."""
+
+    document: Dict[str, Any]
+    success: bool
+    error: Optional[BaseException] = None
+
+
+# --- Names ------------------------------------------------------------------------------------
+
+
+def machine_id() -> str:
+    """The identity of this machine: `/etc/machine-id`, else the hardware UUID of a Mac, else
+    the host name."""
+    try:
+        text = Path("/etc/machine-id").read_text(encoding="ascii").strip()
+        if text:
+            return text
+    except (OSError, ValueError):
+        pass
+    if sys.platform == "darwin":
+        try:
+            done = subprocess.run(
+                ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=15,
+                check=False,
+            )
+            for line in done.stdout.splitlines():
+                if "IOPlatformUUID" in line:
+                    return line.split("=", 1)[1].strip().strip('"')
+        except (OSError, subprocess.SubprocessError, IndexError):
+            pass
+    return socket.gethostname()
+
+
+def workspace_key(local_run_root: Path, destination: Destination) -> str:
+    """The key of the workspace on the remote: 24 hex characters over the machine id, the
+    resolved local run root and `user@hostname:port` as `ssh -G` gives them."""
+    text = "\0".join(
+        [
+            machine_id(),
+            os.path.realpath(local_run_root),
+            f"{destination.user}@{destination.hostname}:{destination.port}",
+        ]
+    )
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
+
+
+def new_launch_id() -> str:
+    """A launch id: the UTC time as `yymmddHHMMSS`, a dash and 8 random hex characters."""
+    return datetime.now(timezone.utc).strftime("%y%m%d%H%M%S") + "-" + secrets.token_hex(4)
+
+
+def _is_windows() -> bool:
+    return sys.platform == "win32"
+
+
+# --- The agent --------------------------------------------------------------------------------
+
+
+class _Agent:
+    """The agent process on the remote host, as the client sees it: frames in and out.
+
+    The heartbeat thread sends `H` frames, and also `C` when `interrupt` was called. The thread
+    does this, and the signal handler does not, because the handler runs in the main thread, and
+    the main thread may hold the lock of the frame writer when the signal comes."""
+
+    def __init__(self, session: SshSession, command: str) -> None:
+        self.host = session.destination.text
+        self._session = session
+        self.process = session.popen(command)
+        assert self.process.stdin and self.process.stdout and self.process.stderr
+        self.stdout = cast(BinaryIO, self.process.stdout)
+        self.writer = FrameWriter(cast(BinaryIO, self.process.stdin))
+        #: Whether a launch runs: log lines are tool output, and a lost connection is a cancel.
+        self.launching = False
+        #: Set by the first Ctrl-C during the launch.
+        self.canceled = threading.Event()
+        #: Set by the second Ctrl-C: the connection is closed.
+        self.closed = False
+        self._stderr: Deque[str] = deque(maxlen=_STDERR_LINES)
+        self._drain_thread = threading.Thread(target=self._drain, daemon=True)
+        self._drain_thread.start()
+        self._wake = threading.Event()
+        self._stop = threading.Event()
+        self._beats: Optional[threading.Thread] = None
+
+    def _drain(self) -> None:
+        assert self.process.stderr is not None
+        for raw in self.process.stderr:
+            line = raw.decode("utf-8", "replace").rstrip()
+            log.debug("remote stderr: %s", line)
+            if line:
+                self._stderr.append(line)
+
+    def stderr_text(self) -> str:
+        return "\n".join(self._stderr)
+
+    # -- heartbeat and cancel
+
+    def start_heartbeat(self) -> None:
+        self._beats = threading.Thread(target=self._beat, name="heartbeat", daemon=True)
+        self._beats.start()
+
+    def _beat(self) -> None:
+        cancel_sent = False
+        while not self._stop.is_set():
+            try:
+                if self.canceled.is_set() and not cancel_sent:
+                    self.writer.send(CANCEL)
+                    cancel_sent = True
+                else:
+                    self.writer.send(BEAT)
+            except (OSError, RemoteProtocolError, ValueError):
+                return  # the main thread finds the lost connection when it reads
+            self._wake.wait(HEARTBEAT)
+            self._wake.clear()
+
+    def interrupt(self) -> None:
+        """The reaction to Ctrl-C during the launch. It runs in a signal handler: it takes no lock
+        that the main thread may hold, and it does not log."""
+        if not self.canceled.is_set():
+            self.canceled.set()
+            self._wake.set()
+            os.write(
+                2,
+                f"\nCanceling the launch on {self.host}. Press Ctrl-C again to close the "
+                "connection.\n".encode(),
+            )
+        elif not self.closed:
+            self.closed = True
+            try:
+                self.process.kill()
+            except OSError:
+                pass
+
+    # -- receiving
+
+    def emit(self, payload: bytes) -> None:
+        text = payload.decode("utf-8", "replace")
+        if self.launching:
+            stream = tool_output_stream()
+            stream.write(text + "\n")
+            stream.flush()
+        else:
+            log.info("remote: %s", text)
+
+    def lost(self, step: str) -> RemoteError:
+        """The error for a connection that ended while the client waited for `step`."""
+        try:
+            status: Optional[int] = self.process.wait(timeout=_STATUS_WAIT)
+        except subprocess.TimeoutExpired:
+            status = None
+        self._drain_thread.join(timeout=2)
+        detail = f"\nOutput of the remote host:\n{self.stderr_text()}" if self._stderr else ""
+        code = f" (ssh exit status {status})" if status is not None else ""
+        if self.closed:
+            return RemoteCanceled(
+                f"The connection to {self.host} was closed on request while {step}. The agent "
+                "on the remote stops the launch."
+            )
+        if self.canceled.is_set():
+            return RemoteCanceled(
+                f"The launch on {self.host} was canceled, and the connection ended while {step}"
+                f"{code}.{detail}"
+            )
+        if self.launching:
+            return RemoteCanceled(
+                f"The connection to {self.host} was lost while {step}{code}. The agent on the "
+                f"remote stops the launch when it sees this.{detail}"
+            )
+        return RemoteConnectionError(
+            f"The connection to {self.host} ended while {step}{code}.{detail}"
+        )
+
+    def frame(self, step: str) -> tuple[bytes, bytes]:
+        """The next frame of the agent. Raise the error of a lost connection at its end."""
+        try:
+            frame = read_frame(self.stdout)
+        except RemoteProtocolError as error:
+            if _ENDED_INSIDE in str(error):
+                raise self.lost(step) from None
+            raise RemoteProtocolError(f"{error} while {step}") from None
+        except (OSError, ValueError):
+            raise self.lost(step) from None
+        if frame is None:
+            raise self.lost(step)
+        return frame
+
+    def message(self, step: str) -> Dict[str, Any]:
+        """The next JSON document of the agent. Log lines on the way are shown. An error or a
+        cancel message of the agent is raised."""
+        while True:
+            kind, payload = self.frame(step)
+            if kind == LOG:
+                self.emit(payload)
+                continue
+            if kind != JSON:
+                raise RemoteProtocolError(
+                    f"The agent on {self.host} sent a frame of kind {kind!r} while {step}."
+                )
+            document = decode_json(payload)
+            if not isinstance(document, dict):
+                raise RemoteProtocolError(
+                    f"The agent on {self.host} sent a JSON frame that is not an object while "
+                    f"{step}."
+                )
+            if "error" in document:
+                error = document["error"] if isinstance(document["error"], dict) else {}
+                raise RemoteError(
+                    f"The agent on {self.host} failed while {step}: "
+                    f"{error.get('type', 'error')}: {error.get('message', document['error'])}"
+                )
+            if "canceled" in document and "result" not in document:
+                raise RemoteCanceled(
+                    f"The agent on {self.host} canceled the session while {step}: "
+                    f"{document.get('reason', 'no reason given')}"
+                )
+            return document
+
+    def expect(self, key: str, step: str) -> Any:
+        document = self.message(step)
+        if key not in document:
+            raise RemoteProtocolError(
+                f"The agent on {self.host} sent {sorted(document)} while {step}, and not "
+                f"`{key}`."
+            )
+        return document[key]
+
+    # -- sending
+
+    def send(self, document: Any, step: str) -> None:
+        try:
+            self.writer.send_json(document)
+        except (OSError, RemoteProtocolError, ValueError):
+            raise self.after_write_failure(step) from None
+
+    def upload(self, source: BinaryIO, step: str) -> None:
+        try:
+            self.writer.send_stream(source)
+        except (OSError, RemoteProtocolError, ValueError):
+            raise self.after_write_failure(step) from None
+
+    def after_write_failure(self, step: str) -> RemoteError:
+        """The error for a write that failed. The agent may have said why before it ended."""
+        try:
+            while True:
+                self.message(step)  # raises the error of the agent, or the lost connection
+        except RemoteError as error:
+            return error
+        except Exception as error:  # pylint: disable=broad-except
+            return RemoteProtocolError(f"The agent on {self.host} failed while {step}: {error}")
+
+    # -- the end
+
+    def close(self, wait: float = _BYE_WAIT) -> None:
+        """Stop the heartbeat and end the agent process. The agent exits at once after `bye` or at
+        the end of its input. If it does not, the client stops after `wait` seconds."""
+        self._stop.set()
+        self._wake.set()
+        try:
+            self.process.stdin.close()  # type: ignore[union-attr]
+        except OSError:
+            pass
+        try:
+            self.process.wait(timeout=wait)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait()
+        self._drain_thread.join(timeout=5)
+        for stream in (self.process.stdout, self.process.stderr):
+            if stream is not None:
+                stream.close()
+        if self._beats is not None:
+            self._beats.join(timeout=5)
+
+
+@contextmanager
+def _cancel_on_interrupt(agent: _Agent) -> Iterator[None]:
+    """Send a cancel request to the agent on Ctrl-C, for the time of the block. A second Ctrl-C
+    closes the connection. Outside the main thread no handler is installed."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def handler(_number: int, _frame: Any) -> None:
+        agent.interrupt()
+
+    previous = signal.signal(signal.SIGINT, handler)
+    try:
+        yield
+    finally:
+        signal.signal(
+            signal.SIGINT, previous if previous is not None else signal.default_int_handler
+        )
+
+
+@contextmanager
+def _during(step: str) -> Iterator[None]:
+    """Name the step in the message of a transport error. Other errors pass unchanged."""
+    try:
+        yield
+    except RemoteCanceled:
+        raise
+    except RemoteConnectionError as error:
+        raise RemoteConnectionError(f"{error} (while {step})") from None
+    except (BrokenPipeError, ConnectionError) as error:
+        raise RemoteConnectionError(f"The connection broke while {step}: {error}") from None
+
+
+# --- The request ------------------------------------------------------------------------------
+
+
+@dataclass
+class _Run:
+    """What `run_remote` knows about the request, for the documents."""
+
+    chain: str
+    flow: str
+    design: Any
+    target: Optional[str]
+    host: str
+    debug: bool
+    launcher: Optional[DefaultRunner] = None
+    mirror_root: Optional[Path] = None
+    request: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class _Prepared:
+    profile: HostProfile
+    destination: Destination
+    launcher: DefaultRunner
+    prepared: PreparedRequest
+    flow_class: Any
+    requested: str
+    deliveries: Optional[Deliveries]
+
+
+def _refuse_programmers(prepared: PreparedRequest, host: str) -> None:
+    for node in prepared.plan.nodes:
+        reason = node.flow_class.action_reason
+        if reason:
+            raise RemoteError(
+                f"The flow {node.flow_class.name} ({reason}) cannot run with --remote, because "
+                f"the device is attached to this machine and not to {host}. Run the flows "
+                "before it with --remote. Then run this flow here, with a binding to the "
+                "fetched file."
+            )
+
+
+def _check_deliverables(prepared: PreparedRequest, design_name: str) -> None:
+    """Refuse a deliverable setting with a location, as the old remote runner did: the remote
+    would deliver to a place on the remote. The user receives the outputs with `--outputs-to`."""
+    plan = prepared.plan
+    for node in plan.nodes:
+        located = deliverable_locations(node.settings)
+        if located:
+            key, path = located[0]
+            raise DeliveryError(
+                f"`{key}` of {node.name} names a location ({path}): with --remote, leave it a "
+                "name in the run directory (or unset) and receive the outputs with "
+                "--outputs-to DIR"
+            )
+    # The output names, checked as a local launch checks them.
+    split_deliveries(plan.node(plan.requested).settings, design_name)
+
+
+def _local_run_root(run_root: Path) -> Path:
+    return Path(os.path.realpath(run_root))
+
+
+def _plan(
+    run: _Run,
+    *,
+    local_root: Path,
+    destination_text: str,
+    run_root: Path,
+    flow_settings: Any,
+    xedaproject: Any,
+    design_overrides: Any,
+    design_allow_extra: bool,
+    select_design_in_project: Any,
+    hashed_run_dirs: bool,
+    clean: bool,
+    rebuild_all: bool,
+    dry_run: bool,
+    outputs_to: Optional[Path],
+    overwrite_outputs: bool,
+    confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
+    ssh_options: Sequence[str],
+) -> _Prepared:
+    """Step 1: the checks that need no connection."""
+    profile = load_host_profile(destination_text)
+    destination = resolve_destination(destination_text, ssh_options)
+    run.mirror_root = local_root / f"@{destination.label()}"
+    launcher = DefaultRunner(
+        run_root,
+        rebuild_all=rebuild_all,
+        hashed_run_dirs=hashed_run_dirs,
+        clean=clean,
+        display_results=False,
+    )
+    run.launcher = launcher
+    prepared = launcher.prepare_request(
+        run.chain,
+        design=run.design,
+        xedaproject=xedaproject,
+        flow_settings=flow_settings,
+        select_design_in_project=select_design_in_project,
+        design_overrides=design_overrides,
+        design_allow_extra=design_allow_extra,
+        target=run.target,
+        host_flows=profile.flows,
+        host=destination_text,
+        planning=dry_run,
+    )
+    run.target = prepared.target
+    _refuse_programmers(prepared, destination_text)
+    plan = prepared.plan
+    node = plan.node(plan.requested)
+    _check_deliverables(prepared, prepared.design.name)
+    deliveries: Optional[Deliveries] = None
+    if outputs_to is not None:
+        deliveries = _check_outputs_to(
+            launcher,
+            prepared,
+            run,
+            outputs_to=outputs_to,
+            overwrite_outputs=overwrite_outputs,
+            confirm_overwrite=confirm_overwrite,
+            xedaproject=xedaproject,
+        )
+    return _Prepared(
+        profile, destination, launcher, prepared, node.flow_class, plan.requested, deliveries
+    )
+
+
+def _mirror_of(mirror_root: Path, local_run_root: Path, run_path: Path) -> Path:
+    """The mirror directory of a run directory (local or remote): the same place below the
+    mirror root as the run directory has below its run root."""
+    return mirror_root / Path(os.path.relpath(run_path, local_run_root))
+
+
+def _check_outputs_to(
+    launcher: DefaultRunner,
+    prepared: PreparedRequest,
+    run: _Run,
+    *,
+    outputs_to: Path,
+    overwrite_outputs: bool,
+    confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
+    xedaproject: Any,
+) -> Deliveries:
+    """Check `--outputs-to` as a local launch does, before anything is connected or shipped. The
+    deliveries protect every file that this side can name as an input."""
+    plan = prepared.plan
+    node = plan.node(plan.requested)
+    local_root = _local_run_root(launcher._run_root)  # pylint: disable=protected-access
+    assert run.mirror_root is not None
+    mirror_dir = _mirror_of(run.mirror_root, local_root, Path(node.run_path))
+    design = run.design
+    given = (
+        Path(design) if isinstance(design, (str, Path)) and names_a_design_file(design) else None
+    )
+    project = resolve_project_file(xedaproject)
+    launch_inputs = [
+        path.resolve() for path in (given, project) if path is not None and path.is_file()
+    ]
+    deliveries = Deliveries(
+        mirror_dir,
+        local_root,
+        inputs=remote_read_inputs(
+            prepared.design,
+            node.settings,
+            prepared.sections,
+            launch_inputs,
+            flow_class=node.flow_class,
+            run_path=mirror_dir,
+            run_root=local_root,
+        ),
+        overwrite=overwrite_outputs,
+        confirm=confirm_overwrite,
+    )
+    # The directory itself, and the files that the last fetch would deliver again.
+    deliveries.check_outputs_to(outputs_to)
+    previous = recorded_artifacts(mirror_dir / "results.json")
+    recorded_run_path = _recorded_run_path(mirror_dir / "results.json")
+    if recorded_run_path is not None:
+        deliveries.check(outputs_to_deliveries(previous, recorded_run_path, outputs_to))
+    return deliveries
+
+
+def _recorded_run_path(results_json: Path) -> Optional[Path]:
+    """The `run_path` that a fetched `results.json` names (a path on the remote), or `None`."""
+    try:
+        run_path = json.loads(results_json.read_text(encoding="utf-8")).get("run_path")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return Path(run_path) if isinstance(run_path, str) and run_path else None
+
+
+# --- The steps with the connection ------------------------------------------------------------
+
+
+def _report_step(text: str) -> None:
+    log.info("%s", text)
+
+
+def _provision(
+    session: SshSession,
+    profile: HostProfile,
+    snapshot: CodeSnapshot,
+    spec: DependencySpec,
+) -> tuple[Probe, Provisioned]:
+    host = session.destination.text
+    with _during("reading the facts of the host"):
+        facts = probe(session, profile)
+    log.info("Remote host %s: %s %s", host, facts.platform.system, facts.platform.machine)
+    with _during("making the environment"):
+        provisioned = ensure_environment(session, facts, profile, snapshot, spec, _report_step)
+    return facts, provisioned
+
+
+def _start_agent(
+    session: SshSession, provisioned: Provisioned, key: str, step: str = "starting the agent"
+) -> _Agent:
+    host = session.destination.text
+    try:
+        command = agent_command(provisioned, "session", provisioned.root, key)
+    except ValueError:
+        raise RemoteConfigError(
+            f"The remote root {provisioned.root!r} has a character that xeda cannot put in a "
+            "remote command line. Set `root` in the host profile to another path."
+        ) from None
+    with _during(step):
+        agent = _Agent(session, command)
+    try:
+        try:
+            noise = skip_to_magic(agent.stdout)
+        except RemoteProtocolError as error:
+            detail = f"\nOutput of the remote host:\n{agent.stderr_text()}" if agent._stderr else ""
+            raise RemoteProtocolError(
+                f"The agent did not start on {host}: {error}.{detail}"
+            ) from None
+        if noise:
+            log.debug("The login shell of %s printed %d bytes before the agent", host, len(noise))
+        agent.expect("hello", step)
+        agent.start_heartbeat()
+    except BaseException:
+        agent.close(wait=5)
+        raise
+    return agent
+
+
+def _sync(
+    agent: _Agent,
+    package: InputPackage,
+    design_name: str,
+    key: str,
+    launch_id: str,
+) -> list[str]:
+    """Send the manifest and the files that the agent lacks. Return the paths that were sent."""
+    step = "syncing the inputs"
+    entries = build_manifest(package.files, package.generated)
+    agent.send(
+        {
+            "sync": {
+                "workspace": key,
+                "design": design_name,
+                "entries": [entry.as_json_value() for entry in entries],
+                "directories": package.directories,
+                "id": launch_id,
+            }
+        },
+        step,
+    )
+    need = agent.expect("need", step)
+    if not isinstance(need, list) or not all(isinstance(path, str) for path in need):
+        raise RemoteProtocolError(f"The agent on {agent.host} sent a bad `need` list.")
+    known = {entry.path for entry in entries}
+    unknown = sorted(set(need) - known)
+    if unknown:
+        raise RemoteProtocolError(
+            f"The agent on {agent.host} asked for files that are not in the manifest: {unknown}"
+        )
+    wanted = [entry for entry in entries if entry.path in set(need)]
+    with tempfile.SpooledTemporaryFile(max_size=64 << 20) as archive:
+        write_tar(wanted, package.files, package.generated, cast(BinaryIO, archive))
+        archive.seek(0)
+        agent.upload(cast(BinaryIO, archive), step)
+    synced = agent.expect("synced", step)
+    log.info(
+        "Synced the inputs to %s: %s file(s) written, %s removed",
+        agent.host,
+        synced.get("written") if isinstance(synced, dict) else "?",
+        synced.get("removed") if isinstance(synced, dict) else "?",
+    )
+    return [entry.path for entry in wanted]
+
+
+def _launch(
+    agent: _Agent, request: LaunchRequest, launch_id: str, setup: Sequence[str]
+) -> Dict[str, Any]:
+    """Run the launch on the remote. Return the result document of the launch."""
+    step = "running the launch"
+    with _cancel_on_interrupt(agent):
+        agent.launching = True
+        try:
+            agent.send(
+                {"launch": request.model_dump(mode="json"), "id": launch_id, "setup": list(setup)},
+                step,
+            )
+            document = agent.message(step)
+        finally:
+            agent.launching = False
+    if "result" not in document:
+        raise RemoteProtocolError(
+            f"The agent on {agent.host} sent {sorted(document)} when the launch ended, and not "
+            "`result`."
+        )
+    if document.get("canceled"):
+        left = document.get("survivors")
+        warning = (
+            f" {left} process(es) of the launch did not stop after SIGKILL and may still run on "
+            f"{agent.host}."
+            if left
+            else ""
+        )
+        if agent.canceled.is_set():
+            raise RemoteCanceled(f"The launch on {agent.host} was canceled by Ctrl-C.{warning}")
+        raise RemoteCanceled(
+            f"The launch on {agent.host} was canceled, because the agent lost the connection or "
+            f"its heartbeat.{warning}"
+        )
+    result = document["result"]
+    if not isinstance(result, dict):
+        raise RemoteError(
+            f"The launch on {agent.host} ended with exit status {document.get('exit')} and left "
+            "no result. The log above may tell why."
+        )
+    return result
+
+
+def _fetch(agent: _Agent, fetch_all: bool) -> tuple[list[Entry], DataReader]:
+    step = "fetching the results"
+    agent.send({"fetch": {"fetch_all": fetch_all}}, step)
+    listing = agent.expect("files", step)
+    if not isinstance(listing, list):
+        raise RemoteProtocolError(f"The agent on {agent.host} sent a bad `files` list.")
+    entries = [Entry.from_json_value(item) for item in listing]
+
+    def other(kind: bytes, payload: bytes) -> None:
+        if kind == LOG:
+            agent.emit(payload)
+        else:
+            raise RemoteProtocolError(f"frame {kind!r} inside the fetched data")
+
+    return entries, DataReader(agent.stdout, on_frame=other)
+
+
+# --- The documents ----------------------------------------------------------------------------
+
+
+def _node_dirs(
+    document: Mapping[str, Any], remote_run_root: PurePosixPath
+) -> dict[str, PurePosixPath]:
+    """The run directory of every node of the result, below the remote run root, by node name."""
+    found: dict[str, PurePosixPath] = {}
+    for node in document.get("nodes") or []:
+        try:
+            path = PurePosixPath(node["run_path"])
+            found[node["node"]] = path.relative_to(remote_run_root)
+        except (KeyError, TypeError, ValueError):
+            raise RemoteProtocolError(
+                f"The result names a run directory that is not in {remote_run_root}: {node!r}"
+            ) from None
+    return found
+
+
+def _mirror_document(
+    document: Mapping[str, Any],
+    results: Optional[Dict[str, Any]],
+    *,
+    host: str,
+    mirror_root: Path,
+    remote_run_root: PurePosixPath,
+) -> Dict[str, Any]:
+    """The result document of the remote, with the paths of the mirror."""
+    mirrored = copy.deepcopy(dict(document))
+    mirrored.pop("written", None)
+    mirrored.pop("unreadable", None)
+    mirrored["remote"] = host
+    mirrored["mirror"] = str(mirror_root)
+    for node in mirrored.get("nodes") or []:
+        node["run_path"] = str(
+            mirror_root / PurePosixPath(node["run_path"]).relative_to(remote_run_root)
+        )
+    run_path = document.get("run_path")
+    if run_path:
+        directory = mirror_root / PurePosixPath(run_path).relative_to(remote_run_root)
+        mirrored["run_path"] = str(directory)
+        for key in ("results_json", "settings_json"):
+            if mirrored.get(key):
+                mirrored[key] = str(directory / PurePosixPath(document[key]).name)
+    if results is not None:
+        mirrored["results"] = results
+    return mirrored
+
+
+def _local_design(document: Dict[str, Any], run: _Run, design_name: str) -> Dict[str, Any]:
+    """Name the design file that the user gave, and not the packaged copy on the remote."""
+    from ..introspect import design_info
+
+    document.update(design_info(run.design, design_name))
+    return document
+
+
+def _print_dry_run(host: str, document: Mapping[str, Any]) -> None:
+    """The report of a dry run on the log: what was uploaded."""
+    uploaded = document.get("uploaded") or []
+    if uploaded:
+        log.info("Uploaded %d input file(s) to %s: %s", len(uploaded), host, ", ".join(uploaded))
+    else:
+        log.info("Uploaded no input file to %s: it had them all", host)
+
+
+# --- run_remote -------------------------------------------------------------------------------
+
+
+def run_remote(
+    chain: str,
+    *,
+    design: Any,
+    destination_text: str,
+    run_root: Path,
+    flow_settings: Any,
+    xedaproject: Any,
+    design_overrides: Any,
+    design_allow_extra: bool,
+    target: Optional[str],
+    select_design_in_project: Any,
+    hashed_run_dirs: bool,
+    clean: bool,
+    rebuild_all: bool,
+    scrub: bool,
+    dry_run: bool,
+    fetch_all: bool,
+    outputs_to: Optional[Path],
+    overwrite_outputs: bool,
+    confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
+    log_level: int,
+    detailed_logs: bool,
+    ssh_options: Sequence[str] = (),
+) -> RemoteOutcome:
+    """Run the request `chain` on the host `destination_text` and return its outcome.
+
+    The arguments are those of the command `xeda run`. The outcome holds the document that
+    `--json` prints. A failure of any step is an outcome too, with `success` false, the exception
+    in `error` and a failure document that names it. Ctrl-C during the launch is an outcome with
+    the error `RemoteCanceled`."""
+    from ..cli import _failure_document, _failure_of  # the CLI imports this module on demand
+    from ..introspect import request_info
+
+    request = parse_request(chain)
+    run = _Run(
+        chain=chain,
+        flow=request.requested.name,
+        design=design,
+        target=target,
+        host=destination_text,
+        debug=log_level <= logging.DEBUG,
+        request=request_info(request),
+    )
+    try:
+        return _run(
+            run,
+            destination_text=destination_text,
+            run_root=run_root,
+            flow_settings=flow_settings,
+            xedaproject=xedaproject,
+            design_overrides=design_overrides,
+            design_allow_extra=design_allow_extra,
+            select_design_in_project=select_design_in_project,
+            hashed_run_dirs=hashed_run_dirs,
+            clean=clean,
+            rebuild_all=rebuild_all,
+            scrub=scrub,
+            dry_run=dry_run,
+            fetch_all=fetch_all,
+            outputs_to=outputs_to,
+            overwrite_outputs=overwrite_outputs,
+            confirm_overwrite=confirm_overwrite,
+            log_level=log_level,
+            detailed_logs=detailed_logs,
+            ssh_options=ssh_options,
+        )
+    except Exception as error:  # pylint: disable=broad-except
+        log.debug("The remote run failed", exc_info=True)
+        error_type, message = _failure_of(error, run.flow, run.debug)
+        document = _failure_document(
+            run.flow, run.design, run.launcher, run.target, error_type, message, run.request
+        )
+        document["remote"] = destination_text
+        return RemoteOutcome(document, False, error)
+
+
+def _run(
+    run: _Run,
+    *,
+    destination_text: str,
+    run_root: Path,
+    flow_settings: Any,
+    xedaproject: Any,
+    design_overrides: Any,
+    design_allow_extra: bool,
+    select_design_in_project: Any,
+    hashed_run_dirs: bool,
+    clean: bool,
+    rebuild_all: bool,
+    scrub: bool,
+    dry_run: bool,
+    fetch_all: bool,
+    outputs_to: Optional[Path],
+    overwrite_outputs: bool,
+    confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
+    log_level: int,
+    detailed_logs: bool,
+    ssh_options: Sequence[str],
+) -> RemoteOutcome:
+    if _is_windows():
+        raise RemoteError(
+            "--remote does not work on native Windows. Use WSL, or run xeda on a Linux or macOS "
+            "machine."
+        )
+    local_root = _local_run_root(run_root)
+    prepared = _plan(
+        run,
+        local_root=local_root,
+        destination_text=destination_text,
+        run_root=run_root,
+        flow_settings=flow_settings,
+        xedaproject=xedaproject,
+        design_overrides=design_overrides,
+        design_allow_extra=design_allow_extra,
+        select_design_in_project=select_design_in_project,
+        hashed_run_dirs=hashed_run_dirs,
+        clean=clean,
+        rebuild_all=rebuild_all,
+        dry_run=dry_run,
+        outputs_to=outputs_to,
+        overwrite_outputs=overwrite_outputs,
+        confirm_overwrite=confirm_overwrite,
+        ssh_options=ssh_options,
+    )
+    destination = prepared.destination
+    mirror_root = local_root / f"@{destination.label()}"
+    design = prepared.prepared.design
+    plan = prepared.prepared.plan
+    profile = prepared.profile
+    snapshot = code_snapshot()
+    spec = dependency_spec(design.tb.python_packages)
+    key = workspace_key(local_root, destination)
+    launch_id = new_launch_id()
+    log.info("Connecting to %s...", destination_text)
+    try:
+        with SshSession(destination, ssh_options) as session:
+            facts, provisioned = _provision(session, profile, snapshot, spec)
+            workspace = PurePosixPath(facts.root) / LAYOUT / "ws" / key
+            inputs_dir = workspace / "inputs" / design.name
+            remote_run_root = workspace / "xeda_run"
+            package = package_inputs(
+                design,
+                prepared.prepared.sections,
+                {node.name for node in plan.nodes},
+                run_root=local_root,
+                remote_inputs=inputs_dir,
+                host_flows=profile.flows,
+            )
+            launch = LaunchRequest(
+                chain=run.chain,
+                design_file=package.design_file,
+                inputs_dir=str(inputs_dir),
+                run_root=str(remote_run_root),
+                path_identities=package.path_identities,
+                hashed_run_dirs=hashed_run_dirs,
+                clean=clean,
+                rebuild_all=rebuild_all,
+                scrub=scrub,
+                dry_run=dry_run,
+                log_level=log_level,
+                detailed_logs=detailed_logs,
+                expected={node.name: node.flowrun_hash for node in plan.nodes},
+            )
+            agent = _start_agent(session, provisioned, key)
+            try:
+                uploaded = _sync(agent, package, design.name, key, launch_id)
+                result = _launch(agent, launch, launch_id, profile.setup)
+                if dry_run:
+                    document = _local_design(dict(result), run, design.name)
+                    document["remote"] = destination_text
+                    document["uploaded"] = uploaded
+                    _print_dry_run(destination_text, document)
+                    outcome = RemoteOutcome(document, bool(result.get("success")))
+                else:
+                    outcome = _finish(
+                        agent,
+                        prepared,
+                        run,
+                        result,
+                        mirror_root=mirror_root,
+                        local_root=local_root,
+                        remote_run_root=remote_run_root,
+                        fetch_all=fetch_all,
+                        outputs_to=outputs_to,
+                    )
+                agent.send({"bye": True}, "ending the session")
+            except BaseException:
+                agent.close(wait=5)
+                raise
+            agent.close()
+            return outcome
+    except KeyboardInterrupt:
+        raise RemoteCanceled(
+            f"Canceled by Ctrl-C. The launch on {destination_text} is stopped or was never "
+            "started."
+        ) from None
+
+
+def _finish(
+    agent: _Agent,
+    prepared: _Prepared,
+    run: _Run,
+    result: Dict[str, Any],
+    *,
+    mirror_root: Path,
+    local_root: Path,
+    remote_run_root: PurePosixPath,
+    fetch_all: bool,
+    outputs_to: Optional[Path],
+) -> RemoteOutcome:
+    """Fetch the files of the run into the mirror, rewrite the result and deliver."""
+    host = agent.host
+    # The run root is made and marked as Xeda's before the mirror goes into it.
+    prepared.launcher.run_root  # pylint: disable=pointless-statement
+    nodes = _node_dirs(result, remote_run_root)
+    unreadable = result.get("unreadable") or {}
+    for name, places in unreadable.items():
+        log.warning(
+            "On %s, the run directory of %s has unreadable directories: %s. The files below them "
+            "are not fetched for a failed run.",
+            host,
+            name,
+            ", ".join(places),
+        )
+    entries, reader = _fetch(agent, fetch_all)
+    directories = {name: mirror_root / place for name, place in nodes.items()}
+    with ExitStack() as locked:
+        for directory in sorted(set(directories.values())):
+            locked.enter_context(run_dir_lock(directory, local_root))
+        for directory in sorted(set(directories.values())):
+            if directory.is_dir() and not directory.is_symlink():
+                RunDirectory.claimed(directory, local_root).clear()
+        log.info("Fetching %d file(s) from %s into %s", len(entries), host, mirror_root)
+        publish_mirror(
+            mirror_root,
+            entries,
+            cast(BinaryIO, io.BufferedReader(reader)),
+            remote_run_root=remote_run_root,
+        )
+        reader.drain()
+        results = result.get("results")
+        rewritten: Optional[Dict[str, Any]] = None
+        remote_deliverables: Any = None
+        success = bool(result.get("success"))
+        if isinstance(results, dict) and results and result.get("run_path"):
+            requested = prepared.requested
+            remote_run_dir = PurePosixPath(result["run_path"])
+            written = (result.get("written") or {}).get(requested)
+            mirror_dir = mirror_root / remote_run_dir.relative_to(remote_run_root)
+            rewritten = rewrite_results(results, remote_run_dir, mirror_dir, written=written)
+            output_paths = [str(path) for path in declared_output_files(results)]
+            remote_deliverables = (
+                {"artifacts": results.get("artifacts") or {}, "outputs": output_paths}
+                if output_paths and success
+                else results.get("artifacts")
+            )
+            if outputs_to is not None and prepared.deliveries is not None:
+                deliver_fetched(
+                    prepared.deliveries,
+                    rewritten,
+                    remote_deliverables,
+                    str(remote_run_dir),
+                    mirror_dir,
+                    outputs_to=outputs_to,
+                )
+            print_results(
+                results=rewritten,
+                title=f"Results of flow:{run.flow} design:{prepared.prepared.design.name}",
+                skip_if_false={"artifacts", "reports"},
+            )
+    document = _mirror_document(
+        result, rewritten, host=run.host, mirror_root=mirror_root, remote_run_root=remote_run_root
+    )
+    return RemoteOutcome(_local_design(document, run, prepared.prepared.design.name), success)
+
+
+__all__ = [
+    "RemoteOutcome",
+    "machine_id",
+    "new_launch_id",
+    "run_remote",
+    "workspace_key",
+]

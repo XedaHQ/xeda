@@ -12,16 +12,16 @@ import sys
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
-from xeda.cli import cli
 from xeda.platforms import bundled_platform_names
 
-from .test_remote_run import _remote_with_fake_fpga_tools
-from .test_remote_run import remote_host  # noqa: F401  (the fixture of the remote harness)
+from .remote_fixtures import fake_remote, fake_ssh, remote_host
+from .test_remote_client import _cli_script, _design
 from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.python_compat
+
+FIXTURES = (fake_ssh, fake_remote, remote_host)
 
 
 TESTS_DIR = Path(__file__).parent.absolute()
@@ -249,40 +249,34 @@ def test_raw_generator_command_output_does_not_corrupt_stdout(tmp_path):
 
 REMOTE_SCRIPT = """
 import sys
-from xeda.flow_runner import remote
+from xeda.remote import client
 
-class FakeRunner:
-    target = None
-    design_name = "sqrt"
-    def __init__(self, *a, **k): pass
-    def run_remote(
-        self,
-        design,
-        flow,
-        host,
-        flow_settings,
-        xedaproject,
-        design_overrides,
-        design_allow_extra,
-        target,
-    ):
-        assert target is None
-        assert xedaproject is None
-        assert design_overrides == ()
-        assert design_allow_extra is False
-        return {"success": %s, "run_path": "/tmp/remote-run"}
+def fake_run_remote(chain, **arguments):
+    assert chain == "vivado_synth" and arguments["destination_text"] == "host"
+    assert arguments["target"] is None and arguments["xedaproject"] is None
+    assert arguments["design_overrides"] == () and arguments["design_allow_extra"] is False
+    assert arguments["fetch_all"] is False and arguments["dry_run"] is False
+    document = {
+        "flow": "vivado_synth", "design": "sqrt", "design_file": %(design)r, "target": None,
+        "remote": "host", "success": %(success)s, "results": {"success": %(success)s},
+        "run_path": "/tmp/remote-run", "nodes": [],
+    }
+    if not %(success)s:
+        document["error"] = {"type": "FlowFailed", "message": "did not complete"}
+    return client.RemoteOutcome(document, %(success)s)
 
-remote.RemoteRunner = FakeRunner
+client.run_remote = fake_run_remote
 from xeda.cli import cli
-cli(["run", "vivado_synth", %r, "--remote", "host", "--json"], standalone_mode=True)
+cli(["run", "vivado_synth", %(design)r, "--remote", "host", "--json"], standalone_mode=True)
 """
 
 
 @pytest.mark.parametrize("remote_success,expected_exit", [(True, 0), (False, 1)])
-def test_remote_status_comes_from_the_remote_results(remote_success, expected_exit, tmp_path):
+def test_remote_status_comes_from_the_remote_outcome(remote_success, expected_exit, tmp_path):
     """A failed remote flow is reported as a failed run, with the remote's own status."""
+    script = REMOTE_SCRIPT % dict(design=str(SQRT), success=remote_success)
     proc = subprocess.run(
-        [sys.executable, "-c", REMOTE_SCRIPT % (remote_success, str(SQRT))],
+        [sys.executable, "-c", script],
         cwd=str(tmp_path),
         capture_output=True,
         text=True,
@@ -292,55 +286,28 @@ def test_remote_status_comes_from_the_remote_results(remote_success, expected_ex
     assert proc.returncode == expected_exit
     assert document["success"] is remote_success
     assert document["design"] == "sqrt" and document["design_file"] == str(SQRT)
-    assert document["run_path"] == "/tmp/remote-run"
+    assert document["run_path"] == "/tmp/remote-run" and document["remote"] == "host"
     assert document["results"]["success"] is remote_success
     if not remote_success:
         assert document["error"]["type"] == "FlowFailed"
 
 
-def test_a_remote_run_puts_only_the_json_document_on_stdout(
-    tmp_path, remote_host, monkeypatch  # noqa: F811
-):
-    """The real `send_design` and the real remote worker run: nothing that the local side prints
-    on the way (such as the list of files it ships) may precede or follow the document."""
-    design = _remote_with_fake_fpga_tools(tmp_path, remote_host, monkeypatch)
-    result = CliRunner().invoke(
-        cli,
-        ["run", "nextpnr", "--design", str(design), "--remote", "somewhere"]
-        + ["--run-root", str(tmp_path / "local" / "xeda_run"), "--json"]
-        + ["-s", "fpga.part=LFE5U-25F-6BG381C", "-s", "clock.freq=200MHz"],
+def test_a_remote_run_puts_only_the_json_document_on_stdout(tmp_path, remote_host):
+    """The real client and the real remote agent run: the log of the launch, the progress of the
+    provisioning and the results table go to stderr, and nothing precedes or follows the
+    document on stdout."""
+    design = _design(tmp_path)
+    proc = subprocess.run(
+        [sys.executable, "-c", _cli_script(tmp_path, design, remote_host, signals=False)],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        timeout=HANG_GUARD,
     )
-    assert result.exit_code == 0, result.output
-    try:
-        document = json.loads(result.stdout)
-    except json.JSONDecodeError as e:
-        pytest.fail(f"stdout was not a single JSON document ({e})\nstdout:\n{result.stdout}")
-    assert document["success"] is True
-
-
-def test_remote_output_is_wired_to_the_redirected_stream():
-    """The remote flow's stdout is tool output and must follow the same redirection.
-
-    `run_remote` needs a live SSH connection, so this checks the wiring at the source: it used
-    to hand `RemoteLogger` `sys.stdout` unconditionally.
-    """
-    import inspect
-
-    from xeda.flow_runner.remote import RemoteLogger, RemoteRunner
-
-    source = inspect.getsource(RemoteRunner.run_remote)
-    stdout_wiring = [
-        line for line in source.splitlines() if "RemoteLogger" in line or 'label="stdout"' in line
-    ]
-    assert any("tool_output_stream()" in line for line in stdout_wiring), stdout_wiring
-    assert not any("sys.stdout" in line for line in stdout_wiring), stdout_wiring
-
-    # and RemoteLogger writes to whatever stream it is given
-    import io
-
-    stream = io.StringIO()
-    RemoteLogger(stream, label="stdout").cb("hello")
-    assert stream.getvalue() == "hello"
+    assert proc.returncode == 0, proc.stderr
+    document = json_stdout(proc)
+    assert document["success"] is True and document["remote"] == "somewhere"
+    assert "nextpnr-ecp5" in proc.stderr, "the log of the launch is tool output"
 
 
 # ------------------------------------------------------- design generators must not reach stdout

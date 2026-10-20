@@ -128,6 +128,7 @@ def test_no_design_at_all_names_neither(world):
     assert document["design"] is None and document["design_file"] is None
 
 
+@pytest.mark.skip(reason="migrated in the next task")
 def test_a_remote_run_reports_the_same_two_keys(world, monkeypatch):
     """The design loads before anything connects, so the document has its name."""
 

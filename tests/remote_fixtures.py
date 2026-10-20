@@ -10,11 +10,12 @@ import sys
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import pytest
+import yaml
 
-from .tool_utils import FAKE_TOOLS_DIR, use_fake_tools
+from .tool_utils import FAKE_TOOLS_DIR, use_fake_fpga_tools, use_fake_tools
 
 
 @pytest.fixture
@@ -182,3 +183,76 @@ esac
     remote.set_path(bin_dir, FAKE_TOOLS_DIR, Path("/usr/bin"), Path("/bin"))
     monkeypatch.setattr("xeda.remote.environment.UV_RELEASES", remote.releases)
     yield remote
+
+
+# --- The remote host of the client tests --------------------------------------------------------
+
+
+@dataclass
+class RemoteHost:
+    """The fake remote host with a host profile and the fake FPGA toolchain.
+
+    The fake `ssh` hands a remote command only `PATH`, `HOME`, `USER` and `LANG`, and the launch
+    runs under a login shell that may change `PATH`. So the toolchain reaches the launch through a
+    `setup` line of the host profile, and an environment variable of a fake tool through its `env`
+    table. `write_profile` writes the host profile file again after a test changed `env`,
+    `setup` or `fields`."""
+
+    remote: FakeRemote
+    name: str
+    profile_file: Path
+    toolchain: Path
+    env: Dict[str, str]
+    setup: List[str]
+    fields: Dict[str, Any]
+
+    @property
+    def home(self) -> Path:
+        return self.remote.home
+
+    @property
+    def workspaces(self) -> Path:
+        """The directory of the workspaces on the remote."""
+        return self.remote.layout / "ws"
+
+    def workspace(self) -> Path:
+        """The only workspace on the remote."""
+        (found,) = sorted(self.workspaces.iterdir())
+        return found
+
+    def write_profile(self) -> None:
+        entry: Dict[str, Any] = {"setup": self.setup, **self.fields}
+        if self.env:
+            entry["env"] = self.env
+        self.profile_file.parent.mkdir(parents=True, exist_ok=True)
+        self.profile_file.write_text(yaml.safe_dump({"hosts": {self.name: entry}}))
+
+    def configure(self, *, env: Optional[Dict[str, str]] = None, **fields: Any) -> None:
+        """Add `env` variables and profile `fields`, and write the profile."""
+        self.env.update(env or {})
+        self.fields.update(fields)
+        self.write_profile()
+
+
+@pytest.fixture
+def remote_host(
+    fake_remote: FakeRemote, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[RemoteHost]:
+    """The fake remote host `somewhere`, with a host profile whose `setup` puts the fake FPGA
+    toolchain first on the `PATH` of the launch. The user-level directories of the local machine
+    (`XDG_CONFIG_HOME`, `XDG_CACHE_HOME`) are under `tmp_path`."""
+    prefix = tmp_path / "toolchain"
+    use_fake_fpga_tools(monkeypatch, prefix)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    host = RemoteHost(
+        remote=fake_remote,
+        name="somewhere",
+        profile_file=tmp_path / "config" / "xeda" / "remotes.yaml",
+        toolchain=prefix / "bin",
+        env={},
+        setup=[f"export PATH={prefix / 'bin'}:{FAKE_TOOLS_DIR}:{fake_remote.bin}:$PATH"],
+        fields={},
+    )
+    host.write_profile()
+    yield host

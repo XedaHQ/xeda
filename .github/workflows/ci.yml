@@ -147,6 +147,8 @@ jobs:
   #   directory locks and their owner processes, a SIGTERM that stops a shell script and its child
   #     (kill, wait, trap), and the macOS userland (sh, tar, df, shasum): test_remote_provision
   #   process groups, signals, file locks (flock) and process trees (psutil): test_remote_agent
+  #   a SIGINT handler during a launch, a killed SSH client and the processes of a cancelled
+  #     launch on the same machine: test_remote_client
   macos:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
@@ -205,6 +207,7 @@ jobs:
           tests/test_remote_manifest.py
           tests/test_remote_provision.py
           tests/test_remote_agent.py
+          tests/test_remote_client.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only

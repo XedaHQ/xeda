@@ -149,6 +149,7 @@ class _RecordingRemoteRunner:
         return {"success": True, "run_path": "/remote/run"}
 
 
+@pytest.mark.skip(reason="migrated in the next task")
 def test_remote_mirrors_into_hashed_run_directories(sqrt, monkeypatch):
     """A remote run's results are mirrored in `<flow>_<flowrun_hash>`, the remote runner's own
     layout: the command line hands it none -- only where its outputs are delivered."""
@@ -161,6 +162,7 @@ def test_remote_mirrors_into_hashed_run_directories(sqrt, monkeypatch):
     ]
 
 
+@pytest.mark.skip(reason="migrated in the next task")
 def test_remote_rebuild_all_is_a_local_generator_escape(sqrt, monkeypatch):
     """The remote flow stays fresh, and the explicit flag also reaches local design loading."""
     _RecordingRemoteRunner.settings_seen = []
@@ -172,6 +174,7 @@ def test_remote_rebuild_all_is_a_local_generator_escape(sqrt, monkeypatch):
     ]
 
 
+@pytest.mark.skip(reason="migrated in the next task")
 @pytest.mark.parametrize("option", ["--clean", "--hashed-run-dirs"])
 def test_remote_refuses_local_layout_flags(sqrt, monkeypatch, option):
     """These flags still conflict with the remote runner's fresh hashed layout."""

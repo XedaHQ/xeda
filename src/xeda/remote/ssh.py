@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import IO, Any, Optional, Sequence
 
 from ..proc_utils import tool_output_redirect
 from .constants import CONTROL_PERSIST, SERVER_ALIVE
@@ -48,6 +48,18 @@ class Destination:
     def label(self) -> str:
         """A name of the host that is safe in a file name."""
         return re.sub(r"[^A-Za-z0-9._@-]", "_", self.text)
+
+
+def _inheritable_stdout() -> Optional[IO[str]]:
+    """The stream that a child process gets as its standard output, or `None` for ours. A stream
+    that has no file descriptor (the capture of a test runner) cannot be given to a child."""
+    stream = tool_output_redirect()
+    try:
+        if stream is not None:
+            stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return None
+    return stream
 
 
 def _ssh_program() -> str:
@@ -208,7 +220,7 @@ class SshSession:
         # the background process keeps the pipe open, and then nothing sees the end of the data.
         # (OpenSSH asks for passwords and passphrases on the terminal itself.)
         with tempfile.TemporaryFile() as messages:
-            status = subprocess.call(command, stderr=messages, stdout=tool_output_redirect())
+            status = subprocess.call(command, stderr=messages, stdout=_inheritable_stdout())
             messages.seek(0)
             text = messages.read()
         if status != 0:

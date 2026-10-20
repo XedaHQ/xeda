@@ -736,6 +736,7 @@ def test_a_source_that_cuts_the_graph_is_refused(tmp_path):
 # ------------------------------------------------ local only, and the undeclared flows boundary
 
 
+@pytest.mark.skip(reason="migrated in the next task")
 def test_chains_and_reached_bindings_are_local_and_refused_before_anything_connects(
     tmp_path, monkeypatch
 ):

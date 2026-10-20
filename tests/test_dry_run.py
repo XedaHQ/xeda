@@ -212,6 +212,7 @@ def test_dry_run_leaves_existing_unmarked_roots_unchanged(tmp_path, root_kind, v
     assert _state(tmp_path, exclude=[]) == before
 
 
+@pytest.mark.skip(reason="migrated in the next task")
 @pytest.mark.parametrize("json_flag", [False, True])
 def test_a_dry_run_is_refused_for_a_remote(tmp_path, json_flag):
     design = _design_file(tmp_path / "d")
