@@ -106,8 +106,9 @@ XEDA_BOOT_POLL=${XEDA_LOCK_POLL:-1}
 #: Seconds after which a lock that another process holds is reported, not waited for.
 XEDA_BOOT_LOCK_LIMIT=1800
 #: Seconds after which a lock without a readable owner is broken. The process that makes a lock
-#: writes its owner file at once, so an older lock has no owner that is still on its way.
-XEDA_BOOT_ORPHAN_GRACE=5
+#: writes its owner file at once, so an older lock has no owner that is still on its way. The
+#: margin allows for clocks that differ between the machines of a shared home directory.
+XEDA_BOOT_ORPHAN_GRACE=60
 #: Free space in KB below which a failed step is reported as a full disk.
 XEDA_BOOT_LOW_DISK_KB=51200
 
