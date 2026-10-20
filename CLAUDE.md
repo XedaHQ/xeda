@@ -38,7 +38,9 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
   `XEDA_TESTS_YOSYS_TCL` (a yosys with Tcl), `XEDA_TESTS_PDK_ROOT` (a PDK store) with
   `XEDA_TESTS_PLATFORMS` (the bundled platforms it holds) and `XEDA_TESTS_PDK_PROVIDERS` (extra
   `platform:provider` pairs it holds), `XEDA_TESTS_ASIC_QOR` with
-  `XEDA_TESTS_ORFS` (an OpenROAD-flow-scripts checkout).
+  `XEDA_TESTS_ORFS` (an OpenROAD-flow-scripts checkout), `XEDA_TESTS_REMOTE_HOST` (a Linux host
+  that `ssh` reaches without a prompt; `tools/remote_test_sshd.py start` runs one in Docker) with
+  `XEDA_TESTS_REMOTE_SSH_CONFIG` (its `ssh -F` file).
 - `pytest &` in a non-interactive shell ignores SIGINT: a test that interrupts a tool sets
   `DEFAULT_SIGINT` (`tests/test_proc_utils.py`) and waits for a ready signal, never a sleep.
 
