@@ -11,9 +11,6 @@ Environment:
   XEDA_FAKE_SSH_PATH           the `PATH` of the remote command (default `/usr/bin:/bin`)
   XEDA_FAKE_SSH_NOISE=1        print a banner line on stdout before the command, as a login shell
                                that echoes does
-  XEDA_FAKE_SSH_REPORT_SIGINT=1  print `SIGINT ignored` or `SIGINT default` on stdout (after the
-                               banner, before the command) for the disposition of SIGINT in this
-                               process; the remote command always starts with the default one
   XEDA_FAKE_TOOL_FAIL          a list of tool names; with `ssh` in it, the master connection
                                (`-M`) fails with status 255 and "Permission denied (publickey)."
 
@@ -38,6 +35,8 @@ arguments, joined with one space, is the command):
                        instead, if the master ended before it connected. The fake always fails,
                        so that a test sees the case.)
   <dest> <command>     without `-S` or a control path: run the command
+
+A client of a control socket ends with status 255 on SIGINT, as the client of OpenSSH does.
 
 The command mode keeps stdin, stdout and stderr as pipes to the command, byte for byte, as
 sshd does. The command runs in a session of its own, so a signal to the process group of this
@@ -187,10 +186,6 @@ def control_command(parsed: Parsed) -> int:
     return 0
 
 
-def sigint_disposition() -> str:
-    return "ignored" if signal.getsignal(signal.SIGINT) == signal.SIG_IGN else "default"
-
-
 def pump(read_fd: int, write_fd: int | None, close_pipe=None) -> None:
     """Copy bytes until EOF. Without `write_fd`, or once it is closed, drop what is read."""
     while True:
@@ -229,10 +224,12 @@ def run_command(parsed: Parsed) -> int:
     out = []
     if os.environ.get("XEDA_FAKE_SSH_NOISE") == "1":
         out.append("Welcome to the fake host (a banner that a login shell printed)\n")
-    if os.environ.get("XEDA_FAKE_SSH_REPORT_SIGINT") == "1":
-        out.append(f"SIGINT {sigint_disposition()}\n")
     if out:
         os.write(1, "".join(out).encode())
+    if path:
+        # A client of a control socket installs its own SIGINT handler, which ends the client
+        # with status 255. It does so even if SIGINT was ignored when the client started.
+        signal.signal(signal.SIGINT, lambda _number, _frame: os._exit(255))
     child = subprocess.Popen(
         ["/bin/sh", "-c", " ".join(parsed.command)],
         cwd=home,

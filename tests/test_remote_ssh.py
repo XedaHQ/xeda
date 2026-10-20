@@ -3,7 +3,9 @@
 
 import os
 import select
+import signal
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -273,15 +275,47 @@ def test_popen_streams_both_ways_in_binary(fake_ssh):
         assert process.wait(PATIENCE) == 0
 
 
+#: A program that opens a session, starts a client with `popen`, and tells whether the client is
+#: still there after a SIGINT for its process group (Ctrl-C at a terminal).
+_CTRL_C = """
+import signal, sys, time
+signal.signal(signal.SIGINT, signal.default_int_handler)
+from xeda.remote.ssh import SshSession, resolve_destination, sh_command
+
+with SshSession(resolve_destination("venona")) as session:
+    client = session.popen(sh_command())
+    client.stdin.write(b"echo up\\n")
+    client.stdin.flush()
+    assert client.stdout.readline() == b"up\\n"  # the client runs
+    print("ready", flush=True)
+    try:
+        time.sleep(60)
+    except KeyboardInterrupt:
+        time.sleep(1)
+        print("alive" if client.poll() is None else f"ended {client.returncode}", flush=True)
+    client.stdin.close()
+    client.wait()
+"""
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
-def test_command_clients_ignore_sigint(fake_ssh, monkeypatch):
-    """The fake reports the disposition of SIGINT in its own process, which is the client. It
-    does not depend on the disposition in this process (SIGINT is ignored under `pytest &`)."""
-    monkeypatch.setenv("XEDA_FAKE_SSH_REPORT_SIGINT", "1")
-    with SshSession(resolve_destination("venona")) as s:
-        out, _ = s.popen(sh_command("true")).communicate(timeout=PATIENCE)
-        assert out.decode().splitlines()[0] == "SIGINT ignored"
-        assert s.run("true").stdout.decode().splitlines()[0] == "SIGINT ignored"
+def test_a_command_client_does_not_stop_on_ctrl_c_in_the_terminal(fake_ssh):
+    """A client of the master ends on SIGINT, as OpenSSH's does, even if it started with SIGINT
+    ignored. So Ctrl-C must not reach it: it runs in a process group of its own."""
+    program = subprocess.Popen(
+        [sys.executable, "-c", _CTRL_C],
+        stdout=subprocess.PIPE,
+        start_new_session=True,  # a group of its own, as at a terminal
+    )
+    try:
+        assert program.stdout.readline() == b"ready\n"
+        os.killpg(program.pid, signal.SIGINT)
+        assert program.stdout.readline() == b"alive\n"
+        assert program.wait(timeout=PATIENCE) == 0
+    finally:
+        if program.poll() is None:
+            os.killpg(program.pid, signal.SIGKILL)
+            program.wait()
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signals")

@@ -263,21 +263,21 @@ class SshSession:
             return False
 
     def _client_command(self, command: str) -> list[str]:
-        """The `ssh` command line of a client of the master, behind a shell that ignores SIGINT.
+        """The `ssh` command line of a client of the master.
 
-        Ctrl-C in the terminal sends SIGINT to the whole foreground process group. A client
-        carries the cancel message of the launch, so it must not stop on Ctrl-C. The shell sets
-        SIGINT to "ignored" and then replaces itself with `ssh`; an ignored signal stays ignored
-        across `exec`. Two other ways are worse. `preexec_fn` runs Python code between `fork`
-        and `exec`, which can deadlock when other threads of xeda run (the heartbeat does).
-        `process_group` and `start_new_session` leave SIGINT enabled, and they change the
-        terminal handling of the client.
+        Ctrl-C in the terminal sends SIGINT to the whole foreground process group. A client of
+        the master carries the cancel message of the launch, so it must not stop on Ctrl-C. It
+        cannot ignore SIGINT: a client of a control socket installs its own SIGINT handler, which
+        ends it with status 255, whatever it inherited. So `popen` starts the client in a process
+        group of its own, and Ctrl-C does not reach it. (`preexec_fn` runs Python code between
+        `fork` and `exec`, which can deadlock when other threads of xeda run, as the heartbeat
+        does. `start_new_session` also drops the controlling terminal of the client.)
 
         A real client can still open a connection of its own if the master ends after
         `check()` and before the client connects. It cannot ask for anything (`BatchMode=yes`),
         and OpenSSH checks the host keys as always, so this costs at most a second login without
         a prompt."""
-        client = [
+        return [
             _ssh_program(),
             "-S",
             self._control,
@@ -290,7 +290,6 @@ class SshSession:
             self.destination.text,
             command,
         ]
-        return ["/bin/sh", "-c", 'trap "" INT; exec "$@"', "sh", *client]
 
     def _require_master(self) -> None:
         if not self.check():
@@ -321,7 +320,8 @@ class SshSession:
 
     def popen(self, command: str) -> "subprocess.Popen[bytes]":
         """Start `command` on the remote host. Its standard input, output and error are binary
-        pipes of the returned process. If the master is gone, this raises
+        pipes of the returned process. The process runs in a process group of its own, so Ctrl-C
+        in the terminal does not stop it. If the master is gone, this raises
         `RemoteConnectionError`."""
         self._require_master()
         return subprocess.Popen(
@@ -329,6 +329,7 @@ class SshSession:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            process_group=0,
         )
 
     def _close(self) -> None:
