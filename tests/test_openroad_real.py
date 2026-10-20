@@ -618,9 +618,13 @@ def test_gcd_places_its_pins_with_its_cells_in_the_timing_driven_placement(tmp_p
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     flow = run_gcd(runner, store, "io.flow=concurrent", flow="openroad_place")
     assert flow.succeeded, flow.results.get("error")
-    log = (flow.run_path / "openroad_place.log").read_text()
-    (placement,) = [line for line in log.splitlines() if " -place_ios " in line]
+    script = (flow.run_path / "openroad_place.tcl").read_text()
+    (placement,) = [line for line in script.splitlines() if " -place_ios " in line]
     assert "-timing_driven" in placement and "-routability_driven" in placement
+    log = (flow.run_path / "openroad_place.log").read_text()
+    # the concurrent placement of the pins, a timing-driven and a routability-driven iteration
+    for message in ("GPL-0168", "GPL-0100", "GPL-0040"):
+        assert f" {message}] " in log, message
 
 
 def test_two_runs_write_the_same_database(tmp_path):
