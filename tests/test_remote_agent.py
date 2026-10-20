@@ -223,7 +223,12 @@ class Agent:
         self.process.wait(timeout=60)
         for stream in (self.process.stdin, self.process.stdout, self.stderr):
             if stream is not None and not stream.closed:
-                stream.close()
+                try:
+                    stream.close()
+                except BrokenPipeError:
+                    # The close of stdin flushes what the client wrote last, for example a
+                    # heartbeat, and the agent that would read it has exited.
+                    pass
 
 
 @pytest.fixture
