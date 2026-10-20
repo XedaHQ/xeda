@@ -102,6 +102,9 @@ def test_first_run_provisions_and_second_run_builds_nothing(fake_remote, snapsho
     assert steps[1].startswith("Installing Python 3.")
     assert (fake_remote.layout / "env" / first.deps_key / ".xeda-complete").exists()
     assert (fake_remote.layout / "code" / first.code_key / ".xeda-complete").exists()
+    # the use lock of `xeda remote clean` (see `agent.USE_LOCK`)
+    assert (fake_remote.layout / "env" / first.deps_key / ".xeda-lock").is_file()
+    assert (fake_remote.layout / "code" / first.code_key / ".xeda-lock").is_file()
     lock = (fake_remote.layout / "env" / first.deps_key / "xeda-lock.txt").read_text()
     assert "pydantic==2.14.1" in lock and "pydantic>=2" in lock
     assert fake_remote.venv_builds() == 1

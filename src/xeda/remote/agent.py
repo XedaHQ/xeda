@@ -55,6 +55,11 @@ the launch, SIGTERM to it and to its descendants after the first grace period, S
 is left after the second. The periods run on the clock of the agent. The result is sent only after all of them
 are gone.
 
+A session that runs from an environment and a code copy in `R/v1/env/` and `R/v1/code/` takes a
+shared lock on the file `.xeda-lock` of each before it sends `hello`, and holds both until it ends.
+A launch that keeps running inherits both locks. If the directory is being removed or was removed
+(by `clean`), the agent sends an `error` and exits with status 1.
+
 `check [--json] <executables...>` and `clean <root> [--older-than DAYS] [--all] [--list]
 [--only PATH]...` write `MAGIC` and then one JSON document and a newline. With `--list`, `clean`
 removes nothing and reports what it would remove as `removable`, in place of `removed`. With
@@ -530,6 +535,55 @@ def _order(state: dict[str, Any]) -> tuple[int, str]:
     return (sequence if isinstance(sequence, int) else 0, state["id"])
 
 
+#: The lock file of an environment or a code copy (`bootstrap.sh` makes it). A session holds a
+#: shared lock on it while the session runs from the directory, and so does a launch that keeps
+#: running. `clean` removes the directory only while it holds the exclusive lock.
+USE_LOCK = ".xeda-lock"
+
+
+def _runtime_directories(base: Path) -> list[Path]:
+    """The environment and the code copy that this process runs from, if they are in the layout
+    `base`. An agent that runs from a checkout or from another environment has none."""
+    own = ((base / "env", Path(sys.prefix)), (base / "code", Path(__file__).parent.parent.parent))
+    return [
+        directory
+        for parent, directory in own
+        if os.path.realpath(directory.parent) == os.path.realpath(parent)
+    ]
+
+
+def _take_use_lock(directory: Path) -> int:
+    """Take a shared lock on the lock file of an environment or a code copy, and return the open
+    file. Raise `RemoteError` if `clean` removes the directory now or removed it before the lock.
+    The lock file of a directory that `clean` renamed is not at its path, so the check after the
+    lock catches the removal that began between the open and the lock."""
+    path = directory / USE_LOCK
+    removed = RemoteError(
+        f"{directory} was removed by `xeda remote clean` while the agent started. Run the "
+        "command again."
+    )
+    try:
+        # A link is refused; a FIFO does not block the open.
+        descriptor = os.open(path, os.O_RDONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    except FileNotFoundError:
+        raise removed from None
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise RemoteProtocolError(f"the lock {path} is not a regular file")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RemoteError(
+                f"`xeda remote clean` removes {directory} now. Run the command again."
+            ) from None
+        if not _is_file_at(descriptor, path):
+            raise removed
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
 def _launch_states(workspace: Path) -> list[Any]:
     """The `state.json` documents of the launches of a workspace. The `launches` directory and
     each launch directory must be real directories: a link is not followed."""
@@ -588,7 +642,8 @@ class Session:
     ) -> None:
         if not _NAME.fullmatch(key):
             raise RemoteProtocolError(f"{key!r} is not a workspace key")
-        self.workspace = root / LAYOUT / "ws" / key
+        self.base = root / LAYOUT
+        self.workspace = self.base / "ws" / key
         self.key = key
         self.client = client
         self.out = out
@@ -608,6 +663,8 @@ class Session:
         #: The digest of the request that `sync` named, if it named one.
         self.digest: Optional[str] = None
         self._lock_fd: Optional[int] = None
+        #: The shared locks on the environment and the code copy of this agent.
+        self._use_fds: list[int] = []
         self._child: Optional["subprocess.Popen[bytes]"] = None
 
     # -- sending
@@ -690,6 +747,8 @@ class Session:
 
     def run(self) -> int:
         try:
+            for directory in _runtime_directories(self.base):
+                self._use_fds.append(_take_use_lock(directory))
             self.send_json({"hello": {"xeda": __version__, "pid": os.getpid()}})
             message = self.take_json()
             if "bye" in message:
@@ -728,7 +787,7 @@ class Session:
             self.close()
 
     def close(self) -> None:
-        """Stop a launch that still runs, and release the lock."""
+        """Stop a launch that still runs, and release the locks."""
         try:
             child = self._child
             if child is not None and child.poll() is None and not self.keep_running:
@@ -737,6 +796,9 @@ class Session:
             if self._lock_fd is not None:
                 os.close(self._lock_fd)
                 self._lock_fd = None
+            for descriptor in self._use_fds:
+                os.close(descriptor)
+            self._use_fds = []
 
     # -- step 2: the lock and the sync
 
@@ -854,6 +916,10 @@ class Session:
                 f"run_root {request.run_root} is not the run root of the workspace"
             )
 
+    def _inherited_locks(self) -> tuple[int, ...]:
+        locks = [] if self._lock_fd is None else [self._lock_fd]
+        return (*locks, *self._use_fds)
+
     def launch(self, message: dict[str, Any]) -> None:
         launch_id = message.get("id")
         if not isinstance(launch_id, str) or not _NAME.fullmatch(launch_id):
@@ -904,10 +970,10 @@ class Session:
                 cwd=launch_dir,
                 env={**os.environ, "PYTHONUNBUFFERED": "1"},
                 start_new_session=True,
-                # A launch that keeps running inherits the workspace lock and holds it until it
-                # ends, also when this agent has exited. Its tools do not inherit it (they close the
-                # files).
-                pass_fds=(self._lock_fd,) if keep_running and self._lock_fd is not None else (),
+                # A launch that keeps running inherits the workspace lock and the locks on its
+                # environment and code copy, and holds them until it ends, also when this agent
+                # has exited. Its tools do not inherit them (they close the files).
+                pass_fds=self._inherited_locks() if keep_running else (),
             )
         finally:
             os.close(descriptor)
@@ -1340,7 +1406,7 @@ def _remove_tree(path: Path) -> None:
     shutil.rmtree(path)
 
 
-#: The name prefix of a workspace that `clean` took out of use and is removing.
+#: The name prefix of a directory that `clean` took out of use and is removing.
 _REMOVING = ".removing-"
 
 
@@ -1349,11 +1415,12 @@ def _host_tag() -> str:
     return hashlib.sha256(socket.gethostname().encode()).hexdigest()[:8]
 
 
-def _remove_workspace(path: Path) -> None:
-    """Remove a workspace whose lock this process holds. First rename it to a hidden name, which
-    no session uses: a session that waits for the lock then finds that its lock file is not the
-    one of the workspace, and starts a new workspace. Only then delete the tree. If the deletion
-    fails, the hidden directory stays, and the next `clean` removes it."""
+def _remove_directory(path: Path) -> None:
+    """Remove an environment, a code copy or a workspace whose lock this process holds. First
+    rename it to a hidden name, which no session uses: a session that waits for the lock of a
+    workspace then finds that its lock file is not the one of the workspace, and starts a new
+    workspace. Only then delete the tree. If the deletion fails, the hidden directory stays, and
+    the next `clean` removes it."""
     hidden = path.with_name(f"{_REMOVING}{os.getpid()}-{_host_tag()}-{path.name}")
     os.rename(path, hidden)
     _remove_tree(hidden)
@@ -1391,28 +1458,6 @@ def _newest(paths: Iterable[Path]) -> float:
     return newest
 
 
-def _strings_of_processes() -> list[str]:
-    """The paths that other processes of this user are started from: their program, their
-    command line and their `PYTHONPATH`. An environment or a code copy named here is in use. This
-    process is not one of them: the command line of `clean` names the paths to remove."""
-    found: list[str] = []
-    for process in psutil.process_iter():
-        if process.pid == os.getpid():
-            continue
-        try:
-            found.append(process.exe())
-            found.extend(process.cmdline())
-            found.extend(process.environ().get("PYTHONPATH", "").split(os.pathsep))
-        except psutil.Error:
-            continue
-    return [text for text in found if text]
-
-
-def _uses(strings: Iterable[str], directory: Path) -> bool:
-    names = {str(directory), os.path.realpath(directory)}
-    return any(text == name or text.startswith(name + os.sep) for text in strings for name in names)
-
-
 def _provisioning(root: Path) -> bool:
     """Whether a provisioning lock of this host has a live owner. The `owner` file of a lock
     holds the host name and the process id."""
@@ -1439,15 +1484,20 @@ def clean(
 ) -> dict[str, Any]:
     """Remove environments, code copies and workspaces that nobody uses.
 
-    A workspace is in use while its lock is held or a launch of it runs. An environment or a code
-    copy is in use while a process runs from it, and the ones this process runs from are always
-    in use. Without `everything`, only what nobody touched for `older_than` days goes.
+    One rule serves all three kinds: a directory is in use while another process holds its lock
+    file (`USE_LOCK` for an environment and a code copy, `lock` for a workspace; a workspace is
+    also in use while a launch of it runs). `clean` takes the exclusive lock, and keeps it while it
+    removes the directory, so that no session starts in a directory that goes. The environment and
+    the code copy that this process runs from are always in use. Without `everything`, only what
+    nobody touched for `older_than` days goes.
 
     A link is never entered: not as `env`, `code` or `ws`, and not as an entry. A lock that is a
-    link or no regular file is never opened for more than a look. A directory of `ws` without a
-    `lock` file is not a workspace (a session makes the directory and then the lock), so it is
-    kept. What cannot be examined or removed (an `OSError` or another error for one
-    candidate) is listed in `kept` with the reason, and the rest goes on.
+    link or no regular file is never opened for more than a look. A directory without a lock file
+    is kept: a workspace directory without `lock` is not a workspace yet (a session makes the
+    directory and then the lock), and nobody can say that an environment or a code copy without
+    one is unused. `clean` never makes a lock file. What cannot be examined or removed (an
+    `OSError` or another error for one candidate) is listed in `kept` with the reason, and the
+    rest goes on.
 
     Without `remove`, nothing is removed. The document then lists what a call with `remove` would
     remove under `removable`, in place of `removed`. Both calls examine every candidate in the
@@ -1459,7 +1509,6 @@ def clean(
     kept: list[dict[str, str]] = []
     base = root / LAYOUT
     limit = time.time() - older_than * 86400
-    strings = _strings_of_processes() + [sys.prefix, *sys.path]
     own = [Path(sys.prefix), Path(__file__).resolve().parent.parent.parent]
 
     def keep(kind: str, path: Path, reason: str) -> None:
@@ -1481,52 +1530,81 @@ def clean(
     def old_enough(newest: float) -> bool:
         return everything or newest < limit
 
+    def lock_exclusively(
+        kind: str, path: Path, name: str, held: str, missing: str
+    ) -> Optional[int]:
+        """Take the exclusive lock on the lock file `name` of the candidate `path`, and return
+        the open file. Return `None`, after the reason is recorded, if the candidate stays: the
+        reason is `held` for a lock that another process holds, and `missing` for no lock file."""
+        descriptor: Optional[int] = None
+        try:
+            try:
+                # Not `O_CREAT`; a link is refused; a FIFO does not block the open.
+                descriptor = os.open(path / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            except FileNotFoundError:
+                keep(kind, path, missing)
+                return None
+            except OSError as error:
+                if error.errno != errno.ELOOP:
+                    raise
+                keep(kind, path, "the lock is a link")
+                return None
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                keep(kind, path, "the lock is not a regular file")
+            else:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return descriptor
+                except BlockingIOError:
+                    keep(kind, path, held)
+        except BaseException:
+            if descriptor is not None:
+                os.close(descriptor)
+            raise
+        os.close(descriptor)
+        return None
+
     if remove:
-        _remove_leftovers(base / "ws")
+        for kind in ("env", "code", "ws"):
+            _remove_leftovers(base / kind)
     busy = _provisioning(root)
     for kind in ("env", "code"):
         for path in candidates_in(kind, base / kind):
+            descriptor: Optional[int] = None
             try:
                 if path.is_symlink() or not path.is_dir():
                     continue
                 if busy:
                     keep(kind, path, "provisioning runs")
-                elif any(os.path.realpath(path) == os.path.realpath(p) for p in own) or _uses(
-                    strings, path
-                ):
+                    continue
+                if any(os.path.realpath(path) == os.path.realpath(p) for p in own):
                     keep(kind, path, "in use")
-                elif not old_enough(_newest([path, path / "last-use"])):
+                    continue
+                descriptor = lock_exclusively(
+                    kind, path, USE_LOCK, "in use", "it has no lock file, so it may be in use"
+                )
+                if descriptor is None:
+                    continue
+                if not old_enough(_newest([path, path / "last-use"])):
                     keep(kind, path, "recently used")
                 else:
                     if remove:
-                        _remove_tree(path)
+                        _remove_directory(path)
                     removed.append({"kind": kind, "path": str(path)})
             except Exception as error:  # pylint: disable=broad-except
                 keep(kind, path, f"error: {type(error).__name__}: {error}")
+            finally:
+                if descriptor is not None:
+                    os.close(descriptor)
     for path in candidates_in("workspace", base / "ws"):
-        descriptor: Optional[int] = None
+        descriptor = None
         try:
             if path.is_symlink() or not path.is_dir():
                 continue
-            try:
-                # Not `O_CREAT`; a link is refused; a FIFO does not block the open.
-                descriptor = os.open(path / "lock", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-            except FileNotFoundError:
-                keep("workspace", path, "it has no lock file, so it is not a workspace")
-                continue
-            except OSError as error:
-                if error.errno != errno.ELOOP:
-                    raise
-                keep("workspace", path, "the lock is a link")
-                continue
-            assert descriptor is not None
-            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                keep("workspace", path, "the lock is not a regular file")
-                continue
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                keep("workspace", path, "locked")
+            descriptor = lock_exclusively(
+                "workspace", path, "lock", "locked", "it has no lock file, so it is not a workspace"
+            )
+            if descriptor is None:
                 continue
             if any(_launch_running(state) for state in _launch_states(path)):
                 keep("workspace", path, "a launch runs")
@@ -1538,7 +1616,7 @@ def clean(
                 keep("workspace", path, "recently used")
             else:
                 if remove:
-                    _remove_workspace(path)
+                    _remove_directory(path)
                 removed.append({"kind": "workspace", "path": str(path)})
         except Exception as error:  # pylint: disable=broad-except
             keep("workspace", path, f"error: {type(error).__name__}: {error}")

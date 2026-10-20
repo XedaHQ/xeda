@@ -14,9 +14,12 @@ import os
 import queue
 import subprocess
 import sys
+import sysconfig
 import threading
 import time
+import venv
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Optional
 
@@ -72,8 +75,9 @@ class Agent:
         env: Optional[dict[str, str]] = None,
         noise: bool = False,
         name: str = "agent",
+        python: str = sys.executable,
     ) -> None:
-        command = [sys.executable, "-m", "xeda.remote.agent", "session", str(root), key, *arguments]
+        command = [python, "-m", "xeda.remote.agent", "session", str(root), key, *arguments]
         if noise:
             command = ["sh", "-c", 'echo "Welcome to the host"; exec "$@"', "sh", *command]
         self.stderr_path = tmp_path / f"{name}.stderr"
@@ -681,10 +685,10 @@ def test_clean_keeps_what_a_live_lock_or_a_running_launch_holds(tmp_path):
         (base / "ws" / name / "inputs").mkdir(parents=True)
         (base / "ws" / name / "lock").write_text("")
         (base / "ws" / name / "inputs" / "f").write_text(name)
-    (base / "env" / "unused").mkdir(parents=True)
+    for kind, name in (("env", "unused"), ("env", "used"), ("code", "unused")):
+        (base / kind / name).mkdir(parents=True)
+        (base / kind / name / USE_LOCK).write_text("")
     (base / "env" / "unused" / "f").write_text("x")
-    (base / "env" / "used").mkdir(parents=True)
-    (base / "code" / "unused").mkdir(parents=True)
     (base / "ws" / "link").symlink_to(base / "ws" / "idle", target_is_directory=True)
 
     me = psutil.Process()
@@ -693,21 +697,12 @@ def test_clean_keeps_what_a_live_lock_or_a_running_launch_holds(tmp_path):
     (launch / "state.json").write_text(
         json.dumps({"id": "x", "pid": me.pid, "pid_created": me.create_time(), "state": "running"})
     )
-    user = subprocess.Popen(  # a process that runs from the "used" environment
-        [
-            sys.executable,
-            "-c",
-            "import time; time.sleep(600)",
-            str(base / "env" / "used" / "marker"),
-        ]
-    )
-    try:
-        with (base / "ws" / "locked" / "lock").open("rb") as held:
-            fcntl.flock(held, fcntl.LOCK_EX)
-            report = run_command("clean", str(tmp_path / "remote"), "--all", tmp_path=tmp_path)
-    finally:
-        user.kill()
-        user.wait(timeout=60)
+    with (
+        (base / "ws" / "locked" / "lock").open("rb") as held,
+        shared_lock_held_by_another_process(base / "env" / "used" / USE_LOCK),
+    ):
+        fcntl.flock(held, fcntl.LOCK_EX)
+        report = run_command("clean", str(tmp_path / "remote"), "--all", tmp_path=tmp_path)
     removed = {Path(item["path"]).relative_to(base).as_posix() for item in report["removed"]}
     assert removed == {"ws/idle", "env/unused", "code/unused"}, report
     reasons = {Path(item["path"]).name: item["reason"] for item in report["kept"]}
@@ -725,6 +720,7 @@ def test_clean_by_age_keeps_what_was_used_lately(tmp_path):
     for directory in (old, new):
         directory.mkdir(parents=True)
         (directory / "last-use").write_text("")
+        (directory / USE_LOCK).write_text("")
     long_ago = time.time() - 40 * 86400
     os.utime(old / "last-use", (long_ago, long_ago))
     os.utime(old, (long_ago, long_ago))
@@ -811,6 +807,7 @@ def test_clean_list_removes_nothing_and_names_what_a_removal_would_remove(tmp_pa
         (base / "ws" / name / "inputs").mkdir(parents=True)
         (base / "ws" / name / "lock").write_text("")
     (base / "env" / "unused").mkdir(parents=True)
+    (base / "env" / "unused" / USE_LOCK).write_text("")
     root = str(tmp_path / "remote")
     with (base / "ws" / "locked" / "lock").open("rb") as held:
         fcntl.flock(held, fcntl.LOCK_EX)
@@ -823,6 +820,254 @@ def test_clean_list_removes_nothing_and_names_what_a_removal_would_remove(tmp_pa
     assert listed["kept"] == removed["kept"]
     assert [item["reason"] for item in listed["kept"]] == ["locked"]
     assert not (base / "ws" / "idle").exists() and (base / "ws" / "locked").exists()
+
+
+USE_LOCK = ".xeda-lock"
+
+
+@contextmanager
+def shared_lock_held_by_another_process(path: Path) -> Iterator[None]:
+    """Another process holds a shared lock on the file `path` while the block runs."""
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import fcntl, os, sys\n"
+            "fcntl.flock(os.open(sys.argv[1], os.O_RDONLY), fcntl.LOCK_SH)\n"
+            "print('held', flush=True)\n"
+            "sys.stdin.read()\n",
+            str(path),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+    )
+    try:
+        assert holder.stdout is not None and holder.stdout.readline() == b"held\n"
+        yield
+    finally:
+        assert holder.stdin is not None and holder.stdout is not None
+        holder.stdin.close()
+        holder.wait(timeout=TIMEOUT)
+        holder.stdout.close()
+
+
+def make_entry(base: Path, kind: str, name: str, *, lock: bool = True, age: float = 60) -> Path:
+    """An environment or a code copy that provisioning made `age` days ago."""
+    directory = base / kind / name
+    directory.mkdir(parents=True)
+    (directory / "last-use").write_text("")
+    if lock:
+        (directory / USE_LOCK).write_text("")
+    old = time.time() - age * 86400
+    for path in (directory, directory / "last-use"):
+        os.utime(path, (old, old))
+    return directory
+
+
+def test_clean_keeps_an_environment_and_a_code_copy_that_another_process_holds(tmp_path):
+    (tmp_path / "home").mkdir()
+    base = tmp_path / "remote" / "v1"
+    held = {kind: make_entry(base, kind, "held") for kind in ("env", "code")}
+    for kind in ("env", "code"):
+        make_entry(base, kind, "free")
+    root = str(tmp_path / "remote")
+    with (
+        shared_lock_held_by_another_process(held["env"] / USE_LOCK),
+        shared_lock_held_by_another_process(held["code"] / USE_LOCK),
+    ):
+        listed = run_command("clean", root, "--all", "--list", tmp_path=tmp_path)
+        report = run_command("clean", root, "--all", tmp_path=tmp_path)
+    assert {Path(i["path"]).relative_to(base).as_posix() for i in report["removed"]} == {
+        "env/free",
+        "code/free",
+    }
+    assert listed["removable"] == report["removed"]
+    assert {Path(i["path"]).relative_to(base).as_posix(): i["reason"] for i in report["kept"]} == {
+        "env/held": "in use",
+        "code/held": "in use",
+    }
+    assert all(path.is_dir() for path in held.values())
+    assert not (base / "env" / "free").exists() and not (base / "code" / "free").exists()
+
+
+def test_clean_keeps_an_unused_entry_that_is_not_old_enough(tmp_path):
+    (tmp_path / "home").mkdir()
+    base = tmp_path / "remote" / "v1"
+    make_entry(base, "env", "recent", age=1)
+    make_entry(base, "code", "old", age=40)
+    report = run_command("clean", str(tmp_path / "remote"), "--older-than", "30", tmp_path=tmp_path)
+    assert [Path(i["path"]).name for i in report["removed"]] == ["old"]
+    assert [(Path(i["path"]).name, i["reason"]) for i in report["kept"]] == [
+        ("recent", "recently used")
+    ]
+
+
+@pytest.mark.parametrize("kind", ["env", "code"])
+def test_clean_keeps_what_has_no_lock_file_and_does_not_make_one(tmp_path, kind):
+    """No lock file: provisioning did not make the directory, and no session has used it. Nobody
+    can say that it is unused. `clean` never creates a lock file in it."""
+    (tmp_path / "home").mkdir()
+    base = tmp_path / "remote" / "v1"
+    directory = make_entry(base, kind, "old", lock=False)
+    report = run_command("clean", str(tmp_path / "remote"), "--all", tmp_path=tmp_path)
+    assert report["removed"] == []
+    (kept,) = report["kept"]
+    assert kept["path"] == str(directory) and "no lock file" in kept["reason"]
+    assert not (directory / USE_LOCK).exists()
+
+
+@pytest.mark.parametrize("kind", ["env", "code"])
+def test_clean_does_not_follow_a_link_named_as_the_lock_of_an_entry(tmp_path, kind):
+    (tmp_path / "home").mkdir()
+    base = tmp_path / "remote" / "v1"
+    outside = tmp_path / "outside"
+    outside.write_text("")
+    make_entry(base, kind, "linked", lock=False)
+    (base / kind / "linked" / USE_LOCK).symlink_to(outside)
+    make_entry(base, kind, "fifo", lock=False)
+    os.mkfifo(base / kind / "fifo" / USE_LOCK)
+    report = run_command("clean", str(tmp_path / "remote"), "--all", tmp_path=tmp_path)
+    assert report["removed"] == []
+    reasons = {Path(item["path"]).name: item["reason"] for item in report["kept"]}
+    assert reasons == {"linked": "the lock is a link", "fifo": "the lock is not a regular file"}
+
+
+@pytest.mark.parametrize("kind", ["env", "code"])
+def test_clean_holds_the_exclusive_lock_while_it_removes_an_entry(tmp_path, monkeypatch, kind):
+    """A session that starts during the removal cannot take its shared lock."""
+    base = tmp_path / "remote" / "v1"
+    directory = make_entry(base, kind, "old")
+    seen: list[str] = []
+    real = agent_module._remove_tree
+
+    def remove(path: Path) -> None:
+        assert path != directory and path.name.startswith(".removing-")
+        with (path / USE_LOCK).open("rb") as other:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(other, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        seen.append(path.name)
+        real(path)
+
+    monkeypatch.setattr(agent_module, "_remove_tree", remove)
+    report = agent_module.clean(tmp_path / "remote", 30, everything=False)
+    assert [Path(i["path"]) for i in report["removed"]] == [directory]
+    assert len(seen) == 1 and not list((base / kind).iterdir())
+
+
+def test_clean_removes_the_leftover_of_a_removal_that_ended_early_in_every_kind(tmp_path):
+    (tmp_path / "home").mkdir()
+    base = tmp_path / "remote" / "v1"
+    ended = subprocess.Popen([sys.executable, "-c", "pass"])
+    ended.wait(timeout=TIMEOUT)
+    for kind in ("env", "code"):
+        leftover = base / kind / f".removing-{ended.pid}-{agent_module._host_tag()}-old"
+        leftover.mkdir(parents=True)
+        (leftover / "f").write_text("x")
+    run_command("clean", str(tmp_path / "remote"), tmp_path=tmp_path)
+    assert not list((base / "env").iterdir()) and not list((base / "code").iterdir())
+
+
+# --- A session holds the environment and the code copy it runs from ---------------------------
+
+
+class Provisioned:
+    """An environment and a code copy in the layout of the remote root, with the lock files that
+    provisioning makes. The Python of the environment imports the dependencies of the test
+    interpreter and the code of the code copy."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        self.base = tmp_path / "remote" / "v1"
+        self.env = self.base / "env" / "e0"
+        self.code = self.base / "code" / "c0"
+        venv.EnvBuilder(symlinks=True, with_pip=False).create(self.env)
+        (next((self.env / "lib").glob("python*/site-packages")) / "deps.pth").write_text(
+            sysconfig.get_paths()["purelib"] + "\n"
+        )
+        self.code.mkdir(parents=True)
+        (self.code / "xeda").symlink_to(Path(xeda.__file__).parent, target_is_directory=True)
+        for directory in (self.env, self.code):
+            (directory / USE_LOCK).write_text("")
+        self.python = str(self.env / "bin" / "python")
+
+    @staticmethod
+    def lock_is_held(directory: Path) -> bool:
+        """Whether another process holds a lock on the lock file of the directory now."""
+        with (directory / USE_LOCK).open("rb") as stream:
+            try:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            return False
+
+    def start(self, start_agent: Callable[..., Agent], *arguments: str) -> Agent:
+        environment = {**os.environ, "PYTHONPATH": str(self.code)}  # as the test has set it now
+        return start_agent(*arguments, python=self.python, env=environment)
+
+
+@pytest.fixture
+def provisioned(tmp_path: Path) -> Provisioned:
+    (tmp_path / "home").mkdir(exist_ok=True)
+    return Provisioned(tmp_path)
+
+
+def test_a_session_holds_its_environment_and_code_copy_until_it_ends(
+    tmp_path, provisioned, start_agent
+):
+    agent = provisioned.start(start_agent)
+    agent.get("hello")
+    assert provisioned.lock_is_held(provisioned.env) and provisioned.lock_is_held(provisioned.code)
+    root = str(tmp_path / "remote")
+    report = run_command("clean", root, "--all", tmp_path=tmp_path)
+    assert report["removed"] == []
+    assert {Path(i["path"]).name: i["reason"] for i in report["kept"]} == {
+        "e0": "in use",
+        "c0": "in use",
+    }
+    agent.send({"bye": True})
+    assert agent.process.wait(timeout=TIMEOUT) == 0
+    assert not provisioned.lock_is_held(provisioned.env)
+    assert not provisioned.lock_is_held(provisioned.code)
+    removed = run_command("clean", root, "--all", tmp_path=tmp_path)["removed"]
+    assert {Path(i["path"]).name for i in removed} == {"e0", "c0"}
+
+
+def test_a_session_outside_the_layout_takes_no_use_lock(tmp_path, start_agent):
+    """An agent that runs from a checkout or another environment has no lock to take."""
+    agent = start_agent(env=dict(os.environ))
+    agent.get("hello")
+    agent.send({"bye": True})
+    assert agent.process.wait(timeout=TIMEOUT) == 0
+
+
+@pytest.mark.parametrize("kind", ["env", "code"])
+def test_a_session_does_not_start_in_a_directory_that_clean_is_removing(
+    tmp_path, provisioned, start_agent, kind
+):
+    directory = provisioned.env if kind == "env" else provisioned.code
+    with (directory / USE_LOCK).open("rb") as removing:
+        fcntl.flock(removing, fcntl.LOCK_EX)
+        agent = provisioned.start(start_agent)
+        error = agent.error()
+        assert "xeda remote clean" in error["message"] and str(directory) in error["message"]
+        assert agent.process.wait(timeout=TIMEOUT) == 1
+
+
+def test_a_session_does_not_use_a_directory_that_was_renamed_after_it_took_the_lock(
+    tmp_path, provisioned, monkeypatch
+):
+    """`clean` renamed the directory between the open of the lock file and the lock. The lock is
+    then on a file of the directory that `clean` removes, so the session must refuse it."""
+    real = fcntl.flock
+    moved = provisioned.env.with_name(".removing-1-x-e0")
+
+    def flock_then_rename(descriptor: Any, operation: int) -> None:
+        real(descriptor, operation)
+        os.rename(provisioned.env, moved)
+
+    monkeypatch.setattr(agent_module.fcntl, "flock", flock_then_rename)
+    with pytest.raises(agent_module.RemoteError, match="removed"):
+        agent_module._take_use_lock(provisioned.env)
+    assert moved.is_dir()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1091,7 +1336,7 @@ def test_a_session_that_waits_for_a_removed_workspace_takes_the_new_lock(tmp_pat
             }
         )
         agent.line("waiting for the workspace lock")  # the agent has the old file open
-        agent_module._remove_workspace(ws)  # what `clean` does, with the lock held
+        agent_module._remove_directory(ws)  # what `clean` does, with the lock held
     # The old lock is free now, but its file is gone: the agent takes the lock file of the new
     # workspace, and holds that one.
     assert agent.send_needed(entries, DESIGN) == ["top.v", "top.yaml"]
@@ -1298,6 +1543,7 @@ def test_clean_reports_what_it_cannot_remove_and_goes_on(tmp_path, monkeypatch):
         (base / kind / name).mkdir(parents=True)
     for name in ("first", "second"):
         (base / "ws" / name / "lock").write_text("")
+    (base / "env" / "e1" / USE_LOCK).write_text("")
     real = agent_module._remove_tree
 
     def remove(path: Path) -> None:

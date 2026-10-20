@@ -436,8 +436,11 @@ status is 0 when the connection and the environment work. ``--json`` writes one 
 
 ``xeda remote clean HOST`` removes what nobody uses: old environments, old code copies and
 workspaces, together with the run directories in them. It lists the entries, asks, and then removes
-them. It keeps anything that a lock or a running process holds, and anything used within the last
-30 days. The options are:
+them. It keeps anything used within the last 30 days, and anything in use. A workspace, an
+environment and a code copy are in use while a process holds a lock on their lock file: a session
+holds it while it runs, and a run that you keep running holds it until it ends. On a home directory
+that several machines share, this protection works across the machines only if the file system
+supports ``flock`` between them (NFS may not). The options are:
 
 ``--older-than DAYS``
     Change the age limit (the default is 30).

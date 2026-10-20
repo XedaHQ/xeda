@@ -219,6 +219,7 @@ def test_clean_removes_an_old_environment_and_code_copy_that_nobody_uses(remote_
     for path in stale:
         (path / "lib").mkdir(parents=True)
         (path / "lib" / "f").write_text(path.name)
+        (path / ".xeda-lock").write_text("")  # as provisioning makes it
         _age(path, 60)
 
     result = _invoke("clean", "somewhere", "--yes", "--json")

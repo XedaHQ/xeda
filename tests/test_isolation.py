@@ -1575,15 +1575,15 @@ REVIEWED_PY_DELETIONS = {
     ("remote/agent.py", "shutil.rmtree(path)"): (
         1,
         "`xeda.remote.agent clean`, on the remote host outside any run directory: an environment, "
-        "a code copy or a workspace of the remote root that nothing uses (no live process runs "
-        "from it, no lock or running launch holds it). `clean` enters no link, and `rmtree` "
+        "a code copy or a workspace of the remote root that nothing uses (no lock or running "
+        "launch holds it). `clean` enters no link, and `rmtree` "
         "follows none",
     ),
     ("remote/agent.py", "os.rename(path, hidden)"): (
         1,
-        "`xeda.remote.agent clean`, on the remote host outside any run directory: a workspace "
-        "whose lock `clean` holds is renamed to a hidden name in the same directory, so that no "
-        "session works in it while `rmtree` deletes it. A rename replaces no file: the hidden "
+        "`xeda.remote.agent clean`, on the remote host outside any run directory: a workspace, "
+        "an environment or a code copy whose lock `clean` holds is renamed to a hidden name in "
+        "the same directory, so that no session works in it while `rmtree` deletes it. A rename replaces no file: the hidden "
         "name has the process id of `clean`",
     ),
     ("remote/manifest.py", "os.rmdir(name, dir_fd=parent)"): (
@@ -2200,17 +2200,26 @@ REVIEWED_WRITES = [
     ),
     (
         "remote/agent.py",
-        'descriptor = os.open(path / "lock", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)',
+        "descriptor = os.open(path / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)",
         "`xeda.remote.agent clean`, outside a run directory: a read-only descriptor on the lock "
-        "file of a workspace, to try the lock. It creates and writes nothing, `O_NOFOLLOW` makes "
-        "it fail on a link, and `O_NONBLOCK` keeps a FIFO from blocking it (`clean` then skips a "
-        "lock that is no regular file)",
+        "file of a workspace, an environment or a code copy, to try the lock. It creates and "
+        "writes nothing, `O_NOFOLLOW` makes it fail on a link, and `O_NONBLOCK` keeps a FIFO from "
+        "blocking it (`clean` then skips a lock that is no regular file)",
+    ),
+    (
+        "remote/agent.py",
+        "descriptor = os.open(path, os.O_RDONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)",
+        "the remote agent, outside a run directory: the lock file of an environment or a code "
+        "copy of the remote root, opened to be locked, not written (it is empty, and made only "
+        "when provisioning did not make it). `O_NOFOLLOW` makes the open fail on a link, "
+        "`O_NONBLOCK` keeps a FIFO from blocking it, and the agent checks that the open file is "
+        "a regular file and still the file at that name before it relies on the lock",
     ),
     (
         "remote/agent.py",
         "os.rename(path, hidden)",
-        "`xeda.remote.agent clean`, outside a run directory: the workspace whose lock `clean` "
-        "holds, renamed to a hidden name before its deletion (see `REVIEWED_PY_DELETIONS`)",
+        "`xeda.remote.agent clean`, outside a run directory: the workspace, environment or code "
+        "copy whose lock `clean` holds, renamed to a hidden name before its deletion (see `REVIEWED_PY_DELETIONS`)",
     ),
     (
         "remote/agent.py",

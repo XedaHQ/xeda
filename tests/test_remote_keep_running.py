@@ -34,17 +34,20 @@ from xeda.remote.ssh import SshSession
 from .remote_fixtures import RemoteHost, fake_remote, fake_ssh, remote_host, remote_request
 from .test_remote_agent import (
     DESIGN,
+    USE_LOCK,
     Beats,
     BlockingTool,
     launch_message,
     path_setup,
+    provisioned,
+    run_command,
     start_agent,
     toolchain,
     workspace,
 )
 from .test_remote_client import TIMEOUT, _assert_gone, _design, _states, _succeeded
 
-FIXTURES = (fake_ssh, fake_remote, remote_host, start_agent, toolchain)
+FIXTURES = (fake_ssh, fake_remote, remote_host, start_agent, toolchain, provisioned)
 
 pytestmark = [pytest.mark.python_compat, pytest.mark.skipif(os.name != "posix", reason="POSIX")]
 
@@ -342,12 +345,23 @@ def test_the_agent_leaves_a_launch_that_keeps_running_and_the_child_keeps_the_lo
 
 
 def _keep_running_agent(
-    tmp_path, toolchain, monkeypatch, start_agent, leftovers, *arguments, beats=False
+    tmp_path,
+    toolchain,
+    monkeypatch,
+    start_agent,
+    leftovers,
+    *arguments,
+    beats=False,
+    environment=None,
 ):
     """An agent with a launch that keeps running and whose tool blocks. Return the agent, the
-    tool, the beats (or `None`) and the process id of the launch."""
+    state of the launch and the beats (or `None`). With `environment` (a `Provisioned`), the agent
+    runs from that environment and code copy."""
     tool = BlockingTool(tmp_path, monkeypatch)
-    agent = start_agent(*arguments, env=dict(os.environ))
+    if environment is None:
+        agent = start_agent(*arguments, env=dict(os.environ))
+    else:
+        agent = environment.start(start_agent, *arguments)
     agent.get("hello")
     agent.sync(DESIGN, "run-1")
     beating = Beats(agent) if beats else None
@@ -365,6 +379,30 @@ def _alive_and_holding(tmp_path: Path, state: dict[str, Any]) -> None:
     with (workspace(tmp_path) / "lock").open("rb") as stream:
         with pytest.raises(BlockingIOError):
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_a_launch_that_keeps_running_holds_its_environment_and_code_copy_after_the_agent_exits(
+    tmp_path, toolchain, monkeypatch, start_agent, leftovers, provisioned
+):
+    agent, state, _ = _keep_running_agent(
+        tmp_path, toolchain, monkeypatch, start_agent, leftovers, environment=provisioned
+    )
+    agent.close_input()
+    assert agent.process.wait(timeout=TIMEOUT) == 0
+    _alive_and_holding(tmp_path, state)
+    for directory in (provisioned.env, provisioned.code):
+        assert provisioned.lock_is_held(directory)
+    report = run_command("clean", str(tmp_path / "remote"), "--all", tmp_path=tmp_path)
+    reasons = {Path(i["path"]).name: i["reason"] for i in report["kept"]}
+    assert reasons["e0"] == "in use" and reasons["c0"] == "in use"
+    assert not any(item["kind"] in ("env", "code") for item in report["removed"])
+    assert (provisioned.env / USE_LOCK).exists() and (provisioned.code / USE_LOCK).exists()
+    # The locks end with the launch.
+    for pid in (state["pid"], *agent.tool_pids):
+        psutil.Process(pid).kill()
+    psutil.Process(state["pid"]).wait(timeout=TIMEOUT)
+    for directory in (provisioned.env, provisioned.code):
+        assert not provisioned.lock_is_held(directory)
 
 
 def test_the_agent_leaves_a_launch_that_keeps_running_when_the_lease_ends(

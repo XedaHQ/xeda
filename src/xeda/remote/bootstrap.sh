@@ -478,6 +478,10 @@ build_env() {
             || fail_step env-failed "uv could not install the requirements of xeda."
         "$XEDA_BOOT_UV" --no-config pip freeze --python "$XEDA_BOOT_ENV_DIR/bin/python" >"$XEDA_BOOT_ENV_DIR/xeda-lock.txt" </dev/null \
             || fail_step env-failed "uv could not list the installed packages."
+        # The use lock: an agent holds a shared lock on this file while it runs from the
+        # environment, and `xeda remote clean` removes the environment only while it holds the
+        # exclusive lock.
+        : >"$XEDA_BOOT_ENV_DIR/.xeda-lock" || fail_step env-failed "Cannot create the lock file in $XEDA_BOOT_ENV_DIR."
         printf '%s\n' "$XEDA_BOOT_KEY" >"$XEDA_BOOT_ENV_DIR/.xeda-complete"
         XEDA_BOOT_ENV_BUILDING=
     fi
@@ -557,6 +561,7 @@ command_put_code() {
     rm -rf "$XEDA_BOOT_STAGE"
     mkdir "$XEDA_BOOT_STAGE" || fail_step env-failed "Cannot create $XEDA_BOOT_STAGE."
     run tar -xf "$XEDA_BOOT_WORK/code.tar" -C "$XEDA_BOOT_STAGE" || fail_step env-failed "Cannot unpack the code archive."
+    : >"$XEDA_BOOT_STAGE/.xeda-lock" || fail_step env-failed "Cannot create the lock file in $XEDA_BOOT_STAGE."
     printf '%s\n' "$XEDA_BOOT_KEY" >"$XEDA_BOOT_STAGE/.xeda-complete"
     acquire "code-$XEDA_BOOT_KEY"
     if ! code_complete "$XEDA_BOOT_KEY"; then
