@@ -370,6 +370,24 @@ def test_stale_links_are_removed_as_links_and_never_entered(tmp_path):
     assert tree(outside) == {"deep": "dir", "deep/f.txt": "outside"}
 
 
+def test_link_at_depth_two_is_never_followed(tmp_path):
+    root = tmp_path / "inputs"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "canary.txt").write_text("outside")
+    (root / "a").mkdir(parents=True)
+    (root / "a" / "b").symlink_to(outside, target_is_directory=True)
+    plan = sync(root, tmp_path, {"a/b/c.v": b"C"})
+    assert plan.missing == ["a/b/c.v"]
+    assert not (root / "a" / "b").is_symlink()
+    assert (root / "a" / "b" / "c.v").read_bytes() == b"C"
+    assert tree(outside) == {"canary.txt": "outside"}
+    # planning does not follow it either
+    (root / "a" / "b").rename(tmp_path / "moved")
+    (root / "a" / "b").symlink_to(outside, target_is_directory=True)
+    assert plan_sync(root, [entry_for("a/b/canary.txt", b"outside")]).missing == ["a/b/canary.txt"]
+
+
 def test_the_root_itself_may_not_be_a_link(tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -478,3 +496,24 @@ def test_a_bad_plan_is_refused(tmp_path):
     ):
         with pytest.raises(RemoteProtocolError):
             apply_sync(tmp_path / "inputs", entries, plan, raw_tar([]))
+
+
+def test_a_plan_cannot_remove_a_directory_of_the_manifest(tmp_path):
+    root = tmp_path / "inputs"
+    (root / "d" / "sub").mkdir(parents=True)
+    (root / "d" / "sub" / "keep.txt").write_text("keep")
+    entries = [entry_for("d/new.v", b"N"), entry_for("e/f/g.v", b"G")]
+    for stale in ("d", "e", "e/f"):
+        tar = raw_tar([regular("d/new.v", b"N")])
+        with pytest.raises(RemoteProtocolError, match="directory of it"):
+            apply_sync(root, entries, SyncPlan(["d/new.v"], [stale]), tar)
+    assert tree(root) == {"d": "dir", "d/sub": "dir", "d/sub/keep.txt": "keep"}
+
+
+def test_a_stale_entry_is_removed_only_if_it_is_no_directory(tmp_path):
+    root = tmp_path / "inputs"
+    (root / "dir").mkdir(parents=True)
+    (root / "dir" / "inner.txt").write_text("inner")
+    (root / "file.txt").write_text("file")
+    apply_sync(root, [], SyncPlan([], ["dir", "file.txt"]), raw_tar([]))
+    assert tree(root) == {"dir": "dir", "dir/inner.txt": "inner"}  # a directory is not unlinked

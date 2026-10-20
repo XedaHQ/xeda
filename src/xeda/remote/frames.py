@@ -116,6 +116,12 @@ def decode_json(payload: bytes) -> Any:
         raise RemoteProtocolError(f"a JSON frame does not hold JSON: {error}") from error
 
 
+def _preview(seen: bytes) -> str:
+    """The count of the bytes and a short escaped start of them, for an error message. The text
+    can come from a login banner, which may reach a `--json` document."""
+    return f"{len(seen)} bytes, starting {seen[:40]!r}"
+
+
 def skip_to_magic(stream: BinaryIO, limit: int = 1 << 20) -> bytes:
     """Read the stream up to and including `MAGIC` and return the bytes before it.
 
@@ -127,14 +133,14 @@ def skip_to_magic(stream: BinaryIO, limit: int = 1 << 20) -> bytes:
         byte = stream.read(1)
         if not byte:
             raise RemoteProtocolError(
-                f"the stream ended before the agent marker; it had {bytes(seen[-200:])!r}"
+                f"the stream ended before the agent marker; it had {_preview(bytes(seen))}"
             )
         seen += byte
         if seen.endswith(MAGIC):
             return bytes(seen[: -len(MAGIC)])
         if len(seen) > limit + len(MAGIC):
             raise RemoteProtocolError(
-                f"no agent marker in the first {limit} bytes; they end with {bytes(seen[-200:])!r}"
+                f"no agent marker in the first {limit} bytes; they are {_preview(bytes(seen))}"
             )
 
 
@@ -166,6 +172,8 @@ class DataReader(io.RawIOBase):
 
     def readinto(self, buffer: Any) -> int:
         target = memoryview(buffer).cast("B")
+        if not target:
+            return 0  # not the end of the stream: read no frame for it
         while not self._pending and not self._ended:
             self._next_frame()
         count = min(len(target), len(self._pending))

@@ -116,6 +116,18 @@ def test_noise_before_the_magic_is_skipped():
     assert skip_to_magic(io.BytesIO(b"XEDA-AGENT " + MAGIC)) == b"XEDA-AGENT "
 
 
+def test_magic_errors_carry_only_a_short_preview_of_the_skipped_text():
+    banner = b"A" * 40 + b"SECRET" + b"\xff\n" * 500
+    for data, limit, count in ((banner, 1 << 20, len(banner)), (banner + MAGIC, 100, 100 + 14)):
+        with pytest.raises(RemoteProtocolError) as caught:
+            skip_to_magic(io.BytesIO(data), limit=limit)
+        message = str(caught.value)
+        assert f"{count} bytes" in message
+        assert "A" * 40 in message
+        assert "SECRET" not in message
+        assert len(message) < 250
+
+
 def test_missing_magic_is_a_protocol_error():
     with pytest.raises(RemoteProtocolError, match="ended before the agent marker"):
         skip_to_magic(io.BytesIO(b"bash: python: command not found\n"))
@@ -137,6 +149,15 @@ def test_data_reader_reads_until_end_and_leaves_the_next_frame():
     assert reader.ended
     assert reader.read(5) == b""
     assert read_frame(stream) == (LOG, b"after")
+
+
+def test_data_reader_reads_no_frame_for_an_empty_buffer():
+    stream = io.BytesIO(frame_bytes(DATA, b"ab") + frame_bytes(END))
+    reader = DataReader(stream)
+    assert reader.readinto(bytearray()) == 0
+    assert stream.tell() == 0 and not reader.ended
+    assert reader.read(0) == b""
+    assert reader.read() == b"ab"
 
 
 def test_data_reader_drain_skips_to_the_end_frame():
@@ -176,25 +197,35 @@ def test_data_reader_passes_frames_of_other_kinds_to_the_callback():
 
 def test_writer_is_safe_for_two_threads():
     pipe_read, pipe_write = os.pipe()
-    count = 300
-    writer = FrameWriter(os.fdopen(pipe_write, "wb"))  # type: ignore[arg-type]
+    count = 400
     payloads = {b"A": b"a" * 70_000, b"B": b"b" * 3}
-
-    def produce(name: bytes) -> None:
-        for _ in range(count):
-            writer.send(LOG, name + payloads[name])
-
-    threads = [threading.Thread(target=produce, args=(name,)) for name in payloads]
-    for thread in threads:
-        thread.start()
+    barrier = threading.Barrier(len(payloads))
+    errors: list[BaseException] = []
     received = []
-    with os.fdopen(pipe_read, "rb") as stream:
-        for _ in range(2 * count):
-            frame = read_frame(stream)  # type: ignore[arg-type]
-            assert frame is not None
-            received.append(frame[1])
-    for thread in threads:
-        thread.join()
+    with os.fdopen(pipe_read, "rb") as reader, os.fdopen(pipe_write, "wb") as sink:
+        writer = FrameWriter(sink)  # type: ignore[arg-type]
+
+        def produce(name: bytes) -> None:
+            try:
+                barrier.wait(timeout=10)  # both threads start sending together
+                for _ in range(count):
+                    writer.send(LOG, name + payloads[name])
+            except BaseException as error:  # reported by the main thread
+                errors.append(error)
+                barrier.abort()
+
+        threads = [threading.Thread(target=produce, args=(name,)) for name in payloads]
+        for thread in threads:
+            thread.start()
+        try:
+            for _ in range(2 * count):
+                frame = read_frame(reader)  # type: ignore[arg-type]
+                assert frame is not None
+                received.append(frame[1])
+        finally:
+            for thread in threads:
+                thread.join(timeout=30)
+    assert errors == []
     for name in payloads:
         assert received.count(name + payloads[name]) == count
 

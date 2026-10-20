@@ -301,14 +301,17 @@ def _step(parent: int, name: str, create: bool) -> int | None:
     return _open_directory(name, parent)
 
 
-def _remove_entry(parent: int, name: str) -> None:
-    """Remove a file, a link (itself), or a directory with everything in it."""
+def _remove_entry(parent: int, name: str, recursive: bool = True) -> None:
+    """Remove a file, a link (itself), or a directory with everything in it. Without
+    `recursive`, leave a directory alone."""
     try:
         status = os.stat(name, dir_fd=parent, follow_symlinks=False)
     except FileNotFoundError:
         return
     if not stat.S_ISDIR(status.st_mode):
         os.unlink(name, dir_fd=parent)
+        return
+    if not recursive:
         return
     child = _open_directory(name, parent)
     try:
@@ -439,15 +442,19 @@ def apply_sync(root: Path, entries: Sequence[Entry], plan: SyncPlan, tar_stream:
     its SHA-256 in a temporary file and only then renamed to its name, so a file is never
     partly written. A link where a directory belongs, and a directory where a file belongs, are
     replaced. A link at the name of a file is replaced, not written through. Then `plan.stale`
-    is removed, and the directories that are empty after that."""
+    is removed, one file or link at a time (never a directory), and the directories that are
+    empty after that."""
     _check_entries(entries)
     by_path = {entry.path: entry for entry in entries}
     if len(set(plan.missing)) != len(plan.missing) or not set(plan.missing) <= by_path.keys():
         raise RemoteProtocolError("the plan asks for a path that is not in the manifest")
+    needed = {str(parent) for path in by_path for parent in PurePosixPath(path).parents}
     for path in plan.stale:
         safe_member_path(path)
-        if path in by_path:
-            raise RemoteProtocolError(f"the plan removes {path!r}, which is in the manifest")
+        if path in by_path or path in needed:
+            raise RemoteProtocolError(
+                f"the plan removes {path!r}, which is in the manifest or a directory of it"
+            )
     root_fd = _open_root(Path(root), create=True)
     assert root_fd is not None
     try:
@@ -463,7 +470,7 @@ def apply_sync(root: Path, entries: Sequence[Entry], plan: SyncPlan, tar_stream:
             *parents, name = path.split("/")
             if (parent := _descend(root_fd, parents, create=False)) is not None:
                 try:
-                    _remove_entry(parent, name)
+                    _remove_entry(parent, name, recursive=False)  # a stale entry is no directory
                 finally:
                     os.close(parent)
         _prune(root_fd)
