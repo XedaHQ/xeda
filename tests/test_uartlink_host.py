@@ -886,6 +886,86 @@ def test_statistics_requires_a_valid_response_for_every_counter(invalid_payload)
         }
 
 
+def test_statistics_waits_for_current_capabilities_reply() -> None:
+    from dataclasses import replace
+
+    from uartlink import Device, LinkError
+    from uartlink.device import STAT_NAMES
+
+    class CounterPeer(BehavioralPeer):
+        def __init__(self) -> None:
+            super().__init__()
+            self.counter_index: dict[int, int] = {}
+
+        def accept(self, request: Frame) -> None:
+            if request.kind == "request" and len(request.payload) == 2 and request.payload[0] == 3:
+                self.counter_index[request.seq] = request.payload[1]
+            super().accept(request)
+
+        def _reply(self, response: Frame) -> None:
+            if response.kind == "response":
+                index = self.counter_index[response.seq]
+                response = replace(
+                    response,
+                    payload=bytes((0x83, index)) + (0x11223300 + index).to_bytes(4, "little"),
+                )
+            super()._reply(response)
+
+    peer = CounterPeer()
+
+    class DelayedCapabilitiesTransport:
+        delay_next_capabilities = False
+        drop_capabilities = False
+        deliver_delayed = False
+        delayed_capabilities: list[bytes] = []
+        counter_requests = 0
+
+        def write(self, data: bytes) -> int:
+            frame = Frame.decode(data)
+            if frame.kind == "request" and len(frame.payload) == 2 and frame.payload[0] == 3:
+                self.counter_requests += 1
+            before = len(peer.rx_queue)
+            peer.accept(frame)
+            if frame.kind == "control" and frame.flags == 1 and len(peer.rx_queue) > before:
+                response = peer.rx_queue.pop()
+                if self.drop_capabilities:
+                    pass
+                elif self.delay_next_capabilities:
+                    self.delay_next_capabilities = False
+                    self.delayed_capabilities.append(response)
+                else:
+                    peer.rx_queue.append(response)
+            return len(data)
+
+        def read(self, size: int = 4096) -> bytes:
+            if self.deliver_delayed and self.delayed_capabilities:
+                return self.delayed_capabilities.pop(0)
+            return peer.read()
+
+        def close(self) -> None:
+            pass
+
+    transport = DelayedCapabilitiesTransport()
+    device = Device(transport, timeout=0.02)
+    device.open()
+    assert device.statistics() == {
+        name: 0x11223300 + index for index, name in enumerate(STAT_NAMES)
+    }
+    assert transport.counter_requests == len(STAT_NAMES)
+
+    old_capabilities = device.state.capabilities_frame()
+    transport.delay_next_capabilities = True
+    transport.write(old_capabilities.encode())
+    device.state.note_control_transmitted(old_capabilities.seq)
+    assert old_capabilities.seq in device.state.control_waiting
+
+    transport.drop_capabilities = True
+    transport.deliver_delayed = True
+    with pytest.raises(LinkError, match="CAPABILITIES request timed out"):
+        device.statistics()
+    assert transport.counter_requests == len(STAT_NAMES)
+
+
 def test_open_first_anchor_must_fit_the_original_byte_budget() -> None:
     from uartlink import ProtocolState
 
@@ -904,6 +984,70 @@ def test_open_first_anchor_must_fit_the_original_byte_budget() -> None:
         "control_response", 2, request.seq, 0, 19, 9, (209).to_bytes(2, "little") + b"\x08\x00"
     )
     assert state.accept_control_response(valid, len(valid.encode_reverse())) == "open"
+
+
+def test_open_propagates_backend_read_failure_on_last_attempt() -> None:
+    from uartlink import Device, LinkReset
+
+    class ReadFailureTransport:
+        writes = 0
+
+        def write(self, data: bytes) -> int:
+            self.writes += 1
+            return len(data)
+
+        def read(self, size: int = 4096) -> bytes:
+            raise OSError("backend disconnected")
+
+        def close(self) -> None:
+            pass
+
+    transport = ReadFailureTransport()
+    device = Device(transport)
+    device.state.open_limit = 1
+    with pytest.raises(LinkReset, match="backend read failed"):
+        device.open()
+    assert transport.writes == 1
+    assert device.state.open_attempts == 1
+    assert not device.state.active
+
+
+def test_open_retries_nonterminal_invalid_control_response() -> None:
+    from uartlink import Device
+
+    class InvalidThenValidOpenTransport:
+        writes = 0
+        incoming: list[bytes] = []
+
+        def write(self, data: bytes) -> int:
+            self.writes += 1
+            request = Frame.decode(data)
+            if self.writes == 1:
+                response = Frame("control_response", 0, request.seq, 0, 0, request.session)
+            else:
+                response = Frame(
+                    "control_response",
+                    2,
+                    request.seq,
+                    0,
+                    0,
+                    request.session,
+                    (209).to_bytes(2, "little") + b"\x08\x00",
+                )
+            self.incoming.append(response.encode_reverse())
+            return len(data)
+
+        def read(self, size: int = 4096) -> bytes:
+            return self.incoming.pop(0) if self.incoming else b""
+
+        def close(self) -> None:
+            pass
+
+    transport = InvalidThenValidOpenTransport()
+    device = Device(transport)
+    device.open()
+    assert transport.writes == 2
+    assert device.state.active
 
 
 def test_cursor_wrap_and_stale_anchor_do_not_move_credit_backwards() -> None:

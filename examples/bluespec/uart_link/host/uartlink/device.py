@@ -125,6 +125,8 @@ class Device:
                     self._receive()
                     if self.state.active:
                         return
+            except LinkReset:
+                raise
             except (ValueError, LinkError) as exc:
                 last_error = exc
         if last_error:
@@ -302,9 +304,9 @@ class Device:
         deadline = self.state.clock() + self.state.timeout
         while self.state.clock() < deadline:
             self.pump()
-            if -1 in self._stats:
+            if capabilities.seq not in self.state.control_waiting:
                 break
-        if -1 not in self._stats:
+        if capabilities.seq in self.state.control_waiting:
             raise LinkError("CAPABILITIES request timed out")
         values: dict[str, int] = {}
         for index, name in enumerate(STAT_NAMES):

@@ -2137,6 +2137,13 @@ See ``examples/bluespec/`` for self-checking designs in BSV and BH. They include
 several packages, one that macros size, one that imports Verilog with ``import "BVI"``, and one
 that mixes BSV and BH.
 
+``examples/bluespec/uart_link`` provides a generic UART packet transport with CRC-32C,
+cached responses, host-driven retries, and byte credit. Its packet service uses streaming
+request and response ports. The example top connects that service to the shared UART PHY and
+a separate diagnostic service. The Python host library and integration instructions are in
+the `UART link README
+<https://github.com/XedaHQ/xeda/blob/main/examples/bluespec/uart_link/README.md>`_.
+
 .. _converted-designs:
 
 Converted designs
@@ -2171,13 +2178,6 @@ wrapper and constraints. The Artix-7 target stops at ``yosys_fpga`` because ``ne
 of openXC7 refuses unconstrained I/O, and Xeda refuses a Xilinx ``nextpnr`` run without XDC files.
 ``examples/bluespec/ascon`` is a larger design with the same configurations. Its ASIC clock period
 is 2.0 ns.
-
-``examples/bluespec/uart_link`` provides a generic UART packet transport with CRC-32C,
-cached responses, host-driven retries, and byte credit. Its packet service uses streaming
-request and response ports. The example top connects that service to the shared UART PHY and
-a separate diagnostic service. The Python host library and integration instructions are in
-the `UART link README
-<https://github.com/XedaHQ/xeda/blob/main/examples/bluespec/uart_link/README.md>`_.
 
 The chain ``bsc+openroad`` and the saved binding ``flows.yosys.inputs.design: bsc`` say what the
 default says, so they give the same plan as ``xeda run openroad examples/bluespec/gcd/gcd.yaml``.
