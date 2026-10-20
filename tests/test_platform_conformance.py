@@ -435,30 +435,38 @@ CLOCK_GATE = (
 )
 
 
-@pytest.mark.parametrize("pair", PAIRS, ids=IDS)
-@pytest.mark.skipif("sky130hd" not in pdk_test_platforms(), reason="sky130hd is not in the store")
-def test_real_yosys_maps_the_clock_gate_module_of_sky130hd_to_the_integrated_clock_gate(
-    pair, tmp_path
-):
-    """A design that instantiates `OPENROAD_CLKGATE` gets `sky130_fd_sc_hd__dlclkp_1` when the
-    macro `OPENROAD_CLKGATE` is defined, as in OpenROAD-flow-scripts, and a wire when it is not."""
-    name, provider = pair
-    if name != "sky130hd":
-        pytest.skip("only sky130hd ships a clock gate map")
-    require_pdk_store()
-    require_yosys()
-    (tmp_path / "gated").mkdir()
-    (tmp_path / "plain").mkdir()
-    gated, used = _synthesize(
-        name, provider, tmp_path / "gated", CLOCK_GATE, {"defines": {"OPENROAD_CLKGATE": None}}
-    )
-    assert used.count("sky130_fd_sc_hd__dlclkp_1") == 1
-    assert used.count("sky130_fd_sc_hd__dfxtp_1") == 4
-    netlist = (gated.run_path / "netlist.v").read_text()
-    assert re.search(r"\.CLK\(clk\),\s*\.GATE\(en\)", netlist), "clock and enable are connected"
-    _, plain = _synthesize(name, provider, tmp_path / "plain", CLOCK_GATE)
-    assert "sky130_fd_sc_hd__dlclkp_1" not in plain
-    assert plain.count("sky130_fd_sc_hd__dfxtp_1") == 4
+#: The pairs of a platform that ships a clock gate map (`shipped` in its residue), so that no case
+#: is generated for a platform that ships none. A store of other platforms defines no test.
+SHIPPING_PAIRS = [pair for pair in PAIRS if "clkgate_map" in load_residue(pair[0]).shipped]
+
+if SHIPPING_PAIRS:
+
+    @pytest.mark.parametrize("pair", SHIPPING_PAIRS, ids=[pdk_pair_id(p) for p in SHIPPING_PAIRS])
+    def test_real_yosys_maps_the_shipped_clock_gate_module_to_the_integrated_clock_gate(
+        pair, tmp_path
+    ):
+        """A design that instantiates `OPENROAD_CLKGATE` gets the integrated clock gate cell of
+        the platform (`sky130_fd_sc_hd__dlclkp_1`) when the macro `OPENROAD_CLKGATE` is defined, as
+        in OpenROAD-flow-scripts, and a wire when it is not."""
+        name, provider = pair
+        require_pdk_store()
+        require_yosys()
+        (tmp_path / "gated").mkdir()
+        (tmp_path / "plain").mkdir()
+        gated, used = _synthesize(
+            name,
+            provider,
+            tmp_path / "gated",
+            CLOCK_GATE,
+            {"defines": {"OPENROAD_CLKGATE": None}},
+        )
+        assert used.count("sky130_fd_sc_hd__dlclkp_1") == 1
+        assert used.count("sky130_fd_sc_hd__dfxtp_1") == 4
+        netlist = (gated.run_path / "netlist.v").read_text()
+        assert re.search(r"\.CLK\(clk\),\s*\.GATE\(en\)", netlist), "clock and enable are wired"
+        _, plain = _synthesize(name, provider, tmp_path / "plain", CLOCK_GATE)
+        assert "sky130_fd_sc_hd__dlclkp_1" not in plain
+        assert plain.count("sky130_fd_sc_hd__dfxtp_1") == 4
 
 
 def load_model(name: str, provider: Optional[str] = None) -> Any:

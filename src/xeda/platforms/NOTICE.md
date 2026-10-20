@@ -98,7 +98,8 @@ grid script of LibreLane (`scripts/openroad/common/pdn_cfg.tcl`). LibreLane is l
 Apache License, Version 2.0 (https://github.com/librelane/librelane).
 
 The Yosys techmap files for latches and full adders stay in the build of `open_pdks`
-(`libs.tech/openlane/sky130_fd_sc_hd`). The build has no map for clock gates, and xeda ships none.
+(`libs.tech/openlane/sky130_fd_sc_hd`). The build has no map for clock gates, so xeda ships its own map for it
+(`sky130hd/cells_clkgate.v`, described above).
 
 Xeda reads the configuration files of an installed `open_pdks` build when a platform asks for
 them, and it copies no file of it. `open_pdks` is licensed under the Apache License, Version 2.0

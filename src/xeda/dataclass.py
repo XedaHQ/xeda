@@ -6,7 +6,9 @@ from __future__ import annotations
 import logging
 import os
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from functools import cache, cached_property, wraps
 from inspect import signature
@@ -81,7 +83,7 @@ __all__ = [
     "opaque_key_declaration_problems",
     "opaque_key_paths",
     "escape_opaque_names",
-    "ESCAPED_NAMES_VARIABLE",
+    "escaped_names_accepted",
     "names_are_escaped_by_a_peer",
     "fold_dotted_keys",
     "atomic_keys",
@@ -465,19 +467,31 @@ def opaque_key_paths(model: Type[BaseModel]) -> Tuple[str, ...]:
 ESCAPED_DOT = "\\."
 
 
-#: The environment variable that a remote run sets for the Xeda on the remote host. With the value
-#: `1`, a name with `ESCAPED_DOT` in a table of `opaque_key_fields` is a name that a Xeda shipped
-#: (`escape_opaque_names`) and not a mistake of a user. The remote reads the design that the local
-#: side sent. The local side has judged its settings, and it writes each dotted name escaped,
-#: since the design file of the remote is one origin that holds both `A` and `A.B`. A key of a
-#: user with a backslash before a dot stays an error everywhere else.
-ESCAPED_NAMES_VARIABLE = "XEDA_REMOTE_ESCAPED_NAMES"
+#: Whether the design that this code reads was written by the remote runner of a Xeda
+#: (`escaped_names_accepted`).
+_escaped_names_accepted: ContextVar[bool] = ContextVar("escaped_names_accepted", default=False)
+
+
+@contextmanager
+def escaped_names_accepted() -> Iterator[None]:
+    """Read a name with `ESCAPED_DOT` in a table of `opaque_key_fields` as the name with plain
+    dots, and accept `A` with `A.B` in one table, for the body of the `with`.
+
+    A remote run uses this for its own load of the design that the local side shipped. The local
+    side judged the settings, and it wrote the names of a table that holds `A` and `A.B` escaped
+    (`escape_opaque_names`), since a design file is one origin, and it expands a dotted key into
+    nested tables, where `A` is a value and `A.B` is a key inside it. A key of a user with a
+    backslash before a dot is an error everywhere else."""
+    token = _escaped_names_accepted.set(True)
+    try:
+        yield
+    finally:
+        _escaped_names_accepted.reset(token)
 
 
 def names_are_escaped_by_a_peer() -> bool:
-    """Return whether this process reads the names of the settings that a Xeda shipped escaped
-    (`ESCAPED_NAMES_VARIABLE`)."""
-    return os.environ.get(ESCAPED_NAMES_VARIABLE) == "1"
+    """Return whether `escaped_names_accepted` is in force."""
+    return _escaped_names_accepted.get()
 
 
 def escape_opaque_names(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str, Any]:

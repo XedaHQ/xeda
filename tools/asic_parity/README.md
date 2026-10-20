@@ -63,8 +63,10 @@ Commands:
 - `script <platform>/<design>` runs the xeda `yosys` flow of the design. It prints the yosys script
   that xeda rendered. The run directory is `<root>/<platform>/<design>/script/`.
 
-The exit status of `run` is 0 when every stage of every row ran to the end. It is 1 when a stage
-failed. A row that ran to the end can still miss the bar, so read the `bar` column of the table.
+The exit status of `run` is 0 when every stage of every requested row ran to the end and every
+row meets the bar. It is 1 when a stage failed, or when a row that ran to the end misses the bar.
+The output names each row that misses the bar and the conditions that it misses
+(`<design> <half>: misses the bar: ...`); the `bar` column of the table shows the same verdict.
 The status 2 means a problem that the message names, such as a design file that disagrees with
 ORFS. The status 3 means that xeda lacks flows that a half needs.
 

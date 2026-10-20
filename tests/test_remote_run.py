@@ -36,6 +36,7 @@ from xeda.flow import FlowException, FlowSettingsError, FlowSettingsException
 from xeda.flow_runner import DIR_NAME_HASH_LEN, DefaultRunner, get_flow_class
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteIncompatible, RemoteRunner
+from xeda.dataclass import escape_opaque_names, escaped_names_accepted
 from xeda.flow_runner.settings_layers import compose_flow_settings
 from xeda.flow_runner.default_runner import ProjectFileError
 from xeda.flow_runner.run_lock import lock_file
@@ -816,11 +817,8 @@ def test_a_remote_run_keeps_names_of_one_setting_whole_when_one_starts_the_other
     assert remote_settings["flowrun_hash"] == node.flowrun_hash
 
 
-def test_a_remote_run_keeps_names_of_a_group_setting_whole_when_one_starts_the_other(
-    tmp_path, monkeypatch
-):
+def test_a_remote_run_keeps_names_of_a_group_setting_whole_when_one_starts_the_other(tmp_path):
     """The same for a dictionary inside a settings group (`ir_drop.instance_power`)."""
-    from xeda.dataclass import ESCAPED_NAMES_VARIABLE, escape_opaque_names
     from xeda.flows.openroad import Openroad
 
     settings = Openroad.Settings.from_input(
@@ -832,14 +830,18 @@ def test_a_remote_run_keeps_names_of_a_group_setting_whole_when_one_starts_the_o
         "u_core": "0.002 W",
         "u_core\\.reg_1": "0.001 W",
     }
-    monkeypatch.setenv(ESCAPED_NAMES_VARIABLE, "1")
     read = Design(
         name="d",
         design_root=tmp_path,
         rtl={"sources": [], "top": "t", "clock": "clk"},
         flow={"openroad": shipped},
     )
-    merged = compose_flow_settings(Openroad, [read.flow])
+    # Only the remote runner's own load reads the escaped names. Everywhere else, a key with a
+    # backslash before a dot is an error, and so are `A` and `A.B` in one origin.
+    with pytest.raises(Exception, match="backslash before a dot"):
+        compose_flow_settings(Openroad, [read.flow])
+    with escaped_names_accepted():
+        merged = compose_flow_settings(Openroad, [read.flow])
     again = Openroad.Settings.from_input(merged)
     assert dict(again.ir_drop.instance_power) == dict(settings.ir_drop.instance_power)
 
