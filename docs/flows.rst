@@ -2172,6 +2172,13 @@ of openXC7 refuses unconstrained I/O, and Xeda refuses a Xilinx ``nextpnr`` run 
 ``examples/bluespec/ascon`` is a larger design with the same configurations. Its ASIC clock period
 is 2.0 ns.
 
+``examples/bluespec/uart_link`` provides a generic UART packet transport with CRC-32C,
+cached responses, host-driven retries, and byte credit. Its packet service uses streaming
+request and response ports. The example top connects that service to the shared UART PHY and
+a separate diagnostic service. The Python host library and integration instructions are in
+the `UART link README
+<https://github.com/XedaHQ/xeda/blob/main/examples/bluespec/uart_link/README.md>`_.
+
 The chain ``bsc+openroad`` and the saved binding ``flows.yosys.inputs.design: bsc`` say what the
 default says, so they give the same plan as ``xeda run openroad examples/bluespec/gcd/gcd.yaml``.
 A link ``bsc+X`` binds the ``design`` input of every flow in the default graph of ``X`` that

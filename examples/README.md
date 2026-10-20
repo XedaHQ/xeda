@@ -81,5 +81,5 @@ The routed design and its reports are in `xeda_run/gcd/openroad`.
 
 ## Bluespec
 
-`bluespec` has eight self-checking designs in Bluespec SystemVerilog and Bluespec Classic. See
+`bluespec` has self-checking designs in Bluespec SystemVerilog and Bluespec Classic. See
 [its README](bluespec/README.md).

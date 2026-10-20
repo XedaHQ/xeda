@@ -120,6 +120,13 @@ size. The testbench runs five DUTs against models of a remote UART, with baud of
 glitches, bad frames and breaks, and of a line checker. Its design file also has the FPGA flows
 (Vivado out of context, `yosys_fpga` and nextpnr for ECP5).
 
+## uart_link: a UART packet transport
+
+The [packet transport](uart_link/README.md) adds CRC-32C, response replay, host-driven retries,
+and byte credit. Its streaming request and response ports connect application cores to any byte
+transport. The example top connects the shared UART PHY and a separate diagnostic service.
+The Python host supports pipelined requests with optional PySerial and PyFtdi backends.
+
 ## uart_echo: a UART echo demo for three boards
 
 The [echo demo](uart_echo/README.md) sends everything it receives back, through a block RAM FIFO,

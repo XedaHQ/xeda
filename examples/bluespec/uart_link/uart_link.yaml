@@ -1,0 +1,45 @@
+name: uart_link
+description: >-
+  UART packet transport with CRC-32C, cached responses, host-driven retries, and byte credit.
+  The generic packet service has streaming request and response ports. This top connects it
+  to the shared UART PHY and a separate diagnostic service. The testbench checks OPEN,
+  CRC rejection, response replay, delivery acknowledgment, and the transmit grant bound.
+rtl:
+  sources:
+    - ../uart/rtl/RingFifo.bsv
+    - ../uart/rtl/UartTypes.bsv
+    - ../uart/rtl/BitTimer.bsv
+    - ../uart/rtl/UartRx.bsv
+    - ../uart/rtl/UartTx.bsv
+    - ../uart/rtl/Uart.bsv
+    - rtl/Cobs.bsv
+    - rtl/Crc32c.bsv
+    - rtl/UartLinkTypes.bsv
+    - rtl/ReliableLink.bsv
+    - rtl/LinkDiagnostics.bsv
+    - rtl/UartLink.bsv
+  top: mkUartLink
+  clock.port: CLK
+  defines:
+    CLK_HZ: 100000000
+    BAUD: 12000000
+tb:
+  sources:
+    - tb/TbReliableLink.bsv
+  top: mkTbReliableLink
+flows:
+  vivado_synth:
+    fpga.part: xc7a100tcsg324-1
+    clock.period: 10 ns
+    out_of_context: true
+targets:
+  artix7:
+    flows:
+      yosys_fpga:
+        fpga.part: xc7a100tcsg324-1
+        clock.period: 10 ns
+  ecp5:
+    flows:
+      yosys_fpga:
+        fpga.part: LFE5U-85F-6BG381C
+        clock.period: 10 ns
