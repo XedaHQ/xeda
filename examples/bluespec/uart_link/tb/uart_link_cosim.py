@@ -297,6 +297,23 @@ async def host_against_rtl(dut):
     assert state.completed.pop(ninth.seq)[4:] == b"ninth"
     assert int(dut.dispatchCount.value) == 282
 
+    # The endpoint must bound its result even for the largest legal request.
+    maximum = bytes(range(state.max_frame - 13))
+    boundary = state.submit(maximum)
+    await wire.send(boundary)
+    await wire.wait(20000)
+    accept(state, wire.read())
+    result = state.completed.pop(boundary.seq)
+    assert len(result) == state.max_frame - 13
+    assert int.from_bytes(result[:4], "little") == 283
+    assert result[4:] == maximum[: len(result) - 4]
+    following = state.submit(b"after-max")
+    await wire.send(following)
+    await wire.wait(4000)
+    accept(state, wire.read())
+    assert state.completed.pop(following.seq)[4:] == b"after-max"
+    assert int(dut.dispatchCount.value) == 284
+
     # CLOSE carries the final delivery ACK. Confirmation must release the old session.
     await wire.send(state.close_frame())
     await wire.wait(3000)

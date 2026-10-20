@@ -597,6 +597,10 @@ def test_reset_reports_unknown_operations_and_does_not_replay_them() -> None:
     assert isinstance(failures[0], UnknownOutcome)
     assert state.pending == {}
     assert not state.active
+    assert state.controls == {}
+    assert state.control_waiting == {}
+    assert state.recovery_seq is None
+    assert state.ready_frames == []
     assert state.retries_due() == []
     with pytest.raises(ProtocolError):
         state.submit(b"write")
@@ -837,6 +841,51 @@ def test_statistics_use_transport_byte_counter_names() -> None:
     assert STAT_NAMES[:2] == ("transport_rx_bytes", "transport_tx_bytes")
 
 
+@pytest.mark.parametrize(
+    "invalid_payload", [None, b"\x80", b"\x82\x00\x00\x00\x00\x00", b"\x83\x01\x00\x00\x00\x00"]
+)
+def test_statistics_requires_a_valid_response_for_every_counter(invalid_payload) -> None:
+    from dataclasses import replace
+
+    from uartlink import Device, LinkError
+    from uartlink.device import STAT_NAMES
+
+    class CounterPeer(BehavioralPeer):
+        def _reply(self, response: Frame) -> None:
+            if response.kind == "response":
+                payload = (
+                    invalid_payload
+                    if invalid_payload is not None
+                    else bytes((0x83, response.seq))
+                    + (0x11223300 + response.seq).to_bytes(4, "little")
+                )
+                response = replace(response, payload=payload)
+            super()._reply(response)
+
+    peer = CounterPeer()
+
+    class MemoryTransport:
+        def write(self, data: bytes) -> int:
+            peer.accept(Frame.decode(data))
+            return len(data)
+
+        def read(self, size: int = 4096) -> bytes:
+            return peer.read()
+
+        def close(self) -> None:
+            pass
+
+    device = Device(MemoryTransport())
+    device.open()
+    if invalid_payload is not None:
+        with pytest.raises(LinkError, match="invalid statistics response"):
+            device.statistics()
+    else:
+        assert device.statistics() == {
+            name: 0x11223300 + index for index, name in enumerate(STAT_NAMES)
+        }
+
+
 def test_open_first_anchor_must_fit_the_original_byte_budget() -> None:
     from uartlink import ProtocolState
 
@@ -1044,6 +1093,57 @@ def test_diagnostic_cli_exposes_link_budget_and_window() -> None:
     assert "--window" in result.stdout
 
 
+def test_diagnostic_cli_rejects_echo_that_does_not_fit_budget_before_opening() -> None:
+    import subprocess
+
+    script = Path(__file__).parents[1] / "examples/bluespec/uart_link/host/uart_link_diag.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--port", "unused", "--byte-budget", "80"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "does not fit" in result.stderr
+
+
+def test_diagnostic_cli_aborts_on_stats_failure_and_preserves_original_error(monkeypatch) -> None:
+    import importlib.util
+
+    script = Path(__file__).parents[1] / "examples/bluespec/uart_link/host/uart_link_diag.py"
+    spec = importlib.util.spec_from_file_location("uart_link_diag_test", script)
+    assert spec and spec.loader
+    diag = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(diag)
+    closed = []
+
+    class FakeBackend:
+        def __init__(self, *args):
+            pass
+
+    class FakeDevice:
+        def __init__(self, transport, **kwargs):
+            pass
+
+        def open(self):
+            pass
+
+        def statistics(self):
+            raise RuntimeError("original stats timeout")
+
+        def abort(self):
+            closed.append("abort")
+
+        def close(self):
+            raise AssertionError("close must not mask stats failure")
+
+    monkeypatch.setattr(diag, "PySerialBackend", FakeBackend)
+    monkeypatch.setattr(diag, "Device", FakeDevice)
+    monkeypatch.setattr(sys, "argv", [str(script), "--port", "unused", "--stats"])
+    with pytest.raises(RuntimeError, match="original stats timeout"):
+        diag.main()
+    assert closed == ["abort"]
+
+
 @pytest.mark.parametrize(
     ("terminal_error", "mode"),
     [("retry", "request"), ("credit", "control")],
@@ -1106,6 +1206,184 @@ def test_transact_timeout_reports_unknown_outcome_and_poison_device() -> None:
     assert device.state.pending == {}
     with pytest.raises(LinkReset):
         device.submit(b"do not retry")
+
+
+def test_transact_control_credit_exhaustion_reports_unknown_outcome() -> None:
+    from uartlink import Device, UnknownOutcome
+    from uartlink.codec import RESERVE
+
+    class EmptyTransport:
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+        def read(self, size: int = 4096) -> bytes:
+            return b""
+
+        def close(self) -> None:
+            pass
+
+    device = Device(EmptyTransport())
+    device.state.active = True
+    device.submit(b"side effect")
+    frame = device.state.poll_frame()
+    control = device.state.controls[frame.seq]
+    control.sent_at = 0.0
+    control.attempts = min(8, max(1, RESERVE // 15))
+    with pytest.raises(UnknownOutcome):
+        device.transact(b"second operation", timeout=1)
+    assert not device.state.active
+
+
+def test_control_response_requires_actual_encoded_length() -> None:
+    from uartlink import ProtocolState
+
+    state = ProtocolState(session=9, byte_budget=256)
+    state.active = True
+    frame = state.poll_frame()
+    response = Frame("control_response", 0, frame.seq, 0, 10, 9)
+    with pytest.raises(TypeError):
+        state.accept_control_response(response)
+
+
+def test_mark_reset_clears_control_and_recovery_state() -> None:
+    from uartlink import ProtocolState
+
+    state = ProtocolState(session=9)
+    state.active = True
+    poll = state.poll_frame()
+    state.recovery_seq = 3
+    state.ready_frames.append(poll)
+    state.mark_reset()
+    assert not state.controls
+    assert not state.control_waiting
+    assert state.recovery_seq is None
+    assert state.ready_frames == []
+
+
+def test_reset_protocol_state_cannot_reopen_old_session() -> None:
+    from uartlink import LinkReset, ProtocolState
+
+    state = ProtocolState(session=9)
+    state.open_frame()
+    state.mark_reset()
+    with pytest.raises(LinkReset, match="reset"):
+        state.open_frame()
+
+
+def test_transact_protocol_error_marks_result_unknown() -> None:
+    from uartlink import Device, UnknownOutcome
+
+    class QueueTransport:
+        def __init__(self, incoming: bytes) -> None:
+            self.incoming = incoming
+
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+        def read(self, size: int = 4096) -> bytes:
+            data, self.incoming = self.incoming, b""
+            return data
+
+        def close(self) -> None:
+            pass
+
+    state_session = 11
+    malformed = Frame("control_response", 3, 0, 0, 0, state_session).encode_reverse()
+    transport = QueueTransport(malformed)
+    device = Device(transport)
+    device.state.session = state_session
+    device.state.active = True
+    device.state.poll_frame()
+    with pytest.raises(UnknownOutcome):
+        device.transact(b"operation", timeout=1)
+    assert not device.state.active
+    assert device.state.pending == {}
+
+
+def test_transact_control_retry_write_failure_marks_result_unknown() -> None:
+    from uartlink import Device, UnknownOutcome
+
+    now = [10.0]
+    device_ref = []
+
+    class BrokenRetryTransport:
+        calls = 0
+
+        def write(self, data: bytes) -> int:
+            self.calls += 1
+            if self.calls == 1:
+                device_ref[0].state.pending[0].sent_at = now[0]
+                return len(data)
+            raise OSError("control retry write failed")
+
+        def read(self, size: int = 4096) -> bytes:
+            return b""
+
+        def close(self) -> None:
+            pass
+
+    device = Device(BrokenRetryTransport(), clock=lambda: now[0])
+    device_ref.append(device)
+    device.state.active = True
+    poll = device.state.poll_frame()
+    device.state.note_control_transmitted(poll.seq, 0.0)
+    with pytest.raises(UnknownOutcome):
+        device.transact(b"operation", timeout=1)
+    assert not device.state.active
+    assert device.state.pending == {}
+
+
+@pytest.mark.parametrize("interrupted_stage", ["write", "read"])
+def test_transact_keyboard_interrupt_terminates_link_and_propagates(
+    interrupted_stage: str,
+) -> None:
+    from uartlink import Device
+
+    class InterruptedTransport:
+        def write(self, data: bytes) -> int:
+            if interrupted_stage == "write":
+                raise KeyboardInterrupt
+            return len(data)
+
+        def read(self, size: int = 4096) -> bytes:
+            if interrupted_stage == "read":
+                raise KeyboardInterrupt
+            return b""
+
+        def close(self) -> None:
+            pass
+
+    device = Device(InterruptedTransport())
+    device.state.active = True
+    with pytest.raises(KeyboardInterrupt):
+        device.transact(b"operation", timeout=1)
+    assert not device.state.active
+    assert device.state.pending == {}
+
+
+def test_transact_returns_known_result_when_final_poll_write_fails() -> None:
+    from uartlink import Device
+
+    peer = BehavioralPeer()
+
+    class PollFailureTransport:
+        def write(self, data: bytes) -> int:
+            frame = Frame.decode(data)
+            if frame.kind == "control" and frame.flags == 0:
+                raise OSError("final POLL write failed")
+            peer.accept(frame)
+            return len(data)
+
+        def read(self, size: int = 4096) -> bytes:
+            return peer.read()
+
+        def close(self) -> None:
+            pass
+
+    device = Device(PollFailureTransport())
+    device.open()
+    assert device.transact(b"\x30\x01\x00x") == b"\xb0x"
+    assert not device.state.active
 
 
 def test_wait_result_timeout_keeps_explicit_ticket_resumable() -> None:

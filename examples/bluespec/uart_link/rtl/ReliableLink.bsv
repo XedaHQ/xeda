@@ -21,6 +21,7 @@ typedef struct {
    Bool sendPending;
    Bool replay;
    Bool txPinned;
+   Bool txSentEver;
    Bool creditCounted;
 } SlotMeta deriving (Bits, Eq, FShow);
 
@@ -60,7 +61,7 @@ function Bool deliveryAckValid(Bit#(8) ack, Bit#(8) currentAck,
          UInt#(3) bitIndex = unpack(truncate(offset));
          Bit#(8) slotMask = 1;
          slotMask = slotMask << bitIndex;
-         if (meta.state == SlotComplete && !meta.txPinned)
+         if (meta.state == SlotComplete && !meta.txPinned && meta.txSentEver)
             seen = seen | slotMask;
          else
             valid = False;
@@ -108,6 +109,7 @@ module mkReliableLink#(Integer compiledFrameLimit,
    SlotMeta emptySlot = SlotMeta {
       state: SlotFree, seqNo: 0, requestLength: 0, maxResponse: 0,
       responseLength: 0, sendPending: False, replay: False, txPinned: False,
+      txSentEver: False,
       creditCounted: False
    };
    Vector#(8, Reg#(SlotMeta)) slots <- replicateM(mkReg(emptySlot));
@@ -290,7 +292,7 @@ module mkReliableLink#(Integer compiledFrameLimit,
    rule receiveToken (!rxAborting && !txReleasePending &&
                       !closeAfterControl &&
                       !closeCompletePending &&
-                      !(gapPending && gapCreditAvailable) &&
+                      !(gapPending && gapCreditAvailable && !controlPending) &&
                       !pendingApplicationAck);
       let token <- decoder.out.get;
       case (token) matches
@@ -479,7 +481,7 @@ module mkReliableLink#(Integer compiledFrameLimit,
                                              selectedWindowLimit, slots)) begin
                      statHeader <= satInc(statHeader);
                   end
-                  else if (!controlPending && bound && frameSession == sessionId &&
+                  else if (bound && frameSession == sessionId &&
                            ((isPoll || isCaps || isClose) && payloadLength == 0)) begin
                      if (forward16(cursor, grantEdge) &&
                          distance16(cursor, txCursor) <= bridgeCapacity &&
@@ -487,31 +489,16 @@ module mkReliableLink#(Integer compiledFrameLimit,
                         grantEdge <= cursor;
                      Bool ackAccepted = False;
                      if (ack != deliveryAck) begin
-                        Bit#(8) delta = ack - deliveryAck;
-                        Bool canRetire = delta <= 8 && delta < 128;
-                        UInt#(4) deltaSmall = unpack(truncate(delta));
-                        for (Integer i = 0; i < 8; i = i + 1)
-                           if (fromInteger(i) < deltaSmall) begin
-                              Bool completed = False;
-                              for (Integer j = 0; j < 8; j = j + 1) begin
-                                 SlotMeta meta = slots[fromInteger(j)];
-                                 if (meta.seqNo == deliveryAck + fromInteger(i) &&
-                                     meta.state == SlotComplete && !meta.txPinned)
-                                    completed = True;
-                              end
-                              canRetire = canRetire && completed;
-                           end
-                        if (canRetire) begin
-                           ackAccepted = True;
-                           for (Integer j = 0; j < 8; j = j + 1) begin
-                              SlotMeta meta = slots[fromInteger(j)];
-                              Bit#(8) amount = ack - meta.seqNo;
-                              if (meta.state != SlotFree && amount != 0 && amount < 128 &&
-                                  !meta.txPinned)
-                                 slots[fromInteger(j)] <= emptySlot;
-                           end
-                           deliveryAck <= ack;
+                        // deliveryAckValid has already checked every sequence and slot.
+                        ackAccepted = True;
+                        for (Integer j = 0; j < 8; j = j + 1) begin
+                           SlotMeta meta = slots[fromInteger(j)];
+                           Bit#(8) amount = ack - meta.seqNo;
+                           if (meta.state != SlotFree && amount != 0 && amount < 128 &&
+                               !meta.txPinned)
+                              slots[fromInteger(j)] <= emptySlot;
                         end
+                        deliveryAck <= ack;
                      end
                      Bool willBeEmpty = True;
                      for (Integer i = 0; i < 8; i = i + 1) begin
@@ -523,31 +510,33 @@ module mkReliableLink#(Integer compiledFrameLimit,
                         if (meta.state != SlotFree && !willRetire)
                            willBeEmpty = False;
                      end
-                     if (isClose && !willBeEmpty) begin
-                        statHeader <= satInc(statHeader);
-                     end
-                     else begin
-                        controlPending <= True;
-                        controlUsesReserve <= isPoll || isClose;
-                        controlOpcode <= opcode;
-                        controlToken <= seqNo;
-                        controlSession <= frameSession;
-                        controlFrameLimit <= selectedFrameLimit;
-                        controlWindowLimit <= selectedWindowLimit;
-                        controlResponseLength <= isCaps ? 4 :
-                           (isOpen ? 4 : 0);
-                        if (isClose) closeAfterControl <= True;
-                        if (isCaps) begin
-                           controlTransmitMemory[0] <= fromInteger(compiledFrameLimit);
-                           controlTransmitMemory[1] <= 0;
-                           controlTransmitMemory[2] <= fromInteger(compiledWindowLimit);
-                           controlTransmitMemory[3] <= 1;
+                     if (!controlPending) begin
+                        if (isClose && !willBeEmpty) begin
+                           statHeader <= satInc(statHeader);
                         end
-                        else if (isOpen) begin
-                           controlTransmitMemory[0] <= truncate(selectedFrameLimit);
-                           controlTransmitMemory[1] <= truncate(selectedFrameLimit >> 8);
-                           controlTransmitMemory[2] <= selectedWindowLimit;
-                           controlTransmitMemory[3] <= 1;
+                        else begin
+                           controlPending <= True;
+                           controlUsesReserve <= isPoll || isClose;
+                           controlOpcode <= opcode;
+                           controlToken <= seqNo;
+                           controlSession <= frameSession;
+                           controlFrameLimit <= selectedFrameLimit;
+                           controlWindowLimit <= selectedWindowLimit;
+                           controlResponseLength <= isCaps ? 4 :
+                              (isOpen ? 4 : 0);
+                           if (isClose) closeAfterControl <= True;
+                           if (isCaps) begin
+                              controlTransmitMemory[0] <= fromInteger(compiledFrameLimit);
+                              controlTransmitMemory[1] <= 0;
+                              controlTransmitMemory[2] <= fromInteger(compiledWindowLimit);
+                              controlTransmitMemory[3] <= 1;
+                           end
+                           else if (isOpen) begin
+                              controlTransmitMemory[0] <= truncate(selectedFrameLimit);
+                              controlTransmitMemory[1] <= truncate(selectedFrameLimit >> 8);
+                              controlTransmitMemory[2] <= selectedWindowLimit;
+                              controlTransmitMemory[3] <= 1;
+                           end
                         end
                      end
                   end
@@ -748,6 +737,7 @@ module mkReliableLink#(Integer compiledFrameLimit,
                              !pendingApplicationAck);
       SlotMeta meta = slots[txReleaseSlot];
       meta.txPinned = False;
+      meta.txSentEver = True;
       slots[txReleaseSlot] <= meta;
       txReleasePending <= False;
    endrule

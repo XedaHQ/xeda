@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from uartlink import Device
+from uartlink import Device, fit_frame
 from uartlink.backends import PyFtdiBackend, PySerialBackend
 
 
@@ -15,7 +15,7 @@ def main() -> int:
     backend = parser.add_mutually_exclusive_group(required=True)
     backend.add_argument("--port", help="serial port, for example /dev/ttyUSB1 or COM5")
     backend.add_argument("--ftdi", help="pyftdi URL, for example ftdi://ftdi:2232h:<serial>/2")
-    parser.add_argument("--baud", type=int, default=3_000_000)
+    parser.add_argument("--baud", type=int, default=12_000_000)
     parser.add_argument("--bytes", type=int, default=64, dest="byte_count")
     parser.add_argument("--byte-budget", type=int, default=256, help="link byte budget (80..32767)")
     parser.add_argument("--window", type=int, default=8, help="request window (1..8)")
@@ -26,6 +26,8 @@ def main() -> int:
         parser.error("--bytes must be in 0..180")
     if not 80 <= args.byte_budget <= 32767:
         parser.error("--byte-budget must be in 80..32767")
+    if not args.stats and args.byte_count + 16 > fit_frame(args.byte_budget):
+        parser.error("--bytes does not fit the frame selected by --byte-budget")
     if not 1 <= args.window <= 8:
         parser.error("--window must be in 1..8")
     transport = (
@@ -42,7 +44,13 @@ def main() -> int:
             if echoed != payload:
                 raise RuntimeError("ECHO response differs from the request")
             print(f"ECHO passed for {len(payload)} bytes")
-    finally:
+    except BaseException:
+        try:
+            device.abort()
+        except BaseException:
+            pass
+        raise
+    else:
         device.close()
     return 0
 

@@ -57,6 +57,8 @@ zero-length response is allowed. The application must honor all port readiness s
 The link stores the original response until the host acknowledges delivery. A retry returns
 those stored bytes. It does not send the operation to the application again. Acceptance of a
 request and delivery of its result use separate acknowledgment state.
+While a response or replay is in flight, the link rejects an incoming frame whose ACK covers
+that response. It also ignores the frame's grant update. The host retries after transmission ends.
 
 The current implementation supports frame limits from 32 through 240 bytes, one through eight
 request slots, and slot sizes through 256 bytes. These are static constructor parameters.
@@ -69,6 +71,10 @@ The diagnostic top requires slot sizes of at least three bytes for its error res
 transport adapter must also discard older bytes in its own FIFO before selecting that delimiter.
 `mkUartLinkAdapter` implements this fence for the shared UART PHY. It handles framing errors,
 parity errors, breaks, and overruns, including faults during application backpressure.
+The adapter requires the PHY's `events` and `rx.get` methods to be conflict-free: no path
+from the dequeue to `events`, and no required order between these methods.
+For the shared PHY, use a power of two from four upward; the default is four.
+The example top rejects `RX_DEPTH=1` and `RX_DEPTH=2`, whose FIFO schedules conflict with fault tracking.
 
 ## Use the Python host
 
@@ -77,8 +83,8 @@ Install `pyserial` for an operating system serial port, or `pyftdi` for direct F
 The diagnostic command defaults to a conservative 256-byte receive budget:
 
 ```sh
-python examples/bluespec/uart_link/host/uart_link_diag.py --port /dev/ttyUSB1 --baud 3000000
-python examples/bluespec/uart_link/host/uart_link_diag.py --port COM5 --baud 3000000 --stats
+python examples/bluespec/uart_link/host/uart_link_diag.py --port /dev/ttyUSB1 --baud 12000000
+python examples/bluespec/uart_link/host/uart_link_diag.py --port COM5 --baud 12000000 --stats
 python examples/bluespec/uart_link/host/uart_link_diag.py \
   --ftdi 'ftdi://ftdi:2232h:<serial>/2' --baud 12000000 --bytes 180
 ```
@@ -92,7 +98,7 @@ For application code, add this example's `host` directory to the Python module s
 from uartlink import Device
 from uartlink.backends import PySerialBackend
 
-transport = PySerialBackend("/dev/ttyUSB1", 3_000_000)
+transport = PySerialBackend("/dev/ttyUSB1", 12_000_000)
 device = Device(transport, byte_budget=256)
 try:
     device.open()
@@ -101,12 +107,21 @@ finally:
     device.close()
 ```
 
-`transact(payload)` returns an application response. For pipelined requests, `submit(payload)`
+`transact(payload)` returns the known application response. If it cannot establish the result
+after submission, it terminates the link and raises `UnknownOutcome`. Do not resubmit that
+operation automatically. A failed final POLL cannot hide an already received response, but the
+device cannot be reused. `KeyboardInterrupt` terminates the link and propagates.
+For pipelined requests, `submit(payload)`
 returns a monotonic ticket. Call `pump()` to process incoming bytes and retries, then call
 `take_result(ticket)` to consume a result. It returns `None` while that ticket is pending.
-`wait_result(ticket)` combines polling and waiting. A sequence number remains reserved until
+`wait_result(ticket)` combines polling and waiting. Its timeout leaves the ticket pending, so
+the caller can wait again. A sequence number remains reserved until
 its result ticket is consumed. `ProtocolState` exposes the same reliability state without I/O
-for asynchronous transports and custom event loops.
+for asynchronous transports and custom event loops. Pass the actual encoded frame length to
+its response handlers so that valid replies release byte credit. After `mark_reset()`, create a
+new protocol state; the reset state cannot reopen its old session.
+Call `abort()` after an application error to mark pending outcomes unknown and close the backend.
+It does not send CLOSE. Reset the FPGA and drain the backend before starting a session after an abort.
 
 Choose `byte_budget` from the receive storage that remains safe while the host reader pauses.
 Count bridge, driver, and application limits conservatively. A larger operating system read

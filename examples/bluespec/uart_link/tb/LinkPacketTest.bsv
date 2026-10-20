@@ -24,6 +24,7 @@ module mkLinkPacketTest(LinkPacketTestIfc);
    Reg#(EndpointState) state <- mkReg(Idle);
    Reg#(LinkRequestHeader) request <- mkRegU;
    Reg#(Bit#(16)) position <- mkReg(0);
+   Reg#(Bit#(16)) responseLength <- mkReg(0);
    Reg#(Bit#(32)) executions <- mkReg(0);
    Reg#(Bool) responseStalled <- mkReg(False);
 
@@ -43,11 +44,15 @@ module mkLinkPacketTest(LinkPacketTestIfc);
    endrule
 
    rule sendHeader (state == Header);
+      Bit#(16) desiredLength = request.length + 4;
+      Bit#(16) boundedLength = desiredLength < request.maxResponse ?
+         desiredLength : request.maxResponse;
       link.responseHeader.put(LinkResponseHeader {
-         seqNo: request.seqNo, length: request.length + 4
+         seqNo: request.seqNo, length: boundedLength
       });
+      responseLength <= boundedLength;
       position <= 0;
-      state <= Sending;
+      state <= boundedLength == 0 ? Idle : Sending;
    endrule
 
    rule sendPayload (state == Sending && !responseStalled);
@@ -60,7 +65,7 @@ module mkLinkPacketTest(LinkPacketTestIfc);
       endcase
       link.responsePayload.put(value);
       position <= position + 1;
-      if (position + 1 == request.length + 4) state <= Idle;
+      if (position + 1 == responseLength) state <= Idle;
    endrule
 
    method Action rxData(Bit#(8) value);

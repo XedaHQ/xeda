@@ -6,7 +6,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import BscSim, Verilator
+from xeda.flows import Bsc, BscSim, Verilator
 
 from .tool_utils import (
     require_bluesim,
@@ -28,8 +28,12 @@ ROOT = Path(__file__).resolve().parents[1] / "examples/bluespec/uart_link"
         "TbUartLinkAdapter",
         "TbLinkDiagnostics",
         "TbReliableLinkAckValidation",
+        "TbReliableLinkAckPendingReplay",
         "TbReliableLinkFullCacheAck",
         "TbReliableLinkControlLiveness",
+        "TbReliableLinkGapCapsWedge",
+        "TbReliableLinkPendingPoll",
+        "TbReliableLinkPinnedReplayAck",
     ],
 )
 def test_uartlink_streaming_components(bench, simulator, tmp_path, capfd):
@@ -47,6 +51,19 @@ def test_uartlink_streaming_components(bench, simulator, tmp_path, capfd):
     captured = capfd.readouterr()
     assert flow is not None and flow.succeeded, run_report(flow, captured)
     assert "PASS" in captured.out
+
+
+@pytest.mark.parametrize("depth", [1, 2])
+def test_uartlink_rejects_small_receive_fifo(depth, tmp_path, capfd):
+    require_bsc()
+    design = Design.from_file(ROOT / "uart_link.yaml")
+    design.rtl.defines["RX_DEPTH"] = depth
+    flow = DefaultRunner(tmp_path, display_results=False).run_flow(
+        Bsc, design, {"promote_warnings": ["ALL"]}
+    )
+    captured = capfd.readouterr()
+    assert flow is not None and not flow.succeeded, run_report(flow, captured)
+    assert "RX_DEPTH must be at least 4" in captured.out + captured.err
 
 
 def test_uartlink_host_against_rtl(tmp_path, capfd):

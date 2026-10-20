@@ -141,9 +141,12 @@ class ProtocolState:
         self.recovery_seq: int | None = None
         self.ready_frames: list[Frame] = []
         self._open_frame: Frame | None = None
+        self._reset = False
         self.completed: dict[int, bytes] = {}
 
     def open_frame(self) -> Frame:
+        if self._reset:
+            raise LinkReset("protocol state was reset; create a new state before reopening")
         if self.active:
             raise ProtocolError("session is already open")
         if fit_frame(self.byte_budget) < 32:
@@ -189,7 +192,7 @@ class ProtocolState:
             raise ProtocolError("CLOSE requires an active session")
         return self._control(3, b"")
 
-    def accept_control_response(self, frame: Frame, encoded_length: int = 0) -> str | None:
+    def accept_control_response(self, frame: Frame, encoded_length: int) -> str | None:
         if frame.kind != "control_response" or frame.session != self.session:
             return None
         purpose = self.control_waiting.get(frame.seq)
@@ -429,8 +432,13 @@ class ProtocolState:
 
     def mark_reset(self) -> list[UnknownOutcome]:
         self.active = False
+        self._reset = True
         errors = [
             UnknownOutcome(f"request {seq} has unknown outcome after reset") for seq in self.pending
         ]
         self.pending.clear()
+        self.controls.clear()
+        self.control_waiting.clear()
+        self.recovery_seq = None
+        self.ready_frames.clear()
         return errors

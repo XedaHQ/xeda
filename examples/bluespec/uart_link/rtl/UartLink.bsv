@@ -21,6 +21,8 @@ interface UartLinkAdapter;
    method Bit#(32) stat(Bit#(4) index);
 endinterface
 
+// The PHY's events and rx.get methods must be conflict-free, with no dequeue-to-events
+// path and no required order between them.
 module mkUartLinkAdapter#(Uart#(8) phy, ReliableLinkIfc link)(UartLinkAdapter);
    Reg#(UInt#(16)) phyOutstanding <- mkReg(0);
    Reg#(UInt#(16)) oldRemaining <- mkReg(0);
@@ -113,6 +115,9 @@ endinterface
 `ifndef LINK_SLOT_BYTES
 `define LINK_SLOT_BYTES 256
 `endif
+`ifndef RX_DEPTH
+`define RX_DEPTH 4
+`endif
 `ifndef BUILD_ID
 `define BUILD_ID 0
 `endif
@@ -120,6 +125,8 @@ endinterface
 // The generic top uses the caller's default reset. Board reset and power-up policy stay outside.
 (* synthesize *)
 module mkUartLink(UartLink);
+   if (`RX_DEPTH < 4)
+      error("mkUartLink: RX_DEPTH must be at least 4; depths 1 and 2 conflict with PHY fault tracking");
    if (`LINK_SLOT_BYTES < 3)
       error("mkUartLink: diagnostics requires LINK_SLOT_BYTES >= 3");
    Uart#(8) phy <- mkUart;

@@ -252,17 +252,34 @@ class Device:
             raise
 
     def transact(self, payload: bytes, *, timeout: float | None = None) -> bytes:
-        ticket = self.submit(payload)
+        try:
+            ticket = self.submit(payload)
+        except KeyboardInterrupt:
+            self._terminate_link()
+            raise
         try:
             result = self.wait_result(ticket, timeout=timeout if timeout is not None else 30.0)
-        except RetryExhausted as exc:
+        except KeyboardInterrupt:
+            self._terminate_link()
+            raise
+        except Exception as exc:
+            if isinstance(exc, UnknownOutcome):
+                raise
             self._terminate_link()
             try:
-                self.take_result(ticket)
+                result = self.take_result(ticket)
             except UnknownOutcome as failure:
                 raise failure from exc
-            raise UnknownOutcome(f"request result ticket {ticket} has unknown outcome") from exc
-        self._send_poll()
+            except KeyError:
+                raise UnknownOutcome(f"request result ticket {ticket} has unknown outcome") from exc
+        try:
+            self._send_poll()
+        except KeyboardInterrupt:
+            self._terminate_link()
+            raise
+        except Exception:
+            # The application result is known. A failed housekeeping POLL must not hide it.
+            self._terminate_link()
         return result
 
     def _send_poll(self) -> None:
@@ -295,6 +312,8 @@ class Device:
             payload = self.wait_result(ticket, timeout=self.state.timeout * 4)
             if len(payload) == 6 and payload[0] == 0x83 and payload[1] == index:
                 values[name] = int.from_bytes(payload[2:], "little")
+            else:
+                raise LinkError(f"invalid statistics response for {name}")
         return values
 
     def close(self) -> None:
@@ -350,3 +369,13 @@ class Device:
             self.state.mark_reset()
         self.transport.close()
         self._closed = True
+
+    def abort(self) -> None:
+        """Stop the session and close the backend after an application error."""
+        if self._closed:
+            return
+        self._terminate_link()
+        try:
+            self.transport.close()
+        finally:
+            self._closed = True

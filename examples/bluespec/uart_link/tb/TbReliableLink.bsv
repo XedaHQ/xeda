@@ -27,6 +27,10 @@ Vector#(16, Bit#(8)) applicationDeliveryAck = vec(
    'h02, 'h40, 'h02, 'h01, 'h03, 'h01, 'h01, 'h01,
    'h01, 'h01, 'h05, 'h6b, 'h3c, 'hcf, 'h40, 0);
 
+Vector#(15, Bit#(8)) recoveryPoll = vec(
+   'h04, 'h60, 'h09, 'h01, 'h03, 'h01, 'h01, 'h01,
+   'h01, 'h05, 'hb1, 'he6, 'h60, 'h06, 0);
+
 Vector#(16, Bit#(8)) aheadRequest = vec(
    'h03, 'h40, 'h01, 'h01, 'h03, 'h01, 'h01, 'h01,
    'h01, 'h01, 'h05, 'h04, 'h97, 'hcd, 'hfd, 0);
@@ -38,6 +42,8 @@ module mkTbReliableLink(Empty);
    Reg#(UInt#(16)) txBytes <- mkReg(0);
    Reg#(UInt#(8)) txDelimiters <- mkReg(0);
    Reg#(UInt#(16)) i <- mkReg(0);
+   Reg#(Bit#(32)) cobsBeforeAbort <- mkReg(0);
+   Reg#(UInt#(8)) delimitersBeforeRecovery <- mkReg(0);
 
    rule watchdog;
       cycle <= cycle + 1;
@@ -122,10 +128,21 @@ module mkTbReliableLink(Empty);
          $fatal(1, "FAIL: FPGA emitted %0d bytes beyond the fixed bridge grant", txBytes);
 
       // Abort clears decoder and speculative state, then ignores the affected frame.
+      action
+         cobsBeforeAbort <= link.stat(7);
+         delimitersBeforeRecovery <= txDelimiters;
+      endaction
       link.abortRx;
       repeat (1) noAction;
       link.rx.put('h52); link.rx.put('h61); link.rx.put(0);
       repeat (8) noAction;
+      if (link.stat(7) != cobsBeforeAbort)
+         $fatal(1, "FAIL: post-abort bytes reached COBS decoder");
+      for (i <= 0; i < 15; i <= i + 1)
+         link.rx.put(recoveryPoll[i]);
+      await (txDelimiters == delimitersBeforeRecovery + 1);
+      if (link.stat(7) != cobsBeforeAbort)
+         $fatal(1, "FAIL: valid frame did not recover cleanly after abort");
       $display("PASS: OPEN, CRC rejection, service streaming, replay, ACK and grant bound");
       $finish(0);
    endseq;
