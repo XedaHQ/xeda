@@ -221,6 +221,7 @@ def parse_scan_usb(text: str) -> list[UsbProbe]:
     probe_at, manufacturer_at, serial_at, product_at = (
         re.search(name, header).start() for name in _SCAN_COLUMNS  # type: ignore[union-attr]
     )
+    old_scan = re.search(r"probe\s+type", header, re.IGNORECASE) is not None
     serial_width = max(1, product_at - serial_at - 1)
     probes = []
     for line in lines:
@@ -229,12 +230,19 @@ def parse_scan_usb(text: str) -> list[UsbProbe]:
             continue
         probe_type = line[probe_at:manufacturer_at].strip()
         serial_field = line[serial_at:product_at]
-        candidates = _scan_serial_candidates(line, serial_at, serial_width)
-        serial_readable = len(line) >= product_at and (
-            (not serial_field.strip() and not candidates)
-            or (len(candidates) == 1 and candidates[0][0] == serial_at)
-        )
-        serial = candidates[0][1] if serial_readable and candidates else ""
+        if old_scan:
+            candidates = _scan_serial_candidates(line, serial_at, serial_width)
+            serial_readable = len(line) >= product_at and (
+                (not serial_field.strip() and not candidates)
+                or (len(candidates) == 1 and candidates[0][0] == serial_at)
+            )
+            serial = candidates[0][1] if serial_readable and candidates else ""
+        else:
+            # Current openFPGALoader computes its column widths from all device strings before it
+            # prints the header. The manufacturer and serial columns therefore stay aligned even
+            # when their values are longer than the minimum width.
+            serial_readable = len(line) >= product_at
+            serial = serial_field.strip() if serial_readable else ""
         probes.append(
             UsbProbe(
                 # the loader prints the numbers with `std::to_string(char)`: above 127, negative

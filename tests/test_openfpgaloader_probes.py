@@ -205,12 +205,18 @@ def _old_scan(rows):
 
 
 def _current_scan(rows):
-    """A current-style scan table with `probe_type` and fixed-width serial padding."""
-    lines = ["Bus device vid:pid       probe_type manufacturer      serial       product"]
+    """A current-style scan table with widths grown from the actual device strings."""
+    probe_width = max([10, *(len(row[3]) for row in rows)]) + 1
+    manufacturer_width = max([12, *(len(row[4]) for row in rows)]) + 1
+    serial_width = max([6, *(len(row[5]) for row in rows)]) + 1
+    lines = [
+        f"{'Bus':<4}{'device':<7}{'vid:pid':<14}{'probe_type':<{probe_width}}"
+        f"{'manufacturer':<{manufacturer_width}}{'serial':<{serial_width}}product"
+    ]
     for bus, device, usb_id, probe, manufacturer, serial, product in rows:
         lines.append(
-            "%03d %03d    %s %-10s %-17s %-12s %s"
-            % (bus, device, usb_id, probe, manufacturer, serial, product)
+            f"{bus:03d} {device:03d}    {usb_id:<14}{probe:<{probe_width}}"
+            f"{manufacturer:<{manufacturer_width}}{serial:<{serial_width}}{product}"
         )
     return "\n".join(lines) + "\n"
 
@@ -282,52 +288,20 @@ def test_the_current_scan_preserves_a_punctuated_serial_at_its_column_boundary()
     assert probe.serial_readable
 
 
-def test_the_current_scan_rejects_a_serial_shifted_by_an_overlong_manufacturer():
-    scan = _current_scan(
-        [
-            (
-                1,
-                3,
-                "0x0403:0x6010",
-                "FTDI2232",
-                "Acme Devices " + "X" * 12,
-                ARTY,
-                "My Probe",
-            )
-        ]
-    )
-    (probe,) = parse_scan_usb(scan)
-    assert probe.serial is None
-    assert not probe.serial_readable
-
-
-def test_the_current_scan_rejects_a_manufacturer_tail_aligned_with_the_serial_column():
-    # The 18-character manufacturer prefix ends at the header's serial offset. The X word then
-    # looks like a full-width serial, while the actual serial starts after the advertised product
-    # boundary.
-    manufacturer = "A" * 17 + " " + "X" * 12
-    scan = _current_scan([(1, 3, "0x0403:0x6010", "FTDI2232", manufacturer, ARTY, "My Probe")])
-    (probe,) = parse_scan_usb(scan)
-    assert probe.serial is None
-    assert not probe.serial_readable
-
-
-def test_the_current_scan_rejects_an_overlong_shifted_serial_after_a_manufacturer_tail():
-    manufacturer = "A" * 17 + " " + "X" * 12
-    shifted_serial = "serial+with:punctuation-123456"
-    scan = _current_scan(
-        [(1, 3, "0x0403:0x6010", "FTDI2232", manufacturer, shifted_serial, "My Probe")]
-    )
-    (probe,) = parse_scan_usb(scan)
-    assert probe.serial is None
-    assert not probe.serial_readable
-
-
 def test_the_current_scan_preserves_an_overlong_serial_in_its_column():
     serial = "serial+with:punctuation-123456"
     scan = _current_scan([(1, 3, "0x0403:0x6010", "FTDI2232", "Digilent", serial, "My Probe")])
     (probe,) = parse_scan_usb(scan)
     assert probe.serial == serial
+    assert probe.serial_readable
+
+
+def test_the_current_scan_preserves_a_long_product_word():
+    product = "DigilentUSBDevice"
+    scan = _current_scan([(1, 3, "0x0403:0x6010", "FTDI2232", "Digilent", ARTY, product)])
+    (probe,) = parse_scan_usb(scan)
+    assert probe.serial == ARTY
+    assert probe.product == product
     assert probe.serial_readable
 
 

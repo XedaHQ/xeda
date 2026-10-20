@@ -70,8 +70,7 @@ def scan_usb_text(probes: list[Usb]) -> str:
     serials = [p.serial or "none" for p in probes]
     probe_len = max([10, *(len(p.probe_type) for p in probes)]) + 1
     manufacturer_len = max([12, *(len(p.manufacturer) for p in probes)]) + 1
-    # openFPGALoader reserves twelve characters for the serial and one for the separator.
-    serial_len = max([12, *(len(s) for s in serials)]) + 1
+    serial_len = max([6, *(len(s) for s in serials)]) + 1
     rows = [
         f"{'Bus':<4}{'device':<7}{'vid:pid':<14}{'probe_type':<{probe_len}}"
         f"{'manufacturer':<{manufacturer_len}}{'serial':<{serial_len}}product"
