@@ -33,9 +33,10 @@ from xeda.cli import cli
 from xeda.design import GitReference, SourceType
 from xeda.deliver import DeliveryError
 from xeda.flow import FlowException, FlowSettingsError, FlowSettingsException
-from xeda.flow_runner import DIR_NAME_HASH_LEN, get_flow_class
+from xeda.flow_runner import DIR_NAME_HASH_LEN, DefaultRunner, get_flow_class
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteIncompatible, RemoteRunner
+from xeda.flow_runner.settings_layers import compose_flow_settings
 from xeda.flow_runner.default_runner import ProjectFileError
 from xeda.flow_runner.run_lock import lock_file
 from xeda.run_root import RunRootError, ensure_run_root, is_run_root
@@ -767,6 +768,80 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
     assert again and again["success"] and Path(again["run_path"]) == local_run
     assert not (local_run / "trace.json").exists()
     assert list((tmp_path / "started_in").iterdir()) == [], "the start directory stays empty"
+
+
+def test_a_remote_run_keeps_names_of_one_setting_whole_when_one_starts_the_other(
+    tmp_path, remote_host
+):
+    """`A` from the design file and `A.B` from the command line are two names of a setting whose
+    keys are names of the tool (`set_synth_properties`), and a local run accepts them. The design
+    file that the remote reads is one origin and expands a dotted key, so the remote is sent each
+    name escaped and reads it whole. The run has the identity of the local plan."""
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", design_root)
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\n"
+        "rtl:\n"
+        "  sources: [sqrt.vhdl]\n"
+        "  top: sqrt\n"
+        "  clock: {port: clk}\n"
+        "flows:\n"
+        "  vivado_synth:\n"
+        "    set_synth_properties: {A: 1}\n"
+    )
+    items = [
+        "fpga.part=xc7a12tcsg325-1",
+        "clock.period=5ns",
+        "set_synth_properties.A.B=2",
+        "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0",
+    ]
+    plan = DefaultRunner(tmp_path / "local_plan", display_results=False).plan(
+        "vivado_synth", design_root / "sqrt.yaml", flow_settings=items
+    )
+    node = plan.node("vivado_synth")
+    wanted = {"A": "1", "A.B": "2", "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM": "0"}
+    assert {k: str(v) for k, v in node.settings.set_synth_properties.items()} == wanted
+
+    results = RemoteRunner(ensure_run_root(tmp_path / "local" / "xeda_run")).run_remote(
+        design_root / "sqrt.yaml", "vivado_synth", host="somewhere", flow_settings=items
+    )
+
+    assert results and results["success"], results
+    remote_settings = json.loads(
+        (_remote_run_dir(remote_host, "vivado_synth") / "settings.json").read_text()
+    )
+    reached = remote_settings["effective_flow_settings"]["set_synth_properties"]
+    assert {k: str(v) for k, v in reached.items()} == wanted
+    assert remote_settings["flowrun_hash"] == node.flowrun_hash
+
+
+def test_a_remote_run_keeps_names_of_a_group_setting_whole_when_one_starts_the_other(
+    tmp_path, monkeypatch
+):
+    """The same for a dictionary inside a settings group (`ir_drop.instance_power`)."""
+    from xeda.dataclass import ESCAPED_NAMES_VARIABLE, escape_opaque_names
+    from xeda.flows.openroad import Openroad
+
+    settings = Openroad.Settings.from_input(
+        {"ir_drop": {"instance_power": {"u_core": "2 mW", "u_core.reg_1": "1 mW"}}}
+    )
+    dumped = json.loads(json.dumps(settings.model_dump(mode="json", include={"ir_drop"})))
+    shipped = escape_opaque_names(Openroad.Settings, dumped)
+    assert shipped["ir_drop"]["instance_power"] == {
+        "u_core": "0.002 W",
+        "u_core\\.reg_1": "0.001 W",
+    }
+    monkeypatch.setenv(ESCAPED_NAMES_VARIABLE, "1")
+    read = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": [], "top": "t", "clock": "clk"},
+        flow={"openroad": shipped},
+    )
+    merged = compose_flow_settings(Openroad, [read.flow])
+    again = Openroad.Settings.from_input(merged)
+    assert dict(again.ir_drop.instance_power) == dict(settings.ir_drop.instance_power)
 
 
 def test_a_remote_run_is_always_mirrored_in_hashed_run_directories(tmp_path):

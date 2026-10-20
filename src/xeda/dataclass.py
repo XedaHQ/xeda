@@ -80,6 +80,9 @@ __all__ = [
     "opaque_key_fields_of",
     "opaque_key_declaration_problems",
     "opaque_key_paths",
+    "escape_opaque_names",
+    "ESCAPED_NAMES_VARIABLE",
+    "names_are_escaped_by_a_peer",
     "fold_dotted_keys",
     "atomic_keys",
     "AtomicName",
@@ -462,6 +465,41 @@ def opaque_key_paths(model: Type[BaseModel]) -> Tuple[str, ...]:
 ESCAPED_DOT = "\\."
 
 
+#: The environment variable that a remote run sets for the Xeda on the remote host. With the value
+#: `1`, a name with `ESCAPED_DOT` in a table of `opaque_key_fields` is a name that a Xeda shipped
+#: (`escape_opaque_names`) and not a mistake of a user. The remote reads the design that the local
+#: side sent. The local side has judged its settings, and it writes each dotted name escaped,
+#: since the design file of the remote is one origin that holds both `A` and `A.B`. A key of a
+#: user with a backslash before a dot stays an error everywhere else.
+ESCAPED_NAMES_VARIABLE = "XEDA_REMOTE_ESCAPED_NAMES"
+
+
+def names_are_escaped_by_a_peer() -> bool:
+    """Return whether this process reads the names of the settings that a Xeda shipped escaped
+    (`ESCAPED_NAMES_VARIABLE`)."""
+    return os.environ.get(ESCAPED_NAMES_VARIABLE) == "1"
+
+
+def escape_opaque_names(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str, Any]:
+    """Return `values`, the settings of `model` as a table, with the dots of every name in a table
+    of `opaque_key_fields` (at any depth) written as `ESCAPED_DOT`. Nothing else changes, and
+    `values` stays as it is."""
+    names = input_names(model)
+    opaque = opaque_key_fields_of(model)
+    result: Dict[str, Any] = {}
+    for key, value in values.items():
+        target = names.get(key, key)
+        info = model.model_fields.get(target)
+        child = nested_model(info.annotation) if info is not None else None
+        if target in opaque and isinstance(value, Mapping):
+            result[key] = {str(AtomicName.of(name)): item for name, item in value.items()}
+        elif child is not None and isinstance(value, Mapping):
+            result[key] = escape_opaque_names(child, value)
+        else:
+            result[key] = value
+    return result
+
+
 class AtomicName(str):
     """A name of a setting in `opaque_key_fields` that a merged table keeps whole, dots included.
 
@@ -508,11 +546,11 @@ def fold_dotted_keys(value: Any) -> Any:
             if isinstance(key, AtomicName):
                 name = key.name
             elif isinstance(key, str):
-                if ESCAPED_DOT in key:
+                if ESCAPED_DOT in key and not names_are_escaped_by_a_peer():
                     from .utils import EscapedName
 
                     raise EscapedName(prefix + key)
-                name = key
+                name = key.replace(ESCAPED_DOT, ".")
             else:
                 return False
             path = prefix + name

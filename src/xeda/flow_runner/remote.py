@@ -46,7 +46,13 @@ from ..flow import Flow, FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
 from ..flow.flow import written_path_problems
 from ..flow.flow import map_keyed_path_leaves
-from ..dataclass import BaseModel, is_locator, written_role
+from ..dataclass import (
+    ESCAPED_NAMES_VARIABLE,
+    BaseModel,
+    escape_opaque_names,
+    is_locator,
+    written_role,
+)
 from ..listing import VCS_METADATA, directory_files
 from ..proc_utils import tool_output_stream
 from ..utils import (
@@ -595,7 +601,13 @@ def send_design(
                 in_plan[0] = planned_flows is None or name in planned_flows
                 # Preserve explicitness: a section contributes only the keys it states.
                 rewritten = packaged_value(model)
-                shipped_sections[name] = {key: rewritten[key] for key in model.model_fields_set}
+                # The design file of the remote is one origin, and it expands a dotted key. A
+                # name in an `opaque_key_fields` table is escaped, so that it stays whole, and so
+                # that `A` and `A.B` can be in one table. The remote reads them whole when
+                # `ESCAPED_NAMES_VARIABLE` is set for it.
+                shipped_sections[name] = escape_opaque_names(
+                    cls.Settings, {key: rewritten[key] for key in model.model_fields_set}
+                )
         new_design["flow"] = shipped_sections
         with open(design_file, "w") as f:
             # The encoder that `settings.json` uses: a pydantic model serializes through pydantic,
@@ -1373,6 +1385,7 @@ class RemoteRunner(FlowLauncher):
                     design_file=design_file,
                     flow_settings={},
                     path_identities=path_identities,
+                    env={ESCAPED_NAMES_VARIABLE: "1"},
                 )
                 if not results_channel.isclosed():
                     results_str = results_channel.receive()
