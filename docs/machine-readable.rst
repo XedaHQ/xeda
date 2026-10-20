@@ -194,10 +194,11 @@ under the name that you can type as ``-s <name>=<value>``:
   (``bitstream`` of ``fpga_pack``, ``vcd``). The value is ``null`` when the flow reads the setting
   and does not write it.
 * ``opaque_keys`` is true for a setting that holds a dictionary whose keys are names that the tool
-  defines, such as the run properties of Vivado (``set_synth_properties``). A dot in such a key is
-  part of the name. For example, ``-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`` sets
-  the one property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM``. For any other setting, a dotted key is a
-  path into nested tables.
+  defines or that a netlist gives, such as the run properties of Vivado (``set_synth_properties``)
+  or the powers of instances (``ir_drop.instance_power``). A dot in such a key is part of the
+  name. For example, ``-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`` sets the one
+  property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM``. For any other setting, a dotted key is a path into
+  nested tables.
 * ``enum`` lists the permitted values when the setting is limited to a set.
 * ``tier`` is ``"common"``, ``"advanced"`` or ``"expert"``: how often a user needs the setting. It
   is for listings and documentation only, and it never changes what Xeda accepts. A setting that

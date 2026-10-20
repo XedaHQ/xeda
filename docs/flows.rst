@@ -142,9 +142,12 @@ A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an err
 ``timing`` and ``timing.x``, and so is the same pair in the other order. The same holds in a
 design file, a target, ``--design-overrides`` and a ``flows`` table.
 
-Some settings hold a dictionary whose keys are names that a tool defines. The run properties of
-Vivado are an example, and their names contain dots. A dotted key of such a setting is one key and
-not a path into nested tables::
+.. _opaque-keys:
+
+Some settings hold a dictionary whose keys are names that a tool defines or that a netlist gives.
+The run properties of Vivado are an example, and their names contain dots. So are the names of
+instances and nets after a flattening, such as ``u_core.reg_1``. A dotted key of such a setting is
+one key and not a path into nested tables::
 
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0
 
@@ -159,15 +162,26 @@ value or as a table, as for any setting. ``-s set_synth_properties.A=1`` and
 ``-s flows.vivado_synth.set_synth_properties.A.B=2`` are one origin, so Xeda refuses them too. A
 name with a backslash before a dot (``A\.B``) is refused in every origin, because the names of the
 tool have no backslash.
+A remote run (``--remote``) refuses such a table when it holds a name that starts with another
+name and a dot (``A`` and ``A.B``), before it connects. The message names the table and the keys.
+A local run accepts a table whose names come from different origins.
 
 A name with a space is a quoted shell item::
 
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
 
+The same holds for a dictionary inside a settings group. The path goes on to the dictionary, and
+the rest of the key is one name::
+
+    xeda run openroad design.yaml -s ir_drop.instance_power.u_core.reg_1=1mW ndr.assignments.u_core.clk_div=wide
+
 ``xeda list-settings --json`` marks these settings with ``"opaque_keys": true``. They are
 ``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` and the flows that share
-its settings, and the option tables of ``ise_synth``. In ``synth.steps`` and ``impl.steps``, a
-dotted key is a path into nested tables.
+its settings, the option tables of ``ise_synth``, and these dictionaries of ``openroad``, which
+are keyed by net or instance name: ``ir_drop.nets``, ``ir_drop.vsrc_files``,
+``ir_drop.instance_power`` and ``ndr.assignments``. In ``synth.steps`` and ``impl.steps``, and in
+a dictionary of tables such as ``ndr.rules``, a dotted key is a path into nested tables. A path
+that goes on past the value of a key is an error, as for any setting.
 
 A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
 empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
@@ -1804,6 +1818,11 @@ A leaf whose value is ``null`` takes the value of the platform when the platform
 and ``finish.buffer_cell``. Three leaves take the word ``platform``, which uses the map of the
 platform: ``arithmetic.adder_map``, ``sequential.latch_map`` and ``sequential.clockgate_map``. Each
 of them uses its ``*_file`` setting first, when that is set, and ``none`` turns the map off.
+The clock gate map of ``sky130hd`` is a file that Xeda ships. It defines the module
+``OPENROAD_CLKGATE`` (ports ``CK``, ``E`` and ``GCK``), as the clock gate maps of
+OpenROAD-flow-scripts do. The module is the cell ``sky130_fd_sc_hd__dlclkp_1`` when the macro
+``OPENROAD_CLKGATE`` is defined (``defines`` of the flow), and a wire from ``CK`` to ``GCK``
+otherwise. The flow reads the clock gate map with the same ``defines`` as the sources.
 A value that you set replaces the value of the platform. The Liberty files you list in ``liberty``
 replace the Liberty files of the platform. ``dont_use_cells`` adds to the cells of the platform.
 

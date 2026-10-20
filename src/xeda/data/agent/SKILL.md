@@ -134,8 +134,11 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   accepts. The tier `common` is not the `"common": true` key. For the most used
   settings of `yosys`, run `xeda list-settings yosys --tier common --json`.
 - A setting with `"opaque_keys": true` (`set_synth_properties` and `set_impl_properties` of
-  `vivado_synth` and `vivado_project`, ISE `*_options`) takes a dotted tool name as one key:
-  `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`. Quote a name with a space.
+  `vivado_synth` and `vivado_project`, ISE `*_options`, and the dictionaries of `openroad` keyed by
+  net or instance name: `ir_drop.nets`, `ir_drop.vsrc_files`, `ir_drop.instance_power`,
+  `ndr.assignments`) takes a dotted name as one key:
+  `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0` or
+  `-s ir_drop.instance_power.u_core.reg_1=1mW`. Quote a name with a space.
 - Settings every flow accepts (`"common": true`) include `nthreads` (alias `ncpus`), `dockerized`
   (run the tools from their Docker image), `docker`, `quiet`, `verbose`, `debug`,
   `redirect_stdout` and `lib_paths`. A setting with an `alias` accepts both names. A flow whose

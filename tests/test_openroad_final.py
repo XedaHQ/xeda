@@ -3679,6 +3679,14 @@ def test_the_power_of_an_instance_is_set_in_watts_before_the_analysis(tmp_path):
     ]
 
 
+def test_the_power_of_a_flattened_instance_goes_to_the_tool_with_its_dotted_name(tmp_path):
+    settings = {"ir_drop": {"instance_power": {"u_core": {"reg_1": "1 mW"}}}}
+    flow = final_flow(tmp_path, settings)
+    assert stage(render_final(flow), "xeda_ir_setup") == [
+        'set_pdnsim_inst_power -inst "u_core.reg_1" -power 0.001'
+    ]
+
+
 @pytest.mark.parametrize("source_type", ["full", "bumps", "straps"])
 def test_the_source_type_goes_to_every_analysis_in_capitals(tmp_path, source_type):
     found = analysis_lines(tmp_path, {"source_type": source_type})

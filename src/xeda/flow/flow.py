@@ -49,7 +49,6 @@ from ..dataclass import (
     WaveformText,
     XedaBaseModel,
     annotation_args,
-    annotation_kind,
     comma_separated_items,
     conventional_output,
     field_annotation,
@@ -59,8 +58,8 @@ from ..dataclass import (
     is_locator,
     model_validator,
     nested_model,
+    opaque_key_declaration_problems,
     opaque_key_fields_of,
-    table_entries,
     validation_errors,
     written_always,
     waveform_format,
@@ -550,18 +549,22 @@ def _plain_model(annotation: Any) -> Optional[type[BaseModel]]:
 def _expand_model_paths(value: Any, model: type[BaseModel], overrides: Dict[str, Any]) -> Any:
     """Return `value` with the path variables of a plain nested model expanded.
 
-    In a mapping, the field of each key decides (`input_names`). An instance is copied deeply,
-    and only when a field changes, so the caller's instance stays as it is."""
+    In a mapping, the field of each key decides (`input_names`). A field in `opaque_key_fields`
+    has its dotted keys joined first (`fold_dotted_keys`), since the path variables are at its
+    values. An instance is copied deeply, and only when a field changes, so the caller's
+    instance stays as it is."""
     if isinstance(value, Mapping):
         names = input_names(model)
-        return {
-            key: (
-                _expand_path_values(item, model.model_fields[names[key]].annotation, overrides)
-                if key in names
-                else item
-            )
-            for key, item in value.items()
-        }
+        opaque = opaque_key_fields_of(model)
+
+        def expanded(key: Any, item: Any) -> Any:
+            if key not in names:
+                return item
+            if names[key] in opaque:
+                item = fold_dotted_keys(item)
+            return _expand_path_values(item, model.model_fields[names[key]].annotation, overrides)
+
+        return {key: expanded(key, item) for key, item in value.items()}
     if isinstance(value, model):
         changed = {}
         for name, info in type(value).model_fields.items():
@@ -1229,24 +1232,9 @@ class Flow(metaclass=ABCMeta):
                     "without a default: give the field a default (`None`, or an empty value) "
                     "and name it in `required_settings`."
                 )
-            for name in opaque_key_fields_of(cls):
-                info = cls.model_fields.get(name)
-                if (
-                    info is None
-                    or annotation_kind(info.annotation)[0] != "dict"
-                    or table_entries(info.annotation) is not None
-                ):
-                    raise TypeError(
-                        f"{cls.__qualname__}: `{name}` is in `opaque_key_fields`, so it must be a "
-                        "setting that holds a dictionary of values (`Dict[str, int]`), not "
-                        "dictionaries."
-                    )
-
-        #: Settings that hold a dictionary whose keys are names from a tool (a Vivado run
-        #: property, `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`), which may contain dots. A dotted key
-        #: of such a setting is one key, whichever way it is given (`dataclass.fold_dotted_keys`).
-        #: A subclass adds to the fields of its bases (`dataclass.opaque_key_fields_of`).
-        opaque_key_fields: ClassVar[Tuple[str, ...]] = ()
+            problems = opaque_key_declaration_problems(cls)
+            if problems:
+                raise TypeError(f"{cls.__qualname__}: " + "; ".join(problems))
 
         #: Settings that no longer exist, with what replaced them (`NoReplacement(reason)` when
         #: nothing did). Giving one is an error that says so, instead of pydantic's "extra inputs

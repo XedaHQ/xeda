@@ -249,11 +249,15 @@ def test_the_store_resolves_every_role_and_the_pin_verifies(pair):
     except PdkNotInstalled as error:
         pytest.fail(f"the store lacks {pdk_pair_id(pair)}:\n{error}")
     verify_pin(located, residue)
-    expected = residue.files.role_paths(located.corner)
+    shipped = residue.shipped_paths()
+    expected = {**shipped, **residue.files.role_paths(located.corner)}
     assert set(located.files) == set(expected)
     for role, paths in located.files.items():
         assert len(paths) == len(expected[role]), role
         assert all(path.is_file() for path in paths), role
+    for role, paths in shipped.items():
+        if role not in residue.files.role_paths(located.corner):
+            assert located.files[role] == paths, "xeda's own file is in the package, not the store"
     if residue.upstream is not None:
         assert located.upstream_files and all(path.is_file() for path in located.upstream_files)
     else:
@@ -343,10 +347,14 @@ def _liberty_cells(files: list[Path]) -> dict[str, bool]:
 
 
 def _synthesize(
-    name: str, provider: Optional[str], tmp_path: Path, source: str
+    name: str,
+    provider: Optional[str],
+    tmp_path: Path,
+    source: str,
+    given: Optional[dict[str, Any]] = None,
 ) -> tuple[Any, list[str]]:
-    """Run the Yosys flow on `source` (module `top`, clock `clk`) for the platform, and return the
-    flow and the cells of its netlist."""
+    """Run the Yosys flow on `source` (module `top`, clock `clk`) for the platform, with the
+    settings in `given` added, and return the flow and the cells of its netlist."""
     store = require_pdk_store()
     design_root = tmp_path / "design"
     design_root.mkdir()
@@ -360,6 +368,7 @@ def _synthesize(
         "platform": name,
         "pdk_root": str(store),
         "clock": {"period": "10 ns"},
+        **(given or {}),
     }
     if provider is not None:
         settings["pdk_provider"] = provider
@@ -415,6 +424,49 @@ def test_real_yosys_uses_no_cell_that_the_platform_excludes(pair, tmp_path):
     assert results["platform"]["sources"]["dont_use_cells"] == model.sources["dont_use_cells"]
     hit = sorted({cell for cell in used for pattern in excluded if fnmatchcase(cell, pattern)})
     assert not hit, hit
+
+
+CLOCK_GATE = (
+    "module top(input clk, input en, input [3:0] d, output reg [3:0] q);\n"
+    "  wire gclk;\n"
+    "  OPENROAD_CLKGATE gate (.CK(clk), .E(en), .GCK(gclk));\n"
+    "  always @(posedge gclk) q <= d;\n"
+    "endmodule\n"
+)
+
+
+#: The pairs of a platform that ships a clock gate map (`shipped` in its residue), so that no case
+#: is generated for a platform that ships none. A store of other platforms defines no test.
+SHIPPING_PAIRS = [pair for pair in PAIRS if "clkgate_map" in load_residue(pair[0]).shipped]
+
+if SHIPPING_PAIRS:
+
+    @pytest.mark.parametrize("pair", SHIPPING_PAIRS, ids=[pdk_pair_id(p) for p in SHIPPING_PAIRS])
+    def test_real_yosys_maps_the_shipped_clock_gate_module_to_the_integrated_clock_gate(
+        pair, tmp_path
+    ):
+        """A design that instantiates `OPENROAD_CLKGATE` gets the integrated clock gate cell of
+        the platform (`sky130_fd_sc_hd__dlclkp_1`) when the macro `OPENROAD_CLKGATE` is defined, as
+        in OpenROAD-flow-scripts, and a wire when it is not."""
+        name, provider = pair
+        require_pdk_store()
+        require_yosys()
+        (tmp_path / "gated").mkdir()
+        (tmp_path / "plain").mkdir()
+        gated, used = _synthesize(
+            name,
+            provider,
+            tmp_path / "gated",
+            CLOCK_GATE,
+            {"defines": {"OPENROAD_CLKGATE": None}},
+        )
+        assert used.count("sky130_fd_sc_hd__dlclkp_1") == 1
+        assert used.count("sky130_fd_sc_hd__dfxtp_1") == 4
+        netlist = (gated.run_path / "netlist.v").read_text()
+        assert re.search(r"\.CLK\(clk\),\s*\.GATE\(en\)", netlist), "clock and enable are wired"
+        _, plain = _synthesize(name, provider, tmp_path / "plain", CLOCK_GATE)
+        assert "sky130_fd_sc_hd__dlclkp_1" not in plain
+        assert plain.count("sky130_fd_sc_hd__dfxtp_1") == 4
 
 
 def load_model(name: str, provider: Optional[str] = None) -> Any:

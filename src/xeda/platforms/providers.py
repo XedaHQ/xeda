@@ -335,6 +335,10 @@ def locate(
         role: [target.directory / path for path in paths]
         for role, paths in residue.files.role_paths(token).items()
     }
+    # The files of xeda are in the package and not in the store. A role of the layout wins.
+    files.update(
+        {role: paths for role, paths in residue.shipped_paths().items() if role not in files}
+    )
     upstream = [] if residue.upstream is None else residue.upstream.files
     return Located(
         provider=target.provider,

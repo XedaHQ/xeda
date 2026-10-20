@@ -33,7 +33,7 @@ from xeda.cli import cli
 from xeda.design import GitReference, SourceType
 from xeda.deliver import DeliveryError
 from xeda.flow import FlowException, FlowSettingsError, FlowSettingsException
-from xeda.flow_runner import DIR_NAME_HASH_LEN, get_flow_class
+from xeda.flow_runner import DIR_NAME_HASH_LEN, DefaultRunner, get_flow_class
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteIncompatible, RemoteRunner
 from xeda.flow_runner.default_runner import ProjectFileError
@@ -767,6 +767,103 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
     assert again and again["success"] and Path(again["run_path"]) == local_run
     assert not (local_run / "trace.json").exists()
     assert list((tmp_path / "started_in").iterdir()) == [], "the start directory stays empty"
+
+
+def _refusing_connection(monkeypatch):
+    def no_connection(*args, **kwargs):
+        raise AssertionError("connected before the request was judged")
+
+    monkeypatch.setattr(remote_module, "Connection", no_connection)
+
+
+def test_a_remote_run_refuses_a_vivado_table_that_holds_a_name_inside_another(
+    tmp_path, monkeypatch
+):
+    """`A` from the design file and `A.B` from the command line are two names of a table whose
+    keys are names of the tool, and a local run accepts them. The remote reads the design as one
+    origin, so the request is refused in preflight, before any login, naming the table and the
+    keys."""
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", design_root)
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
+        "flows:\n  vivado_synth:\n    fpga.part: xc7a12tcsg325-1\n    clock.period: 5ns\n"
+        "    set_synth_properties: {A: 1}\n"
+    )
+    items = ["set_synth_properties.A.B=2"]
+    local = DefaultRunner(tmp_path / "local_plan", display_results=False).plan(
+        "vivado_synth", design_root / "sqrt.yaml", flow_settings=items
+    )
+    assert {
+        k: str(v) for k, v in local.node("vivado_synth").settings.set_synth_properties.items()
+    } == {
+        "A": "1",
+        "A.B": "2",
+    }
+    _refusing_connection(monkeypatch)
+    runner = RemoteRunner(ensure_run_root(tmp_path / "local" / "xeda_run"))
+    with pytest.raises(FlowSettingsException) as error:
+        runner.run_remote(
+            design_root / "sqrt.yaml", "vivado_synth", host="somewhere", flow_settings=items
+        )
+    message = " ".join(str(error.value).split())
+    assert "`vivado_synth.set_synth_properties`" in message
+    assert "`A`" in message and "`A.B`" in message
+    assert "A local run accepts both" in message
+
+
+def test_a_remote_run_refuses_an_openroad_table_that_holds_a_name_inside_another(
+    tmp_path, monkeypatch
+):
+    from .openroad_utils import openroad_design, openroad_settings, register_openroad_flows
+    from .tiny_platform import tiny_store
+
+    store = tiny_store(tmp_path)
+    design = openroad_design(tmp_path / "design")
+    design.write_text(
+        design.read_text() + "flows:\n  openroad:\n    ir_drop.instance_power: {u_core: 2 mW}\n"
+    )
+    items = [*openroad_settings(store), "ir_drop.instance_power.u_core.reg_1=1mW"]
+    _refusing_connection(monkeypatch)
+    runner = RemoteRunner(ensure_run_root(tmp_path / "local" / "xeda_run"))
+    with register_openroad_flows(), pytest.raises(FlowSettingsException) as error:
+        runner.run_remote(design, "openroad", host="somewhere", flow_settings=items)
+    message = " ".join(str(error.value).split())
+    assert "`openroad.ir_drop.instance_power`" in message
+    assert "`u_core`" in message and "`u_core.reg_1`" in message
+    assert "A local run accepts both" in message
+
+
+def test_a_remote_run_with_dotted_names_that_do_not_nest_in_such_a_table_works(
+    tmp_path, remote_host
+):
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", design_root)
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
+    )
+    items = [
+        "fpga.part=xc7a12tcsg325-1",
+        "clock.period=5ns",
+        "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0",
+        "set_synth_properties.A.B=2",
+        "set_synth_properties.A.C=3",
+    ]
+    results = RemoteRunner(ensure_run_root(tmp_path / "local" / "xeda_run")).run_remote(
+        design_root / "sqrt.yaml", "vivado_synth", host="somewhere", flow_settings=items
+    )
+    assert results and results["success"], results
+    remote_settings = json.loads(
+        (_remote_run_dir(remote_host, "vivado_synth") / "settings.json").read_text()
+    )
+    reached = remote_settings["effective_flow_settings"]["set_synth_properties"]
+    assert {k: str(v) for k, v in reached.items()} == {
+        "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM": "0",
+        "A.B": "2",
+        "A.C": "3",
+    }
 
 
 def test_a_remote_run_is_always_mirrored_in_hashed_run_directories(tmp_path):

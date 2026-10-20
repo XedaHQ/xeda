@@ -7,6 +7,7 @@ The residue holds what neither the PDK files nor the configuration of the PDK gi
 * `corners`: the default corner and the aliases of the corners;
 * `files`: the role of each file (`liberty`, `tech_lef`, ...) with its path in the platform
   directory;
+* `shipped`: the roles of Yosys techmaps whose file xeda ships beside the residue file;
 * `values`: leaves of the platform model (`xeda.platforms.model`) that no lower layer gives;
 * `overrides`: leaves that a lower layer gives and that this platform sets differently, each with
   the reason.
@@ -52,6 +53,8 @@ __all__ = [
 PLATFORM_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 #: The keys of a provider entry that a view moves to the top level of the residue.
 VIEWED_KEYS = ("files", "upstream", "values")
+#: The roles that xeda may ship a file for: the Yosys techmaps, which a PDK may lack.
+SHIPPED_ROLES = ("latch_map", "clkgate_map", "adder_map")
 #: A commit of a Git repository, written in full.
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
@@ -340,15 +343,35 @@ class Residue(XedaBaseModel):
         default_factory=dict,
         description="Leaves that a lower layer gives and that this platform sets differently.",
     )
+    shipped: dict[str, str] = Field(
+        default_factory=dict,
+        description="Files that xeda ships beside the residue file of a bundled platform, by "
+        f"role ({', '.join(SHIPPED_ROLES)}). The value is the name of the file. A role in "
+        "`files` replaces the shipped file of the role.",
+    )
 
     #: The provider whose view this residue is, or `None` for a residue that is not a view.
     _view_of: Optional[str] = PrivateAttr(default=None)
+    #: The directory of the package that holds the files of `shipped`: that of the bundled
+    #: platform. A residue of a user file has none.
+    _package_directory: Optional[Path] = PrivateAttr(default=None)
 
     @field_validator("name", "extends", mode="after")
     @classmethod
     def _name_is_a_plain_name(cls, value: Optional[str]) -> Optional[str]:
         if value is not None and not PLATFORM_NAME.fullmatch(value):
             raise ValueError(f"`{value}` is not a platform name: use letters, digits, `_` and `-`")
+        return value
+
+    @field_validator("shipped", mode="after")
+    @classmethod
+    def _shipped_files_are_names_of_techmaps(cls, value: dict[str, str]) -> dict[str, str]:
+        for role, name in value.items():
+            if role not in SHIPPED_ROLES:
+                raise ValueError(
+                    f"`{role}` is not a role that xeda ships a file for ({', '.join(SHIPPED_ROLES)})"
+                )
+            plain_component(name)
         return value
 
     @model_validator(mode="after")
@@ -368,6 +391,11 @@ class Residue(XedaBaseModel):
         if both:
             raise ValueError(
                 f"{', '.join(both)}: given in both `values` and `overrides`; keep the override"
+            )
+        twice = [role for role in self.shipped if getattr(self.files, role, None)]
+        if twice:
+            raise ValueError(
+                f"{', '.join(twice)}: given in both `files` and `shipped`; keep the line of `files`"
             )
         if self.extends is None:
             self._is_complete()
@@ -450,6 +478,18 @@ class Residue(XedaBaseModel):
             )
         return token
 
+    def shipped_paths(self) -> dict[str, list[Path]]:
+        """Return the files that xeda ships for this platform, by role, as absolute paths. A
+        residue that ships nothing gives none. Raise `ValueError` for a residue that lists a
+        shipped file and has no package directory."""
+        if not self.shipped:
+            return {}
+        if self._package_directory is None:
+            raise ValueError(
+                f"platform '{self.name}' lists shipped files, but only a bundled platform has them"
+            )
+        return {role: [self._package_directory / name] for role, name in self.shipped.items()}
+
     def for_provider(self, name: Optional[str]) -> "Residue":
         """Return the residue as the provider `name` sees it (`None`: the default provider).
 
@@ -478,6 +518,12 @@ class Residue(XedaBaseModel):
         providers[name] = {
             key: value for key, value in providers[name].items() if key not in VIEWED_KEYS
         }
+        # A role that the layout of the provider gives replaces the shipped file of the role.
+        shipped = {
+            role: file
+            for role, file in self.shipped.items()
+            if role not in entry.files.model_fields_set
+        }
         try:
             view = Residue.model_validate(
                 {
@@ -490,11 +536,13 @@ class Residue(XedaBaseModel):
                     "files": _dumped(entry.files),
                     "values": nest_leaves(leaves),
                     "overrides": {key: _dumped(item) for key, item in self.overrides.items()},
+                    "shipped": shipped,
                 }
             )
         except ValidationError as error:
             raise ResidueError(validation_problems(error)) from None
         view._view_of = name
+        view._package_directory = self._package_directory
         return view
 
 
@@ -538,15 +586,23 @@ def load_residue(name_or_path: str | Path) -> Residue:
     """Load a residue. A name (`str`) is a bundled platform, and a `Path` is a residue file.
     Raise `ResidueError`, which names the file, if the file is not a valid residue."""
     if isinstance(name_or_path, Path):
-        return _read(name_or_path, str(name_or_path))
+        residue = _read(name_or_path, str(name_or_path))
+        if residue.shipped:
+            raise ResidueError(
+                f"{name_or_path}: `shipped` is for the bundled platforms; a file of yours goes in "
+                "`files`"
+            )
+        return residue
     names = bundled_platform_names()
     if name_or_path not in names:
         raise ResidueError(
             f"no platform '{name_or_path}' is bundled; the bundled platforms are: {', '.join(names)}"
         )
     label = f"xeda/platforms/{name_or_path}/platform.yaml"
-    with resources.as_file(resources.files("xeda.platforms") / name_or_path / "platform.yaml") as p:
+    directory = resources.files("xeda.platforms") / name_or_path
+    with resources.as_file(directory / "platform.yaml") as p:
         residue = _read(p, label)
+    residue._package_directory = Path(str(directory))
     if residue.name != name_or_path:
         raise ResidueError(f"{label}: the name is '{residue.name}', not '{name_or_path}'")
     if residue.extends is not None:
@@ -594,6 +650,12 @@ def effective_residue(
         return residue
     if residue is None:
         return user
+    # A role that the user file gives (even as `null`) replaces the shipped file of the role.
+    shipped = {
+        role: file
+        for role, file in residue.shipped.items()
+        if role not in user.files.model_fields_set
+    }
     files = {**_dumped(residue.files), **_dumped(user.files)}
     files["liberty"] = {**residue.files.liberty, **user.files.liberty}
     corners = {**_dumped(residue.corners), **_dumped(user.corners)}
@@ -618,9 +680,11 @@ def effective_residue(
                 "upstream": None if upstream is None else _dumped(upstream),
                 "corners": corners,
                 "files": files,
+                "shipped": shipped,
             }
         )
     except ValidationError as error:
         raise ResidueError(validation_problems(error)) from None
     merged._view_of = name
+    merged._package_directory = residue._package_directory
     return merged

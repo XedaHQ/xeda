@@ -726,7 +726,9 @@ _STRIPE_FLAG = re.compile(r"-(layer|width|pitch|offset)\s+\{([^}]*)\}")
 _PDN_KNOWN = ("add_global_connection", "global_connect", "set_voltage_domain", "add_pdn_connect")
 
 
-def _stripes(settings: Any) -> list[tuple[str, float, Optional[float], Optional[float]]]:
+def _stripes(
+    settings: Any,
+) -> list[tuple[str, Optional[float], Optional[float], Optional[float]]]:
     def um(value: Any) -> Optional[float]:
         return None if value is None else float(value.to("um"))
 
@@ -1866,15 +1868,32 @@ def command_run(args: argparse.Namespace) -> int:
     check_design(design)
     reference = ensure_reference(ctx, design, args.force)
     failed = not reference.get("success")
+    rows: dict[str, dict[str, Any]] = {}
     for half in halves:
-        if recorded_row(ctx, design, half, args.force) is not None:
+        saved = recorded_row(ctx, design, half, args.force)
+        if saved is not None:
             print(f"{config.spec} {half}: recorded already (--force reruns)", flush=True)
+            rows[half] = saved
             continue
         row = run_half(ctx, design, half, reference)
         failed |= not row["success"]
+        rows[half] = row
         print(f"{config.spec} {half}: {'ok' if row['success'] else row['error']}", flush=True)
     print(render_tables(ctx.root, [config.spec]))
-    return 1 if failed else 0
+    # A row that ran and misses the bar fails the command too. A failed row is already counted,
+    # and with a failed reference every row would miss it.
+    misses = (
+        {}
+        if not reference.get("success")
+        else {
+            half: problems
+            for half, row in rows.items()
+            if row.get("success") and (problems := bar_problems(row, reference))
+        }
+    )
+    for half, problems in misses.items():
+        print(f"{config.spec} {half}: misses the bar: {'; '.join(problems)}", flush=True)
+    return 1 if failed or misses else 0
 
 
 def command_table(args: argparse.Namespace) -> int:

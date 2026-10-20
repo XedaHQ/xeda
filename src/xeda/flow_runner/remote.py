@@ -46,7 +46,7 @@ from ..flow import Flow, FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
 from ..flow.flow import written_path_problems
 from ..flow.flow import map_keyed_path_leaves
-from ..dataclass import BaseModel, is_locator, written_role
+from ..dataclass import BaseModel, is_locator, names_inside_names, written_role
 from ..listing import VCS_METADATA, directory_files
 from ..proc_utils import tool_output_stream
 from ..utils import (
@@ -1140,6 +1140,18 @@ class RemoteRunner(FlowLauncher):
                 **{node.name: as_recorded(node.settings) for node in plan.nodes},
             }
             flow_settings = as_recorded(input_settings)
+            for section_name, section in sections.items():
+                section_class = _get_flow_class_if_known(section_name)
+                if section_class is None or not isinstance(section, Mapping):
+                    continue
+                for table, outer, inner in names_inside_names(section_class.Settings, section):
+                    raise FlowSettingsException(
+                        f"`{section_name}.{table}` holds the name `{outer}` and the name "
+                        f"`{inner}`, which starts with it and a dot. A local run accepts both, "
+                        "but a remote run refuses them: the remote reads the design as one "
+                        "origin, which cannot hold both. Give only one of them, or run the "
+                        "request without `--remote`"
+                    )
             # Hashed exactly as a local run would be, from the validated settings. Checked here
             # and not on the remote: a path that the flow writes and that leads out of its run
             # directory, a missing setting, and a design that the flow cannot run are known

@@ -21,20 +21,22 @@ from click.shell_completion import (
     split_arg_string,
 )
 
+from .cli_types import starts_opaque_key
 from .flow_catalog import _builtin_flows, _walk_head
 
 _SETTING_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.\[\]-]*\Z")
-_OPAQUE_KEY_START = re.compile(r"(?:flows\.[A-Za-z_][A-Za-z0-9_-]*\.)?([A-Za-z_][A-Za-z0-9_]*)\.")
+#: A key that may continue with a name of a tool after the path of a setting. This test is
+#: cheap; the catalog decides (`starts_opaque_key`).
+_OPAQUE_KEY_START = re.compile(r"(?:flows\.[A-Za-z_][A-Za-z0-9_-]*\.)?[A-Za-z_][A-Za-z0-9_]*\.")
 
 
-def _looks_like_setting(token: str, opaque_fields: set[str] | None = None) -> bool:
+def _looks_like_setting(token: str, opaque_paths: set[str] | None = None) -> bool:
     key, separator, _ = token.partition("=")
     if not separator:
         return False
     if _SETTING_KEY_RE.fullmatch(key):
         return True
-    match = _OPAQUE_KEY_START.match(key)
-    return bool(match and opaque_fields and match.group(1) in opaque_fields)
+    return bool(opaque_paths) and starts_opaque_key(key, cast(set[str], opaque_paths))
 
 
 @dataclass(frozen=True)
@@ -81,10 +83,11 @@ def _completion_records() -> dict[str, dict[str, Any]]:
     return records
 
 
-def _opaque_setting_fields() -> set[str]:
-    """Return opaque setting roots from the lightweight catalog, without loading flows."""
+def _opaque_setting_paths() -> set[str]:
+    """Return the dotted paths of the opaque settings from the lightweight catalog, without
+    loading flows."""
     return {
-        path.split(".", 1)[0]
+        path
         for record in _completion_records().values()
         for path, setting in record.get("settings", {}).items()
         if setting.get("opaque_keys")
@@ -172,18 +175,18 @@ def _parse_request_words(
     explicit_design = False
     last_setting_prefix = ""
     attached_settings_token_prefix = ""
-    opaque_fields: set[str] | None = None
+    opaque_paths: set[str] | None = None
 
     def is_setting_value(token: str) -> bool:
-        nonlocal opaque_fields
+        nonlocal opaque_paths
         if _looks_like_setting(token):
             return True
         key, separator, _ = token.partition("=")
         if not separator or _OPAQUE_KEY_START.match(key) is None:
             return False
-        if opaque_fields is None:
-            opaque_fields = _opaque_setting_fields()
-        return _looks_like_setting(token, opaque_fields)
+        if opaque_paths is None:
+            opaque_paths = _opaque_setting_paths()
+        return _looks_like_setting(token, opaque_paths)
 
     index = 0
     while index < len(request):

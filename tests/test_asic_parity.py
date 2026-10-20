@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import types
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any, Optional
 
@@ -1201,6 +1202,83 @@ def test_a_failed_row_and_a_missing_metric_are_problems() -> None:
 
 def test_a_missing_reference_is_a_problem() -> None:
     assert tool.bar_problems(row(), None) == ["no ORFS reference row"]
+
+
+# ---- the exit status of `run` ------------------------------------------------------------------
+
+
+def _run_command(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    rows: dict[str, dict[str, Any]],
+    reference: dict[str, Any] = REFERENCE,
+    recorded: Collection[str] = (),
+) -> tuple[int, str]:
+    """Run `command_run` for the halves in `rows`, with the tools replaced. A half in `recorded`
+    has a saved row, and the others run and give their row from `rows`."""
+    config = types.SimpleNamespace(spec="nangate45/gcd", flows={})
+    design = types.SimpleNamespace(variables={}, config=config)
+    monkeypatch.setattr(tool, "build_context", lambda args: types.SimpleNamespace(root=Path(".")))
+    monkeypatch.setattr(tool, "design_config_path", lambda spec: Path(spec))
+    monkeypatch.setattr(tool, "load_design_config", lambda path: config)
+    monkeypatch.setattr(tool, "registered_flow_names", lambda: set())
+    monkeypatch.setattr(tool, "xeda_plan", lambda *args, **kwargs: None)
+    monkeypatch.setattr(tool, "resolve_design", lambda ctx, config: design)
+    monkeypatch.setattr(tool, "check_design", lambda design: None)
+    monkeypatch.setattr(tool, "ensure_reference", lambda ctx, design, force: reference)
+    monkeypatch.setattr(
+        tool,
+        "recorded_row",
+        lambda ctx, design, half, force: rows[half] if half in recorded else None,
+    )
+    monkeypatch.setattr(tool, "run_half", lambda ctx, design, half, reference: rows[half])
+    monkeypatch.setattr(tool, "render_tables", lambda root, specs: "TABLE")
+    arguments = types.SimpleNamespace(design="nangate45/gcd", half=list(rows), force=False)
+    status = tool.command_run(arguments)
+    return status, capsys.readouterr().out
+
+
+def test_run_exits_zero_when_every_row_meets_the_bar(monkeypatch, capsys) -> None:
+    status, output = _run_command(monkeypatch, capsys, {"synthesis": row(), "pnr": row("pnr")})
+    assert status == 0
+    assert "misses the bar" not in output
+
+
+def test_run_exits_non_zero_and_names_the_row_that_misses_the_bar(monkeypatch, capsys) -> None:
+    rows = {
+        "synthesis": row(),
+        "pnr": row("pnr", finish__timing__setup__ws=-0.3, detailedroute__route__drc_errors=2),
+    }
+    status, output = _run_command(monkeypatch, capsys, rows)
+    assert status == 1
+    assert "nangate45/gcd pnr: misses the bar: WNS -0.300 ns" in output
+    assert "2 DRC errors" in output
+    assert "nangate45/gcd synthesis: misses" not in output
+    assert output.index("TABLE") < output.index("misses the bar")
+
+
+def test_run_exits_non_zero_for_a_saved_row_that_misses_the_bar(monkeypatch, capsys) -> None:
+    rows = {"both": row("both", finish__timing__hold__ws=-0.01)}
+    status, output = _run_command(monkeypatch, capsys, rows, recorded={"both"})
+    assert status == 1
+    assert "recorded already" in output and "both: misses the bar: hold WNS" in output
+
+
+def test_run_exits_non_zero_for_a_failed_row_without_a_bar_message(monkeypatch, capsys) -> None:
+    failed = row("pnr", success=False)
+    failed["error"] = "do-route failed"
+    status, output = _run_command(monkeypatch, capsys, {"pnr": failed})
+    assert status == 1
+    assert "do-route failed" in output and "misses the bar" not in output
+
+
+def test_run_exits_non_zero_for_a_failed_reference_without_a_bar_message(
+    monkeypatch, capsys
+) -> None:
+    failed = row("orfs", success=False)
+    status, output = _run_command(monkeypatch, capsys, {"pnr": row("pnr")}, reference=failed)
+    assert status == 1
+    assert "misses the bar" not in output
 
 
 def test_the_table_has_the_reference_row_first_and_a_verdict_per_half(tmp_path: Path) -> None:
