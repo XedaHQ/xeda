@@ -410,10 +410,12 @@ def test_remote_check_and_clean_work_on_the_host(tmp_path, monkeypatch, own_toke
     assert remote(f"test -d {layout}/env").returncode == 0, "the check makes the environment"
     (current,) = remote(f"ls {layout}/env").stdout.split()
 
-    # A stale environment and code copy (60 days old), and a workspace that was used just now.
+    # A stale environment and code copy (60 days old, each with the lock file that provisioning
+    # makes), and a workspace that was used just now.
     made = remote(
         f"mkdir -p {layout}/env/stale-env {layout}/code/stale-code {layout}/ws/stale-ws"
-        f" && touch {layout}/ws/stale-ws/lock"
+        f" && touch {layout}/ws/stale-ws/lock {layout}/env/stale-env/.xeda-lock"
+        f" {layout}/code/stale-code/.xeda-lock"
         f" && touch -d @$(($(date +%s) - 5184000)) {layout}/env/stale-env {layout}/code/stale-code"
     )
     assert made.returncode == 0, made.stderr
