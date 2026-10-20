@@ -50,7 +50,7 @@ from .errors import (
     RemoteProtocolError,
     RemoteProvisionError,
 )
-from .profile import HostProfile
+from .profile import HostProfile, env_name_problem
 from .ssh import SshSession, sh_command
 
 log = logging.getLogger(__name__)
@@ -67,6 +67,7 @@ ERROR_CODES = (
     "lock-timeout",
     "no-space",
     "bad-request",
+    "no-sha256",
     "unsupported-platform",
 )
 
@@ -90,7 +91,8 @@ _STDERR_LINES = 15
 #: bootstrap script uses the same value.
 LOW_DISK_KB = 51200
 
-_INSTALLER = r"""set -eu
+_INSTALLER = r"""# shellcheck disable=SC2034
+set -eu
 @@ENV@@
 say() {
     printf '\nXEDA-%s\n' "$*"
@@ -99,124 +101,126 @@ fail() {
     say "ERROR $1 $2"
     exit 1
 }
-system=$(uname -s)
-say "PROBE system=$system"
-if [ "$system" != Linux ]; then
-    fail not-linux "The remote system is '$system'. A remote run needs Linux."
+XEDA_BOOT_SYSTEM=$(uname -s)
+say "PROBE system=$XEDA_BOOT_SYSTEM"
+if [ "$XEDA_BOOT_SYSTEM" != Linux ]; then
+    fail not-linux "The remote system is '$XEDA_BOOT_SYSTEM'. A remote run needs Linux."
 fi
 say "PROBE machine=$(uname -m)"
-home=${HOME:-}
-if [ -z "$home" ] || [ ! -d "$home" ]; then
+XEDA_BOOT_HOME=${HOME:-}
+if [ -z "$XEDA_BOOT_HOME" ] || [ ! -d "$XEDA_BOOT_HOME" ]; then
     fail env-failed "The home directory of the remote user is not set, or it does not exist."
 fi
-home=${home%/}
+XEDA_BOOT_HOME=${XEDA_BOOT_HOME%/}
 case ${2:-} in
     -)
         case ${XDG_CACHE_HOME:-} in
-            /*) root=${XDG_CACHE_HOME%/}/xeda ;;
-            *) root=$home/.cache/xeda ;;
+            /*) XEDA_BOOT_ROOT=${XDG_CACHE_HOME%/}/xeda ;;
+            *) XEDA_BOOT_ROOT=$XEDA_BOOT_HOME/.cache/xeda ;;
         esac
         ;;
     home:*)
-        rel=${2#home:}
-        root=$home${rel:+/$rel}
+        XEDA_BOOT_REL=${2#home:}
+        XEDA_BOOT_ROOT=$XEDA_BOOT_HOME${XEDA_BOOT_REL:+/$XEDA_BOOT_REL}
         ;;
-    /*) root=$2 ;;
+    /*) XEDA_BOOT_ROOT=$2 ;;
     *) fail bad-request "Not a root: '${2:-}'." ;;
 esac
-root=${root%/}
-v=$root/v1
+XEDA_BOOT_ROOT=${XEDA_BOOT_ROOT%/}
+XEDA_BOOT_V=$XEDA_BOOT_ROOT/v1
 free_kb() {
     df -Pk "$1" 2>/dev/null </dev/null | {
-        read -r _header || :
-        read -r _name _size _used available _rest || :
-        printf '%s' "${available:-}"
+        read -r XEDA_BOOT_JUNK || :
+        read -r XEDA_BOOT_JUNK XEDA_BOOT_JUNK XEDA_BOOT_JUNK XEDA_BOOT_AVAILABLE XEDA_BOOT_JUNK || :
+        printf '%s' "${XEDA_BOOT_AVAILABLE:-}"
     }
 }
 fail_write() {
-    free=$(free_kb "$v")
-    case $free in
+    XEDA_BOOT_FREE=$(free_kb "$XEDA_BOOT_V")
+    case $XEDA_BOOT_FREE in
         '' | *[!0-9]*) ;;
         *)
-            if [ "$free" -lt @@LOW_DISK_KB@@ ]; then
-                fail no-space "The disk of $v has only $free KB free. $1"
+            if [ "$XEDA_BOOT_FREE" -lt @@LOW_DISK_KB@@ ]; then
+                fail no-space "The disk of $XEDA_BOOT_V has only $XEDA_BOOT_FREE KB free. $1"
             fi
             ;;
     esac
     fail env-failed "$1"
 }
-mkdir -p "$v/bin" || fail_write "Cannot create $v/bin."
-boot=$v/bin/@@BOOT_NAME@@
-if [ ! -f "$boot" ]; then
-    tmp=$v/bin/.boot.$$
-    cat >"$tmp" <<'@@BOOT_DELIMITER@@' || { rm -f "$tmp"; fail_write "Cannot write $boot."; }
+mkdir -p "$XEDA_BOOT_V/bin" || fail_write "Cannot create $XEDA_BOOT_V/bin."
+XEDA_BOOT_BOOT=$XEDA_BOOT_V/bin/@@BOOT_NAME@@
+if [ ! -f "$XEDA_BOOT_BOOT" ]; then
+    XEDA_BOOT_TMP=$XEDA_BOOT_V/bin/.boot.$$
+    cat >"$XEDA_BOOT_TMP" <<'@@BOOT_DELIMITER@@' || { rm -f "$XEDA_BOOT_TMP"; fail_write "Cannot write $XEDA_BOOT_BOOT."; }
 @@BOOT_TEXT@@
 @@BOOT_DELIMITER@@
-    mv "$tmp" "$boot" || fail_write "Cannot write $boot."
+    mv "$XEDA_BOOT_TMP" "$XEDA_BOOT_BOOT" || fail_write "Cannot write $XEDA_BOOT_BOOT."
 fi
-envfile=$v/bin/@@ENV_NAME@@
-if [ ! -f "$envfile" ]; then
-    tmp=$v/bin/.env.$$
-    cat >"$tmp" <<'@@ENV_DELIMITER@@' || { rm -f "$tmp"; fail_write "Cannot write $envfile."; }
+XEDA_BOOT_ENVFILE=$XEDA_BOOT_V/bin/@@ENV_NAME@@
+if [ ! -f "$XEDA_BOOT_ENVFILE" ]; then
+    XEDA_BOOT_TMP=$XEDA_BOOT_V/bin/.env.$$
+    # The file may hold a proxy password: only its owner reads it.
+    (umask 077; cat >"$XEDA_BOOT_TMP" <<'@@ENV_DELIMITER@@') || { rm -f "$XEDA_BOOT_TMP"; fail_write "Cannot write $XEDA_BOOT_ENVFILE."; }
 @@ENV_TEXT@@
 @@ENV_DELIMITER@@
-    mv "$tmp" "$envfile" || fail_write "Cannot write $envfile."
+    chmod 600 "$XEDA_BOOT_TMP" || fail_write "Cannot write $XEDA_BOOT_ENVFILE."
+    mv "$XEDA_BOOT_TMP" "$XEDA_BOOT_ENVFILE" || fail_write "Cannot write $XEDA_BOOT_ENVFILE."
 fi
-libc=unknown
-libc_version=unknown
-ldd_output=$(ldd --version 2>&1 </dev/null) || :
-case $ldd_output in
+XEDA_BOOT_LIBC=unknown
+XEDA_BOOT_LIBC_VERSION=unknown
+XEDA_BOOT_LDD_OUTPUT=$(ldd --version 2>&1 </dev/null) || :
+case $XEDA_BOOT_LDD_OUTPUT in
     *[Mm]usl*)
-        libc=musl
-        while IFS= read -r line; do
-            case $line in
+        XEDA_BOOT_LIBC=musl
+        while IFS= read -r XEDA_BOOT_LINE; do
+            case $XEDA_BOOT_LINE in
                 'Version '*)
-                    libc_version=${line#Version }
+                    XEDA_BOOT_LIBC_VERSION=${XEDA_BOOT_LINE#Version }
                     break
                     ;;
             esac
         done <<EOF_LDD
-$ldd_output
+$XEDA_BOOT_LDD_OUTPUT
 EOF_LDD
         ;;
     *GLIBC* | *'GNU libc'*)
-        libc=glibc
-        IFS= read -r line <<EOF_LDD
-$ldd_output
+        XEDA_BOOT_LIBC=glibc
+        IFS= read -r XEDA_BOOT_LINE <<EOF_LDD
+$XEDA_BOOT_LDD_OUTPUT
 EOF_LDD
-        libc_version=${line##* }
+        XEDA_BOOT_LIBC_VERSION=${XEDA_BOOT_LINE##* }
         ;;
     *)
-        glibc_version=$(getconf GNU_LIBC_VERSION 2>/dev/null) || glibc_version=
-        case $glibc_version in
+        XEDA_BOOT_GLIBC_VERSION=$(getconf GNU_LIBC_VERSION 2>/dev/null) || XEDA_BOOT_GLIBC_VERSION=
+        case $XEDA_BOOT_GLIBC_VERSION in
             'glibc '*)
-                libc=glibc
-                libc_version=${glibc_version#glibc }
+                XEDA_BOOT_LIBC=glibc
+                XEDA_BOOT_LIBC_VERSION=${XEDA_BOOT_GLIBC_VERSION#glibc }
                 ;;
         esac
         ;;
 esac
-say "PROBE libc=$libc"
-say "PROBE libc_version=$libc_version"
-say "PROBE home=$home"
-say "PROBE root=$root"
-say "PROBE boot=$boot"
-free=$(free_kb "$v")
-case $free in
-    '' | *[!0-9]*) free=-1 ;;
+say "PROBE libc=$XEDA_BOOT_LIBC"
+say "PROBE libc_version=$XEDA_BOOT_LIBC_VERSION"
+say "PROBE home=$XEDA_BOOT_HOME"
+say "PROBE root=$XEDA_BOOT_ROOT"
+say "PROBE boot=$XEDA_BOOT_BOOT"
+XEDA_BOOT_FREE=$(free_kb "$XEDA_BOOT_V")
+case $XEDA_BOOT_FREE in
+    '' | *[!0-9]*) XEDA_BOOT_FREE=-1 ;;
 esac
-say "PROBE disk_free_kb=$free"
-kill_user_processes=unknown
+say "PROBE disk_free_kb=$XEDA_BOOT_FREE"
+XEDA_BOOT_KILL_USER_PROCESSES=unknown
 if command -v loginctl >/dev/null 2>&1; then
-    login_output=$(loginctl show-user --property=KillUserProcesses 2>/dev/null </dev/null) || login_output=
-    case $login_output in
+    XEDA_BOOT_LOGIN_OUTPUT=$(loginctl show-user --property=KillUserProcesses 2>/dev/null </dev/null) || XEDA_BOOT_LOGIN_OUTPUT=
+    case $XEDA_BOOT_LOGIN_OUTPUT in
         KillUserProcesses=*)
-            kill_user_processes=${login_output#KillUserProcesses=}
-            kill_user_processes=${kill_user_processes%%[!a-z]*}
+            XEDA_BOOT_KILL_USER_PROCESSES=${XEDA_BOOT_LOGIN_OUTPUT#KillUserProcesses=}
+            XEDA_BOOT_KILL_USER_PROCESSES=${XEDA_BOOT_KILL_USER_PROCESSES%%[!a-z]*}
             ;;
     esac
 fi
-say "PROBE kill_user_processes=${kill_user_processes:-unknown}"
+say "PROBE kill_user_processes=${XEDA_BOOT_KILL_USER_PROCESSES:-unknown}"
 """
 
 
@@ -268,6 +272,9 @@ def env_file_text(env: Mapping[str, str]) -> str:
     line breaks)."""
     lines = []
     for name, value in sorted(env.items()):
+        problem = env_name_problem(name)
+        if problem:
+            raise RemoteConfigError(f"Invalid host profile: {problem}.")
         if "\0" in value:
             raise RemoteConfigError(f"The value of the environment variable {name} has a NUL byte.")
         lines.append(f"export {name}={shlex.quote(value)}\n")

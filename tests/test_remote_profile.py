@@ -127,6 +127,27 @@ def test_bad_env_name_is_refused(name, tmp_path, monkeypatch):
     assert "env" in message
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "VIRTUAL_ENV",
+        "UV_CACHE_DIR",
+        "UV_PYTHON_INSTALL_DIR",
+        "UV_NO_CONFIG",
+        "XEDA_BOOT_WORK",
+        "XEDA_BOOT_",
+    ],
+)
+def test_env_names_that_xeda_sets_are_refused(name, tmp_path, monkeypatch):
+    home = config_home(tmp_path, monkeypatch)
+    write(home / "xeda" / "remotes.yaml", f"hosts:\n  venona:\n    env: {{{name}: x}}\n")
+    with pytest.raises(RemoteConfigError) as info:
+        load_host_profile("venona")
+    assert f"{name} is set by xeda on the remote; remove it from env" in str(info.value)
+
+
 def test_good_env_names_are_accepted(tmp_path, monkeypatch):
     home = config_home(tmp_path, monkeypatch)
     write(

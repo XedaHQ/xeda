@@ -5,13 +5,13 @@ uses the network. It needs nothing but the standard library of Python 3.9.
 The fake reads its settings from the file `fake_remote.json` in the parent directory of `$HOME`
 (the remote home of the fake `ssh`), and it records its calls in `fake_uv.calls` beside it, as the
 other fakes do: one `CALL <n>` line per call, then one `ARG` line per argument, then `ENV` lines.
-The `ENV` lines show the variables that a test looks at: `UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`
-and `HTTPS_PROXY`. Every call is recorded, before it does anything.
+The `ENV` lines show the variables that a test looks at (`RECORDED_ENV`). Every call is recorded, before it does anything.
 
 Settings (all optional):
   python         the program that the Python of an environment runs (default: this Python)
   uv_venv_delay  seconds that `venv` takes
   uv_pip_fail    a message: `pip install` prints it on the standard error and fails
+  uv_python_fail a message: `python install` prints it on the standard error and fails
 
 Commands (the global option `--no-config`, and any other option that is not listed, is ignored):
   --version                              print `uv <version>`
@@ -30,7 +30,14 @@ import sys
 import time
 
 VERSION = "0.12.23"
-RECORDED_ENV = ("UV_CACHE_DIR", "UV_PYTHON_INSTALL_DIR", "HTTPS_PROXY")
+RECORDED_ENV = (
+    "UV_CACHE_DIR",
+    "UV_PYTHON_INSTALL_DIR",
+    "UV_NO_CONFIG",
+    "HTTPS_PROXY",
+    "VIRTUAL_ENV",
+    "CONDA_PREFIX",
+)
 
 
 def parent_of_home() -> str:
@@ -93,6 +100,8 @@ def python(args: list, config: dict) -> None:
     command, rest = args[0], [a for a in args[1:] if not a.startswith("--")]
     where = os.path.join(install_dir(), rest[0] if rest else "", "bin", "python")
     if command == "install":
+        if config.get("uv_python_fail"):
+            fail(config["uv_python_fail"], 1)
         write_python(where, config)
     elif command == "find":
         if not os.path.exists(where):

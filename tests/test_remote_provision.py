@@ -41,7 +41,7 @@ from xeda.remote.provision import (
 from xeda.remote.ssh import SshSession, resolve_destination, sh_command
 
 from .tool_utils import FAKE_TOOLS_DIR
-from .remote_fixtures import FAKE_TARGET, fake_remote, fake_ssh
+from .remote_fixtures import FAKE_TARGET, FakeRemote, fake_remote, fake_ssh
 
 pytestmark = pytest.mark.python_compat
 FIXTURES = (fake_ssh, fake_remote)
@@ -51,7 +51,7 @@ SPEC = DependencySpec(
     constraints=("pydantic==2.14.1",),
 )
 #: Poll the locks of the script at once, not once per second.
-FAST = {"XEDA_BOOT_POLL": "0.1"}
+FAST = {"XEDA_LOCK_POLL": "0.1"}
 
 AGENT = """\
 import json, os, sys
@@ -296,7 +296,7 @@ def test_failure_on_a_full_disk_is_reported_as_such(fake_remote, snapshot, tmp_p
 
 
 def test_two_provisions_at_once_build_one_environment(fake_remote, snapshot):
-    fake_remote.configure(uv_venv_delay=1.0)
+    fake_remote.configure(uv_venv_delay=3.0)
     results = {}
     errors = []
 
@@ -306,10 +306,17 @@ def test_two_provisions_at_once_build_one_environment(fake_remote, snapshot):
         except BaseException as error:  # reported by the main thread
             errors.append(error)
 
-    threads = [threading.Thread(target=work, args=(name,)) for name in ("a", "b")]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
+    locks = fake_remote.layout / "locks"
+    first = threading.Thread(target=work, args=("a",))
+    first.start()
+    # the second one starts only when the first one holds a lock, so it has to wait
+    deadline = time.time() + 60
+    while not (locks.is_dir() and list(locks.glob("*.lock"))):
+        assert time.time() < deadline and first.is_alive(), errors
+        time.sleep(0.01)
+    second = threading.Thread(target=work, args=("b",))
+    second.start()
+    for thread in (first, second):
         thread.join(timeout=120)
     assert not errors, errors
     assert results["a"][0] == results["b"][0]
@@ -317,10 +324,9 @@ def test_two_provisions_at_once_build_one_environment(fake_remote, snapshot):
     assert sum(1 for call in fake_remote.calls("curl")) == 1
     installs = [c for c in fake_remote.calls("uv") if c[1:3] == ["python", "install"]]
     assert len(installs) == 1
-    waited = [s for _, steps in results.values() for s in steps if s.startswith("Waiting")]
-    assert waited, "one of the two should have waited for the lock"
+    assert [s for s in results["b"][1] if s.startswith("Waiting")]
     assert [p.name for p in (fake_remote.layout / "code").iterdir()] == [snapshot.key]
-    assert not list((fake_remote.layout / "locks").glob("*"))
+    assert not list(locks.glob("*"))
 
 
 def test_noise_from_the_login_shell_is_ignored(fake_remote, snapshot, monkeypatch):
@@ -437,12 +443,16 @@ def test_put_code_refuses_unsafe_archives(fake_remote, snapshot, tmp_path):
         out = io.BytesIO()
         with tarfile.open(fileobj=out, mode="w") as tar:
             info = tarfile.TarInfo(name)
-            if kind == "link":
-                info.type = tarfile.SYMTYPE
-                info.linkname = "/etc/passwd"
+            if kind in ("link", "hardlink"):
+                info.type = tarfile.SYMTYPE if kind == "link" else tarfile.LNKTYPE
+                info.linkname = "/etc/passwd" if kind == "link" else "xeda/__init__.py"
+            elif kind == "device":
+                info.type = tarfile.CHRTYPE
+                info.devmajor, info.devminor = 1, 3
             else:
                 info.size = 1
-            tar.addfile(info, io.BytesIO(b"x") if kind != "link" else None)
+            data = io.BytesIO(b"x") if kind == "file" else None
+            tar.addfile(info, data)
         return out.getvalue()
 
     key = "f" * 24
@@ -452,6 +462,8 @@ def test_put_code_refuses_unsafe_archives(fake_remote, snapshot, tmp_path):
             ("../x", "file"),
             ("a/../../x", "file"),
             ("x", "link"),
+            ("x", "hardlink"),
+            ("x", "device"),
         ):
             run = session.run(
                 sh_command("put-code", result.env_hash, key, script_path=result.boot),
@@ -585,3 +597,220 @@ def test_lost_connection_during_a_step_is_a_connection_error(fake_remote, snapsh
         (Path(session._control)).unlink()
         with pytest.raises(RemoteConnectionError):
             ensure_environment(session, found, HostProfile(), snapshot, SPEC, lambda _: None)
+
+
+# --- Hardening --------------------------------------------------------------------------------
+
+
+def boot_environment(remote: FakeRemote, **extra: str) -> dict:
+    """The environment of a remote command, for a test that runs the script without ssh."""
+    return {
+        "PATH": os.environ["XEDA_FAKE_SSH_PATH"],
+        "HOME": str(remote.home),
+        "USER": "xeda",
+        **extra,
+    }
+
+
+def run_boot(remote: FakeRemote, result: Provisioned, *args: str, stdin: bytes = b"", **env: str):
+    return subprocess.run(
+        ["sh", result.boot, args[0], result.env_hash, *args[1:]],
+        input=stdin,
+        capture_output=True,
+        env=boot_environment(remote, **env),
+        timeout=60,
+    )
+
+
+def test_env_file_is_private(fake_remote, snapshot):
+    result, _ = provision_once(snapshot, HostProfile(env={**FAST, "HTTPS_PROXY": "http://u:p@h"}))
+    path = fake_remote.layout / "bin" / f"env-{result.env_hash}.sh"
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert "http://u:p@h" in path.read_text()
+
+
+def test_missing_sha_tool_is_reported_before_the_download(fake_remote, snapshot, tmp_path):
+    names = [n for n in UTILITIES if n not in ("sha256sum", "shasum")]
+    fake_remote.set_path(fake_remote.restricted_path(tmp_path, names))
+    with pytest.raises(RemoteProvisionError, match="sha256sum") as refused:
+        provision_once(snapshot)
+    assert refused.value.code == "no-sha256"
+    assert fake_remote.calls("curl") == []
+    assert not list((fake_remote.layout / "locks").glob("*"))
+
+
+def test_live_owner_on_this_host_is_waited_for_however_old_its_lock(fake_remote, snapshot):
+    with SshSession(resolve_destination("venona")) as session:
+        probe(session, HostProfile())
+    lock = fake_remote.layout / "locks" / f"uv-{UV_VERSION}-{FAKE_TARGET}.lock"
+    lock.mkdir(parents=True)
+    # the owner is this test process: alive, on this host, and the lock is three hours old
+    (lock / "owner").write_text(f"{os.uname().nodename} {os.getpid()} {int(time.time()) - 10800}\n")
+    outcome = {}
+
+    def work() -> None:
+        try:
+            outcome["result"] = provision_once(snapshot)
+        except BaseException as error:
+            outcome["error"] = error
+
+    thread = threading.Thread(target=work)
+    thread.start()
+    time.sleep(2)
+    assert thread.is_alive() and "error" not in outcome  # still waiting
+    shutil.rmtree(lock)
+    thread.join(timeout=120)
+    assert "error" not in outcome, outcome.get("error")
+    assert any(step.startswith("Waiting") for step in outcome["result"][1])
+
+
+def test_virtual_environment_variables_do_not_reach_uv(fake_remote, snapshot):
+    result, _ = provision_once(snapshot)
+    # a new key, so that the script builds again
+    key = "a" * 24
+    run = run_boot(
+        fake_remote,
+        result,
+        "provision",
+        key,
+        python_choice("managed").request,
+        UV_VERSION,
+        fake_remote.uv_url,
+        fake_remote.uv_sha256,
+        stdin=b"R pydantic>=2\n",
+        VIRTUAL_ENV="/some/venv",
+        CONDA_PREFIX="/some/conda",
+    )
+    assert run.returncode == 0, run.stderr.decode()
+    venv_calls = [c for c in fake_remote.calls("uv") if "venv" in c]
+    assert len(venv_calls) == 2
+    assert all(
+        not any(a.startswith(("ENV VIRTUAL_ENV", "ENV CONDA_PREFIX")) for a in c)
+        for c in fake_remote.calls("uv")[len(fake_remote.calls("uv")) - 5 :]
+    )
+    assert any("ENV UV_NO_CONFIG=1" in c for c in fake_remote.calls("uv"))
+
+
+def test_stale_break_directory_is_removed(fake_remote, snapshot):
+    with SshSession(resolve_destination("venona")) as session:
+        probe(session, HostProfile())
+    locks = fake_remote.layout / "locks"
+    name = f"uv-{UV_VERSION}-{FAKE_TARGET}"
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead.wait()
+    (locks / f"{name}.lock").mkdir(parents=True)
+    (locks / f"{name}.lock" / "owner").write_text(
+        f"{os.uname().nodename} {dead.pid} {int(time.time())}\n"
+    )
+    # a process that broke the lock stopped three hours ago and left its break directory
+    (locks / f"{name}.lock.break").mkdir()
+    (locks / f"{name}.lock.break" / "time").write_text(f"{int(time.time()) - 10800}\n")
+    provision_once(snapshot)
+    assert not list(locks.glob("*"))
+
+
+def test_leftovers_of_dead_processes_are_removed_and_others_are_kept(fake_remote, snapshot):
+    result, _ = provision_once(snapshot)
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead.wait()
+    host = os.uname().nodename
+    layout = fake_remote.layout
+    gone = [
+        layout / "tmp" / f"{host}.{dead.pid}",
+        layout / "code" / f".{'b' * 24}.{host}.{dead.pid}",
+        layout / "uv" / f"0.1.2-x86_64-unknown-linux-gnu.new.{host}.{dead.pid}",
+    ]
+    kept = [
+        layout / "tmp" / f"{host}.{os.getpid()}",  # a live process
+        layout / "tmp" / f"other-host.{dead.pid}",  # a process that may run on another host
+        layout / "code" / f".{'c' * 24}.other-host.{dead.pid}",
+        layout / "uv" / f"0.1.2-x86_64-unknown-linux-gnu.new.other-host.{dead.pid}",
+    ]
+    for path in gone + kept:
+        path.mkdir(parents=True)
+        (path / "file").write_text("x")
+    # a new environment key and a new code key make the script run both commands
+    other = DependencySpec(requirements=("pydantic>=3",), constraints=())
+    provision_once(code_snapshot_with(snapshot, "second"), spec=other)
+    assert not [p for p in gone if p.exists()]
+    assert all(p.exists() for p in kept)
+    assert result.root == str(fake_remote.root)
+
+
+def code_snapshot_with(snapshot: CodeSnapshot, marker: str) -> CodeSnapshot:
+    """Another snapshot of the same small package, with a different key."""
+    package = snapshot.files[0][1].parent
+    (package / "marker.py").write_text(f"x = {marker!r}\n")
+    return code_snapshot(package)
+
+
+def test_python_install_failure_is_python_failed(fake_remote, snapshot):
+    fake_remote.configure(uv_python_fail="no download for this platform")
+    with pytest.raises(RemoteProvisionError, match="could not install the Python") as failed:
+        provision_once(snapshot)
+    assert failed.value.code == "python-failed"
+    assert "no download for this platform" in str(failed.value)
+    assert not list((fake_remote.layout / "locks").glob("*"))
+    assert fake_remote.venv_builds() == 0
+
+
+def test_missing_system_python_is_python_failed(fake_remote, snapshot, tmp_path):
+    with pytest.raises(RemoteProvisionError, match="not an executable") as failed:
+        provision_once(snapshot, HostProfile(env=FAST, python=str(tmp_path / "no-python")))
+    assert failed.value.code == "python-failed"
+
+
+def test_noise_without_a_line_break_does_not_hide_a_protocol_line(fake_remote, snapshot):
+    # a program that prints text without a line break, just before the script prints a step
+    chmod = shutil.which("chmod")
+    (fake_remote.bin / "chmod").write_text(f'#!/bin/sh\nprintf Welcome\nexec {chmod} "$@"\n')
+    (fake_remote.bin / "chmod").chmod(0o755)
+    _, steps = provision_once(snapshot)
+    assert starts(steps) == ["Installing uv", "Installing Python", "Creating the", "Uploading xeda"]
+
+
+#: The variables of the script and the installer that are not the shell's own or xeda's: none.
+ALLOWED_VARIABLES = {
+    "PYTHONPATH", "VIRTUAL_ENV", "UV_CACHE_DIR", "UV_PYTHON_INSTALL_DIR", "UV_NO_PROGRESS",
+    "UV_NO_CONFIG", "IFS",
+}  # fmt: skip
+
+
+def assigned_names(text: str):
+    import re
+
+    names = set()
+    for line in text.splitlines():
+        if line.lstrip().startswith("#") or re.fullmatch(r"\s*\S+\)", line):  # a comment, a case
+            continue
+        statement = r"(?:^\s*|[;{]\s*|\b(?:if|elif|while)\s+!?\s*)"
+        names.update(re.findall(statement + r"([A-Za-z_][A-Za-z0-9_]*)=", line))
+        names.update(re.findall(r"\bfor ([A-Za-z_][A-Za-z0-9_]*) in\b", line))
+        for read in re.findall(r"\bread (?:-r )?([A-Za-z_][A-Za-z0-9_ ]*)", line):
+            names.update(w for w in read.split() if not w[0].isdigit())
+    return names
+
+
+def test_every_variable_of_the_scripts_is_prefixed():
+    installer = provision.installer_script(provision.boot_script(), "")
+    for text in (script_path().read_text(), installer):
+        wrong = {
+            n for n in assigned_names(text) if not n.startswith("XEDA_BOOT_")
+        } - ALLOWED_VARIABLES
+        assert not wrong, wrong
+
+
+def test_variables_of_a_profile_cannot_change_the_state_of_the_script(fake_remote, snapshot):
+    unprefixed = {
+        "WORK": "/", "STAGE": "/", "ENV_BUILDING": "/", "V": "/nonexistent", "LOCKS": "/",
+        "HOST": "x", "POLL": "x", "LOCK_LIMIT": "0", "UV": "/bin/false", "HELD_LOCKS": "/",
+        "CHILD": "1", "status": "x", "key": "x", "name": "x", "lock": "/", "line": "x",
+        "command": "x", "file": "x", "target": "x", "url": "x", "python": "x", "free": "x",
+        "home": "/", "root": "/", "boot": "/", "tmp": "/", "system": "x", "libc": "x",
+    }  # fmt: skip
+    result, steps = provision_once(snapshot, HostProfile(env={**FAST, **unprefixed}))
+    assert starts(steps)[0] == "Installing uv"
+    again, steps = provision_once(snapshot, HostProfile(env={**FAST, **unprefixed}))
+    assert again == result and steps == []
+    assert (fake_remote.layout / "bin").is_dir()
+    assert result.root == str(fake_remote.root)

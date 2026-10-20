@@ -1823,7 +1823,27 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
     ),
     (
         "remote/bootstrap.sh",
-        'rm -rf "$ENV_BUILDING"',
+        'rm -rf "$XEDA_BOOT_BREAKER"',
+    ): (
+        2,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: the break directory of a lock, which this process made or which is older "
+        "than the lock limit (its process stopped)",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_SWEEP_PATH"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: a work, staging or uv directory whose name has this host and a process "
+        "that is gone (a process that was killed)",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_ENV_BUILDING"',
     ): (
         1,
         "the bootstrap script runs on the remote host, outside a run directory, in its own "
@@ -1832,7 +1852,7 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
     ),
     (
         "remote/bootstrap.sh",
-        'rm -rf "$STAGE"',
+        'rm -rf "$XEDA_BOOT_STAGE"',
     ): (
         2,
         "the bootstrap script runs on the remote host, outside a run directory, in its own "
@@ -1841,7 +1861,7 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
     ),
     (
         "remote/bootstrap.sh",
-        'rm -rf "$WORK"',
+        'rm -rf "$XEDA_BOOT_WORK"',
     ): (
         2,
         "the bootstrap script runs on the remote host, outside a run directory, in its own "
@@ -1850,7 +1870,7 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
     ),
     (
         "remote/bootstrap.sh",
-        'rm -rf "$LOCKS/$held.lock"',
+        'rm -rf "$XEDA_BOOT_LOCKS/$XEDA_BOOT_HELD.lock"',
     ): (
         1,
         "the bootstrap script runs on the remote host, outside a run directory, in its own "
@@ -1868,7 +1888,7 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
     ),
     (
         "remote/bootstrap.sh",
-        'rm -rf "$LOCKS/$1.lock"',
+        'rm -rf "$XEDA_BOOT_LOCKS/$1.lock"',
     ): (
         1,
         "the bootstrap script runs on the remote host, outside a run directory, in its own "
@@ -1877,7 +1897,7 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
     ),
     (
         "remote/bootstrap.sh",
-        'rm -rf "$uv_dir"',
+        'rm -rf "$XEDA_BOOT_UV_DIR"',
     ): (
         1,
         "the bootstrap script runs on the remote host, outside a run directory, in its own "
@@ -1886,7 +1906,7 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
     ),
     (
         "remote/bootstrap.sh",
-        'rm -rf "$env_dir"',
+        'rm -rf "$XEDA_BOOT_ENV_DIR"',
     ): (
         1,
         "the bootstrap script runs on the remote host, outside a run directory, in its own "
@@ -1895,7 +1915,7 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
     ),
     (
         "remote/bootstrap.sh",
-        'rm -rf "$V/code/$key"',
+        'rm -rf "$XEDA_BOOT_V/code/$XEDA_BOOT_KEY"',
     ): (
         1,
         "the bootstrap script runs on the remote host, outside a run directory, in its own "

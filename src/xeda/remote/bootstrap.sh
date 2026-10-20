@@ -20,6 +20,10 @@
 # The output of the tools goes to the standard error. The command `agent` is the exception: it
 # replaces this script with the agent, which owns the standard input and output.
 
+# Every variable of this script starts with XEDA_BOOT_, because the environment file of the host
+# profile is sourced and its variables must never change the state of the script. The values that
+# the script reads and discards are in variables that the shell sees as unused.
+# shellcheck disable=SC2034
 set -eu
 
 # ---- Output ----------------------------------------------------------------------------------
@@ -38,31 +42,31 @@ die() {
 
 # Every directory and lock that this process makes is removed when it ends, also when a signal
 # stops it.
-HELD_LOCKS=
-WORK=
-STAGE=
-ENV_BUILDING=
-CHILD=
+XEDA_BOOT_HELD_LOCKS=
+XEDA_BOOT_WORK=
+XEDA_BOOT_STAGE=
+XEDA_BOOT_ENV_BUILDING=
+XEDA_BOOT_CHILD=
 
 cleanup() {
-    status=$?
+    XEDA_BOOT_STATUS=$?
     trap - EXIT
-    if [ -n "$CHILD" ]; then
-        kill "$CHILD" 2>/dev/null || :
+    if [ -n "$XEDA_BOOT_CHILD" ]; then
+        kill "$XEDA_BOOT_CHILD" 2>/dev/null || :
     fi
-    if [ -n "$ENV_BUILDING" ]; then
-        rm -rf "$ENV_BUILDING"
+    if [ -n "$XEDA_BOOT_ENV_BUILDING" ]; then
+        rm -rf "$XEDA_BOOT_ENV_BUILDING"
     fi
-    if [ -n "$STAGE" ]; then
-        rm -rf "$STAGE"
+    if [ -n "$XEDA_BOOT_STAGE" ]; then
+        rm -rf "$XEDA_BOOT_STAGE"
     fi
-    if [ -n "$WORK" ]; then
-        rm -rf "$WORK"
+    if [ -n "$XEDA_BOOT_WORK" ]; then
+        rm -rf "$XEDA_BOOT_WORK"
     fi
-    for held in $HELD_LOCKS; do
-        rm -rf "$LOCKS/$held.lock"
+    for XEDA_BOOT_HELD in $XEDA_BOOT_HELD_LOCKS; do
+        rm -rf "$XEDA_BOOT_LOCKS/$XEDA_BOOT_HELD.lock"
     done
-    exit "$status"
+    exit "$XEDA_BOOT_STATUS"
 }
 
 trap cleanup EXIT
@@ -78,56 +82,56 @@ case $0 in
     /*) ;;
     *) die bad-request "The script path '$0' is not absolute." ;;
 esac
-V=$(cd "$(dirname "$0")/.." && pwd)
-LOCKS=$V/locks
+XEDA_BOOT_V=$(cd "$(dirname "$0")/.." && pwd)
+XEDA_BOOT_LOCKS=$XEDA_BOOT_V/locks
 # The environment file of the host profile comes first: its variables apply to everything below.
 if [ $# -lt 2 ]; then
     die bad-request "Usage: boot.sh <command> <env-hash> ..."
 fi
-command=$1
-env_hash=$2
+XEDA_BOOT_COMMAND=$1
+XEDA_BOOT_ENV_HASH=$2
 shift 2
-case $env_hash in
-    '' | *[!0-9a-f]*) die bad-request "The environment hash '$env_hash' is not a key." ;;
+case $XEDA_BOOT_ENV_HASH in
+    '' | *[!0-9a-f]*) die bad-request "The environment hash '$XEDA_BOOT_ENV_HASH' is not a key." ;;
 esac
-if [ ! -f "$V/bin/env-$env_hash.sh" ]; then
-    die bad-request "The environment file env-$env_hash.sh is missing."
+if [ ! -f "$XEDA_BOOT_V/bin/env-$XEDA_BOOT_ENV_HASH.sh" ]; then
+    die bad-request "The environment file env-$XEDA_BOOT_ENV_HASH.sh is missing."
 fi
 # shellcheck source=/dev/null
-. "$V/bin/env-$env_hash.sh"
+. "$XEDA_BOOT_V/bin/env-$XEDA_BOOT_ENV_HASH.sh"
 
-HOST=$(uname -n)
+XEDA_BOOT_HOST=$(uname -n)
 #: Seconds between two checks of a lock. The tests set a shorter time in the `env` of a profile.
-POLL=${XEDA_BOOT_POLL:-1}
+XEDA_BOOT_POLL=${XEDA_LOCK_POLL:-1}
 #: Seconds after which a lock that another process holds is reported, not waited for.
-LOCK_LIMIT=1800
+XEDA_BOOT_LOCK_LIMIT=1800
 #: Free space in KB below which a failed step is reported as a full disk.
-LOW_DISK_KB=51200
+XEDA_BOOT_LOW_DISK_KB=51200
 
 # ---- Helpers ---------------------------------------------------------------------------------
 
 free_kb() {
-    df -Pk "$V" 2>/dev/null </dev/null | {
-        read -r _header || :
-        read -r _name _size _used available _rest || :
-        printf '%s' "${available:-}"
+    df -Pk "$XEDA_BOOT_V" 2>/dev/null </dev/null | {
+        read -r XEDA_BOOT_HEADER || :
+        read -r XEDA_BOOT_NAME XEDA_BOOT_SIZE XEDA_BOOT_USED XEDA_BOOT_AVAILABLE XEDA_BOOT_REST || :
+        printf '%s' "${XEDA_BOOT_AVAILABLE:-}"
     }
 }
 
 # Report a failed step with `code`, or, if the disk is nearly full, as a full disk.
 fail_step() {
-    code=$1
-    message=$2
-    free=$(free_kb)
-    case $free in
+    XEDA_BOOT_CODE=$1
+    XEDA_BOOT_MESSAGE=$2
+    XEDA_BOOT_FREE=$(free_kb)
+    case $XEDA_BOOT_FREE in
         '' | *[!0-9]*) ;;
         *)
-            if [ "$free" -lt "$LOW_DISK_KB" ]; then
-                die no-space "The disk of $V has only $free KB free. $message"
+            if [ "$XEDA_BOOT_FREE" -lt "$XEDA_BOOT_LOW_DISK_KB" ]; then
+                die no-space "The disk of $XEDA_BOOT_V has only $XEDA_BOOT_FREE KB free. $XEDA_BOOT_MESSAGE"
             fi
             ;;
     esac
-    die "$code" "$message"
+    die "$XEDA_BOOT_CODE" "$XEDA_BOOT_MESSAGE"
 }
 
 # Run a tool with its output on the standard error and no standard input. The tool is a child
@@ -135,11 +139,11 @@ fail_step() {
 # command ends, but `wait` ends at once.
 run() {
     "$@" >&2 </dev/null &
-    CHILD=$!
-    run_status=0
-    wait "$CHILD" || run_status=$?
-    CHILD=
-    return "$run_status"
+    XEDA_BOOT_CHILD=$!
+    XEDA_BOOT_RUN_STATUS=0
+    wait "$XEDA_BOOT_CHILD" || XEDA_BOOT_RUN_STATUS=$?
+    XEDA_BOOT_CHILD=
+    return "$XEDA_BOOT_RUN_STATUS"
 }
 
 check_key() {
@@ -151,34 +155,34 @@ check_key() {
 # The files `.xeda-complete` hold the key of their directory. A directory that has no such
 # file, or another one, is not complete: the process that made it did not finish.
 env_complete() {
-    [ -f "$V/env/$1/.xeda-complete" ] \
-        && [ "$(cat "$V/env/$1/.xeda-complete")" = "$1" ] \
-        && [ -x "$V/env/$1/bin/python" ]
+    [ -f "$XEDA_BOOT_V/env/$1/.xeda-complete" ] \
+        && [ "$(cat "$XEDA_BOOT_V/env/$1/.xeda-complete")" = "$1" ] \
+        && [ -x "$XEDA_BOOT_V/env/$1/bin/python" ]
 }
 
 code_complete() {
-    [ -f "$V/code/$1/.xeda-complete" ] \
-        && [ "$(cat "$V/code/$1/.xeda-complete")" = "$1" ] \
-        && [ -d "$V/code/$1/xeda" ]
+    [ -f "$XEDA_BOOT_V/code/$1/.xeda-complete" ] \
+        && [ "$(cat "$XEDA_BOOT_V/code/$1/.xeda-complete")" = "$1" ] \
+        && [ -d "$XEDA_BOOT_V/code/$1/xeda" ]
 }
 
 # Make the work directory of this process, once. It is on the file system of the layout, so that
 # a rename from it into the layout is atomic.
 make_work() {
-    if [ -z "$WORK" ]; then
-        mkdir -p "$V/tmp" || fail_step env-failed "Cannot create $V/tmp."
-        WORK=$V/tmp/$$
-        rm -rf "$WORK"
-        mkdir "$WORK" || fail_step env-failed "Cannot create $WORK."
+    if [ -z "$XEDA_BOOT_WORK" ]; then
+        mkdir -p "$XEDA_BOOT_V/tmp" || fail_step env-failed "Cannot create $XEDA_BOOT_V/tmp."
+        XEDA_BOOT_WORK=$XEDA_BOOT_V/tmp/$XEDA_BOOT_HOST.$$
+        rm -rf "$XEDA_BOOT_WORK"
+        mkdir "$XEDA_BOOT_WORK" || fail_step env-failed "Cannot create $XEDA_BOOT_WORK."
     fi
 }
 
 # ---- Locks -----------------------------------------------------------------------------------
 
 # A lock is the directory `locks/<name>.lock` with the file `owner`: the host, the process and the
-# time. A lock whose owner process is gone on this host is broken. The owner of a lock that is
-# older than LOCK_LIMIT is reported, because this script cannot know whether a process on another
-# host is alive.
+# time. A lock whose owner process is gone on this host is broken, and a lock whose owner process
+# is alive on this host is waited for. This script cannot know whether a process on another host
+# is alive, so it reports the lock of another host that is older than the limit.
 
 process_alive() {
     kill -0 "$1" 2>/dev/null || [ -d "/proc/$1" ]
@@ -186,88 +190,148 @@ process_alive() {
 
 # Break the lock directory $1 if its owner is still the one in $2, $3 and $4. Only one process
 # breaks a lock at a time, and it checks the owner again, so that no process breaks a new lock.
+# The break directory holds the time it was made. One that is older than the limit belongs to a
+# process that stopped, and it is removed.
 break_lock() {
-    breaker=$1.break
-    if mkdir "$breaker" 2>/dev/null; then
-        if read -r again_host again_pid again_time _rest 2>/dev/null <"$1/owner" \
-            && [ "$again_host $again_pid $again_time" = "$2 $3 $4" ]; then
+    XEDA_BOOT_BREAKER=$1.break
+    if mkdir "$XEDA_BOOT_BREAKER" 2>/dev/null; then
+        date +%s >"$XEDA_BOOT_BREAKER/time"
+        if read -r XEDA_BOOT_AGAIN_HOST XEDA_BOOT_AGAIN_PID XEDA_BOOT_AGAIN_TIME XEDA_BOOT_REST 2>/dev/null <"$1/owner" \
+            && [ "$XEDA_BOOT_AGAIN_HOST $XEDA_BOOT_AGAIN_PID $XEDA_BOOT_AGAIN_TIME" = "$2 $3 $4" ]; then
             rm -rf "$1"
         fi
-        rmdir "$breaker"
+        rm -rf "$XEDA_BOOT_BREAKER"
+    elif read -r XEDA_BOOT_BREAK_TIME 2>/dev/null <"$XEDA_BOOT_BREAKER/time"; then
+        case $XEDA_BOOT_BREAK_TIME in
+            '' | *[!0-9]*) ;;
+            *)
+                if [ $(($(date +%s) - XEDA_BOOT_BREAK_TIME)) -gt "$XEDA_BOOT_LOCK_LIMIT" ]; then
+                    rm -rf "$XEDA_BOOT_BREAKER"
+                fi
+                ;;
+        esac
     fi
 }
 
 acquire() {
-    name=$1
-    lock=$LOCKS/$name.lock
-    mkdir -p "$LOCKS" || fail_step env-failed "Cannot create $LOCKS."
-    announced=
-    unknown=0
+    XEDA_BOOT_NAME=$1
+    XEDA_BOOT_LOCK=$XEDA_BOOT_LOCKS/$XEDA_BOOT_NAME.lock
+    mkdir -p "$XEDA_BOOT_LOCKS" || fail_step env-failed "Cannot create $XEDA_BOOT_LOCKS."
+    XEDA_BOOT_ANNOUNCED=
+    XEDA_BOOT_UNKNOWN=0
     while :; do
-        if mkdir "$lock" 2>/dev/null; then
-            HELD_LOCKS="$HELD_LOCKS $name"
-            printf '%s %s %s\n' "$HOST" "$$" "$(date +%s)" >"$lock/owner"
+        if mkdir "$XEDA_BOOT_LOCK" 2>/dev/null; then
+            XEDA_BOOT_HELD_LOCKS="$XEDA_BOOT_HELD_LOCKS $XEDA_BOOT_NAME"
+            printf '%s %s %s\n' "$XEDA_BOOT_HOST" "$$" "$(date +%s)" >"$XEDA_BOOT_LOCK/owner"
             return 0
         fi
-        owner_host=
-        owner_pid=
-        owner_time=
-        if [ -r "$lock/owner" ]; then
-            read -r owner_host owner_pid owner_time _rest 2>/dev/null <"$lock/owner" || :
+        XEDA_BOOT_OWNER_HOST=
+        XEDA_BOOT_OWNER_PID=
+        XEDA_BOOT_OWNER_TIME=
+        if [ -r "$XEDA_BOOT_LOCK/owner" ]; then
+            read -r XEDA_BOOT_OWNER_HOST XEDA_BOOT_OWNER_PID XEDA_BOOT_OWNER_TIME XEDA_BOOT_REST 2>/dev/null <"$XEDA_BOOT_LOCK/owner" || :
         fi
-        case $owner_pid:$owner_time in
+        case $XEDA_BOOT_OWNER_PID:$XEDA_BOOT_OWNER_TIME in
             *[!0-9:]* | :* | *:)
                 # The process that made the lock did not write its owner file yet, or it
                 # stopped before it did.
-                unknown=$((unknown + 1))
-                if [ "$unknown" -gt 60 ]; then
-                    break_lock "$lock" "$owner_host" "$owner_pid" "$owner_time"
-                    unknown=0
+                XEDA_BOOT_UNKNOWN=$((XEDA_BOOT_UNKNOWN + 1))
+                if [ "$XEDA_BOOT_UNKNOWN" -gt 60 ]; then
+                    break_lock "$XEDA_BOOT_LOCK" "$XEDA_BOOT_OWNER_HOST" "$XEDA_BOOT_OWNER_PID" "$XEDA_BOOT_OWNER_TIME"
+                    XEDA_BOOT_UNKNOWN=0
                 fi
                 ;;
             *)
-                unknown=0
-                if [ "$owner_host" = "$HOST" ] && ! process_alive "$owner_pid"; then
-                    break_lock "$lock" "$owner_host" "$owner_pid" "$owner_time"
-                    if [ ! -d "$lock" ]; then
-                        continue
+                XEDA_BOOT_UNKNOWN=0
+                if [ "$XEDA_BOOT_OWNER_HOST" = "$XEDA_BOOT_HOST" ]; then
+                    # A process on this host is alive or not, so wait for it, or break the lock.
+                    if ! process_alive "$XEDA_BOOT_OWNER_PID"; then
+                        break_lock "$XEDA_BOOT_LOCK" "$XEDA_BOOT_OWNER_HOST" "$XEDA_BOOT_OWNER_PID" "$XEDA_BOOT_OWNER_TIME"
+                        if [ ! -d "$XEDA_BOOT_LOCK" ]; then
+                            continue
+                        fi
                     fi
-                fi
-                age=$(($(date +%s) - owner_time))
-                if [ "$age" -gt "$LOCK_LIMIT" ]; then
-                    die lock-timeout "The lock $lock has been held for $((age / 60)) minutes by process $owner_pid on $owner_host. If that process does not run, remove the directory."
+                else
+                    XEDA_BOOT_AGE=$(($(date +%s) - XEDA_BOOT_OWNER_TIME))
+                    if [ "$XEDA_BOOT_AGE" -gt "$XEDA_BOOT_LOCK_LIMIT" ]; then
+                        die lock-timeout "The lock $XEDA_BOOT_LOCK has been held for $((XEDA_BOOT_AGE / 60)) minutes by process $XEDA_BOOT_OWNER_PID on $XEDA_BOOT_OWNER_HOST. If that process does not run, remove the directory."
+                    fi
                 fi
                 ;;
         esac
-        if [ -z "$announced" ]; then
-            say "STEP Waiting for another xeda process ($name)"
-            announced=1
+        if [ -z "$XEDA_BOOT_ANNOUNCED" ]; then
+            say "STEP Waiting for another xeda process ($XEDA_BOOT_NAME)"
+            XEDA_BOOT_ANNOUNCED=1
         fi
-        sleep "$POLL"
+        sleep "$XEDA_BOOT_POLL"
     done
 }
 
 release() {
-    rm -rf "$LOCKS/$1.lock"
-    kept=
-    for held in $HELD_LOCKS; do
-        if [ "$held" != "$1" ]; then
-            kept="$kept $held"
+    rm -rf "$XEDA_BOOT_LOCKS/$1.lock"
+    XEDA_BOOT_KEPT=
+    for XEDA_BOOT_HELD in $XEDA_BOOT_HELD_LOCKS; do
+        if [ "$XEDA_BOOT_HELD" != "$1" ]; then
+            XEDA_BOOT_KEPT="$XEDA_BOOT_KEPT $XEDA_BOOT_HELD"
         fi
     done
-    HELD_LOCKS=$kept
+    XEDA_BOOT_HELD_LOCKS=$XEDA_BOOT_KEPT
+}
+
+# The names of the work, staging and uv directories end with `<host>.<pid>`. A directory of a
+# process that is gone on this host is a leftover of a process that was killed, and it is removed.
+# The host is in the name because a home directory can be shared by several hosts, and a process
+# number means something on one host only.
+sweep_entry() {
+    XEDA_BOOT_SWEEP_PATH=$1
+    XEDA_BOOT_SWEEP_PID=${2##*.}
+    XEDA_BOOT_SWEEP_HOST=${2%.*}
+    case $XEDA_BOOT_SWEEP_PID in
+        '' | *[!0-9]*) return 0 ;;
+    esac
+    if [ "$XEDA_BOOT_SWEEP_HOST" = "$XEDA_BOOT_HOST" ] && ! process_alive "$XEDA_BOOT_SWEEP_PID"; then
+        rm -rf "$XEDA_BOOT_SWEEP_PATH"
+    fi
+}
+
+sweep_leftovers() {
+    for XEDA_BOOT_ENTRY in "$XEDA_BOOT_V"/tmp/*; do
+        [ -e "$XEDA_BOOT_ENTRY" ] || continue
+        sweep_entry "$XEDA_BOOT_ENTRY" "${XEDA_BOOT_ENTRY##*/}"
+    done
+    # code/.<key>.<host>.<pid>
+    for XEDA_BOOT_ENTRY in "$XEDA_BOOT_V"/code/.[0-9a-f]*; do
+        [ -e "$XEDA_BOOT_ENTRY" ] || continue
+        XEDA_BOOT_NAME=${XEDA_BOOT_ENTRY##*/}
+        XEDA_BOOT_NAME=${XEDA_BOOT_NAME#.}
+        sweep_entry "$XEDA_BOOT_ENTRY" "${XEDA_BOOT_NAME#*.}"
+    done
+    # uv/<version>-<target>.new.<host>.<pid>
+    for XEDA_BOOT_ENTRY in "$XEDA_BOOT_V"/uv/*.new.*; do
+        [ -e "$XEDA_BOOT_ENTRY" ] || continue
+        XEDA_BOOT_NAME=${XEDA_BOOT_ENTRY##*/}
+        sweep_entry "$XEDA_BOOT_ENTRY" "${XEDA_BOOT_NAME#*.new.}"
+    done
 }
 
 # ---- uv --------------------------------------------------------------------------------------
 
-sha256_of() {
+# Find the program that computes a SHA-256, before anything is downloaded. This is not in a command
+# substitution, so that its error ends the script.
+XEDA_BOOT_SHA_TOOL=
+find_sha_tool() {
     if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$1" </dev/null | { read -r digest _rest; printf '%s' "$digest"; }
+        XEDA_BOOT_SHA_TOOL=sha256sum
     elif command -v shasum >/dev/null 2>&1; then
-        shasum -a 256 "$1" </dev/null | { read -r digest _rest; printf '%s' "$digest"; }
+        XEDA_BOOT_SHA_TOOL="shasum -a 256"
     else
-        die env-failed "The remote host has neither sha256sum nor shasum, so it cannot check the download."
+        die no-sha256 "The remote host has neither sha256sum nor shasum, so it cannot check the download of uv."
     fi
+}
+
+sha256_of() {
+    # shellcheck disable=SC2086
+    $XEDA_BOOT_SHA_TOOL "$1" </dev/null | { read -r XEDA_BOOT_DIGEST XEDA_BOOT_REST; printf '%s' "$XEDA_BOOT_DIGEST"; }
 }
 
 download() {
@@ -283,54 +347,58 @@ download() {
 # Print the path of the uv of the release $1 for the platform of the archive URL $2. Install it
 # from the archive with the SHA-256 $3 if it is missing.
 ensure_uv() {
-    version=$1
-    url=$2
-    sha=$3
-    file=${url##*/}
-    target=${file#uv-}
-    target=${target%.tar.gz}
-    uv_dir=$V/uv/$version-$target
-    UV=$uv_dir/uv
-    if [ -x "$UV" ]; then
+    XEDA_BOOT_VERSION=$1
+    XEDA_BOOT_URL=$2
+    XEDA_BOOT_SHA=$3
+    XEDA_BOOT_FILE=${XEDA_BOOT_URL##*/}
+    XEDA_BOOT_TARGET=${XEDA_BOOT_FILE#uv-}
+    XEDA_BOOT_TARGET=${XEDA_BOOT_TARGET%.tar.gz}
+    XEDA_BOOT_UV_DIR=$XEDA_BOOT_V/uv/$XEDA_BOOT_VERSION-$XEDA_BOOT_TARGET
+    XEDA_BOOT_UV=$XEDA_BOOT_UV_DIR/uv
+    if [ -x "$XEDA_BOOT_UV" ]; then
         return 0
     fi
-    acquire "uv-$version-$target"
-    if [ ! -x "$UV" ]; then
-        say "STEP Installing uv $version"
+    acquire "uv-$XEDA_BOOT_VERSION-$XEDA_BOOT_TARGET"
+    if [ ! -x "$XEDA_BOOT_UV" ]; then
+        find_sha_tool
+        say "STEP Installing uv $XEDA_BOOT_VERSION"
         make_work
-        download "$url" "$WORK/uv.tar.gz"
-        digest=$(sha256_of "$WORK/uv.tar.gz")
-        if [ "$digest" != "$sha" ]; then
-            die checksum-mismatch "The download of $url has the SHA-256 $digest, not the expected $sha."
+        download "$XEDA_BOOT_URL" "$XEDA_BOOT_WORK/uv.tar.gz"
+        XEDA_BOOT_DIGEST=$(sha256_of "$XEDA_BOOT_WORK/uv.tar.gz")
+        if [ "$XEDA_BOOT_DIGEST" != "$XEDA_BOOT_SHA" ]; then
+            die checksum-mismatch "The download of $XEDA_BOOT_URL has the SHA-256 $XEDA_BOOT_DIGEST, not the expected $XEDA_BOOT_SHA."
         fi
-        mkdir "$WORK/unpacked"
-        run tar -xzf "$WORK/uv.tar.gz" -C "$WORK/unpacked" \
+        mkdir "$XEDA_BOOT_WORK/unpacked"
+        run tar -xzf "$XEDA_BOOT_WORK/uv.tar.gz" -C "$XEDA_BOOT_WORK/unpacked" \
             || fail_step download-failed "Cannot unpack the archive of uv."
-        if [ ! -f "$WORK/unpacked/uv-$target/uv" ]; then
-            die download-failed "The archive of uv has no file uv-$target/uv."
+        if [ ! -f "$XEDA_BOOT_WORK/unpacked/uv-$XEDA_BOOT_TARGET/uv" ]; then
+            die download-failed "The archive of uv has no file uv-$XEDA_BOOT_TARGET/uv."
         fi
-        chmod 755 "$WORK/unpacked/uv-$target/uv"
-        mkdir -p "$V/uv"
-        STAGE=$uv_dir.new.$$
-        mv "$WORK/unpacked/uv-$target" "$STAGE"
-        if ! run "$STAGE/uv" --version; then
-            die download-failed "The downloaded uv does not run on this host ($target)."
+        chmod 755 "$XEDA_BOOT_WORK/unpacked/uv-$XEDA_BOOT_TARGET/uv"
+        mkdir -p "$XEDA_BOOT_V/uv"
+        XEDA_BOOT_STAGE=$XEDA_BOOT_UV_DIR.new.$XEDA_BOOT_HOST.$$
+        mv "$XEDA_BOOT_WORK/unpacked/uv-$XEDA_BOOT_TARGET" "$XEDA_BOOT_STAGE"
+        if ! run "$XEDA_BOOT_STAGE/uv" --version; then
+            die download-failed "The downloaded uv does not run on this host ($XEDA_BOOT_TARGET)."
         fi
-        rm -rf "$uv_dir"
-        mv "$STAGE" "$uv_dir"
-        STAGE=
+        rm -rf "$XEDA_BOOT_UV_DIR"
+        mv "$XEDA_BOOT_STAGE" "$XEDA_BOOT_UV_DIR"
+        XEDA_BOOT_STAGE=
     fi
-    release "uv-$version-$target"
+    release "uv-$XEDA_BOOT_VERSION-$XEDA_BOOT_TARGET"
 }
 
 # ---- Commands --------------------------------------------------------------------------------
 
 use_uv() {
-    UV_CACHE_DIR=$V/cache/uv
-    UV_PYTHON_INSTALL_DIR=$V/python
+    UV_CACHE_DIR=$XEDA_BOOT_V/cache/uv
+    UV_PYTHON_INSTALL_DIR=$XEDA_BOOT_V/python
     UV_NO_PROGRESS=1
-    export UV_CACHE_DIR UV_PYTHON_INSTALL_DIR UV_NO_PROGRESS
-    mkdir -p "$UV_CACHE_DIR" "$UV_PYTHON_INSTALL_DIR" || fail_step env-failed "Cannot create the directories of uv in $V."
+    UV_NO_CONFIG=1
+    export UV_CACHE_DIR UV_PYTHON_INSTALL_DIR UV_NO_PROGRESS UV_NO_CONFIG
+    # An active virtual environment of the login shell must not change which Python uv picks.
+    unset VIRTUAL_ENV CONDA_PREFIX
+    mkdir -p "$UV_CACHE_DIR" "$UV_PYTHON_INSTALL_DIR" || fail_step env-failed "Cannot create the directories of uv in $XEDA_BOOT_V."
 }
 
 # Set PYTHON_PATH to the Python for the request or path $1.
@@ -340,83 +408,84 @@ ensure_python() {
             if [ ! -x "$1" ]; then
                 die python-failed "The Python '$1' of the host profile is not an executable file."
             fi
-            PYTHON_PATH=$1
+            XEDA_BOOT_PYTHON_PATH=$1
             return 0
             ;;
     esac
-    request=$1
-    if PYTHON_PATH=$("$UV" --no-config python find --managed-python "$request" 2>/dev/null </dev/null); then
+    XEDA_BOOT_REQUEST=$1
+    if XEDA_BOOT_PYTHON_PATH=$("$XEDA_BOOT_UV" --no-config python find --managed-python "$XEDA_BOOT_REQUEST" 2>/dev/null </dev/null); then
         return 0
     fi
-    acquire "python-$request"
-    if ! PYTHON_PATH=$("$UV" --no-config python find --managed-python "$request" 2>/dev/null </dev/null); then
-        say "STEP Installing Python ${request#cpython-}"
-        run "$UV" --no-config python install "$request" \
-            || fail_step python-failed "uv could not install the Python '$request'."
-        PYTHON_PATH=$("$UV" --no-config python find --managed-python "$request" </dev/null) \
-            || die python-failed "uv installed the Python '$request' but cannot find it."
+    acquire "python-$XEDA_BOOT_REQUEST"
+    if ! XEDA_BOOT_PYTHON_PATH=$("$XEDA_BOOT_UV" --no-config python find --managed-python "$XEDA_BOOT_REQUEST" 2>/dev/null </dev/null); then
+        say "STEP Installing Python ${XEDA_BOOT_REQUEST#cpython-}"
+        run "$XEDA_BOOT_UV" --no-config python install "$XEDA_BOOT_REQUEST" \
+            || fail_step python-failed "uv could not install the Python '$XEDA_BOOT_REQUEST'."
+        XEDA_BOOT_PYTHON_PATH=$("$XEDA_BOOT_UV" --no-config python find --managed-python "$XEDA_BOOT_REQUEST" </dev/null) \
+            || die python-failed "uv installed the Python '$XEDA_BOOT_REQUEST' but cannot find it."
     fi
-    release "python-$request"
+    release "python-$XEDA_BOOT_REQUEST"
 }
 
 build_env() {
-    key=$1
-    env_dir=$V/env/$key
-    acquire "env-$key"
-    if ! env_complete "$key"; then
+    XEDA_BOOT_KEY=$1
+    XEDA_BOOT_ENV_DIR=$XEDA_BOOT_V/env/$XEDA_BOOT_KEY
+    acquire "env-$XEDA_BOOT_KEY"
+    if ! env_complete "$XEDA_BOOT_KEY"; then
         say "STEP Creating the environment"
-        mkdir -p "$V/env"
-        rm -rf "$env_dir"
-        ENV_BUILDING=$env_dir
-        run "$UV" --no-config venv --python "$PYTHON_PATH" "$env_dir" \
-            || fail_step env-failed "uv could not create the environment $env_dir."
-        run "$UV" --no-config pip install --python "$env_dir/bin/python" \
-            -r "$WORK/requirements.txt" -c "$WORK/constraints.txt" \
+        mkdir -p "$XEDA_BOOT_V/env"
+        rm -rf "$XEDA_BOOT_ENV_DIR"
+        XEDA_BOOT_ENV_BUILDING=$XEDA_BOOT_ENV_DIR
+        run "$XEDA_BOOT_UV" --no-config venv --python "$XEDA_BOOT_PYTHON_PATH" "$XEDA_BOOT_ENV_DIR" \
+            || fail_step env-failed "uv could not create the environment $XEDA_BOOT_ENV_DIR."
+        run "$XEDA_BOOT_UV" --no-config pip install --python "$XEDA_BOOT_ENV_DIR/bin/python" \
+            -r "$XEDA_BOOT_WORK/requirements.txt" -c "$XEDA_BOOT_WORK/constraints.txt" \
             || fail_step env-failed "uv could not install the requirements of xeda."
-        "$UV" --no-config pip freeze --python "$env_dir/bin/python" >"$env_dir/xeda-lock.txt" </dev/null \
+        "$XEDA_BOOT_UV" --no-config pip freeze --python "$XEDA_BOOT_ENV_DIR/bin/python" >"$XEDA_BOOT_ENV_DIR/xeda-lock.txt" </dev/null \
             || fail_step env-failed "uv could not list the installed packages."
-        printf '%s\n' "$key" >"$env_dir/.xeda-complete"
-        ENV_BUILDING=
+        printf '%s\n' "$XEDA_BOOT_KEY" >"$XEDA_BOOT_ENV_DIR/.xeda-complete"
+        XEDA_BOOT_ENV_BUILDING=
     fi
-    release "env-$key"
+    release "env-$XEDA_BOOT_KEY"
 }
 
 command_status() {
-    env_state=missing
-    code_state=missing
+    XEDA_BOOT_ENV_STATE=missing
+    XEDA_BOOT_CODE_STATE=missing
     if env_complete "$1"; then
-        env_state=present
+        XEDA_BOOT_ENV_STATE=present
     fi
     if code_complete "$2"; then
-        code_state=present
+        XEDA_BOOT_CODE_STATE=present
     fi
-    say "STATUS env=$env_state code=$code_state"
+    say "STATUS env=$XEDA_BOOT_ENV_STATE code=$XEDA_BOOT_CODE_STATE"
 }
 
 command_provision() {
-    key=$1
-    python=$2
-    if env_complete "$key"; then
+    XEDA_BOOT_KEY=$1
+    XEDA_BOOT_PYTHON=$2
+    if env_complete "$XEDA_BOOT_KEY"; then
         return 0
     fi
+    sweep_leftovers
     make_work
-    : >"$WORK/requirements.txt"
-    : >"$WORK/constraints.txt"
-    while IFS= read -r line || [ -n "$line" ]; do
-        case $line in
-            'R '*) printf '%s\n' "${line#R }" >>"$WORK/requirements.txt" ;;
-            'C '*) printf '%s\n' "${line#C }" >>"$WORK/constraints.txt" ;;
+    : >"$XEDA_BOOT_WORK/requirements.txt"
+    : >"$XEDA_BOOT_WORK/constraints.txt"
+    while IFS= read -r XEDA_BOOT_LINE || [ -n "$XEDA_BOOT_LINE" ]; do
+        case $XEDA_BOOT_LINE in
+            'R '*) printf '%s\n' "${XEDA_BOOT_LINE#R }" >>"$XEDA_BOOT_WORK/requirements.txt" ;;
+            'C '*) printf '%s\n' "${XEDA_BOOT_LINE#C }" >>"$XEDA_BOOT_WORK/constraints.txt" ;;
             '') ;;
-            *) die bad-request "Not a requirement line: $line" ;;
+            *) die bad-request "Not a requirement line: $XEDA_BOOT_LINE" ;;
         esac
     done
-    if [ ! -s "$WORK/requirements.txt" ]; then
+    if [ ! -s "$XEDA_BOOT_WORK/requirements.txt" ]; then
         die bad-request "The request has no requirements."
     fi
     use_uv
     ensure_uv "$3" "$4" "$5"
-    ensure_python "$python"
-    build_env "$key"
+    ensure_python "$XEDA_BOOT_PYTHON"
+    build_env "$XEDA_BOOT_KEY"
 }
 
 # Refuse a tar stream that has a name outside the destination, or a member that is not a regular
@@ -424,61 +493,64 @@ command_provision() {
 check_archive() {
     tar -tvf "$1" </dev/null >"$1.list" || die bad-request "The code archive cannot be read."
     tar -tf "$1" </dev/null >"$1.names" || die bad-request "The code archive cannot be read."
-    while IFS= read -r line; do
-        case $line in
+    while IFS= read -r XEDA_BOOT_LINE; do
+        case $XEDA_BOOT_LINE in
             -* | d*) ;;
             *) die bad-request "The code archive has a member that is not a file or a directory." ;;
         esac
     done <"$1.list"
-    while IFS= read -r name; do
-        case /$name/ in
-            */../* | //*) die bad-request "The code archive has the unsafe name '$name'." ;;
+    while IFS= read -r XEDA_BOOT_NAME; do
+        case /$XEDA_BOOT_NAME/ in
+            */../* | //*) die bad-request "The code archive has the unsafe name '$XEDA_BOOT_NAME'." ;;
         esac
     done <"$1.names"
 }
 
 command_put_code() {
-    key=$1
-    if code_complete "$key"; then
+    XEDA_BOOT_KEY=$1
+    if code_complete "$XEDA_BOOT_KEY"; then
         cat >/dev/null
         return 0
     fi
+    sweep_leftovers
     make_work
     say "STEP Uploading xeda"
-    cat >"$WORK/code.tar" || fail_step env-failed "Cannot write the code archive in $V."
-    check_archive "$WORK/code.tar"
-    mkdir -p "$V/code"
-    STAGE=$V/code/.$key.$$
-    rm -rf "$STAGE"
-    mkdir "$STAGE" || fail_step env-failed "Cannot create $STAGE."
-    run tar -xf "$WORK/code.tar" -C "$STAGE" || fail_step env-failed "Cannot unpack the code archive."
-    printf '%s\n' "$key" >"$STAGE/.xeda-complete"
-    acquire "code-$key"
-    if ! code_complete "$key"; then
-        rm -rf "$V/code/$key"
-        mv "$STAGE" "$V/code/$key"
-        STAGE=
+    cat >"$XEDA_BOOT_WORK/code.tar" || fail_step env-failed "Cannot write the code archive in $XEDA_BOOT_V."
+    check_archive "$XEDA_BOOT_WORK/code.tar"
+    mkdir -p "$XEDA_BOOT_V/code"
+    XEDA_BOOT_STAGE=$XEDA_BOOT_V/code/.$XEDA_BOOT_KEY.$XEDA_BOOT_HOST.$$
+    rm -rf "$XEDA_BOOT_STAGE"
+    mkdir "$XEDA_BOOT_STAGE" || fail_step env-failed "Cannot create $XEDA_BOOT_STAGE."
+    run tar -xf "$XEDA_BOOT_WORK/code.tar" -C "$XEDA_BOOT_STAGE" || fail_step env-failed "Cannot unpack the code archive."
+    printf '%s\n' "$XEDA_BOOT_KEY" >"$XEDA_BOOT_STAGE/.xeda-complete"
+    acquire "code-$XEDA_BOOT_KEY"
+    if ! code_complete "$XEDA_BOOT_KEY"; then
+        rm -rf "$XEDA_BOOT_V/code/$XEDA_BOOT_KEY"
+        mv "$XEDA_BOOT_STAGE" "$XEDA_BOOT_V/code/$XEDA_BOOT_KEY"
+        XEDA_BOOT_STAGE=
     fi
-    release "code-$key"
+    release "code-$XEDA_BOOT_KEY"
 }
 
 command_agent() {
-    deps=$1
-    code=$2
+    XEDA_BOOT_DEPS=$1
+    XEDA_BOOT_CODE=$2
     shift 2
-    if ! env_complete "$deps" || ! code_complete "$code"; then
+    if ! env_complete "$XEDA_BOOT_DEPS" || ! code_complete "$XEDA_BOOT_CODE"; then
         die env-failed "The environment or the code is missing on the host. Run again."
     fi
-    touch "$V/env/$deps/last-use" "$V/code/$code/last-use" 2>/dev/null || :
-    PYTHONPATH=$V/code/$code
-    export PYTHONPATH
+    touch "$XEDA_BOOT_V/env/$XEDA_BOOT_DEPS/last-use" "$XEDA_BOOT_V/code/$XEDA_BOOT_CODE/last-use" 2>/dev/null || :
+    PYTHONPATH=$XEDA_BOOT_V/code/$XEDA_BOOT_CODE
+    VIRTUAL_ENV=$XEDA_BOOT_V/env/$XEDA_BOOT_DEPS
+    export PYTHONPATH VIRTUAL_ENV
+    unset PYTHONHOME
     trap - EXIT HUP INT PIPE TERM
-    exec "$V/env/$deps/bin/python" -m xeda.remote.agent "$@"
+    exec "$XEDA_BOOT_V/env/$XEDA_BOOT_DEPS/bin/python" -m xeda.remote.agent "$@"
 }
 
 # ---- Main ------------------------------------------------------------------------------------
 
-case $command in
+case $XEDA_BOOT_COMMAND in
     status)
         [ $# -eq 2 ] || die bad-request "Usage: status <env-hash> <deps-key> <code-key>"
         check_key "dependency key" "$1"
@@ -502,6 +574,6 @@ case $command in
         command_agent "$@"
         ;;
     *)
-        die bad-request "Unknown command '$command'."
+        die bad-request "Unknown command '$XEDA_BOOT_COMMAND'."
         ;;
 esac

@@ -24,6 +24,32 @@ _ROOT = re.compile(r"(?:~/|/)" + _PLAIN_PATH)
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _PYTHON = re.compile(r"/" + _PLAIN_PATH)
 
+#: The names that xeda sets on the remote itself, besides every name that starts with
+#: `XEDA_BOOT_` (the variables of the bootstrap script).
+RESERVED_ENV_NAMES = frozenset(
+    {
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "VIRTUAL_ENV",
+        "UV_CACHE_DIR",
+        "UV_PYTHON_INSTALL_DIR",
+        "UV_NO_CONFIG",
+    }
+)
+_RESERVED_PREFIX = "XEDA_BOOT_"
+
+
+def env_name_problem(name: str) -> Optional[str]:
+    """Why `name` cannot be an environment variable of a host profile, or `None`."""
+    if not _ENV_NAME.fullmatch(name):
+        return (
+            f"environment variable name {name!r} is not a shell name "
+            "(letters, digits and `_`, not starting with a digit)"
+        )
+    if name in RESERVED_ENV_NAMES or name.startswith(_RESERVED_PREFIX):
+        return f"{name} is set by xeda on the remote; remove it from env"
+    return None
+
 
 def remotes_file() -> Path:
     """Return the path of the host profile file.
@@ -80,11 +106,9 @@ class HostProfile(XedaBaseModel):
     @classmethod
     def validate_env(cls, value):
         for name in value:
-            if not _ENV_NAME.fullmatch(name):
-                raise ValueError(
-                    f"environment variable name {name!r} is not a shell name "
-                    "(letters, digits and `_`, not starting with a digit)"
-                )
+            problem = env_name_problem(name)
+            if problem:
+                raise ValueError(problem)
         return value
 
     @field_validator("python")
