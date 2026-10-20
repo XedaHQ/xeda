@@ -78,6 +78,8 @@ __all__ = [
     "mapping_form",
     "nested_model",
     "opaque_key_fields_of",
+    "opaque_key_declaration_problems",
+    "opaque_key_paths",
     "fold_dotted_keys",
     "atomic_keys",
     "AtomicName",
@@ -414,6 +416,45 @@ def opaque_key_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
     for klass in reversed(model.__mro__):
         fields.update(dict.fromkeys(vars(klass).get("opaque_key_fields", ())))
     return tuple(fields)
+
+
+def opaque_key_declaration_problems(model: Type[BaseModel]) -> List[str]:
+    """Return what is wrong with the `opaque_key_fields` of `model`: a name that is no field, and a field that does not hold a dictionary of values (`Dict[str, int]`; the
+    entries of a dictionary of tables are fields of their own model)."""
+    problems: List[str] = []
+    for name in opaque_key_fields_of(model):
+        info = model.model_fields.get(name)
+        if (
+            info is None
+            or annotation_kind(info.annotation)[0] != "dict"
+            or table_entries(info.annotation) is not None
+        ):
+            problems.append(
+                f"`{name}` is in `opaque_key_fields`, so it must be a setting that holds a "
+                "dictionary of values (`Dict[str, int]`), not dictionaries"
+            )
+    return problems
+
+
+def opaque_key_paths(model: Type[BaseModel]) -> Tuple[str, ...]:
+    """Return the dotted path of every setting of `model` whose keys are names of a tool, at any
+    depth: a field of `opaque_key_fields_of(model)`, and the same of each model nested in a field
+    (`ir_drop.instance_power`)."""
+    paths: List[str] = []
+
+    def walk(current: Type[BaseModel], prefix: str, ancestors: Tuple[type, ...]) -> None:
+        opaque = opaque_key_fields_of(current)
+        for name, info in current.model_fields.items():
+            path = prefix + name
+            if name in opaque:
+                paths.append(path)
+                continue
+            child = nested_model(info.annotation)
+            if child is not None and child not in ancestors:
+                walk(child, path + ".", (*ancestors, child))
+
+    walk(model, "", (model,))
+    return tuple(paths)
 
 
 #: The sequence that `utils.set_hierarchy` keeps whole when it splits a dotted key. The names of
@@ -1034,6 +1075,12 @@ class XedaBaseModel(BaseModel):
     #: validator of the field reads that form, and `design_schema()` describes it from this
     #: declaration. A subclass adds to those of its bases (`single_item_fields_of`).
     single_item_fields: ClassVar[Tuple[str, ...]] = ()
+    #: Fields that hold a dictionary whose keys are names from a tool or a netlist (a Vivado run
+    #: property such as `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`, a flattened instance such as
+    #: `u_core.reg_1`), which may contain dots. A dotted key of such a field is one key, whichever
+    #: way it is given (`fold_dotted_keys`). A flow declares its own fields, and a group declares
+    #: the fields of the group. A subclass adds to those of its bases (`opaque_key_fields_of`).
+    opaque_key_fields: ClassVar[Tuple[str, ...]] = ()
 
     @classmethod
     def as_mapping(cls, value: Any) -> Any:

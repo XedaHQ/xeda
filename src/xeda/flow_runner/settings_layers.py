@@ -45,6 +45,7 @@ from ..dataclass import (
     name_inside_another,
     nested_model,
     opaque_key_fields_of,
+    opaque_key_paths,
     table_entries,
 )
 from ..flow import Flow, FlowSettingsError, registered_flows
@@ -326,28 +327,41 @@ def _merge_settings_layer(
     return merged
 
 
-def _with_atomic_names(values: dict[str, Any], settings_cls: type[XedaBaseModel]) -> dict[str, Any]:
+def _with_atomic_names(
+    values: dict[str, Any], settings_cls: type[XedaBaseModel], where: str = ""
+) -> dict[str, Any]:
     """Return `values` with each table whose keys are names from a tool as a table of those names.
 
-    These are the settings in `opaque_key_fields_of`. The names are kept whole. Every layer has
-    expanded the dots of such a name into nested tables, where `A` and `A.B` of two layers would
-    meet as a value and a table, and one would replace the other. As names, they merge key by
-    key, and a higher layer replaces only a name that it gives."""
-    opaque = opaque_key_fields_of(settings_cls)
-    if not opaque:
+    These are the settings in `opaque_key_fields_of`, in `settings_cls` and in the groups nested
+    in it (`where` is the dotted path of `settings_cls`). The names are kept whole. Every layer
+    has expanded the dots of such a name into nested tables, where `A` and `A.B` of two layers
+    would meet as a value and a table, and one would replace the other. As names, they merge key
+    by key, and a higher layer replaces only a name that it gives."""
+    if not opaque_key_paths(settings_cls):
         return values
     names = input_names(settings_cls)
-    return {
-        key: _atomic_table(key, value) if names.get(key, key) in opaque else value
-        for key, value in values.items()
-    }
+    opaque = opaque_key_fields_of(settings_cls)
+    result: dict[str, Any] = {}
+    for key, value in values.items():
+        target = names.get(key, key)
+        info = settings_cls.model_fields.get(target)
+        child_cls = nested_model(info.annotation) if info is not None else None
+        path = f"{where}{key}"
+        if target in opaque:
+            result[key] = _atomic_table(path, value)
+        elif child_cls is not None and isinstance(value, Mapping):
+            result[key] = _with_atomic_names(dict(value), child_cls, path + ".")
+        else:
+            result[key] = value
+    return result
 
 
 def _atomic_table(key: str, value: Any) -> Any:
     """Return `atomic_keys(value)`, once a table that the user gave has been judged.
 
     One origin cannot give a name and a name that starts with it and a dot (`A`, `A.B`). A table
-    of names already (`AtomicName` keys) is a merge of origins, which may."""
+    of names already (`AtomicName` keys) is a merge of origins, which may. `key` is the dotted
+    path of the setting."""
     atoms = atomic_keys(value)
     if isinstance(atoms, Mapping) and not any(isinstance(k, AtomicName) for k in value):
         pair = name_inside_another(k.name for k in atoms)

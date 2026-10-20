@@ -241,6 +241,9 @@ class NdrRule(XedaBaseModel):
 class NdrGroup(SettingsGroup):
     """The non-default routing rules for the detailed route, and the nets that follow them."""
 
+    # A net name that a flattened hierarchy gives holds dots (`u_core.clk_div`).
+    opaque_key_fields = ("assignments",)
+
     rules: dict[Annotated[str, Field(min_length=1)], NdrRule] = Field(
         {},
         description="The rules to create, by name (`create_ndr`). The database keeps them.",
@@ -711,6 +714,9 @@ class IrDropDecap(SettingsGroup):
 
 class IrDropGroup(SettingsGroup):
     """The analysis of the IR drop of the power grid."""
+
+    # Net and instance names that a flattened hierarchy gives hold dots (`u_core.reg_1`).
+    opaque_key_fields = ("nets", "vsrc_files", "instance_power")
 
     enabled: bool = Field(
         True,

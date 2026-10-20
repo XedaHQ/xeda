@@ -710,16 +710,6 @@ ORDINARY_DICTIONARIES = {
     "xeda.flows.openroad.base.WireRcSettings.vias": "via names of the technology LEF file, which "
     "have no dots",
     "xeda.flows.openroad.final_groups.IrDropDecap.cells": "decap cell names, which have no dots",
-    "xeda.flows.openroad.final_groups.IrDropGroup.instance_power": "instance names. A name that "
-    "a flattened hierarchy gives holds dots and cannot be given yet: the opaque keys of a nested "
-    "group are not supported",
-    "xeda.flows.openroad.final_groups.IrDropGroup.nets": "supply net names, such as `VDD`, which "
-    "have no dots",
-    "xeda.flows.openroad.final_groups.IrDropGroup.vsrc_files": "supply net names, such as `VDD`, "
-    "which have no dots",
-    "xeda.flows.openroad.final_groups.NdrGroup.assignments": "net names. A name that a flattened "
-    "hierarchy gives holds dots and cannot be given yet: the opaque keys of a nested group are "
-    "not supported",
     "xeda.flows.openroad.final_groups.NdrGroup.rules": "names of the rules, which the user picks",
     "xeda.flows.openroad.final_groups.NdrRule.spacing": "routing layer names, which have no dots",
     "xeda.flows.openroad.final_groups.NdrRule.width": "routing layer names, which have no dots",
@@ -796,6 +786,10 @@ def test_every_dictionary_setting_is_opaque_or_reviewed_as_nested():
         "xeda.flows.vivado.vivado_synth.VivadoSynth.Settings.set_synth_properties",
         "xeda.flows.vivado.vivado_synth.VivadoSynth.Settings.set_impl_properties",
         *(f"xeda.flows.ise.IseSynth.Settings.{step}_options" for step in ISE_STEPS),
+        "xeda.flows.openroad.final_groups.IrDropGroup.nets",
+        "xeda.flows.openroad.final_groups.IrDropGroup.vsrc_files",
+        "xeda.flows.openroad.final_groups.IrDropGroup.instance_power",
+        "xeda.flows.openroad.final_groups.NdrGroup.assignments",
     }
 
 

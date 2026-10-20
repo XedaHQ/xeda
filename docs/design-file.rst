@@ -49,6 +49,11 @@ Two dotted keys under one table (``fpga.part`` and ``fpga.speed``) are fine, and
 (``fpga: {part: P, speed: -6}``). Settings from separate origins, such as the design file and
 ``-s``, are not one mapping: they merge, and the higher origin wins.
 
+A setting that holds a dictionary keyed by names from a tool or a netlist takes a dotted key as
+one key. ``flows.openroad.ir_drop.instance_power.u_core.reg_1: 1 mW`` sets the power of the
+instance ``u_core.reg_1``, and ``ir_drop: {instance_power: {"u_core.reg_1": 1 mW}}`` means the
+same. :ref:`The settings reference <opaque-keys>` lists these settings.
+
 Top level
 =========
 

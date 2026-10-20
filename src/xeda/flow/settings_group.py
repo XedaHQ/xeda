@@ -40,8 +40,11 @@ from ..dataclass import (
     XedaBaseModel,
     comma_separated_items,
     field_annotation,
+    fold_dotted_keys,
     input_names,
     model_validator,
+    opaque_key_declaration_problems,
+    opaque_key_fields_of,
 )
 from ..units import Quantity
 from .flow import _is_comma_separated_list, _is_optional_path, removed_message
@@ -118,6 +121,7 @@ class SettingsGroup(XedaBaseModel):
     def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
         super().__pydantic_init_subclass__(**kwargs)
         problems = _declaration_problems(cls)
+        problems += opaque_key_declaration_problems(cls)
         if problems:
             raise TypeError(f"{cls.__qualname__}: " + "; ".join(problems))
 
@@ -127,10 +131,13 @@ class SettingsGroup(XedaBaseModel):
 
         Text given to a list that accepts no text is a comma-separated list
         (`-s group.items=a,b`), and text spelled `[...]` is refused with a `ListLiteralText`, as
-        for every setting (`comma_separated_items`). `""` given to an optional path is unset."""
+        for every setting (`comma_separated_items`). `""` given to an optional path is unset. A
+        dotted key of a field in `opaque_key_fields` is one key (`fold_dotted_keys`)."""
         names = input_names(cls)
         if key not in names:
             return value
+        if names[key] in opaque_key_fields_of(cls):
+            return fold_dotted_keys(value)
         annotation = field_annotation(cls, names[key])
         if isinstance(value, str) and _is_comma_separated_list(annotation):
             return comma_separated_items(names[key], value)

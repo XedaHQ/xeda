@@ -5294,6 +5294,7 @@
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "The rule of each net, by net name (`assign_ndr -net`). A rule is one of `rules` or a rule that the database already holds."
       },
       "ndr.clock_rule": {
@@ -5575,6 +5576,7 @@
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "The supply nets to analyze, each with its voltage, a voltage with a unit, such as `1.1 V` (`set_pdnsim_net_voltage`). The analysis follows the order of the table. Unset: the power nets and then the ground nets of the platform, with the voltages that it gives."
       },
       "ir_drop.source_type": {
@@ -5626,12 +5628,14 @@
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "A file with the places of the voltage sources of a net, by net name (`-vsrc`). A relative path is relative to the design root. Unset for a net: the model of the sources decides."
       },
       "ir_drop.instance_power": {
         "children": true,
         "assignable": false,
         "dynamic": true,
+        "opaque_keys": true,
         "help": "The power of the instances that replaces the computed power, by instance name, a power with a unit, such as `2 mW` (`set_pdnsim_inst_power`)."
       },
       "ir_drop.instance_voltages": {

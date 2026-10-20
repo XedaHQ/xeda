@@ -539,7 +539,7 @@ def _group_entries(
                 "common": common,
                 "declared_by": _declaring_class(group_class, name),
                 "writes": written_role(group_class, name),
-                "opaque_keys": False,
+                "opaque_keys": name in opaque_key_fields_of(group_class),
                 "json_schema": json_safe(prop),
                 "tier": tier_of(group_class, name) or "common",
                 "group": top,

@@ -1,6 +1,6 @@
 """CLI parameter types that do not load flow implementations at construction."""
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 import re
 from typing import Any, Optional, Sequence, Tuple, Union
 
@@ -16,38 +16,52 @@ DOCUMENT_FORMATS = ("json", "yaml")
 #: test keeps equal: this module stays free of the settings models, so that completion is fast).
 TIER_NAMES = ("common", "advanced", "expert")
 _SETTING_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.\[\]-]*")
-#: The start of a key that continues with a name of the tool (`set_synth_properties.`), written
-#: from the table of the setting or from a `flows.<flow>` section. What follows may hold spaces
-#: and signs.
-_OPAQUE_KEY_START = re.compile(r"(?:flows\.[A-Za-z_][A-Za-z0-9_-]*\.)?([A-Za-z_][A-Za-z0-9_]*)\.")
+#: The start of a key that has a prefix of setting names, from a `flows.<flow>` section or not.
+_FLOW_SECTION_START = re.compile(r"flows\.[A-Za-z_][A-Za-z0-9_-]*\.")
+_SETTING_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
-def _opaque_key_fields() -> frozenset[str]:
-    """Return the settings of all flows whose keys are names of the tool. The function runs only
-    when a key is not shaped like a setting key, so a plain `-s` pays nothing for it."""
+def starts_opaque_key(key: str, opaque_paths: Collection[str]) -> bool:
+    """Return whether `key` continues, after the dotted path of a setting whose keys are names of
+    a tool (`set_synth_properties.`, `ir_drop.instance_power.`), with a name of that tool. The
+    name may hold spaces and signs, and dots. `key` may start with `flows.<flow>.`."""
+    section = _FLOW_SECTION_START.match(key)
+    parts = (key[section.end() :] if section else key).split(".")
+    for end in range(1, len(parts)):
+        if _SETTING_NAME.fullmatch(parts[end - 1]) is None:
+            return False
+        if ".".join(parts[:end]) in opaque_paths:
+            return True
+    return False
+
+
+def _opaque_key_paths() -> frozenset[str]:
+    """Return the settings of all flows whose keys are names of the tool, as dotted paths. The
+    function runs only when a key is not shaped like a setting key, so a plain `-s` pays nothing
+    for it."""
     from . import flows as _flows  # noqa: F401  (registers the built-in flows)
-    from .dataclass import opaque_key_fields_of
+    from .dataclass import opaque_key_paths
     from .flow import registered_flows
 
     return frozenset(
-        name
+        path
         for _, flow_class in list(registered_flows.values())
-        for name in opaque_key_fields_of(flow_class.Settings)
+        for path in opaque_key_paths(flow_class.Settings)
     )
 
 
 def _is_key_value(token: str) -> bool:
     """Return whether `token` is `KEY=VALUE` with a KEY shaped like a setting key, and never a
-    path such as `dir/a=b.toml`. A key may also continue after the name of a setting whose keys
+    path such as `dir/a=b.toml`. A key may also continue after the path of a setting whose keys
     are names of the tool, with the characters that such a name has
-    (`set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS`)."""
+    (`set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS`,
+    `ir_drop.instance_power.u_core/reg[1]`)."""
     key, sep, _ = token.partition("=")
     if not sep:
         return False
     if _SETTING_KEY.fullmatch(key) is not None:
         return True
-    start = _OPAQUE_KEY_START.match(key)
-    return start is not None and start.group(1) in _opaque_key_fields()
+    return starts_opaque_key(key, _opaque_key_paths())
 
 
 class OptionEatAll(click.Option):

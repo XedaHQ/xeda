@@ -142,9 +142,12 @@ A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an err
 ``timing`` and ``timing.x``, and so is the same pair in the other order. The same holds in a
 design file, a target, ``--design-overrides`` and a ``flows`` table.
 
-Some settings hold a dictionary whose keys are names that a tool defines. The run properties of
-Vivado are an example, and their names contain dots. A dotted key of such a setting is one key and
-not a path into nested tables::
+.. _opaque-keys:
+
+Some settings hold a dictionary whose keys are names that a tool defines or that a netlist gives.
+The run properties of Vivado are an example, and their names contain dots. So are the names of
+instances and nets after a flattening, such as ``u_core.reg_1``. A dotted key of such a setting is
+one key and not a path into nested tables::
 
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0
 
@@ -164,10 +167,18 @@ A name with a space is a quoted shell item::
 
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
 
+The same holds for a dictionary inside a settings group. The path goes on to the dictionary, and
+the rest of the key is one name::
+
+    xeda run openroad design.yaml -s ir_drop.instance_power.u_core.reg_1=1mW ndr.assignments.u_core.clk_div=wide
+
 ``xeda list-settings --json`` marks these settings with ``"opaque_keys": true``. They are
 ``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` and the flows that share
-its settings, and the option tables of ``ise_synth``. In ``synth.steps`` and ``impl.steps``, a
-dotted key is a path into nested tables.
+its settings, the option tables of ``ise_synth``, and these dictionaries of ``openroad``, which
+are keyed by net or instance name: ``ir_drop.nets``, ``ir_drop.vsrc_files``,
+``ir_drop.instance_power`` and ``ndr.assignments``. In ``synth.steps`` and ``impl.steps``, and in
+a dictionary of tables such as ``ndr.rules``, a dotted key is a path into nested tables. A path
+that goes on past the value of a key is an error, as for any setting.
 
 A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
 empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
