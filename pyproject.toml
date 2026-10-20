@@ -60,8 +60,6 @@ dependencies = [
     "psutil            ~= 7.2.2",
     "pyvcd             ~= 0.5.0",
     "GitPython         >= 3.2.1, < 4",
-    "fabric            ~= 3.2.3",
-    "execnet           ~= 2.1.2",
     "devtools          ~= 0.13",
     "colorama          ~= 0.4",
 ]

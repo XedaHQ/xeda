@@ -2,6 +2,7 @@
 them once at module level (`FIXTURES = (fake_ssh,)`), so that the linter does not read each
 argument of a test as a redefinition of the import."""
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -14,6 +15,9 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import pytest
 import yaml
+
+from xeda.remote import client
+from xeda.remote.environment import CodeSnapshot
 
 from .tool_utils import FAKE_TOOLS_DIR, use_fake_fpga_tools, use_fake_tools
 
@@ -233,6 +237,59 @@ class RemoteHost:
         self.fields.update(fields)
         self.write_profile()
 
+    def expose(self, *names: str) -> None:
+        """Let the remote launch use the tools `names` of this machine (`ghdl`, `yosys`, `bsc`).
+        Their directories go before the fakes on the `PATH` of the launch, so the real tool wins
+        over a fake of the same name. Call it before the first run."""
+        fakes = {str(self.toolchain), str(FAKE_TOOLS_DIR)}
+        real = os.pathsep.join(
+            entry for entry in os.environ["PATH"].split(os.pathsep) if entry not in fakes
+        )
+        for name in names:
+            found = shutil.which(name, path=real)
+            assert found, f"{name} is not installed here"
+            line = f"export PATH={Path(found).parent}:$PATH"
+            if line not in self.setup:
+                self.setup.append(line)  # later lines win
+        self.write_profile()
+
+    def load_test_flows(self, *modules: str, after: str = "") -> None:
+        """Make every launch on the remote import the test `modules` (by default
+        `tests.io_flows`) when it starts, so that the remote knows the flows that the tests
+        define. Call it before the first run. The statements in `after` run next, to change a
+        flow.
+
+        The launch entry in the code snapshot that the client sends gets a first statement that
+        imports the modules from this checkout when the module runs as the program. (A
+        `sitecustomize` module would import them before the interpreter is ready for the
+        extension modules.)"""
+        modules = modules or ("tests.io_flows",)
+        checkout = Path(__file__).resolve().parent.parent
+        hook = (
+            "if __name__ == '__main__':\n"
+            "    import sys\n"
+            f"    sys.path.insert(0, {str(checkout)!r})\n"
+            + "".join(f"    import {name}\n" for name in modules)
+            + "".join(f"    {line}\n" for line in after.splitlines())
+        ).encode()
+        entry = "xeda/remote/launch_entry.py"
+        real = client.code_snapshot
+
+        def snapshot() -> CodeSnapshot:
+            original = real()
+            contents = tuple(
+                (name, hook + data if name == entry else data, executable)
+                for name, data, executable in original.contents
+            )
+            assert contents != original.contents, entry
+            return dataclasses.replace(
+                original,
+                key=hashlib.sha256((original.key + hook.decode()).encode()).hexdigest()[:24],
+                contents=contents,
+            )
+
+        self.remote.monkeypatch.setattr(client, "code_snapshot", snapshot)
+
 
 @pytest.fixture
 def remote_host(
@@ -256,3 +313,40 @@ def remote_host(
     )
     host.write_profile()
     yield host
+
+
+def remote_request(tmp_path: Path, design: Any, chain: str = "nextpnr", **overrides: Any):
+    """Run `chain` for `design` on the host `somewhere` with `run_remote`, and return its
+    `RemoteOutcome`. The run root is `tmp_path/local/xeda_run`. `overrides` replace the arguments
+    of `run_remote`."""
+    from xeda.remote.client import run_remote
+
+    arguments: Dict[str, Any] = dict(
+        design=design,
+        destination_text="somewhere",
+        run_root=tmp_path / "local" / "xeda_run",
+        flow_settings=[],
+        xedaproject=None,
+        design_overrides=[],
+        design_allow_extra=False,
+        target=None,
+        select_design_in_project=None,
+        hashed_run_dirs=False,
+        clean=False,
+        rebuild_all=False,
+        scrub=False,
+        dry_run=False,
+        fetch_all=False,
+        outputs_to=None,
+        overwrite_outputs=False,
+        confirm_overwrite=None,
+        log_level=20,
+        detailed_logs=False,
+    )
+    arguments.update(overrides)
+    return run_remote(chain, **arguments)
+
+
+def connected(host: "RemoteHost") -> bool:
+    """Whether the client opened an SSH connection to the fake host (`ssh -G` does not count)."""
+    return any("-M" in call for call in host.remote.calls("ssh"))

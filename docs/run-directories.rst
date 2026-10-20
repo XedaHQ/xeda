@@ -553,32 +553,12 @@ file with one of these names.
 Remote runs
 ===========
 
-A remote host must run Xeda 0.4.4 or newer (a development build of this release line counts), with
-remote protocol 1 or newer. Protocol 1 provides:
-
-- canonical resolved settings;
-- relocated read inputs, with their original path identities;
-- declared output records and checked hand-over;
-- the rule for simulation evidence (a remote simulation must confirm that it ended successfully);
-- the FPGA build graph: ``fpga_pack``, ``nextpnr`` on Xilinx 7-series, and an ``openfpgaloader``
-  that only programs;
-- the node identity of chains (the hash of a node is its settings plus where its declared inputs
-  come from, and the local mirror is named by it, so a remote that computes another hash cannot take
-  part);
-- the declared outputs of Vivado synthesis;
-- the declared netlist of ``yosys``, with its ASIC configuration derived from its own ``platform``
-  and with the files of a bundled platform counted relative to the Xeda installation.
-
-Before it ships the design, Xeda checks the package that the remote interpreter actually imports. A
-release without the protocol marker, or with a lower protocol, is refused with an "upgrade the
-remote Xeda" error.
-
-A remote run (``--remote``) always runs fresh on the remote. Xeda mirrors its results locally in the
-hashed layout (``<design>[/<target>]/<flow>_<hash>``), so remote runs of different settings never
-share a directory. ``--clean`` and ``--hashed-run-dirs`` would change nothing, so Xeda refuses both.
-``--rebuild-all`` forces the local loading of generators before the design is shipped, while the
-remote flow still runs fresh. The remote setting ``clean`` does not force a local generator on
-ordinary invocations. Chains and ``--dry-run`` are refused with ``--remote``.
+A remote run (``--remote HOST``) runs the request on a Linux host over SSH. The run directories
+are on the remote host, below the run root of its workspace. Xeda mirrors the results, the logs, the
+reports and the declared outputs under ``<run root>/@<host>/``, with the same layout as a local run
+root (``<design>[/<target>]/<flow>[_<hash>]``). The mirror holds no ``trace.json``. A mirror
+directory is replaced by each fetch. ``--hashed-run-dirs``, ``--clean``, ``--rebuild-all`` and
+``--dry-run`` act on the remote run directories, as they do for a local run.
 
 Cleaning up
 ===========

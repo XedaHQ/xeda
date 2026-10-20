@@ -1058,7 +1058,7 @@ def _normalize_parameters(value: Any) -> Any:
     one value of the parameter, and nothing else records the table that it was written as. The
     design's identity must not depend on where the design lives, so
     `Design._parameters_fingerprint` leaves that part out. A remote run re-roots such a path from
-    the value alone (`send_design`).
+    the value alone (`remote.packaging.package_inputs`).
     """
     if value is None:
         # Do not test `not value`: an empty list (`parameters: []`) is the list form and must
@@ -2547,8 +2547,8 @@ class Design(XedaBaseModel):
     )
     # `SerializeAsAny`: a dependency is usually a `GitReference`, and pydantic 2 serializes a
     # nested model by its annotated type unless told otherwise. That would silently drop
-    # `repo_url`, `design_file`, `branch`, `commit` and the clone settings that `send_design()`
-    # relies on.
+    # `repo_url`, `design_file`, `branch`, `commit` and the clone settings that the package of a
+    # remote run relies on.
     dependencies: List[SerializeAsAny[DesignReference]] = []
     rtl: RtlSettings
     tb: TbSettings = TbSettings()  # type: ignore
@@ -3114,8 +3114,8 @@ class Design(XedaBaseModel):
                     self.tb.top = dep_design.tb.top
             # The merge consumes the dependencies: the design now holds their sources itself, and
             # it is recorded as built. A record that kept the dependencies as well would merge
-            # them again on every reload (a `settings.json`, the archive that `send_design`
-            # ships) and duplicate sources.
+            # them again on every reload (a `settings.json`, the package of a remote run) and
+            # duplicate sources.
             if self.dependencies:
                 self.dependencies = []
 

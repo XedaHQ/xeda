@@ -23,7 +23,7 @@ from click.testing import CliRunner
 from xeda.cli import cli
 from xeda.flow_runner import DefaultRunner
 from xeda.remote import client
-from xeda.remote.client import new_launch_id, run_remote, workspace_key
+from xeda.remote.client import new_launch_id, workspace_key
 from xeda.remote.errors import (
     RemoteCanceled,
     RemoteConnectionError,
@@ -31,7 +31,13 @@ from xeda.remote.errors import (
 )
 from xeda.remote.ssh import Destination, SshSession
 
-from .remote_fixtures import RemoteHost, fake_remote, fake_ssh, remote_host
+from .remote_fixtures import (
+    RemoteHost,
+    fake_remote,
+    fake_ssh,
+    remote_host,
+    remote_request,
+)
 from .test_proc_utils import DEFAULT_SIGINT
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
@@ -63,30 +69,7 @@ def _design(tmp_path: Path, sources: tuple[str, ...] = ("top.v",), freq: str = "
 
 
 def _request(tmp_path: Path, design: Path, chain: str = "nextpnr", **overrides: Any):
-    arguments: dict[str, Any] = dict(
-        design=design,
-        destination_text="somewhere",
-        run_root=tmp_path / "local" / "xeda_run",
-        flow_settings=[],
-        xedaproject=None,
-        design_overrides=[],
-        design_allow_extra=False,
-        target=None,
-        select_design_in_project=None,
-        hashed_run_dirs=False,
-        clean=False,
-        rebuild_all=False,
-        scrub=False,
-        dry_run=False,
-        fetch_all=False,
-        outputs_to=None,
-        overwrite_outputs=False,
-        confirm_overwrite=None,
-        log_level=20,
-        detailed_logs=False,
-    )
-    arguments.update(overrides)
-    return run_remote(chain, **arguments)
+    return remote_request(tmp_path, design, chain, **overrides)
 
 
 def _succeeded(outcome) -> dict[str, Any]:
@@ -619,3 +602,100 @@ def test_agent_failure_names_the_step(tmp_path, remote_host, monkeypatch):
     assert isinstance(outcome.error, RemoteError) and not outcome.success
     message = outcome.document["error"]["message"]
     assert "running the launch" in message and "run root" in message
+
+
+# --- The records of the mirror -------------------------------------------------------------------
+
+
+def _strings(value: Any):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
+def test_the_records_of_the_mirror_name_the_paths_of_this_side(tmp_path, remote_host):
+    design = _design(tmp_path)
+    document = _succeeded(_request(tmp_path, design, chain="yosys_fpga+nextpnr"))
+    mirror = Path(document["mirror"])
+    workspace = str(remote_host.workspace())
+    for node in document["nodes"]:
+        directory = Path(node["run_path"])
+        for name in ("results.json", "settings.json"):
+            text = (directory / name).read_text()
+            assert workspace not in text, f"{directory / name} names a path of the remote"
+            assert str(remote_host.home) not in text
+        results = json.loads((directory / "results.json").read_text())
+        assert results["run_path"] == str(directory)
+    directory = Path(document["run_path"])
+    saved = json.loads((directory / "results.json").read_text())
+    assert saved["artifacts"]["textcfg"] == str(directory / "config.txt")
+    assert saved["outputs"]["config"]["path"] == str(directory / "config.txt")
+    # the same document that the run printed, without what the delivery adds
+    assert {k: v for k, v in document["results"].items() if k != "deliveries"} == saved
+    # the design of the settings is the local one: its sources are the files that were sent
+    settings = json.loads((directory / "settings.json").read_text())
+    assert settings["design"]["design_root"] == str(design.parent)
+    sources = [item["file"] for item in settings["design"]["rtl"]["sources"]]
+    assert sources == [str(design.parent / "top.v")]
+    assert all(
+        Path(text).is_relative_to(mirror) or Path(text).is_relative_to(design.parent)
+        for text in _strings(settings)
+        if text.startswith("/") and Path(text).is_relative_to(tmp_path)
+    )
+
+
+def test_the_recorded_results_and_the_next_delivery_agree(tmp_path, remote_host):
+    """`--outputs-to` finds the copy that the last fetch delivered through the records of the
+    mirror, which name paths of the mirror."""
+    design = _design(tmp_path)
+    out = tmp_path / "out"
+    first = _succeeded(_request(tmp_path, design, outputs_to=out))
+    assert first["results"]["deliveries"]
+    # the copy is Xeda's own and unchanged: the next delivery replaces it without asking
+    again = _succeeded(_request(tmp_path, design, outputs_to=out))
+    assert again["results"]["deliveries"]
+    # a file of the user's at the destination is refused, before any connection
+    (out / "config.txt").write_text("the user's own file\n")
+    outcome = _request(tmp_path, design, outputs_to=out)
+    assert outcome.error is not None and not outcome.success
+    assert "config.txt" in outcome.document["error"]["message"]
+    assert len([call for call in remote_host.remote.calls("ssh") if "-M" in call]) == 2
+    assert (out / "config.txt").read_text() == "the user's own file\n"
+
+
+# --- Launch options mean on the remote what they mean locally ------------------------------------
+
+
+def test_hashed_run_dirs_give_hashed_directories_on_the_remote_and_in_the_mirror(
+    tmp_path, remote_host
+):
+    design = _design(tmp_path)
+    document = _succeeded(_request(tmp_path, design, hashed_run_dirs=True))
+    flowrun_hash = document["results"]["flow_hash"]
+    name = f"nextpnr_{flowrun_hash[:16]}"
+    remote_dir = remote_host.workspace() / "xeda_run" / "top" / name
+    mirror_dir = tmp_path / "local" / "xeda_run" / "@somewhere" / "top" / name
+    assert (remote_dir / "results.json").is_file()
+    assert (mirror_dir / "results.json").is_file()
+    assert Path(document["run_path"]) == mirror_dir
+    assert not (remote_host.workspace() / "xeda_run" / "top" / "nextpnr").exists()
+    # another setting is another directory, on the remote and in the mirror
+    other = _succeeded(_request(tmp_path, _design(tmp_path, freq="90 MHz"), hashed_run_dirs=True))
+    assert Path(other["run_path"]) != mirror_dir and Path(other["run_path"]).is_dir()
+    assert mirror_dir.is_dir()
+
+
+@pytest.mark.parametrize("option", ["rebuild_all", "clean"])
+def test_rebuild_all_and_clean_run_the_remote_flows_again(tmp_path, remote_host, option):
+    design = _design(tmp_path)
+    assert _states(_succeeded(_request(tmp_path, design))) == {
+        "yosys_fpga": "ran",
+        "nextpnr": "ran",
+    }
+    again = _succeeded(_request(tmp_path, design, **{option: True}))
+    assert _states(again) == {"yosys_fpga": "ran", "nextpnr": "ran"}

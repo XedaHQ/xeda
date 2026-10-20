@@ -2,7 +2,8 @@
 
 `select_fetch` runs on the remote. It names the files of the run directories that come back.
 `publish_mirror` runs on the local machine. It checks each received file against its digest and
-writes it into the mirror. `rewrite_results` points the paths in a node's results at the mirror.
+writes it into the mirror. `rewrite_results` points the paths in a node's results at the mirror. `rewrite_records` writes the
+records of a mirror directory again with the paths of this side.
 
 A mirror directory holds the files of one run directory under the names they have there. A file
 that is not in the run directory (an artifact outside it) lies in the mirror directory under
@@ -11,10 +12,11 @@ that is not in the run directory (an artifact outside it) lies in the mirror dir
 
 import copy
 import hashlib
+import json
 import logging
 import os
 import stat
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Dict, Optional
@@ -34,7 +36,7 @@ from ..flow_runner.default_runner import _get_flow_class_if_known
 from ..flow_runner.outputs import declared_output_files
 from ..flow_runner.trace_inputs import design_files, register_read_settings
 from ..run_dir import RunDirectory, RunDirectoryError
-from ..utils import replacing_file
+from ..utils import dump_json, replacing_file
 from .errors import RemoteFetchError
 from .manifest import Entry, copy_verified, iter_tar
 
@@ -353,6 +355,54 @@ def rewrite_results(
     if "run_path" in rewritten:
         rewritten["run_path"] = str(mirror_dir)
     return rewritten
+
+
+def translate_paths(document: Any, translate: Callable[[str], Optional[str]]) -> Any:
+    """Return a copy of the JSON `document` in which every text that `translate` maps is replaced.
+
+    `translate` returns the new text, or `None` to keep the text. The keys stay as they are."""
+    if isinstance(document, str):
+        mapped = translate(document)
+        return document if mapped is None else mapped
+    if isinstance(document, Mapping):
+        return {key: translate_paths(value, translate) for key, value in document.items()}
+    if isinstance(document, list):
+        return [translate_paths(value, translate) for value in document]
+    return document
+
+
+def rewrite_records(
+    mirror_dir: Path,
+    run_root: Path,
+    translate: Callable[[str], Optional[str]],
+    *,
+    results: Optional[Mapping[str, Any]] = None,
+) -> None:
+    """Write `results.json` and `settings.json` of the mirror directory again, with the paths of
+    this side: a user who opens the mirror finds no path of the remote host in them.
+
+    `translate` maps a path on the remote to the path of the same file here (`translate_paths`).
+    `results` are the results that `rewrite_results` returned for this directory. They replace the
+    content of `results.json`, which names the remote paths of every file. The caller holds the
+    lock of the mirror directory. A record that was not fetched is left out. A record that is
+    not JSON raises `RemoteFetchError`."""
+    run_directory = RunDirectory.claimed(mirror_dir, run_root)
+    for name in _RECORDS:
+        record = mirror_dir / name
+        if not _is_regular(str(record)):
+            continue
+        if name == "results.json" and results is not None:
+            document: Any = results
+        else:
+            try:
+                document = json.loads(record.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as error:
+                raise RemoteFetchError(f"cannot read the fetched {record}: {error}") from None
+        try:
+            target = run_directory.writable(name)
+        except RunDirectoryError as error:
+            raise RemoteFetchError(f"cannot rewrite {record}: {error}") from None
+        dump_json(translate_paths(document, translate), target, backup=False)
 
 
 def remote_read_inputs(

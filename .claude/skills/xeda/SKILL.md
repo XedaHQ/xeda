@@ -380,10 +380,10 @@ xeda run vivado_synth blinky.yaml --outputs-to ./out
 
 ## Remote runs
 
-`--remote HOST` needs a remote Xeda of the 0.4.4 release line or newer that defines the remote
-protocol marker (`xeda.REMOTE_PROTOCOL_VERSION >= 1`). Xeda probes the remote's installed package
-and refuses one without it, with an upgrade error, before it ships anything. A remote run
-always runs fresh and refuses `--clean`, `--hashed-run-dirs`, `--dry-run`, chains and bindings.
+`--remote HOST` runs the request, a chain too, on a Linux host over SSH. Xeda installs what it
+needs on the host at the first run. The run directories are on the host. The results, logs, reports
+and declared outputs are mirrored under `<run root>/@<host>/`. `--post-cleanup` and
+`--post-cleanup-purge` are refused; use `xeda remote clean`.
 
 ## When a run fails
 

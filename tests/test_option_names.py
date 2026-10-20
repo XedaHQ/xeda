@@ -20,7 +20,6 @@ from xeda import cli as cli_module
 from xeda.cli import cli, dse, run, scrub
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
-from xeda.flow_runner.remote import RemoteRunner
 
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
 FAKE_TOOLS = Path(__file__).parent / "fake_tools"
@@ -79,10 +78,9 @@ class _NoBatch(Optimizer):
     "launcher",
     [
         DefaultRunner,
-        RemoteRunner,
         lambda **kwargs: Dse(_NoBatch, {}, variations={}, **kwargs),
     ],
-    ids=["DefaultRunner", "RemoteRunner", "Dse"],
+    ids=["DefaultRunner", "Dse"],
 )
 def test_the_removed_root_keyword_names_its_replacement(tmp_path, launcher):
     with pytest.raises(ValueError, match=re.escape("`xeda_run_dir` was removed: use run_root")):

@@ -13,9 +13,10 @@ The steps, in order:
 5. Fetch the selected files into the mirror `<run root>/@<host>/...`, rewrite the paths of the
    result to the mirror, deliver `--outputs-to`, and say goodbye to the agent.
 
-The mirror files are kept as the remote wrote them and as their digests check. Only the document
-that `run_remote` returns names the paths of the mirror. The `results.json` in a mirror
-directory still names the paths of the remote.
+The files of the mirror are kept as the remote wrote them and as their digests check, except the
+records of each run directory. `results.json` and `settings.json` are written again with the paths
+of this side: a path in the mirror, or the file of the local design for a path in the inputs of the
+remote. So a user who opens the mirror sees no path of the remote host there.
 
 Every failure after step 1 is a `RemoteError` that names the step. `run_remote` returns a
 `RemoteOutcome` for every outcome, a failure too, so that the caller can always print one
@@ -70,7 +71,13 @@ from .errors import (
     RemoteError,
     RemoteProtocolError,
 )
-from .fetch import deliver_fetched, publish_mirror, remote_read_inputs, rewrite_results
+from .fetch import (
+    deliver_fetched,
+    publish_mirror,
+    remote_read_inputs,
+    rewrite_records,
+    rewrite_results,
+)
 from .frames import (
     BEAT,
     CANCEL,
@@ -99,6 +106,9 @@ _STATUS_WAIT = 10.0
 
 #: Lines of the standard error of the agent that go into an error message.
 _STDERR_LINES = 15
+
+#: The directories of the inputs that hold copies which xeda made, and no file of the design.
+_SYNTHETIC_INPUTS = frozenset({"_setting_inputs", "_liberty_inputs"})
 
 #: The words of a message of `read_frame` that tell the stream ended in a frame.
 _ENDED_INSIDE = "the stream ended inside"
@@ -823,6 +833,45 @@ def _mirror_document(
     return mirrored
 
 
+def _translation(
+    *,
+    remote_run_root: PurePosixPath,
+    mirror_root: Path,
+    inputs_dir: PurePosixPath,
+    package: InputPackage,
+    design_root: Path,
+) -> Callable[[str], Optional[str]]:
+    """Map a path on the remote to the path of the same file here, or to `None`.
+
+    A path in the run root of the remote goes to the same place in the mirror. A path in the
+    inputs directory goes to the local file that was sent there, or else to the same place below
+    the design root: a place that the remote makes for an output (`{path: out/trace.txt}`) has
+    the same name there. The inputs directory itself goes to the design root. A file that xeda
+    made for the remote (the design document, a Liberty file with renamed includes) has no such
+    file here, and its path stays. So does a path elsewhere (a tool, a store of the remote)."""
+    files = {(inputs_dir / name).as_posix(): str(local) for name, local in package.files.items()}
+    made = {(inputs_dir / name).as_posix() for name in package.generated}
+
+    def translate(text: str) -> Optional[str]:
+        if not text.startswith("/"):
+            return None
+        path = PurePosixPath(text)
+        if path == remote_run_root or path.is_relative_to(remote_run_root):
+            return str(mirror_root / path.relative_to(remote_run_root))
+        if path == inputs_dir:
+            return str(design_root)
+        if not path.is_relative_to(inputs_dir):
+            return None
+        if path.as_posix() in files:
+            return files[path.as_posix()]
+        relative = path.relative_to(inputs_dir)
+        if path.as_posix() in made or relative.parts[0] in _SYNTHETIC_INPUTS:
+            return None
+        return str(design_root / relative)
+
+    return translate
+
+
 def _local_design(document: Dict[str, Any], run: _Run, design_name: str) -> Dict[str, Any]:
     """Name the design file that the user gave, and not the packaged copy on the remote."""
     from ..introspect import design_info
@@ -1026,6 +1075,13 @@ def _run(
                         mirror_root=mirror_root,
                         local_root=local_root,
                         remote_run_root=remote_run_root,
+                        translate=_translation(
+                            remote_run_root=remote_run_root,
+                            mirror_root=mirror_root,
+                            inputs_dir=inputs_dir,
+                            package=package,
+                            design_root=design.root_path,
+                        ),
                         fetch_all=fetch_all,
                         outputs_to=outputs_to,
                     )
@@ -1051,6 +1107,7 @@ def _finish(
     mirror_root: Path,
     local_root: Path,
     remote_run_root: PurePosixPath,
+    translate: Callable[[str], Optional[str]],
     fetch_all: bool,
     outputs_to: Optional[Path],
 ) -> RemoteOutcome:
@@ -1085,6 +1142,7 @@ def _finish(
         )
         reader.drain()
         results = result.get("results")
+        requested_dir: Optional[Path] = None
         rewritten: Optional[Dict[str, Any]] = None
         remote_deliverables: Any = None
         success = bool(result.get("success"))
@@ -1094,19 +1152,30 @@ def _finish(
             written = (result.get("written") or {}).get(requested)
             mirror_dir = mirror_root / remote_run_dir.relative_to(remote_run_root)
             rewritten = rewrite_results(results, remote_run_dir, mirror_dir, written=written)
+            requested_dir = mirror_dir
             output_paths = [str(path) for path in declared_output_files(results)]
             remote_deliverables = (
                 {"artifacts": results.get("artifacts") or {}, "outputs": output_paths}
                 if output_paths and success
                 else results.get("artifacts")
             )
+        # The records of the mirror are whole before anything is delivered: a refused delivery
+        # leaves them as they are.
+        for directory in sorted(set(directories.values())):
+            rewrite_records(
+                directory,
+                local_root,
+                translate,
+                results=rewritten if directory == requested_dir else None,
+            )
+        if rewritten is not None and requested_dir is not None:
             if outputs_to is not None and prepared.deliveries is not None:
                 deliver_fetched(
                     prepared.deliveries,
                     rewritten,
                     remote_deliverables,
-                    str(remote_run_dir),
-                    mirror_dir,
+                    result["run_path"],
+                    requested_dir,
                     outputs_to=outputs_to,
                 )
             print_results(

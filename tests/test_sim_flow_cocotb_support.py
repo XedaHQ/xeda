@@ -3,7 +3,7 @@ design as an ordinary simulation whose cocotb tests silently never run.
 
 The check is `Flow.check_design_supported`, made where a launch checks `required_settings`:
 before anything is set up for the run (here), and before anything is shipped to a remote
-(`test_remote_run.py`). `SimFlow.__init__` makes it too, for a flow constructed directly.
+(`test_remote_client.py`). `SimFlow.__init__` makes it too, for a flow constructed directly.
 """
 
 import re

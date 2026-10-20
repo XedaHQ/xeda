@@ -5,21 +5,21 @@ receives it. The flow registers the exact files it opens, and the trace records 
 """
 
 import json
-import zipfile
 from pathlib import Path
 
 import pytest
+import yaml
 
 from xeda import Design
 from xeda.dataclass import LOCATOR, WORKING, Field, XedaBaseModel, is_locator
 from xeda.flow import flowrun_hash
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner import remote as remote_module
-from xeda.flow_runner.remote import RemoteRunner
 from xeda.flow_runner.trace_inputs import setting_path_leaves
 
 from .io_flows import _InstalledTaker, _ReadsInstalled, _ReadsInstalledNested, _Where
-from .test_remote_run import TESTS_DIR, _remote_run_dir, remote_host  # noqa: F401
+from .remote_fixtures import fake_remote, fake_ssh, remote_host, remote_request
+
+FIXTURES = (fake_ssh, fake_remote, remote_host)
 
 LIB = "library contents\n"
 
@@ -122,26 +122,13 @@ def test_settings_json_keeps_the_locator(tmp_path):
     assert Path(recorded["flow_settings"]["store"]) == store
 
 
-def _remote_design(tmp_path: Path, sections: dict) -> Design:
-    root = tmp_path / "design"
-    root.mkdir(exist_ok=True)
-    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}, flow=sections)
-
-
 @pytest.mark.parametrize("place", ["requested", "producer", "nested"])
-def test_a_remote_run_does_not_ship_a_locator(
-    tmp_path, remote_host, monkeypatch, place  # noqa: F811
-):
-    monkeypatch.setattr(
-        remote_module,
-        "REMOTE_PROBE",
-        f"import sys\nsys.path.insert(0, {str(TESTS_DIR.parent)!r})\nimport tests.io_flows\n"
-        + remote_module.REMOTE_PROBE,
-    )
+def test_a_remote_run_does_not_ship_a_locator(tmp_path, remote_host, place):
+    remote_host.load_test_flows()
     store = _store(tmp_path / "store")
     secret = "the content of a store file, which must stay on this machine\n"
     (store / "lib.txt").write_text(secret)
-    command_line: list[str] | None = None
+    command_line: list[str] = []
     if place == "requested":
         flow_class, key = _ReadsInstalled, "__reads_installed"
         sections: dict = {}
@@ -155,18 +142,23 @@ def test_a_remote_run_does_not_ship_a_locator(
         flow_class, key = _ReadsInstalledNested, "__reads_installed_nested"
         sections = {key: {"where": {"store": str(store)}}}
         field = "where"
-    design = _remote_design(tmp_path, sections)
-    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
-    results = runner.run_remote(design, flow_class.name, "fake", flow_settings=command_line)
-    assert results and results["success"]
+    root = tmp_path / "design"
+    root.mkdir()
+    design = root / "d.yaml"
+    design.write_text(
+        yaml.safe_dump({"name": "d", "rtl": {"sources": [], "top": "t"}, "flows": sections})
+    )
+    outcome = remote_request(tmp_path, design, flow_class.name, flow_settings=command_line)
+    assert outcome.error is None and outcome.success, outcome.document
 
-    settings = json.loads((_remote_run_dir(remote_host, key) / "settings.json").read_text())
+    workspace = remote_host.workspace()
+    settings = json.loads((workspace / "xeda_run" / "d" / key / "settings.json").read_text())
     shipped = settings["flow_settings"][field]
     assert shipped is None or shipped == {"store": None}
-    (archive_path,) = remote_host.glob(".xeda/remote_run/*/*.zip")
-    with zipfile.ZipFile(archive_path) as archive:
-        for entry in archive.namelist():
-            assert str(store) not in entry and not entry.endswith("lib.txt"), entry
-            assert secret.encode() not in archive.read(entry), entry
-        assert str(store).encode() not in b"".join(archive.read(e) for e in archive.namelist())
-    assert not list(remote_host.glob(".xeda/remote_run/*/**/lib.txt"))
+    # nothing of the store traveled: not a file of it, not its content, not its name
+    for path in workspace.rglob("*"):
+        if path.is_file() and ".venv" not in path.parts:
+            assert not path.name == "lib.txt", path
+            data = path.read_bytes()
+            assert secret.encode() not in data, path
+            assert str(store).encode() not in data or path.parent.name == "xeda_run", path

@@ -415,3 +415,71 @@ def test_a_packaged_document_names_its_target_by_the_rule_of_target_names(tmp_pa
     path.write_text(json.dumps({"name": "d", "target": "../x", "rtl": {"sources": [], "top": "t"}}))
     with pytest.raises(DesignValidationError, match="not a target name"):
         Design.from_file(path, packaged=True)
+
+
+def _unpacked(package: InputPackage, remote: Path) -> Design:
+    """The design that the remote loads from the package, which it unpacks under `remote`."""
+    import tarfile
+
+    manifest = build_manifest(package.files, package.generated)
+    archive = io.BytesIO()
+    write_tar(manifest, package.files, package.generated, archive)
+    archive.seek(0)
+    with tarfile.open(fileobj=archive) as tar:
+        tar.extractall(remote, filter="data")
+    return Design.from_file(remote / package.design_file)
+
+
+def test_the_package_names_every_source_s_type(tmp_path):
+    """The remote reloads every type of source, including Data on unknown and HDL suffixes."""
+    root = tmp_path / "d"
+    root.mkdir()
+    members = list(SourceType)
+    sources = []
+    for member in members:
+        name = f"{member.name.lower()}.src"
+        (root / name).write_text("x\n")
+        sources.append({"file": name, "type": member.name})
+    for name in ("notes.txt", "data.v"):
+        (root / name).write_text("x\n")
+        sources.append({"file": name, "type": "Data"})
+        members.append(SourceType.Data)
+    design = Design(
+        name="d", design_root=root, rtl={"sources": sources, "top": "t"}, tb={"sources": sources}
+    )
+    package = _package(design, {}, tmp_path)
+    shipped = _shipped(package)
+    for part in ("rtl", "tb"):
+        assert [source["type"] for source in shipped[part]["sources"]] == [m.name for m in members]
+        assert all(set(source) <= {"file", "type"} for source in shipped[part]["sources"])
+    restored = _unpacked(package, tmp_path / "remote")
+    assert [[s.type for s in part.sources] for part in (restored.rtl, restored.tb)] == [members] * 2
+
+
+EXAMPLES = sorted(
+    p
+    for p in (Path(__file__).parent.parent / "examples").rglob("*")
+    if p.suffix in (".toml", ".yaml", ".yml")
+    and not p.name.startswith("xedaproject.")
+    and "xeda_run" not in p.parts
+)
+
+
+@pytest.mark.parametrize("design_file", EXAMPLES, ids=lambda p: p.name)
+def test_every_example_design_unpacks_with_the_same_sources(design_file, tmp_path):
+    """What the remote loads from the package has the sources of the example, each with its type
+    and its content, in order, and the same settings of the design. (A source outside the design
+    root has another place there, so the hash of the design may differ: the run identity does not
+    count a place.)"""
+    design = Design.from_file(design_file)
+    restored = _unpacked(_package(design, {}, tmp_path), tmp_path / "remote")
+
+    def sources(loaded: Design, part: str) -> list:
+        return [
+            (item["type"], item["content"])
+            for item in getattr(loaded, f"{part}_fingerprint")["sources"]
+        ]
+
+    for part in ("rtl", "tb"):
+        assert sources(restored, part) == sources(design, part)
+    assert (restored.rtl.top, restored.rtl.defines) == (design.rtl.top, design.rtl.defines)

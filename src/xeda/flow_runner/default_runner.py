@@ -1727,7 +1727,7 @@ class FlowLauncher:
     ) -> None:
         """Refuse, before anything is loaded, what a launcher that takes no requests refuses.
 
-        Such launchers are `Dse` and `RemoteRunner.run_remote`. What they refuse here needs no
+        Such a launcher is `Dse`. What it refuses here needs no
         design: a chain, and an input binding of the requested node given on the command line,
         through the API or in the project file (`LOCAL_REQUESTS_ONLY`). Loading a design may
         clone a Git dependency into the run root, so a refusal that came after it would leave
@@ -1922,7 +1922,7 @@ class FlowLauncher:
             host_layer=(host_profile_origin(host), host_flows) if host_flows is not None else None,
         )
         self._refuse_unaccepted_plan(request, plan)
-        self._refuse_planned(plan)
+        self._refuse_planned(plan, run_directories_here=host_flows is None)
         return PreparedRequest(
             request.design, request.sections, plan, request.flow_request, request.design.target
         )
@@ -2000,14 +2000,15 @@ class FlowLauncher:
         self._refuse_planned(plan)
         return request, plan
 
-    def _refuse_planned(self, plan: Plan) -> None:
+    def _refuse_planned(self, plan: Plan, *, run_directories_here: bool = True) -> None:
         """Refuse what a launch refuses of a resolved plan before anything runs.
 
         A plan reports it too: a run directory that a flow cannot work in, and `--outputs-to`
-        for a programmer."""
+        for a programmer. A remote run builds in run directories on the remote host, and the
+        launch there judges them (`run_directories_here` is false)."""
         # The launch refuses these too, where it decides the directory
         # (`launch_identity.run_identity`).
-        for node in plan.nodes:
+        for node in plan.nodes if run_directories_here else ():
             node.flow_class.check_run_directory(node.settings, node.run_path)
         if self.settings.outputs_to is not None:
             refuse_outputs_to_a_programmer(
@@ -2095,7 +2096,7 @@ class FlowLauncher:
         if declared is not None and deferred.complete:
             plan = self._resolve_request(declared, identify_design=False)
             self._refuse_unaccepted_plan(declared, plan)
-            self._refuse_planned(plan)
+            self._refuse_planned(plan, run_directories_here=host_layer is None)
         request = self._request(
             *arguments, target=target, _planning=planning, host_layer=host_layer
         )

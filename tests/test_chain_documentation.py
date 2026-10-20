@@ -27,7 +27,6 @@ from xeda import Design
 from xeda.cli import cli
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner, get_flow_class
-from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.bindings import split_bindings
 from xeda.flow_runner.chains import complete_request, parse_request
 from xeda.flow_runner.settings_layers import COMMAND_LINE_ORIGIN
@@ -736,21 +735,9 @@ def test_a_source_that_cuts_the_graph_is_refused(tmp_path):
 # ------------------------------------------------ local only, and the undeclared flows boundary
 
 
-@pytest.mark.skip(reason="migrated in the next task")
-def test_chains_and_reached_bindings_are_local_and_refused_before_anything_connects(
-    tmp_path, monkeypatch
-):
-    connected: list = []
-    monkeypatch.setattr(remote_module, "Connection", lambda **kwargs: connected.append(kwargs))
+def test_every_other_command_takes_one_flow_and_says_where_chains_go(tmp_path):
     root = _stage(tmp_path, "routed_demo.yaml")
     design = root / "routed_demo.yaml"
-    result, document = _xeda("run", CHAIN, design, "--remote", "host")
-    assert result.exit_code != 0 and "local `xeda run` requests" in document["error"]["message"]
-    # a saved binding the request reaches is just as local ...
-    result, document = _xeda("run", "fpga_pack", design, "--remote", "host")
-    assert result.exit_code != 0 and "binding" in document["error"]["message"].lower()
-    assert not connected
-    # ... and every other command takes one flow, and says where chains go
     for command in (("dse", CHAIN, "--design", design), ("scrub", CHAIN, "routed_demo")):
         result = CliRunner().invoke(cli, [str(a) for a in command])
         assert result.exit_code == 2

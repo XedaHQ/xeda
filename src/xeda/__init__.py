@@ -5,13 +5,6 @@ from typing import TYPE_CHECKING, Any
 
 from .version import __version__
 
-# The protocol version that a remote must understand to serve this side's requests
-# (`flow_runner.remote` describes protocol 1). No release of Xeda before it carried a marker.
-# Raise it together with `REMOTE_PROTOCOL_MIN_VERSION`, once per release cycle and never between
-# releases. Keep it on the imported package, so that the probe cannot mistake the version metadata
-# of another distribution for the capabilities of this checkout.
-REMOTE_PROTOCOL_VERSION = 1
-
 _LAZY_EXPORTS = {
     "FPGA": (".flow", "FPGA"),
     "Cocotb": (".cocotb", "Cocotb"),
@@ -39,7 +32,6 @@ __all__ = [
     "Dse",
     "Flow",
     "FlowRunner",
-    "REMOTE_PROTOCOL_VERSION",
     "SimFlow",
     "SynthFlow",
     "Tool",

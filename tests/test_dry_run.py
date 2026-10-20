@@ -212,31 +212,6 @@ def test_dry_run_leaves_existing_unmarked_roots_unchanged(tmp_path, root_kind, v
     assert _state(tmp_path, exclude=[]) == before
 
 
-@pytest.mark.skip(reason="migrated in the next task")
-@pytest.mark.parametrize("json_flag", [False, True])
-def test_a_dry_run_is_refused_for_a_remote(tmp_path, json_flag):
-    design = _design_file(tmp_path / "d")
-    proc = run_xeda(
-        "run",
-        "nextpnr",
-        str(design),
-        "--dry-run",
-        "--remote",
-        "host",
-        *(["--json"] if json_flag else []),
-        cwd=tmp_path,
-    )
-    assert proc.returncode == 2
-    message = "`--dry-run` is not supported with --remote"
-    if json_flag:
-        document = json_stdout(proc)
-        assert document["success"] is False
-        assert document["error"] == {"type": "UsageError", "message": message}
-    else:
-        assert message in click.unstyle(proc.stderr)
-    assert not (tmp_path / "xeda_run").exists()
-
-
 @pytest.mark.parametrize("kind", ["command", "arguments", "mapping", "project", "git", "local"])
 def test_side_effecting_loading_is_refused_before_it_runs(tmp_path, kind):
     root = tmp_path / "d"
