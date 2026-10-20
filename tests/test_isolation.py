@@ -1,6 +1,13 @@
 """Outside the run roots it created, xeda changes nothing but the output paths a launch named:
 the isolation oracle. Everything runs in scratch copies under `tmp_path`.
 
+The same launches carry the oracle of the process (`test_shared_state.py` holds its teeth): a
+launch leaves nothing of itself that a later launch could meet. The launches of a case leave the
+tables, defaults and class attributes of `xeda.*` as they were (`state_snapshot.state`), share no
+mutable object with them (`state_snapshot.shared_objects`), and leave the working directory, the
+environment, `sys.path`, the logging and the warning filters as they were. They also leave the
+settings mapping and the `Design` that the caller gave as they were.
+
 What the oracle cannot see:
 - A tool outside `FAKED` is stubbed (`run_process` does nothing), so for those flows only xeda's
   own writes and the fake TCL tools' are observed, never what the real tool would write.
@@ -14,17 +21,20 @@ where the sweep can be extended to real tools (a follow-up); real GHDL, nvc and 
 `test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree`."""
 
 import ast
+import copy
+import enum
 import os
 import re
 import shutil
 import stat
 import subprocess
 import sys
+import typing
 from collections import Counter
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator, List, NamedTuple, Optional, Sequence
+from typing import Any, Dict, Iterator, List, NamedTuple, Optional, Sequence
 
 import pytest
 import yaml
@@ -38,6 +48,7 @@ from xeda.design import SourceType, loading_in_run_root
 from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
 
+from . import state_snapshot as ss
 from .settings_samples import flow_classes, minimal_settings
 from .tiny_platform import TINY_OPENROAD_RESIDUE, TINY_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import (
@@ -448,9 +459,153 @@ def test_the_oracle_sees_every_change_outside_the_run_root(tmp_path):
 # --- the launches ---------------------------------------------------------------------------
 
 
-def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list) -> str:
-    """Launch `flow_class` from the design's directory as `scenario` says; how each launch
-    ended ("ok", "failed", or the exception's class name)."""
+#: Options that make a flow write what it derives from its settings (a waveform's format, the
+#: mode of synthesis, a library merged), which the flipped options do not all reach.
+HAND_VARIANTS: Dict[str, List[Dict[str, Any]]] = {
+    "ghdl_sim": [{"vcd": "w.vcd"}, {"fst": "w.fst"}, {"wave": "w.ghw"}],
+    "nvc": [{"vcd": "w.vcd"}, {"fst": "w.fst"}],
+    "vcs": [
+        {"ucli_script": "notes.txt"},
+        {"gui": True},
+        {"sdf_file": "notes.txt", "sdf_instance": "uut"},
+    ],
+    "vivado_sim": [{"nthreads": 2}, {"sdf": {"max": "notes.txt", "root": "uut"}}],
+    "vivado_synth": [{"bitstream": "outputs/x.bit"}, {"out_of_context": True}],
+    "vivado_alt_synth": [{"out_of_context": True, "flatten_hierarchy": "full"}],
+    "vivado_project": [{"out_of_context": True, "flatten_hierarchy": "full"}],
+    "yosys_fpga": [{"abc_script": "notes.txt", "keep_hierarchy": ["sqrt"]}],
+    "dc": [{"__language": "2019"}, {"__language": "1993"}],
+    "ise_synth": [{"__language": "2019"}],
+}
+#: The flows whose launch with the plain testbench (`variant_design`) does not reach their
+#: `run()`, and why nothing is lost. Any other that does not is a failure of the sweep: it would
+#: see nothing of it.
+NEVER_RUN: dict[str, str] = {}
+#: Settings that start a container or reach a machine: never flipped.
+NOT_FLIPPED = ("docker", "remote", "ssh", "junest", "image")
+#: The flows whose variant launches (those of `launch_plan` beyond the flow's own settings) run a
+#: plain VHDL testbench, so that the stood-in simulator is reached: `vivado_power` cannot run the
+#: sweep's cocotb one (`UNPLANNABLE`).
+PLAIN_TB_FLOWS = ("ghdl_sim", "nvc", "vivado_sim", "vcs", "vivado_power")
+
+
+class Launch(NamedTuple):
+    """One launch of a case: how it differs from the launch that its scenario describes."""
+
+    label: str
+    settings: Optional[dict] = None  # None: `sweep_settings`, with what the scenario adds
+    launcher: dict = {}  # added to what the scenario gives the launcher
+    variant: bool = False  # the design of `variant_design`, not the sweep's
+    strict: bool = True  # an FPGA flow with a fake toolchain has to end "ok"
+
+
+@dataclass
+class Seen:
+    """What the launches of a case left in the process, as `_launch` saw it: the problems, and the
+    flows that finished (their objects are compared with the state of the package at the end)."""
+
+    problems: List[str] = field(default_factory=list)
+    finished: List[tuple] = field(default_factory=list)
+
+
+def variant_design(flow_name: str) -> tuple:
+    """The design of a variant launch: the sweep's, but a plain testbench for `PLAIN_TB_FLOWS`."""
+    if flow_name not in PLAIN_TB_FLOWS:
+        return DESIGNS.get(flow_name, SQRT_DESIGN)
+    rtl, tb = PLAIN_TB_DESIGN
+    if flow_name in ("vivado_sim", "vivado_power"):
+        tb = {**tb, "uut": "uut"}  # the switching activity is recorded for the unit's instance
+    return rtl, tb
+
+
+def _flip_candidates(flow_class, current: dict):
+    """(name, value) for each boolean, literal and enumerated option, set to a value other than
+    its value in `current`, or its default when `current` does not set it."""
+    for name, info in flow_class.Settings.model_fields.items():
+        if any(part in name for part in NOT_FLIPPED):
+            continue
+        annotation, default = info.annotation, current.get(name, info.default)
+        if annotation is bool or annotation == Optional[bool]:
+            yield name, (not default) if isinstance(default, bool) else True
+        elif typing.get_origin(annotation) is typing.Literal:
+            options = [o for o in typing.get_args(annotation) if o != default and o is not None]
+            if options:
+                yield name, options[0]
+        elif isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+            options = [o for o in annotation if o != default]
+            if options:
+                yield name, options[0].value
+
+
+def flipped_settings(flow_class, base: dict, world: World) -> dict:
+    """`base`, with every option flipped that still validates beside the others."""
+    settings = dict(base)
+    for name, value in _flip_candidates(flow_class, settings):
+        trial = {**settings, name: value}
+        try:
+            flow_class.Settings.from_input(trial, design_root=world.work, runner_cwd=world.work)
+        except Exception:  # noqa: BLE001 - a combination the flow refuses is left out
+            continue
+        settings = trial
+    return settings
+
+
+def launch_plan(flow_class, world: World, scenario: str) -> Optional[List[Launch]]:
+    """The launches of a case, or None for the scenario's own (`twice` launches twice, any other
+    once). The launches the process oracle needs ride on the cases that already launch the flow:
+    `twice` adds a rebuild and the options that write what the settings derive; `clean` adds a
+    launch with every option flipped, and with debug."""
+    base = sweep_settings(flow_class, world)
+    if scenario == "twice":
+        return [
+            Launch("its own settings"),
+            Launch("its own settings again"),
+            Launch(
+                "its own settings, rebuilt",
+                base,
+                {"rebuild_all": True},
+                variant=True,
+                strict=False,
+            ),
+            *[
+                Launch(
+                    f"options {extra}",
+                    {**base, **extra},
+                    {},
+                    variant=True,
+                    strict=False,
+                )
+                for extra in HAND_VARIANTS.get(flow_class.name, [])
+            ],
+        ]
+    if scenario == "clean":
+        return [
+            Launch("its own settings"),
+            Launch(
+                "every option flipped, with debug",
+                flipped_settings(flow_class, base, world),
+                {"debug": True},
+                variant=True,
+                strict=False,
+            ),
+        ]
+    return None
+
+
+def _launch(
+    flow_class,
+    world: World,
+    monkeypatch,
+    scenario: str,
+    reached: list,
+    plan: Optional[List[Launch]] = None,
+    seen: Optional[Seen] = None,
+) -> str:
+    """Launch `flow_class` from the design's directory as `scenario` says, in the launches of
+    `plan`; how each launch ended ("ok", "failed", or the exception's class name). `reached`
+    gets the label of each launch whose flow reached its `run()`, and `seen` what the launches
+    left in the process."""
+    seen = Seen() if seen is None else seen
     use_fake_tools(monkeypatch)
     if flow_class.name in FPGA_FAKED:
         from .tool_utils import use_fake_fpga_tools
@@ -461,17 +616,10 @@ def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list)
         monkeypatch.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")
         monkeypatch.setattr("xeda.tool.Tool.version_gte", lambda self, *args: True)
     run = flow_class.run
-    monkeypatch.setattr(flow_class, "run", lambda self: reached.append(True) or run(self))
+    launching = [""]
+    monkeypatch.setattr(flow_class, "run", lambda self: reached.append(launching[0]) or run(self))
     monkeypatch.chdir(world.work)
-    rtl, tb = DESIGNS.get(flow_class.name, SQRT_DESIGN)
-    design = Design(
-        name="sqrt",  # every flow's, so the canaries named after it (`sqrt.xpr`) apply to all
-        design_root=world.work,
-        rtl=rtl,
-        tb=tb,
-        language={"vhdl": {"standard": "2008"}},
-    )
-    settings = sweep_settings(flow_class, world)
+    own_settings = sweep_settings(flow_class, world)
     launcher: dict = {"display_results": False}
     if scenario == "clean":
         launcher["clean"] = True
@@ -488,21 +636,74 @@ def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list)
             # (`test_fpga_chains.py`), so it delivers only what it names
             launcher["outputs_to"] = world.delivered
         for key, name in located.items():
-            settings[key] = str(world.delivered / name)
+            own_settings[key] = str(world.delivered / name)
+    if plan is None:
+        plan = [Launch("its own settings")] * (2 if scenario == "twice" else 1)
     outcomes = []
     errors = []
-    for _ in range(2 if scenario == "twice" else 1):
+    strict = []
+    for launch in plan:
+        launching[0] = launch.label
+        rtl, tb = (
+            variant_design(flow_class.name)
+            if launch.variant
+            else DESIGNS.get(flow_class.name, SQRT_DESIGN)
+        )
+        settings = dict(own_settings if launch.settings is None else launch.settings)
+        standard = settings.pop("__language", "2008")
+        design = Design(
+            name="sqrt",  # every flow's, so the canaries named after it (`sqrt.xpr`) apply to all
+            design_root=world.work,
+            rtl=rtl,
+            tb=tb,
+            language={"vhdl": {"standard": standard}},
+        )
+        asked_settings, asked_design = copy.deepcopy(settings), design.model_dump_json()
+        process_before = ss.process_state()
         try:
-            flow = DefaultRunner(world.root, **launcher).launch_flow(flow_class, design, settings)
+            runner = DefaultRunner(world.root, **{**launcher, **launch.launcher})
+            flow = runner.launch_flow(flow_class, design, settings)
             outcomes.append("ok" if flow.succeeded else "failed")
+            seen.finished.append((launch.label, flow))
         except Exception as e:  # noqa: BLE001 - how it ends is compared, not judged
             outcomes.append(type(e).__name__)
             errors.append(str(e))
+        if launch.strict:
+            strict.append(outcomes[-1])
+        # judged here as well as at the end of the case: the working directory and the
+        # environment the stand-in tools set are put back when they are done, and would hide a
+        # change made meanwhile
+        changes = [
+            f"process: {line}" for line in ss.process_changes(process_before, ss.process_state())
+        ]
+        if settings != asked_settings:
+            changes.append("the settings mapping the caller gave changed")
+        if design.model_dump_json() != asked_design:
+            changes.append("the Design the caller gave changed")
+        seen.problems += [f"{launch.label}: {line}" for line in changes]
     if flow_class.name in FPGA_FAKED:
         assert all(
-            outcome == "ok" for outcome in outcomes
+            outcome == "ok" for outcome in strict
         ), f"{flow_class.name} lost positive isolation coverage: {outcomes}: {errors}"
     return ",".join(outcomes)
+
+
+def process_leftovers(state_before, process_before, finished: list) -> List[str]:
+    """What the launches left in the process, once their stand-in tools are put back: a change of
+    the tables, defaults and class attributes of the package, a change of the process, and a
+    mutable object that a finished flow shares with the package."""
+    problems = [f"state of the package: {line}" for line in ss.changes(state_before, ss.state())]
+    problems += [
+        f"process: {line}" for line in ss.process_changes(process_before, ss.process_state())
+    ]
+    shared = ss.shared_objects()
+    for label, flow in finished:
+        mine = ss.reachable(flow, "flow")
+        problems += [
+            f"{label}: {mine[oid][0]} ({mine[oid][1]}) is also {shared[oid][0]}"
+            for oid in mine.keys() & shared.keys()
+        ]
+    return problems
 
 
 FLOWS = [cls for cls, _ in flow_classes()]
@@ -537,6 +738,8 @@ def _sweep(
     scenario: str,
     delivered: Optional[List[Path]] = None,
     moved: Optional[List[Path]] = None,
+    plan: Optional[List[Launch]] = None,
+    seen: Optional[Seen] = None,
 ) -> tuple:
     """One launch of the sweep: what changed outside the run root but the destinations it named
     what the audit hook saw, and whether the flow reached its `run()`. `delivered` collects the
@@ -545,7 +748,7 @@ def _sweep(
     reached: list = []
     delivered = [] if delivered is None else delivered
     with watching(world, delivered, moved) as violations:
-        _launch(flow_class, world, monkeypatch, scenario, reached)
+        _launch(flow_class, world, monkeypatch, scenario, reached, plan, seen)
     after = _state(world.parent, [world.root])
     named = _named(world, flow_class.name, scenario, delivered)
     changed = sorted(
@@ -556,21 +759,36 @@ def _sweep(
 
 @pytest.mark.parametrize("scenario", ["twice", "clean", "purge", "delivered", "purged_delivered"])
 @pytest.mark.parametrize("flow_class", FLOWS, ids=lambda c: c.name)
-def test_nothing_outside_the_run_root_changes_but_what_was_named(
-    flow_class, scenario, tmp_path, monkeypatch
-):
+def test_nothing_outside_the_run_root_changes_but_what_was_named(flow_class, scenario, tmp_path):
     """No change outside the run root, seen in the file system or by the audit hook. Where the
     run directories are deleted after the delivery, every file delivered was moved, and no
-    temporary name is left."""
+    temporary name is left. The same launches leave nothing in the process: not in the tables,
+    defaults and class attributes of the package, nor in the working directory, the environment,
+    `sys.path`, the logging and the warning filters; they share no mutable object with the
+    package; and they leave the settings mapping and the `Design` of the caller as they were."""
+    ss.import_package()
+    world = _world(tmp_path)
+    plan = launch_plan(flow_class, world, scenario)
     delivered: List[Path] = []
     moved: List[Path] = []
-    changed, violations, reached = _sweep(
-        flow_class, _world(tmp_path), monkeypatch, scenario, delivered, moved
-    )
+    seen = Seen()
+    state_before, process_before = ss.state(), ss.process_state()
+    with pytest.MonkeyPatch.context() as mp:
+        changed, violations, reached = _sweep(
+            flow_class, world, mp, scenario, delivered, moved, plan, seen
+        )
     assert not changed, f"{flow_class.name} changed {changed}"
     assert not violations, f"{flow_class.name}: {violations}"
+    problems = [*seen.problems, *process_leftovers(state_before, process_before, seen.finished)]
+    assert not problems, f"{flow_class.name} left in the process:\n" + "\n".join(problems)
     if scenario == "twice":  # the sweep keeps its teeth
-        assert bool(reached) is (flow_class.name not in UNREACHED), UNREACHED.get(flow_class.name)
+        own = "its own settings" in reached
+        assert own is (flow_class.name not in UNREACHED), UNREACHED.get(flow_class.name)
+        # a launch that fails before `run()` is judged clean by everything above: say so
+        assert flow_class.name in NEVER_RUN or "its own settings, rebuilt" in reached, (
+            f"{flow_class.name}: the launch with the plain testbench did not reach run(), "
+            "so nothing was seen of it"
+        )
     if scenario == "purged_delivered":  # and the move is what it sweeps
         assert len(moved) == len(delivered), f"{flow_class.name}: {moved} moved, {delivered} made"
         assert bool(moved) or flow_class.name not in MOVING, f"{flow_class.name} moved nothing"

@@ -456,7 +456,7 @@ class Openroad(OpenroadStage):
 
         removed_settings: ClassVar[Dict[str, str]] = {
             **OpenroadStage.Settings.removed_settings,
-            # the settings of the old flow that moved to `openroad_place`
+            # refused here: the replacement, where there is one, is a setting of `openroad_place`
             "multi_corner": NoReplacement("multi-corner analysis is not supported"),
             "input_delay_frac": "`flows.openroad_place.input_delay_frac`",
             "output_delay_frac": "`flows.openroad_place.output_delay_frac`",
@@ -491,7 +491,7 @@ class Openroad(OpenroadStage):
             "tie_separation": "`flows.openroad_place.tie.separation`",
             "global_routing_layer_adjustment": "`flows.openroad_place.routing.layer_adjustments`",
             "io_place_random": NoReplacement("`place_pins -random` is obsolete in OpenROAD"),
-            "update_sdc_margin": NoReplacement("Xeda no longer writes a tuning SDC"),
+            "update_sdc_margin": NoReplacement("Xeda writes no tuning SDC"),
             "results_dir": NoReplacement(
                 "each flow writes its files at fixed names in its run directory"
             ),
@@ -521,7 +521,7 @@ class Openroad(OpenroadStage):
             "resynth_for_area": NoReplacement("OpenROAD-flow-scripts removed resynthesis"),
             "db_process_node": NoReplacement("the platform gives the process node"),
             "density_fill": NoReplacement("density fill is not supported yet"),
-            # the settings of the old flow that moved to `openroad_cts`, `openroad_grt` and
+            # refused here: the replacement is a setting of `openroad_cts`, `openroad_grt` or
             # `openroad`
             "hold_slack_margin": "`flows.openroad_cts.repair.hold_margin`, or "
             "`flows.openroad_grt.repair.timing.hold_margin`",
@@ -548,7 +548,7 @@ class Openroad(OpenroadStage):
                 "the flow writes `final.cdl` when the platform has CDL files"
             ),
             "cdl_masters_file": NoReplacement("the platform gives the CDL files of its cells"),
-            # the settings of the old flow that moved to `yosys`
+            # refused here: the replacement is a setting of `yosys`
             "blocks": "`flows.yosys.black_box`",
             "optimize": "`flows.yosys.abc.strategy`",
             "abc_driver_cell": "`flows.yosys.abc.driver_cell`",

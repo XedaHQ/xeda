@@ -8,8 +8,8 @@ Everything under a marked run root belongs to Xeda: keep nothing of yours there.
 
 A directory that holds files and has no marker does not belong to Xeda. Xeda refuses it before
 anything runs and names the directory and the fix. The one exception is the default,
-`./xeda_run` in the start directory, which an earlier Xeda made. Xeda adopts that directory once
-and logs an info line. Creating `.xeda-run-root` in a directory hands it to Xeda.
+`./xeda_run` in the start directory. Xeda adopts that directory once, marks it, and logs an info
+line. Creating `.xeda-run-root` in a directory hands it to Xeda.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def is_run_root(path: Path) -> bool:
 
 
 def is_default_location(path: Path, start: Path) -> bool:
-    """Return whether `path` is the default run root that an earlier Xeda made.
+    """Return whether `path` is the default run root.
 
     That is `xeda_run` directly in the start directory `start`. Any other name does not count,
     `xeda_run_dse` and `xeda_run_<optimizer>` included.
@@ -136,7 +136,7 @@ def ensure_run_root(
             return None
         _mark(root)
         log.info(
-            "Xeda now keeps its runs in %s, which an earlier Xeda made: it is marked as Xeda's "
+            "Xeda keeps its runs in %s, the default run root: it is marked as Xeda's "
             "(%s); keep nothing of yours in it",
             root,
             RUN_ROOT_MARKER,
@@ -145,6 +145,6 @@ def ensure_run_root(
     raise RunRootError(
         f"{root} holds files and is not a run root Xeda created (it has no {RUN_ROOT_MARKER}): "
         "Xeda keeps its runs in a directory of its own. Name a new or empty directory with "
-        f"--run-root; if {root} holds nothing but runs of an earlier Xeda, delete them, or "
+        f"--run-root; if {root} holds nothing but runs of Xeda, delete them, or "
         f"create {root / RUN_ROOT_MARKER} to hand the directory to Xeda."
     )

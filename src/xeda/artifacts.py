@@ -78,10 +78,10 @@ def drop_unwritten_artifacts(
 
     A flow records its outputs where it knows their names, usually before its tool runs, and a
     failed tool may never write them. If they stayed listed, every consumer of the results would
-    look for files that do not exist. The transfer of the remote runner raised on the first one,
-    so a failed remote run crashed instead of reporting its failure. The launcher applies this
-    function to the runs it reports, and the remote runner to what a remote reports, which may
-    come from an older Xeda.
+    look for files that do not exist, and the transfer of the remote runner would raise on the
+    first one, so a failed remote run would crash instead of reporting its failure. The launcher
+    applies this function to the runs it reports, and the remote runner to what a remote reports,
+    which may come from an older Xeda.
     """
     checked: dict[str, bool] = {}
 

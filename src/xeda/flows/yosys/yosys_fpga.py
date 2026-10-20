@@ -242,8 +242,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         )
         flow3: Optional[bool] = Field(
             None,
-            description="Legacy ABC9 script choice: true selects `flow3`, false leaves the "
-            "script to the synthesis pass. Prefer `abc9_script` for a named script; do not "
+            description="Boolean ABC9 script choice: true selects `flow3`, false leaves the "
+            "script to the synthesis pass. Use `abc9_script` for another named script; do not "
             "give both. Unset uses flow3 in Xeda's full recipe and leaves the pass's script "
             "in `synth_pass_only`. Has no effect unless ABC9 maps LUTs.",
         )
@@ -255,7 +255,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             "mode: default, default.area, default.fast, flow, flow2, flow3 or flow3mfs. "
             "Unset uses flow3 in Xeda's full recipe and the synthesis pass's own choice in "
             "synth_pass_only. Has no effect when ABC9 mapping is disabled. Cannot be combined "
-            "with the legacy flow3 setting.",
+            "with the `flow3` setting.",
         )
         retime: bool = Field(
             False,
@@ -564,7 +564,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         @model_validator(mode="after")
         def _one_abc9_script_choice(self):
             if self.abc9_script is not None and self.flow3 is not None:
-                raise ValueError("use `abc9_script` or legacy `flow3`, not both")
+                raise ValueError("use `abc9_script` or `flow3`, not both")
             return self
 
         def abc9_scratchpad(self) -> List[str]:

@@ -15507,7 +15507,7 @@
           "false",
           "true"
         ],
-        "help": "Legacy ABC9 script choice: true selects `flow3`, false leaves the script to the synthesis pass. Prefer `abc9_script` for a named script; do not give both. Unset uses flow3 in Xeda's full recipe and leaves the pass's script in `synth_pass_only`. Has no effect unless ABC9 maps LUTs."
+        "help": "Boolean ABC9 script choice: true selects `flow3`, false leaves the script to the synthesis pass. Use `abc9_script` for another named script; do not give both. Unset uses flow3 in Xeda's full recipe and leaves the pass's script in `synth_pass_only`. Has no effect unless ABC9 maps LUTs."
       },
       "abc9_script": {
         "children": false,
@@ -15521,7 +15521,7 @@
           "flow3",
           "flow3mfs"
         ],
-        "help": "Select one of yosys's included ABC9 scripts in either synthesis mode: default, default.area, default.fast, flow, flow2, flow3 or flow3mfs. Unset uses flow3 in Xeda's full recipe and the synthesis pass's own choice in synth_pass_only. Has no effect when ABC9 mapping is disabled. Cannot be combined with the legacy flow3 setting."
+        "help": "Select one of yosys's included ABC9 scripts in either synthesis mode: default, default.area, default.fast, flow, flow2, flow3 or flow3mfs. Unset uses flow3 in Xeda's full recipe and the synthesis pass's own choice in synth_pass_only. Has no effect when ABC9 mapping is disabled. Cannot be combined with the `flow3` setting."
       },
       "retime": {
         "children": false,

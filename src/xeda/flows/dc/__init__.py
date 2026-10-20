@@ -41,9 +41,8 @@ class Dc(AsicSynthFlow):
     """Synthesize a design for an ASIC with Synopsys Design Compiler."""
 
     #: `num_cells_sequentual` is a misspelling. It is the name of the regex group that parses the
-    #: area report, so `results.json` has had it since v0.2.5. A rename would break the scripts
-    #: that read it. The correct spelling is added next to it, as for the canonical aliases of
-    #: every flow.
+    #: area report, so `results.json` has this key. Scripts read it, so the key stays. The correct
+    #: spelling is added next to it, as for the canonical aliases of every flow.
     results_canonical_aliases: Dict[str, Tuple[str, ...]] = {
         **AsicSynthFlow.results_canonical_aliases,
         "num_cells_sequential": ("num_cells_sequential", "num_cells_sequentual"),

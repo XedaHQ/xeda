@@ -163,7 +163,7 @@ class TestResults:
         """Return the `<property name= value=>` pairs of one testcase.
 
         From cocotb 2.0 the per-test metadata (seed, source location, simulated time) is in this
-        standard JUnit block and no longer in attributes of `<testcase>`. Reading only the
+        standard JUnit block, not in attributes of `<testcase>`. Reading only the
         attributes would give defaults for all of it.
         """
         return {

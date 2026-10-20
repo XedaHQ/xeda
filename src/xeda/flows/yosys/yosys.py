@@ -331,11 +331,10 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             "`abc_flags` for more options of `abc`; yosys's `synth` has no retime option",
             "netlist_verilog_extmem": "`netlist_verilog_flags: [-extmem]`, which `write_verilog` gets",
             "merge_libs_to": NoReplacement(
-                "Xeda no longer merges Liberty files; `dont_use_cells` reach `dfflibmap` and `abc` "
+                "Xeda does not merge Liberty files; `dont_use_cells` reach `dfflibmap` and `abc` "
                 "as `-dont_use`"
             ),
-            "optimize": "`abc.strategy` (`speed` became `speed_roundtrip`, and `null` became "
-            "`yosys`)",
+            "optimize": "`abc.strategy` (`speed_roundtrip` for `speed`, and `yosys` for `null`)",
             "abc_driver_cell": "`abc.driver_cell`",
             "abc_load_in_ff": "`abc.load`",
             "adder_map": "`arithmetic.adder_map_file` for a file, or `arithmetic.adder_map: none`",

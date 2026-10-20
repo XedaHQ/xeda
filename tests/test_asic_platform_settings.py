@@ -502,7 +502,7 @@ def test_a_platform_and_a_file_that_name_one_platform_agree(tmp_path):
 @pytest.mark.parametrize(
     "setting, message",
     [
-        ("platform=nangate45/config.toml", r"no longer takes the path of a config\.toml"),
+        ("platform=nangate45/config.toml", r"takes a bundled name, not the path of a config\.toml"),
         ("platform=nosuch", r"no platform 'nosuch'.*nangate45.*platform_file"),
         ("corner=zz", r"unknown corner 'zz'.*typical.*tt"),
         ("pdk_provider=ciel", r"not served by provider 'ciel'.*it serves: orfs, directory"),

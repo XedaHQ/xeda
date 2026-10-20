@@ -39,8 +39,8 @@ __all__ = [
 DERIVATION_ROLES = ("liberty", "tech_lef", "cell_lef")
 
 _NO_TOML = (
-    "`platform` no longer takes the path of a config.toml: give a bundled name (see `xeda "
-    "list-platforms`), or a residue file in `platform_file`"
+    "`platform` takes a bundled name, not the path of a config.toml: see `xeda list-platforms`, "
+    "or give a residue file in `platform_file`"
 )
 
 

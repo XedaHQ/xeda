@@ -322,7 +322,7 @@ REMOVED = [
     (
         "optimize",
         "speed",
-        "`abc.strategy` (`speed` became `speed_roundtrip`, and `null` became `yosys`)",
+        "`abc.strategy` (`speed_roundtrip` for `speed`, and `yosys` for `null`)",
     ),
     ("abc_driver_cell", "BUF_X1", "`abc.driver_cell`"),
     ("abc_load_in_ff", 1.5, "`abc.load`"),

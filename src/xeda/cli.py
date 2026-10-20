@@ -1486,7 +1486,7 @@ def dse(
     if max_workers:
         dse_settings_dict["max_workers"] = max_workers  # overrides
 
-    # These options are to be deprecated in favor of optimizer_settings.
+    # `optimizer_settings` sets the same options; prefer it.
     opt_settings = {
         # Only the options that were given. An omitted option has no value, and passing `None`
         # for one would make the optimizer report `input_value=None` instead of the missing

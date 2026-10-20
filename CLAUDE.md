@@ -70,7 +70,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 
 - Never modify the input settings or the design; the flow gets copies
   (`tests/test_flow_design_isolation.py`). A launch leaves no process-wide state
-  (`tests/test_shared_state.py`).
+  (`tests/test_isolation.py` sweeps it, `tests/test_shared_state.py` has its offenders).
 - `init()` runs even for a fresh flow: no dependency, no input read, no file written. A file it
   or `prepare_inputs()` registers in `Flow.implicit_inputs` needs a `locate_prepared_inputs()`
   counterpart, since `--dry-run` never calls `init()` (`tests/test_prepare_inputs.py`,

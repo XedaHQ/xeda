@@ -706,9 +706,8 @@ class SourceType(str, Enum):
         for k, v in cls.__members__.items():
             if k.lower() == source_type.lower():
                 return v
-        # Older versions of Xeda built this enum with `auto()`, so their `settings.json` files
-        # record 1-based ordinals ("5" for Vhdl) in place of names. The declaration order above
-        # must not change while these files are supported.
+        # A `settings.json` file can record a 1-based ordinal ("5" for Vhdl) in place of a name.
+        # The declaration order above must not change while these files are supported.
         if source_type.isdigit():
             members = list(cls.__members__.values())
             idx = int(source_type)
@@ -886,7 +885,7 @@ def source_type_of(path: Path) -> SourceType:
 #: The keys of a source table: the file (`file`, or `path` for one not written yet) and its `type`.
 SOURCE_TABLE_KEYS = frozenset({"file", "path", "type"})
 
-#: The keys that a source table no longer takes, with what to write instead.
+#: The keys that a source table refuses, with what to write instead.
 REMOVED_SOURCE_KEYS: dict[str, str] = {
     "standard": (
         "a source has no standard of its own: `language.vhdl.standard` sets the VHDL standard "
@@ -1254,19 +1253,18 @@ class Generator(XedaBaseModel):
     def _removed_generator_fields(cls, data):
         """Name a removed field with what replaces it, as for every removed setting."""
         if "run_only_if_sources_modified" in data:
-            # The old switch was on by default. Written `true`, it asks for what now always
-            # applies (judging by content), so the advice is to delete it, never to turn it
-            # into `always_runs`.
+            # `true` asks for what always applies (judging by content), so the advice is to delete
+            # it, never to turn it into `always_runs`.
             if data["run_only_if_sources_modified"] is True:
                 advice = (
                     "delete it (a generator is judged by the content of what it reads and "
-                    "produces now, never by a modification time; `always_runs: true` would mean "
+                    "produces, never by a modification time; `always_runs: true` would mean "
                     "the opposite)"
                 )
             else:
                 advice = (
                     "use `always_runs: true` (a generator is judged by the content of what it "
-                    "reads and produces now, never by a modification time)"
+                    "reads and produces, never by a modification time)"
                 )
             raise ValueError(f"`run_only_if_sources_modified` was removed: {advice}")
         return data
@@ -1521,9 +1519,9 @@ class RtlSettings(DVSettings):
     # the first of them, and a property below derives it.
     clocks: List[Clock] = []
 
-    #: The inputs that no longer exist, with what replaces each. Giving one is an error that says
-    #: so, in place of "extra inputs are not permitted". It is the design's equivalent of
-    #: `Flow.Settings.removed_settings`. A flat top-level key, a target's key and
+    #: The inputs that Xeda refuses, with what to use instead for each. Giving one is an error
+    #: that says so, in place of "extra inputs are not permitted". It is the design's equivalent
+    #: of `Flow.Settings.removed_settings`. A flat top-level key, a target's key and
     #: `--design-overrides` reach the same check, because each is folded into `rtl` first.
     removed_inputs: ClassVar[Dict[str, str]] = {"clock_port": "`clock: <port>`"}
     #: One clock stands for a list of one (`clock_tables`).

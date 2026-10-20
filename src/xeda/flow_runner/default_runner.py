@@ -158,10 +158,9 @@ from .trace_inputs import (
 # the filter of a failed run's artifacts.
 _drop_unwritten_artifacts = launch_report.drop_unwritten
 
-#: Names this module defined before the launcher was split by stage, each with the module that
-#: defines it now and its name there. Importing one from here still works (`__getattr__`), but
-#: the launcher does not look them up here: a test that replaces one on this module changes
-#: nothing. `tests/test_launcher_modules.py` checks the table.
+#: Names that the stage modules define, each with its module and its name there. Importing one
+#: from here works (`__getattr__`), but the launcher does not look them up here: a test that
+#: replaces one on this module changes nothing. `tests/test_launcher_modules.py` checks the table.
 MOVED_NAMES: dict[str, tuple[str, str]] = {
     "COMPLETION_DOCUMENTS": ("scrub", "COMPLETION_DOCUMENTS"),
     "LAUNCH_DOCUMENTS": ("scrub", "LAUNCH_DOCUMENTS"),
@@ -219,7 +218,7 @@ class _LauncherModule(types.ModuleType):
         moved = MOVED_NAMES.get(name)
         if moved is not None:
             raise AttributeError(
-                f"`{name}` moved to `xeda.flow_runner.{moved[0]}.{moved[1]}`, and nothing in "
+                f"`{name}` is defined in `xeda.flow_runner.{moved[0]}.{moved[1]}`, and nothing in "
                 f"`default_runner` looks it up: replace it on `xeda.flow_runner.{moved[0]}`"
             )
 
@@ -250,7 +249,7 @@ class DesignNotFoundError(XedaException):
     it has none of the given name."""
 
 
-#: Launcher settings that no longer exist, with what replaced them. Giving one is an error that
+#: Launcher settings that Xeda refuses, with what to use instead. Giving one is an error that
 #: says so, in the words `Flow.Settings.removed_settings` uses for flow settings.
 _REMOVED_LAUNCHER_SETTINGS = {
     "xeda_run_dir": "run_root",
