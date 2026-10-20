@@ -6,21 +6,27 @@
 # (commit 10debf146d433ce8ac8aedcac84e97d252ff4d5b of github.com/litex-hub/litex-boards;
 # Copyright (c) 2023 Gabriel Somlo, Copyright (c) 2022 Andrew Gillham, BSD-2-Clause).
 # See LICENSE.md.
-# The board has no vendor constraint file here, so the port names are xeda's. The pins are not
-# checked against a vendor schematic, a board revision or hardware.
+# The port names are Xeda's: the board has no vendor constraint file here. The pins of every group
+# below are checked on hardware (a STLV7325 v2 programmed through its FT4232H); nothing else is.
+# This file is for the second ("V2", 2023) revision. The first revision (the Vivado board files of
+# github.com/rriggs/kintex-7-stlv7325t-board-files) has other UART pins and a 100 MHz clock on F17.
 # This file has no `create_clock`: the flow's clock settings give the timing.
 
 ## Clock
-# Source: the demo's blinky.xdc and LiteX-Boards `clk200`: the same pins and I/O standard.
+# Source: the demo's blinky.xdc and LiteX-Boards `clk200`.
 # `clk_p` and `clk_n` are the 200 MHz differential clock. A design needs an IBUFDS and a BUFG.
+# Checked: a counter behind an IBUFDS and a BUFG on these pins, read over JTAG, ran at 200 MHz.
 set_property LOC AB11 [get_ports clk_p]
 set_property IOSTANDARD DIFF_SSTL15 [get_ports {clk_p}]
 set_property LOC AC11 [get_ports clk_n]
 set_property IOSTANDARD DIFF_SSTL15 [get_ports {clk_n}]
 
 ## LEDs
-# Source: LiteX-Boards `user_led_n` 0 to 7. `led[0]` to `led[7]` are those LEDs, in order.
-# LiteX-Boards names them `user_led_n`: they are active low, lit by a low level.
+# Source: LiteX-Boards `user_led_n` 0 to 7. `led[0]` to `led[7]` are LED0 to LED7, in order.
+# Checked: a static pattern and a walk over all eight LEDs lit LED0 to LED7 in order. The LEDs are
+# active low: lit when the pin is 0.
+# LED8 to LED11, beside the SFP cages, are not on these pins. They pass through a level shifter and
+# follow led[2], led[3], led[1] and led[0].
 set_property LOC AA2 [get_ports {led[0]}]
 set_property IOSTANDARD LVCMOS15 [get_ports {led[0]}]
 set_property LOC AD5 [get_ports {led[1]}]
@@ -40,22 +46,24 @@ set_property IOSTANDARD LVCMOS15 [get_ports {led[7]}]
 
 ## Buttons
 # Source: LiteX-Boards `cpu_reset_n` and `user_btn_n` 0 (one pin, AC16), and `user_btn_n` 1.
-# The buttons are active low: a pressed button reads 0.
-# `btn[0]` is the reset button: LiteX-Boards uses it as the reset of its designs. The demo
-# constrains the same pin with the I/O standard SSTL15; LiteX-Boards says LVCMOS15.
-# `btn[1]` is in a bank whose voltage the jumper J4 sets, to 2.5 V or 3.3 V. The standard here,
-# LVCMOS33 as in LiteX-Boards, is right with J4 at 3.3 V.
+# Checked: holding K2 lit led[0] and holding K3 lit led[1]. The buttons are active low: a pressed
+# button reads 0. `btn[0]` is K2 (the CPU reset of LiteX-Boards), `btn[1]` is K3. K1 is Program_B,
+# not a user button.
+# `btn[1]` is in a bank whose voltage the jumper J4 sets. LVCMOS33 is right with J4 at 3.3 V.
 set_property LOC AC16 [get_ports {btn[0]}]
 set_property IOSTANDARD LVCMOS15 [get_ports {btn[0]}]
 set_property LOC C24 [get_ports {btn[1]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {btn[1]}]
 
 ## UART
-# Source: LiteX-Boards `serial`, the CP2102 USB-UART bridge. No other source has these pins.
+# Source: LiteX-Boards `serial` only. It calls the bridge a CP2102; the unit tested has a WCH
+# CH9102, which a host sees as "USB Single Serial" (USB 0x1A86:0x55D4).
 # `uart_rx` is an input of the FPGA: it receives what the bridge sends.
 # `uart_tx` is an output of the FPGA: it sends to the bridge.
-# These pins are in the bank the jumper J4 sets. LVCMOS33 is right with J4 at 3.3 V. Set J4 to
-# 3.3 V before you use them.
+# Checked: text sent on `uart_tx` arrived through the bridge, and an echo design on both pins
+# answered at 115200 and at 3 Mbaud. The FT4232H, the JTAG probe that programs the board, is not
+# this UART.
+# These pins are in the bank that the jumper J4 sets. LVCMOS33 is right with J4 at 3.3 V.
 set_property LOC K21 [get_ports uart_rx]
 set_property IOSTANDARD LVCMOS33 [get_ports {uart_rx}]
 set_property LOC L23 [get_ports uart_tx]

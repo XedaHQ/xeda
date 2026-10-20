@@ -1,15 +1,18 @@
 name: uart_echo
 description: >-
   A board demo for the UART PHY of the `uart` example: everything the host sends comes back. The
-  board-agnostic top mkUartEcho has a clock, the UART pins, four switches, a button and four
-  LEDs, and makes its own power-on reset. Received bytes go through a block RAM FIFO to the
-  transmitter at the same baud rate; the switches pick the baud rate from a table computed at
-  elaboration (12 Mbaud at 100 MHz by default), which changes only when the echo is idle; the LEDs
-  show receive and send activity and sticky error and overrun flags, and the button clears
-  them. The testbench is a behavioral host at the pins: echo at three baud rates at full line
-  utilization, LEDs, framing error, break, overrun, and a baud rate switched in the middle of
-  traffic. Targets build the Arty A7-100T (Vivado, or openXC7) and the ULX3S. The macro
-  FIXED_BAUD (target fixed_baud for the testbench) builds one baud rate without the switches.
+  board-agnostic top mkUartEcho has a clock, the UART pins, four switches, a button and four LEDs,
+  and makes its own power-on reset. Received bytes go through a block RAM FIFO to the transmitter
+  at the same baud rate. With FIXED_BAUD=0 the switches pick the baud rate from a table computed at
+  elaboration (12 Mbaud at 100 MHz by default), and a new rate takes effect only when the echo is
+  idle. The LEDs show receive and send activity and sticky error and overrun flags, and the button
+  clears them. The testbench is a behavioral host at the pins: echo at three baud rates at full
+  line utilization, LEDs, framing error, break, overrun, and a baud rate switched in the middle of
+  traffic. It runs the echo in all four configurations of FIXED_BAUD and ECHO_TRANSFORM in one
+  simulation. Targets build the Arty A7-100T (Vivado, or openXC7), the ULX3S and the STLV7325 v2
+  (openXC7, with a Bluespec wrapper for its differential clock). ECHO_TRANSFORM=1 returns
+  reverseBits(b) ^ 8'hB1 for each byte b, so that a host test can tell a design from a hardwired
+  TXD to RXD loopback.
 rtl:
   # The PHY of the uart example comes first; the package that defines `top` comes last.
   sources:
@@ -24,20 +27,24 @@ rtl:
   clock.port: CLK
   # Preprocessor macros (the values here are the defaults, see UartEcho.bsv for all of them).
   # Use `defines`, not `parameters`: mkUartEcho has no Verilog parameters.
+  # FIXED_BAUD and ECHO_TRANSFORM take 0 or 1 and nothing else. Write the number: a `false`
+  # leaves the macro out (the default applies), and a `true` defines it with no value, which bsc
+  # refuses.
   defines.CLK_HZ: 100000000
   defines.BAUD: 12000000
+  defines.FIXED_BAUD: 1
+  defines.ECHO_TRANSFORM: 0
 tb:
   sources:
     - "../uart/tb/TbUartModels.bsv"
     - "tb/TbUartEcho.bsv"
   top: mkTbUartEcho
-  # The simulation shrinks two sizes of the design so that an overrun and the end of an LED
-  # stretch are reached in a few thousand clocks: the echo FIFO and the LED hold time. They also
-  # reach the compilation of the design, as all `tb.defines` do.
+  # The simulation shrinks the echo FIFO and the LED hold time, so that an overrun and the end of an
+  # LED stretch come within a few thousand clocks. Like all `tb.defines`, they reach the design.
   defines.ECHO_DEPTH: 3
   defines.ACTIVITY_US: 20
   # Negative test: defining the macro XEDA_INJECT_BUG plants a bug in the design (a new baud rate
-  # takes effect at once, even in the middle of a frame; the receiver of the uart example is also
+  # takes effect at once, even in the middle of a frame, and the receiver of the uart example is
   # late to hunt). The testbench must catch it (non-zero exit).
   # defines.XEDA_INJECT_BUG: true
 flows:
@@ -46,22 +53,34 @@ flows:
     fpga.part: xc7a100tcsg324-1
     clock.period: 10 ns
     out_of_context: true
-# The targets with `board` build for a board: the pin files are in boards/, and the programming
-# step is the same chain with openfpgaloader (`xeda run <chain>+openfpgaloader`, see README.md).
-# A pin file does not give the clock period: the flow does.
+# The targets with a board build for it: the pin files are in boards/, and the chain with
+# `+openfpgaloader` programs it (see README.md). A pin file does not give the clock period: the
+# flow does. Every board target sets FIXED_BAUD and BAUD, so that its mode and rate can be read off
+# the target (`defines` merge key by key with those of `rtl` above).
 targets:
-  # One baud rate, `BAUD`, and the switches ignored (the macro FIXED_BAUD, see UartEcho.bsv): the
-  # PHY has a static period. `xeda run bsc_sim uart_echo.yaml --target fixed_baud` runs the
-  # testbench on it; with `rtl.defines.FIXED_BAUD` on any board target it builds the board.
-  fixed_baud:
+  # The testbench runs all four configurations of the echo in one simulation. These two targets
+  # choose which one uses the real top mkUartEcho, with its power-on reset:
+  # `xeda run bsc_sim uart_echo.yaml --target switches`.
+  #
+  # The build with switches (FIXED_BAUD 0, the baud rate from the four switches).
+  switches:
     rtl:
       defines:
-        FIXED_BAUD: true
-    tb:
+        FIXED_BAUD: 0
+  # The transformed echo (ECHO_TRANSFORM 1): every byte comes back as reverseBits(b) ^ 8'hB1, so
+  # that a wire loopback from txd to rxd cannot pass a host test. For a board, add
+  # `--design-overrides rtl.defines.ECHO_TRANSFORM=1` to its target.
+  echo_transform:
+    rtl:
       defines:
-        FIXED_BAUD: true
-  # `xeda run yosys_fpga uart_echo.yaml --target artix7`: a resource estimate, no pins.
+        ECHO_TRANSFORM: 1
+  # `xeda run yosys_fpga uart_echo.yaml --target artix7`: a resource estimate, no pins, of the
+  # Arty design (switches, 12 Mbaud at 100 MHz).
   artix7:
+    rtl:
+      defines:
+        FIXED_BAUD: 0
+        BAUD: 12000000
     flows:
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
@@ -69,24 +88,32 @@ targets:
   # Arty A7-100T with Vivado: `xeda run vivado_synth uart_echo.yaml --target arty`. The bitstream
   # has a bare name, so it stays in the run directory (outputs/); add `--outputs-to DIR` to copy
   # it. Programming: `xeda run vivado_synth+openfpgaloader uart_echo.yaml --target arty`.
+  # FIXED_BAUD 0: the four switches select the baud rate (the table in README.md), 12 Mbaud with
+  # all of them off. For one fixed rate: `--design-overrides rtl.defines.FIXED_BAUD=1`.
   arty:
     rtl:
       sources:
         - "boards/arty_a7_100t.xdc"
         - "boards/arty_a7_100t_sync.xdc"
+      defines:
+        FIXED_BAUD: 0
+        BAUD: 12000000
     flows:
       vivado_synth:
         out_of_context: false
         bitstream: uart_echo.bit
       openfpgaloader:
         board: arty_a7_100t
-  # Arty A7-100T with the open-source openXC7 tools (put /opt/openxc7/bin first on PATH):
+  # Arty A7-100T with the open-source openXC7 tools (put the openXC7 bin directory first on PATH):
   # `xeda run yosys_fpga+nextpnr+fpga_pack uart_echo.yaml --target arty_nextpnr`
-  # Programming (the SRAM, not the flash): add `+openfpgaloader` to the chain.
+  # Programming loads the SRAM, not the flash. Switches and 12 Mbaud, as `arty`.
   arty_nextpnr:
     rtl:
       sources:
         - "boards/arty_a7_100t.xdc"
+      defines:
+        FIXED_BAUD: 0
+        BAUD: 12000000
     flows:
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
@@ -96,11 +123,15 @@ targets:
         board: arty_a7_100t
   # ULX3S 85F (put the oss-cad-suite bin directory first on PATH):
   # `xeda run yosys_fpga+nextpnr+fpga_pack uart_echo.yaml --target ulx3s`
+  # FIXED_BAUD 0: the four DIP switches (SW1 to SW4) select the baud rate as on the Arty: 3 Mbaud
+  # with all of them OFF, and the rates of the table in README.md otherwise. For one rate that no
+  # switch can change: `--design-overrides rtl.defines.FIXED_BAUD=1`.
   ulx3s:
     rtl:
       sources:
         - "boards/ulx3s.lpf"
       defines:
+        FIXED_BAUD: 0
         CLK_HZ: 25000000
         BAUD: 3000000
     flows:
@@ -109,3 +140,34 @@ targets:
       nextpnr:
         board: ulx3s_85f
         clock.freq: 25 MHz
+  # SITLINV STLV7325 v2 (Kintex-7 xc7k325t) with openXC7 (put the openXC7 bin directory first on
+  # PATH): `xeda run yosys_fpga+nextpnr+fpga_pack uart_echo.yaml --target stlv7325`
+  # The top is the Bluespec wrapper boards/Stlv7325V2.bsv: the 200 MHz differential clock needs an
+  # IBUFDS and a BUFG, and bsc's top must be Bluespec. Its ports are the names of the bundled pin
+  # file, so `nextpnr: board` supplies the part and the pins. The board has no switches, so
+  # FIXED_BAUD is 1.
+  # The echo runs on the 200 MHz clock itself. BAUD is 3 Mbaud. In testing on macOS, the board's
+  # WCH CH9102 bridge worked at 3 Mbaud but not at 921600 baud; other hosts and drivers may differ.
+  # For another rate: `--design-overrides rtl.defines.BAUD=...`.
+  # ECHO_TRANSFORM 0: a plain echo, which a terminal wants. To prove that the FPGA is in the loop,
+  # build with `--design-overrides rtl.defines.ECHO_TRANSFORM=1` and test with
+  # `uart_echo_test.py --transform`.
+  stlv7325:
+    rtl:
+      sources:
+        - "boards/Stlv7325V2.bsv"
+      top: mkStlv7325V2
+      clock.port: clk_p
+      defines:
+        FIXED_BAUD: 1
+        ECHO_TRANSFORM: 0
+        CLK_HZ: 200000000
+        BAUD: 3000000
+    flows:
+      yosys_fpga:
+        fpga.part: xc7k325tffg676-2
+      nextpnr:
+        board: stlv7325_v2
+        clock.freq: 200 MHz
+      openfpgaloader:
+        board: stlv7325_v2

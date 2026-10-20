@@ -54,7 +54,7 @@ xeda run yosys_fpga examples/bluespec/gcd/gcd.yaml --target artix7  # Xilinx syn
 ```
 
 The FPGA configurations are resource and timing estimates without pins. A board build needs an I/O
-wrapper and constraints, as the targets of [`uart_echo`](#uart_echo-a-uart-echo-demo-for-two-boards)
+wrapper and constraints, as the targets of [`uart_echo`](#uart_echo-a-uart-echo-demo-for-three-boards)
 have.
 
 ## gcd: multi-package BSV
@@ -120,21 +120,20 @@ size. The testbench runs five DUTs against models of a remote UART, with baud of
 glitches, bad frames and breaks, and of a line checker. Its design file also has the FPGA flows
 (Vivado out of context, `yosys_fpga` and nextpnr for ECP5).
 
-## uart_echo: a UART echo demo for two boards
+## uart_echo: a UART echo demo for three boards
 
 The [echo demo](uart_echo/README.md) sends everything it receives back, through a block RAM FIFO,
-with the PHY of the `uart` example. Its source files come from `../uart/rtl` through relative paths
-in the design file. `mkUartEcho` is board agnostic: a clock, the UART, four switches that select the
-baud rate from a table made at elaboration, a button and four LEDs, and a power-on reset of its
-own. The testbench is a behavioral host at the pins (echo at three baud rates, LEDs, errors,
-overrun, a baud rate switched in the middle of traffic). The targets `arty` (Vivado),
-`arty_nextpnr` (open-source tools) and `ulx3s` build bitstreams with pin files in `boards/`, and
-`host/uart_echo_test.py` checks the echo from a computer at the full line rate (99.6 to 100 % at
-12 Mbaud on the Arty, measured). The macro `FIXED_BAUD` gives a build with one baud rate and no
-switches that needs 96 LUT in Vivado instead of 168.
+with the PHY of the `uart` example. `mkUartEcho` is board agnostic: a clock, the UART, four switches
+that select the baud rate, a button, four LEDs and a power-on reset of its own. The targets `arty`
+(Vivado), `arty_nextpnr` (openXC7), `ulx3s` and `stlv7325` (Kintex-7, openXC7) build bitstreams.
+The macro `FIXED_BAUD` selects one fixed baud rate instead of the switches, and `ECHO_TRANSFORM`
+makes the echo return a transformed byte, so that a host test can tell the design from a wire.
+`host/uart_echo_test.py` checks the echo from a computer at up to 12 Mbaud. The testbench is a
+behavioral host at the pins and runs every combination of the two macros in one simulation.
 
 ```bash
 xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml
 xeda run vivado_synth examples/bluespec/uart_echo/uart_echo.yaml --target arty
 xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target ulx3s
+xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target stlv7325
 ```

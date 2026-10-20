@@ -52,7 +52,8 @@ COMMANDS = [
     ("uart", "artix7", "yosys_fpga", ["bsc", "yosys_fpga"]),
     ("uart", "ecp5", "yosys_fpga+nextpnr", ["bsc", "yosys_fpga", "nextpnr"]),
     ("uart_echo", None, "bsc_sim", ["bsc_sim"]),
-    ("uart_echo", "fixed_baud", "bsc_sim", ["bsc_sim"]),
+    ("uart_echo", "switches", "bsc_sim", ["bsc_sim"]),
+    ("uart_echo", "echo_transform", "bsc_sim", ["bsc_sim"]),
     ("uart_echo", "arty", "vivado_synth", ["bsc", "vivado_synth"]),
     (
         "uart_echo",
@@ -63,6 +64,12 @@ COMMANDS = [
     (
         "uart_echo",
         "ulx3s",
+        "yosys_fpga+nextpnr+fpga_pack",
+        ["bsc", "yosys_fpga", "nextpnr", "fpga_pack"],
+    ),
+    (
+        "uart_echo",
+        "stlv7325",
         "yosys_fpga+nextpnr+fpga_pack",
         ["bsc", "yosys_fpga", "nextpnr", "fpga_pack"],
     ),
