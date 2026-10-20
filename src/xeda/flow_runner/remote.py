@@ -214,9 +214,9 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
         )
 
 
-#: The release line a remote must run, and the remote protocol it must speak. Protocol 1, the first
-#: released one (no earlier release carried a marker), is: canonical resolved settings, relocated
-#: read inputs with their path identities, declared output records with checked hand-over,
+#: The release line a remote must run, and the remote protocol it must speak. A Xeda without a
+#: protocol marker speaks protocol 0. Protocol 1 is: canonical resolved settings, relocated read
+#: inputs with their path identities, declared output records with checked hand-over,
 #: current-run evidence for simulations, the FPGA build graph (`fpga_pack`, a programming-only
 #: `openfpgaloader`), the identity rule (a node's `flow_hash` is its settings plus its ordered
 #: resolved input origins, which this side names the mirror by and compares with the remote's),
@@ -268,8 +268,8 @@ def check_remote_xeda(
 
     `found` is the version of the Xeda that `python` on the remote imports (None when it imports
     none), and `location` is where that package lives. Without this check, a version mismatch
-    surfaces as whatever the old loader happens to choke on first. A 0.2 remote, for example,
-    reported `rtl.sources: unhashable type: 'dict'`.
+    surfaces as whatever the loader on the remote chokes on first. A 0.2 remote, for example,
+    reports `rtl.sources: unhashable type: 'dict'`.
 
     The remote needs the release line `REMOTE_XEDA_MIN_VERSION` and protocol
     `REMOTE_PROTOCOL_MIN_VERSION` (a Xeda without a marker reports 0). One that resolves the

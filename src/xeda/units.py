@@ -1,6 +1,6 @@
 """Physical quantities in settings: clock periods, frequencies, delays.
 
-This paragraph describes the older helpers (`convert_unit` and the others) that the settings not
+This paragraph describes the helpers (`convert_unit` and the others) that the settings not
 converted yet use. They read a number, optionally followed by one unit: `5.5`, `"5.5ns"`,
 `"200 MHz"`, `"1e3 kHz"`. That is the whole grammar. Text never reaches the expression evaluator
 of pint. The evaluator would accept anything it can compute as a clock (`"5 ns * 2"`, `"5..5ns"`,

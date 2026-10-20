@@ -66,7 +66,7 @@ REFUSED = [
     ("yosys_sim", "retime", True, "delete it"),
     ("yosys_sim", "netlist_verilog_extmem", [], "delete it"),
     ("yosys", "retime", True, "`abc_dff`, which passes `-dff` to `abc`"),
-    ("yosys", "optimize", "speed", "`abc.strategy` (`speed` became `speed_roundtrip`"),
+    ("yosys", "optimize", "speed", "`abc.strategy` (`speed_roundtrip` for `speed`"),
     ("yosys", "abc_driver_cell", "BUF_X1", "`abc.driver_cell`"),
     ("yosys", "abc_load_in_ff", 1.5, "`abc.load`"),
     ("yosys", "adder_map", "adders.v", "`arithmetic.adder_map_file` for a file"),

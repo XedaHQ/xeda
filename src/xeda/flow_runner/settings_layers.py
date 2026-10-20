@@ -102,8 +102,8 @@ class FlowNotFoundError(XedaException):
         super().__init__(msg)
 
 
-#: Flows that no longer exist, by every normalized spelling (lower case, `-` as `_`) of the
-#: names they had, with the flow's canonical name and what replaced it. `get_flow_class` says
+#: Flow names that Xeda refuses, by every normalized spelling (lower case, `-` as `_`) of each
+#: name, with the flow's canonical name and what to use instead. `get_flow_class` says
 #: so, in the words a removed setting or option uses.
 REMOVED_FLOWS = {
     name: ("open_xc7", "fpga_pack to build, openfpgaloader to program")
@@ -112,7 +112,7 @@ REMOVED_FLOWS = {
 
 
 class FlowRemovedError(FlowNotFoundError):
-    """A flow that was removed. The message names what to use instead."""
+    """A flow name that Xeda refuses. The message names what to use instead."""
 
     def __init__(self, flow_name: str, replacement: str) -> None:
         self.flow_name = flow_name
