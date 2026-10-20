@@ -391,13 +391,15 @@ add_pdk_commands(pdk, DeclaredEnvvarsCommand, CONTEXT_SETTINGS)
     "remote",
     context_settings=CONTEXT_SETTINGS,
     cls=XedaHelpGroup,
-    short_help="Check and clean remote hosts.",
+    short_help="Check, clean and follow launches on remote hosts.",
 )
 def remote_group():
     """The hosts that `xeda run --remote HOST` uses.
 
     `check` connects to a host, makes the environment of xeda there if it is missing, and reports
     what a remote run finds. `clean` removes the environments and workspaces that nobody uses.
+    `attach` follows a launch that `xeda run --remote HOST --detach` started, and fetches its
+    result. `cancel` stops such a launch.
     """
 
 
@@ -873,6 +875,14 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "reports and final outputs.",
 )
 @click.option(
+    "--detach",
+    is_flag=True,
+    default=False,
+    help="With --remote, keep the launch running on the host when the connection ends or Ctrl-C "
+    "stops the local follow. `xeda remote attach` follows it again and `xeda remote cancel` "
+    "stops it. Running the same request again attaches to the running launch.",
+)
+@click.option(
     "--debug",
     "-d",
     is_flag=True,
@@ -949,6 +959,7 @@ def run(
     scrub: bool = False,
     remote: Optional[str] = None,
     fetch_all: bool = False,
+    detach: bool = False,
     debug: bool = False,
     help_settings: bool = False,
     outputs_to: Optional[Path] = None,
@@ -1007,6 +1018,10 @@ def run(
 
     if fetch_all and not remote:
         raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
+    if detach and not remote:
+        raise click.UsageError("`--detach` needs --remote", ctx=ctx)
+    if detach and dry_run:
+        raise click.UsageError("`--detach` has nothing to detach in a dry run", ctx=ctx)
     if remote:
         for name, given in (
             ("--post-cleanup", post_cleanup),
@@ -1042,6 +1057,7 @@ def run(
             confirm_overwrite=_prompt_overwrite if _interactive(json_flag) else None,
             log_level=log_level,
             detailed_logs=detailed_logs,
+            detach=detach,
         )
         document = outcome.document
         if outcome.error is not None:

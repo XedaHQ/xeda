@@ -385,6 +385,12 @@ needs on the host at the first run. The run directories are on the host. The res
 and declared outputs are mirrored under `<run root>/@<host>/`. `--post-cleanup` and
 `--post-cleanup-purge` are refused; use `xeda remote clean`.
 
+`--remote HOST --detach` keeps the launch running on the host when the connection ends or Ctrl-C
+stops the local follow. `xeda remote attach HOST [LAUNCH_ID]` shows the log from its start and
+fetches the result into the mirror (it delivers nothing; run the original command again to
+deliver). `xeda remote cancel HOST [LAUNCH_ID]` stops the launch. Both take the same `--run-root`
+as the run. Running the same request again attaches to the running launch.
+
 ## When a run fails
 
 On failure `run` writes a document with `success: false` and `error`, and exits non-zero. Branch on

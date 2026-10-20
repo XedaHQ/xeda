@@ -39,6 +39,16 @@ class RemoteCanceled(RemoteError):
     """The launch on the remote was canceled: by Ctrl-C, or because the connection was lost."""
 
 
+class RemoteDetached(RemoteError):
+    """The local xeda stopped to follow a detached launch (Ctrl-C), or lost the connection to it.
+    The launch `launch_id` keeps running on the host."""
+
+    def __init__(self, message: str, launch_id: str, host: str) -> None:
+        super().__init__(message)
+        self.launch_id = launch_id
+        self.host = host
+
+
 class RemoteInterrupted(RemoteError):
     """Ctrl-C ended a remote run after its launch had finished: while the results were fetched or
     delivered. The results are still on the remote host."""

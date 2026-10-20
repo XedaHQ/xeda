@@ -1,9 +1,12 @@
-"""The `xeda remote` commands: look at a remote host and clean it.
+"""The `xeda remote` commands: look at a remote host, clean it, and follow or cancel a launch.
 
 `check HOST` connects like a remote run does, makes the environment if it is missing, and asks the
 agent to describe the host. `clean HOST` asks the agent to list the environments, code copies and
 workspaces that nobody uses, asks the user, and then asks the agent to remove them. The agent
 never removes what a live lock or a running launch holds.
+
+`attach HOST [LAUNCH_ID]` follows a launch that `xeda run --remote HOST --detach` started and
+fetches its result into the mirror. `cancel HOST [LAUNCH_ID]` stops such a launch.
 
 The module imports only what `click` needs to declare the commands. The code that runs them is
 imported when a command runs, so shell completion stays light.
@@ -16,6 +19,7 @@ import json
 import logging
 import subprocess
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
 import click
@@ -417,6 +421,103 @@ def remote_clean(
 
 
 # ---------------------------------------------------------------------------------------------
+# xeda remote attach and xeda remote cancel
+# ---------------------------------------------------------------------------------------------
+
+
+def _run_root_option(func: Any) -> Any:
+    return click.option(
+        "--run-root",
+        type=click.Path(file_okay=False, dir_okay=True, resolve_path=True, path_type=Path),
+        envvar="XEDA_RUN_ROOT",
+        default="xeda_run",
+        show_default=True,
+        show_envvar=True,
+        help="The run root of the `xeda run` that started the launch. With the host, it names "
+        "the workspace on the host and the mirror here.",
+    )(func)
+
+
+@click.argument("host")
+@click.argument("launch_id", required=False)
+@_run_root_option
+@click.option(
+    "--json", "json_flag", is_flag=True, default=False, help="Write one JSON document to stdout."
+)
+@click.pass_context
+def remote_attach(
+    ctx: click.Context, host: str, launch_id: str | None, run_root: Path, json_flag: bool
+) -> None:
+    """Follow a detached launch on HOST from its start and fetch its result.
+
+    LAUNCH_ID is the id that `xeda run --remote HOST --detach` printed. Without it, the command
+    takes the newest launch that runs in the workspace of this machine, run root and host, else
+    the newest launch that finished, and says which. It shows the log from the start, waits for
+    the end, and fetches the result into the mirror as `xeda run --remote` does. It delivers
+    nothing: run the original command again to deliver (it reuses the finished run). Ctrl-C stops
+    following and leaves the launch running.
+    """
+    _set_up(ctx, json_flag)
+    from ..cli_utils import emit_structured
+    from .attach import attach_launch
+
+    outcome = attach_launch(host, launch_id, run_root=run_root)
+    if outcome.error is not None:
+        log.critical("%s", outcome.document["error"]["message"])
+    elif not outcome.success:
+        log.critical("The launch on '%s' did not succeed.", host)
+    if json_flag:
+        emit_structured(outcome.document, "json")
+    sys.exit(0 if outcome.success else 1)
+
+
+@click.argument("host")
+@click.argument("launch_id", required=False)
+@_run_root_option
+@click.option(
+    "--json", "json_flag", is_flag=True, default=False, help="Write one JSON document to stdout."
+)
+@click.pass_context
+def remote_cancel(
+    ctx: click.Context, host: str, launch_id: str | None, run_root: Path, json_flag: bool
+) -> None:
+    """Cancel a running launch on HOST.
+
+    LAUNCH_ID is the id that `xeda run --remote HOST --detach` printed. Without it, the command
+    takes the newest launch that runs in the workspace of this machine, run root and host. It
+    stops the launch as a Ctrl-C of a normal remote run does: SIGINT, then SIGTERM and SIGKILL
+    after the grace periods, to the launch and to the processes it started.
+    """
+    _set_up(ctx, json_flag)
+    from .attach import cancel_launch
+
+    try:
+        document = cancel_launch(host, launch_id, run_root=run_root)
+    except KeyboardInterrupt:
+        _fail(
+            "RemoteCanceled",
+            f"Canceled by Ctrl-C. The cancel on {host} may be unfinished: run it again.",
+            json_flag,
+        )
+    except Exception as error:  # pylint: disable=broad-except
+        log.debug("The remote command failed", exc_info=True)
+        _fail(type(error).__name__, str(error), json_flag)
+    if json_flag:
+        from ..cli_utils import emit_structured
+
+        emit_structured(document, "json")
+    elif document["success"]:
+        click.echo(f"Canceled the launch {document['launch']} on {host}.")
+    else:
+        click.echo(
+            f"Canceled the launch {document['launch']} on {host}, but {document['survivors']} "
+            "process(es) of it did not stop after SIGKILL and may still run there.",
+            err=True,
+        )
+    sys.exit(0 if document["success"] else 1)
+
+
+# ---------------------------------------------------------------------------------------------
 # The commands
 # ---------------------------------------------------------------------------------------------
 
@@ -438,3 +539,15 @@ def add_remote_commands(
         context_settings=context_settings,
         short_help="Remove the environments and workspaces that nobody uses on a remote host.",
     )(remote_clean)
+    group.command(
+        "attach",
+        cls=command_class,
+        context_settings=context_settings,
+        short_help="Follow a detached launch on a remote host and fetch its result.",
+    )(remote_attach)
+    group.command(
+        "cancel",
+        cls=command_class,
+        context_settings=context_settings,
+        short_help="Cancel a running launch on a remote host.",
+    )(remote_cancel)

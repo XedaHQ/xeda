@@ -25,6 +25,21 @@ root `R`, and the workspace is `R/v1/ws/<key>/` with the directories `inputs/<de
    `J {"files": [entries]}` and then the tar of these files as `DATA` frames and an `END` frame.
 5. client: `J {"bye": true}`. The agent releases the lock and exits with status 0.
 
+A detached launch (`"detach": true` in the `launch` frame) survives the session. The child
+inherits the workspace lock and keeps it until it ends. When the client is gone, or the agent
+gets a signal, the agent leaves the launch running and exits with status 0. Only a `C` frame
+cancels it. The `sync` frame can carry a `"digest"` of the request. If a detached launch with
+that digest runs, the agent answers the `sync` with `J {"attached": {...}}` and no `need`: it
+sends the log of that launch from its start, then the `result` as in step 3, and the session
+goes on with step 4. Two more first frames, in place of `sync`:
+
+- `J {"attach": {"workspace": key, "id": launch id or null}}`: the same as an `attached` answer,
+  for the launch with this id, else the newest running launch, else the newest launch. The agent
+  refuses to fetch the files of a launch if a later launch has used the same inputs.
+- `J {"cancel": {"workspace": key, "id": launch id or null}}`: cancel the running launch with this
+  id, else the newest running one, as for a `C` frame. The agent answers
+  `J {"stopped": {"id": launch id, "survivors": n}}` and exits.
+
 At any time the agent can send `J {"error": {"type": name, "message": text}}` and exit with
 status 1. If the client cancels (`C`) or goes away before the launch starts, the agent sends
 `J {"canceled": true, "reason": text}` where it can, and exits with status 0.
@@ -68,7 +83,7 @@ from collections import deque
 from collections.abc import Callable, Collection, Iterable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, BinaryIO, Optional, cast
+from typing import Any, BinaryIO, Optional, Protocol, cast
 
 import psutil
 
@@ -102,6 +117,12 @@ _KILL_WAIT = 10.0
 
 #: A launch id and a workspace key: one plain name, never a path.
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+#: The values of `state` once a cancel was asked for.
+_CANCELED = ("canceling", "canceled")
+
+#: A SHA-256 digest of a request, as the client writes it.
+_DIGEST = re.compile(r"[0-9a-f]{64}")
 
 #: The `clean` default: remove what nobody used for this many days.
 _DEFAULT_DAYS = 30.0
@@ -409,17 +430,71 @@ def _read_result(launch_dir: Path) -> Any:
     return document
 
 
+def _alive(pid: int, created: float) -> bool:
+    """Whether the process `pid` runs and has the start time `created` (a reused process id is
+    another process)."""
+    try:
+        process = psutil.Process(pid)
+        return _running(process) and abs(process.create_time() - created) < 1.0
+    except psutil.Error:
+        return False
+
+
+#: The values of `state` in `state.json` while the launch process may run.
+_ACTIVE = ("running", "canceling")
+
+
 def _launch_running(state: Any) -> bool:
     """Whether the launch that `state.json` describes still runs: its process is alive and has
-    the start time that was recorded (a reused process id is another process)."""
-    if not isinstance(state, dict) or state.get("state") != "running":
+    the start time that was recorded."""
+    if not isinstance(state, dict) or state.get("state") not in _ACTIVE:
         return False
     try:
-        process = psutil.Process(int(state["pid"]))
-        created = float(state["pid_created"])
-        return _running(process) and abs(process.create_time() - created) < 1.0
-    except (psutil.Error, KeyError, TypeError, ValueError):
+        return _alive(int(state["pid"]), float(state["pid_created"]))
+    except (KeyError, TypeError, ValueError):
         return False
+
+
+class _Child(Protocol):
+    """What `Session.stop_launch` needs of the launch process."""
+
+    pid: int
+
+    def poll(self) -> Optional[int]: ...
+
+
+class _ProcessRef:
+    """The process of a launch that this agent did not start (or that it no longer owns), found
+    by the process id and start time in `state.json`. `poll` returns `None` while it runs."""
+
+    def __init__(self, state: dict[str, Any]) -> None:
+        try:
+            self.pid = int(state["pid"])
+            self._created = float(state["pid_created"])
+        except (KeyError, TypeError, ValueError):
+            raise RemoteProtocolError("the record of the launch has no process") from None
+
+    def poll(self) -> Optional[int]:
+        return None if _alive(self.pid, self._created) else 0
+
+
+def _launch_label(state: dict[str, Any], launch_dir: Path) -> str:
+    """The state of a launch for people: `running`, `canceled`, `finished`, or `lost` (the process
+    is gone and left no result)."""
+    if _launch_running(state):
+        return "running"
+    if state.get("state") in ("canceling", "canceled"):
+        return "canceled"
+    return "finished" if os.path.lexists(launch_dir / RESULT_FILE) else "lost"
+
+
+def _update_state(launch_dir: Path, **changes: Any) -> dict[str, Any]:
+    """Change keys of `state.json` of a launch, and return the new record."""
+    state = _read_json(launch_dir / "state.json")
+    state = dict(state) if isinstance(state, dict) else {}
+    state.update(changes)
+    _write_json(launch_dir / "state.json", state)
+    return state
 
 
 def _is_file_at(descriptor: int, path: Path) -> bool:
@@ -500,6 +575,10 @@ class Session:
         self.request: Optional[LaunchRequest] = None
         self.design = ""
         self.result: Any = None
+        #: The launch of this session survives it (see the module text).
+        self.detached = False
+        #: The digest of the request that `sync` named, if it named one.
+        self.digest: Optional[str] = None
         self._lock_fd: Optional[int] = None
         self._child: Optional["subprocess.Popen[bytes]"] = None
 
@@ -587,13 +666,20 @@ class Session:
             message = self.take_json()
             if "bye" in message:
                 return 0
-            self.sync(message)
-            message = self.take_json()
-            if "bye" in message:
+            if "cancel" in message:
+                self.cancel(message["cancel"])
                 return 0
-            if "launch" not in message:
-                raise RemoteProtocolError(f"expected `launch`, got {sorted(message)}")
-            self.launch(message)
+            if "attach" in message:
+                self.attach(message["attach"])
+            elif running := self.sync(message):
+                self.follow(running)
+            else:
+                message = self.take_json()
+                if "bye" in message:
+                    return 0
+                if "launch" not in message:
+                    raise RemoteProtocolError(f"expected `launch`, got {sorted(message)}")
+                self.launch(message)
             while True:
                 message = self.take_json()
                 if "fetch" in message:
@@ -617,7 +703,7 @@ class Session:
         """Stop a launch that still runs, and release the lock."""
         try:
             child = self._child
-            if child is not None and child.poll() is None:
+            if child is not None and child.poll() is None and not self.detached:
                 self.stop_launch(child, None, "the session ends")
         finally:
             if self._lock_fd is not None:
@@ -671,7 +757,10 @@ class Session:
                 raise
             os.close(descriptor)
 
-    def sync(self, message: dict[str, Any]) -> None:
+    def sync(self, message: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """Take the lock and bring the inputs up to date. Return the record of a running detached
+        launch with the digest of the request, if the client named one and there is such a launch:
+        then nothing is synced, and the lock is not taken."""
         body = message.get("sync")
         if not isinstance(body, dict):
             raise RemoteProtocolError(f"expected `sync`, got {sorted(message)}")
@@ -694,6 +783,14 @@ class Session:
         for directory in directories:
             safe_member_path(directory)
         self.design = design
+        digest = body.get("digest")
+        if digest is not None and not (isinstance(digest, str) and _DIGEST.fullmatch(digest)):
+            raise RemoteProtocolError("`digest` of `sync` is not a SHA-256 digest")
+        self.digest = digest
+        if digest is not None:
+            for state in reversed(_launch_states(self.workspace)):
+                if _launch_running(state) and state.get("detach") and state.get("digest") == digest:
+                    return cast(dict[str, Any], state)
         self.take_lock()
         root = self.workspace / "inputs" / design
         plan = plan_sync(root, entries)
@@ -701,6 +798,7 @@ class Session:
         source = io.BufferedReader(_TarSource(self.take))
         apply_sync(root, entries, plan, source, directories=directories)
         self.send_json({"synced": {"written": len(plan.missing), "removed": len(plan.stale)}})
+        return None
 
     # -- step 3: the launch
 
@@ -737,6 +835,9 @@ class Session:
             request = LaunchRequest.model_validate(message["launch"])
         except (KeyError, ValueError) as error:
             raise RemoteProtocolError(f"`launch` is not a launch request: {error}") from None
+        detach = message.get("detach", False)
+        if not isinstance(detach, bool):
+            raise RemoteProtocolError("`detach` of `launch` is not true or false")
         self.check_paths(request)
         bash = shutil.which("bash")
         if bash is None:
@@ -769,16 +870,22 @@ class Session:
                 cwd=launch_dir,
                 env={**os.environ, "PYTHONUNBUFFERED": "1"},
                 start_new_session=True,
+                # A detached launch inherits the workspace lock and holds it until it ends, also
+                # when this agent has exited. Its tools do not inherit it (they close the files).
+                pass_fds=(self._lock_fd,) if detach and self._lock_fd is not None else (),
             )
         finally:
             os.close(descriptor)
         self._child = child
+        self.detached = detach
         state: dict[str, Any] = {
             "id": launch_id,
             "pid": child.pid,
             "pid_created": psutil.Process(child.pid).create_time(),
             "started": _now(),
             "state": "running",
+            "detach": detach,
+            "digest": self.digest,
         }
         _write_json(launch_dir / "state.json", state)
         tail = _LogTail(log, self.offer)
@@ -787,6 +894,9 @@ class Session:
             self.flush_log(tail)
         finally:
             tail.close()
+        # `xeda remote cancel` may have stopped the launch from another session.
+        recorded = _read_json(launch_dir / "state.json")
+        canceled = canceled or (isinstance(recorded, dict) and recorded.get("state") in _CANCELED)
         state.update(state="canceled" if canceled else "finished", exit=child.returncode)
         _write_json(launch_dir / "state.json", state)
         result = _read_result(launch_dir)
@@ -806,6 +916,8 @@ class Session:
         while child.poll() is None:
             tail.pump()
             if (reason := self.lost(launching=True)) is not None:
+                if self.detached and not self.client.canceled.is_set():
+                    raise _SessionEnded(reason, client_gone=True)  # the launch runs on
                 return True, self.stop_launch(child, tail, reason)
             time.sleep(_TICK)
         return False, 0
@@ -819,9 +931,7 @@ class Session:
             if not sent:
                 time.sleep(_TICK)
 
-    def stop_launch(
-        self, child: "subprocess.Popen[bytes]", tail: Optional[_LogTail], reason: str
-    ) -> int:
+    def stop_launch(self, child: _Child, tail: Optional[_LogTail], reason: str) -> int:
         """Stop the child and every process that it started: SIGINT to the child; after the first
         grace period SIGTERM to all of them; after the second SIGKILL to what is left. The periods
         run on the clock of the agent: no send of a frame waits for them or delays them. Return
@@ -881,6 +991,147 @@ class Session:
         survivors = len(alive())
         self.say(f"{survivors} processes of the launch did not stop after SIGKILL")
         return survivors
+
+    # -- attach and cancel: a launch that this session did not start
+
+    def records(self) -> list[dict[str, Any]]:
+        """The launch records of the workspace, the oldest first (the ids sort by time)."""
+        return [
+            state
+            for state in _launch_states(self.workspace)
+            if isinstance(state, dict) and isinstance(state.get("id"), str)
+        ]
+
+    def check_workspace(self, body: Any, what: str) -> Optional[str]:
+        """Check the body of `attach` or `cancel`. Return the launch id that it names, or `None`."""
+        if not isinstance(body, dict):
+            raise RemoteProtocolError(f"`{what}` is not an object")
+        if body.get("workspace") != self.key:
+            raise RemoteProtocolError(
+                f"the client names the workspace {body.get('workspace')!r}, and this agent "
+                f"serves {self.key!r}"
+            )
+        wanted = body.get("id")
+        if wanted is not None and not (isinstance(wanted, str) and _NAME.fullmatch(wanted)):
+            raise RemoteProtocolError(f"{wanted!r} is not a launch id")
+        return wanted
+
+    def attach(self, body: Any) -> None:
+        wanted = self.check_workspace(body, "attach")
+        records = self.records()
+        if wanted is not None:
+            found = [state for state in records if state["id"] == wanted]
+            if not found:
+                raise RemoteError(f"This workspace has no launch {wanted}.")
+            chosen = found[0]
+        else:
+            running = [state for state in records if _launch_running(state)]
+            if not (running or records):
+                raise RemoteError("This workspace has no launch.")
+            chosen = (running or records)[-1]
+        self.follow(chosen)
+
+    def cancel(self, body: Any) -> None:
+        wanted = self.check_workspace(body, "cancel")
+        running = [
+            state
+            for state in self.records()
+            if _launch_running(state) and wanted in (None, state["id"])
+        ]
+        if not running:
+            raise RemoteError(
+                f"Launch {wanted} does not run in this workspace."
+                if wanted
+                else "No launch runs in this workspace."
+            )
+        state = running[-1]
+        launch_dir = self.workspace / "launches" / state["id"]
+        # The session that supervises the launch, if it is still there, reads this mark.
+        _update_state(launch_dir, state="canceling")
+        self.send_json({"canceling": {"id": state["id"]}})
+        survivors = self.stop_launch(_ProcessRef(state), None, "xeda remote cancel")
+        _update_state(launch_dir, state="canceled")
+        self.send_json({"stopped": {"id": state["id"], "survivors": survivors}})
+
+    def follow(self, state: dict[str, Any]) -> None:
+        """Send the log of a launch from its start, wait until the launch ends, and send its
+        result, as the end of step 3 does. The launch is not a child of this session. A client
+        that is gone leaves it running. A `C` frame cancels it. The lock is taken after the
+        launch has ended, for the fetch."""
+        launch_id = state["id"]
+        launch_dir = self.workspace / "launches" / launch_id
+        child = _ProcessRef(state)
+        self.send_json(
+            {
+                "attached": {
+                    "id": launch_id,
+                    "started": state.get("started"),
+                    "state": _launch_label(state, launch_dir),
+                    "running": child.poll() is None,
+                }
+            }
+        )
+        request = self.read_request(launch_dir)
+        try:
+            tail = _LogTail(launch_dir / "log", self.offer)
+        except OSError as error:
+            raise RemoteError(f"The log of launch {launch_id} cannot be read: {error}") from None
+        canceled, survivors = False, 0
+        try:
+            while child.poll() is None:
+                tail.pump()
+                if (reason := self.lost(launching=True)) is not None:
+                    if not self.client.canceled.is_set():
+                        raise _SessionEnded(reason, client_gone=True)  # the launch runs on
+                    _update_state(launch_dir, state="canceling")
+                    canceled, survivors = True, self.stop_launch(child, tail, reason)
+                    break
+                time.sleep(_TICK)
+            self.flush_log(tail)
+        finally:
+            tail.close()
+        self.check_not_replaced(launch_id, request)
+        if self._lock_fd is None:
+            self.take_lock()
+            self.check_not_replaced(launch_id, request)
+        final = _read_json(launch_dir / "state.json")
+        final = final if isinstance(final, dict) else {}
+        canceled = canceled or final.get("state") in _CANCELED
+        if canceled:
+            _update_state(launch_dir, state="canceled")
+        result = _read_result(launch_dir)
+        self.request = request
+        self.result = result or {}
+        self.send_json(
+            {
+                "result": result,
+                "canceled": canceled,
+                "exit": final.get("exit"),
+                "survivors": survivors,
+            }
+        )
+
+    @staticmethod
+    def read_request(launch_dir: Path) -> LaunchRequest:
+        document = _read_json(launch_dir / REQUEST_FILE)
+        try:
+            return LaunchRequest.model_validate(document)
+        except ValueError as error:
+            raise RemoteProtocolError(f"{REQUEST_FILE} of the launch is damaged: {error}") from None
+
+    def check_not_replaced(self, launch_id: str, request: LaunchRequest) -> None:
+        """Refuse to fetch the files of a launch if a later launch ran in the same inputs: the run
+        directories may hold the files of the later launch now."""
+        for state in self.records():
+            if state["id"] <= launch_id:
+                continue
+            later = _read_json(self.workspace / "launches" / state["id"] / REQUEST_FILE)
+            if isinstance(later, dict) and later.get("inputs_dir") == request.inputs_dir:
+                raise RemoteError(
+                    f"Launch {state['id']} used the same inputs after launch {launch_id}, so the "
+                    f"files of launch {launch_id} may be gone. Run the original command again: "
+                    "it reuses what is still valid."
+                )
 
     # -- step 4: the fetch
 

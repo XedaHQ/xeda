@@ -149,6 +149,8 @@ jobs:
   #   a SIGINT handler during a launch, a killed SSH client and the processes of a cancelled
   #     launch on the same machine: test_remote_client
   #   the file locks that `xeda remote clean` finds held, on a fake remote host: test_remote_commands
+  #   a launch that keeps the workspace lock and its own session after the agent has exited, and
+  #     the processes of a canceled launch: test_remote_detach
   macos:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
@@ -208,6 +210,7 @@ jobs:
           tests/test_remote_agent.py
           tests/test_remote_client.py
           tests/test_remote_commands.py
+          tests/test_remote_detach.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only

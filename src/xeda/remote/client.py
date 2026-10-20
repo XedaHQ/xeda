@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import secrets
+import shlex
 import signal
 import socket
 import subprocess
@@ -37,7 +38,7 @@ import sys
 import tempfile
 import threading
 from collections import deque
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -68,6 +69,7 @@ from .errors import (
     RemoteCanceled,
     RemoteConfigError,
     RemoteConnectionError,
+    RemoteDetached,
     RemoteError,
     RemoteInterrupted,
     RemoteProtocolError,
@@ -91,6 +93,7 @@ from .frames import (
     skip_to_magic,
 )
 from .launch_entry import LaunchRequest
+from .launch_record import LaunchRecord, write_record
 from .manifest import Entry, build_manifest, write_tar
 from .packaging import InputPackage, package_inputs
 from .profile import HostProfile, load_host_profile
@@ -208,6 +211,14 @@ class _Agent:
         self.canceled = threading.Event()
         #: Set by the second Ctrl-C: the connection is closed.
         self.closed = False
+        #: Whether the launch is detached: Ctrl-C and a lost connection only stop the local
+        #: follow, and the launch runs on.
+        self.detach = False
+        #: The launch that runs, for the messages of a detached run.
+        self.launch_id = ""
+        #: The text after `xeda remote attach HOST` that names the run root, if it is not the
+        #: default one.
+        self.attach_options = ""
         self._stderr: Deque[str] = deque(maxlen=_STDERR_LINES)
         self._drain_thread = threading.Thread(target=self._drain, daemon=True)
         self._drain_thread.start()
@@ -249,7 +260,15 @@ class _Agent:
     def interrupt(self) -> None:
         """The reaction to Ctrl-C during the launch. It runs in a signal handler: it takes no lock
         that the main thread may hold, and it does not log."""
-        if not self.canceled.is_set():
+        if self.detach:
+            if not self.closed:
+                self.closed = True
+                os.write(2, f"\nLeaving the launch on {self.host} running.\n".encode())
+                try:
+                    self.process.kill()  # the agent sees the end of its input and leaves
+                except OSError:
+                    pass
+        elif not self.canceled.is_set():
             self.canceled.set()
             self._wake.set()
             os.write(
@@ -284,6 +303,8 @@ class _Agent:
         self._drain_thread.join(timeout=2)
         detail = f"\nOutput of the remote host:\n{self.stderr_text()}" if self._stderr else ""
         code = f" (ssh exit status {status})" if status is not None else ""
+        if self.detach and self.launching:
+            return self.detached_error(step, code, detail)
         if self.closed:
             return RemoteCanceled(
                 f"The connection to {self.host} was closed on request while {step}. The agent "
@@ -301,6 +322,22 @@ class _Agent:
             )
         return RemoteConnectionError(
             f"The connection to {self.host} ended while {step}{code}.{detail}"
+        )
+
+    def detached_error(self, step: str, code: str = "", detail: str = "") -> RemoteDetached:
+        """The error for a detached launch that this side does not follow any more."""
+        number, host = self.launch_id, self.host
+        how = (
+            f"Stopped following the launch {number} on {host}."
+            if self.closed
+            else f"The connection to {host} was lost while {step}{code}."
+        )
+        return RemoteDetached(
+            f"{how} The launch keeps running there. Follow it with `xeda remote attach {host}"
+            f"{self.attach_options} {number}` and cancel it with `xeda remote cancel {host}"
+            f"{self.attach_options} {number}`.{detail}",
+            number,
+            host,
         )
 
     def frame(self, step: str) -> tuple[bytes, bytes]:
@@ -466,6 +503,27 @@ class _Prepared:
     prepared: PreparedRequest
     flow_class: Any
     requested: str
+    deliveries: Optional[Deliveries]
+
+    def local(self) -> "_Local":
+        return _Local(
+            self.launcher,
+            self.requested,
+            self.prepared.design.name,
+            [Path(node.run_path) for node in self.prepared.plan.nodes],
+            self.deliveries,
+        )
+
+
+@dataclass
+class _Local:
+    """What the fetch needs of the local side: the launcher (for its run root), the requested
+    node, the design name, the run directories of the local plan, and the deliveries."""
+
+    launcher: DefaultRunner
+    requested: str
+    design_name: str
+    run_paths: List[Path]
     deliveries: Optional[Deliveries]
 
 
@@ -691,23 +749,36 @@ def _sync(
     design_name: str,
     key: str,
     launch_id: str,
-) -> list[str]:
-    """Send the manifest and the files that the agent lacks. Return the paths that were sent."""
+    request: Optional[LaunchRequest] = None,
+) -> tuple[list[str], Optional[Dict[str, Any]]]:
+    """Send the manifest and the files that the agent lacks. Return the paths that were sent.
+
+    With a `request` (not for a dry run), the agent looks for a detached launch of the same
+    request that runs. If it finds one, it syncs nothing and answers with that launch. Then the
+    result is the empty list and the record of the launch."""
     step = "syncing the inputs"
     entries = build_manifest(package.files, package.generated)
-    agent.send(
-        {
-            "sync": {
-                "workspace": key,
-                "design": design_name,
-                "entries": [entry.as_json_value() for entry in entries],
-                "directories": package.directories,
-                "id": launch_id,
-            }
-        },
-        step,
-    )
-    need = agent.expect("need", step)
+    body: Dict[str, Any] = {
+        "workspace": key,
+        "design": design_name,
+        "entries": [entry.as_json_value() for entry in entries],
+        "directories": package.directories,
+        "id": launch_id,
+    }
+    if request is not None:
+        body["digest"] = request_digest(request, entries)
+    agent.send({"sync": body}, step)
+    answer = agent.message(step)
+    if "attached" in answer:
+        record = answer["attached"]
+        if not isinstance(record, dict) or not isinstance(record.get("id"), str):
+            raise RemoteProtocolError(f"The agent on {agent.host} sent a bad `attached` record.")
+        return [], record
+    if "need" not in answer:
+        raise RemoteProtocolError(
+            f"The agent on {agent.host} sent {sorted(answer)} while {step}, and not `need`."
+        )
+    need = answer["need"]
     if not isinstance(need, list) or not all(isinstance(path, str) for path in need):
         raise RemoteProtocolError(f"The agent on {agent.host} sent a bad `need` list.")
     known = {entry.path for entry in entries}
@@ -728,7 +799,21 @@ def _sync(
         synced.get("written") if isinstance(synced, dict) else "?",
         synced.get("removed") if isinstance(synced, dict) else "?",
     )
-    return [entry.path for entry in wanted]
+    return [entry.path for entry in wanted], None
+
+
+def request_digest(request: LaunchRequest, entries: Sequence[Entry]) -> str:
+    """The identity of a request for `--detach`: the launch request and the digests of the inputs.
+    The verbosity of the log is not part of it."""
+    document = request.model_dump(mode="json")
+    for name in ("log_level", "detailed_logs"):
+        del document[name]
+    text = json.dumps(
+        {"request": document, "inputs": [entry.as_json_value() for entry in entries]},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _launch(
@@ -738,14 +823,39 @@ def _launch(
     step = "running the launch"
     with _cancel_on_interrupt(agent):
         agent.launching = True
+        agent.launch_id = launch_id
         try:
             agent.send(
-                {"launch": request.model_dump(mode="json"), "id": launch_id, "setup": list(setup)},
+                {
+                    "launch": request.model_dump(mode="json"),
+                    "id": launch_id,
+                    "setup": list(setup),
+                    "detach": agent.detach,
+                },
                 step,
             )
             document = agent.message(step)
         finally:
             agent.launching = False
+    return _launch_result(agent, document)
+
+
+def _follow(agent: _Agent, launch_id: str) -> Dict[str, Any]:
+    """Show the log of a launch that runs on the host (or ran), from its start, and return its
+    result document. Ctrl-C and a lost connection stop the follow and leave the launch running."""
+    step = "following the launch"
+    agent.detach = True
+    with _cancel_on_interrupt(agent):
+        agent.launching = True
+        agent.launch_id = launch_id
+        try:
+            document = agent.message(step)
+        finally:
+            agent.launching = False
+    return _launch_result(agent, document)
+
+
+def _launch_result(agent: _Agent, document: Dict[str, Any]) -> Dict[str, Any]:
     if "result" not in document:
         raise RemoteProtocolError(
             f"The agent on {agent.host} sent {sorted(document)} when the launch ended, and not "
@@ -761,6 +871,8 @@ def _launch(
         )
         if agent.canceled.is_set():
             raise RemoteCanceled(f"The launch on {agent.host} was canceled by Ctrl-C.{warning}")
+        if agent.detach:
+            raise RemoteCanceled(f"The launch on {agent.host} was canceled.{warning}")
         raise RemoteCanceled(
             f"The launch on {agent.host} was canceled, because the agent lost the connection or "
             f"its heartbeat.{warning}"
@@ -770,6 +882,12 @@ def _launch(
         raise RemoteError(
             f"The launch on {agent.host} ended with exit status {document.get('exit')} and left "
             "no result. The log above may tell why."
+            + (
+                " A logout can stop a detached launch: see KillUserProcesses in "
+                "`xeda remote check`."
+                if agent.detach
+                else ""
+            )
         )
     return result
 
@@ -789,6 +907,87 @@ def _fetch(agent: _Agent, fetch_all: bool) -> tuple[list[Entry], DataReader]:
             raise RemoteProtocolError(f"frame {kind!r} inside the fetched data")
 
     return entries, DataReader(agent.stdout, on_frame=other)
+
+
+def _follow_running(agent: _Agent, running: Dict[str, Any]) -> Dict[str, Any]:
+    """The same request runs on the host in a detached launch: follow that one."""
+    launch_id = running["id"]
+    log.info(
+        "The same request runs on %s as the launch %s (since %s). Following it: Ctrl-C stops "
+        "following and leaves it running; `xeda remote cancel %s%s %s` cancels it.",
+        agent.host,
+        launch_id,
+        running.get("started"),
+        agent.host,
+        agent.attach_options,
+        launch_id,
+    )
+    return _follow(agent, launch_id)
+
+
+def _announce_detached(agent: _Agent, kill_user_processes: str, launch_id: str) -> None:
+    host = agent.host
+    log.info(
+        "The launch %s is detached: it runs on %s when this connection ends. Ctrl-C stops "
+        "following it. `xeda remote attach %s%s` follows it again, and `xeda remote cancel "
+        "%s%s` cancels it.",
+        launch_id,
+        host,
+        host,
+        agent.attach_options,
+        host,
+        agent.attach_options,
+    )
+    if kill_user_processes == "yes":
+        log.warning(
+            "systemd-logind on %s kills the processes of a user when the last session ends "
+            "(KillUserProcesses=yes). A logout there may still stop this launch. Ask the "
+            "administrator to enable lingering for the user (`loginctl enable-linger`).",
+            host,
+        )
+
+
+def _record_launch(
+    prepared: _Prepared,
+    run: _Run,
+    launch_id: str,
+    *,
+    local_root: Path,
+    mirror_root: Path,
+    remote_run_root: PurePosixPath,
+    inputs_dir: PurePosixPath,
+    package: InputPackage,
+    design_root: Path,
+    fetch_all: bool,
+    delivers: bool,
+) -> None:
+    """Write the local record that `xeda remote attach` needs (see `launch_record`)."""
+    prepared.launcher.run_root  # pylint: disable=pointless-statement
+    design = run.design
+    write_record(
+        mirror_root,
+        LaunchRecord(
+            id=launch_id,
+            host=run.host,
+            chain=run.chain,
+            flow=run.flow,
+            requested=prepared.requested,
+            design_name=prepared.prepared.design.name,
+            design=str(design) if isinstance(design, (str, Path)) else None,
+            target=run.target,
+            request=run.request,
+            local_root=str(local_root),
+            run_paths=[str(node.run_path) for node in prepared.prepared.plan.nodes],
+            remote_run_root=str(remote_run_root),
+            inputs_dir=str(inputs_dir),
+            files={name: str(path) for name, path in package.files.items()},
+            generated=sorted(package.generated),
+            design_root=str(design_root),
+            fetch_all=fetch_all,
+            delivers=delivers,
+            debug=run.debug,
+        ),
+    )
 
 
 # --- The documents ----------------------------------------------------------------------------
@@ -860,11 +1059,11 @@ def _mirror_document(
     return mirrored
 
 
-def _planned_mirrors(prepared: "_Prepared", mirror_root: Path, local_root: Path) -> set[Path]:
+def _planned_mirrors(local: "_Local", mirror_root: Path, local_root: Path) -> set[Path]:
     """The mirror directories of the nodes of the local plan."""
     found: set[Path] = set()
-    for node in prepared.prepared.plan.nodes:
-        place = Path(os.path.relpath(node.run_path, local_root))
+    for run_path in local.run_paths:
+        place = Path(os.path.relpath(run_path, local_root))
         try:
             found.add(_mirror_place(mirror_root, place))
         except ValueError:
@@ -873,7 +1072,7 @@ def _planned_mirrors(prepared: "_Prepared", mirror_root: Path, local_root: Path)
 
 
 def _discard_mirrors(
-    prepared: "_Prepared",
+    local: "_Local",
     mirror_root: Path,
     local_root: Path,
     nodes: Optional[Mapping[str, PurePosixPath]] = None,
@@ -882,7 +1081,7 @@ def _discard_mirrors(
     result names), under their locks. Call it when the launch or the fetch failed: the records
     of an earlier run there would say that this run passed. A directory that is not there stays
     absent. A failure here is logged and does not hide the error that called it."""
-    directories = _planned_mirrors(prepared, mirror_root, local_root)
+    directories = _planned_mirrors(local, mirror_root, local_root)
     directories |= {mirror_root / place for place in (nodes or {}).values()}
     try:
         with ExitStack() as locked:
@@ -919,7 +1118,8 @@ def _translation(
     remote_run_root: PurePosixPath,
     mirror_root: Path,
     inputs_dir: PurePosixPath,
-    package: InputPackage,
+    files: Mapping[str, str],
+    generated: Collection[str],
     design_root: Path,
 ) -> Callable[[str], Optional[str]]:
     """Map a path on the remote to the path of the same file here, or to `None`.
@@ -930,8 +1130,8 @@ def _translation(
     the same name there. The inputs directory itself goes to the design root. A file that xeda
     made for the remote (the design document, a Liberty file with renamed includes) has no such
     file here, and its path stays. So does a path elsewhere (a tool, a store of the remote)."""
-    files = {(inputs_dir / name).as_posix(): str(local) for name, local in package.files.items()}
-    made = {(inputs_dir / name).as_posix() for name in package.generated}
+    sent = {(inputs_dir / name).as_posix(): local for name, local in files.items()}
+    made = {(inputs_dir / name).as_posix() for name in generated}
 
     def translate(text: str) -> Optional[str]:
         if not text.startswith("/"):
@@ -945,8 +1145,8 @@ def _translation(
             return str(design_root)
         if not path.is_relative_to(inputs_dir):
             return None
-        if path.as_posix() in files:
-            return files[path.as_posix()]
+        if path.as_posix() in sent:
+            return sent[path.as_posix()]
         relative = path.relative_to(inputs_dir)
         if path.as_posix() in made or relative.parts[0] in _SYNTHETIC_INPUTS:
             return None
@@ -999,6 +1199,7 @@ def run_remote(
     log_level: int,
     detailed_logs: bool,
     ssh_options: Sequence[str] = (),
+    detach: bool = False,
 ) -> RemoteOutcome:
     """Run the request `chain` on the host `destination_text` and return its outcome.
 
@@ -1006,7 +1207,6 @@ def run_remote(
     `--json` prints. A failure of any step is an outcome too, with `success` false, the exception
     in `error` and a failure document that names it. Ctrl-C during the launch is an outcome with
     the error `RemoteCanceled`."""
-    from ..cli import _failure_document, _failure_of  # the CLI imports this module on demand
     from ..introspect import request_info
 
     request = parse_request(chain)
@@ -1041,15 +1241,26 @@ def run_remote(
             log_level=log_level,
             detailed_logs=detailed_logs,
             ssh_options=ssh_options,
+            detach=detach,
         )
     except Exception as error:  # pylint: disable=broad-except
-        log.debug("The remote run failed", exc_info=True)
-        error_type, message = _failure_of(error, run.flow, run.debug)
-        document = _failure_document(
-            run.flow, run.design, run.launcher, run.target, error_type, message, run.request
-        )
-        document["remote"] = destination_text
-        return RemoteOutcome(document, False, error)
+        return _failed(run, error)
+
+
+def _failed(run: _Run, error: Exception) -> RemoteOutcome:
+    """The outcome of a run that raised `error`: the failure document, with the launch that keeps
+    running on the host if the error is `RemoteDetached`."""
+    from ..cli import _failure_document, _failure_of
+
+    log.debug("The remote run failed", exc_info=True)
+    error_type, message = _failure_of(error, run.flow, run.debug)
+    document = _failure_document(
+        run.flow, run.design, run.launcher, run.target, error_type, message, run.request
+    )
+    document["remote"] = run.host
+    if isinstance(error, RemoteDetached):
+        document["launch"] = {"id": error.launch_id, "host": error.host}
+    return RemoteOutcome(document, False, error)
 
 
 def _run(
@@ -1074,6 +1285,7 @@ def _run(
     log_level: int,
     detailed_logs: bool,
     ssh_options: Sequence[str],
+    detach: bool = False,
 ) -> RemoteOutcome:
     if _is_windows():
         raise RemoteError(
@@ -1109,6 +1321,7 @@ def _run(
     spec = dependency_spec(design.tb.python_packages)
     key = workspace_key(local_root, destination)
     launch_id = new_launch_id()
+    local = prepared.local()
     log.info("Connecting to %s...", destination_text)
     try:
         with SshSession(destination, ssh_options) as session:
@@ -1140,12 +1353,35 @@ def _run(
                 expected={node.name: node.flowrun_hash for node in plan.nodes},
             )
             agent = _start_agent(session, provisioned, key)
+            agent.detach = detach
+            if local_root != _local_run_root(Path.cwd() / "xeda_run"):
+                agent.attach_options = f" --run-root {shlex.quote(str(local_root))}"
             try:
-                uploaded = _sync(agent, package, design.name, key, launch_id)
+                uploaded, running = _sync(
+                    agent, package, design.name, key, launch_id, None if dry_run else launch
+                )
                 try:
-                    result = _launch(agent, launch, launch_id, profile.setup)
+                    if running is not None:
+                        result = _follow_running(agent, running)
+                    else:
+                        if detach:
+                            _announce_detached(agent, facts.kill_user_processes, launch_id)
+                            _record_launch(
+                                prepared,
+                                run,
+                                launch_id,
+                                local_root=local_root,
+                                mirror_root=mirror_root,
+                                remote_run_root=remote_run_root,
+                                inputs_dir=inputs_dir,
+                                package=package,
+                                design_root=design.root_path,
+                                fetch_all=fetch_all,
+                                delivers=outputs_to is not None,
+                            )
+                        result = _launch(agent, launch, launch_id, profile.setup)
                 except BaseException:
-                    _discard_mirrors(prepared, mirror_root, local_root)
+                    _discard_mirrors(local, mirror_root, local_root)
                     raise
                 run.phase = None if dry_run else _FETCHING
                 if dry_run:
@@ -1159,7 +1395,7 @@ def _run(
                 else:
                     outcome = _finish(
                         agent,
-                        prepared,
+                        local,
                         run,
                         result,
                         mirror_root=mirror_root,
@@ -1169,7 +1405,8 @@ def _run(
                             remote_run_root=remote_run_root,
                             mirror_root=mirror_root,
                             inputs_dir=inputs_dir,
-                            package=package,
+                            files={name: str(path) for name, path in package.files.items()},
+                            generated=package.generated,
                             design_root=design.root_path,
                         ),
                         fetch_all=fetch_all,
@@ -1201,7 +1438,7 @@ def _run(
 
 def _finish(
     agent: _Agent,
-    prepared: _Prepared,
+    local: _Local,
     run: _Run,
     result: Dict[str, Any],
     *,
@@ -1215,7 +1452,7 @@ def _finish(
     """Fetch the files of the run into the mirror, rewrite the result and deliver."""
     host = agent.host
     # The run root is made and marked as Xeda's before the mirror goes into it.
-    prepared.launcher.run_root  # pylint: disable=pointless-statement
+    local.launcher.run_root  # pylint: disable=pointless-statement
     nodes = _node_dirs(result, remote_run_root)
     unreadable = result.get("unreadable") or {}
     for name, places in unreadable.items():
@@ -1229,13 +1466,13 @@ def _finish(
     try:
         entries, reader = _fetch(agent, fetch_all)
     except BaseException:
-        _discard_mirrors(prepared, mirror_root, local_root, nodes)
+        _discard_mirrors(local, mirror_root, local_root, nodes)
         raise
     directories = {name: mirror_root / place for name, place in nodes.items()}
     # The mirror of every planned node is replaced, also of a node that the launch never reached
     # (it failed before any node ran, or a producer failed): an earlier run's records there
     # would say that this node passed.
-    replaced = set(directories.values()) | _planned_mirrors(prepared, mirror_root, local_root)
+    replaced = set(directories.values()) | _planned_mirrors(local, mirror_root, local_root)
     with ExitStack() as locked:
         for directory in sorted(replaced):
             locked.enter_context(run_dir_lock(directory, local_root))
@@ -1256,7 +1493,7 @@ def _finish(
         remote_deliverables: Any = None
         success = bool(result.get("success"))
         if isinstance(results, dict) and results and result.get("run_path"):
-            requested = prepared.requested
+            requested = local.requested
             remote_run_dir = PurePosixPath(result["run_path"])
             written = (result.get("written") or {}).get(requested)
             mirror_dir = mirror_root / _place_below(
@@ -1280,10 +1517,10 @@ def _finish(
                 results=rewritten if directory == requested_dir else None,
             )
         if rewritten is not None and requested_dir is not None:
-            if outputs_to is not None and prepared.deliveries is not None:
+            if outputs_to is not None and local.deliveries is not None:
                 run.phase = _DELIVERING
                 deliver_fetched(
-                    prepared.deliveries,
+                    local.deliveries,
                     rewritten,
                     remote_deliverables,
                     result["run_path"],
@@ -1292,13 +1529,13 @@ def _finish(
                 )
             print_results(
                 results=rewritten,
-                title=f"Results of flow:{run.flow} design:{prepared.prepared.design.name}",
+                title=f"Results of flow:{run.flow} design:{local.design_name}",
                 skip_if_false={"artifacts", "reports"},
             )
     document = _mirror_document(
         result, rewritten, host=run.host, mirror_root=mirror_root, remote_run_root=remote_run_root
     )
-    return RemoteOutcome(_local_design(document, run, prepared.prepared.design.name), success)
+    return RemoteOutcome(_local_design(document, run, local.design_name), success)
 
 
 __all__ = [
