@@ -118,6 +118,9 @@ _KILL_WAIT = 10.0
 #: A launch id and a workspace key: one plain name, never a path.
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
+#: Seconds between two looks at the descendants of a launch.
+_SEEN_EVERY = 0.25
+
 #: The values of `state` once a cancel was asked for.
 _CANCELED = ("canceling", "canceled")
 
@@ -339,6 +342,19 @@ def _running(process: psutil.Process) -> bool:
         return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
     except psutil.Error:
         return False
+
+
+def _group_members(pgid: int) -> list[psutil.Process]:
+    """The running processes in the process group `pgid`. The launch child starts its own
+    session, so its group holds the launch and every process that did not leave the group."""
+    found = []
+    for process in psutil.process_iter():
+        try:
+            if os.getpgid(process.pid) == pgid and _running(process):
+                found.append(process)
+        except (OSError, psutil.Error):
+            continue
+    return found
 
 
 def _signal_process(process: psutil.Process, number: int) -> None:
@@ -577,6 +593,10 @@ class Session:
         self.result: Any = None
         #: The launch of this session survives it (see the module text).
         self.detached = False
+        #: The descendants of the launch that were seen while it ran, so that a process that its
+        #: leader left behind is still known when the launch is canceled.
+        self._seen: set[psutil.Process] = set()
+        self._seen_at = 0.0
         #: The digest of the request that `sync` named, if it named one.
         self.digest: Optional[str] = None
         self._lock_fd: Optional[int] = None
@@ -910,11 +930,24 @@ class Session:
             }
         )
 
+    def watch_descendants(self, child: _Child) -> None:
+        """Remember the descendants of the launch process. Called at each tick of the loops that
+        watch a launch; the look itself runs four times a second at most."""
+        now = time.monotonic()
+        if now - self._seen_at < _SEEN_EVERY:
+            return
+        self._seen_at = now
+        try:
+            self._seen.update(psutil.Process(child.pid).children(recursive=True))
+        except psutil.Error:
+            pass
+
     def supervise(self, child: "subprocess.Popen[bytes]", tail: _LogTail) -> tuple[bool, int]:
         """Stream the log until the child ends. Return whether the launch was canceled, and how
         many processes of it survived SIGKILL. Nothing here waits for the client to read."""
         while child.poll() is None:
             tail.pump()
+            self.watch_descendants(child)
             if (reason := self.lost(launching=True)) is not None:
                 if self.detached and not self.client.canceled.is_set():
                     raise _SessionEnded(reason, client_gone=True)  # the launch runs on
@@ -933,11 +966,15 @@ class Session:
 
     def stop_launch(self, child: _Child, tail: Optional[_LogTail], reason: str) -> int:
         """Stop the child and every process that it started: SIGINT to the child; after the first
-        grace period SIGTERM to all of them; after the second SIGKILL to what is left. The periods
-        run on the clock of the agent: no send of a frame waits for them or delays them. Return
-        the number of processes that are still there after SIGKILL and `_KILL_WAIT` seconds."""
+        grace period SIGTERM to all of them; after the second SIGKILL to what is left. "All of
+        them" is the process group of the child (it starts its own session), the descendants that
+        were seen while it ran, and the descendants now. So a tool that its leader left behind
+        is stopped too. The periods run on the clock of the agent: no send of a frame waits for
+        them or delays them. Return the number of processes that are still there after SIGKILL
+        and `_KILL_WAIT` seconds."""
         self.say(f"canceling the launch: {reason}")
-        known: set[psutil.Process] = set()
+        known = self._seen
+        pgid = child.pid
         try:
             leader = psutil.Process(child.pid)
         except psutil.Error:
@@ -949,12 +986,26 @@ class Session:
                     known.update(leader.children(recursive=True))
                 except psutil.Error:
                     pass
+            known.update(_group_members(pgid))
 
         def alive() -> list[psutil.Process]:
-            found = [p for p in known if _running(p)]
+            found = {p for p in known if _running(p)}
             if leader is not None and child.poll() is None:
-                found.append(leader)
-            return found
+                found.add(leader)
+            return list(found)
+
+        def send(number: int) -> None:
+            look()
+            members = _group_members(pgid)
+            if members:  # a group that has no member may be another one by now
+                try:
+                    os.killpg(pgid, number)
+                except OSError:  # ProcessLookupError, or a group that is not ours
+                    pass
+            grouped = {process.pid for process in members}
+            for process in alive():
+                if process.pid not in grouped:  # the group has had its signal
+                    _signal_process(process, number)
 
         def wait(seconds: float) -> bool:
             """Wait until nothing is left. Return whether that happened."""
@@ -973,19 +1024,17 @@ class Session:
         look()
         if child.poll() is None:
             try:
-                os.kill(child.pid, signal.SIGINT)
+                os.kill(child.pid, signal.SIGINT)  # xeda stops its own tools
             except OSError:
                 pass
+        else:
+            send(signal.SIGINT)  # the leader is gone: nobody stops what it left
         if wait(self.grace[0]):
             return 0
-        look()
-        for process in alive():
-            _signal_process(process, signal.SIGTERM)
+        send(signal.SIGTERM)
         if wait(self.grace[1]):
             return 0
-        look()
-        for process in alive():
-            _signal_process(process, signal.SIGKILL)
+        send(signal.SIGKILL)
         if wait(_KILL_WAIT):
             return 0
         survivors = len(alive())
@@ -1080,6 +1129,7 @@ class Session:
         try:
             while child.poll() is None:
                 tail.pump()
+                self.watch_descendants(child)
                 if (reason := self.lost(launching=True)) is not None:
                     if not self.client.canceled.is_set():
                         raise _SessionEnded(reason, client_gone=True)  # the launch runs on

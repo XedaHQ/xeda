@@ -8,10 +8,13 @@ that it started by process id.
 """
 
 import fcntl
+import io
 import json
 import logging
 import os
 import queue
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
@@ -397,6 +400,71 @@ def test_a_cancel_frame_still_cancels_a_detached_launch(
     assert beats is not None
     beats.stop()
     _assert_gone(state["pid"])  # the agent has seen the launch end
+
+
+# --- Stopping what a leader left behind -------------------------------------------------------
+
+
+def _session(tmp_path: Path) -> Any:
+    """A session object that is only used to stop a process: no client, no output."""
+    from xeda.remote import agent as agent_module
+    from xeda.remote.frames import FrameWriter
+
+    client = agent_module._Client(io.BytesIO(b""))
+    out = agent_module._Output(FrameWriter(io.BytesIO()), 1.0)
+    return agent_module.Session(
+        tmp_path / "remote", "0123456789abcdef01234567", client, out, grace=(0.2, 0.2)
+    )
+
+
+def _leader(program: str, leftovers: _Processes) -> tuple["subprocess.Popen[str]", int]:
+    """Start `program` in a session of its own, as the agent starts a launch. It prints the
+    process id of a process that it started and then does what the test needs. Return the leader
+    and that process id."""
+    leader = subprocess.Popen(
+        [sys.executable, "-c", program],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    assert leader.stdout is not None
+    leftovers.append(leader.pid)
+    other = int(leader.stdout.readline())
+    leftovers.append(other)
+    return leader, other
+
+
+def test_cancel_stops_a_process_that_its_leader_left_in_the_group(tmp_path, leftovers):
+    """The leader has gone when the stop begins: no child of it is left to find."""
+    program = (
+        "import subprocess, sys\n"
+        "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'])\n"
+        "print(p.pid, flush=True)\n"
+    )
+    leader, grandchild = _leader(program, leftovers)
+    leader.wait(TIMEOUT)  # the leader exits right after it started the process
+    assert psutil.pid_exists(grandchild) and leader.poll() == 0
+    assert _session(tmp_path).stop_launch(leader, None, "test") == 0
+    _assert_gone(grandchild)
+
+
+def test_cancel_stops_a_process_that_was_seen_while_the_launch_ran(tmp_path, leftovers):
+    """The process left the group (a tool that starts a session of its own), and its leader is
+    gone: only the descendants that the agent saw while the launch ran lead to it."""
+    program = (
+        "import subprocess, sys, time\n"
+        "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'],"
+        " start_new_session=True)\n"
+        "print(p.pid, flush=True)\n"
+        "time.sleep(600)\n"
+    )
+    leader, grandchild = _leader(program, leftovers)
+    session = _session(tmp_path)
+    session.watch_descendants(leader)  # each tick of the watch does this
+    leader.kill()
+    leader.wait(TIMEOUT)
+    assert session.stop_launch(leader, None, "test") == 0
+    _assert_gone(grandchild)
 
 
 # --- Attach -------------------------------------------------------------------------------------
