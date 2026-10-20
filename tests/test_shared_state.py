@@ -17,45 +17,40 @@ the oracle for that, in five parts, each with a deliberate offender that it must
 5. no flow class holds a model instance (a `Tool`) as a class attribute: a tool finds its flow when
    it is made, so one made with the class never sees the flow it runs for.
 
-The launches use `tests/test_isolation.py`'s world and stand-in tools, so what the sweep reaches is
-what that one reaches (`UNREACHED` there lists the flows that stop short of `run()`).
+Parts 1 to 4 are checked on the launches of the isolation sweep
+(`test_isolation.py::test_nothing_outside_the_run_root_changes_but_what_was_named`): each launch of
+a flow carries both oracles. The sweep's world and stand-in tools set what it reaches
+(`UNREACHED` there lists the flows that stop short of `run()`). This file holds the offenders that
+show the process oracle sees what it is meant to see, and part 5.
 """
 
 import copy
-import enum
-import functools
 import logging
 import os
 import sys
-import typing
 import uuid
 import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List
 
 import pytest
 
-from xeda import Design
-from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import FlowLauncher
 from xeda.flows import VivadoAltSynth, VivadoSynth
 from xeda.flows.vivado import vivado_alt_synth as alt
-from xeda.run_root import ensure_run_root
 from xeda.tool import Tool
 
 from . import state_snapshot as ss
 from .settings_samples import flow_classes, minimal_settings
 from .test_isolation import (
-    DESIGNS,
     EXTRA_SETTINGS,
-    FAKED,
-    FPGA_FAKED,
-    PLAIN_TB_DESIGN,
-    SQRT_DESIGN,
+    NEVER_RUN,
+    Launch,
+    Seen,
+    _launch,
     _world,
-    sweep_settings,
+    process_leftovers,
 )
-from .tool_utils import use_fake_fpga_tools, use_fake_tools
 
 pytestmark = pytest.mark.python_compat
 
@@ -64,171 +59,20 @@ ss.import_package()
 
 FLOWS = [cls for cls, _ in flow_classes()]
 
-#: Options that make a flow write what it derives from its settings (a waveform's format, the
-#: mode of synthesis, a library merged), which the flipped options do not all reach.
-HAND_VARIANTS: Dict[str, List[Dict[str, Any]]] = {
-    "ghdl_sim": [{"vcd": "w.vcd"}, {"fst": "w.fst"}, {"wave": "w.ghw"}],
-    "nvc": [{"vcd": "w.vcd"}, {"fst": "w.fst"}],
-    "vcs": [
-        {"ucli_script": "notes.txt"},
-        {"gui": True},
-        {"sdf_file": "notes.txt", "sdf_instance": "uut"},
-    ],
-    "vivado_sim": [{"nthreads": 2}, {"sdf": {"max": "notes.txt", "root": "uut"}}],
-    "vivado_synth": [{"bitstream": "outputs/x.bit"}, {"out_of_context": True}],
-    "vivado_alt_synth": [{"out_of_context": True, "flatten_hierarchy": "full"}],
-    "vivado_project": [{"out_of_context": True, "flatten_hierarchy": "full"}],
-    "yosys_fpga": [{"abc_script": "notes.txt", "keep_hierarchy": ["sqrt"]}],
-    "dc": [{"__language": "2019"}, {"__language": "1993"}],
-    "ise_synth": [{"__language": "2019"}],
-}
-#: The flows whose launch does not reach their `run()` in the sweep's world, and why nothing is
-#: lost. Any other that does not is a failure of the sweep: it would see nothing of it.
-NEVER_RUN: dict[str, str] = {}
-#: Settings that start a container or reach a machine: never flipped.
-NOT_FLIPPED = ("docker", "remote", "ssh", "junest", "image")
 
-
-def _flip_candidates(flow_class):
-    """(name, value) for each boolean, literal and enumerated option, set to another value."""
-    for name, info in flow_class.Settings.model_fields.items():
-        if any(part in name for part in NOT_FLIPPED):
-            continue
-        annotation, default = info.annotation, info.default
-        if annotation is bool or annotation == Optional[bool]:
-            yield name, (not default) if isinstance(default, bool) else True
-        elif typing.get_origin(annotation) is typing.Literal:
-            options = [o for o in typing.get_args(annotation) if o != default and o is not None]
-            if options:
-                yield name, options[0]
-        elif isinstance(annotation, type) and issubclass(annotation, enum.Enum):
-            options = [o for o in annotation if o != default]
-            if options:
-                yield name, options[0].value
-
-
-def _flipped(flow_class, base: dict, world) -> dict:
-    """`base`, with every option flipped that still validates beside the others."""
-    settings = dict(base)
-    for name, value in _flip_candidates(flow_class):
-        if name in settings:
-            continue
-        trial = {**settings, name: value}
-        try:
-            flow_class.Settings.from_input(trial, design_root=world.work, runner_cwd=world.work)
-        except Exception:  # noqa: BLE001 - a combination the flow refuses is left out
-            continue
-        settings = trial
-    return settings
-
-
-def _launch(flow_class, world, mp, settings: dict, launcher: dict):
-    """One launch under the stand-in tools: the flow, or None when it raised, and what the launch
-    changed in the caller's own objects."""
-    use_fake_tools(mp)
-    if flow_class.name in FPGA_FAKED:
-        ensure_run_root(world.root)
-        use_fake_fpga_tools(mp, world.root / ".fake-toolchain")
-    if flow_class.name not in FAKED:
-        mp.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")
-        mp.setattr("xeda.tool.Tool.version_gte", lambda self, *args: True)
-    mp.chdir(world.work)
-    rtl, tb = DESIGNS.get(flow_class.name, SQRT_DESIGN)
-    if flow_class.name in ("ghdl_sim", "nvc", "vivado_sim", "vcs", "vivado_power"):
-        rtl, tb = PLAIN_TB_DESIGN  # a plain testbench, so that the stood-in simulator is reached
-        if flow_class.name in ("vivado_sim", "vivado_power"):
-            tb = {**tb, "uut": "uut"}  # the switching activity is recorded for the unit's instance
-    settings = dict(settings)
-    standard = settings.pop("__language", "2008")
-    design = Design(
-        name="sqrt",
-        design_root=world.work,
-        rtl=rtl,
-        tb=tb,
-        language={"vhdl": {"standard": standard}},
-    )
-    asked_settings, asked_design = copy.deepcopy(settings), design.model_dump_json()
-    process_before = ss.process_state()
-    try:
-        flow = DefaultRunner(world.root, display_results=False, **launcher).launch_flow(
-            flow_class, design, settings
-        )
-    except Exception:  # noqa: BLE001 - how it ends is not judged; what it leaves behind is
-        flow = None
-    # judged here as well as after the launches: the working directory and the environment the
-    # stand-in tools set are put back when they are done, and would hide a change made meanwhile
-    changed = [
-        f"process: {line}" for line in ss.process_changes(process_before, ss.process_state())
-    ]
-    if settings != asked_settings:
-        changed.append("the settings mapping the caller gave changed")
-    if design.model_dump_json() != asked_design:
-        changed.append("the Design the caller gave changed")
-    return flow, changed
-
-
-def check_flow(flow_class, tmp_path: Path, variants: Optional[list] = None) -> List[str]:
-    """Launch `flow_class` as `variants` say, and say what it left behind in the process."""
+def check_flow(flow_class, tmp_path: Path, plan: List[Launch]) -> List[str]:
+    """Launch `flow_class` as `plan` says, and say what it left behind in the process."""
     world = _world(tmp_path)
-    base = sweep_settings(flow_class, world)
-    if variants is None:
-        variants = [
-            ("its own settings", base, {}),
-            (
-                "every option flipped, with debug",
-                _flipped(flow_class, base, world),
-                {"debug": True},
-            ),
-            *[
-                (f"options {extra}", {**base, **extra}, {})
-                for extra in HAND_VARIANTS.get(flow_class.name, [])
-            ],
-            ("its own settings again, rebuilt", base, {"rebuild_all": True}),
-        ]
-    problems: List[str] = []
+    seen = Seen()
+    reached: List[str] = []
     state_before, process_before = ss.state(), ss.process_state()
-    finished = []
-    started: List[str] = []  # the launches whose flow reached `run()`
     with pytest.MonkeyPatch.context() as mp:
-        run = flow_class.run
-        launching = [""]
-
-        @functools.wraps(run)
-        def counted(self, *args, **kwargs):
-            started.append(launching[0])
-            return run(self, *args, **kwargs)
-
-        mp.setattr(flow_class, "run", counted)
-        for label, settings, launcher in variants:
-            launching[0] = label
-            flow, changed = _launch(flow_class, world, mp, settings, launcher)
-            problems += [f"{label}: {line}" for line in changed]
-            if flow is not None:
-                finished.append((label, flow))
-    if flow_class.name not in NEVER_RUN and variants[0][0] not in started:
+        _launch(flow_class, world, mp, "once", reached, plan, seen)
+    problems = list(seen.problems)
+    if flow_class.name not in NEVER_RUN and plan[0].label not in reached:
         # a launch that fails before `run()` is judged clean by everything below: say so
-        problems.append(f"{variants[0][0]}: the launch did not reach run(), so nothing was seen")
-    problems += [f"state of the package: {line}" for line in ss.changes(state_before, ss.state())]
-    problems += [
-        f"process: {line}" for line in ss.process_changes(process_before, ss.process_state())
-    ]
-    shared = ss.shared_objects()
-    for label, flow in finished:
-        mine = ss.reachable(flow, "flow")
-        problems += [
-            f"{label}: {mine[oid][0]} ({mine[oid][1]}) is also {shared[oid][0]}"
-            for oid in mine.keys() & shared.keys()
-        ]
-    return problems
-
-
-# --- the sweep ---------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("flow_class", FLOWS, ids=lambda cls: cls.name)
-def test_launching_a_flow_leaves_nothing_in_the_process(flow_class, tmp_path) -> None:
-    problems = check_flow(flow_class, tmp_path)
-    assert not problems, "\n".join(problems)
+        problems.append(f"{plan[0].label}: the launch did not reach run(), so nothing was seen")
+    return problems + process_leftovers(state_before, process_before, seen.finished)
 
 
 @pytest.mark.parametrize("flow_class", FLOWS, ids=lambda cls: cls.name)
@@ -270,7 +114,7 @@ def _victim(tmp_path, monkeypatch, offend) -> str:
 
     monkeypatch.setattr(VivadoAltSynth, "run", run)
     base = {**minimal_settings(VivadoAltSynth), **EXTRA_SETTINGS.get("vivado_alt_synth", {})}
-    return "\n".join(check_flow(VivadoAltSynth, tmp_path, [("base", base, {})]))
+    return "\n".join(check_flow(VivadoAltSynth, tmp_path, [Launch("base", base)]))
 
 
 def test_the_sweep_is_quiet_for_a_flow_that_changes_nothing(tmp_path, monkeypatch) -> None:
@@ -444,7 +288,7 @@ def test_the_sweep_sees_a_launch_that_changes_the_process(
     monkeypatch.setattr(FlowLauncher, "launch_flow", launch_flow)
     base = {**minimal_settings(VivadoAltSynth), **EXTRA_SETTINGS.get("vivado_alt_synth", {})}
     try:
-        said = "\n".join(check_flow(VivadoAltSynth, tmp_path, [("base", base, {})]))
+        said = "\n".join(check_flow(VivadoAltSynth, tmp_path, [Launch("base", base)]))
     finally:
         os.chdir(here)
     assert shown in said
@@ -466,7 +310,7 @@ def test_the_sweep_says_when_a_launch_ends_before_the_run_of_its_flow(
 
     monkeypatch.setattr(VivadoAltSynth, "init", init)
     base = {**minimal_settings(VivadoAltSynth), **EXTRA_SETTINGS.get("vivado_alt_synth", {})}
-    said = "\n".join(check_flow(VivadoAltSynth, tmp_path, [("base", base, {})]))
+    said = "\n".join(check_flow(VivadoAltSynth, tmp_path, [Launch("base", base)]))
     assert "base: the launch did not reach run()" in said
 
 
@@ -485,7 +329,7 @@ def test_the_sweep_sees_a_launch_that_changes_what_the_caller_gave(tmp_path, mon
 
     monkeypatch.setattr(FlowLauncher, "launch_flow", launch_flow)
     base = {**minimal_settings(VivadoAltSynth), **EXTRA_SETTINGS.get("vivado_alt_synth", {})}
-    said = "\n".join(check_flow(VivadoAltSynth, tmp_path, [("base", base, {})]))
+    said = "\n".join(check_flow(VivadoAltSynth, tmp_path, [Launch("base", base)]))
     assert "settings mapping the caller gave changed" in said
     assert "Design the caller gave changed" in said
 
