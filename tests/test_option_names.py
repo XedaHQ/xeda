@@ -141,7 +141,7 @@ LAUNCHER_NAME_EXCEPTIONS = {
     "--cwd": {"run_path", "dump_settings_json"},
 }
 #: options with which `xeda run` launches nothing locally
-NOT_A_LOCAL_LAUNCH = {"--remote", "--fetch-all", "--detach", "--help-settings", "--dry-run"}
+NOT_A_LOCAL_LAUNCH = {"--remote", "--fetch-all", "--keep-running", "--help-settings", "--dry-run"}
 #: the environment variables each command reads; `XEDA_RUN_DIR` only to refuse it
 DECLARED_ENVVARS = {
     "run": {

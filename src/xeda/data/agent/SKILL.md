@@ -411,13 +411,13 @@ host profile.
 - Ctrl-C cancels the launch on the host (a second one closes the connection). A lost connection
   cancels it too. Run the same command again to recover: a finished run is reused and only the
   fetch repeats.
-- `--remote HOST --detach` keeps the launch running on the host when the connection ends or Ctrl-C
-  stops the local follow (the failure is `RemoteDetached`, and the document has `launch`).
+- `--remote HOST --keep-running` keeps the launch running on the host when the connection ends or
+  Ctrl-C stops the local follow (the failure is `RemoteDetached`, and the document has `launch`).
   `xeda remote attach HOST [LAUNCH_ID]` shows the log from its start and fetches the result into
   the mirror (it delivers nothing; run the original command again to deliver). `xeda remote
   cancel HOST [LAUNCH_ID]` stops the launch. Both take the `--run-root` of the run. Running the same
   request again attaches to the running launch. A host with `KillUserProcesses=yes` may kill a
-  detached launch at logout.
+  launch that keeps running at logout.
 - `xeda remote check HOST` installs what is missing and reports the Python, the environment, the
   free disk space, `KillUserProcesses` and the tools on the login `PATH` (it does not run `setup`).
   `xeda remote clean HOST [--older-than DAYS] [--all] [--yes]` removes unused environments and

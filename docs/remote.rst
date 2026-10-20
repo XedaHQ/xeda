@@ -323,14 +323,14 @@ To recover, run the same command again. The workspace persists, so the host find
 run that finished and reuses it. Only the fetch happens again. A run that was canceled in the
 middle runs again.
 
-Detached launches
-=================
+Launches that keep running
+==========================
 
-``--detach`` keeps the launch running on the host when the connection ends:
+``--keep-running`` keeps the launch running on the host when the connection ends:
 
 .. code-block:: bash
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --remote cluster --detach
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --remote cluster --keep-running
 
 Xeda prints the launch id and follows the log. If you press Ctrl-C, or the connection drops, Xeda
 leaves the launch running and stops with the error ``RemoteDetached``. Then:
@@ -353,9 +353,9 @@ when a later launch used the same inputs, because the run directories may hold o
 .. warning::
 
    On a host where systemd-logind has ``KillUserProcesses=yes``, the end of your last session
-   kills every process of your user, a detached launch included, unless the administrator enabled
-   lingering for you (``loginctl enable-linger``). ``xeda remote check`` reports the setting, and
-   ``--detach`` warns about it.
+   kills every process of your user, also a launch that keeps running, unless the administrator
+   enabled lingering for you (``loginctl enable-linger``). ``xeda remote check`` reports the
+   setting, and ``--keep-running`` warns about it.
 
 Dry runs
 ========
@@ -363,8 +363,8 @@ Dry runs
 ``xeda run ... --remote HOST --dry-run`` shows the plan, and what each flow would do, as it is on
 the host. The host judges freshness against its own workspace, so the answer is correct. To answer,
 Xeda may provision the host and sync the inputs into the workspace. It never writes a run
-directory, and it says which input files it uploaded. ``--detach`` has nothing to detach in a dry
-run, and Xeda refuses the combination.
+directory, and it says which input files it uploaded. ``--keep-running`` has no launch to keep
+running in a dry run, and Xeda refuses the combination.
 
 Check and clean
 ===============
@@ -472,8 +472,9 @@ see the commands and the output of the host.
     again to fetch them.
 
 ``RemoteDetached``
-    A detached launch keeps running on the host. The message and the ``launch`` key of the JSON
-    document give its id. Use ``xeda remote attach`` or ``xeda remote cancel``.
+    Xeda stopped following a launch that keeps running on the host (``--keep-running``). The
+    message and the ``launch`` key of the JSON document give its id. Use ``xeda remote attach`` or
+    ``xeda remote cancel``.
 
 ``RemoteFetchError``
     A file of the run was not fetched, or it did not match its digest, or a declared output is

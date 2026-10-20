@@ -5,7 +5,7 @@ agent to describe the host. `clean HOST` asks the agent to list the environments
 workspaces that nobody uses, asks the user, and then asks the agent to remove them. The agent
 never removes what a live lock or a running launch holds.
 
-`attach HOST [LAUNCH_ID]` follows a launch that `xeda run --remote HOST --detach` started and
+`attach HOST [LAUNCH_ID]` follows a launch that `xeda run --remote HOST --keep-running` started and
 fetches its result into the mirror. `cancel HOST [LAUNCH_ID]` stops such a launch.
 
 The module imports only what `click` needs to declare the commands. The code that runs them is
@@ -203,7 +203,7 @@ def describe_host(
     if report.get("kill_user_processes") == "yes":
         warnings.append(
             "systemd-logind kills the processes of a user when the last session ends "
-            "(KillUserProcesses=yes). A detached launch on this host would not survive a "
+            "(KillUserProcesses=yes). A launch that keeps running on this host would not survive a "
             "logout. Ask the administrator to enable lingering for the user (`loginctl "
             "enable-linger`)."
         )
@@ -448,11 +448,11 @@ def _run_root_option(func: Any) -> Any:
 def remote_attach(
     ctx: click.Context, host: str, launch_id: str | None, run_root: Path, json_flag: bool
 ) -> None:
-    """Follow a detached launch on HOST from its start and fetch its result.
+    """Follow a launch that keeps running on HOST from its start and fetch its result.
 
-    LAUNCH_ID is the id that `xeda run --remote HOST --detach` printed. Without it, the command
-    takes the newest launch that runs in the workspace of this machine, run root and host, else
-    the newest launch that finished, and says which. It shows the log from the start, waits for
+    LAUNCH_ID is the id that `xeda run --remote HOST --keep-running` printed. Without it, the
+    command takes the newest launch that runs in the workspace of this machine, run root and host,
+    else the newest launch that finished, and says which. It shows the log from the start, waits for
     the end, and fetches the result into the mirror as `xeda run --remote` does. It delivers
     nothing: run the original command again to deliver (it reuses the finished run). Ctrl-C stops
     following and leaves the launch running.
@@ -483,9 +483,9 @@ def remote_cancel(
 ) -> None:
     """Cancel a running launch on HOST.
 
-    LAUNCH_ID is the id that `xeda run --remote HOST --detach` printed. Without it, the command
-    takes the newest launch that runs in the workspace of this machine, run root and host. It
-    stops the launch as a Ctrl-C of a normal remote run does: SIGINT, then SIGTERM and SIGKILL
+    LAUNCH_ID is the id that `xeda run --remote HOST --keep-running` printed. Without it, the
+    command takes the newest launch that runs in the workspace of this machine, run root and host.
+    It stops the launch as a Ctrl-C of a normal remote run does: SIGINT, then SIGTERM and SIGKILL
     after the grace periods, to the launch and to the processes it started.
     """
     _set_up(ctx, json_flag)
@@ -543,7 +543,7 @@ def add_remote_commands(
         "attach",
         cls=command_class,
         context_settings=context_settings,
-        short_help="Follow a detached launch on a remote host and fetch its result.",
+        short_help="Follow a launch that keeps running on a remote host and fetch its result.",
     )(remote_attach)
     group.command(
         "cancel",

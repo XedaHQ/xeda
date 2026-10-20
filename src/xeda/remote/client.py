@@ -211,10 +211,10 @@ class _Agent:
         self.canceled = threading.Event()
         #: Set by the second Ctrl-C: the connection is closed.
         self.closed = False
-        #: Whether the launch is detached: Ctrl-C and a lost connection only stop the local
+        #: Whether the launch keeps running: Ctrl-C and a lost connection only stop the local
         #: follow, and the launch runs on.
-        self.detach = False
-        #: The launch that runs, for the messages of a detached run.
+        self.keep_running = False
+        #: The launch that runs, for the messages of a run with `--keep-running`.
         self.launch_id = ""
         #: The text after `xeda remote attach HOST` that names the run root, if it is not the
         #: default one.
@@ -260,7 +260,7 @@ class _Agent:
     def interrupt(self) -> None:
         """The reaction to Ctrl-C during the launch. It runs in a signal handler: it takes no lock
         that the main thread may hold, and it does not log."""
-        if self.detach:
+        if self.keep_running:
             if not self.closed:
                 self.closed = True
                 os.write(2, f"\nLeaving the launch on {self.host} running.\n".encode())
@@ -303,7 +303,7 @@ class _Agent:
         self._drain_thread.join(timeout=2)
         detail = f"\nOutput of the remote host:\n{self.stderr_text()}" if self._stderr else ""
         code = f" (ssh exit status {status})" if status is not None else ""
-        if self.detach and self.launching:
+        if self.keep_running and self.launching:
             return self.detached_error(step, code, detail)
         if self.closed:
             return RemoteCanceled(
@@ -325,7 +325,7 @@ class _Agent:
         )
 
     def detached_error(self, step: str, code: str = "", detail: str = "") -> RemoteDetached:
-        """The error for a detached launch that this side does not follow any more."""
+        """The error for a launch that keeps running and that this side does not follow any more."""
         number, host = self.launch_id, self.host
         how = (
             f"Stopped following the launch {number} on {host}."
@@ -753,8 +753,8 @@ def _sync(
 ) -> tuple[list[str], Optional[Dict[str, Any]]]:
     """Send the manifest and the files that the agent lacks. Return the paths that were sent.
 
-    With a `request` (not for a dry run), the agent looks for a detached launch of the same
-    request that runs. If it finds one, it syncs nothing and answers with that launch. Then the
+    With a `request` (not for a dry run), the agent looks for a launch of the same request that
+    keeps running. If it finds one, it syncs nothing and answers with that launch. Then the
     result is the empty list and the record of the launch."""
     step = "syncing the inputs"
     entries = build_manifest(package.files, package.generated)
@@ -803,8 +803,8 @@ def _sync(
 
 
 def request_digest(request: LaunchRequest, entries: Sequence[Entry]) -> str:
-    """The identity of a request for `--detach`: the launch request and the digests of the inputs.
-    The verbosity of the log is not part of it."""
+    """The identity of a request for `--keep-running`: the launch request and the digests of the
+    inputs. The verbosity of the log is not part of it."""
     document = request.model_dump(mode="json")
     for name in ("log_level", "detailed_logs"):
         del document[name]
@@ -830,7 +830,7 @@ def _launch(
                     "launch": request.model_dump(mode="json"),
                     "id": launch_id,
                     "setup": list(setup),
-                    "detach": agent.detach,
+                    "keep_running": agent.keep_running,
                 },
                 step,
             )
@@ -844,7 +844,7 @@ def _follow(agent: _Agent, launch_id: str) -> Dict[str, Any]:
     """Show the log of a launch that runs on the host (or ran), from its start, and return its
     result document. Ctrl-C and a lost connection stop the follow and leave the launch running."""
     step = "following the launch"
-    agent.detach = True
+    agent.keep_running = True
     with _cancel_on_interrupt(agent):
         agent.launching = True
         agent.launch_id = launch_id
@@ -871,7 +871,7 @@ def _launch_result(agent: _Agent, document: Dict[str, Any]) -> Dict[str, Any]:
         )
         if agent.canceled.is_set():
             raise RemoteCanceled(f"The launch on {agent.host} was canceled by Ctrl-C.{warning}")
-        if agent.detach:
+        if agent.keep_running:
             raise RemoteCanceled(f"The launch on {agent.host} was canceled.{warning}")
         raise RemoteCanceled(
             f"The launch on {agent.host} was canceled, because the agent lost the connection or "
@@ -883,9 +883,9 @@ def _launch_result(agent: _Agent, document: Dict[str, Any]) -> Dict[str, Any]:
             f"The launch on {agent.host} ended with exit status {document.get('exit')} and left "
             "no result. The log above may tell why."
             + (
-                " A logout can stop a detached launch: see KillUserProcesses in "
+                " A logout can stop a launch that keeps running: see KillUserProcesses in "
                 "`xeda remote check`."
-                if agent.detach
+                if agent.keep_running
                 else ""
             )
         )
@@ -910,7 +910,7 @@ def _fetch(agent: _Agent, fetch_all: bool) -> tuple[list[Entry], DataReader]:
 
 
 def _follow_running(agent: _Agent, running: Dict[str, Any]) -> Dict[str, Any]:
-    """The same request runs on the host in a detached launch: follow that one."""
+    """The same request runs on the host in a launch that keeps running: follow that one."""
     launch_id = running["id"]
     log.info(
         "The same request runs on %s as the launch %s (since %s). Following it: Ctrl-C stops "
@@ -925,10 +925,10 @@ def _follow_running(agent: _Agent, running: Dict[str, Any]) -> Dict[str, Any]:
     return _follow(agent, launch_id)
 
 
-def _announce_detached(agent: _Agent, kill_user_processes: str, launch_id: str) -> None:
+def _announce_keep_running(agent: _Agent, kill_user_processes: str, launch_id: str) -> None:
     host = agent.host
     log.info(
-        "The launch %s is detached: it runs on %s when this connection ends. Ctrl-C stops "
+        "The launch %s keeps running on %s when this connection ends. Ctrl-C stops "
         "following it. `xeda remote attach %s%s` follows it again, and `xeda remote cancel "
         "%s%s` cancels it.",
         launch_id,
@@ -1199,7 +1199,7 @@ def run_remote(
     log_level: int,
     detailed_logs: bool,
     ssh_options: Sequence[str] = (),
-    detach: bool = False,
+    keep_running: bool = False,
 ) -> RemoteOutcome:
     """Run the request `chain` on the host `destination_text` and return its outcome.
 
@@ -1241,7 +1241,7 @@ def run_remote(
             log_level=log_level,
             detailed_logs=detailed_logs,
             ssh_options=ssh_options,
-            detach=detach,
+            keep_running=keep_running,
         )
     except Exception as error:  # pylint: disable=broad-except
         return _failed(run, error)
@@ -1285,7 +1285,7 @@ def _run(
     log_level: int,
     detailed_logs: bool,
     ssh_options: Sequence[str],
-    detach: bool = False,
+    keep_running: bool = False,
 ) -> RemoteOutcome:
     if _is_windows():
         raise RemoteError(
@@ -1353,7 +1353,7 @@ def _run(
                 expected={node.name: node.flowrun_hash for node in plan.nodes},
             )
             agent = _start_agent(session, provisioned, key)
-            agent.detach = detach
+            agent.keep_running = keep_running
             if local_root != _local_run_root(Path.cwd() / "xeda_run"):
                 agent.attach_options = f" --run-root {shlex.quote(str(local_root))}"
             try:
@@ -1364,8 +1364,8 @@ def _run(
                     if running is not None:
                         result = _follow_running(agent, running)
                     else:
-                        if detach:
-                            _announce_detached(agent, facts.kill_user_processes, launch_id)
+                        if keep_running:
+                            _announce_keep_running(agent, facts.kill_user_processes, launch_id)
                             _record_launch(
                                 prepared,
                                 run,

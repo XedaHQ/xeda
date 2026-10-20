@@ -1,10 +1,11 @@
-"""The local record of a detached launch: what `xeda remote attach` needs to fetch its result.
+"""The local record of a launch that keeps running: what `xeda remote attach` needs to fetch its
+result.
 
-A remote run that is detached writes this record in the mirror, `<mirror>/.launches/<id>.json`,
+A remote run with `--keep-running` writes this record in the mirror, `<mirror>/.launches/<id>.json`,
 before the launch starts. The record holds the local side of the request: the paths of the local
-files that were sent, the run directories of the local plan, and the names that the result is
-shown with. It holds nothing secret and nothing that the remote host does not know. Paths of this
-machine stay on this machine, so the remote never stores them.
+files that were sent, the run directories of the local plan, and the names that the result is shown
+with. It holds nothing secret and nothing that the remote host does not know. Paths of this machine
+stay on this machine, so the remote never stores them.
 """
 
 from pathlib import Path
@@ -19,7 +20,7 @@ RECORDS = ".launches"
 
 
 class LaunchRecord(XedaBaseModel):
-    """The local side of one detached launch."""
+    """The local side of one launch that keeps running."""
 
     id: str
     host: str

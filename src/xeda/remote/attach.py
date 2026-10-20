@@ -1,4 +1,4 @@
-"""Follow, fetch and cancel a detached launch: the code behind `xeda remote attach` and
+"""Follow, fetch and cancel a launch that keeps running: the code behind `xeda remote attach` and
 `xeda remote cancel`.
 
 `attach_launch` connects to the host and asks the agent for a launch of the workspace of this
@@ -89,7 +89,7 @@ def _attach(
     with SshSession(destination, ssh_options) as session:
         _facts, provisioned = _provision(session, profile, code_snapshot(), dependency_spec(()))
         agent = _start_agent(session, provisioned, key)
-        agent.detach = True
+        agent.keep_running = True
         try:
             step = "finding the launch"
             agent.send({"attach": {"workspace": key, "id": launch_id}}, step)

@@ -41,8 +41,8 @@ class RemoteCanceled(RemoteError):
 
 
 class RemoteDetached(RemoteError):
-    """The local xeda stopped to follow a detached launch (Ctrl-C), or lost the connection to it.
-    The launch `launch_id` keeps running on the host."""
+    """The local xeda stopped to follow a launch that keeps running (Ctrl-C), or lost the
+    connection to it. The launch `launch_id` keeps running on the host."""
 
     def __init__(self, message: str, launch_id: str, host: str) -> None:
         super().__init__(message)

@@ -475,10 +475,10 @@ option, a design file that does not exist and a malformed chain. Xeda prints one
 the class of the click error as ``error.type`` (``BadParameter``, ``NoSuchOption``, ``UsageError``)
 and exits with status 2. Such a document has no ``request`` or ``nodes``. Xeda applies several
 refusals before it starts a run, and they use the same document with ``UsageError``. For example,
-``--remote`` refuses ``--post-cleanup``, and ``--detach`` and ``--fetch-all`` need ``--remote``. A
-binding that cannot be applied (an unknown input or producer, a binding for a flow that declares no
-inputs, or a chain together with a command-line or API binding of the same input) is a settings
-error. It names the input and the place where the binding was written.
+``--remote`` refuses ``--post-cleanup``, and ``--keep-running`` and ``--fetch-all`` need
+``--remote``. A binding that cannot be applied (an unknown input or producer, a binding for a flow
+that declares no inputs, or a chain together with a command-line or API binding of the same input)
+is a settings error. It names the input and the place where the binding was written.
 
 The ``results.json`` of every node is a failure document too, and its ``error.type`` is more
 specific than the one of the top-level document. The top-level ``FlowFailed`` is the verdict of the
@@ -512,7 +512,7 @@ in the mirror, and the paths in ``results`` are paths in the mirror. ``design_fi
 design file. A failure of the remote step itself (a lost connection or an error while it makes the
 environment) gives the failure document of a run, with ``remote`` and without ``mirror``.
 
-The document of a launch that Xeda stopped following (``--detach``, then Ctrl-C or a lost
+The document of a launch that Xeda stopped following (``--keep-running``, then Ctrl-C or a lost
 connection) is a failure with ``error.type`` ``RemoteDetached``, and the key ``launch``, an object
 with the ``id`` of the launch and the ``host``. The launch keeps running on the host.
 

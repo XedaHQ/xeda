@@ -1,4 +1,5 @@
-"""A detached remote launch survives its connection, and `attach` and `cancel` find it again.
+"""A remote launch that keeps running survives its connection, and `attach` and `cancel` find it
+again.
 
 The tests run the real client, agent and launch entry over the fake `ssh`, with the fake FPGA
 tools. A tool that must be running at a given point reports its process id through a FIFO and
@@ -238,8 +239,8 @@ def _run_in_thread(function: Callable[[], Any]) -> tuple[threading.Thread, "queu
     return thread, outcome
 
 
-def _detach(tmp_path: Path, design: Path, **overrides: Any):
-    return remote_request(tmp_path, design, "nextpnr", detach=True, **overrides)
+def _keep_running(tmp_path: Path, design: Path, **overrides: Any):
+    return remote_request(tmp_path, design, "nextpnr", keep_running=True, **overrides)
 
 
 def _attach(tmp_path: Path, launch_id: Optional[str] = None):
@@ -254,8 +255,8 @@ def _cut_while_running(
     remote_host: RemoteHost,
     **overrides: Any,
 ) -> tuple[Any, int]:
-    """Start a detached launch, cut the connection when the tool runs, and return the outcome of
-    the run and the process id of the tool."""
+    """Start a launch that keeps running, cut the connection when the tool runs, and return the
+    outcome of the run and the process id of the tool."""
     holder: list[int] = []
 
     def cut() -> None:
@@ -264,7 +265,7 @@ def _cut_while_running(
 
     thread = threading.Thread(target=cut, daemon=True)
     thread.start()
-    outcome = _detach(tmp_path, design, **overrides)
+    outcome = _keep_running(tmp_path, design, **overrides)
     thread.join(TIMEOUT)
     return outcome, holder[0]
 
@@ -279,10 +280,10 @@ def _wait_for_launch(remote_host: RemoteHost, directory: Path) -> dict[str, Any]
     return json.loads((directory / "result.json").read_text())
 
 
-# --- A detached launch survives -----------------------------------------------------------------
+# --- A launch that keeps running survives -------------------------------------------------------
 
 
-def test_a_detached_launch_survives_a_killed_session_and_finishes(
+def test_a_launch_that_keeps_running_survives_a_killed_session_and_finishes(
     tmp_path, remote_host, monkeypatch, cleanup
 ):
     gate = Gate(tmp_path, remote_host)
@@ -300,7 +301,7 @@ def test_a_detached_launch_survives_a_killed_session_and_finishes(
 
     # The session is gone, and the launch and its tool run on, and hold the workspace lock.
     state = _launch_state(directory)
-    assert state["detach"] is True and state["state"] == "running"
+    assert state["keep_running"] is True and state["state"] == "running"
     assert psutil.Process(tool).is_running() and psutil.Process(state["pid"]).is_running()
     assert _lock_is_held(remote_host)
 
@@ -311,7 +312,7 @@ def test_a_detached_launch_survives_a_killed_session_and_finishes(
     _assert_gone(tool)
 
 
-def test_the_agent_leaves_a_detached_launch_running_and_the_child_keeps_the_lock(
+def test_the_agent_leaves_a_launch_that_keeps_running_and_the_child_keeps_the_lock(
     tmp_path, remote_host, monkeypatch, cleanup
 ):
     gate = Gate(tmp_path, remote_host)
@@ -325,7 +326,7 @@ def test_the_agent_leaves_a_detached_launch_running_and_the_child_keeps_the_lock
 
     thread = threading.Thread(target=cut, daemon=True)
     thread.start()
-    outcome = _detach(tmp_path, _design(tmp_path))
+    outcome = _keep_running(tmp_path, _design(tmp_path))
     thread.join(TIMEOUT)
     assert isinstance(outcome.error, RemoteDetached)
     assert holder[0], "no agent found"
@@ -340,18 +341,18 @@ def test_the_agent_leaves_a_detached_launch_running_and_the_child_keeps_the_lock
 # --- The agent alone ---------------------------------------------------------------------------
 
 
-def _detached_agent(
+def _keep_running_agent(
     tmp_path, toolchain, monkeypatch, start_agent, leftovers, *arguments, beats=False
 ):
-    """An agent with a detached launch whose tool blocks. Return the agent, the tool, the beats
-    (or `None`) and the process id of the launch."""
+    """An agent with a launch that keeps running and whose tool blocks. Return the agent, the
+    tool, the beats (or `None`) and the process id of the launch."""
     tool = BlockingTool(tmp_path, monkeypatch)
     agent = start_agent(*arguments, env=dict(os.environ))
     agent.get("hello")
     agent.sync(DESIGN, "run-1")
     beating = Beats(agent) if beats else None
     message = launch_message(tmp_path, "run-1", path_setup(toolchain))
-    agent.send({**message, "detach": True})
+    agent.send({**message, "keep_running": True})
     agent.tool_pids.append(tool.wait(agent))
     state = json.loads((workspace(tmp_path) / "launches" / "run-1" / "state.json").read_text())
     leftovers.append(state["pid"])  # the test stops the launch if the agent did not
@@ -366,10 +367,10 @@ def _alive_and_holding(tmp_path: Path, state: dict[str, Any]) -> None:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
-def test_the_agent_leaves_a_detached_launch_when_the_lease_ends(
+def test_the_agent_leaves_a_launch_that_keeps_running_when_the_lease_ends(
     tmp_path, toolchain, monkeypatch, start_agent, leftovers
 ):
-    agent, state, beats = _detached_agent(
+    agent, state, beats = _keep_running_agent(
         tmp_path, toolchain, monkeypatch, start_agent, leftovers, "--lease", "1", beats=True
     )
     assert beats is not None
@@ -377,22 +378,22 @@ def test_the_agent_leaves_a_detached_launch_when_the_lease_ends(
     assert agent.process.wait(timeout=TIMEOUT) == 0
     assert not any("canceling" in line for line in agent.lines)
     _alive_and_holding(tmp_path, state)
-    assert state["detach"] is True and state["state"] == "running"
+    assert state["keep_running"] is True and state["state"] == "running"
 
 
-def test_the_agent_leaves_a_detached_launch_at_the_end_of_its_input(
+def test_the_agent_leaves_a_launch_that_keeps_running_at_the_end_of_its_input(
     tmp_path, toolchain, monkeypatch, start_agent, leftovers
 ):
-    agent, state, _ = _detached_agent(tmp_path, toolchain, monkeypatch, start_agent, leftovers)
+    agent, state, _ = _keep_running_agent(tmp_path, toolchain, monkeypatch, start_agent, leftovers)
     agent.close_input()
     assert agent.process.wait(timeout=TIMEOUT) == 0
     _alive_and_holding(tmp_path, state)
 
 
-def test_a_cancel_frame_still_cancels_a_detached_launch(
+def test_a_cancel_frame_still_cancels_a_launch_that_keeps_running(
     tmp_path, toolchain, monkeypatch, start_agent, leftovers
 ):
-    agent, state, beats = _detached_agent(
+    agent, state, beats = _keep_running_agent(
         tmp_path, toolchain, monkeypatch, start_agent, leftovers, beats=True
     )
     agent.writer.send(CANCEL)
@@ -502,7 +503,7 @@ def test_attach_replays_the_log_waits_and_fetches(
 def test_attach_without_an_id_says_which_launch_it_took(tmp_path, remote_host, caplog):
     caplog.set_level("INFO", logger="xeda.remote")
     design = _design(tmp_path)
-    document = _succeeded(_detach(tmp_path, design))
+    document = _succeeded(_keep_running(tmp_path, design))
     assert _states(document)["nextpnr"] == "ran"
     (directory,) = _launch_dirs(remote_host)
 
@@ -536,7 +537,7 @@ def test_attach_delivers_nothing_and_names_the_original_command(
 
 
 def test_attach_to_a_launch_without_a_local_record_says_what_to_do(tmp_path, remote_host):
-    _succeeded(_detach(tmp_path, _design(tmp_path)))
+    _succeeded(_keep_running(tmp_path, _design(tmp_path)))
     records = tmp_path / "local" / "xeda_run" / "@somewhere" / ".launches"
     for record in records.glob("*.json"):
         record.unlink()
@@ -548,9 +549,9 @@ def test_attach_to_a_launch_without_a_local_record_says_what_to_do(tmp_path, rem
 
 def test_attach_refuses_the_files_of_a_launch_that_a_later_launch_replaced(tmp_path, remote_host):
     design = _design(tmp_path)
-    _succeeded(_detach(tmp_path, design))
+    _succeeded(_keep_running(tmp_path, design))
     (first,) = _launch_dirs(remote_host)
-    _succeeded(_detach(tmp_path, _design(tmp_path, freq="90 MHz")))
+    _succeeded(_keep_running(tmp_path, _design(tmp_path, freq="90 MHz")))
     outcome = _attach(tmp_path, first.name)
     assert outcome.error is not None
     assert "used the same inputs after launch" in outcome.document["error"]["message"]
@@ -571,7 +572,7 @@ def test_a_second_identical_request_attaches_to_the_running_launch(
     (directory,) = _launch_dirs(remote_host)
     seen = watch("The same request runs on somewhere")
 
-    thread, again = _run_in_thread(lambda: _detach(tmp_path, design))
+    thread, again = _run_in_thread(lambda: _keep_running(tmp_path, design))
     message = seen.wait()
     assert directory.name in message
     gate.release()
@@ -584,7 +585,7 @@ def test_a_second_identical_request_attaches_to_the_running_launch(
     assert gate.pids == [tool]
 
 
-def test_a_different_request_waits_for_the_lock_of_the_detached_launch(
+def test_a_different_request_waits_for_the_lock_of_the_launch_that_keeps_running(
     tmp_path, remote_host, monkeypatch, cleanup, watch
 ):
     gate = Gate(tmp_path, remote_host)
@@ -595,7 +596,9 @@ def test_a_different_request_waits_for_the_lock_of_the_detached_launch(
     (first,) = _launch_dirs(remote_host)
     waiting = watch("waiting for the workspace lock")
 
-    thread, second = _run_in_thread(lambda: _detach(tmp_path, _design(tmp_path, freq="90 MHz")))
+    thread, second = _run_in_thread(
+        lambda: _keep_running(tmp_path, _design(tmp_path, freq="90 MHz"))
+    )
     message = waiting.wait()
     assert f"launch {first.name}" in message
     assert _launch_dirs(remote_host) == [first]  # the second request has not launched
@@ -642,7 +645,7 @@ def test_cancel_stops_the_launch_and_its_descendants(tmp_path, remote_host, monk
 
 def test_cancel_reaches_a_session_that_still_follows(tmp_path, remote_host, cleanup, watch):
     gate = Gate(tmp_path, remote_host)
-    thread, following = _run_in_thread(lambda: _detach(tmp_path, _design(tmp_path)))
+    thread, following = _run_in_thread(lambda: _keep_running(tmp_path, _design(tmp_path)))
     tool = gate.pid()
     cleanup.append(tool)
     document = cancel_launch("somewhere", None, run_root=tmp_path / "local" / "xeda_run")
@@ -654,7 +657,7 @@ def test_cancel_reaches_a_session_that_still_follows(tmp_path, remote_host, clea
 
 
 def test_cancel_without_a_running_launch_says_so(tmp_path, remote_host):
-    _succeeded(_detach(tmp_path, _design(tmp_path)))
+    _succeeded(_keep_running(tmp_path, _design(tmp_path)))
     result = CliRunner().invoke(
         cli, ["remote", "cancel", "somewhere", "--json", "--run-root", _run_root(tmp_path)]
     )
@@ -677,22 +680,22 @@ def _fake_loginctl(remote_host: RemoteHost, answer: str) -> None:
     loginctl.chmod(0o755)
 
 
-def test_a_detached_run_warns_when_a_logout_may_stop_it(tmp_path, remote_host, caplog):
+def test_a_run_that_keeps_running_warns_when_a_logout_may_stop_it(tmp_path, remote_host, caplog):
     _fake_loginctl(remote_host, "yes")
     caplog.set_level("INFO", logger="xeda.remote")
-    _succeeded(_detach(tmp_path, _design(tmp_path)))
+    _succeeded(_keep_running(tmp_path, _design(tmp_path)))
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert any("KillUserProcesses=yes" in text and "may still stop" in text for text in warnings)
 
 
-def test_a_detached_run_does_not_warn_when_logout_keeps_it(tmp_path, remote_host, caplog):
+def test_a_run_that_keeps_running_does_not_warn_when_logout_keeps_it(tmp_path, remote_host, caplog):
     _fake_loginctl(remote_host, "no")
     caplog.set_level("INFO", logger="xeda.remote")
-    _succeeded(_detach(tmp_path, _design(tmp_path)))
+    _succeeded(_keep_running(tmp_path, _design(tmp_path)))
     assert not [r for r in caplog.records if "KillUserProcesses" in r.getMessage()]
 
 
-def test_a_run_that_is_not_detached_does_not_warn(tmp_path, remote_host, caplog):
+def test_a_run_without_keep_running_does_not_warn(tmp_path, remote_host, caplog):
     _fake_loginctl(remote_host, "yes")
     caplog.set_level("INFO", logger="xeda.remote")
     _succeeded(remote_request(tmp_path, _design(tmp_path), "nextpnr"))
@@ -706,12 +709,12 @@ def _run_root(tmp_path: Path) -> str:
 
 @pytest.mark.parametrize(
     ("extra", "text"),
-    [(["--dry-run", "--remote", "somewhere"], "nothing to detach"), ([], "needs --remote")],
+    [(["--dry-run", "--remote", "somewhere"], "no launch to keep running"), ([], "needs --remote")],
 )
-def test_detach_needs_a_remote_run_and_a_real_run(tmp_path, extra, text):
+def test_keep_running_needs_a_remote_run_and_a_real_run(tmp_path, extra, text):
     design = tmp_path / "top.yaml"
     design.write_text("name: top\n")
-    result = CliRunner().invoke(cli, ["run", "nextpnr", str(design), "--detach", *extra])
+    result = CliRunner().invoke(cli, ["run", "nextpnr", str(design), "--keep-running", *extra])
     assert result.exit_code == 2 and text in result.output
 
 
@@ -725,11 +728,11 @@ def test_the_new_commands_report_a_failure_as_one_json_document(tmp_path, remote
     assert document["success"] is False and document["error"]["message"]
 
 
-def test_the_detached_run_prints_the_launch_in_its_json_document(tmp_path, remote_host):
+def test_a_run_that_keeps_running_prints_the_launch_in_its_json_document(tmp_path, remote_host):
     result = CliRunner().invoke(
         cli,
         ["run", "nextpnr", "--design", str(_design(tmp_path)), "--remote", "somewhere"]
-        + ["--run-root", _run_root(tmp_path), "--detach", "--json"],
+        + ["--run-root", _run_root(tmp_path), "--keep-running", "--json"],
     )
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)

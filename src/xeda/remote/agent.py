@@ -25,11 +25,11 @@ root `R`, and the workspace is `R/v1/ws/<key>/` with the directories `inputs/<de
    `J {"files": [entries]}` and then the tar of these files as `DATA` frames and an `END` frame.
 5. client: `J {"bye": true}`. The agent releases the lock and exits with status 0.
 
-A detached launch (`"detach": true` in the `launch` frame) survives the session. The child
+A launch with `"keep_running": true` in the `launch` frame survives the session. The child
 inherits the workspace lock and keeps it until it ends. When the client is gone, or the agent
 gets a signal, the agent leaves the launch running and exits with status 0. Only a `C` frame
-cancels it. The `sync` frame can carry a `"digest"` of the request. If a detached launch with
-that digest runs, the agent answers the `sync` with `J {"attached": {...}}` and no `need`: it
+cancels it. The `sync` frame can carry a `"digest"` of the request. If a launch that keeps
+running has that digest, the agent answers the `sync` with `J {"attached": {...}}` and no `need`: it
 sends the log of that launch from its start, then the `result` as in step 3, and the session
 goes on with step 4. Two more first frames, in place of `sync`:
 
@@ -592,7 +592,7 @@ class Session:
         self.design = ""
         self.result: Any = None
         #: The launch of this session survives it (see the module text).
-        self.detached = False
+        self.keep_running = False
         #: The descendants of the launch that were seen while it ran, so that a process that its
         #: leader left behind is still known when the launch is canceled.
         self._seen: set[psutil.Process] = set()
@@ -723,7 +723,7 @@ class Session:
         """Stop a launch that still runs, and release the lock."""
         try:
             child = self._child
-            if child is not None and child.poll() is None and not self.detached:
+            if child is not None and child.poll() is None and not self.keep_running:
                 self.stop_launch(child, None, "the session ends")
         finally:
             if self._lock_fd is not None:
@@ -778,7 +778,7 @@ class Session:
             os.close(descriptor)
 
     def sync(self, message: dict[str, Any]) -> Optional[dict[str, Any]]:
-        """Take the lock and bring the inputs up to date. Return the record of a running detached
+        """Take the lock and bring the inputs up to date. Return the record of a running
         launch with the digest of the request, if the client named one and there is such a launch:
         then nothing is synced, and the lock is not taken."""
         body = message.get("sync")
@@ -809,7 +809,11 @@ class Session:
         self.digest = digest
         if digest is not None:
             for state in reversed(_launch_states(self.workspace)):
-                if _launch_running(state) and state.get("detach") and state.get("digest") == digest:
+                if (
+                    _launch_running(state)
+                    and state.get("keep_running")
+                    and state.get("digest") == digest
+                ):
                     return cast(dict[str, Any], state)
         self.take_lock()
         root = self.workspace / "inputs" / design
@@ -855,9 +859,9 @@ class Session:
             request = LaunchRequest.model_validate(message["launch"])
         except (KeyError, ValueError) as error:
             raise RemoteProtocolError(f"`launch` is not a launch request: {error}") from None
-        detach = message.get("detach", False)
-        if not isinstance(detach, bool):
-            raise RemoteProtocolError("`detach` of `launch` is not true or false")
+        keep_running = message.get("keep_running", False)
+        if not isinstance(keep_running, bool):
+            raise RemoteProtocolError("`keep_running` of `launch` is not true or false")
         self.check_paths(request)
         bash = shutil.which("bash")
         if bash is None:
@@ -890,21 +894,22 @@ class Session:
                 cwd=launch_dir,
                 env={**os.environ, "PYTHONUNBUFFERED": "1"},
                 start_new_session=True,
-                # A detached launch inherits the workspace lock and holds it until it ends, also
-                # when this agent has exited. Its tools do not inherit it (they close the files).
-                pass_fds=(self._lock_fd,) if detach and self._lock_fd is not None else (),
+                # A launch that keeps running inherits the workspace lock and holds it until it
+                # ends, also when this agent has exited. Its tools do not inherit it (they close the
+                # files).
+                pass_fds=(self._lock_fd,) if keep_running and self._lock_fd is not None else (),
             )
         finally:
             os.close(descriptor)
         self._child = child
-        self.detached = detach
+        self.keep_running = keep_running
         state: dict[str, Any] = {
             "id": launch_id,
             "pid": child.pid,
             "pid_created": psutil.Process(child.pid).create_time(),
             "started": _now(),
             "state": "running",
-            "detach": detach,
+            "keep_running": keep_running,
             "digest": self.digest,
         }
         _write_json(launch_dir / "state.json", state)
@@ -949,7 +954,7 @@ class Session:
             tail.pump()
             self.watch_descendants(child)
             if (reason := self.lost(launching=True)) is not None:
-                if self.detached and not self.client.canceled.is_set():
+                if self.keep_running and not self.client.canceled.is_set():
                     raise _SessionEnded(reason, client_gone=True)  # the launch runs on
                 return True, self.stop_launch(child, tail, reason)
             time.sleep(_TICK)
@@ -1228,7 +1233,7 @@ class Session:
 
 def _kill_user_processes() -> str:
     """The `KillUserProcesses` setting of systemd-logind for this user: `yes`, `no` or
-    `unknown`. A session that ends kills even a detached launch when it is `yes`."""
+    `unknown`. A session that ends kills even a launch that keeps running when it is `yes`."""
     try:
         done = subprocess.run(
             ["loginctl", "show-user", str(os.getuid()), "--property=KillUserProcesses", "--value"],

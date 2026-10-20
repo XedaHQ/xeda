@@ -398,7 +398,7 @@ def remote_group():
 
     `check` connects to a host, makes the environment of xeda there if it is missing, and reports
     what a remote run finds. `clean` removes the environments and workspaces that nobody uses.
-    `attach` follows a launch that `xeda run --remote HOST --detach` started, and fetches its
+    `attach` follows a launch that `xeda run --remote HOST --keep-running` started, and fetches its
     result. `cancel` stops such a launch.
     """
 
@@ -875,7 +875,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "reports and final outputs.",
 )
 @click.option(
-    "--detach",
+    "--keep-running",
     is_flag=True,
     default=False,
     help="With --remote, keep the launch running on the host when the connection ends or Ctrl-C "
@@ -959,7 +959,7 @@ def run(
     scrub: bool = False,
     remote: Optional[str] = None,
     fetch_all: bool = False,
-    detach: bool = False,
+    keep_running: bool = False,
     debug: bool = False,
     help_settings: bool = False,
     outputs_to: Optional[Path] = None,
@@ -1018,10 +1018,12 @@ def run(
 
     if fetch_all and not remote:
         raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
-    if detach and not remote:
-        raise click.UsageError("`--detach` needs --remote", ctx=ctx)
-    if detach and dry_run:
-        raise click.UsageError("`--detach` has nothing to detach in a dry run", ctx=ctx)
+    if keep_running and not remote:
+        raise click.UsageError("`--keep-running` needs --remote", ctx=ctx)
+    if keep_running and dry_run:
+        raise click.UsageError(
+            "`--keep-running` has no launch to keep running in a dry run", ctx=ctx
+        )
     if remote:
         for name, given in (
             ("--post-cleanup", post_cleanup),
@@ -1057,7 +1059,7 @@ def run(
             confirm_overwrite=_prompt_overwrite if _interactive(json_flag) else None,
             log_level=log_level,
             detailed_logs=detailed_logs,
-            detach=detach,
+            keep_running=keep_running,
         )
         document = outcome.document
         if outcome.error is not None:

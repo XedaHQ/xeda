@@ -118,7 +118,7 @@ destination with `ssh HOST` first; add `--debug` for the commands and the output
 | `RemoteIncompatible` | The host planned other flow identities than the local side did. Compare `--dry-run --json` with and without `--remote`; report a difference with no visible cause. |
 | `RemoteCanceled` | Ctrl-C, `xeda remote cancel` or a lost connection stopped the launch. Processes that survived SIGKILL are named; run the command again to start over. |
 | `RemoteInterrupted` | Ctrl-C came after the launch had finished. The results are on the host: run the command again to fetch them. |
-| `RemoteDetached` | A `--detach` launch keeps running; the document has `launch.id`. Use `xeda remote attach HOST ID` or `xeda remote cancel HOST ID` with the `--run-root` of the run. |
+| `RemoteDetached` | A `--keep-running` launch keeps running; the document has `launch.id`. Use `xeda remote attach HOST ID` or `xeda remote cancel HOST ID` with the `--run-root` of the run. |
 | `RemoteFetchError` | A file did not come back whole, or a declared output is missing. Run the command again: the finished run is reused and only the fetch repeats. |
 | `RemoteConfigError` | `remotes.yaml` or one of its entries is invalid (the message names the host and field), or the `--remote` text is not a destination. |
 | `RemoteProtocolError` | The agent on the host did not start or sent data that Xeda cannot read: the stream ended before the agent marker, or more than 1 MiB of text came before it. Ordinary login text is skipped. The message has the output of the host. |
