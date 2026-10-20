@@ -320,12 +320,18 @@ def test_ctrl_c_through_openssh_stops_the_simulator_on_the_host(
     program = Program(tmp_path, script)
     pids: List[int] = []
     try:
-        program.wait_for(f"READY-{token}")
-        pids = wait_for_simulator(token)
-        program.interrupt()  # SIGINT for the process group, as Ctrl-C does at a terminal
-        status = program.finish()
+        try:
+            program.wait_for(f"READY-{token}")
+            pids = wait_for_simulator(token)
+            program.interrupt()  # SIGINT for the process group, as Ctrl-C does at a terminal
+            status = program.finish()
+            # Check the simulator before anything else: the forced kill below must not hide a
+            # simulator that cancel left running.
+            assert_simulator_gone(token, pids)
+        finally:
+            program.finish()
     finally:
-        program.finish()
+        # Forced cleanup, also when a check above fails.
         remote("kill -9 " + " ".join(str(pid) for pid in pids)) if pids else None
     assert status == 1, program.stderr
     document = json.loads(program.out.read_text())
@@ -335,7 +341,6 @@ def test_ctrl_c_through_openssh_stops_the_simulator_on_the_host(
     assert "canceled by Ctrl-C" in document["error"]["message"], document["error"]
     assert document["remote"] == HOST
     assert "Canceling the launch" in program.stderr
-    assert_simulator_gone(token, pids)
     assert last_launch_state(shared_token) == "canceled", launch_states(shared_token)
 
 
