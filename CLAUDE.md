@@ -220,7 +220,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - Fake tools: `tool_utils.use_fake_tools(monkeypatch)` runs Tcl scripts under `tclsh` and
   records tool commands (`fake_calls`, `XEDA_FAKE_TOOL_FAIL`). A new fake is a symlink to
   `tests/fake_tools/fake_tool.py` plus a `fake_tools` entry. No test starts a real
-  `openFPGALoader` (`programmer_guard`).
+  `openFPGALoader` (`programmer_guard`). The fake `ssh`, `uv` and `curl` are in
+  `tests/fake_tools/remote/`, on a `PATH` only through the remote fixtures.
 - `--json` puts exactly one JSON document on stdout; tool output goes to stderr, so a process
   started outside `run_process` must honor `proc_utils.tool_output_redirect()`. Every failure,
   usage errors too, emits `{"success": false, "error": ...}` (`tests/test_cli_json_contract.py`).

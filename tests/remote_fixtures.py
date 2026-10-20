@@ -21,17 +21,24 @@ from xeda.remote.environment import CodeSnapshot
 
 from .tool_utils import FAKE_TOOLS_DIR, use_fake_fpga_tools, use_fake_tools
 
+#: The fake `ssh`, `uv` and `curl`. Only the remote fixtures put it on a `PATH`.
+REMOTE_FAKES_DIR = FAKE_TOOLS_DIR / "remote"
+
 
 @pytest.fixture
 def fake_ssh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    """Put the fake `ssh` (`tests/fake_tools/fake_ssh.py`, which documents it) first on `PATH`.
-    The remote host is this machine. Yields the home directory of the remote user, a new
+    """Put the fake `ssh` (`tests/fake_tools/remote/fake_ssh.py`, which documents it) first on
+    `PATH`. The remote host is this machine. Yields the home directory of the remote user, a new
     directory under `tmp_path`; `ssh_calls` reads what the fake recorded."""
     use_fake_tools(monkeypatch)
+    monkeypatch.setenv("PATH", f"{REMOTE_FAKES_DIR}{os.pathsep}{os.environ.get('PATH', '')}")
     home = tmp_path / "fake-ssh" / "home"
     home.mkdir(parents=True)
     monkeypatch.setenv("XEDA_FAKE_SSH_HOME", str(home))
-    monkeypatch.setenv("XEDA_FAKE_SSH_PATH", f"{FAKE_TOOLS_DIR}{os.pathsep}/usr/bin:/bin")
+    monkeypatch.setenv(
+        "XEDA_FAKE_SSH_PATH",
+        os.pathsep.join([str(REMOTE_FAKES_DIR), str(FAKE_TOOLS_DIR), "/usr/bin", "/bin"]),
+    )
     yield home
 
 
@@ -85,7 +92,7 @@ class FakeRemote:
     `ldd` that report a Linux x86_64 host with glibc, and a `python3`.
 
     The programs in `bin` come first on the `PATH` of the remote commands; the fake tools of
-    `tests/fake_tools` come second. The settings that the fakes read are in
+    `tests/fake_tools/remote` and `tests/fake_tools` come second. The settings that the fakes read are in
     `<parent of home>/fake_remote.json` (see `fake_uv.py` and `fake_curl.py`); `configure` changes
     them."""
 
@@ -166,7 +173,7 @@ esac
     (stage / f"uv-{FAKE_TARGET}").mkdir(parents=True)
     _script(
         stage / f"uv-{FAKE_TARGET}" / "uv",
-        f'#!/bin/sh\nexec "{sys.executable}" "{FAKE_TOOLS_DIR / "fake_uv.py"}" "$@"\n',
+        f'#!/bin/sh\nexec "{sys.executable}" "{REMOTE_FAKES_DIR / "fake_uv.py"}" "$@"\n',
     )
     _script(stage / f"uv-{FAKE_TARGET}" / "uvx", "#!/bin/sh\nexit 1\n")
     archive = tmp_path / "fake-uv.tar.gz"
@@ -184,7 +191,7 @@ esac
     )
     remote.set_platform()
     remote.configure(python=sys.executable, curl_files={FAKE_URL: str(archive)})
-    remote.set_path(bin_dir, FAKE_TOOLS_DIR, Path("/usr/bin"), Path("/bin"))
+    remote.set_path(bin_dir, REMOTE_FAKES_DIR, FAKE_TOOLS_DIR, Path("/usr/bin"), Path("/bin"))
     monkeypatch.setattr("xeda.remote.environment.UV_RELEASES", remote.releases)
     yield remote
 
@@ -241,7 +248,7 @@ class RemoteHost:
         """Let the remote launch use the tools `names` of this machine (`ghdl`, `yosys`, `bsc`).
         Their directories go before the fakes on the `PATH` of the launch, so the real tool wins
         over a fake of the same name. Call it before the first run."""
-        fakes = {str(self.toolchain), str(FAKE_TOOLS_DIR)}
+        fakes = {str(self.toolchain), str(FAKE_TOOLS_DIR), str(REMOTE_FAKES_DIR)}
         real = os.pathsep.join(
             entry for entry in os.environ["PATH"].split(os.pathsep) if entry not in fakes
         )
@@ -308,7 +315,9 @@ def remote_host(
         profile_file=tmp_path / "config" / "xeda" / "remotes.yaml",
         toolchain=prefix / "bin",
         env={},
-        setup=[f"export PATH={prefix / 'bin'}:{FAKE_TOOLS_DIR}:{fake_remote.bin}:$PATH"],
+        setup=[
+            f"export PATH={prefix / 'bin'}:{REMOTE_FAKES_DIR}:{FAKE_TOOLS_DIR}:{fake_remote.bin}:$PATH"
+        ],
         fields={},
     )
     host.write_profile()

@@ -1,5 +1,5 @@
 """Provisioning a remote host (`xeda.remote.provision` and `bootstrap.sh`), against the fake `ssh`
-(`tests/fake_tools/fake_ssh.py`), the fake `uv` and the fake `curl`. The remote host is this
+(`tests/fake_tools/remote/fake_ssh.py`), the fake `uv` and the fake `curl`. The remote host is this
 machine; its home is a directory of the test."""
 
 import json
@@ -40,8 +40,7 @@ from xeda.remote.provision import (
 )
 from xeda.remote.ssh import SshSession, resolve_destination, sh_command
 
-from .tool_utils import FAKE_TOOLS_DIR
-from .remote_fixtures import FAKE_TARGET, FakeRemote, fake_remote, fake_ssh
+from .remote_fixtures import REMOTE_FAKES_DIR, FAKE_TARGET, FakeRemote, fake_remote, fake_ssh
 
 pytestmark = pytest.mark.python_compat
 FIXTURES = (fake_ssh, fake_remote)
@@ -236,7 +235,7 @@ def test_script_runs_with_only_its_programs_and_uses_wget_when_curl_is_missing(
     fake_remote, snapshot, tmp_path
 ):
     restricted = fake_remote.restricted_path(tmp_path, UTILITIES)
-    fake_curl = Path(__file__).parent / "fake_tools" / "fake_curl.py"
+    fake_curl = Path(__file__).parent / "fake_tools" / "remote" / "fake_curl.py"
     # wget -q -O <file> <url>
     (restricted / "wget").write_text(
         f'#!/bin/sh\nexec "{sys.executable}" "{fake_curl}" -o "$3" "$4"\n'
@@ -546,7 +545,7 @@ def test_provisioning_works_under_dash(fake_remote, snapshot, tmp_path):
     shell = tmp_path / "dash-bin"
     shell.mkdir()
     (shell / "sh").symlink_to(shutil.which("dash") or "")
-    fake_remote.set_path(shell, fake_remote.bin, FAKE_TOOLS_DIR, Path("/usr/bin"), Path("/bin"))
+    fake_remote.set_path(shell, fake_remote.bin, REMOTE_FAKES_DIR, Path("/usr/bin"), Path("/bin"))
     _, steps = provision_once(snapshot)
     assert starts(steps)[0] == "Installing uv"
     assert fake_remote.venv_builds() == 1

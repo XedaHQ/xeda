@@ -1,5 +1,5 @@
 """The OpenSSH transport of remote runs (`xeda.remote.ssh`), against the fake `ssh`
-(`tests/fake_tools/fake_ssh.py`). A real master connection is not tested here."""
+(`tests/fake_tools/remote/fake_ssh.py`). A real master connection is not tested here."""
 
 import os
 import select
