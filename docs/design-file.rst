@@ -200,6 +200,11 @@ The section is also accepted as ``test`` or ``tests``. It takes the same ``sourc
    * - ``cocotb``
      - ``true``, or a table with ``module``, ``toplevel`` and ``testcase``. Xeda sets it when a
        ``.py`` source is present, so ``cocotb: true`` is usually redundant.
+   * - ``python_packages``
+     - A list of the Python packages that the testbench imports, for example ``cocotb``. Give
+       only the distribution name, with no version and no extras. A simulation flow refuses the
+       design, at planning, when one of them is not installed in the Python environment that
+       runs Xeda. A remote host gets the same versions as the local environment has.
 
 .. _sources:
 

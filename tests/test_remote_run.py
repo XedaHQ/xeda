@@ -510,7 +510,17 @@ ARCHIVE_RTL_KEYS = {
     "sources",
     "top",
 }
-ARCHIVE_TB_KEYS = {"cocotb", "defines", "generics", "parameters", "sources", "top", "uut"}
+# `python_packages` is for the new remote runner; task 10 deletes this pin with the old runner.
+ARCHIVE_TB_KEYS = {
+    "cocotb",
+    "defines",
+    "generics",
+    "parameters",
+    "python_packages",
+    "sources",
+    "top",
+    "uut",
+}
 
 EXAMPLE_DESIGNS = sorted(
     p

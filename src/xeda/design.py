@@ -1741,6 +1741,10 @@ class CocotbTestbench(XedaBaseModel):
     )
 
 
+#: The name of a Python distribution, without a version specifier or extras.
+PYTHON_PACKAGE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
 class TbSettings(DVSettings):
     """The testbench: sources, top modules, unit under test, cocotb, parameters and defines."""
 
@@ -1759,6 +1763,24 @@ class TbSettings(DVSettings):
         "the defaults, or a table of cocotb settings. `false` means no cocotb testbench. A source "
         "of type `Cocotb` sets it automatically.",
     )
+    python_packages: List[str] = Field(
+        [],
+        description="Python packages that the testbench imports, for example cocotb. Xeda checks "
+        "that they are installed before a simulation, and installs the same versions on a remote "
+        "host.",
+    )
+
+    @field_validator("python_packages")
+    @classmethod
+    def _python_package_names(cls, value: List[str]) -> List[str]:
+        for name in value:
+            if not PYTHON_PACKAGE_NAME.fullmatch(name):
+                raise ValueError(
+                    f"`{name}` is not a distribution name. Give only the name of the package, "
+                    "such as `cocotb`, with no version and no extras. Xeda installs the local "
+                    "version of the package on a remote host."
+                )
+        return value
 
     @field_validator("top", mode="before")
     @classmethod
