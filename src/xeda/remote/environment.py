@@ -4,6 +4,7 @@ and the keys that name the directories of the remote host.
 Nothing here connects to a host. The functions read the installed packages of this process.
 """
 
+import dataclasses
 import hashlib
 import importlib.metadata
 import io
@@ -21,7 +22,7 @@ from typing import BinaryIO, Optional, Sequence
 import xeda
 
 from ..version import __version__
-from .constants import LAYOUT, UV_RELEASES
+from .constants import LAYOUT, UV_RELEASES, UV_VERSION
 from .errors import RemoteDependencyError, RemoteProvisionError
 
 #: The distribution that the remote gets as a code snapshot, not from an index.
@@ -58,12 +59,15 @@ class CodeSnapshot:
     """The files of the local xeda package.
 
     `key` names the snapshot by content. `files` pairs the name of each file in the archive with
-    its local path, sorted by name.
+    its local path, sorted by name. `contents` holds the bytes and the executable bit of each file
+    as read when the key was made, in the same order. The archive comes from `contents` only, so
+    it always matches the key.
     """
 
     key: str
     version: str
     files: tuple[tuple[str, Path], ...]
+    contents: tuple[tuple[str, bytes, bool], ...] = dataclasses.field(repr=False)
 
 
 def _dist_info(version: str) -> tuple[str, dict[str, bytes]]:
@@ -80,15 +84,19 @@ def _is_executable(path: Path) -> bool:
 
 
 def _package_files(package_dir: Path) -> list[tuple[str, Path]]:
-    """The files to send: no bytecode, no file or directory whose name starts with a dot."""
+    """The files to send.
+
+    Skipped: bytecode, backup files (`~`), symbolic links, and every file or directory whose name
+    starts with a dot.
+    """
     found: list[tuple[str, Path]] = []
     for directory, subdirs, names in os.walk(package_dir):
         subdirs[:] = sorted(d for d in subdirs if d != "__pycache__" and not d.startswith("."))
         for name in sorted(names):
-            if name.startswith(".") or name.endswith((".pyc", ".pyo")):
+            if name.startswith(".") or name.endswith((".pyc", ".pyo", "~")):
                 continue
             path = Path(directory) / name
-            if not path.is_file():
+            if path.is_symlink() or not path.is_file():
                 continue
             relative = path.relative_to(package_dir).as_posix()
             found.append((f"{DISTRIBUTION}/{relative}", path))
@@ -103,20 +111,24 @@ def _installed_snapshot() -> CodeSnapshot:
 
 def _snapshot_of(package_dir: Path) -> CodeSnapshot:
     files = _package_files(package_dir)
+    contents = tuple((name, path.read_bytes(), _is_executable(path)) for name, path in files)
     _, dist_files = _dist_info(__version__)
-    content = {
-        "version": __version__,
-        "dist_info": {name: _digest(data) for name, data in sorted(dist_files.items())},
-        "files": [[name, _is_executable(path), _digest(path.read_bytes())] for name, path in files],
-    }
-    return CodeSnapshot(key=_key(content), version=__version__, files=tuple(files))
+    key = _key(
+        {
+            "version": __version__,
+            "dist_info": {name: _digest(data) for name, data in sorted(dist_files.items())},
+            "files": [[name, executable, _digest(data)] for name, data, executable in contents],
+        }
+    )
+    return CodeSnapshot(key=key, version=__version__, files=tuple(files), contents=contents)
 
 
 def code_snapshot(package_dir: Optional[Path] = None) -> CodeSnapshot:
     """Snapshot the installed xeda package, or the package in `package_dir`.
 
-    The key covers the content and the executable bit of every file, and the version. It does not
-    cover the time stamps. The snapshot of the installed package is made once per process.
+    The snapshot holds the bytes of the files, read once. The key covers the content and the
+    executable bit of every file, and the version. It does not cover the time stamps. The snapshot
+    of the installed package is made once per process.
     """
     if package_dir is None:
         return _installed_snapshot()
@@ -143,8 +155,8 @@ def write_code_tar(snapshot: CodeSnapshot, out: BinaryIO) -> None:
     members: dict[str, tuple[bytes, bool]] = {
         f"{dist_dir}/{name}": (data, False) for name, data in dist_files.items()
     }
-    for name, path in snapshot.files:
-        members[name] = (path.read_bytes(), _is_executable(path))
+    for name, data, executable in snapshot.contents:
+        members[name] = (data, executable)
     with tarfile.open(fileobj=out, mode="w", format=tarfile.GNU_FORMAT) as tar:
         for name in sorted(members):
             data, executable = members[name]
@@ -219,8 +231,11 @@ def dependency_spec(extra_packages: Sequence[str] = ()) -> DependencySpec:
     """The requirements of xeda, plus `extra_packages`, with the local versions as constraints.
 
     A requirement of xeda for an extra is not included. An extra package must be installed here.
-    A package that is not installed here (its marker is false on this machine) has no constraint,
-    so the remote resolves it freely.
+    The walk does not evaluate markers. A package that is installed here gets a constraint, even
+    if a false marker excludes it from this environment (for example `colorama` behind
+    `platform_system == "Windows"`). That is harmless: uv applies a constraint only to a package
+    that the requirements need. A package that is not installed here has no constraint, so the
+    remote resolves it freely.
     """
     declared = importlib.metadata.requires(DISTRIBUTION)
     if declared is None:
@@ -288,10 +303,14 @@ def python_choice(profile_python: str) -> PythonChoice:
 
 
 def dependency_key(spec: DependencySpec, python: PythonChoice, platform: RemotePlatform) -> str:
-    """Name the dependency environment: 24 hex characters over every input of the resolution."""
+    """Name the dependency environment: 24 hex characters over every input of the resolution.
+
+    That includes the uv version, which can change what uv resolves.
+    """
     return _key(
         {
             "layout": LAYOUT,
+            "uv": UV_VERSION,
             "requirements": list(spec.requirements),
             "constraints": list(spec.constraints),
             "python": {"request": python.request, "path": python.path},

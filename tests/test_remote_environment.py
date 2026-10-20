@@ -46,6 +46,9 @@ def make_package(root: Path) -> Path:
     (package / "sub" / "__pycache__" / "m.cpython-312.pyc").write_bytes(b"\0")
     (package / "mod.pyc").write_bytes(b"\0")
     (package / ".DS_Store").write_bytes(b"\0")
+    (package / "mod.py~").write_text("old")
+    (package / "link.py").symlink_to(package / "__init__.py")
+    (package / "linked_dir").symlink_to(package / "sub", target_is_directory=True)
     (package / ".hidden").mkdir()
     (package / ".hidden" / "file.py").write_text("")
     return package
@@ -57,7 +60,7 @@ def tar_bytes(snapshot: environment.CodeSnapshot) -> bytes:
     return out.getvalue()
 
 
-def test_snapshot_skips_bytecode_and_dotfiles(tmp_path: Path) -> None:
+def test_snapshot_skips_bytecode_dotfiles_backups_and_links(tmp_path: Path) -> None:
     snapshot = code_snapshot(make_package(tmp_path))
     names = [name for name, _ in snapshot.files]
     assert names == [
@@ -135,6 +138,19 @@ def test_code_tar_has_the_package_and_a_dist_info(tmp_path: Path) -> None:
     assert modes[f"xeda-{__version__}.dist-info/METADATA"] == 0o644
 
 
+def test_code_tar_matches_the_key_even_if_a_file_changes_later(tmp_path: Path) -> None:
+    package = make_package(tmp_path / "src")
+    snapshot = code_snapshot(package)
+    (package / "__init__.py").write_text("x = 'edited'\n")
+    (package / "sub" / "run.sh").chmod(0o644)
+    unpacked = tmp_path / "unpacked"
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes(snapshot))) as tar:
+        tar.extractall(unpacked, filter="data")
+    assert code_snapshot(unpacked / "xeda").key == snapshot.key
+    assert (unpacked / "xeda" / "__init__.py").read_text() == "x = 1\n"
+    assert code_snapshot(package).key != snapshot.key
+
+
 def test_code_tar_bytes_are_the_same_for_the_same_snapshot(tmp_path: Path) -> None:
     package = make_package(tmp_path / "a")
     first = tar_bytes(code_snapshot(package))
@@ -206,6 +222,17 @@ def test_closure_walks_installed_names_and_skips_the_others(
     spec = dependency_spec()
     assert spec.requirements == ("Beta_Pkg", "alpha>=1")
     assert spec.constraints == ("alpha==1.2", "beta-pkg==3.0", "gamma==2.5")
+
+
+def test_package_behind_a_false_marker_is_pinned_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The walk does not evaluate markers. uv applies a constraint only to a needed package.
+    fake_world(
+        monkeypatch,
+        FakeDistribution("alpha", "1.2", ['colorama; platform_system == "Windows"']),
+        FakeDistribution("beta-pkg", "3.0"),
+        FakeDistribution("colorama", "0.4.6"),
+    )
+    assert "colorama==0.4.6" in dependency_spec().constraints
 
 
 def test_editable_dependency_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -293,10 +320,15 @@ def test_dependency_key_depends_on_every_input() -> None:
     assert len({key, *variants}) == len(variants) + 1
 
 
-def test_dependency_key_depends_on_the_layout_version(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dependency_key_depends_on_the_layout_and_uv_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     key = dependency_key(SPEC, PYTHON, PLATFORM)
     monkeypatch.setattr(environment, "LAYOUT", "v2")
-    assert dependency_key(SPEC, PYTHON, PLATFORM) != key
+    layout_key = dependency_key(SPEC, PYTHON, PLATFORM)
+    assert layout_key != key
+    monkeypatch.setattr(environment, "UV_VERSION", "0.0.1")
+    assert dependency_key(SPEC, PYTHON, PLATFORM) not in (key, layout_key)
 
 
 def test_uv_releases_cover_four_linux_targets() -> None:
