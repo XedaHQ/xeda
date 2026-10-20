@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..dataclass import XedaBaseModel
+from ..run_dir import RunDirectory, RunDirectoryError
 from ..utils import replacing_file
 from .errors import RemoteError
 
@@ -53,9 +54,18 @@ def record_path(mirror_root: Path, launch_id: str) -> Path:
 
 
 def write_record(mirror_root: Path, record: LaunchRecord) -> None:
-    path = record_path(mirror_root, record.id)
+    """Write `record` in the mirror, reached through no symbolic link: the mirror lies under the
+    run root, and a link at the mirror, at `.launches` or at the record's name is refused rather
+    than followed."""
+    try:
+        mirror = RunDirectory.claimed(mirror_root, mirror_root.parent)
+        path = mirror.unlinked(Path(RECORDS) / f"{record.id}.json")
+    except (ValueError, RunDirectoryError) as error:
+        raise RemoteError(
+            f"The record of the launch {record.id} cannot be written: {error}"
+        ) from None
     path.parent.mkdir(parents=True, exist_ok=True)
-    with replacing_file(path, encoding="utf-8") as stream:
+    with replacing_file(mirror.writable(path), encoding="utf-8") as stream:
         stream.write(record.model_dump_json(indent=2))
         stream.write("\n")
 

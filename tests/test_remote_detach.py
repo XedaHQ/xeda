@@ -27,7 +27,7 @@ from xeda.cli import cli
 from xeda.remote import client
 from xeda.remote.attach import attach_launch, cancel_launch
 from xeda.remote.frames import CANCEL
-from xeda.remote.errors import RemoteCanceled, RemoteDetached
+from xeda.remote.errors import RemoteCanceled, RemoteDetached, RemoteError
 from xeda.remote.ssh import SshSession
 
 from .remote_fixtures import RemoteHost, fake_remote, fake_ssh, remote_host, remote_request
@@ -735,3 +735,43 @@ def test_the_detached_run_prints_the_launch_in_its_json_document(tmp_path, remot
     document = json.loads(result.stdout)
     assert document["success"] is True and document["remote"] == "somewhere"
     assert client  # the module under test is imported
+
+
+@pytest.mark.parametrize("linked", [".launches", "mirror"])
+def test_the_launch_record_is_never_written_through_a_link(tmp_path, linked):
+    from xeda.remote.launch_record import LaunchRecord, write_record
+
+    run_root = tmp_path / "xeda_run"
+    mirror_root = run_root / "@host"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if linked == "mirror":
+        run_root.mkdir()
+        mirror_root.symlink_to(outside, target_is_directory=True)
+    else:
+        mirror_root.mkdir(parents=True)
+        (mirror_root / ".launches").symlink_to(outside, target_is_directory=True)
+    record = LaunchRecord(
+        id="261020035000-0123abcd",
+        host="host",
+        chain="yosys",
+        flow="yosys",
+        requested="yosys",
+        design_name="d",
+        design=None,
+        target=None,
+        request=[],
+        local_root=str(run_root),
+        run_paths=[],
+        remote_run_root="/r/xeda_run",
+        inputs_dir="/r/inputs/d",
+        files={},
+        generated=[],
+        design_root=str(tmp_path),
+        fetch_all=False,
+        delivers=False,
+        debug=False,
+    )
+    with pytest.raises(RemoteError, match="cannot be written"):
+        write_record(mirror_root, record)
+    assert list(outside.iterdir()) == []
