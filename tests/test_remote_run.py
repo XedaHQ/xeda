@@ -956,6 +956,45 @@ def test_names_inside_three_names_are_refused_before_anything_is_sent(tmp_path, 
     assert not list((tmp_path / "remote").glob("*.zip")), "nothing was archived"
 
 
+def test_the_depth_of_a_name_that_a_remote_run_carries():
+    """The remote has its command line and its overrides besides the design file, and the
+    overrides are those of the requested flow."""
+    problem = remote_module.name_depth_problem
+    assert problem("vivado_synth", {1: {}}, "vivado_synth") is None
+    assert problem("vivado_synth", {1: {}, 2: {}}, "vivado_synth") is None
+    assert problem("vivado_synth", {}, None) is None
+    assert "requested flow only" in problem("vivado_impl", {2: {}}, "vivado_synth")
+    assert "4 deep" in problem("vivado_synth", {1: {}, 2: {}, 3: {}}, "vivado_synth")
+
+
+def test_a_remote_run_with_a_name_inside_two_names_reaches_the_remote_whole(tmp_path, remote_host):
+    """The project file, the design file and the command line give `A`, `A.B` and `A.B.C`. The
+    design file of the remote holds `A`, and the layers carry the others."""
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", design_root)
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
+        "flows:\n  vivado_synth:\n    fpga.part: xc7a12tcsg325-1\n    clock.period: 5ns\n"
+        "    set_synth_properties: {A.B: 2}\n"
+    )
+    project = tmp_path / "xedaproject.yaml"
+    project.write_text("flows:\n  vivado_synth:\n    set_synth_properties: {A: 1}\n")
+    results = RemoteRunner(ensure_run_root(tmp_path / "local" / "xeda_run")).run_remote(
+        design_root / "sqrt.yaml",
+        "vivado_synth",
+        host="somewhere",
+        xedaproject=str(project),
+        flow_settings=["set_synth_properties.A.B.C=3"],
+    )
+    assert results and results["success"], results
+    remote_settings = json.loads(
+        (_remote_run_dir(remote_host, "vivado_synth") / "settings.json").read_text()
+    )
+    reached = remote_settings["effective_flow_settings"]["set_synth_properties"]
+    assert {k: str(v) for k, v in reached.items()} == {"A": "1", "A.B": "2", "A.B.C": "3"}
+
+
 def test_a_remote_run_is_always_mirrored_in_hashed_run_directories(tmp_path):
     """Remote runs of different settings never share a local directory, nor a local run's."""
     assert RemoteRunner(tmp_path / "xeda_run").settings.hashed_run_dirs is True

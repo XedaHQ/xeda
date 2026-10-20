@@ -315,6 +315,23 @@ def check_remote_xeda(
 MAX_NAME_DEPTH = 2
 
 
+def name_depth_problem(
+    flow: str, by_depth: Mapping[int, Any], requested_flow: str | None
+) -> str | None:
+    """Return why a remote run cannot carry the names of `flow` that are inside other names
+    (`dataclass.split_names_by_depth`), or `None`. The remote has its command line and its
+    overrides besides the design file (`MAX_NAME_DEPTH`), and the overrides are those of the
+    requested flow."""
+    for depth in by_depth:
+        if depth > MAX_NAME_DEPTH or (depth == 2 and flow != requested_flow):
+            return (
+                f"`{flow}` has a name inside names inside names ({depth + 1} deep) in a table of "
+                "names of the tool; `--remote` carries that for the requested flow only, and up "
+                "to 3 deep"
+            )
+    return None
+
+
 def _plain_names(value: Any) -> Any:
     """Return `value` with each `AtomicName` key written as the plain name it stands for."""
     if isinstance(value, Mapping):
@@ -613,6 +630,7 @@ def send_design(
             if cls is None:
                 shipped_sections[name] = section
                 continue
+            planned = planned_flows is None or name in planned_flows
             try:
                 model = cls.Settings.from_input(
                     section, design_root=design.root_path, runner_cwd=Path.cwd()
@@ -623,7 +641,7 @@ def send_design(
                 stated = _plain_names(section)
                 in_plan[0] = False
             else:
-                in_plan[0] = planned_flows is None or name in planned_flows
+                in_plan[0] = planned
                 # Preserve explicitness: a section contributes only the keys it states.
                 rewritten = packaged_value(model)
                 stated = {key: rewritten[key] for key in model.model_fields_set}
@@ -631,14 +649,13 @@ def send_design(
                 shipped_sections[name] = stated
                 continue
             shipped_sections[name], by_depth = split_names_by_depth(cls.Settings, stated)
-            if by_depth and in_plan[0] and name_layers is not None:
+            if planned and by_depth:
+                problem = name_depth_problem(name, by_depth, requested_flow)
+                if problem is not None or name_layers is None or not in_plan[0]:
+                    raise FlowSettingsException(
+                        problem or f"`{name}` has names inside other names that cannot be sent"
+                    )
                 for depth, layer in by_depth.items():
-                    if depth > MAX_NAME_DEPTH or (depth == 2 and name != requested_flow):
-                        raise FlowSettingsException(
-                            f"`{name}` has a name inside names inside names ({depth + 1} deep) in "
-                            "a table of names of the tool; `--remote` carries that for the "
-                            "requested flow only, and up to 3 deep"
-                        )
                     name_layers.setdefault(depth, {}).setdefault("flows", {})[name] = as_recorded(
                         layer
                     )
@@ -1199,6 +1216,14 @@ class RemoteRunner(FlowLauncher):
             # and not on the remote: a path that the flow writes and that leads out of its run
             # directory, a missing setting, and a design that the flow cannot run are known
             # before anything is shipped, and a remote on an older release may not check them.
+            for node in plan.nodes:
+                # Before anything is shipped, as the checks below are.
+                _, by_depth = split_names_by_depth(
+                    node.flow_class.Settings, as_recorded(node.settings)
+                )
+                problem = name_depth_problem(node.name, by_depth, flow_name)
+                if problem is not None:
+                    raise FlowSettingsException(problem)
             problems = written_path_problems(input_settings)
             if problems:
                 raise FlowSettingsError(
