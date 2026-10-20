@@ -69,6 +69,7 @@ from .errors import (
     RemoteConfigError,
     RemoteConnectionError,
     RemoteError,
+    RemoteInterrupted,
     RemoteProtocolError,
 )
 from .fetch import (
@@ -109,6 +110,10 @@ _STDERR_LINES = 15
 
 #: The directories of the inputs that hold copies which xeda made, and no file of the design.
 _SYNTHETIC_INPUTS = frozenset({"_setting_inputs", "_liberty_inputs"})
+
+#: The steps after the launch has finished, as a message names them.
+_FETCHING = "fetching the results"
+_DELIVERING = "delivering the outputs"
 
 #: The words of a message of `read_frame` that tell the stream ended in a frame.
 _ENDED_INSIDE = "the stream ended inside"
@@ -449,6 +454,8 @@ class _Run:
     launcher: Optional[DefaultRunner] = None
     mirror_root: Optional[Path] = None
     request: List[Dict[str, Any]] = field(default_factory=list)
+    #: What the run does after its launch finished (`_AFTER_THE_LAUNCH`), or `None` before.
+    phase: Optional[str] = None
 
 
 @dataclass
@@ -833,6 +840,36 @@ def _mirror_document(
     return mirrored
 
 
+def _planned_mirrors(prepared: "_Prepared", mirror_root: Path, local_root: Path) -> set[Path]:
+    """The mirror directories of the nodes of the local plan."""
+    found: set[Path] = set()
+    for node in prepared.prepared.plan.nodes:
+        directory = Path(os.path.normpath(_mirror_of(mirror_root, local_root, Path(node.run_path))))
+        if directory.is_relative_to(mirror_root) and directory != mirror_root:
+            found.add(directory)
+    return found
+
+
+def _mirror_dry_run(
+    document: Dict[str, Any], mirror_root: Path, remote_run_root: PurePosixPath
+) -> None:
+    """Point the run directories of a dry-run document at the places they have in the mirror.
+
+    A dry run has no mirror, but the run does, and a reader of the plan wants the places on this
+    side, as the document of a run has them. `remote_run_path` keeps the place on the remote."""
+    plan = document.get("plan")
+    nodes = list(document.get("nodes") or [])
+    if isinstance(plan, dict):
+        nodes += list(plan.get("nodes") or [])
+    for node in nodes:
+        try:
+            place = PurePosixPath(node["run_path"]).relative_to(remote_run_root)
+        except (KeyError, TypeError, ValueError):
+            continue
+        node["remote_run_path"] = node["run_path"]
+        node["run_path"] = str(mirror_root / place)
+
+
 def _translation(
     *,
     remote_run_root: PurePosixPath,
@@ -1060,9 +1097,12 @@ def _run(
             try:
                 uploaded = _sync(agent, package, design.name, key, launch_id)
                 result = _launch(agent, launch, launch_id, profile.setup)
+                run.phase = None if dry_run else _FETCHING
                 if dry_run:
                     document = _local_design(dict(result), run, design.name)
                     document["remote"] = destination_text
+                    document["mirror"] = str(mirror_root)
+                    _mirror_dry_run(document, mirror_root, remote_run_root)
                     document["uploaded"] = uploaded
                     _print_dry_run(destination_text, document)
                     outcome = RemoteOutcome(document, bool(result.get("success")))
@@ -1092,6 +1132,11 @@ def _run(
             agent.close()
             return outcome
     except KeyboardInterrupt:
+        if run.phase is not None:
+            raise RemoteInterrupted(
+                f"Canceled by Ctrl-C while {run.phase}. The launch on {destination_text} had "
+                "finished, and its results are on the host. Run the request again to fetch them."
+            ) from None
         raise RemoteCanceled(
             f"Canceled by Ctrl-C. The launch on {destination_text} is stopped or was never "
             "started."
@@ -1127,10 +1172,14 @@ def _finish(
         )
     entries, reader = _fetch(agent, fetch_all)
     directories = {name: mirror_root / place for name, place in nodes.items()}
+    # The mirror of every planned node is replaced, also of a node that the launch never reached
+    # (it failed before any node ran, or a producer failed): an earlier run's records there
+    # would say that this node passed.
+    replaced = set(directories.values()) | _planned_mirrors(prepared, mirror_root, local_root)
     with ExitStack() as locked:
-        for directory in sorted(set(directories.values())):
+        for directory in sorted(replaced):
             locked.enter_context(run_dir_lock(directory, local_root))
-        for directory in sorted(set(directories.values())):
+        for directory in sorted(replaced):
             if directory.is_dir() and not directory.is_symlink():
                 RunDirectory.claimed(directory, local_root).clear()
         log.info("Fetching %d file(s) from %s into %s", len(entries), host, mirror_root)
@@ -1170,6 +1219,7 @@ def _finish(
             )
         if rewritten is not None and requested_dir is not None:
             if outputs_to is not None and prepared.deliveries is not None:
+                run.phase = _DELIVERING
                 deliver_fetched(
                     prepared.deliveries,
                     rewritten,

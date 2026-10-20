@@ -14,7 +14,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import psutil
 import pytest
@@ -28,6 +28,7 @@ from xeda.remote.errors import (
     RemoteCanceled,
     RemoteConnectionError,
     RemoteError,
+    RemoteInterrupted,
 )
 from xeda.remote.ssh import Destination, SshSession
 
@@ -125,15 +126,19 @@ class Ready:
         with open(self.fifo, "rb") as stream:  # blocks until the tool opens the FIFO to write
             self._pid.put(int(stream.read()))
 
-    def wait(self, process: Optional["subprocess.Popen[bytes]"] = None, log: Optional[Path] = None):
+    def wait(
+        self,
+        process: Optional["subprocess.Popen[bytes]"] = None,
+        stderr: Optional[Callable[[], str]] = None,
+    ):
         """The process id of the tool, when it runs. If the program under test ends first, the
-        test fails with its log."""
+        test fails with its standard error (`stderr` returns it)."""
         for _ in range(TIMEOUT):
             try:
                 return self._pid.get(timeout=1)
             except queue.Empty:
                 if process is not None and process.poll() is not None:
-                    text = log.read_text(errors="replace") if log is not None else ""
+                    text = stderr() if stderr is not None else ""
                     pytest.fail(f"the program ended before the tool started:\n{text}")
         pytest.fail(f"the tool did not start in {TIMEOUT} s")
 
@@ -474,65 +479,100 @@ def test_an_error_before_the_connection_is_one_json_document(tmp_path, remote_ho
 # --- Cancel and disconnect ----------------------------------------------------------------------
 
 
+class Program:
+    """The program under test: `xeda run --remote --json` in a process (and a process group) of
+    its own. Its standard error is read by a thread, which tells when a text has appeared."""
+
+    def __init__(self, tmp_path: Path, script: str) -> None:
+        self.out = tmp_path / "stdout"
+        self._seen = ""
+        self._lock = threading.Lock()
+        self._changed = threading.Condition(self._lock)
+        self._stdout = self.out.open("wb")
+        # a session of its own: a signal for the group reaches the client and every ssh process
+        # of it, as Ctrl-C at a terminal does, and nothing of the test runner
+        self.process = subprocess.Popen(
+            [sys.executable, "-c", script],
+            cwd=tmp_path,
+            stdout=self._stdout,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self) -> None:
+        assert self.process.stderr is not None
+        for line in iter(self.process.stderr.readline, b""):
+            with self._changed:
+                self._seen += line.decode(errors="replace")
+                self._changed.notify_all()
+
+    @property
+    def stderr(self) -> str:
+        with self._lock:
+            return self._seen
+
+    def wait_for(self, text: str) -> None:
+        """Return when `text` is on the standard error. Fail if the program ends or `TIMEOUT`
+        seconds pass first."""
+        with self._changed:
+            if not self._changed.wait_for(
+                lambda: text in self._seen or self.process.poll() is not None, TIMEOUT
+            ):
+                pytest.fail(f"{text!r} did not appear:\n{self._seen}")
+            if text not in self._seen:
+                pytest.fail(f"the program ended before {text!r} appeared:\n{self._seen}")
+
+    def interrupt(self) -> None:
+        """Ctrl-C: SIGINT for the whole process group."""
+        os.killpg(self.process.pid, signal.SIGINT)
+
+    def finish(self) -> int:
+        try:
+            return self.process.wait(timeout=TIMEOUT)
+        finally:
+            if self.process.poll() is None:
+                os.killpg(self.process.pid, signal.SIGKILL)
+                self.process.wait()
+            self._stdout.close()
+
+
 def test_ctrl_c_cancels_and_prints_one_json_document(tmp_path, remote_host):
     design = _design(tmp_path)
     ready = Ready(tmp_path, remote_host)
-    script = _cli_script(tmp_path, design, remote_host)
-    out, err = tmp_path / "stdout", tmp_path / "stderr"
-    with out.open("wb") as stdout, err.open("wb") as stderr:
-        process = subprocess.Popen(
-            [sys.executable, "-c", script], cwd=tmp_path, stdout=stdout, stderr=stderr
-        )
-        pid = ready.wait(process, err)
-        try:
-            process.send_signal(signal.SIGINT)
-            status = process.wait(timeout=TIMEOUT)
-        finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait()
-    assert status == 1, err.read_text()
-    document = json.loads(out.read_text())
+    program = Program(tmp_path, _cli_script(tmp_path, design, remote_host))
+    try:
+        pid = ready.wait(program.process, lambda: program.stderr)
+        program.interrupt()
+        status = program.finish()
+    finally:
+        program.finish()
+    assert status == 1, program.stderr
+    document = json.loads(program.out.read_text())
     assert document["success"] is False
     assert document["error"]["type"] == "RemoteCanceled"
     assert document["remote"] == "somewhere"
     _assert_gone(pid)
-    assert "Canceling the launch" in err.read_text()
+    assert "Canceling the launch" in program.stderr
 
 
 def test_a_second_ctrl_c_closes_the_connection(tmp_path, remote_host):
     design = _design(tmp_path)
     ready = Ready(tmp_path, remote_host)
-    script = _cli_script(tmp_path, design, remote_host)
-    out, err = tmp_path / "stdout", tmp_path / "stderr"
-    with out.open("wb") as stdout, err.open("wb") as stderr:
-        process = subprocess.Popen(
-            [sys.executable, "-c", script], cwd=tmp_path, stdout=stdout, stderr=stderr
-        )
-        pid = ready.wait(process, err)
-        try:
-            process.send_signal(signal.SIGINT)
-            # The second Ctrl-C comes when the first one is known: the message is on stderr.
-            _wait_for_text(err, "Press Ctrl-C again")
-            process.send_signal(signal.SIGINT)
-            status = process.wait(timeout=TIMEOUT)
-        finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait()
+    program = Program(tmp_path, _cli_script(tmp_path, design, remote_host))
+    try:
+        pid = ready.wait(program.process, lambda: program.stderr)
+        program.interrupt()
+        # The second Ctrl-C comes when the first one is known: the message is on stderr.
+        program.wait_for("Press Ctrl-C again")
+        program.interrupt()
+        status = program.finish()
+    finally:
+        program.finish()
     assert status == 1
-    document = json.loads(out.read_text())
+    document = json.loads(program.out.read_text())
     assert document["error"]["type"] == "RemoteCanceled"
     _assert_gone(pid)
-
-
-def _wait_for_text(path: Path, text: str) -> None:
-    done = threading.Event()
-    for _ in range(TIMEOUT * 20):
-        if text in path.read_text(errors="replace"):
-            return
-        done.wait(0.05)  # a poll of a file, not a wait for an event of the program under test
-    pytest.fail(f"{text!r} did not appear in {path}")
 
 
 def test_dropped_connection_cancels(tmp_path, remote_host, monkeypatch):
@@ -699,3 +739,149 @@ def test_rebuild_all_and_clean_run_the_remote_flows_again(tmp_path, remote_host,
     }
     again = _succeeded(_request(tmp_path, design, **{option: True}))
     assert _states(again) == {"yosys_fpga": "ran", "nextpnr": "ran"}
+
+
+# --- A failed dry run, a failure before any node, and Ctrl-C after the launch -------------------
+
+
+def _failing_dry_run(monkeypatch) -> None:
+    real = client._launch
+
+    def failed(agent, request, launch_id, setup):
+        document = real(agent, request, launch_id, setup)
+        return {
+            **document,
+            "success": False,
+            "error": {"type": "FlowSettingsError", "message": "the plan is not valid"},
+        }
+
+    monkeypatch.setattr(client, "_launch", failed)
+
+
+def test_a_failed_remote_dry_run_exits_with_status_1(tmp_path, remote_host, monkeypatch):
+    design = _design(tmp_path)
+    _failing_dry_run(monkeypatch)
+    result = _cli(tmp_path, design, "nextpnr", "--dry-run")
+    assert result.exit_code == 1, result.output
+    assert "the plan is not valid" in result.output
+    assert "Remote dry run of flow 'nextpnr' on 'somewhere' failed" in result.output
+    result = _cli(tmp_path, design, "nextpnr", "--dry-run", "--json")
+    assert result.exit_code == 1, result.output
+    document = json.loads(result.stdout)
+    assert document["success"] is False and document["dry_run"] is True
+
+
+def test_a_dry_run_document_names_the_places_of_the_mirror(tmp_path, remote_host):
+    document = _succeeded(_request(tmp_path, _design(tmp_path), dry_run=True))
+    mirror = tmp_path / "local" / "xeda_run" / "@somewhere"
+    assert document["mirror"] == str(mirror)
+    workspace = remote_host.workspace()
+    for node in document["plan"]["nodes"]:
+        name = node["name"]
+        assert node["run_path"] == str(mirror / "top" / name)
+        assert node["remote_run_path"] == str(workspace / "xeda_run" / "top" / name)
+    assert not mirror.exists(), "a dry run writes no mirror"
+
+
+def test_a_failure_before_any_node_runs_replaces_the_mirror(tmp_path, remote_host, monkeypatch):
+    """The remote resolves another plan than this side: it runs no node and the launch fails.
+    The records of an earlier run in the mirror must not stay and say that the run passed."""
+    design = _design(tmp_path)
+    ok = _succeeded(_request(tmp_path, design))
+    mirror = Path(ok["mirror"])
+    assert json.loads((mirror / "top" / "nextpnr" / "results.json").read_text())["success"]
+    real = client._launch
+
+    def another_plan(agent, request, launch_id, setup):
+        expected = {name: "0" * 64 for name in request.expected}
+        return real(agent, request.model_copy(update={"expected": expected}), launch_id, setup)
+
+    monkeypatch.setattr(client, "_launch", another_plan)
+    outcome = _request(tmp_path, design, rebuild_all=True)
+    assert not outcome.success, outcome.document
+    assert outcome.document["nodes"] == [] or all(
+        node["state"] != "ran" for node in outcome.document["nodes"]
+    )
+    for name in ("yosys_fpga", "nextpnr"):
+        directory = mirror / "top" / name
+        assert not (directory / "results.json").exists(), name
+        assert not list(directory.glob("*")), name
+
+
+def test_ctrl_c_while_fetching_says_that_the_launch_finished(tmp_path, remote_host, monkeypatch):
+    design = _design(tmp_path)
+
+    def interrupted(agent, fetch_all):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(client, "_fetch", interrupted)
+    outcome = _request(tmp_path, design)
+    assert isinstance(outcome.error, RemoteInterrupted), outcome.document
+    assert outcome.document["error"]["type"] == "RemoteInterrupted"
+    message = outcome.document["error"]["message"]
+    assert "while fetching the results" in message and "had finished" in message
+    assert "never started" not in message
+    assert (remote_host.workspace() / "xeda_run" / "top" / "nextpnr" / "results.json").is_file()
+
+
+def test_ctrl_c_while_delivering_says_that_the_launch_finished(tmp_path, remote_host, monkeypatch):
+    design = _design(tmp_path)
+
+    def interrupted(*arguments, **keywords):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(client, "deliver_fetched", interrupted)
+    outcome = _request(tmp_path, design, outputs_to=tmp_path / "out")
+    assert isinstance(outcome.error, RemoteInterrupted), outcome.document
+    assert "while delivering the outputs" in outcome.document["error"]["message"]
+
+
+def test_ctrl_c_before_the_launch_says_it_never_started(tmp_path, remote_host, monkeypatch):
+    def interrupted(*arguments, **keywords):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(client, "_sync", interrupted)
+    outcome = _request(tmp_path, _design(tmp_path))
+    assert isinstance(outcome.error, RemoteCanceled), outcome.document
+    assert "never started" in outcome.document["error"]["message"]
+
+
+# --- The signal handler and the heartbeat ---------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    threading.current_thread() is not threading.main_thread(), reason="needs the main thread"
+)
+def test_the_sigint_handler_is_set_during_the_launch_only(tmp_path, remote_host, monkeypatch):
+    before = signal.getsignal(signal.SIGINT)
+    during: list = []
+    real = client._Agent.message
+
+    def message(self, step):
+        during.append(signal.getsignal(signal.SIGINT))
+        return real(self, step)
+
+    monkeypatch.setattr(client._Agent, "message", message)
+    _succeeded(_request(tmp_path, _design(tmp_path)))
+    assert signal.getsignal(signal.SIGINT) == before
+    assert any(handler != before for handler in during), "no handler during the launch"
+
+
+def test_heartbeats_start_before_the_launch_message(tmp_path, remote_host, monkeypatch):
+    events: list[str] = []
+    real_start, real_send = client._Agent.start_heartbeat, client._Agent.send
+
+    def start(self):
+        events.append("heartbeat")
+        return real_start(self)
+
+    def send(self, document, step):
+        if isinstance(document, dict):
+            events.append("launch" if "launch" in document else sorted(document)[0])
+        return real_send(self, document, step)
+
+    monkeypatch.setattr(client._Agent, "start_heartbeat", start)
+    monkeypatch.setattr(client._Agent, "send", send)
+    _succeeded(_request(tmp_path, _design(tmp_path)))
+    assert "launch" in events and events.index("heartbeat") < events.index("launch")
+    assert events.index("heartbeat") < events.index("sync")

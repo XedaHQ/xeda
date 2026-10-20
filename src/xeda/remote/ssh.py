@@ -12,9 +12,9 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from typing import IO, Any, Optional, Sequence
+from typing import IO, Any, Optional, Sequence, Union
 
-from ..proc_utils import tool_output_redirect
+from ..proc_utils import _stream_has_fileno, tool_output_redirect
 from .constants import CONTROL_PERSIST, SERVER_ALIVE
 from .errors import RemoteConfigError, RemoteConnectionError
 
@@ -50,16 +50,16 @@ class Destination:
         return re.sub(r"[^A-Za-z0-9._@-]", "_", self.text)
 
 
-def _inheritable_stdout() -> Optional[IO[str]]:
-    """The stream that a child process gets as its standard output, or `None` for ours. A stream
-    that has no file descriptor (the capture of a test runner) cannot be given to a child."""
+def _inheritable_stdout() -> Union[IO[str], int, None]:
+    """What a child process gets as its standard output: the redirect of the tool output, or
+    `None` (our own) when nothing is redirected. A redirect that has no file descriptor (the
+    capture of a test runner) cannot be given to a child, and the child must not write on our
+    own standard output instead, since a redirect exists to keep that stream clean (`--json`).
+    It gets the null device."""
     stream = tool_output_redirect()
-    try:
-        if stream is not None:
-            stream.fileno()
-    except (AttributeError, OSError, ValueError):
+    if stream is None:
         return None
-    return stream
+    return stream if _stream_has_fileno(stream) else subprocess.DEVNULL
 
 
 def _ssh_program() -> str:

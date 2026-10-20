@@ -320,3 +320,19 @@ def test_killing_the_ssh_client_gives_the_remote_command_end_of_file(fake_ssh):
         process.kill()
         process.wait()
         _wait_for_line(fifo, b"eof")
+
+
+def test_a_redirect_without_a_file_descriptor_gives_the_child_the_null_device(monkeypatch):
+    """A stream with no `fileno` (the capture of a test runner) cannot go to a child. The child
+    must not fall back to our own standard output: the redirect keeps that stream clean."""
+    import io
+    import sys
+
+    from xeda import proc_utils
+
+    monkeypatch.setattr(proc_utils, "_tool_output", None)
+    assert ssh._inheritable_stdout() is None
+    monkeypatch.setattr(proc_utils, "_tool_output", io.StringIO())
+    assert ssh._inheritable_stdout() == subprocess.DEVNULL
+    monkeypatch.setattr(proc_utils, "_tool_output", sys.__stderr__)
+    assert ssh._inheritable_stdout() is sys.__stderr__

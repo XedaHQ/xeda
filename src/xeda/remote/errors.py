@@ -39,5 +39,10 @@ class RemoteCanceled(RemoteError):
     """The launch on the remote was canceled: by Ctrl-C, or because the connection was lost."""
 
 
+class RemoteInterrupted(RemoteError):
+    """Ctrl-C ended a remote run after its launch had finished: while the results were fetched or
+    delivered. The results are still on the remote host."""
+
+
 class RemoteFetchError(RemoteError):
     """A file of the remote run could not be fetched or did not match its digest."""

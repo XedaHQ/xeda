@@ -1056,7 +1056,12 @@ def run(
                 emit_structured(document, "json")
             else:
                 _print_remote_plan(document)
-            sys.exit(0)
+            if not outcome.success:
+                error = document.get("error") or {}
+                if error.get("message"):
+                    log.critical("%s", error["message"])
+                log.critical("Remote dry run of flow '%s' on '%s' failed.", flow, remote)
+            sys.exit(0 if outcome.success else 1)
         if not outcome.success:
             log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
         if json_flag:
