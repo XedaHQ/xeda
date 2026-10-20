@@ -16,10 +16,11 @@ class RemoteConnectionError(RemoteError):
 
 
 class RemoteProvisionError(RemoteError):
-    """The remote environment could not be made. `code` names the failed step."""
+    """The remote environment could not be made. `code` names the failed step, and the message
+    starts with it (`<code>: <text>`), so that a user sees it in the report of a failure."""
 
     def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
+        super().__init__(f"{code}: {message}")
         self.code = code
 
 

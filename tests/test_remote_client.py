@@ -369,6 +369,15 @@ def test_a_connection_that_fails_names_the_step(tmp_path, remote_host, monkeypat
     assert "Permission denied" in outcome.document["error"]["message"]
 
 
+def test_a_provisioning_failure_reports_its_code_in_the_json_message(tmp_path, remote_host):
+    remote_host.remote.set_platform("Darwin", "arm64")
+    result = _cli(tmp_path, _design(tmp_path), "nextpnr", "--json")
+    assert result.exit_code == 1, result.output
+    error = json.loads(result.stdout)["error"]
+    assert error["type"] == "RemoteProvisionError"
+    assert "not-linux: " in error["message"]
+
+
 # --- The login shell, the log and the provisioning -----------------------------------------------
 
 

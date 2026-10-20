@@ -113,7 +113,7 @@ destination with `ssh HOST` first; add `--debug` for the commands and the output
 | `error.type` | Fix |
 | --- | --- |
 | `RemoteConnectionError` | OpenSSH could not connect or authenticate, or the connection ended, or `ssh` is not on `PATH`. The message has the OpenSSH text. Fix the destination or `~/.ssh/config`. A launch with no terminal needs a key and an agent. |
-| `RemoteProvisionError` | Installing Xeda on the host failed. The `code` in the message: `not-linux`, `unsupported-platform` (only x86_64 and aarch64, glibc or musl), `no-downloader` (no `curl` or `wget`), `no-sha256`, `download-failed` (check internet access, or set a proxy in the profile `env`), `checksum-mismatch`, `python-failed`, `env-failed` (the message has the output of `uv`), `no-space` (under 50 MiB free; free space or set `root`), `lock-timeout` (remove the lock directory the message names if its process is gone), `bad-request` (report it). |
+| `RemoteProvisionError` | Installing Xeda on the host failed. The message starts with the code: `not-linux`, `unsupported-platform` (only x86_64 and aarch64, glibc or musl), `no-downloader` (no `curl` or `wget`), `no-sha256`, `download-failed` (check internet access, or set a proxy in the profile `env`), `checksum-mismatch`, `python-failed`, `env-failed` (the message has the output of `uv`), `no-space` (under 50 MiB free; free space or set `root`), `lock-timeout` (remove the lock directory the message names if its process is gone), `bad-request` (report it). |
 | `RemoteDependencyError` | A package cannot be installed on the host as it is here: an editable install, a local directory or a direct URL, or a package in `tb.python_packages` that is not installed locally. Install it from a package index. |
 | `RemoteIncompatible` | The host planned other flow identities than the local side did. Compare `--dry-run --json` with and without `--remote`; report a difference with no visible cause. |
 | `RemoteCanceled` | Ctrl-C, `xeda remote cancel` or a lost connection stopped the launch. Processes that survived SIGKILL are named; run the command again to start over. |
@@ -121,7 +121,7 @@ destination with `ssh HOST` first; add `--debug` for the commands and the output
 | `RemoteDetached` | A `--detach` launch keeps running; the document has `launch.id`. Use `xeda remote attach HOST ID` or `xeda remote cancel HOST ID` with the `--run-root` of the run. |
 | `RemoteFetchError` | A file did not come back whole, or a declared output is missing. Run the command again: the finished run is reused and only the fetch repeats. |
 | `RemoteConfigError` | `remotes.yaml` or one of its entries is invalid (the message names the host and field), or the `--remote` text is not a destination. |
-| `RemoteProtocolError` | The host sent output that Xeda does not understand, for example text from a login script. The message has the output. |
+| `RemoteProtocolError` | The agent on the host did not start or sent data that Xeda cannot read: the stream ended before the agent marker, or more than 1 MiB of text came before it. Ordinary login text is skipped. The message has the output of the host. |
 
 ## Simulation verdicts
 

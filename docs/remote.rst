@@ -64,8 +64,8 @@ each long step:
 
 A later run finds all of this and shows none of it. The remote root is
 ``${XDG_CACHE_HOME:-~/.cache}/xeda`` unless the host profile names another one (a scratch file
-system, for example). Xeda keeps a layout version in the path, so a later layout cannot misread
-this one:
+system, for example). The host ignores a relative value of ``XDG_CACHE_HOME``. Xeda keeps a layout
+version in the path, so a later layout cannot misread this one:
 
 .. list-table::
    :header-rows: 1
@@ -91,33 +91,39 @@ this one:
      - The helper script, its locks and its scratch space.
 
 The environment is built once for each set of requirements. Its key covers the requirements of
-Xeda, the exact version of every package that you have installed locally, the Python
-implementation and version, the version of ``uv``, and the CPU architecture and the C library of
-the host. So a host runs exactly the package versions that you run. A new Xeda release, or a local
-package upgrade, builds a new environment once. An edit of the Xeda code on your machine only
-uploads a new copy of the package, which takes a moment.
+Xeda and of ``tb.python_packages``, the exact version that you have installed locally of each
+package in their dependency closure, the Python implementation and version, the version of ``uv``,
+and the CPU architecture and the C library of the host. So the host runs the package versions that
+you run, for everything that Xeda needs. A new Xeda release, or an upgrade of one of those
+packages, builds a new environment once. The code of Xeda is separate from the environment. When
+the Xeda code on your machine changes, the next run uploads a new copy of the package, which takes
+a moment.
 
 A directory counts only when its completion marker exists, and a process that dies while it builds
 leaves nothing that a later run would trust. A lock serializes two builds of one directory. An
 environment is never changed after it is complete, so hosts that share one home directory can
 share it, even with different CPU architectures.
 
-Xeda refuses to build an environment when a package of your Python environment is an editable
+Xeda refuses to build an environment when a package of that dependency closure is an editable
 install, a local directory or a direct URL: a version number does not identify its code. Install
-it from a package index, then run again. A package that has no release for Linux fails the build
+it from a package index, then run again. Other packages of your Python environment do not matter. A package that has no release for Linux fails the build
 with the code ``env-failed``, and the output of ``uv`` names the package.
 
 Authentication and SSH options
 ==============================
 
-Xeda starts the OpenSSH client of your machine and sets no option for it. Your ``~/.ssh/config``
-holds everything about the connection: user, port, identity files, jump hosts and keepalive. Test
-the destination with ``ssh HOST`` first. If that works, ``--remote HOST`` connects.
+Xeda starts the OpenSSH client of your machine and has no SSH options of its own. Your
+``~/.ssh/config`` holds everything about the connection: user, port, identity files and jump hosts.
+Xeda adds only these options. For connection sharing, ``ControlMaster``, ``ControlPath`` and
+``ControlPersist``. For keepalive, ``ServerAliveInterval`` and ``ServerAliveCountMax``, which take
+precedence over the same options in your configuration. For its own commands through the shared
+connection, ``BatchMode=yes`` and ``-T``. None of them weakens authentication or the host key
+check. Test the destination with ``ssh HOST`` first. If that works, ``--remote HOST`` connects.
 
 * Each launch opens one connection, and every Xeda command of the launch goes through it. You log
   in once. A password, a passphrase or a second factor is asked for by OpenSSH, on your terminal.
   Xeda never reads, asks for or stores a secret.
-* OpenSSH checks the host key as you configured it. Xeda sets no host key option.
+* OpenSSH checks the host key as you configured it. Xeda adds no host key option.
 * A launch with no terminal (a CI job, for example) cannot answer a prompt. Use a key and an agent.
 * Xeda sets a keepalive on the connection, so a dead network ends it in about a minute.
 * Xeda closes the connection when the launch ends. If Xeda is killed, OpenSSH ends the idle
@@ -128,8 +134,8 @@ Host profiles
 
 A host profile holds what is specific to Xeda on one host. Everything about SSH stays in
 ``~/.ssh/config``. The profiles are in the file ``${XDG_CONFIG_HOME:-~/.config}/xeda/remotes.yaml``.
-The file is optional. A host with no entry gets the default profile, which suits a host whose tools
-are on the login ``PATH``.
+Xeda ignores a relative value of ``XDG_CONFIG_HOME``. The file is optional. A host with no entry
+gets the default profile, which suits a host whose tools are on the login ``PATH``.
 
 The ``hosts`` table is keyed by the exact text of ``--remote``. ``--remote cluster`` uses
 ``hosts.cluster`` and ``--remote alice@cluster`` uses ``hosts.alice@cluster``. Write the file
@@ -177,8 +183,10 @@ Every field is optional:
        ``UV_PYTHON_INSTALL_DIR``, ``UV_NO_CONFIG``, and every name that starts with ``XEDA_BOOT_``).
    * - ``python``
      - ``managed`` (the default) lets ``uv`` install the Python version that you run locally. Or
-       give the absolute path of a Python on the host. It must be the same version as your local
-       Python.
+       give the absolute path of a Python on the host. It should be the same version as your local
+       Python. Nothing checks this. The environment is built with the Python that you name. If its
+       version differs, the packages can resolve differently or fail to install, and the code can
+       behave differently from your local runs.
    * - ``flows``
      - Flow settings that apply on this host only (see `Host settings`_).
 
@@ -222,8 +230,10 @@ A workspace is the part of the remote that belongs to one local run root and one
 destination. Its key is a digest of the identity of your machine, the resolved path of the run root
 and the user, host name and port that ``ssh -G`` gives for ``HOST``. The same alias from the same
 machine and run root finds the same workspace on the next run. Another ``--run-root`` is another
-workspace. The remote host name is part of the key, so two login nodes of a cluster never write the
-same workspace.
+workspace. The key uses the name that ``ssh -G`` resolves, and not the name of the node that
+answers. So a round-robin alias of a cluster whose login nodes share a home directory uses one
+workspace, and keeps its reuse on every node. The workspace lock protects it from two launches at
+once.
 
 A workspace has these parts:
 
@@ -260,9 +270,16 @@ wrote them. Xeda checks each file against its SHA-256 and writes it atomically. 
 link. The mirror holds no ``trace.json``, so a local run never reuses a mirror directory.
 
 The records ``results.json`` and ``settings.json`` of each mirror directory are written again with
-the paths of your machine: a path in the mirror, or the local design file for an input that you
-sent. So the mirror shows no path of the host. The directory ``.launches/`` in the mirror holds the
-records that ``xeda remote attach`` needs.
+the paths of your machine, where Xeda can map a path:
+
+* A path in a run directory of the host becomes the same path in the mirror.
+* A path of an input that you sent becomes your local file. A path of the inputs directory with no
+  local file of that name becomes the same place below your design root.
+
+Xeda keeps a path that it cannot map as it is. These paths stay: a file that Xeda made for the
+host (the design document, and the copies of Liberty files whose includes it renamed), and any path
+elsewhere on the host, such as the installation of a tool or a PDK store. The directory
+``.launches/`` in the mirror holds the records that ``xeda remote attach`` needs.
 
 Each fetch replaces the mirror directories of the planned flows. If a launch or a fetch fails,
 Xeda empties them, so that an older run never looks like the new one.
@@ -331,7 +348,7 @@ leaves the launch running and stops with the error ``RemoteDetached``. Then:
 Both commands take ``--run-root``, because the run root names the workspace. Give the value of the
 ``xeda run`` that started the launch. Attach needs the record of the launch in the mirror of this
 machine. Without it, run the first command again. Xeda also refuses to fetch the files of a launch
-when a later launch used the same inputs, because the run directories may hold other files now.
+when a later launch used the same inputs, because the run directories may hold other files.
 
 .. warning::
 
@@ -373,7 +390,7 @@ them. It keeps anything that a lock or a running process holds, and anything use
     Change the age limit (the default is 30).
 
 ``--all``
-    Remove everything that nobody uses now, however recent.
+    Remove everything that is not in use, however recently it was used.
 
 ``--yes``
     Do not ask. ``--json`` does not ask either.
@@ -392,7 +409,7 @@ see the commands and the output of the host.
     ``~/.ssh/config``. The error also appears when ``ssh`` is not on the ``PATH``.
 
 ``RemoteProvisionError``
-    The environment could not be made. The message names the step, and the error has a code:
+    The environment could not be made. The message starts with a code that names the step:
 
     ``not-linux``
         The host does not run Linux.
@@ -468,8 +485,10 @@ see the commands and the output of the host.
     not a usable destination. The message names the file, the host and the field.
 
 ``RemoteProtocolError``
-    The host sent something that Xeda does not understand. A login profile that prints text can
-    cause it. The message includes the output of the host.
+    The agent on the host did not start, or sent data that Xeda cannot read. The usual cause is a
+    stream that ends before the agent marker, or more than 1 MiB of text before it. Ordinary text
+    that a login profile prints is skipped and does no harm. The message includes the output of the
+    host, which tells why the agent did not start.
 
 A failure that is not one of these, such as a host without ``bash``, is a plain ``RemoteError``
 with a message that says what to do.

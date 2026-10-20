@@ -384,10 +384,11 @@ xeda run vivado_synth blinky.yaml --outputs-to ./out
 
 `--remote HOST` runs the request, a chain too, on a Linux host over SSH. `HOST` is an OpenSSH
 destination; the user's `~/.ssh/config` holds user, port, keys and jump hosts, and OpenSSH asks for
-a password once per launch. Xeda needs on the host only `sh`, `bash`, `tar`, `curl` or `wget`, and
-internet access at the first run: it installs `uv`, the same Python and the same package versions
-under `${XDG_CACHE_HOME:-~/.cache}/xeda` and needs no administrator rights. The EDA tools must be
-on the login `PATH` of the host, or be set up by `setup` lines of the host profile.
+a password once per launch. Xeda needs on the host only `sh`, `bash`, `tar`, `curl` or `wget`,
+`sha256sum` or `shasum`, and internet access at the first run: it installs `uv`, the same Python
+and the same package versions under `${XDG_CACHE_HOME:-~/.cache}/xeda` and needs no administrator
+rights. The EDA tools must be on the login `PATH` of the host, or be set up by `setup` lines of the
+host profile.
 
 - Host profile: `${XDG_CONFIG_HOME:-~/.config}/xeda/remotes.yaml`, a `hosts` table keyed by the
   exact text of `--remote`. Fields, all optional: `root` (the remote root), `setup` (shell lines
