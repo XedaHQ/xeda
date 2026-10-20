@@ -493,6 +493,9 @@ class _Run:
     request: List[Dict[str, Any]] = field(default_factory=list)
     #: What the run does after its launch finished (`_AFTER_THE_LAUNCH`), or `None` before.
     phase: Optional[str] = None
+    #: The document of a run whose delivery failed after the mirror was whole: the remote result,
+    #: the places in the mirror and the copies made. The failure document starts from it.
+    delivered: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -1254,9 +1257,16 @@ def _failed(run: _Run, error: Exception) -> RemoteOutcome:
 
     log.debug("The remote run failed", exc_info=True)
     error_type, message = _failure_of(error, run.flow, run.debug)
-    document = _failure_document(
-        run.flow, run.design, run.launcher, run.target, error_type, message, run.request
-    )
+    if run.delivered is not None:
+        document = {
+            **run.delivered,
+            "success": False,
+            "error": {"type": error_type, "message": message},
+        }
+    else:
+        document = _failure_document(
+            run.flow, run.design, run.launcher, run.target, error_type, message, run.request
+        )
     document["remote"] = run.host
     if isinstance(error, RemoteDetached):
         document["launch"] = {"id": error.launch_id, "host": error.host}
@@ -1436,6 +1446,26 @@ def _run(
         ) from None
 
 
+def _delivery_failure_document(
+    result: Dict[str, Any],
+    rewritten: Dict[str, Any],
+    local: _Local,
+    run: _Run,
+    mirror_root: Path,
+    remote_run_root: PurePosixPath,
+) -> Dict[str, Any]:
+    """The document of a run whose delivery failed: the document of the remote result as for a
+    delivery that worked, with the copies made before the failure in `results` and, as a local
+    run has them, in the node that was delivered."""
+    document = _mirror_document(
+        result, rewritten, host=run.host, mirror_root=mirror_root, remote_run_root=remote_run_root
+    )
+    for node in document.get("nodes") or []:
+        if node.get("node") == local.requested:
+            node["deliveries"] = list(rewritten.get("deliveries") or [])
+    return _local_design(document, run, local.design_name)
+
+
 def _finish(
     agent: _Agent,
     local: _Local,
@@ -1526,14 +1556,20 @@ def _finish(
         if rewritten is not None and requested_dir is not None:
             if outputs_to is not None and local.deliveries is not None:
                 run.phase = _DELIVERING
-                deliver_fetched(
-                    local.deliveries,
-                    rewritten,
-                    remote_deliverables,
-                    result["run_path"],
-                    requested_dir,
-                    outputs_to=outputs_to,
-                )
+                try:
+                    deliver_fetched(
+                        local.deliveries,
+                        rewritten,
+                        remote_deliverables,
+                        result["run_path"],
+                        requested_dir,
+                        outputs_to=outputs_to,
+                    )
+                except Exception:
+                    run.delivered = _delivery_failure_document(
+                        result, rewritten, local, run, mirror_root, remote_run_root
+                    )
+                    raise
             print_results(
                 results=rewritten,
                 title=f"Results of flow:{run.flow} design:{local.design_name}",

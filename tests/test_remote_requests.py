@@ -414,6 +414,50 @@ def test_a_refused_delivery_leaves_the_mirror_whole_and_unlocked(
     assert not (tmp_path / "got").exists()
 
 
+def test_a_failed_delivery_keeps_the_result_the_mirror_and_the_copies_in_the_document(
+    tmp_path, remote_host, monkeypatch
+):
+    """As a local run does: the copies made before the error stay in the document. The remote
+    result and the places in the mirror stay too, and the mirror stays whole."""
+    import xeda.deliver
+    from xeda.deliver import Deliveries
+
+    design = _sqrt_design(tmp_path / "design")
+    mirror = tmp_path / "local" / "xeda_run" / "@somewhere" / "sqrt" / "vivado_synth"
+    real_copy = xeda.deliver.Deliveries._copy
+    made: list = []
+
+    def copy_then_fail_second(self, delivery, source, destination, expected, sha, *rest):
+        made.append(destination)
+        if len(made) == 2:
+            raise OSError("disk full")
+        return real_copy(self, delivery, source, destination, expected, sha, *rest)
+
+    monkeypatch.setattr(Deliveries, "_copy", copy_then_fail_second)
+    outcome = remote_request(
+        tmp_path,
+        design,
+        "vivado_synth",
+        flow_settings=SQRT_SETTINGS,
+        outputs_to=tmp_path / "got",
+    )
+    document = outcome.document
+    assert isinstance(outcome.error, OSError) and not outcome.success
+    assert document["success"] is False
+    assert document["error"]["type"] == "OSError"
+    assert "disk full" in document["error"]["message"]
+    assert document["remote"] == "somewhere" and document["mirror"] == str(mirror.parent.parent)
+    assert document["run_path"] == str(mirror)
+    assert document["results"]["success"] is True  # what the remote run reported
+    (delivered,) = document["results"]["deliveries"]
+    assert Path(delivered["to"]).is_relative_to(tmp_path / "got")
+    assert Path(delivered["to"]).is_file()
+    (node,) = [n for n in document["nodes"] if n["node"] == "vivado_synth"]
+    assert node["run_path"] == str(mirror)
+    assert node["deliveries"] == document["results"]["deliveries"]
+    assert (mirror / "results.json").is_file()  # the mirror stays whole
+
+
 def test_a_local_run_root_with_a_space_does_not_stop_a_remote_build(
     tmp_path, remote_host, monkeypatch
 ):
