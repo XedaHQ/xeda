@@ -201,6 +201,7 @@ VALUE_OPTIONS = {
     "cable-index",
     "busdev-num",
     "ftdi-serial",
+    "usb-serial-num",
     "index-chain",
     "file-type",
     "target-flash",

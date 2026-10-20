@@ -1291,7 +1291,8 @@ all of these hold:
 * The run names no probe: no ``usb_serial_num``, no ``cable_index``, and none of ``--ftdi-serial``,
   ``--usb-serial-num``, ``--cable-index``, ``--busdev-num``, ``--vid``, ``--pid``, ``--device`` or
   ``-d`` in ``extra_args``.
-* ``extra_args`` gives no other cable or board (``-c``, ``--cable``, ``-b``, ``--board``).
+* ``extra_args`` gives no other cable or board (``-c``, ``--cable``, ``-b``, ``--board``). When it
+  does, probe selection is left to openFPGALoader.
 * The cable is known: the ``cable`` setting, else the cable that ``openFPGALoader --list-boards``
   gives the board. A board whose cable is ``Undefined``, or that the loader does not list, has none.
 * The part is known: ``fpga.part``, which ``board`` fills in.
@@ -1301,7 +1302,9 @@ probes with the USB id of the cable (``--list-cables``, ``--scan-usb``). With no
 there is no choice to make. With two or more, it reads the FPGA of each probe with ``openFPGALoader
 --board <board> --ftdi-serial <serial> --detect``. When the ``cable`` setting gives the cable, it
 passes ``--cable <cable>`` instead of ``--board``. A board gives the loader its pins and clock,
-which a bit-bang cable such as the ULX3S one (``ft231X``) needs.
+which a bit-bang cable such as the ULX3S one (``ft231X`` or ``ft232RL``) needs. Probe selection
+skips a bit-bang cable given directly with ``cable``; a board-supplied cable has pin assignments
+that Xeda can use.
 
 ``--detect`` reads the JTAG ID code. It does not configure or reset the FPGA, but it resets the
 JTAG state machine, sets the lines of the FTDI chip, and opens every probe with that USB id,
@@ -1314,7 +1317,7 @@ and the part does not continue with a digit: ``xc7a35`` matches ``xc7a35tcpg236-
 ``xc7a350t``. With ``index_chain``, the device at that index of the chain is the one that counts.
 Without it, any FPGA of the chain counts. The matching knows the model names of Xilinx 7 series,
 UltraScale and UltraScale+, Lattice ECP5, MachXO2 and Nexus, Gowin (by series and capacity), and the
-Intel MAX II, MAX 10, Cyclone II to V and Agilex families.
+Intel MAX II, MAX 10, Cyclone II to V, and Agilex 3 and 5 families.
 
 The flow programs a probe only when exactly one probe matches and every other probe was read and
 shows another device. It then adds ``--ftdi-serial <serial>`` to the command line and logs the

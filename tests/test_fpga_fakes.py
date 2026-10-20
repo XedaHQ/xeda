@@ -2,6 +2,7 @@
 
 import json
 import os
+import runpy
 import signal
 import shutil
 import struct
@@ -17,6 +18,8 @@ from xeda.flow_runner import DefaultRunner
 
 from . import tool_utils
 from .tool_utils import HANG_GUARD
+
+FAKE_TOOL_OPTIONS = runpy.run_path(str(tool_utils.FAKE_TOOLS_DIR / "fake_fpga_tool.py"))["options"]
 
 TOOLS = (
     "nextpnr-himbaechel",
@@ -111,6 +114,19 @@ def test_the_loader_rejects_the_lowercase_version_option_as_the_real_one_does(tm
     assert result.returncode != 0 and not result.stdout
     assert b"Option 'version' does not exist" in result.stderr
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--usb-serial-num", "serial with spaces"],
+        ["--usb-serial-num=serial with spaces"],
+    ],
+)
+def test_fake_loader_parses_both_usb_serial_option_forms(args):
+    parsed, positional = FAKE_TOOL_OPTIONS(args)
+    assert parsed["usb-serial-num"] == "serial with spaces"
+    assert positional == []
 
 
 @pytest.mark.parametrize(

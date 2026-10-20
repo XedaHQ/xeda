@@ -527,9 +527,10 @@ class Openfpgaloader(FpgaSynthFlow):
     Xeda does not choose a probe and warns when several probes fit the cable and Xeda cannot name
     one reliably: no part is known; Xeda cannot match the part to the loader's model names (iCE40,
     Spartan-6, MachXO3, Arria 10 and others); the cable is a bit-bang cable given with `cable`
-    (`ft231X`); the probes are not FTDI chips; or a probe has no serial number or shares it with
-    another. It also warns when the loader cannot list its boards, cables or probes, or when the
-    scan cannot be read or could not open a probe. In these cases openFPGALoader then chooses the
+    (`ft231X` or `ft232RL`); the probes are not FTDI chips; or a probe has no serial number, shares
+    its serial with another, or the scan cannot read its serial. It also warns when the loader
+    cannot list its boards, cables or probes, or when the scan cannot be read or could not open a
+    probe. In these cases openFPGALoader then chooses the
     first probe that fits the cable. Xeda names a probe only by the serial number of an FTDI chip,
     because `--busdev-num` works only with libftdi 1.4 or newer, which Xeda cannot detect.
 
@@ -847,6 +848,22 @@ class Openfpgaloader(FpgaSynthFlow):
             return []
         nameless = probes_without_a_name(probes)
         if nameless:
+            unreadable_serials = [probe for probe in nameless if not probe.serial_readable]
+            if unreadable_serials:
+                log.warning(
+                    "%d probes fit the cable %s (USB %s): %s. Xeda could not read the serial "
+                    "number for %s, so it cannot safely choose a probe and openFPGALoader opens "
+                    "the first one. Name the probe with `cable_index`, or with `usb_serial_num` "
+                    "using a unique serial number from the probe label or another USB tool.",
+                    len(probes),
+                    cable,
+                    usb_id,
+                    listed,
+                    "; ".join(
+                        f"bus {probe.bus} device {probe.device}" for probe in unreadable_serials
+                    ),
+                )
+                return []
             log.warning(
                 "%d probes fit the cable %s (USB %s): %s. Xeda names a probe by its serial number, "
                 "and %s no serial number of its own, so openFPGALoader opens the first one. Name "

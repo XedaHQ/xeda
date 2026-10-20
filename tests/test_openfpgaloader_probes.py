@@ -168,8 +168,8 @@ def test_the_usb_scan_reads_the_probes_of_the_real_output():
 
 def test_a_probe_with_no_serial_has_none_and_a_manufacturer_with_spaces_stays_whole():
     scan = (
-        "Bus device vid:pid       probe_type manufacturer   serial product\n"
-        "001 004    0x0403:0x6010 FTDI2232   Some Maker Inc  none   My Probe 2\n"
+        "Bus device vid:pid       probe_type manufacturer      serial       product\n"
+        "001 004    0x0403:0x6010 FTDI2232   Some Maker Inc    none         My Probe 2\n"
     )
     (probe,) = parse_scan_usb(scan)
     assert (probe.serial, probe.manufacturer, probe.product) == (
@@ -177,6 +177,7 @@ def test_a_probe_with_no_serial_has_none_and_a_manufacturer_with_spaces_stays_wh
         "Some Maker Inc",
         "My Probe 2",
     )
+    assert probe.serial_readable
 
 
 @pytest.mark.parametrize("usb_id", ["0x0403:0x6010", "0403:6010", "0X0403:0X6010", "0x403:6010"])
@@ -203,6 +204,17 @@ def _old_scan(rows):
     return "\n".join(lines) + "\n"
 
 
+def _current_scan(rows):
+    """A current-style scan table with `probe_type` and fixed-width serial padding."""
+    lines = ["Bus device vid:pid       probe_type manufacturer      serial       product"]
+    for bus, device, usb_id, probe, manufacturer, serial, product in rows:
+        lines.append(
+            "%03d %03d    %s %-10s %-17s %-12s %s"
+            % (bus, device, usb_id, probe, manufacturer, serial, product)
+        )
+    return "\n".join(lines) + "\n"
+
+
 def test_the_scan_of_the_oldest_supported_loader_is_read_too():
     scan = _old_scan(
         [
@@ -214,7 +226,79 @@ def test_the_scan_of_the_oldest_supported_loader_is_read_too():
     assert (first.bus, first.device, first.serial) == (1, 3, BASYS)
     assert (second.manufacturer, second.serial, second.product) == ("Some Maker", ARTY, "My Probe")
     assert (first.probe_type, first.product) == ("FTDI2232", "Digilent USB Device")
+    assert first.serial_readable and second.serial_readable
     assert scan_failure(scan) is None
+
+
+def test_the_old_scan_does_not_accept_a_serial_from_a_shifted_column():
+    scan = _old_scan(
+        [
+            (1, 3, "0x0403:0x6010", "FTDI2232", "ManufacturerTooLong", ARTY, "My Probe"),
+            (1, 2, "0x0403:0x6010", "FTDI2232", "Digilent", BASYS, "Other Probe"),
+        ]
+    )
+    first, second = parse_scan_usb(scan)
+    assert first.serial is None
+    assert second.serial == BASYS
+
+
+def test_the_old_scan_keeps_unusual_serial_characters():
+    scan = _old_scan([(1, 3, "0x0403:0x6010", "FTDI2232", "Digilent", "A+B:09.2", "My Probe")])
+    (probe,) = parse_scan_usb(scan)
+    assert probe.serial == "A+B:09.2"
+
+
+def test_the_old_scan_keeps_a_serial_longer_than_its_column():
+    serial = "serial+with:punctuation-123456"
+    scan = _old_scan([(1, 3, "0x0403:0x6010", "FTDI2232", "Digilent", serial, "My Probe")])
+    (probe,) = parse_scan_usb(scan)
+    assert probe.serial == serial
+    assert probe.serial_readable
+
+
+def test_the_old_scan_rejects_an_ambiguous_manufacturer_tail():
+    scan = _old_scan(
+        [
+            (
+                1,
+                3,
+                "0x0403:0x6010",
+                "FTDI2232",
+                "Acme Devices " + "X" * 20,
+                ARTY,
+                "My Probe",
+            )
+        ]
+    )
+    (probe,) = parse_scan_usb(scan)
+    assert probe.serial is None
+    assert not probe.serial_readable
+
+
+def test_the_current_scan_preserves_a_punctuated_serial_at_its_column_boundary():
+    scan = _current_scan([(1, 3, "0x0403:0x6010", "FTDI2232", "Digilent", "A+B:09.2", "My Probe")])
+    (probe,) = parse_scan_usb(scan)
+    assert probe.serial == "A+B:09.2"
+    assert probe.serial_readable
+
+
+def test_the_current_scan_rejects_a_serial_shifted_by_an_overlong_manufacturer():
+    scan = _current_scan(
+        [
+            (
+                1,
+                3,
+                "0x0403:0x6010",
+                "FTDI2232",
+                "Acme Devices " + "X" * 12,
+                ARTY,
+                "My Probe",
+            )
+        ]
+    )
+    (probe,) = parse_scan_usb(scan)
+    assert probe.serial is None
+    assert not probe.serial_readable
 
 
 def test_a_bus_or_device_number_above_127_is_read_as_the_loader_meant_it():
@@ -1280,6 +1364,27 @@ def test_a_loader_of_the_oldest_supported_release_gets_the_choice_too(
     )
     _start(tmp_path, monkeypatch, world, {"board": "arty_a7_100t"})
     assert _argv(tmp_path)[-2:] == ["--ftdi-serial", ARTY]
+
+
+@pytest.mark.parametrize("manufacturer", ["ManufacturerTooLong", "Acme Devices " + "X" * 20])
+def test_a_shifted_old_scan_warns_and_does_not_query_detect(
+    manufacturer, tmp_path, fake_loader, monkeypatch, caplog
+):
+    world = _two_boards(
+        scan=_old_scan(
+            [
+                (1, 3, "0x0403:0x6010", "FTDI2232", manufacturer, ARTY, "My Probe"),
+                (1, 2, "0x0403:0x6010", "FTDI2232", "Digilent", BASYS, "Other Probe"),
+            ]
+        )
+    )
+    _, record = _start(tmp_path, monkeypatch, world, {"board": "arty_a7_100t"}, caplog)
+    (warning,) = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert "could not read the serial number" in warning
+    assert "serial number for bus 1 device 3" in warning
+    assert "unreadable serial" in warning
+    assert "has no serial number of its own" not in warning
+    assert not any("--detect" in query for query in queries(record))
 
 
 def test_a_probe_the_scan_could_not_open_is_a_warning_and_no_claim_of_one_probe(
