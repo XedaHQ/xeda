@@ -510,7 +510,7 @@ class Session:
         plan = plan_sync(root, entries)
         self.send_json({"need": plan.missing})
         source = io.BufferedReader(_TarSource(self.take))
-        apply_sync(root, entries, plan, source)
+        apply_sync(root, entries, plan, source, directories=directories)
         self.send_json({"synced": {"written": len(plan.missing), "removed": len(plan.stale)}})
 
     # -- step 3: the launch
