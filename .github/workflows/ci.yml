@@ -142,6 +142,8 @@ jobs:
   #     test_verilator_hooks_makefile
   #   interactive shell completion and cursor placement through a pseudo-terminal:
   #     test_cli_settings_completion
+  #   Unix socket paths (at most 103 bytes on macOS), a SIGINT that a process ignores, and the end
+  #     of a pipe when a process dies: test_remote_ssh
   macos:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
@@ -195,6 +197,7 @@ jobs:
           tests/test_cli_settings_completion.py
           tests/test_liberty_shared.py
           tests/test_liberty_freshness.py
+          tests/test_remote_ssh.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only
