@@ -1821,6 +1821,87 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
         IN_THE_RUN_DIRECTORY,
         None,
     ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$ENV_BUILDING"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: the environment directory that this bootstrap process is building, removed after a failure",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$STAGE"',
+    ): (
+        2,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: the staging directory (`code/.<key>.<pid>`, `uv/<release>.new.<pid>`) that this bootstrap process made",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$WORK"',
+    ): (
+        2,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: the work directory (`tmp/<pid>`) that this bootstrap process made",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$LOCKS/$held.lock"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: a lock directory that this bootstrap process holds, released at its end",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$1"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: a lock directory whose owner process is gone, broken under the break lock after the owner was read again",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$LOCKS/$1.lock"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: a lock directory that this bootstrap process holds, released",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$uv_dir"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: an incomplete uv directory (no `uv` file), under the lock of that uv release",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$env_dir"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: an environment directory without a valid completion marker, under the lock of its key",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$V/code/$key"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: a code directory without a valid completion marker, under the lock of its key",
+        None,
+    ),
 }
 
 #: Commands that replace a project or a directory by its name, whatever their options: each is

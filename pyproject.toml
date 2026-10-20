@@ -136,6 +136,7 @@ namespaces = false
     "*.lef",
     "*.lib",
     "*.mk",
+    "*.sh",
     "*.sdc",
     "*.sdf",
     "*.tcl",
