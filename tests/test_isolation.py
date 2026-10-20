@@ -518,12 +518,13 @@ def variant_design(flow_name: str) -> tuple:
     return rtl, tb
 
 
-def _flip_candidates(flow_class):
-    """(name, value) for each boolean, literal and enumerated option, set to another value."""
+def _flip_candidates(flow_class, current: dict):
+    """(name, value) for each boolean, literal and enumerated option, set to a value other than
+    its value in `current`, or its default when `current` does not set it."""
     for name, info in flow_class.Settings.model_fields.items():
         if any(part in name for part in NOT_FLIPPED):
             continue
-        annotation, default = info.annotation, info.default
+        annotation, default = info.annotation, current.get(name, info.default)
         if annotation is bool or annotation == Optional[bool]:
             yield name, (not default) if isinstance(default, bool) else True
         elif typing.get_origin(annotation) is typing.Literal:
@@ -539,9 +540,7 @@ def _flip_candidates(flow_class):
 def flipped_settings(flow_class, base: dict, world: World) -> dict:
     """`base`, with every option flipped that still validates beside the others."""
     settings = dict(base)
-    for name, value in _flip_candidates(flow_class):
-        if name in settings:
-            continue
+    for name, value in _flip_candidates(flow_class, settings):
         trial = {**settings, name: value}
         try:
             flow_class.Settings.from_input(trial, design_root=world.work, runner_cwd=world.work)
