@@ -4,8 +4,9 @@
 #: gets a new version, so that a new xeda never misreads an old directory.
 LAYOUT = "v1"
 
-#: Seconds that the SSH master connection stays open after its last client closes.
-CONTROL_PERSIST = 60
+#: Seconds that the SSH master connection stays open after its last client closes. It must be
+#: longer than any local step between two commands, such as hashing large inputs.
+CONTROL_PERSIST = 300
 
 #: OpenSSH keepalive: the interval in seconds, and how many unanswered probes end the connection.
 SERVER_ALIVE = (15, 4)

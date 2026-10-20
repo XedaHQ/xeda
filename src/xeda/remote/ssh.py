@@ -24,6 +24,9 @@ log = logging.getLogger(__name__)
 #: the socket, OpenSSH adds `.` and 16 random characters to the control path.
 _MAX_CONTROL_PATH = 103 - 17
 
+#: The directory for the control socket when the temporary directory has a path that is too long.
+_FALLBACK_DIRECTORY = "/tmp"
+
 #: Seconds that `ssh -O check` and `ssh -O exit` may take, and that `ssh -G` may take.
 _QUICK = 15
 
@@ -67,6 +70,20 @@ def _check_text(text: str) -> None:
         raise RemoteConfigError(f"the remote host {text!r} has a space or a control character")
 
 
+def _check_options(ssh_options: Sequence[str]) -> tuple[str, ...]:
+    """Accept only pairs `-F <path>` (a configuration file of `ssh`). The options exist for the
+    tests and for the end-to-end tests that use a real `sshd`; xeda has no SSH options of its
+    own, and the user's `~/.ssh/config` holds the rest."""
+    options = tuple(ssh_options)
+    if len(options) % 2 or any(
+        option != "-F" or not path for option, path in zip(options[::2], options[1::2])
+    ):
+        raise ValueError(
+            f"the only ssh options that xeda accepts are '-F <path>' pairs: {options!r}"
+        )
+    return options
+
+
 def resolve_destination(text: str, ssh_options: Sequence[str] = ()) -> Destination:
     """Ask `ssh -G` for the user, host name and port that OpenSSH uses for `text`.
 
@@ -74,9 +91,10 @@ def resolve_destination(text: str, ssh_options: Sequence[str] = ()) -> Destinati
     `ssh://user@host:port`. `ssh_options` are more arguments of `ssh`, before the destination.
     This opens no connection."""
     _check_text(text)
+    options = _check_options(ssh_options)
     try:
         result = subprocess.run(
-            [_ssh_program(), "-G", *ssh_options, text],
+            [_ssh_program(), "-G", *options, text],
             stdin=subprocess.DEVNULL,
             capture_output=True,
             timeout=_QUICK,
@@ -106,13 +124,19 @@ def sh_command(*args: str, script_path: Optional[str] = None) -> str:
     Without `script_path`, the shell reads the script from its standard input. Every word in
     `args` must be plain (letters, digits and `._/:=@+-`), so that no shell, whatever the user's
     login shell is, can read it as anything else. The result is one line for `ssh`.
-    `script_path` is a path on the remote host; it goes in double quotes."""
+    `script_path` is an absolute path on the remote host; it goes in double quotes."""
     for arg in args:
         if not _PLAIN_TOKEN.fullmatch(arg):
             raise ValueError(f"not a plain word for a remote command line: {arg!r}")
+        if arg.startswith("="):  # zsh expands `=word` to a path
+            raise ValueError(f"a word of a remote command line cannot start with '=': {arg!r}")
+    if args and args[0].startswith("-"):
+        raise ValueError(
+            f"the first word of a remote command line cannot start with '-': {args[0]!r}"
+        )
     if script_path is None:
         return " ".join(["exec sh -s --", *args])
-    if not script_path or _UNSAFE_IN_PATH.search(script_path):
+    if not script_path.startswith("/") or _UNSAFE_IN_PATH.search(script_path):
         raise ValueError(f"not a safe script path for a remote command line: {script_path!r}")
     return " ".join(["exec sh", f'"{script_path}"', *args])
 
@@ -131,8 +155,9 @@ class SshSession:
     the command on a connection that xeda did not check."""
 
     def __init__(self, destination: Destination, ssh_options: Sequence[str] = ()) -> None:
+        _check_text(destination.text)  # a `Destination` can be made by hand
         self.destination = destination
-        self.ssh_options = tuple(ssh_options)
+        self.ssh_options = _check_options(ssh_options)
         self._directory: Optional[tempfile.TemporaryDirectory[str]] = None
         self._control = ""
 
@@ -155,7 +180,7 @@ class SshSession:
         directory = tempfile.TemporaryDirectory(prefix="xeda-ssh-")
         if len(f"{directory.name}/c".encode()) > _MAX_CONTROL_PATH:
             directory.cleanup()
-            directory = tempfile.TemporaryDirectory(prefix="xeda-ssh-", dir="/tmp")
+            directory = tempfile.TemporaryDirectory(prefix="xeda-ssh-", dir=_FALLBACK_DIRECTORY)
         return directory
 
     def _start_master(self) -> None:
@@ -234,7 +259,12 @@ class SshSession:
         across `exec`. Two other ways are worse. `preexec_fn` runs Python code between `fork`
         and `exec`, which can deadlock when other threads of xeda run (the heartbeat does).
         `process_group` and `start_new_session` leave SIGINT enabled, and they change the
-        terminal handling of the client."""
+        terminal handling of the client.
+
+        A real client can still open a connection of its own if the master ends after
+        `check()` and before the client connects. It cannot ask for anything (`BatchMode=yes`),
+        and OpenSSH checks the host keys as always, so this costs at most a second login without
+        a prompt."""
         client = [
             _ssh_program(),
             "-S",
@@ -260,7 +290,10 @@ class SshSession:
         """Run `command` on the remote host and wait. `stdin` is its input (none: it gets EOF at
         once). A non-zero status of the command is in the result, not an exception. If `timeout`
         seconds pass, the client stops and `subprocess.TimeoutExpired` is raised. If the master
-        is gone, this raises `RemoteConnectionError`."""
+        is gone, this raises `RemoteConnectionError`.
+
+        `subprocess.run` kills its client on KeyboardInterrupt, so only the clients of `popen`
+        survive Ctrl-C. This is intended: the agent session uses `popen`."""
         self._require_master()
         result = subprocess.run(
             self._client_command(command),

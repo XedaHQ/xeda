@@ -3,14 +3,15 @@
 
 import os
 import select
-import signal
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
 
 from xeda.remote.errors import RemoteConfigError, RemoteConnectionError
+from xeda.remote import ssh
 from xeda.remote.ssh import Destination, SshSession, resolve_destination, sh_command
 
 from .remote_fixtures import fake_ssh, ssh_calls
@@ -22,6 +23,10 @@ FIXTURES = (fake_ssh,)
 
 #: Seconds that a test waits for something that must happen at once.
 PATIENCE = 20
+
+
+def _is_exit(call) -> bool:
+    return call[call.index("-O") + 1] == "exit" if "-O" in call else False
 
 
 def _control_path(calls) -> str:
@@ -37,7 +42,7 @@ def test_master_then_commands_share_one_login(fake_ssh):
     calls = ssh_calls(fake_ssh)
     assert sum("-M" in c for c in calls) == 1
     assert all("BatchMode=yes" in " ".join(c) for c in calls if "-S" in c)
-    assert any(c[-2:] == ["-O", "exit"] or "exit" in c for c in calls)  # closed at the end
+    assert _is_exit(calls[-1])  # closed at the end, and by the last call
     assert not Path(_control_path(calls)).parent.exists()  # and its directory is gone
 
 
@@ -48,7 +53,7 @@ def test_master_options(fake_ssh):
     master = " ".join(next(c for c in calls if "-M" in c))
     for option in (
         "ControlMaster=yes",
-        "ControlPersist=60",
+        "ControlPersist=300",
         "ServerAliveInterval=15",
         "ServerAliveCountMax=4",
     ):
@@ -58,6 +63,28 @@ def test_master_options(fake_ssh):
     assert master.split()[-1] == "venona"
     control = Path(_control_path(calls))
     assert len(os.fsencode(control)) < 100
+
+
+def test_an_exception_in_the_block_still_closes_the_master(fake_ssh):
+    with pytest.raises(KeyError):
+        with SshSession(resolve_destination("venona")) as s:
+            s.run("true")
+            raise KeyError("a failure in the block")
+    calls = ssh_calls(fake_ssh)
+    assert _is_exit(calls[-1])
+    assert not Path(_control_path(calls)).parent.exists()
+
+
+def test_every_client_uses_the_master_and_never_asks(fake_ssh):
+    with SshSession(resolve_destination("venona")) as s:
+        s.run("true")
+        s.popen("true").communicate()
+    clients = [c for c in ssh_calls(fake_ssh) if "-T" in c]
+    assert len(clients) == 2
+    for call in clients:
+        assert "-S" in call
+        words = " ".join(call)
+        assert "-o ControlMaster=no" in words and "-o BatchMode=yes" in words
 
 
 def test_control_directory_is_private(fake_ssh):
@@ -72,9 +99,12 @@ def test_control_path_stays_short_when_the_temporary_directory_is_long(
 ):
     long = tmp_path / ("d" * 90)
     long.mkdir()
+    short = tmp_path / "short"
+    short.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(long))
+    monkeypatch.setattr(ssh, "_FALLBACK_DIRECTORY", str(short))
     with SshSession(resolve_destination("venona")) as s:
-        assert len(os.fsencode(s._control)) + 17 < 104
+        assert Path(s._control).parent.parent == short
         assert s.check()
 
 
@@ -126,14 +156,30 @@ def test_destination_is_resolved_by_ssh_g(fake_ssh, text, user, hostname, port):
 
 
 def test_ssh_options_reach_every_ssh_process(fake_ssh):
-    options = ["-o", "Port=2200", "-F", "/dev/null"]
+    options = ["-F", "/dev/null"]
     destination = resolve_destination("venona", options)
-    assert destination.port == 2200
     with SshSession(destination, options) as s:
-        s.run(sh_command("true"))
+        s.run("true")
     calls = ssh_calls(fake_ssh)
     assert len(calls) >= 5
     assert all(c[c.index("-F") + 1] == "/dev/null" for c in calls)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [["-o", "Port=2200"], ["-F"], ["-F", ""], ["-F", "a", "-v"], ["-oProxyCommand=x", "a"]],
+)
+def test_only_configuration_file_options_are_accepted(fake_ssh, options):
+    with pytest.raises(ValueError):
+        resolve_destination("venona", options)
+    with pytest.raises(ValueError):
+        SshSession(Destination("venona", "u", "venona", 22), options)
+
+
+def test_a_destination_made_by_hand_is_checked(fake_ssh):
+    for text in ("-oProxyCommand=x", "a b", ""):
+        with pytest.raises(RemoteConfigError):
+            SshSession(Destination(text, "u", "h", 22))
 
 
 def test_sh_command_quotes_only_plain_tokens():
@@ -149,9 +195,17 @@ def test_sh_command_quotes_only_plain_tokens():
         sh_command("")
     with pytest.raises(ValueError):
         sh_command("a b")
+    with pytest.raises(ValueError):
+        sh_command("probe", "=ls")  # zsh would expand it to a path
+    with pytest.raises(ValueError):
+        sh_command("-s", "x")
+    with pytest.raises(ValueError):
+        sh_command("-")
 
 
-@pytest.mark.parametrize("bad", ['/a"b', "/a$b", "/a`b", "/a\\b", "/a!b", "/a\nb", ""])
+@pytest.mark.parametrize(
+    "bad", ['/a"b', "/a$b", "/a`b", "/a\\b", "/a!b", "/a\nb", "", "rel/x.sh", "x.sh"]
+)
 def test_sh_command_refuses_an_unsafe_script_path(bad):
     with pytest.raises(ValueError):
         sh_command("x", script_path=bad)
@@ -194,21 +248,10 @@ def test_run_returns_the_status_255_of_the_command_while_the_master_lives(fake_s
 
 
 def test_run_times_out(fake_ssh):
-    fifo = fake_ssh / "never"
-    os.mkfifo(fifo)
     with SshSession(resolve_destination("venona")) as s:
-        try:
-            with pytest.raises(subprocess.TimeoutExpired):
-                s.run('exec cat "$HOME/never"', timeout=0.5)
-        finally:  # let the orphaned `cat` read end of file
-            _open_and_close(fifo)
-
-
-def _open_and_close(fifo: Path) -> None:
-    try:
-        os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
-    except OSError:  # no reader: the command is gone already
-        pass
+        # The remote command ends by itself after 10 s, so it cannot outlive the test for long.
+        with pytest.raises(subprocess.TimeoutExpired):
+            s.run("exec sleep 10", timeout=0.3)
 
 
 def test_login_noise_comes_first_on_stdout(fake_ssh, monkeypatch):
@@ -232,13 +275,13 @@ def test_popen_streams_both_ways_in_binary(fake_ssh):
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
 def test_command_clients_ignore_sigint(fake_ssh, monkeypatch):
+    """The fake reports the disposition of SIGINT in its own process, which is the client. It
+    does not depend on the disposition in this process (SIGINT is ignored under `pytest &`)."""
     monkeypatch.setenv("XEDA_FAKE_SSH_REPORT_SIGINT", "1")
     with SshSession(resolve_destination("venona")) as s:
-        process = s.popen(sh_command("true"))
-        out, _ = process.communicate(timeout=PATIENCE)
+        out, _ = s.popen(sh_command("true")).communicate(timeout=PATIENCE)
         assert out.decode().splitlines()[0] == "SIGINT ignored"
-        # The check and the master are not clients of this kind, and the parent keeps SIGINT.
-        assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+        assert s.run("true").stdout.decode().splitlines()[0] == "SIGINT ignored"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
@@ -249,18 +292,20 @@ def test_the_remote_command_starts_with_the_default_sigint(fake_ssh):
 
 
 def _wait_for_line(path: Path, text: bytes) -> None:
-    """Wait until a process writes `text` to the FIFO at `path`."""
+    """Wait until a process writes `text` to the FIFO at `path`; fail after `PATIENCE` seconds."""
+    deadline = time.monotonic() + PATIENCE
     fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
     try:
         data = b""
         while text not in data:
-            ready, _, _ = select.select([fd], [], [], PATIENCE)
-            assert ready, f"{text!r} did not arrive"
-            chunk = os.read(fd, 100)
-            if chunk:
-                data += chunk
-            else:  # no writer yet
-                select.select([], [], [], 0.01)
+            remaining = deadline - time.monotonic()
+            assert remaining > 0, f"{text!r} did not arrive"
+            # a FIFO without a writer reads as end of file at once, and select returns at once
+            ready, _, _ = select.select([fd], [], [], min(remaining, 0.05))
+            chunk = os.read(fd, 100) if ready else b""
+            data += chunk
+            if ready and not chunk:
+                select.select([], [], [], min(remaining, 0.01))
     finally:
         os.close(fd)
 

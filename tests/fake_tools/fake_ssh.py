@@ -33,8 +33,10 @@ arguments, joined with one space, is the command):
   -S <path> -O check   exit 0 if the marker exists, else 255 with "Control socket connect(...)"
   -S <path> -O exit    remove the marker (exit 0), else 255 as for check
   -S <path> <dest> <command>
-                       if the marker does not exist, exit 255 with "Control socket connect(...)",
-                       as a client does whose master was never there; otherwise run the command
+                       if the marker does not exist, exit 255 with "Control socket connect(...)";
+                       otherwise run the command. (A real client may open a connection of its own
+                       instead, if the master ended before it connected. The fake always fails,
+                       so that a test sees the case.)
   <dest> <command>     without `-S` or a control path: run the command
 
 The command mode keeps stdin, stdout and stderr as pipes to the command, byte for byte, as
