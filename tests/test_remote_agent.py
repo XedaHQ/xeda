@@ -733,6 +733,27 @@ def test_clean_by_age_keeps_what_was_used_lately(tmp_path):
     assert new.exists() and not old.exists()
 
 
+def test_clean_list_removes_nothing_and_names_what_a_removal_would_remove(tmp_path):
+    (tmp_path / "home").mkdir()
+    base = tmp_path / "remote" / "v1"
+    for name in ("idle", "locked"):
+        (base / "ws" / name / "inputs").mkdir(parents=True)
+        (base / "ws" / name / "lock").write_text("")
+    (base / "env" / "unused").mkdir(parents=True)
+    root = str(tmp_path / "remote")
+    with (base / "ws" / "locked" / "lock").open("rb") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        listed = run_command("clean", root, "--all", "--list", tmp_path=tmp_path)
+        assert {p.name for p in base.glob("*/*")} == {"idle", "locked", "unused"}
+        removed = run_command("clean", root, "--all", tmp_path=tmp_path)
+    assert "removed" not in listed and "removable" not in removed
+    assert listed["removable"] == removed["removed"]
+    assert {Path(item["path"]).name for item in listed["removable"]} == {"idle", "unused"}
+    assert listed["kept"] == removed["kept"]
+    assert [item["reason"] for item in listed["kept"]] == ["locked"]
+    assert not (base / "ws" / "idle").exists() and (base / "ws" / "locked").exists()
+
+
 # ---------------------------------------------------------------------------------------------
 # Output never delays a cancel or the lease
 

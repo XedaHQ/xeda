@@ -28,6 +28,8 @@ class Vcs(SimFlow):
     UCLI time checkpoints alone do not establish HDL completion.
     """
 
+    executables = ("vcs", "vlogan", "vhdlan")
+
     #: `vlogan` analyzes Verilog and SystemVerilog sources and finds a header through the directory
     #: it lies in (`+incdir+`). `vhdlan` analyzes VHDL.
     reads_sources = frozenset(

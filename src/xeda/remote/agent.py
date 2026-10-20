@@ -40,8 +40,9 @@ SIGTERM to it and to its descendants after the first grace period, SIGKILL to wh
 the second. The periods run on the clock of the agent. The result is sent only after all of them
 are gone.
 
-`check [--json] <executables...>` and `clean <root> [--older-than DAYS] [--all]` write `MAGIC` and
-then one JSON document and a newline.
+`check [--json] <executables...>` and `clean <root> [--older-than DAYS] [--all] [--list]` write
+`MAGIC` and then one JSON document and a newline. With `--list`, `clean` removes nothing and
+reports what it would remove as `removable`, in place of `removed`.
 """
 
 import argparse
@@ -1059,7 +1060,7 @@ def _provisioning(root: Path) -> bool:
     return False
 
 
-def clean(root: Path, older_than: float, everything: bool) -> dict[str, Any]:
+def clean(root: Path, older_than: float, everything: bool, remove: bool = True) -> dict[str, Any]:
     """Remove environments, code copies and workspaces that nobody uses.
 
     A workspace is in use while its lock is held or a launch of it runs. An environment or a code
@@ -1068,7 +1069,11 @@ def clean(root: Path, older_than: float, everything: bool) -> dict[str, Any]:
 
     A link is never entered, and a lock that is a link or no regular file is never opened for
     more than a look. What cannot be examined or removed (an `OSError` or another error for one
-    candidate) is listed in `kept` with the reason, and the rest goes on."""
+    candidate) is listed in `kept` with the reason, and the rest goes on.
+
+    Without `remove`, nothing is removed. The document then lists what a call with `remove` would
+    remove under `removable`, in place of `removed`. Both calls examine every candidate in the
+    same way."""
     removed: list[dict[str, str]] = []
     kept: list[dict[str, str]] = []
     base = root / LAYOUT
@@ -1106,7 +1111,8 @@ def clean(root: Path, older_than: float, everything: bool) -> dict[str, Any]:
                 elif not old_enough(_newest([path, path / "last-use"])):
                     keep(kind, path, "recently used")
                 else:
-                    _remove_tree(path)
+                    if remove:
+                        _remove_tree(path)
                     removed.append({"kind": kind, "path": str(path)})
             except Exception as error:  # pylint: disable=broad-except
                 keep(kind, path, f"error: {type(error).__name__}: {error}")
@@ -1143,14 +1149,15 @@ def clean(root: Path, older_than: float, everything: bool) -> dict[str, Any]:
             ):
                 keep("workspace", path, "recently used")
             else:
-                _remove_tree(path)
+                if remove:
+                    _remove_tree(path)
                 removed.append({"kind": "workspace", "path": str(path)})
         except Exception as error:  # pylint: disable=broad-except
             keep("workspace", path, f"error: {type(error).__name__}: {error}")
         finally:
             if descriptor is not None:
                 os.close(descriptor)
-    return {"removed": removed, "kept": kept}
+    return {"removed" if remove else "removable": removed, "kept": kept}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1180,6 +1187,9 @@ def _parser() -> argparse.ArgumentParser:
     clean_command.add_argument("root")
     clean_command.add_argument("--older-than", type=float, metavar="DAYS", default=_DEFAULT_DAYS)
     clean_command.add_argument("--all", action="store_true", dest="everything")
+    clean_command.add_argument(
+        "--list", action="store_true", dest="list_only", help="remove nothing; list what would go"
+    )
     return parser
 
 
@@ -1204,16 +1214,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if arguments.command == "check":
         document: Any = check(arguments.executables)
     elif arguments.command == "clean":
+        key = "removable" if arguments.list_only else "removed"
         if not os.path.isabs(arguments.root):
             error = RemoteProtocolError("the root must be an absolute path")
             print(f"xeda agent: {error}", file=sys.stderr)
-            document, status = {"removed": [], "kept": [], "error": _error_document(error)}, 2
+            document, status = {key: [], "kept": [], "error": _error_document(error)}, 2
         else:
             try:
-                document = clean(Path(arguments.root), arguments.older_than, arguments.everything)
+                document = clean(
+                    Path(arguments.root),
+                    arguments.older_than,
+                    arguments.everything,
+                    not arguments.list_only,
+                )
             except Exception as error:  # pylint: disable=broad-except
                 print(f"xeda agent: {type(error).__name__}: {error}", file=sys.stderr)
-                document, status = {"removed": [], "kept": [], "error": _error_document(error)}, 1
+                document, status = {key: [], "kept": [], "error": _error_document(error)}, 1
     else:
         return _serve(arguments, protocol)
     protocol.write(json.dumps(document).encode("utf-8") + b"\n")

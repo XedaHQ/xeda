@@ -22,6 +22,7 @@ from .cli_types import (
 )
 from .flow_catalog import flow_names
 from .pdk_cli import add_pdk_commands
+from .remote.commands import add_remote_commands
 
 # Click resolves completion before invoking command callbacks. Share the declarations below,
 # but keep execution and help-rendering dependencies out of a completion process.
@@ -384,6 +385,23 @@ def pdk():
 
 
 add_pdk_commands(pdk, DeclaredEnvvarsCommand, CONTEXT_SETTINGS)
+
+
+@cli.group(
+    "remote",
+    context_settings=CONTEXT_SETTINGS,
+    cls=XedaHelpGroup,
+    short_help="Check and clean remote hosts.",
+)
+def remote_group():
+    """The hosts that `xeda run --remote HOST` uses.
+
+    `check` connects to a host, makes the environment of xeda there if it is missing, and reports
+    what a remote run finds. `clean` removes the environments and workspaces that nobody uses.
+    """
+
+
+add_remote_commands(remote_group, DeclaredEnvvarsCommand, CONTEXT_SETTINGS)
 
 
 @cli.command(

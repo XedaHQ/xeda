@@ -40,6 +40,8 @@ def get_hier(dct, dotted_path, default=None):
 class Dc(AsicSynthFlow):
     """Synthesize a design for an ASIC with Synopsys Design Compiler."""
 
+    executables = ("dc_shell",)
+
     #: `num_cells_sequentual` is a misspelling. It is the name of the regex group that parses the
     #: area report, so `results.json` has this key. Scripts read it, so the key stays. The correct
     #: spelling is added next to it, as for the canonical aliases of every flow.

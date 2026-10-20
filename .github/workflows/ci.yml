@@ -149,6 +149,7 @@ jobs:
   #   process groups, signals, file locks (flock) and process trees (psutil): test_remote_agent
   #   a SIGINT handler during a launch, a killed SSH client and the processes of a cancelled
   #     launch on the same machine: test_remote_client
+  #   the file locks that `xeda remote clean` finds held, on a fake remote host: test_remote_commands
   macos:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
@@ -208,6 +209,7 @@ jobs:
           tests/test_remote_provision.py
           tests/test_remote_agent.py
           tests/test_remote_client.py
+          tests/test_remote_commands.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only

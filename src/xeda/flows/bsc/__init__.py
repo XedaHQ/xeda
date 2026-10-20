@@ -338,6 +338,8 @@ def _verilog_modules(path: Path) -> list[str]:
 class BscFlow(Flow, metaclass=ABCMeta):
     """Compile Bluespec with bsc: the settings and the compilation `bsc` and `bsc_sim` share."""
 
+    executables = ("bsc",)
+
     #: The name of the setting for the output directory, which `cleanup_bobjs` removes modules from.
     output_dir_setting: ClassVar[str]
 

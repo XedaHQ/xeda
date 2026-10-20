@@ -42,6 +42,8 @@ class FpgaPack(FpgaSynthFlow):
     The flow programs nothing. `openfpgaloader` programs a bitstream.
     """
 
+    executables = tuple(program for program, _ in PACKERS.values())
+
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
     #: The source types that the design hash counts for this flow: the routed configurations
