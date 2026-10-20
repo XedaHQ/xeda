@@ -46,7 +46,7 @@ from ..flow import Flow, FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
 from ..flow.flow import written_path_problems
 from ..flow.flow import map_keyed_path_leaves
-from ..dataclass import BaseModel, escape_opaque_names, is_locator, written_role
+from ..dataclass import AtomicName, BaseModel, is_locator, split_names_by_depth, written_role
 from ..listing import VCS_METADATA, directory_files
 from ..proc_utils import tool_output_stream
 from ..utils import (
@@ -309,6 +309,22 @@ def check_remote_xeda(
         )
 
 
+#: The depth of a name inside other names in a table of names (`A.B.C` inside `A.B` inside `A` is
+#: 2) that a remote run carries: the command line and the overrides of the remote are the two
+#: origins besides the design file. The overrides are those of the requested flow.
+MAX_NAME_DEPTH = 2
+
+
+def _plain_names(value: Any) -> Any:
+    """Return `value` with each `AtomicName` key written as the plain name it stands for."""
+    if isinstance(value, Mapping):
+        return {
+            (key.name if isinstance(key, AtomicName) else key): _plain_names(item)
+            for key, item in value.items()
+        }
+    return value
+
+
 def send_design(
     design: Design,
     conn,
@@ -318,7 +334,8 @@ def send_design(
     run_root: Path | None = None,
     path_identities: dict[str, str] | None = None,
     planned_flows: Collection[str] | None = None,
-    escaped_flows: list[str] | None = None,
+    name_layers: dict[int, dict[str, Any]] | None = None,
+    requested_flow: str | None = None,
 ) -> Tuple[str, str]:
     """Archive the design and transfer it to the remote host.
 
@@ -326,8 +343,15 @@ def send_design(
     others travel with the files they include. The settings of any other flow are not used, so
     they travel as path settings do and are not read.
 
-    `escaped_flows` receives the flows whose section holds a table with the names written escaped
-    (`escape_opaque_names`). The remote must read the design with `escaped_names`."""
+    A table of names from a tool or a netlist (`opaque_key_fields`) can hold `A` and `A.B`, which
+    the origins of a local run give separately. The design file of the remote is one origin, and
+    it expands a dotted key into nested tables, where `A` is a value and `A.B` is a key inside it.
+    So the design file holds the names that no other name contains, and `name_layers` receives
+    the others, by the depth of the name, each as a `flows` table of the flows of the plan. The
+    caller hands layer 1 to the remote as its command line and layer 2 as its overrides, which
+    merge name by name as the local origins did. The overrides are those of `requested_flow`
+    alone. The names of a flow outside the plan are not read, so the ones that are inside another
+    name are not sent."""
     assert isinstance(conn, Connection)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -594,18 +618,30 @@ def send_design(
                     section, design_root=design.root_path, runner_cwd=Path.cwd()
                 )
             except FlowSettingsError:
-                shipped_sections[name] = section
+                # Not read: the merge of the origins has made its names `AtomicName`s, which the
+                # remote would read as the escaped names of a user.
+                stated = _plain_names(section)
+                in_plan[0] = False
             else:
                 in_plan[0] = planned_flows is None or name in planned_flows
                 # Preserve explicitness: a section contributes only the keys it states.
                 rewritten = packaged_value(model)
-                # The design file of the remote is one origin, and it expands a dotted key. A
-                # table of `opaque_key_fields` that holds `A` and `A.B` is written with escaped
-                # names, and the remote reads the design with `escaped_names`.
                 stated = {key: rewritten[key] for key in model.model_fields_set}
-                shipped_sections[name] = escape_opaque_names(cls.Settings, stated)
-                if escaped_flows is not None and shipped_sections[name] != stated:
-                    escaped_flows.append(name)
+            if not isinstance(stated, Mapping):
+                shipped_sections[name] = stated
+                continue
+            shipped_sections[name], by_depth = split_names_by_depth(cls.Settings, stated)
+            if by_depth and in_plan[0] and name_layers is not None:
+                for depth, layer in by_depth.items():
+                    if depth > MAX_NAME_DEPTH or (depth == 2 and name != requested_flow):
+                        raise FlowSettingsException(
+                            f"`{name}` has a name inside names inside names ({depth + 1} deep) in "
+                            "a table of names of the tool; `--remote` carries that for the "
+                            "requested flow only, and up to 3 deep"
+                        )
+                    name_layers.setdefault(depth, {}).setdefault("flows", {})[name] = as_recorded(
+                        layer
+                    )
         new_design["flow"] = shipped_sections
         with open(design_file, "w") as f:
             # The encoder that `settings.json` uses: a pydantic model serializes through pydantic,
@@ -634,7 +670,7 @@ def remote_runner(
     flow_settings,
     env=None,
     path_identities=None,
-    escaped_names=False,
+    flow_overrides=None,
 ):
     # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
     """Unpack the design archive and run the flow in the remote Python process."""
@@ -721,16 +757,13 @@ def remote_runner(
     # separately, at the file-descriptor level, by `STREAM_OUTPUT_SETUP` (pure standard
     # library, with no Xeda involved). See `RemoteRunner.run_remote`.
     try:
-        # Only a design that needs it passes `escaped_names`, so that a remote without it runs
-        # every other request as before.
-        extra: dict = {"escaped_names": True} if escaped_names else {}
         with using_path_identities(path_identities or {}):
             f = launcher.run(
                 flow,
                 design=design_file,
                 design_allow_extra=True,
                 flow_settings=flow_settings,
-                **extra,
+                flow_overrides=flow_overrides or {},
             )
     except Exception:
         # The launcher records setup and producer failures before it raises again. Return that
@@ -1336,7 +1369,7 @@ class RemoteRunner(FlowLauncher):
             # Only now that the remote can read it.
             sections = {**sections, flow_name: as_recorded(input_settings)}
             path_identities: dict[str, str] = {}
-            escaped_flows: list[str] = []
+            name_layers: dict[int, dict[str, Any]] = {}
             zip_file, design_file = send_design(
                 design,
                 conn,
@@ -1345,7 +1378,8 @@ class RemoteRunner(FlowLauncher):
                 run_root=self._run_root,
                 path_identities=path_identities,
                 planned_flows={node.name for node in plan.nodes},
-                escaped_flows=escaped_flows,
+                name_layers=name_layers,
+                requested_flow=flow_name,
             )
 
             # From the first write to the mirror to its delivery, the mirror is this run's
@@ -1395,9 +1429,9 @@ class RemoteRunner(FlowLauncher):
                     zip_file=zip_file,
                     flow=flow_name,
                     design_file=design_file,
-                    flow_settings={},
+                    flow_settings=name_layers.get(1, {}),
+                    flow_overrides=name_layers.get(2, {}).get("flows", {}).get(flow_name, {}),
                     path_identities=path_identities,
-                    escaped_names=bool(escaped_flows),
                 )
                 if not results_channel.isclosed():
                     results_str = results_channel.receive()

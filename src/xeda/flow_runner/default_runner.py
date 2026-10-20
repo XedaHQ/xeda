@@ -35,7 +35,7 @@ from typing import (
 import yaml
 
 from ..artifacts import iter_artifact_paths
-from ..dataclass import XedaBaseModel, escaped_names_accepted, model_validator
+from ..dataclass import XedaBaseModel, model_validator
 from ..deliver import (
     OUTPUTS_TO,
     Conflict,
@@ -1797,28 +1797,10 @@ class FlowLauncher:
         design_allow_extra: bool = False,
         design_remove_fields: List[str] = [],
         target: str | None = None,
-        escaped_names: bool = False,
     ) -> Optional[Flow]:
         """Load and compose a request, then execute its resolved declared graph.
 
-        `target` selects one of the `targets` of the design, as `Design.from_file` does.
-        `escaped_names` is for the remote runner, which loads the design that the local side
-        wrote: the names of a table of `opaque_key_fields` that holds `A` and `A.B` are written
-        escaped there (`dataclass.escaped_names_accepted`)."""
-        if escaped_names:
-            with escaped_names_accepted():
-                return self.run(
-                    flow,
-                    design,
-                    xedaproject,
-                    flow_settings,
-                    flow_overrides,
-                    select_design_in_project,
-                    design_overrides,
-                    design_allow_extra,
-                    design_remove_fields,
-                    target,
-                )
+        `target` selects one of the `targets` of the design, as `Design.from_file` does."""
         # Where requests are not taken (`Dse`), refuse before loading what needs no design.
         # What does need it is listed there, and refused below, once the request is resolved.
         if not self.accepts_bindings:

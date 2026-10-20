@@ -6,9 +6,7 @@ from __future__ import annotations
 import logging
 import os
 from collections import Counter
-from collections.abc import Iterable, Iterator, Mapping
-from contextlib import contextmanager
-from contextvars import ContextVar
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from functools import cache, cached_property, wraps
 from inspect import signature
@@ -82,9 +80,7 @@ __all__ = [
     "opaque_key_fields_of",
     "opaque_key_declaration_problems",
     "opaque_key_paths",
-    "escape_opaque_names",
-    "escaped_names_accepted",
-    "names_are_escaped_by_a_peer",
+    "split_names_by_depth",
     "fold_dotted_keys",
     "atomic_keys",
     "AtomicName",
@@ -467,56 +463,39 @@ def opaque_key_paths(model: Type[BaseModel]) -> Tuple[str, ...]:
 ESCAPED_DOT = "\\."
 
 
-#: Whether the design that this code reads was written by the remote runner of a Xeda
-#: (`escaped_names_accepted`).
-_escaped_names_accepted: ContextVar[bool] = ContextVar("escaped_names_accepted", default=False)
+def split_names_by_depth(
+    model: Type[BaseModel], values: Mapping[str, Any]
+) -> Tuple[Dict[str, Any], Dict[int, Dict[str, Any]]]:
+    """Split the settings `values` of `model` into the origins that could have given them.
 
-
-@contextmanager
-def escaped_names_accepted() -> Iterator[None]:
-    """Read a name with `ESCAPED_DOT` in a table of `opaque_key_fields` as the name with plain
-    dots, and accept `A` with `A.B` in one table, for the body of the `with`.
-
-    A remote run uses this for its own load of the design that the local side shipped. The local
-    side judged the settings, and it wrote the names of a table that holds `A` and `A.B` escaped
-    (`escape_opaque_names`), since a design file is one origin, and it expands a dotted key into
-    nested tables, where `A` is a value and `A.B` is a key inside it. A key of a user with a
-    backslash before a dot is an error everywhere else."""
-    token = _escaped_names_accepted.set(True)
-    try:
-        yield
-    finally:
-        _escaped_names_accepted.reset(token)
-
-
-def names_are_escaped_by_a_peer() -> bool:
-    """Return whether `escaped_names_accepted` is in force."""
-    return _escaped_names_accepted.get()
-
-
-def escape_opaque_names(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str, Any]:
-    """Return `values`, the settings of `model` as a table, with the dots of every name written as
-    `ESCAPED_DOT` in each table of `opaque_key_fields` (at any depth) that holds a name inside
-    another name (`A` and `A.B`). Nothing else changes, and `values` stays as it is."""
+    A table of `opaque_key_fields` (at any depth) can hold `A` and `A.B`, because the origins of a
+    local run merge name by name. One origin cannot write both, since it writes a dotted key as
+    nested tables. So return `(base, layers)`: `base` is `values` with the names that no other
+    name of the table contains (depth 0), and `layers[n]` has the names that `n` other names
+    contain, in the same structure as `values`. The names of one layer hold none inside another.
+    Nothing else changes, and `values` stays as it is."""
     names = input_names(model)
     opaque = opaque_key_fields_of(model)
-    result: Dict[str, Any] = {}
+    base: Dict[str, Any] = {}
+    layers: Dict[int, Dict[str, Any]] = {}
     for key, value in values.items():
         target = names.get(key, key)
         info = model.model_fields.get(target)
         child = nested_model(info.annotation) if info is not None else None
         if target in opaque and isinstance(value, Mapping):
-            # Only a table that holds a name inside another one (`A`, `A.B`) cannot be written
-            # as nested tables; any other table goes as it is, and every reader takes it.
-            if name_inside_another(map(str, value)) is None:
-                result[key] = value
-            else:
-                result[key] = {str(AtomicName.of(name)): item for name, item in value.items()}
+            depth = {str(n): sum(str(n).startswith(f"{o}.") for o in value) for n in value}
+            base[key] = {n: item for n, item in value.items() if not depth[str(n)]}
+            for n, item in value.items():
+                if depth[str(n)]:
+                    layers.setdefault(depth[str(n)], {}).setdefault(key, {})[n] = item
         elif child is not None and isinstance(value, Mapping):
-            result[key] = escape_opaque_names(child, value)
+            inner, inner_layers = split_names_by_depth(child, value)
+            base[key] = inner
+            for depth_of, layer in inner_layers.items():
+                layers.setdefault(depth_of, {})[key] = layer
         else:
-            result[key] = value
-    return result
+            base[key] = value
+    return base, layers
 
 
 class AtomicName(str):
@@ -565,11 +544,11 @@ def fold_dotted_keys(value: Any) -> Any:
             if isinstance(key, AtomicName):
                 name = key.name
             elif isinstance(key, str):
-                if ESCAPED_DOT in key and not names_are_escaped_by_a_peer():
+                if ESCAPED_DOT in key:
                     from .utils import EscapedName
 
                     raise EscapedName(prefix + key)
-                name = key.replace(ESCAPED_DOT, ".")
+                name = key
             else:
                 return False
             path = prefix + name

@@ -43,7 +43,6 @@ from ..dataclass import (
     is_mistake,
     mapping_form,
     name_inside_another,
-    names_are_escaped_by_a_peer,
     nested_model,
     opaque_key_fields_of,
     opaque_key_paths,
@@ -364,11 +363,7 @@ def _atomic_table(key: str, value: Any) -> Any:
     of names already (`AtomicName` keys) is a merge of origins, which may. `key` is the dotted
     path of the setting."""
     atoms = atomic_keys(value)
-    if (
-        isinstance(atoms, Mapping)
-        and not any(isinstance(k, AtomicName) for k in value)
-        and not names_are_escaped_by_a_peer()
-    ):
+    if isinstance(atoms, Mapping) and not any(isinstance(k, AtomicName) for k in value):
         pair = name_inside_another(k.name for k in atoms)
         if pair is not None:
             raise ConflictingKeys(f"{key}.{pair[0]}", f"{key}.{pair[1]}")
