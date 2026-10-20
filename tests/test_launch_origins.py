@@ -15,6 +15,7 @@ settings; the design is never edited.
 """
 
 import copy
+import inspect
 import json
 import re
 from pathlib import Path
@@ -27,6 +28,7 @@ from xeda import Design
 from xeda.cli import cli
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.default_runner import FlowLauncher
 from xeda.flow_runner.dse import dse_runner
 from xeda.flow_runner.dse.dse_runner import Dse, Executioner
 from xeda.flow_runner.trace import as_recorded
@@ -396,14 +398,40 @@ def test_a_binding_in_flow_overrides_is_still_located_in_the_api(tmp_path):
 
 def test_one_constant_names_each_origin():
     """Every message takes the label of an origin from `settings_layers`
-    (`COMMAND_LINE_ORIGIN`, `API_ORIGIN`, `SUPPLIED_SECTIONS_ORIGIN`): no other module spells it
-    out."""
+    (`COMMAND_LINE_ORIGIN`, `API_ORIGIN`, `SUPPLIED_SECTIONS_ORIGIN`, `HOST_PROFILE_ORIGIN`): no
+    other module spells it out."""
     source = Path(__file__).parent.parent / "src" / "xeda"
     spelled = [
         f"{path.relative_to(source)}:{number}"
         for path in sorted(source.rglob("*.py"))
         if path.name != "settings_layers.py"
         for number, line in enumerate(path.read_text().splitlines(), 1)
-        if re.search(r"""["']the (command line|API|supplied (API )?flow sections)["']""", line)
+        if re.search(
+            r"""["']the (command line|API|supplied (API )?flow sections|host profile)["']""", line
+        )
     ]
     assert not spelled, f"spell an origin as a constant of settings_layers: {spelled}"
+
+
+#: Every way into a launch that takes layers of settings. All but one take the same layers.
+ENTRY_POINTS = [
+    "run",
+    "plan",
+    "plan_with_freshness",
+    "prepare_request",
+    "resolve",
+    "run_flow",
+    "launch_flow",
+]
+
+
+def test_only_prepare_request_takes_the_host_layer():
+    """The `flows` table of a host profile is the lowest layer of a remote run's settings, and
+    `prepare_request` is the one door that takes it. The other doors take the layers of a local
+    launch."""
+    taking = [
+        name
+        for name in ENTRY_POINTS
+        if {"host_flows", "host"} & set(inspect.signature(getattr(FlowLauncher, name)).parameters)
+    ]
+    assert taking == ["prepare_request"]

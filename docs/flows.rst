@@ -74,18 +74,19 @@ the same flow. An unrecognized name gets a list of close matches.
 Settings
 ========
 
-Every flow declares its own settings. A setting can come from six places. This is the order from
+Every flow declares its own settings. A setting can come from seven places. This is the order from
 the lowest to the highest precedence:
 
 1. the defaults of the flow
-2. the ``flows.<flow_name>`` section of a project file (``xedaproject.yaml``)
-3. the ``flows.<flow_name>`` section of the design file
-4. the ``flows.<flow_name>`` section of the selected target, if you chose a target with
+2. with ``--remote``, the ``flows`` section of the host profile
+3. the ``flows.<flow_name>`` section of a project file (``xedaproject.yaml``)
+4. the ``flows.<flow_name>`` section of the design file
+5. the ``flows.<flow_name>`` section of the selected target, if you chose a target with
    ``--target`` (see :ref:`targets`)
-5. the command line, with ``-s`` or ``--settings``. The ``flow_settings`` argument of ``run()`` and
+6. the command line, with ``-s`` or ``--settings``. The ``flow_settings`` argument of ``run()`` and
    ``plan()`` is the same layer, so messages call it "the command line (``-s``) or
    ``flow_settings``".
-6. the API, with ``flow_overrides``
+7. the API, with ``flow_overrides``
 
 The layers merge key by key. ``-s clock.freq=100MHz`` changes that one setting of a ``clock``
 section from the design file and does not replace the whole section. A higher layer replaces only

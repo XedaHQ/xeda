@@ -1,6 +1,7 @@
 """How a flow's settings layers combine (`xeda.flow_runner.settings_layers`).
 
-Lowest precedence first: the flow's defaults, the project's `flows` section, the design's
+Lowest precedence first: the flow's defaults, the `flows` table of the host profile of a remote
+run, the project's `flows` section, the design's
 `[flows.<flow>]` section, the command line's `-s`. Layers merge deeply -- `-s yosys.flatten=true`
 changes one setting of a nested section instead of replacing it -- and a local run, a remote run
 and a dependency's settings all combine them the same way.
@@ -15,7 +16,12 @@ import pytest
 from xeda import Design
 from xeda.flow import FlowSettingsError, flowrun_hash
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import merge_flow_sections, merge_layers, split_flow_sections
+from xeda.flow_runner.settings_layers import (
+    compose_flow_settings,
+    merge_flow_sections,
+    merge_layers,
+    split_flow_sections,
+)
 from xeda.flows import GhdlSim, Nextpnr, VivadoPostsynthSim, VivadoSynth, YosysFpga
 from xeda.xedaproject import XedaProject
 
@@ -66,6 +72,22 @@ def test_merging_leaves_every_layer_unchanged():
     design = {"yosys": {"abc9": True}}
     merge_layers(design, {"yosys": {"flatten": True}})
     assert design == {"yosys": {"abc9": True}}
+
+
+def test_a_host_profile_section_is_the_lowest_origin_of_a_flow():
+    host = {"vivado_synth": {"nthreads": 8, "fail_timing": True}}
+    project = {"vivado_synth": {"nthreads": 4}}
+    design = {"vivado_synth": {"fail_timing": False}}
+
+    assert compose_flow_settings(VivadoSynth, [host]) == host["vivado_synth"]
+    assert compose_flow_settings(VivadoSynth, [host, project]) == {
+        "nthreads": 4,
+        "fail_timing": True,
+    }
+    assert compose_flow_settings(VivadoSynth, [host, project, design]) == {
+        "nthreads": 4,
+        "fail_timing": False,
+    }
 
 
 def test_a_design_section_refines_the_projects_section_for_the_same_flow():
