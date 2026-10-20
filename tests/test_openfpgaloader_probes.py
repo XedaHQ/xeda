@@ -301,6 +301,36 @@ def test_the_current_scan_rejects_a_serial_shifted_by_an_overlong_manufacturer()
     assert not probe.serial_readable
 
 
+def test_the_current_scan_rejects_a_manufacturer_tail_aligned_with_the_serial_column():
+    # The 18-character manufacturer prefix ends at the header's serial offset. The X word then
+    # looks like a full-width serial, while the actual serial starts after the advertised product
+    # boundary.
+    manufacturer = "A" * 17 + " " + "X" * 12
+    scan = _current_scan([(1, 3, "0x0403:0x6010", "FTDI2232", manufacturer, ARTY, "My Probe")])
+    (probe,) = parse_scan_usb(scan)
+    assert probe.serial is None
+    assert not probe.serial_readable
+
+
+def test_the_current_scan_rejects_an_overlong_shifted_serial_after_a_manufacturer_tail():
+    manufacturer = "A" * 17 + " " + "X" * 12
+    shifted_serial = "serial+with:punctuation-123456"
+    scan = _current_scan(
+        [(1, 3, "0x0403:0x6010", "FTDI2232", manufacturer, shifted_serial, "My Probe")]
+    )
+    (probe,) = parse_scan_usb(scan)
+    assert probe.serial is None
+    assert not probe.serial_readable
+
+
+def test_the_current_scan_preserves_an_overlong_serial_in_its_column():
+    serial = "serial+with:punctuation-123456"
+    scan = _current_scan([(1, 3, "0x0403:0x6010", "FTDI2232", "Digilent", serial, "My Probe")])
+    (probe,) = parse_scan_usb(scan)
+    assert probe.serial == serial
+    assert probe.serial_readable
+
+
 def test_a_bus_or_device_number_above_127_is_read_as_the_loader_meant_it():
     """The loader prints the numbers with `std::to_string(char)`: 161 comes out as -95."""
     scan = (

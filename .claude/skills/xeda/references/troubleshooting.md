@@ -183,16 +183,11 @@ A Xilinx 7-series build fails before or during `nextpnr`:
   run's log; more are in `nextpnr.log`.
 - `openfpgaloader`: the loader can exit 0 after a failure. Xeda reads `openfpgaloader.log` and
   fails with `ReportedFailure`, quoting the lines. An ID error means the bitstream is for another
-  device than the one on the cable. With several boards of one kind connected, the flow chooses
-  the probe when it can (it logs the choice). Otherwise name the probe with `usb_serial_num`.
-  To list the serial numbers, run `openFPGALoader --scan-usb`.
-  `openFPGALoader has N probes on the cable ...` means no probe has an FPGA that matches the part,
-  several do, or one does beside a probe that could not be read. The message lists the probes, each
-  with the `usb_serial_num` that names it. `Can't program SPI flash: missing device-package
-  information` means the loader's list gives the board no part: set `cable` as well. A Xilinx
-  `write_flash` whose log lacks the finished write (`Writing: [...] 100.00%` then `Done`, or
-  `Writing: Done` with quiet bars) did not finish it: a locked flash can stop the loader before it
-  writes. `verify` does not report that.
+  device than the one on the cable. `Can't program SPI flash: missing device-package information`
+  means the loader's list gives the board no part: set `cable` as well. A Xilinx `write_flash`
+  whose log lacks the finished write (`Writing: [...] 100.00%` then `Done`, or `Writing: Done`
+  with quiet bars) did not finish it: a locked flash can stop the loader before it writes. `verify`
+  does not report that.
 
 A 7-series bitstream can compute the wrong result with timing met. Some openXC7 `nextpnr-himbaechel`
 builds write wrong bits with no error: the 1.0 release and `1.0.0-41-g3e5c2cdd` have none of the

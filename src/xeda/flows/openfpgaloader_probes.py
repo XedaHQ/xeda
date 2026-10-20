@@ -155,16 +155,13 @@ def _scan_header(lines: list[str]) -> Optional[str]:
     )
 
 
-def _scan_serial_candidates(
-    line: str, start: int, width: int, separator_after: bool
-) -> list[tuple[int, str]]:
-    """Return tokens whose following padding fits a serial column of at least `width` chars.
+def _scan_serial_candidates(line: str, start: int, width: int) -> list[tuple[int, str]]:
+    """Return tokens that fit a serial field of at least `width` chars plus its separator.
 
-    The loader left-aligns the serial in a fixed-width field and adds one separator before the
-    product. The oldest format has a separator after the fixed-width field; newer headers include
-    that space in the column width. The loader permits values wider than the field. An overlong
-    preceding column can move its text into the advertised serial position, so more than one
-    candidate makes the row ambiguous.
+    The loader left-aligns the serial in a fixed-width field, then adds a separator before the
+    product. The width is a minimum: a longer value can extend beyond it. An overlong preceding
+    column can move its text into the advertised serial position, so more than one candidate makes
+    the row ambiguous.
     """
     candidates = []
     for token in re.finditer(r"\S+", line[start:]):
@@ -174,9 +171,7 @@ def _scan_serial_candidates(
         value = token.group()
         token_end = token_start + len(value)
         field_end = token_start + max(width, len(value))
-        if field_end > len(line) or (
-            separator_after and (field_end >= len(line) or not line[field_end].isspace())
-        ):
+        if field_end >= len(line) or not line[field_end].isspace():
             continue
         if any(not char.isspace() for char in line[token_end:field_end]):
             continue
@@ -226,9 +221,7 @@ def parse_scan_usb(text: str) -> list[UsbProbe]:
     probe_at, manufacturer_at, serial_at, product_at = (
         re.search(name, header).start() for name in _SCAN_COLUMNS  # type: ignore[union-attr]
     )
-    old_scan = re.search(r"probe\s+type", header, re.IGNORECASE) is not None
-    separator_after = old_scan
-    serial_width = max(1, product_at - serial_at - int(separator_after))
+    serial_width = max(1, product_at - serial_at - 1)
     probes = []
     for line in lines:
         found = _SCAN_ROW.match(line)
@@ -236,10 +229,7 @@ def parse_scan_usb(text: str) -> list[UsbProbe]:
             continue
         probe_type = line[probe_at:manufacturer_at].strip()
         serial_field = line[serial_at:product_at]
-        candidate_line = line if separator_after else line[:product_at]
-        candidates = _scan_serial_candidates(
-            candidate_line, serial_at, serial_width, separator_after
-        )
+        candidates = _scan_serial_candidates(line, serial_at, serial_width)
         serial_readable = len(line) >= product_at and (
             (not serial_field.strip() and not candidates)
             or (len(candidates) == 1 and candidates[0][0] == serial_at)
