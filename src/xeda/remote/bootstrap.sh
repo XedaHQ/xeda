@@ -105,6 +105,9 @@ XEDA_BOOT_HOST=$(uname -n)
 XEDA_BOOT_POLL=${XEDA_LOCK_POLL:-1}
 #: Seconds after which a lock that another process holds is reported, not waited for.
 XEDA_BOOT_LOCK_LIMIT=1800
+#: Seconds after which a lock without a readable owner is broken. The process that makes a lock
+#: writes its owner file at once, so an older lock has no owner that is still on its way.
+XEDA_BOOT_ORPHAN_GRACE=5
 #: Free space in KB below which a failed step is reported as a full disk.
 XEDA_BOOT_LOW_DISK_KB=51200
 
@@ -182,22 +185,47 @@ make_work() {
 # A lock is the directory `locks/<name>.lock` with the file `owner`: the host, the process and the
 # time. A lock whose owner process is gone on this host is broken, and a lock whose owner process
 # is alive on this host is waited for. This script cannot know whether a process on another host
-# is alive, so it reports the lock of another host that is older than the limit.
+# is alive, so it reports the lock of another host that is older than the limit. A lock without
+# a readable owner is broken once its directory is older than the grace period.
 
 process_alive() {
     kill -0 "$1" 2>/dev/null || [ -d "/proc/$1" ]
 }
 
+# The modification time of the path $1 in seconds since the epoch. The GNU and the BSD form of
+# `stat` differ. A system that has neither prints nothing.
+mtime_of() {
+    stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || :
+}
+
+# Whether the lock directory $1 is older than the grace period. A lock without a modification
+# time is not old.
+lock_is_old() {
+    XEDA_BOOT_MTIME=$(mtime_of "$1")
+    case $XEDA_BOOT_MTIME in
+        '' | *[!0-9]*) return 1 ;;
+    esac
+    [ $(($(date +%s) - XEDA_BOOT_MTIME)) -gt "$XEDA_BOOT_ORPHAN_GRACE" ]
+}
+
 # Break the lock directory $1 if its owner is still the one in $2, $3 and $4. Only one process
 # breaks a lock at a time, and it checks the owner again, so that no process breaks a new lock.
+# An owner that is not complete (no host, process or time) breaks the lock only if the lock is
+# still old, because a new lock has no owner for a moment after it is made.
 # The break directory holds the time it was made. One that is older than the limit belongs to a
 # process that stopped, and it is removed.
 break_lock() {
     XEDA_BOOT_BREAKER=$1.break
     if mkdir "$XEDA_BOOT_BREAKER" 2>/dev/null; then
         date +%s >"$XEDA_BOOT_BREAKER/time"
-        if read -r XEDA_BOOT_AGAIN_HOST XEDA_BOOT_AGAIN_PID XEDA_BOOT_AGAIN_TIME XEDA_BOOT_REST 2>/dev/null <"$1/owner" \
-            && [ "$XEDA_BOOT_AGAIN_HOST $XEDA_BOOT_AGAIN_PID $XEDA_BOOT_AGAIN_TIME" = "$2 $3 $4" ]; then
+        XEDA_BOOT_AGAIN_HOST=
+        XEDA_BOOT_AGAIN_PID=
+        XEDA_BOOT_AGAIN_TIME=
+        if [ -r "$1/owner" ]; then
+            read -r XEDA_BOOT_AGAIN_HOST XEDA_BOOT_AGAIN_PID XEDA_BOOT_AGAIN_TIME XEDA_BOOT_REST 2>/dev/null <"$1/owner" || :
+        fi
+        if [ "$XEDA_BOOT_AGAIN_HOST $XEDA_BOOT_AGAIN_PID $XEDA_BOOT_AGAIN_TIME" = "$2 $3 $4" ] \
+            && { [ -n "$2" ] && [ -n "$3" ] && [ -n "$4" ] || lock_is_old "$1"; }; then
             rm -rf "$1"
         fi
         rm -rf "$XEDA_BOOT_BREAKER"
@@ -218,7 +246,6 @@ acquire() {
     XEDA_BOOT_LOCK=$XEDA_BOOT_LOCKS/$XEDA_BOOT_NAME.lock
     mkdir -p "$XEDA_BOOT_LOCKS" || fail_step env-failed "Cannot create $XEDA_BOOT_LOCKS."
     XEDA_BOOT_ANNOUNCED=
-    XEDA_BOOT_UNKNOWN=0
     while :; do
         if mkdir "$XEDA_BOOT_LOCK" 2>/dev/null; then
             XEDA_BOOT_HELD_LOCKS="$XEDA_BOOT_HELD_LOCKS $XEDA_BOOT_NAME"
@@ -233,16 +260,16 @@ acquire() {
         fi
         case $XEDA_BOOT_OWNER_PID:$XEDA_BOOT_OWNER_TIME in
             *[!0-9:]* | :* | *:)
-                # The process that made the lock did not write its owner file yet, or it
-                # stopped before it did.
-                XEDA_BOOT_UNKNOWN=$((XEDA_BOOT_UNKNOWN + 1))
-                if [ "$XEDA_BOOT_UNKNOWN" -gt 60 ]; then
+                # The owner file is missing, empty or incomplete. The process that made the lock
+                # may still be writing it, so the lock is broken only when it is old.
+                if lock_is_old "$XEDA_BOOT_LOCK"; then
                     break_lock "$XEDA_BOOT_LOCK" "$XEDA_BOOT_OWNER_HOST" "$XEDA_BOOT_OWNER_PID" "$XEDA_BOOT_OWNER_TIME"
-                    XEDA_BOOT_UNKNOWN=0
+                    if [ ! -d "$XEDA_BOOT_LOCK" ]; then
+                        continue
+                    fi
                 fi
                 ;;
             *)
-                XEDA_BOOT_UNKNOWN=0
                 if [ "$XEDA_BOOT_OWNER_HOST" = "$XEDA_BOOT_HOST" ]; then
                     # A process on this host is alive or not, so wait for it, or break the lock.
                     if ! process_alive "$XEDA_BOOT_OWNER_PID"; then

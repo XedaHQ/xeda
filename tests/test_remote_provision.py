@@ -36,6 +36,7 @@ from xeda.remote.provision import (
     Provisioned,
     agent_command,
     ensure_environment,
+    env_hash,
     probe,
 )
 from xeda.remote.ssh import SshSession, resolve_destination, sh_command
@@ -219,7 +220,7 @@ def test_failed_download_names_the_url_and_keeps_the_output(fake_remote, snapsho
 #: The programs that the script and the installer use, besides the shell built-ins.
 UTILITIES = (
     "sh", "cat", "chmod", "date", "df", "dirname", "getconf", "gzip", "mkdir", "mv", "rm",
-    "rmdir", "sha256sum", "shasum", "sleep", "tar", "touch", "uname",
+    "rmdir", "sha256sum", "shasum", "sleep", "stat", "tar", "touch", "uname",
 )  # fmt: skip
 
 
@@ -705,6 +706,42 @@ def test_stale_break_directory_is_removed(fake_remote, snapshot):
     (locks / f"{name}.lock.break").mkdir()
     (locks / f"{name}.lock.break" / "time").write_text(f"{int(time.time()) - 10800}\n")
     provision_once(snapshot)
+    assert not list(locks.glob("*"))
+
+
+@pytest.mark.parametrize("owner", [None, ""], ids=["no-owner-file", "empty-owner-file"])
+def test_ownerless_lock_of_an_old_directory_is_broken(fake_remote, owner):
+    # A process that stopped after it made the lock, and before it wrote the owner file.
+    profile = HostProfile(env=FAST)
+    with SshSession(resolve_destination("venona")) as session:
+        found = probe(session, profile)
+    locks = fake_remote.layout / "locks"
+    lock = locks / f"uv-{UV_VERSION}-{FAKE_TARGET}.lock"
+    lock.mkdir(parents=True)
+    if owner is not None:
+        (lock / "owner").write_text(owner)
+    old = time.time() - 3600
+    os.utime(lock, (old, old))
+    key = dependency_key(SPEC, python_choice(profile.python), probe_platform())
+    # The step that takes the uv lock. A script that never breaks the lock times out here.
+    run = subprocess.run(
+        [
+            "sh",
+            found.boot,
+            "provision",
+            env_hash(profile.env),
+            key,
+            python_choice(profile.python).request,
+            UV_VERSION,
+            fake_remote.uv_url,
+            fake_remote.uv_sha256,
+        ],
+        input=b"R pydantic>=2\nC pydantic==2.14.1\n",
+        capture_output=True,
+        env=boot_environment(fake_remote),
+        timeout=60,
+    )
+    assert run.returncode == 0, run.stderr.decode(errors="replace")
     assert not list(locks.glob("*"))
 
 
