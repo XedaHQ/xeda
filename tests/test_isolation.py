@@ -1579,6 +1579,13 @@ REVIEWED_PY_DELETIONS = {
         "from it, no lock or running launch holds it). `clean` enters no link, and `rmtree` "
         "follows none",
     ),
+    ("remote/agent.py", "os.rename(path, hidden)"): (
+        1,
+        "`xeda.remote.agent clean`, on the remote host outside any run directory: a workspace "
+        "whose lock `clean` holds is renamed to a hidden name in the same directory, so that no "
+        "session works in it while `rmtree` deletes it. A rename replaces no file: the hidden "
+        "name has the process id of `clean`",
+    ),
     ("remote/manifest.py", "os.rmdir(name, dir_fd=parent)"): (
         1,
         "the remote sync, outside a run directory: a directory that `_remove_entry` has emptied "
@@ -2198,6 +2205,12 @@ REVIEWED_WRITES = [
         "file of a workspace, to try the lock. It creates and writes nothing, `O_NOFOLLOW` makes "
         "it fail on a link, and `O_NONBLOCK` keeps a FIFO from blocking it (`clean` then skips a "
         "lock that is no regular file)",
+    ),
+    (
+        "remote/agent.py",
+        "os.rename(path, hidden)",
+        "`xeda.remote.agent clean`, outside a run directory: the workspace whose lock `clean` "
+        "holds, renamed to a hidden name before its deletion (see `REVIEWED_PY_DELETIONS`)",
     ),
     (
         "remote/agent.py",

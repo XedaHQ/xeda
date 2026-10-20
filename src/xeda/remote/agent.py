@@ -49,6 +49,7 @@ removes nothing and reports what it would remove as `removable`, in place of `re
 import argparse
 import errno
 import fcntl
+import hashlib
 import io
 import json
 import os
@@ -1015,6 +1016,47 @@ def _remove_tree(path: Path) -> None:
     shutil.rmtree(path)
 
 
+#: The name prefix of a workspace that `clean` took out of use and is removing.
+_REMOVING = ".removing-"
+
+
+def _host_tag() -> str:
+    """A short name of this host for the name of a directory that is being removed."""
+    return hashlib.sha256(socket.gethostname().encode()).hexdigest()[:8]
+
+
+def _remove_workspace(path: Path) -> None:
+    """Remove a workspace whose lock this process holds. First rename it to a hidden name, which
+    no session uses: a session that waits for the lock then finds that its lock file is not the
+    one of the workspace, and starts a new workspace. Only then delete the tree. If the deletion
+    fails, the hidden directory stays, and the next `clean` removes it."""
+    hidden = path.with_name(f"{_REMOVING}{os.getpid()}-{_host_tag()}-{path.name}")
+    os.rename(path, hidden)
+    _remove_tree(hidden)
+
+
+def _remove_leftovers(directory: Path) -> None:
+    """Remove the directories that an earlier `clean` renamed and did not finish to delete, if
+    that `clean` ran on this host and its process is gone."""
+    try:
+        names = [n for n in os.listdir(directory) if n.startswith(_REMOVING)]
+    except OSError:
+        return
+    for name in names:
+        parts = name[len(_REMOVING) :].split("-", 2)
+        try:
+            pid, host = int(parts[0]), parts[1]
+        except (IndexError, ValueError):
+            continue
+        path = directory / name
+        if host != _host_tag() or psutil.pid_exists(pid) or path.is_symlink():
+            continue
+        try:
+            _remove_tree(path)
+        except OSError:
+            continue
+
+
 def _newest(paths: Iterable[Path]) -> float:
     newest = 0.0
     for path in paths:
@@ -1101,7 +1143,7 @@ def clean(
             if stat.S_ISLNK(directory.lstat().st_mode):
                 keep(kind, directory, "the directory is a link")
                 return []
-            names = sorted(directory.iterdir())
+            names = sorted(p for p in directory.iterdir() if not p.name.startswith(_REMOVING))
             return [p for p in names if only is None or str(p) in only]
         except FileNotFoundError:
             return []
@@ -1112,6 +1154,8 @@ def clean(
     def old_enough(newest: float) -> bool:
         return everything or newest < limit
 
+    if remove:
+        _remove_leftovers(base / "ws")
     busy = _provisioning(root)
     for kind in ("env", "code"):
         for path in candidates_in(kind, base / kind):
@@ -1167,7 +1211,7 @@ def clean(
                 keep("workspace", path, "recently used")
             else:
                 if remove:
-                    _remove_tree(path)
+                    _remove_workspace(path)
                 removed.append({"kind": "workspace", "path": str(path)})
         except Exception as error:  # pylint: disable=broad-except
             keep("workspace", path, f"error: {type(error).__name__}: {error}")

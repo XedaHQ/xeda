@@ -1055,8 +1055,6 @@ def test_the_lock_is_released_when_the_client_goes_away(tmp_path, start_agent):
 
 
 def test_a_session_that_waits_for_a_removed_workspace_takes_the_new_lock(tmp_path, start_agent):
-    import shutil
-
     ws = workspace(tmp_path)
     ws.mkdir(parents=True)
     with (ws / "lock").open("a") as held:
@@ -1074,15 +1072,72 @@ def test_a_session_that_waits_for_a_removed_workspace_takes_the_new_lock(tmp_pat
             }
         )
         agent.line("waiting for the workspace lock")  # the agent has the old file open
-        shutil.rmtree(ws)  # what `clean` does to a workspace that nobody holds
+        agent_module._remove_workspace(ws)  # what `clean` does, with the lock held
     # The old lock is free now, but its file is gone: the agent takes the lock file of the new
     # workspace, and holds that one.
     assert agent.send_needed(entries, DESIGN) == ["top.v", "top.yaml"]
     assert agent.get("synced") == {"written": 2, "removed": 0}
     assert (ws / "lock").is_file() and not lock_is_free(tmp_path)
+    assert (ws / "inputs" / "top" / "top.v").read_bytes() == DESIGN["top.v"]
     agent.send({"bye": True})
     assert agent.process.wait(timeout=TIMEOUT) == 0
     assert lock_is_free(tmp_path)
+    assert not [p for p in ws.parent.iterdir() if p.name.startswith(".removing-")]
+
+
+def test_a_session_during_a_removal_gets_a_fresh_workspace_and_keeps_its_inputs(
+    tmp_path, start_agent, monkeypatch
+):
+    """`clean` holds the lock and has taken the workspace out of use; its deletion has not ended.
+    A session that starts now must not work in the tree that is being deleted."""
+    ws = workspace(tmp_path)
+    (ws / "inputs" / "top").mkdir(parents=True)
+    (ws / "lock").write_text("")
+    (ws / "inputs" / "top" / "old.v").write_text("old")
+    deleting = threading.Event()
+    go = threading.Event()
+    real = agent_module._remove_tree
+    seen: list[Path] = []
+
+    def slow_remove(path: Path) -> None:
+        seen.append(path)
+        deleting.set()
+        assert go.wait(TIMEOUT)
+        real(path)
+
+    monkeypatch.setattr(agent_module, "_remove_tree", slow_remove)
+    cleaning = threading.Thread(
+        target=lambda: agent_module.clean(tmp_path / "remote", 30, everything=True), daemon=True
+    )
+    cleaning.start()
+    assert deleting.wait(TIMEOUT)
+    assert seen[0].name.startswith(".removing-") and not ws.exists()
+    agent = start_agent(env=dict(os.environ))
+    try:
+        agent.get("hello")
+        assert agent.sync(DESIGN, "run-1") == {"written": 2, "removed": 0}
+        assert (ws / "inputs" / "top" / "top.v").read_bytes() == DESIGN["top.v"]
+    finally:
+        go.set()
+        cleaning.join(TIMEOUT)
+    assert (ws / "inputs" / "top" / "top.v").is_file() and not seen[0].exists()
+    agent.send({"bye": True})
+    assert agent.process.wait(timeout=TIMEOUT) == 0
+
+
+def test_clean_removes_the_leftover_of_a_removal_that_ended_early(tmp_path):
+    ws = tmp_path / "remote" / "v1" / "ws"
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead.wait(timeout=TIMEOUT)  # its process id is free now
+    tag = agent_module._host_tag()
+    mine = ws / f"{agent_module._REMOVING}{dead.pid}-{tag}-abc"
+    other_host = ws / f"{agent_module._REMOVING}{dead.pid}-00000000-abc"
+    alive = ws / f"{agent_module._REMOVING}{os.getpid()}-{tag}-abc"
+    for path in (mine, other_host, alive):
+        (path / "inputs").mkdir(parents=True)
+    report = agent_module.clean(tmp_path / "remote", 30, everything=True)
+    assert not mine.exists() and other_host.exists() and alive.exists()
+    assert report["removed"] == [] and report["kept"] == []
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1227,7 +1282,7 @@ def test_clean_reports_what_it_cannot_remove_and_goes_on(tmp_path, monkeypatch):
     real = agent_module._remove_tree
 
     def remove(path: Path) -> None:
-        if path.name == "first":
+        if path.name.endswith("first"):
             raise PermissionError(13, "Permission denied", str(path))
         real(path)
 
@@ -1236,7 +1291,9 @@ def test_clean_reports_what_it_cannot_remove_and_goes_on(tmp_path, monkeypatch):
     assert {Path(item["path"]).name for item in report["removed"]} == {"second", "e1"}
     (failed,) = report["kept"]
     assert Path(failed["path"]).name == "first" and "Permission denied" in failed["reason"]
-    assert (base / "ws" / "first").exists()
+    # The workspace was out of use before the deletion failed: the next `clean` removes it.
+    assert not (base / "ws" / "first").exists()
+    assert any(p.name.startswith(".removing-") for p in (base / "ws").iterdir())
 
 
 def test_clean_prints_its_document_for_a_relative_root(tmp_path):
