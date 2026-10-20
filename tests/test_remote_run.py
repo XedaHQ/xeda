@@ -36,8 +36,6 @@ from xeda.flow import FlowException, FlowSettingsError, FlowSettingsException
 from xeda.flow_runner import DIR_NAME_HASH_LEN, DefaultRunner, get_flow_class
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteIncompatible, RemoteRunner
-from xeda.dataclass import split_names_by_depth
-from xeda.flow_runner.settings_layers import compose_flow_settings, merge_layers
 from xeda.flow_runner.default_runner import ProjectFileError
 from xeda.flow_runner.run_lock import lock_file
 from xeda.run_root import RunRootError, ensure_run_root, is_run_root
@@ -771,228 +769,99 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
     assert list((tmp_path / "started_in").iterdir()) == [], "the start directory stays empty"
 
 
-def test_a_remote_run_keeps_names_of_one_setting_whole_when_one_starts_the_other(
-    tmp_path, remote_host
+def _refusing_connection(monkeypatch):
+    def no_connection(*args, **kwargs):
+        raise AssertionError("connected before the request was judged")
+
+    monkeypatch.setattr(remote_module, "Connection", no_connection)
+
+
+def test_a_remote_run_refuses_a_vivado_table_that_holds_a_name_inside_another(
+    tmp_path, monkeypatch
 ):
-    """`A` from the design file and `A.B` from the command line are two names of a setting whose
-    keys are names of the tool (`set_synth_properties`), and a local run accepts them. The design
-    file that the remote reads is one origin and expands a dotted key, so the remote is sent each
-    name escaped and reads it whole. The run has the identity of the local plan."""
+    """`A` from the design file and `A.B` from the command line are two names of a table whose
+    keys are names of the tool, and a local run accepts them. The remote reads the design as one
+    origin, so the request is refused in preflight, before any login, naming the table and the
+    keys."""
     design_root = tmp_path / "design"
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)
     (design_root / "sqrt.yaml").write_text(
-        "name: sqrt\n"
-        "rtl:\n"
-        "  sources: [sqrt.vhdl]\n"
-        "  top: sqrt\n"
-        "  clock: {port: clk}\n"
-        "flows:\n"
-        "  vivado_synth:\n"
+        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
+        "flows:\n  vivado_synth:\n    fpga.part: xc7a12tcsg325-1\n    clock.period: 5ns\n"
         "    set_synth_properties: {A: 1}\n"
+    )
+    items = ["set_synth_properties.A.B=2"]
+    local = DefaultRunner(tmp_path / "local_plan", display_results=False).plan(
+        "vivado_synth", design_root / "sqrt.yaml", flow_settings=items
+    )
+    assert {
+        k: str(v) for k, v in local.node("vivado_synth").settings.set_synth_properties.items()
+    } == {
+        "A": "1",
+        "A.B": "2",
+    }
+    _refusing_connection(monkeypatch)
+    runner = RemoteRunner(ensure_run_root(tmp_path / "local" / "xeda_run"))
+    with pytest.raises(FlowSettingsException) as error:
+        runner.run_remote(
+            design_root / "sqrt.yaml", "vivado_synth", host="somewhere", flow_settings=items
+        )
+    message = " ".join(str(error.value).split())
+    assert "`vivado_synth.set_synth_properties`" in message
+    assert "`A`" in message and "`A.B`" in message
+    assert "A local run accepts both" in message
+
+
+def test_a_remote_run_refuses_an_openroad_table_that_holds_a_name_inside_another(
+    tmp_path, monkeypatch
+):
+    from .openroad_utils import openroad_design, openroad_settings, register_openroad_flows
+    from .tiny_platform import tiny_store
+
+    store = tiny_store(tmp_path)
+    design = openroad_design(tmp_path / "design")
+    design.write_text(
+        design.read_text() + "flows:\n  openroad:\n    ir_drop.instance_power: {u_core: 2 mW}\n"
+    )
+    items = [*openroad_settings(store), "ir_drop.instance_power.u_core.reg_1=1mW"]
+    _refusing_connection(monkeypatch)
+    runner = RemoteRunner(ensure_run_root(tmp_path / "local" / "xeda_run"))
+    with register_openroad_flows(), pytest.raises(FlowSettingsException) as error:
+        runner.run_remote(design, "openroad", host="somewhere", flow_settings=items)
+    message = " ".join(str(error.value).split())
+    assert "`openroad.ir_drop.instance_power`" in message
+    assert "`u_core`" in message and "`u_core.reg_1`" in message
+    assert "A local run accepts both" in message
+
+
+def test_a_remote_run_with_one_dotted_name_in_such_a_table_works(tmp_path, remote_host):
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", design_root)
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
     )
     items = [
         "fpga.part=xc7a12tcsg325-1",
         "clock.period=5ns",
-        "set_synth_properties.A.B=2",
         "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0",
+        "set_synth_properties.A.B=2",
+        "set_synth_properties.A.C=3",
     ]
-    plan = DefaultRunner(tmp_path / "local_plan", display_results=False).plan(
-        "vivado_synth", design_root / "sqrt.yaml", flow_settings=items
-    )
-    node = plan.node("vivado_synth")
-    wanted = {"A": "1", "A.B": "2", "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM": "0"}
-    assert {k: str(v) for k, v in node.settings.set_synth_properties.items()} == wanted
-
     results = RemoteRunner(ensure_run_root(tmp_path / "local" / "xeda_run")).run_remote(
         design_root / "sqrt.yaml", "vivado_synth", host="somewhere", flow_settings=items
     )
-
     assert results and results["success"], results
     remote_settings = json.loads(
         (_remote_run_dir(remote_host, "vivado_synth") / "settings.json").read_text()
     )
     reached = remote_settings["effective_flow_settings"]["set_synth_properties"]
-    assert {k: str(v) for k, v in reached.items()} == wanted
-    assert remote_settings["flowrun_hash"] == node.flowrun_hash
-
-
-def test_the_names_of_a_group_table_travel_as_the_origins_that_gave_them(tmp_path):
-    """The design file of the remote holds the names that no other name contains. A name inside
-    another goes to the layer of the remote's command line, and one inside two names to its
-    overrides. The remote merges the layers name by name, as the local origins merged, so it
-    reads all the names whole."""
-    from xeda.flows.openroad import Openroad
-
-    names = {"u_core": "2 mW", "u_core.reg_1": "1 mW", "u_core.reg_1.bit": "3 mW", "u_x.y": "4 mW"}
-    settings = Openroad.Settings.from_input({"ir_drop": {"instance_power": names}})
-    dumped = json.loads(json.dumps(settings.model_dump(mode="json", include={"ir_drop"})))
-    base, layers = split_names_by_depth(Openroad.Settings, dumped)
-    assert base["ir_drop"]["instance_power"] == {"u_core": "0.002 W", "u_x.y": "0.004 W"}
-    assert layers[1]["ir_drop"]["instance_power"] == {"u_core.reg_1": "0.001 W"}
-    assert layers[2]["ir_drop"]["instance_power"] == {"u_core.reg_1.bit": "0.003 W"}
-    assert dumped["ir_drop"]["instance_power"] == {
-        "u_core": "0.002 W",
-        "u_core.reg_1": "0.001 W",
-        "u_core.reg_1.bit": "0.003 W",
-        "u_x.y": "0.004 W",
-    }, "the input stays as it is"
-
-    read = Design(
-        name="d",
-        design_root=tmp_path,
-        rtl={"sources": [], "top": "t", "clock": "clk"},
-        flow={"openroad": base},
-    )
-    origins = [read.flow, {"openroad": layers[1]}, {"openroad": layers[2]}]
-    merged = compose_flow_settings(Openroad, origins)
-    again = Openroad.Settings.from_input(merged)
-    assert dict(again.ir_drop.instance_power) == dict(settings.ir_drop.instance_power)
-    # No origin holds a name inside another, and a name with a backslash is refused as before.
-    for origin in origins:
-        merge_layers(origin.get("openroad", {}), settings_cls=Openroad.Settings)
-    with pytest.raises(Exception, match="backslash before a dot"):
-        merge_layers(
-            {"ir_drop": {"instance_power": {"a\\.b": "1 mW"}}}, settings_cls=Openroad.Settings
-        )
-
-
-def test_the_remote_command_line_and_overrides_take_the_layers_of_the_names(tmp_path):
-    """What `remote_runner` hands to `run`: layer 1 as `flow_settings`, with the `flows` key, and
-    layer 2 as `flow_overrides`, the settings of the requested flow."""
-    design_root = tmp_path / "design"
-    design_root.mkdir()
-    shutil.copy(SQRT / "sqrt.vhdl", design_root)
-    (design_root / "sqrt.yaml").write_text(
-        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
-        "flows:\n  vivado_synth:\n    fpga.part: xc7a12tcsg325-1\n    clock.period: 5ns\n"
-        "    set_synth_properties: {A: 1}\n"
-    )
-    plan = DefaultRunner(tmp_path / "plan", display_results=False).plan(
-        "vivado_synth",
-        design_root / "sqrt.yaml",
-        flow_settings={"flows": {"vivado_synth": {"set_synth_properties": {"A.B": 2}}}},
-        flow_overrides={"set_synth_properties": {"A.B.C": 3}},
-    )
-    reached = plan.node("vivado_synth").settings.set_synth_properties
-    assert {k: str(v) for k, v in reached.items()} == {"A": "1", "A.B": "2", "A.B.C": "3"}
-
-
-def test_a_table_without_a_name_inside_another_is_shipped_as_it_is():
-    """Only `A` with `A.B` needs more than the design file."""
-    from xeda.flows.openroad import Openroad
-
-    plain = {"ir_drop": {"instance_power": {"u_core.reg_1": "0.001 W", "u_core.reg_2": "1 W"}}}
-    assert split_names_by_depth(Openroad.Settings, plain) == (plain, {})
-
-
-def _sent(
-    design: Design,
-    tmp_path: Path,
-    monkeypatch,
-    sections: dict,
-    planned: set,
-    layers: dict,
-    requested=None,
-):
-    monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
-    remote_dir = tmp_path / "remote"
-    remote_dir.mkdir(exist_ok=True)
-    zip_name, design_name = remote_module.send_design(
-        design,
-        _LocalConnection("somewhere"),
-        str(remote_dir),
-        all_flows_settings=sections,
-        planned_flows=planned,
-        name_layers=layers,
-        requested_flow=requested,
-    )
-    with zipfile.ZipFile(remote_dir / zip_name) as archive:
-        return json.loads(archive.read(design_name))["flow"]
-
-
-def test_the_design_file_of_the_remote_holds_no_name_inside_another_and_no_escape(
-    tmp_path, monkeypatch
-):
-    """A section of a flow outside the plan is not read, so its names that are inside other names
-    are not sent, and the names that the merge of origins made atomic are sent as plain names. The
-    flow of the plan sends them in layers."""
-    from xeda.dataclass import AtomicName
-
-    design = Design.from_file(SQRT / "sqrt.yaml")
-    unused = {"set_synth_properties": {AtomicName.of("A.B"): 2, "A": 1, "bad_name": 0}}
-    used = {"set_synth_properties": {"A": 1, "A.B": 2, "C.D": 3}}
-    layers: dict = {}
-    shipped = _sent(
-        design,
-        tmp_path,
-        monkeypatch,
-        {"vivado_synth": used, "vivado_alt_synth": unused},
-        {"vivado_synth"},
-        layers,
-    )
-    assert shipped["vivado_synth"]["set_synth_properties"] == {"A": 1, "C.D": 3}
-    assert layers == {1: {"flows": {"vivado_synth": {"set_synth_properties": {"A.B": 2}}}}}
-    assert "\\" not in json.dumps(shipped)
-    assert "A.B" not in shipped["vivado_alt_synth"]["set_synth_properties"]
-
-
-def test_names_inside_three_names_are_refused_before_anything_is_sent(tmp_path, monkeypatch):
-    design = Design.from_file(SQRT / "sqrt.yaml")
-    chain = {"set_synth_properties": {n: 1 for n in ("A", "A.B", "A.B.C", "A.B.C.D")}}
-    with pytest.raises(FlowSettingsException, match="4 deep"):
-        _sent(
-            design,
-            tmp_path,
-            monkeypatch,
-            {"vivado_synth": chain},
-            {"vivado_synth"},
-            {},
-            "vivado_synth",
-        )
-    chain3 = {"set_synth_properties": {n: 1 for n in ("A", "A.B", "A.B.C")}}
-    with pytest.raises(FlowSettingsException, match="requested flow only"):
-        _sent(design, tmp_path, monkeypatch, {"vivado_synth": chain3}, {"vivado_synth"}, {})
-    assert not list((tmp_path / "remote").glob("*.zip")), "nothing was archived"
-
-
-def test_the_depth_of_a_name_that_a_remote_run_carries():
-    """The remote has its command line and its overrides besides the design file, and the
-    overrides are those of the requested flow."""
-    problem = remote_module.name_depth_problem
-    assert problem("vivado_synth", {1: {}}, "vivado_synth") is None
-    assert problem("vivado_synth", {1: {}, 2: {}}, "vivado_synth") is None
-    assert problem("vivado_synth", {}, None) is None
-    assert "requested flow only" in problem("vivado_impl", {2: {}}, "vivado_synth")
-    assert "4 deep" in problem("vivado_synth", {1: {}, 2: {}, 3: {}}, "vivado_synth")
-
-
-def test_a_remote_run_with_a_name_inside_two_names_reaches_the_remote_whole(tmp_path, remote_host):
-    """The project file, the design file and the command line give `A`, `A.B` and `A.B.C`. The
-    design file of the remote holds `A`, and the layers carry the others."""
-    design_root = tmp_path / "design"
-    design_root.mkdir()
-    shutil.copy(SQRT / "sqrt.vhdl", design_root)
-    (design_root / "sqrt.yaml").write_text(
-        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
-        "flows:\n  vivado_synth:\n    fpga.part: xc7a12tcsg325-1\n    clock.period: 5ns\n"
-        "    set_synth_properties: {A.B: 2}\n"
-    )
-    project = tmp_path / "xedaproject.yaml"
-    project.write_text("flows:\n  vivado_synth:\n    set_synth_properties: {A: 1}\n")
-    results = RemoteRunner(ensure_run_root(tmp_path / "local" / "xeda_run")).run_remote(
-        design_root / "sqrt.yaml",
-        "vivado_synth",
-        host="somewhere",
-        xedaproject=str(project),
-        flow_settings=["set_synth_properties.A.B.C=3"],
-    )
-    assert results and results["success"], results
-    remote_settings = json.loads(
-        (_remote_run_dir(remote_host, "vivado_synth") / "settings.json").read_text()
-    )
-    reached = remote_settings["effective_flow_settings"]["set_synth_properties"]
-    assert {k: str(v) for k, v in reached.items()} == {"A": "1", "A.B": "2", "A.B.C": "3"}
+    assert {k: str(v) for k, v in reached.items()} == {
+        "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM": "0",
+        "A.B": "2",
+        "A.C": "3",
+    }
 
 
 def test_a_remote_run_is_always_mirrored_in_hashed_run_directories(tmp_path):

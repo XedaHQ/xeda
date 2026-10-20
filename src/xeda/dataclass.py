@@ -80,7 +80,7 @@ __all__ = [
     "opaque_key_fields_of",
     "opaque_key_declaration_problems",
     "opaque_key_paths",
-    "split_names_by_depth",
+    "names_inside_names",
     "fold_dotted_keys",
     "atomic_keys",
     "AtomicName",
@@ -463,39 +463,29 @@ def opaque_key_paths(model: Type[BaseModel]) -> Tuple[str, ...]:
 ESCAPED_DOT = "\\."
 
 
-def split_names_by_depth(
-    model: Type[BaseModel], values: Mapping[str, Any]
-) -> Tuple[Dict[str, Any], Dict[int, Dict[str, Any]]]:
-    """Split the settings `values` of `model` into the origins that could have given them.
-
-    A table of `opaque_key_fields` (at any depth) can hold `A` and `A.B`, because the origins of a
-    local run merge name by name. One origin cannot write both, since it writes a dotted key as
-    nested tables. So return `(base, layers)`: `base` is `values` with the names that no other
-    name of the table contains (depth 0), and `layers[n]` has the names that `n` other names
-    contain, in the same structure as `values`. The names of one layer hold none inside another.
-    Nothing else changes, and `values` stays as it is."""
+def names_inside_names(
+    model: Type[BaseModel], values: Mapping[str, Any], prefix: str = ""
+) -> List[Tuple[str, str, str]]:
+    """Return `(table, outer, inner)` for each table of `opaque_key_fields` (at any depth) in
+    `values`, the settings of `model` as a table, that holds a name `inner` inside another name
+    `outer` (`A` and `A.B`). `table` is the dotted path of the setting. The origins of a local run
+    give such names separately and merge them name by name, so a local run accepts them."""
     names = input_names(model)
     opaque = opaque_key_fields_of(model)
-    base: Dict[str, Any] = {}
-    layers: Dict[int, Dict[str, Any]] = {}
+    found: List[Tuple[str, str, str]] = []
     for key, value in values.items():
         target = names.get(key, key)
         info = model.model_fields.get(target)
         child = nested_model(info.annotation) if info is not None else None
         if target in opaque and isinstance(value, Mapping):
-            depth = {str(n): sum(str(n).startswith(f"{o}.") for o in value) for n in value}
-            base[key] = {n: item for n, item in value.items() if not depth[str(n)]}
-            for n, item in value.items():
-                if depth[str(n)]:
-                    layers.setdefault(depth[str(n)], {}).setdefault(key, {})[n] = item
+            pair = name_inside_another(
+                str(n.name if isinstance(n, AtomicName) else n) for n in value
+            )
+            if pair is not None:
+                found.append((f"{prefix}{key}", *pair))
         elif child is not None and isinstance(value, Mapping):
-            inner, inner_layers = split_names_by_depth(child, value)
-            base[key] = inner
-            for depth_of, layer in inner_layers.items():
-                layers.setdefault(depth_of, {})[key] = layer
-        else:
-            base[key] = value
-    return base, layers
+            found.extend(names_inside_names(child, value, f"{prefix}{key}."))
+    return found
 
 
 class AtomicName(str):

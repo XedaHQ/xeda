@@ -162,11 +162,9 @@ value or as a table, as for any setting. ``-s set_synth_properties.A=1`` and
 ``-s flows.vivado_synth.set_synth_properties.A.B=2`` are one origin, so Xeda refuses them too. A
 name with a backslash before a dot (``A\.B``) is refused in every origin, because the names of the
 tool have no backslash.
-A remote run (``--remote``) accepts the same names as a local run, including a name that starts
-another one, and has the same identity. The remote has three origins for them: the design file,
-its command line and its overrides. So a remote run carries a name inside up to two other names
-(``A``, ``A.B``, ``A.B.C``), and the third level only for the requested flow. It refuses a deeper
-chain before it connects.
+A remote run (``--remote``) refuses such a table when it holds a name that starts with another
+name and a dot (``A`` and ``A.B``), before it connects. The message names the table and the keys.
+A local run accepts the table.
 
 A name with a space is a quoted shell item::
 
