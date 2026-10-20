@@ -435,7 +435,13 @@ def _write_member(parent: int, name: str, entry: Entry, source: IO[bytes]) -> No
         raise
 
 
-def apply_sync(root: Path, entries: Sequence[Entry], plan: SyncPlan, tar_stream: BinaryIO) -> None:
+def apply_sync(
+    root: Path,
+    entries: Sequence[Entry],
+    plan: SyncPlan,
+    tar_stream: BinaryIO,
+    directories: Sequence[str] = (),
+) -> None:
     """Make the files below `root` what the manifest says.
 
     `tar_stream` must hold exactly the entries in `plan.missing`. Each file is checked against
@@ -443,7 +449,9 @@ def apply_sync(root: Path, entries: Sequence[Entry], plan: SyncPlan, tar_stream:
     partly written. A link where a directory belongs, and a directory where a file belongs, are
     replaced. A link at the name of a file is replaced, not written through. Then `plan.stale`
     is removed, one file or link at a time (never a directory), and the directories that are
-    empty after that."""
+    empty after that. Then each of `directories` (paths relative to `root`) is made if it is not
+    there, empty or not: they are the empty directories of the inputs. A directory is no file of
+    the manifest."""
     _check_entries(entries)
     by_path = {entry.path: entry for entry in entries}
     if len(set(plan.missing)) != len(plan.missing) or not set(plan.missing) <= by_path.keys():
@@ -455,6 +463,10 @@ def apply_sync(root: Path, entries: Sequence[Entry], plan: SyncPlan, tar_stream:
             raise RemoteProtocolError(
                 f"the plan removes {path!r}, which is in the manifest or a directory of it"
             )
+    for path in directories:
+        safe_member_path(path)
+        if path in by_path:
+            raise RemoteProtocolError(f"{path!r} is a file of the manifest, not a directory")
     root_fd = _open_root(Path(root), create=True)
     assert root_fd is not None
     try:
@@ -474,5 +486,9 @@ def apply_sync(root: Path, entries: Sequence[Entry], plan: SyncPlan, tar_stream:
                 finally:
                     os.close(parent)
         _prune(root_fd)
+        for path in directories:
+            made = _descend(root_fd, path.split("/"), create=True)
+            assert made is not None
+            os.close(made)
     finally:
         os.close(root_fd)

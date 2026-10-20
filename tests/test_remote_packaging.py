@@ -11,7 +11,7 @@ import pytest
 from xeda import Design
 from xeda.design import SourceType
 from xeda.flow import FlowSettingsException
-from xeda.remote.manifest import build_manifest, write_tar
+from xeda.remote.manifest import apply_sync, build_manifest, plan_sync, write_tar
 from xeda.remote.packaging import InputPackage, package_inputs
 
 from .io_flows import _ReadsInstalled, _ReadsInstalledNested  # noqa: F401  (registers the flows)
@@ -268,6 +268,27 @@ def _nodes(plan, run_root: Path) -> list[tuple]:
     ]
 
 
+def _directory_input(tmp_path: Path) -> Path:
+    """A directory with a nested file, a nested empty directory and a link."""
+    root = tmp_path / "data"
+    (root / "deep" / "deeper").mkdir(parents=True)
+    (root / "empty" / "inner").mkdir(parents=True)
+    (root / "top.txt").write_text("top\n")
+    (root / "deep" / "deeper" / "x.txt").write_text("x\n")
+    (root / "linked.txt").symlink_to(root / "top.txt")
+    return root
+
+
+def _sync(package: InputPackage, remote_dir: Path) -> None:
+    """Put the package into `remote_dir` as the remote does: by manifest, tar and sync."""
+    entries = build_manifest(package.files, package.generated)
+    plan = plan_sync(remote_dir, entries)
+    stream = io.BytesIO()
+    missing = [entry for entry in entries if entry.path in set(plan.missing)]
+    write_tar(missing, package.files, package.generated, stream)
+    apply_sync(remote_dir, entries, plan, io.BytesIO(stream.getvalue()), package.directories)
+
+
 @pytest.mark.parametrize("hashed", [False, True])
 @pytest.mark.parametrize(
     "case",
@@ -276,44 +297,68 @@ def _nodes(plan, run_root: Path) -> list[tuple]:
         dict(flow="vivado_synth", target="arty", settings=["clock.period=8 ns"]),
         dict(flow="vivado_synth", target=None, settings=["fpga.part=xc7a100tcsg324-1"]),
         dict(flow="nextpnr", target="ulx3s", settings=["seed=4"]),
+        dict(flow="yosys_fpga+nextpnr", target="ulx3s", settings=["seed=4"]),
         dict(flow="nextpnr", target="ulx3s", settings=[], project=True),
         dict(flow="vivado_synth", target="arty", settings=["clock.period=8 ns"], project=True),
+        dict(flow="__input_maker", target=None, settings=["input_file=@data"], directory=True),
+        dict(flow="__input_maker", target=None, settings=["input_file=@data"], directory="inside"),
     ],
-    ids=["target", "target-and-s", "s-only", "chain-target-s", "project-target", "project-s"],
+    ids=[
+        "target",
+        "target-and-s",
+        "s-only",
+        "chain-target-s",
+        "explicit-chain",
+        "project-target",
+        "project-s",
+        "directory-setting",
+        "directory-setting-in-design-root",
+    ],
 )
 def test_the_remote_plans_the_nodes_of_the_local_plan(tmp_path, case, hashed):
+    from xeda.flow.flow import using_path_identities
     from xeda.flow_runner import DefaultRunner
+    from xeda.remote.launch_entry import load_packaged_design
 
     directory = _targets_copy(tmp_path)
     local_root = tmp_path / "local" / "xeda_run"
     local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=hashed)
+    settings = list(case["settings"])
+    if case.get("directory"):
+        data = _directory_input(directory if case["directory"] == "inside" else tmp_path)
+        settings = [setting.replace("@data", str(data)) for setting in settings]
     if case.get("project"):
         request = dict(design="knight", xedaproject=_project(directory))
     else:
         request = dict(design=directory / "knight.yaml")
     prepared = local.prepare_request(
-        case["flow"], flow_settings=case["settings"], target=case["target"], **request
+        case["flow"], flow_settings=settings, target=case["target"], **request
     )
     assert prepared.design.target == case["target"]
 
+    remote_dir = tmp_path / "remote_inputs"
     package = package_inputs(
         prepared.design,
         prepared.sections,
         {node.name for node in prepared.plan.nodes},
         run_root=local_root,
-        remote_inputs=REMOTE_INPUTS,
+        remote_inputs=PurePosixPath(remote_dir),
     )
-    remote_dir = tmp_path / "remote_inputs"
-    for place, source in package.files.items():
-        (remote_dir / place).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(source, remote_dir / place)
-    for place, content in package.generated.items():
-        (remote_dir / place).parent.mkdir(parents=True, exist_ok=True)
-        (remote_dir / place).write_bytes(content)
+    _sync(package, remote_dir)
+    if case.get("directory"):
+        assert any(name.endswith("deep/deeper/x.txt") for name in package.files)
+        assert any(name.endswith("linked.txt") for name in package.files)
+        (empty,) = package.directories
+        assert empty.endswith("empty/inner") and (remote_dir / empty).is_dir()
 
+    # the remote loads the document as its launch entry does, then plans it
     remote_root = tmp_path / "remote" / "xeda_run"
     remote = DefaultRunner(remote_root, display_results=False, hashed_run_dirs=hashed)
-    remote_plan = remote.plan(case["flow"], design=remote_dir / package.design_file)
+    loaded = load_packaged_design(
+        remote, remote_dir / package.design_file, rebuild=False, dry_run=True
+    )
+    with using_path_identities(package.path_identities):
+        remote_plan = remote.plan(case["flow"], design=loaded)
     assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
     assert [node.name for node in remote_plan.nodes][-1] == prepared.plan.nodes[-1].name
     if case["target"]:
@@ -325,13 +370,42 @@ def test_the_remote_plans_the_nodes_of_the_local_plan(tmp_path, case, hashed):
         assert "target" not in _shipped(package)
 
 
-def test_a_user_design_file_still_cannot_write_a_target(tmp_path):
+def test_a_directory_setting_reaches_the_remote_as_it_is(tmp_path):
+    from xeda.remote.manifest import plan_sync
+
+    data = _directory_input(tmp_path)
+    design = _design(tmp_path)
+    package = _package(design, {"__input_maker": {"input_file": str(data)}}, tmp_path)
+    assert all(path.is_file() for path in package.files.values())
+    (setting,) = _shipped(package)["flow"]["__input_maker"].values()
+    relative = setting.removeprefix("$DESIGN_ROOT/")
+    assert set(package.files) >= {f"{relative}/top.txt", f"{relative}/deep/deeper/x.txt"}
+    assert package.directories == [f"{relative}/empty/inner"]
+    remote_dir = tmp_path / "remote"
+    _sync(package, remote_dir)
+    assert (remote_dir / relative / "empty" / "inner").is_dir()
+    assert (remote_dir / relative / "deep" / "deeper" / "x.txt").read_text() == "x\n"
+    assert (remote_dir / relative / "linked.txt").read_text() == "top\n"
+    # a second sync changes nothing, and an empty directory that left the package goes
+    assert plan_sync(remote_dir, build_manifest(package.files, package.generated)).missing == []
+    _sync(package, remote_dir)
+    package.directories.clear()
+    _sync(package, remote_dir)
+    assert not (remote_dir / relative / "empty").exists()
+
+
+def test_a_user_design_file_never_takes_a_target_whatever_its_name(tmp_path):
     from xeda.design import DesignValidationError
 
-    path = tmp_path / "design.yaml"
-    path.write_text("name: d\ntarget: arty\nrtl: {sources: [], top: t}\n")
-    with pytest.raises(DesignValidationError, match="not a key of a design"):
-        Design.from_file(path)
+    for name in ("design.yaml", "d.xeda.json"):
+        path = tmp_path / name
+        path.write_text(
+            json.dumps({"name": "d", "target": "arty", "rtl": {"sources": [], "top": "t"}})
+        )
+        with pytest.raises(DesignValidationError, match="not a key of a design"):
+            Design.from_file(path)
+    loaded = Design.from_file(path, packaged=True)
+    assert loaded.target == "arty"
 
 
 def test_a_packaged_document_names_its_target_by_the_rule_of_target_names(tmp_path):
@@ -340,4 +414,4 @@ def test_a_packaged_document_names_its_target_by_the_rule_of_target_names(tmp_pa
     path = tmp_path / "d.xeda.json"
     path.write_text(json.dumps({"name": "d", "target": "../x", "rtl": {"sources": [], "top": "t"}}))
     with pytest.raises(DesignValidationError, match="not a target name"):
-        Design.from_file(path)
+        Design.from_file(path, packaged=True)

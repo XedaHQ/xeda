@@ -281,6 +281,8 @@ def send_design(
                 archive.write(local, arcname=place)
             for place, content in package.generated.items():
                 archive.writestr(place, content)
+            for place in package.directories:
+                archive.mkdir(place)
         if log.isEnabledFor(logging.DEBUG):
             with zipfile.ZipFile(zip_file, mode="r") as archive:
                 for info in archive.infolist():

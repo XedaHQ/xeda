@@ -2418,10 +2418,6 @@ TARGET_FORBIDDEN_KEYS = frozenset({"name", "targets", "target", "design_root"})
 # every flow that declares them. A target takes them only under its own `flows.<flow>`, for now.
 TARGET_FLOW_SETTING_KEYS = frozenset({"board", "fpga", "custom_boards_file"})
 
-#: The end of the name of a design document that Xeda packaged for a remote host. Only such a
-#: document may record the `target` that was applied to the design it holds.
-PACKAGED_DESIGN_SUFFIX = ".xeda.json"
-
 _NO_SINGULAR_TARGET = (
     "`target` is not a key of a design: targets are written as `targets.<name>`, and one is "
     "selected with `--target NAME` (`target=` in the API)"
@@ -3191,11 +3187,18 @@ class Design(XedaBaseModel):
         allow_extra: bool = False,
         remove_extra: Optional[List[str]] = None,
         target: str | None = None,
+        packaged: bool = False,
     ) -> DesignType:
         """Load and validate a design from a TOML, JSON or YAML file.
 
         `target` selects one of the design's `targets` (`select_target`). Without it, the design
         is loaded with no target. `overrides` are applied last, over the selected target.
+
+        `packaged` is for the document that the local xeda wrote for a remote host
+        (`xeda.remote.packaging`) and only for the remote launch entry. Such a document holds
+        the design as its target made it, with the name of that target in `target`, so that the
+        remote plans the run directories and identities of the local plan. A design file written
+        by a user never has the key, whatever its name.
 
         A file that cannot be read as a design raises `DesignFileParseError`. A file whose design
         does not validate raises `DesignValidationError`. Both errors name the file.
@@ -3210,10 +3213,8 @@ class Design(XedaBaseModel):
         if allow_extra:
             cls = model_with_allow_extra(cls)
         try:
-            # A packaged document holds the design as its target made it, and the name of that
-            # target: the remote plans the run directories and identities of the local plan.
             recorded_target = None
-            if design_file.name.endswith(PACKAGED_DESIGN_SUFFIX) and isinstance(design_dict, dict):
+            if packaged:
                 recorded_target = design_dict.pop("target", None)
                 problem = None if recorded_target is None else target_name_problem(recorded_target)
                 if problem:

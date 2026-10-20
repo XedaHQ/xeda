@@ -22,6 +22,7 @@ import os
 import stat
 import sys
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -202,6 +203,20 @@ def _record_written(
     document["written"], document["unreadable"] = _written(snapshot, plan, launched)
 
 
+def load_packaged_design(launcher: Any, path: Path, *, rebuild: bool, dry_run: bool) -> Any:
+    """Load the design document that the local xeda packaged (`Design.from_file(packaged=True)`).
+
+    The document is loaded as the launcher loads a design file: where the run root keeps what a
+    load keeps in it, and with no side effect for a dry run."""
+    from ..design import Design, loading_in_run_root, refusing_load_side_effects
+
+    with (
+        loading_in_run_root(launcher.load_run_root, rebuild),
+        refusing_load_side_effects() if dry_run else nullcontext(),
+    ):
+        return Design.from_file(path, packaged=True)
+
+
 def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseException]]:
     """Run the request and return the result document and the exception to raise again, if any.
 
@@ -248,9 +263,10 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             display_results=False,
             debug=debug,
         )
-        # The design is a file that the local xeda wrote from its own loaded design, so it holds
-        # no key that the design model refuses.
-        arguments: Dict[str, Any] = dict(design=design, design_allow_extra=False)
+        loaded = load_packaged_design(
+            launcher, design, rebuild=request.rebuild_all or request.clean, dry_run=request.dry_run
+        )
+        arguments: Dict[str, Any] = dict(design=loaded)
         with using_path_identities(request.path_identities):
             if request.dry_run:
                 plan, freshness = launcher.plan_with_freshness(request.chain, **arguments)

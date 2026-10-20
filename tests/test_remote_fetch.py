@@ -158,17 +158,82 @@ def test_a_declared_output_outside_the_run_directory_is_refused(tmp_path):
         select_fetch(tmp_path, [node], fetch_all=False)
 
 
-def test_links_a_tool_left_are_not_followed_out(tmp_path):
+def test_links_a_tool_left_are_not_followed(tmp_path):
     run = _run_dir(tmp_path)
     secret = tmp_path / "secret.txt"
     secret.write_text("secret\n")
     (run / "reports" / "link.rpt").symlink_to(secret)
     (run / "reports" / "inner.rpt").symlink_to(run / "reports" / "timing.rpt")
     (run / "reports" / "dir").symlink_to(tmp_path)
-    selected = select_fetch(tmp_path, [_node(run)], fetch_all=True)
-    assert "d/flow/reports/link.rpt" not in selected
-    assert not any(name.startswith("d/flow/reports/dir") for name in selected)
-    assert "d/flow/reports/inner.rpt" in selected
+    (run / "other" / "dirlink").symlink_to(run / "reports", target_is_directory=True)
+    (run / "run.log").symlink_to(secret)
+    for fetch_all in (False, True):
+        selected = select_fetch(tmp_path, [_node(run)], fetch_all=fetch_all)
+        assert not any(name.startswith("d/flow/reports/dir/") for name in selected)
+        assert not any(name.startswith("d/flow/other/dirlink/") for name in selected)
+        for linked in ("reports/link.rpt", "reports/inner.rpt", "run.log"):
+            assert f"d/flow/{linked}" not in selected, "a link is not a file to fetch"
+        assert "d/flow/reports/timing.rpt" in selected
+        assert all(not path.is_symlink() for path in selected.values())
+
+
+@pytest.mark.parametrize("fetch_all", [False, True])
+def test_a_linked_reports_directory_is_not_entered(tmp_path, fetch_all):
+    run = tmp_path / "d" / "flow"
+    run.mkdir(parents=True)
+    (run / "results.json").write_text("{}\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "secret.rpt").write_text("secret\n")
+    (run / "reports").symlink_to(elsewhere, target_is_directory=True)
+    selected = select_fetch(tmp_path, [_node(run)], fetch_all=fetch_all)
+    assert set(selected) == {"d/flow/results.json"}
+
+
+def test_a_linked_run_directory_member_is_not_read_through_a_linked_parent(tmp_path):
+    run = _run_dir(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "x.bit").write_text("outside\n")
+    (run / "build").symlink_to(elsewhere, target_is_directory=True)
+    node = _node(run, named=True, artifacts={"bit": "build/x.bit"})
+    with pytest.raises(RemoteFetchError, match="a link is not followed"):
+        select_fetch(tmp_path, [node], fetch_all=False)
+
+
+@pytest.mark.parametrize("inside", [False, True])
+def test_a_named_output_that_is_a_link_is_not_taken(tmp_path, inside):
+    run = _run_dir(tmp_path)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("secret\n")
+    (run / "linked.bit").symlink_to(run / "out.bit" if inside else secret)
+    record = {"path": str(run / "linked.bit"), "sha": "0"}
+    for node in (
+        _node(run, named=True, artifacts={"bit": "linked.bit"}),
+        _node(run, named=True, outputs={"bit": record}),
+    ):
+        with pytest.raises(RemoteFetchError, match="a link is not followed"):
+            select_fetch(tmp_path, [node], fetch_all=False)
+    failed = _node(
+        run,
+        named=True,
+        success=False,
+        written=frozenset({"linked.bit"}),
+        artifacts={"b": "linked.bit"},
+    )
+    assert "d/flow/linked.bit" not in select_fetch(tmp_path, [failed], fetch_all=False)
+
+
+def test_an_external_artifact_that_is_a_link_is_not_taken(tmp_path):
+    run = _run_dir(tmp_path)
+    real = tmp_path / "real.bin"
+    real.write_text("x\n")
+    link = tmp_path / "elsewhere.bin"
+    link.symlink_to(real)
+    with pytest.raises(RemoteFetchError, match="a link is not followed"):
+        select_fetch(
+            tmp_path, [_node(run, named=True, artifacts={"x": str(link)})], fetch_all=False
+        )
 
 
 def test_mirror_relative_keeps_a_place_in_the_run_directory_and_files_the_rest_by_digest():
@@ -321,15 +386,19 @@ def test_the_mirror_must_lie_below_its_run_root(tmp_path):
 # --------------------------------------------------------------------------------- the results
 
 
+def _mirror_with(tmp_path: Path, *names: str) -> Path:
+    mirror_dir = tmp_path / "@host" / "d" / "flow"
+    for name in names:
+        (mirror_dir / name).parent.mkdir(parents=True, exist_ok=True)
+        (mirror_dir / name).write_text(f"{name}\n")
+    return mirror_dir
+
+
 def test_results_point_at_the_mirror(tmp_path):
     remote = PurePosixPath("/remote/xeda_run/d/flow")
-    mirror_dir = tmp_path / "@host" / "d" / "flow"
-    (mirror_dir / "other").mkdir(parents=True)
+    external = external_place("/remote/elsewhere/e.bin").as_posix()
+    mirror_dir = _mirror_with(tmp_path, "other/x.v", "out.bit", external)
     output = mirror_dir / "other" / "x.v"
-    output.write_text("module x; endmodule\n")
-    external = mirror_dir / external_place("/remote/elsewhere/e.bin")
-    external.parent.mkdir(parents=True)
-    external.write_text("e\n")
     results = {
         "success": True,
         "run_path": str(remote),
@@ -348,17 +417,45 @@ def test_results_point_at_the_mirror(tmp_path):
     assert rewritten["run_path"] == str(mirror_dir)
     assert rewritten["artifacts"] == {
         "netlist": str(mirror_dir / "other/x.v"),
-        "bit": [str(mirror_dir / "out.bit"), str(external)],
+        "bit": [str(mirror_dir / "out.bit"), str(mirror_dir / external)],
         "none": None,
     }
     assert rewritten["outputs"]["netlist"]["path"] == str(output)
 
 
+def test_an_artifact_that_is_not_in_the_mirror_is_an_error(tmp_path):
+    remote = PurePosixPath("/remote/xeda_run/d/flow")
+    mirror_dir = _mirror_with(tmp_path, "out.bit")
+    results = {"success": True, "artifacts": {"bit": "out.bit", "gone": "gone.bit"}}
+    with pytest.raises(RemoteFetchError, match="gone.bit"):
+        rewrite_results(results, remote, mirror_dir)
+
+
+def test_a_failed_node_keeps_only_the_artifacts_its_run_wrote(tmp_path):
+    remote = PurePosixPath("/remote/xeda_run/d/flow")
+    mirror_dir = _mirror_with(tmp_path, "written.bit", "earlier.bit", "gone.bit")
+    (mirror_dir / "gone.bit").unlink()
+    results = {
+        "success": False,
+        "flow": "flow",
+        "artifacts": {
+            "written": "written.bit",
+            "earlier": "earlier.bit",
+            "gone": "gone.bit",
+            "outside": "/remote/elsewhere/e.bin",
+        },
+    }
+    rewritten = rewrite_results(
+        results, remote, mirror_dir, written=frozenset({"written.bit", "gone.bit"})
+    )
+    assert rewritten["artifacts"] == {"written": str(mirror_dir / "written.bit")}
+    # with no word from the remote about what the run wrote, none is kept
+    assert rewrite_results(results, remote, mirror_dir)["artifacts"] == {}
+
+
 def test_a_declared_output_that_changed_during_the_transfer_is_refused(tmp_path):
     remote = PurePosixPath("/remote/xeda_run/d/flow")
-    mirror_dir = tmp_path / "mirror"
-    mirror_dir.mkdir()
-    (mirror_dir / "x.v").write_text("different\n")
+    mirror_dir = _mirror_with(tmp_path, "x.v")
     results = {
         "success": True,
         "outputs": {"n": {"path": f"{remote}/x.v", "sha": "0" * 32}},

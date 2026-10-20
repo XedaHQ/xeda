@@ -11,7 +11,7 @@ import hashlib
 import json
 import os
 from collections.abc import Collection, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict
 
@@ -33,12 +33,16 @@ class InputPackage:
     of the remote to the local file that goes there. `generated` maps a path to content made
     here: the design document itself (`generated[design_file]`) and the Liberty files with
     rewritten include names. `path_identities` maps the absolute remote path of a setting's input
-    to the location-free text that the local run counts for it."""
+    to the location-free text that the local run counts for it. `directories` lists the empty
+    directories of directory settings."""
 
     design_file: str
     files: dict[str, Path]
     generated: dict[str, bytes]
     path_identities: dict[str, str]
+    #: The directories of the inputs that hold no file, relative to the inputs directory. The
+    #: remote makes them, since a manifest lists files only.
+    directories: list[str] = field(default_factory=list)
 
 
 def package_inputs(
@@ -87,6 +91,7 @@ def package_inputs(
     # document takes its place first.
     places: Dict[Path, Path | bytes] = {Path(design_file): b""}
     flat_places: Dict[Path, Path] = {}
+    directories: set[str] = set()  # the directories of directory settings
 
     def archived(resource: FileResource) -> Path:
         """Return where `resource` lands among the packaged sources.
@@ -206,9 +211,15 @@ def package_inputs(
         if local.is_file():
             places.setdefault(relative, local)
         elif local.is_dir():
-            # Only the files travel: the remote makes the directories they lie in.
+            # The files travel, and the directories are listed: the remote makes the empty ones
+            # (`InputPackage.directories`). A special file or a broken link is no input.
+            directories.add(relative.as_posix())
             for entry in directory_files(local, [run_root], VCS_METADATA, follow_links=True):
-                places.setdefault(relative / entry.relative_to(local), entry)
+                place = relative / entry.relative_to(local)
+                if entry.is_dir():
+                    directories.add(place.as_posix())
+                elif entry.is_file():
+                    places.setdefault(place, entry)
         return "$DESIGN_ROOT/" + relative.as_posix()
 
     # whether the section that is packaged now belongs to a flow of the plan
@@ -336,4 +347,14 @@ def package_inputs(
             generated[place.as_posix()] = content
         else:
             files[place.as_posix()] = content
-    return InputPackage(design_file, files, generated, path_identities)
+    packaged = {PurePosixPath(place) for place in (*files, *generated)}
+    holding = {parent for place in packaged for parent in place.parents}
+    candidates = {
+        PurePosixPath(place)
+        for place in directories
+        if PurePosixPath(place) not in holding and PurePosixPath(place) not in packaged
+    }
+    # the innermost ones: making a directory makes the ones it lies in
+    inner = {parent for place in candidates for parent in place.parents}
+    empty = sorted(place.as_posix() for place in candidates - inner)
+    return InputPackage(design_file, files, generated, path_identities, empty)

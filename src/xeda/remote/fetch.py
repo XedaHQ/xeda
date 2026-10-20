@@ -20,6 +20,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Dict, Optional
 
 from ..artifacts import (
+    ArtifactPath,
     drop_unwritten_artifacts,
     iter_artifact_paths,
     map_artifact_paths,
@@ -109,33 +110,57 @@ def _declared_outputs_problem(results: Mapping[str, Any], run_dir: str) -> None:
             raise DeliveryError("A declared remote output is outside its run directory")
 
 
-def _is_fetchable(path: str, real_run_dir: str) -> bool:
-    """Whether `path` in the run directory is a regular file to fetch. A link counts only if it
-    leads to a regular file that lies in the run directory too: a tool may leave a link to
-    anywhere."""
+def _is_regular(path: str) -> bool:
+    """Whether `path` is itself a regular file. A link is not, whatever it leads to."""
     try:
-        status = os.lstat(path)
-        if stat.S_ISLNK(status.st_mode):
-            target = os.path.realpath(path)
-            return (
-                os.path.isfile(target)
-                and os.path.commonpath([target, real_run_dir]) == real_run_dir
-            )
-        return stat.S_ISREG(status.st_mode)
-    except (OSError, ValueError):
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except OSError:
         return False
 
 
+def _is_regular_inside(run_dir: str, place: str) -> bool:
+    """Whether `place` is a regular file of the run directory, reached through real directories
+    only: no link on the way and none at the end. A tool may leave a link to anywhere, and
+    Xeda follows none."""
+    current = run_dir
+    *parents, name = PurePosixPath(place).parts
+    try:
+        for part in parents:
+            current = os.path.join(current, part)
+            if not stat.S_ISDIR(os.lstat(current).st_mode):
+                return False
+    except OSError:
+        return False
+    return _is_regular(os.path.join(current, name))
+
+
 def _files_below(run_dir: str, subdirectory: str = "") -> list[str]:
-    """The files to fetch below `run_dir`/`subdirectory`, as paths relative to `run_dir`. The
-    walk enters no linked directory."""
-    real_run_dir = os.path.realpath(run_dir)
+    """The files to fetch below `run_dir`/`subdirectory`, as paths relative to `run_dir`, in
+    order. The walk follows no link: a linked directory is not entered (the directory the walk
+    starts in included) and a linked file is not listed."""
     found: list[str] = []
-    for top, _dirs, names in os.walk(os.path.join(run_dir, subdirectory), followlinks=False):
-        for name in sorted(names):
-            path = os.path.join(top, name)
-            if _is_fetchable(path, real_run_dir):
-                found.append(PurePosixPath(os.path.relpath(path, run_dir)).as_posix())
+
+    def walk(directory: str, place: str) -> None:
+        try:
+            if not stat.S_ISDIR(os.lstat(directory).st_mode):
+                return
+            with os.scandir(directory) as listing:
+                items = sorted(listing, key=lambda item: item.name)
+        except OSError:
+            return
+        for item in items:
+            name = f"{place}/{item.name}" if place else item.name
+            if item.is_dir(follow_symlinks=False):
+                walk(item.path, name)
+            elif item.is_file(follow_symlinks=False):
+                found.append(name)
+
+    start = run_dir
+    place = ""
+    for part in PurePosixPath(subdirectory).parts:
+        start = os.path.join(start, part)
+        place = f"{place}/{part}" if place else part
+    walk(start, place)
     return found
 
 
@@ -178,22 +203,16 @@ def select_fetch(
         if fetch_all:
             places = _files_below(run_dir)
         else:
-            real_run_dir = os.path.realpath(run_dir)
-            places = [
-                name
-                for name in _RECORDS
-                if _is_fetchable(os.path.join(run_dir, name), real_run_dir)
-            ]
+            places = [name for name in _RECORDS if _is_regular_inside(run_dir, name)]
             try:
-                top = sorted(os.listdir(run_dir))
+                with os.scandir(run_dir) as listing:
+                    places += sorted(
+                        item.name
+                        for item in listing
+                        if item.name.endswith(".log") and item.is_file(follow_symlinks=False)
+                    )
             except OSError:
-                top = []
-            places += [
-                name
-                for name in top
-                if name.endswith(".log")
-                and _is_fetchable(os.path.join(run_dir, name), real_run_dir)
-            ]
+                pass
             places += _files_below(run_dir, "reports")
         for place in places:
             inside[place] = Path(run_dir, place)
@@ -207,13 +226,19 @@ def select_fetch(
                 mirrored = mirror_relative(given, run_dir)
                 full = given if os.path.isabs(given) else os.path.join(run_dir, given)
                 full = os.path.normpath(full)
-                if not os.path.isfile(full):
+                is_external = mirrored.parts[0] == _EXTERNAL
+                if not (
+                    _is_regular(full)
+                    if is_external
+                    else _is_regular_inside(run_dir, mirrored.as_posix())
+                ):
                     if succeeded:
                         raise RemoteFetchError(
-                            f"{node.name} names {given}, but the file is not in {run_dir}"
+                            f"{node.name} names {given}, but there is no regular file of that "
+                            f"name in {run_dir} (a link is not followed)"
                         )
                     continue
-                if mirrored.parts[0] == _EXTERNAL:
+                if is_external:
                     outside[mirrored.as_posix()] = Path(full)
                 else:
                     inside[mirrored.as_posix()] = Path(full)
@@ -272,17 +297,27 @@ def publish_mirror(
 
 
 def rewrite_results(
-    results: dict[str, Any], remote_run_dir: PurePosixPath, mirror_dir: Path
+    results: dict[str, Any],
+    remote_run_dir: PurePosixPath,
+    mirror_dir: Path,
+    *,
+    written: Optional[Collection[str]] = None,
 ) -> dict[str, Any]:
-    """Return the results of a node with the paths of the remote run directory `remote_run_dir`
-    pointed at the mirror directory `mirror_dir`: `run_path` and every artifact and declared
-    output.
+    """Return the results of a node that the request names, with the paths of the remote run
+    directory `remote_run_dir` pointed at the mirror directory `mirror_dir`: `run_path` and
+    every artifact and declared output. Call it for a node that `select_fetch` took the named
+    files of.
 
-    A failed run has no declared outputs. A declared output must lie in the run directory, and
-    its file in the mirror must have the digest in its record, or `DeliveryError`."""
+    Every path it returns is a regular file in the mirror, or it raises. A failed run has no
+    declared outputs, and of its artifacts only those survive that its run wrote: `written` are
+    the paths relative to its run directory that the remote vouched for (as `NodeResult.written`
+    does), and with none given no artifact survives. A declared output must lie in the run
+    directory, and its file in the mirror must have the digest in its record, or
+    `DeliveryError`."""
     rewritten = copy.deepcopy(results)
     remote_dir = str(remote_run_dir)
-    if not rewritten.get("success"):
+    succeeded = bool(rewritten.get("success"))
+    if not succeeded:
         rewritten.pop("outputs", None)
     _declared_outputs_problem(rewritten, remote_dir)
 
@@ -292,19 +327,29 @@ def rewrite_results(
     for recorded in (rewritten.get("outputs") or {}).values():
         for record, key in recorded_files(recorded):
             local = local_path(record[key])
-            try:
-                digest = content_digest(local)
-            except OSError:
-                raise DeliveryError(
-                    f"Declared remote output {record[key]} is not in the mirror"
-                ) from None
-            if digest != record["sha"]:
+            if not _is_regular(str(local)):
+                raise DeliveryError(f"Declared remote output {record[key]} is not in the mirror")
+            if content_digest(local) != record["sha"]:
                 raise DeliveryError(f"Declared remote output {record[key]} changed during transfer")
             record[key] = str(local)
-    if "artifacts" in rewritten:
-        rewritten["artifacts"] = map_artifact_paths(
-            rewritten["artifacts"], lambda artifact: str(local_path(os.fspath(artifact)))
-        )
+    artifacts = rewritten.get("artifacts")
+    if artifacts is not None:
+        vouched = frozenset(written or ())
+
+        def kept(artifact: ArtifactPath) -> bool:
+            place = mirror_relative(os.fspath(artifact), remote_dir)
+            return place.as_posix() in vouched and _is_regular(str(mirror_dir / place))
+
+        if not succeeded and isinstance(artifacts, Mapping):
+            artifacts = drop_unwritten_artifacts(artifacts, kept, str(rewritten.get("flow")))
+
+        def rewrite(artifact: ArtifactPath) -> str:
+            local = local_path(os.fspath(artifact))
+            if not _is_regular(str(local)):
+                raise RemoteFetchError(f"the artifact {os.fspath(artifact)} is not in the mirror")
+            return str(local)
+
+        rewritten["artifacts"] = map_artifact_paths(artifacts, rewrite)
     if "run_path" in rewritten:
         rewritten["run_path"] = str(mirror_dir)
     return rewritten

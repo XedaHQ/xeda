@@ -517,3 +517,33 @@ def test_a_stale_entry_is_removed_only_if_it_is_no_directory(tmp_path):
     (root / "file.txt").write_text("file")
     apply_sync(root, [], SyncPlan([], ["dir", "file.txt"]), raw_tar([]))
     assert tree(root) == {"dir": "dir", "dir/inner.txt": "inner"}  # a directory is not unlinked
+
+
+def test_empty_directories_of_the_inputs_are_made_and_kept(tmp_path):
+    entries = build_manifest({}, {"a/x.txt": b"x\n"})
+    plan = plan_sync(tmp_path, entries)
+    stream = io.BytesIO()
+    write_tar(entries, {}, {"a/x.txt": b"x\n"}, stream)
+    apply_sync(tmp_path, entries, plan, io.BytesIO(stream.getvalue()), ["a/empty/inner", "b"])
+    assert (tmp_path / "a" / "empty" / "inner").is_dir() and (tmp_path / "b").is_dir()
+    nothing = io.BytesIO()
+    write_tar([], {}, {}, nothing)
+    # a directory that is not asked for again goes with the next sync
+    apply_sync(tmp_path, entries, plan_sync(tmp_path, entries), io.BytesIO(nothing.getvalue()), [])
+    assert not (tmp_path / "a" / "empty").exists() and not (tmp_path / "b").exists()
+    with pytest.raises(RemoteProtocolError):
+        apply_sync(
+            tmp_path,
+            entries,
+            plan_sync(tmp_path, entries),
+            io.BytesIO(nothing.getvalue()),
+            ["a/x.txt"],
+        )
+    with pytest.raises(RemoteProtocolError):
+        apply_sync(
+            tmp_path,
+            entries,
+            plan_sync(tmp_path, entries),
+            io.BytesIO(nothing.getvalue()),
+            ["../x"],
+        )
