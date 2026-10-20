@@ -1196,7 +1196,10 @@ hardware, as described below. The ``basys_3`` pins are not.
   ``uart_tx`` (an output). The LEDs and buttons are active low. The jumper J4 sets the voltage of
   the bank of ``btn[1]`` and the UART. Their standard, LVCMOS33, is right with J4 at 3.3 V. The file
   is for the second (2023) revision of the board. The Vivado board files on GitHub (rriggs) describe
-  the first revision, which has other UART pins and a 100 MHz clock on F17 (the second has 50 MHz).
+  the first revision, which has other UART pins and a 100 MHz clock on F17 (the second has a 50 MHz
+  clock on F17, as listed in the `STLV7325 v2 platform source
+  <https://github.com/litex-hub/litex-boards/blob/10debf146d433ce8ac8aedcac84e97d252ff4d5b/litex_boards/platforms/sitlinv_stlv7325_v2.py#L19-L25>`_).
+  This target uses the separate 200 MHz differential input described below.
 
   The clock, LED, button and UART pins are checked on one board. A counter behind an ``IBUFDS`` and
   a ``BUFG`` on the clock pins ran at 200 MHz, read over JTAG. A static pattern and a walk lit LED0
