@@ -63,8 +63,6 @@ NO_CWD_STARTS = (
 
 #: (module, function) -> why it changes the working directory.
 REVIEWED_CHDIRS: dict[tuple[str, str], str] = {
-    ("utils.py", "WorkingDirectory.__enter__"): "the launch still enters the run directory",
-    ("utils.py", "WorkingDirectory.__exit__"): "the launch still enters the run directory",
     (
         "remote/launch_entry.py",
         "execute",
@@ -94,7 +92,6 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
     ("run_root.py", "ensure_run_root"): "a run root given relative to the caller",
     ("tool.py", "Docker.run"): "a container started outside a tool",
     ("tool.py", "Tool.working_directory"): "a tool outside a flow",
-    ("utils.py", "WorkingDirectory.__enter__"): "the launch still enters the run directory",
 }
 
 #: (module, function) -> why a process it starts needs no explicit working directory.
