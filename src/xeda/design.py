@@ -1206,7 +1206,7 @@ class Clock(XedaBaseModel):
     @classmethod
     def _name_validate(cls, value, info) -> Optional[str]:
         values = info.data if isinstance(info.data, dict) else {}
-        return value or values.get("port", None)
+        return values.get("port", None) if value is None or value == "" else value
 
 
 class Generator(XedaBaseModel):
@@ -1786,14 +1786,18 @@ class TbSettings(DVSettings):
     @field_validator("top", mode="before")
     @classmethod
     def _tb_top_validate(cls, value) -> Tuple012:
-        if value:
-            if isinstance(value, str):
-                return (value,)
-            if isinstance(value, (tuple, list, Sequence)):
-                if len(value) > 2:
-                    raise ValueError("At most 2 simulation top modules are supported.")
-                return tuple(value)
-        return tuple()
+        if value is None or value == "":
+            return tuple()
+        if isinstance(value, str):
+            return (value,)
+        if not isinstance(value, (tuple, list)):
+            raise ValueError(
+                "`top` is a module name or a list of at most 2 module names, "
+                f"got {type(value).__name__}: {value!r}"
+            )
+        if len(value) > 2:
+            raise ValueError("At most 2 simulation top modules are supported.")
+        return tuple(value)
 
     @field_validator("cocotb", mode="before")
     @classmethod
@@ -1829,11 +1833,11 @@ class LanguageSettings(XedaBaseModel):
     @field_validator("standard", mode="before")
     @classmethod
     def two_digit_standard(cls, value):
-        if not value:
+        if value is None or value == "":
             return None
-        if isinstance(value, int):
-            value = str(value)
-        elif not isinstance(value, str):
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)  # a standard is naturally written as a number: `2008`
+        if not isinstance(value, str):
             raise ValueError("standard should be of type string")
         return value
 

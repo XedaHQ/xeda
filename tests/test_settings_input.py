@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from xeda.dataclass import ValidationError
+from xeda.dataclass import ValidationError, waveform_format_of
 from xeda.design import Design, DesignValidationError
 from xeda.flow import Flow, FlowSettingsError
 
@@ -53,6 +53,26 @@ def test_a_value_of_another_type_is_a_validation_error_naming_the_setting(build,
     with pytest.raises((ValidationError, DesignValidationError, FlowSettingsError)) as error:
         build()
     assert setting in str(error.value)
+
+
+@pytest.mark.parametrize("given", ["lots", "", "2.5", 2.5, ["2"], {"level": 2}], ids=repr)
+def test_verbose_takes_a_whole_number_and_refuses_everything_else(given):
+    """`verbose: lots` used to become 0, and `verbose: 2.5` became 2, without a word."""
+    with pytest.raises(FlowSettingsError, match="verbose"):
+        Flow.Settings.from_input({"verbose": given})
+    with pytest.raises(ValidationError) as refused:
+        Flow.Settings(verbose=given)
+    assert [error["loc"] for error in refused.value.errors()] == [("verbose",)]
+
+    settings = Flow.Settings(verbose=2)
+    with pytest.raises(ValidationError, match="verbose"):
+        settings.verbose = given
+    assert settings.verbose == 2, "a refused assignment changes nothing"
+
+
+@pytest.mark.parametrize("given", [2, "2"], ids=repr)
+def test_verbose_takes_a_number_as_it_is_written_in_a_file_or_on_the_command_line(given):
+    assert Flow.Settings.from_input({"verbose": given}).verbose == 2
 
 
 def test_a_code_may_be_written_as_a_number():
@@ -471,3 +491,266 @@ def test_runner_preserves_edits_inside_a_producer_settings_object(tmp_path):
     validated = input_settings(VivadoSynth, settings, design, tmp_path / "start")
 
     assert validated.xdc_files == [tmp_path / "pins.xdc"]
+
+
+# ---------------------------------------------------------------------------------------------
+# A scalar setting takes a value of its type or fails naming the setting
+# ---------------------------------------------------------------------------------------------
+
+
+def _scalar_kinds(annotation) -> "tuple[set[str], set[object]] | None":
+    """Return what a field of a plain type holds, as its kinds (`int`, `float`, `bool`, `str`,
+    `path`, `literal`) and the values of its `Literal`s. Return `None` for any other field: a
+    list, a table, a model, a quantity, a choice among names, or a type with a converter of
+    its own (`Code`, which takes a number for text)."""
+    import types
+    from pathlib import PurePath
+    from typing import Annotated, Literal, Union, get_args, get_origin
+
+    from pydantic import BeforeValidator
+
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        base, *metadata = get_args(annotation)
+        if any(isinstance(item, BeforeValidator) for item in metadata):
+            return None
+        return _scalar_kinds(base)
+    if origin is Literal:
+        return {"literal"}, set(get_args(annotation))
+    if origin is list:
+        (item,) = get_args(annotation)
+        found = _scalar_kinds(item)
+        if found is None or "list" in found[0]:
+            return None  # a list of lists is not judged
+        return {"list", *found[0]}, found[1]
+    if origin in (Union, types.UnionType):
+        kinds: "set[str]" = set()
+        literals: "set[object]" = set()
+        for arg in get_args(annotation):
+            if arg is type(None):
+                continue
+            found = _scalar_kinds(arg)
+            if found is None:
+                return None
+            kinds |= found[0]
+            literals |= found[1]
+        return kinds, literals
+    for name, kind in (("bool", bool), ("int", int), ("float", float), ("str", str)):
+        if annotation is kind:
+            return {name}, set()
+    if isinstance(annotation, type) and issubclass(annotation, PurePath):
+        return {"path"}, set()
+    return None
+
+
+def _values_of_another_type(kinds: "set[str]", literals: "set[object]") -> list:
+    """Return values that no field of `kinds` takes, whatever the settings convenience. A list
+    and a table are never a scalar, text is no number or switch, and a number is no text. A list
+    takes a list of items of its kind, never a table, a number or a switch; text is a
+    comma-separated list, so it is not judged."""
+    if "list" in kinds:
+        items = _values_of_another_type(kinds - {"list"}, literals)
+        return [{"lots": 1}, 2.5, True, False, 0] + [
+            [item] for item in items if item not in ([], {})
+        ]
+    wrong: list = [["lots"], {"lots": 1}, [], {}]
+    text = bool(kinds & {"str", "path"})
+    if not text and "lots" not in literals:
+        wrong.append("lots")
+    if "float" not in kinds:
+        wrong.append(2.5)
+    if not kinds & {"int", "float", "bool", "literal"}:
+        wrong += [True, False, 0]
+    return wrong
+
+
+#: What a wrong value may raise (see `test_malformed_input.VALIDATION_ERRORS`). Anything else is a
+#: leak and fails the sweep.
+VALIDATION_ERRORS = (ValidationError, DesignValidationError, FlowSettingsError, ValueError)
+
+#: A scalar field that takes a value of another type on purpose, as `(class that declares the
+#: field, field): (types of the values it takes, reason)`. Add a row only for a conversion that a
+#: text for users documents. A waveform setting takes `true` and `false` for "write the default
+#: file" and "write none" (`dataclass.waveform`), which the sweep knows without a row here.
+DOCUMENTED_CONVERSIONS: "dict[tuple[str, str], tuple[tuple[type, ...], str]]" = {
+    ("LanguageSettings", "standard"): (
+        (int,),
+        "a standard is naturally written as a number (docs/design-file.rst: `standard: 2008`)",
+    ),
+    ("Design", "design_root"): (
+        (list, dict, bool, int),
+        "an argument of the constructor, not a setting of a design file: an empty one stands "
+        "for the working directory",
+    ),
+}
+
+_REGION = ["1 um", "1 um", "9 um", "9 um"]
+
+#: A valid value for each required field of a model that the sweep builds alone (the ones in
+#: `settings_fields.REQUIRED_VALUES` are not repeated). A model with a required field that is not
+#: in one of the two tables fails the sweep, so that it never goes unjudged.
+SWEEP_REQUIRED: "dict[tuple[str, str], object]" = {
+    ("Clock", "port"): "clk",
+    ("DesignReference", "uri"): "design.yaml",
+    ("DVSettings", "sources"): [],
+    ("GlobalConnect", "net"): "VDD",
+    ("GlobalConnect", "pin_pattern"): "VDD",
+    ("HiLoMap", "hi"): ("TIEHI", "Z"),
+    ("HiLoMap", "lo"): ("TIELO", "Z"),
+    ("PinConstraint", "region"): {"edge": "top"},
+    ("PlacementBlockage", "region"): _REGION,
+    ("RegionAdjustment", "region"): _REGION,
+    ("RoutingBlockage", "region"): _REGION,
+    ("TechmapFile", "path"): "map.v",
+    ("ViaInPin", "bottom"): "m1",
+    ("ViaInPin", "top"): "m2",
+}
+
+#: The input that a model needs and that no required field names.
+SWEEP_BASES: "dict[str, dict]" = {"FPGA": {"part": "xc7a100t"}}
+
+
+def _sweep_models() -> "list[type]":
+    from xeda.design import Design
+
+    from .settings_fields import reachable_models
+    from .settings_samples import flow_classes
+
+    return reachable_models([cls.Settings for cls, _ in flow_classes()] + [Design])
+
+
+def _sweep_base(model) -> dict:
+    """Return the least that `model` needs to be built alone."""
+    from xeda.design import Design
+
+    from .settings_fields import REQUIRED_VALUES, key_of
+    from .settings_samples import flow_classes, minimal_settings
+
+    if model is Design:
+        return {"name": "d", "rtl": {"sources": [], "top": "t"}}
+    for cls, _ in flow_classes():
+        if cls.Settings is model:
+            return minimal_settings(cls)
+    base = dict(SWEEP_BASES.get(model.__qualname__, {}))
+    for name, info in model.model_fields.items():
+        if info.is_required():
+            key = key_of(model, name)
+            base[name] = {**REQUIRED_VALUES, **SWEEP_REQUIRED}[key]
+    return base
+
+
+SWEEP_MODELS = _sweep_models()
+
+
+def test_the_sweep_judges_fields_of_every_plain_kind():
+    judged = [
+        (model.__qualname__, name, _scalar_kinds(info.annotation))
+        for model in SWEEP_MODELS
+        for name, info in model.model_fields.items()
+        if not name.endswith("_")
+    ]
+    kinds = set().union(*(found[0] for _, _, found in judged if found))
+    assert {"int", "float", "bool", "str", "path", "literal", "list"} <= kinds
+    assert ("Settings", "verbose", ({"int"}, set())) in [
+        (model.rpartition(".")[2], name, found) for model, name, found in judged
+    ]
+    assert sum(found is not None for _, _, found in judged) > 1200
+
+
+@pytest.mark.parametrize("model", SWEEP_MODELS, ids=[m.__qualname__ for m in SWEEP_MODELS])
+def test_a_scalar_setting_refuses_a_value_of_another_type_naming_the_setting(model):
+    """The class of `verbose: lots` becoming 0: a validator that converts what it cannot read
+    into a default. Every field of a plain type (a number, a switch, text, a path) is given a list,
+    a table, and the text or number that its type does not take. Each must be a validation error
+    that names the field, on construction and on assignment, and an assignment that fails
+    changes nothing."""
+    from .settings_fields import key_of
+
+    base = _sweep_base(model)
+    built = model(**base)
+    silent = []
+    unnamed = []
+    for name, info in model.model_fields.items():
+        if name.endswith("_"):
+            continue
+        taken_types = DOCUMENTED_CONVERSIONS.get(key_of(model, name), ((), ""))[0]
+        kinds = _scalar_kinds(info.annotation)
+        if kinds is None:
+            continue
+        wrong = _values_of_another_type(*kinds)
+        wrong = [bad for bad in wrong if type(bad) not in taken_types]
+        if waveform_format_of(model, name):
+            wrong = [bad for bad in wrong if not isinstance(bad, bool)]
+        for bad in wrong:
+            try:
+                taken = getattr(model(**{**base, name: bad}), name)
+                silent.append(f"{name}={bad!r} was taken as {taken!r}")
+            except VALIDATION_ERRORS as error:
+                if not _names(error, name, info.alias):
+                    unnamed.append(f"{name}={bad!r}: {error}")
+            before = getattr(built, name)
+            try:
+                setattr(built, name, bad)
+                silent.append(f"{name} = {bad!r} was taken as {getattr(built, name)!r}")
+            except VALIDATION_ERRORS as error:
+                if not _names(error, name, info.alias):
+                    unnamed.append(f"{name} = {bad!r}: {error}")
+            finally:
+                if getattr(built, name) != before:
+                    silent.append(
+                        f"{name} = {bad!r} changed {before!r} to {getattr(built, name)!r}"
+                    )
+                    object.__setattr__(built, name, before)
+    assert not silent, "\n".join(silent)
+    assert not unnamed, "\n".join(unnamed)
+
+
+def _names(error: Exception, name: str, alias: "str | None") -> bool:
+    """Whether the validation error says which setting is wrong."""
+    if isinstance(error, ValidationError):
+        return any(item["loc"][:1] in ((name,), (alias,)) for item in error.errors())
+    return name in str(error) or (alias is not None and alias in str(error))
+
+
+@pytest.mark.parametrize("given", [{}, {"a": 1}, 5, 2.5, True, {"a"}], ids=repr)
+def test_a_testbench_top_of_another_type_is_refused_not_dropped(given):
+    """`tb.top: 5` used to become no top module at all."""
+    from xeda.design import TbSettings
+
+    with pytest.raises(ValidationError, match="top"):
+        TbSettings(top=given)
+    assert TbSettings(top=None).top == TbSettings(top="").top == TbSettings(top=[]).top == ()
+    assert TbSettings(top="t").top == ("t",)
+    assert TbSettings(top=["a", "b"]).top == ("a", "b")
+
+
+def test_no_validator_of_a_setting_turns_what_it_cannot_read_into_a_default():
+    """`try_convert` returns a default for any failure, and a validator that calls it says
+    nothing about a value it cannot read. A validator reports it, or leaves it to pydantic."""
+    import ast
+
+    import xeda
+
+    lenient = {"try_convert", "try_convert_to_primitives"}
+    # It reads the digits of a part number that a pattern matched: no setting has a wrong type.
+    allowed = {("fpga.py", "_fpga_root_validator")}
+    validators = {"field_validator", "model_validator", "validator", "root_validator"}
+    found = []
+    for path in sorted(Path(xeda.__file__).parent.rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        for function in ast.walk(tree):
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            decorators = {
+                getattr(node, "attr", getattr(node, "id", ""))
+                for decorator in function.decorator_list
+                for node in ast.walk(decorator)
+            }
+            if not decorators & validators:
+                continue
+            for node in ast.walk(function):
+                if isinstance(node, ast.Name) and node.id in lenient:
+                    if (path.name, function.name) in allowed:
+                        continue
+                    found.append(f"{path.name}:{node.lineno} {function.name}")
+    assert not found, found

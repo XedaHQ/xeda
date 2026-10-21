@@ -52,7 +52,6 @@ from ..dataclass import (
     comma_separated_items,
     conventional_output,
     field_annotation,
-    field_validator,
     fold_dotted_keys,
     input_names,
     is_locator,
@@ -86,7 +85,6 @@ from ..utils import (
     tcl_list,
     tcl_quote,
     tcl_word,
-    try_convert,
     unique,
 )
 
@@ -1413,13 +1411,6 @@ class Flow(metaclass=ABCMeta):
             This is decided where it is read, so `quiet` keeps the value that was written and the
             order of the three settings does not matter."""
             return self.quiet and not (self.verbose or self.debug)
-
-        @field_validator("verbose", mode="before")
-        @classmethod
-        def _validate_verbose(cls, value):
-            if not isinstance(value, int):
-                return try_convert(value, int, 0)
-            return value
 
     class Results(Box):
         """The results of a flow, written to `results.json`."""

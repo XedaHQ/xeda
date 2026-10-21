@@ -282,6 +282,8 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
                 return values  # an assignment that changes neither the board nor its database
         board_name = values.get("board")
         log.debug("_fpga_validate! board_name=%s", board_name)
+        if board_name is not None and not isinstance(board_name, str):
+            return values  # the `board` field reports the wrong type itself
         fpga = values.get("fpga")
         context = info.context or {}
         custom = cls._resolve_boards_path(values.get("custom_boards_file"), context)
