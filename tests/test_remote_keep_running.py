@@ -8,6 +8,7 @@ blocks (`XEDA_FAKE_FPGA_READY`). The test lets it go by opening a second FIFO
 that it started by process id.
 """
 
+import contextlib
 import fcntl
 import io
 import json
@@ -400,8 +401,11 @@ def test_a_launch_that_keeps_running_holds_its_environment_and_code_copy_after_t
     assert (provisioned.env / USE_LOCK).exists() and (provisioned.code / USE_LOCK).exists()
     # The locks end with the launch, also while its tool runs on: the tool inherits none.
     tool = agent.tool_pids[-1]
-    psutil.Process(state["pid"]).kill()
-    psutil.Process(state["pid"]).wait(timeout=TIMEOUT)
+    # One object for the launch: the system reaps it at once, and then a new object for its PID
+    # raises NoSuchProcess. `wait()` of the object returns for a process that is gone.
+    launch = psutil.Process(state["pid"])
+    launch.kill()
+    launch.wait(timeout=TIMEOUT)
     assert psutil.Process(tool).is_running()
     for directory in (provisioned.env, provisioned.code):
         assert not provisioned.lock_is_held(directory)
@@ -428,9 +432,12 @@ def test_a_launch_that_does_not_keep_running_holds_the_locks_when_the_agent_is_k
     _alive_and_holding(tmp_path, state)
     for directory in (provisioned.env, provisioned.code):
         assert provisioned.lock_is_held(directory)
-    for pid in (state["pid"], *agent.tool_pids):
-        psutil.Process(pid).kill()
-    psutil.Process(state["pid"]).wait(timeout=TIMEOUT)
+    launch = psutil.Process(state["pid"])
+    processes = [launch, *(psutil.Process(pid) for pid in agent.tool_pids)]
+    for process in processes:
+        with contextlib.suppress(psutil.NoSuchProcess):  # a tool can end with its launch
+            process.kill()
+    launch.wait(timeout=TIMEOUT)
     for directory in (provisioned.env, provisioned.code):
         assert not provisioned.lock_is_held(directory)
 
