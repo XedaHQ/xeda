@@ -2105,7 +2105,7 @@ class DesignReference(XedaBaseModel):
         # The path is relative to the root of the design that lists this dependency.
         design_path = design_relative_root() / self.uri
         if not design_path.exists():
-            raise MissingFile(f"file {redacted_url(self.uri)} does not exist!")
+            raise MissingFile(f"file {redacted_url(str(design_path))} does not exist!")
         return Design.from_file(design_path)
 
 
@@ -3283,6 +3283,9 @@ class Design(XedaBaseModel):
                 cls.remove_keys(design_dict, remove_extra)
             # The default design root is the directory that holds the design file.
             dr = design_dict.pop("design_root", None)
+            if design_root is None and isinstance(dr, (str, os.PathLike)) and dr:
+                # A relative `design_root` in the file is relative to the file.
+                dr = absolute_file.parent / dr
             if design_root is None:
                 design_root = dr
             if design_root is None:

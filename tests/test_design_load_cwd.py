@@ -16,6 +16,8 @@ from typing import Any
 
 import pytest
 
+from .test_git_dependencies import remote_lib  # noqa: F401 (the fixture)
+
 HARNESS = """\
 import json, sys
 
@@ -339,3 +341,137 @@ def test_a_load_leaves_no_root_behind_even_when_it_fails(tmp_path):
     with pytest.raises(DesignValidationError):
         Design(design_root=root, name="bad", rtl={"sources": ["missing.v"], "top": "a"})
     assert design_relative_root() == before
+
+
+def test_a_relative_design_root_in_a_design_file_is_relative_to_that_file(tmp_path):
+    project = tmp_path / "project"
+    design_file = _write(
+        project / "designs" / "design.yaml",
+        """\
+        name: rooted
+        design_root: ../src
+        rtl:
+          sources: [a.v, "more/*.v"]
+          top: a
+        """,
+    )
+    for name in ("a.v", "more/b.v"):
+        _write(project / "src" / name, "// design\n")
+    here = _elsewhere(tmp_path, "src/a.v", "src/more/b.v")
+    root = (project / "src").resolve()
+
+    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
+
+    assert summary["chdirs"] == []
+    assert Path(summary["root"]) == root
+    assert _files(summary["rtl"]) == [root / "a.v", root / "more" / "b.v"]
+
+
+def test_a_relative_design_root_in_a_dependency_file_is_relative_to_the_dependency_file(tmp_path):
+    design_file = _write(
+        tmp_path / "app" / "main.yaml",
+        """\
+        name: app
+        dependencies: [../lib/deep/dep.yaml]
+        rtl:
+          sources: [top.v]
+          top: top
+        """,
+    )
+    _write(tmp_path / "app" / "top.v", "// app\n")
+    _write(
+        tmp_path / "lib" / "deep" / "dep.yaml",
+        """\
+        name: dep
+        design_root: ../src
+        rtl:
+          sources: [dep.v]
+          top: dep
+        """,
+    )
+    _write(tmp_path / "lib" / "src" / "dep.v", "// dependency\n")
+    # Where the root would be if it were relative to the parent's root or the working directory.
+    _write(tmp_path / "src" / "dep.v", "// decoy: the parent's root\n")
+    here = _elsewhere(tmp_path, "src/dep.v")
+    base = tmp_path.resolve()
+
+    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
+
+    assert summary["chdirs"] == []
+    assert _files(summary["rtl"]) == [base / "lib" / "src" / "dep.v", base / "app" / "top.v"]
+
+
+def test_a_missing_local_dependency_names_where_it_looked(tmp_path):
+    from xeda.design import Design, DesignValidationError
+
+    root = tmp_path / "design"
+    _write(root / "top.v", "// design\n")
+
+    with pytest.raises(DesignValidationError) as raised:
+        Design(
+            design_root=root,
+            name="needy",
+            dependencies=["../lib/missing.yaml"],
+            rtl={"sources": ["top.v"], "top": "top"},
+        )
+
+    assert str(root.resolve() / ".." / "lib" / "missing.yaml") in str(raised.value)
+
+
+@pytest.mark.usefixtures("remote_lib")
+def test_a_git_dependency_clones_relative_to_the_design_root(tmp_path):
+    root = tmp_path / "design"
+    _write(root / "top.v", "// design\n")
+    design_file = _write(
+        root / "design.yaml",
+        """\
+        name: cloning
+        rtl:
+          sources: [top.v]
+          top: top
+        dependencies:
+          - repo_url: git@fake.invalid:org/lib.git
+            design_file: lib.yaml
+            clone_dir: clones/lib
+        """,
+    )
+    here = _elsewhere(tmp_path, "top.v")
+
+    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
+
+    assert summary["chdirs"] == []
+    assert (root / "clones" / "lib" / ".git").is_dir()
+    assert not (here / "clones").exists()
+    assert [Path(p).name for p in summary["rtl"]] == ["lib.v", "top.v"]
+    assert _files(summary["rtl"])[0] == (root / "clones" / "lib" / "lib.v").resolve()
+
+
+@pytest.mark.usefixtures("remote_lib")
+def test_a_git_cache_clones_relative_to_the_design_root(tmp_path, monkeypatch):
+    # The cache path names the host of the URL, so the URL is in the `https` form.
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.{tmp_path / 'remotes'}/.insteadOf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "https://fake.invalid/")
+    root = tmp_path / "design"
+    _write(root / "top.v", "// design\n")
+    design_file = _write(
+        root / "design.yaml",
+        """\
+        name: caching
+        rtl:
+          sources: [top.v]
+          top: top
+        dependencies:
+          - uri: git+https://fake.invalid/org/lib.git#lib.yaml
+            local_cache: cache
+        """,
+    )
+    here = _elsewhere(tmp_path, "top.v")
+
+    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
+
+    assert summary["chdirs"] == []
+    clones = list((root / "cache").glob("*/*/.git"))
+    assert len(clones) == 1
+    assert not (here / "cache").exists()
+    assert [Path(p).name for p in summary["rtl"]] == ["lib.v", "top.v"]

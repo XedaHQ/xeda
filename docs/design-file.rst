@@ -97,7 +97,8 @@ Top level
    * - ``design_root``
      - no
      - The directory that relative paths resolve against. It defaults to the directory of the
-       design file, which is almost always what you want.
+       design file, which is almost always what you want. A relative ``design_root`` in a design
+       file is relative to the directory of that file.
    * - ``targets``
      - no
      - Overlays for individual boards. See :ref:`targets`.
