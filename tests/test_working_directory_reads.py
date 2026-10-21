@@ -17,18 +17,40 @@ import xeda
 
 SRC = Path(xeda.__file__).parent
 
-#: The calls that start a process. Each takes `cwd=`.
-PROCESS_STARTS = {
-    ("subprocess", "run"),
-    ("subprocess", "call"),
-    ("subprocess", "check_call"),
-    ("subprocess", "check_output"),
-    ("subprocess", "Popen"),
-    ("asyncio", "create_subprocess_exec"),
-    ("asyncio", "create_subprocess_shell"),
-    (None, "run_process"),
-    (None, "run_capture_pty"),
+#: Calls by their full dotted name, as the module imported them (aliases resolved), and the kind
+#: of use each is. A process start counts only without an explicit `cwd=` (a literal `cwd=None` is
+#: no directory). A lookup counts whether it is called or passed on (`factory=Path.cwd`).
+LOOKUPS = {
+    "os.chdir": "chdir",
+    "os.fchdir": "chdir",
+    "contextlib.chdir": "chdir",
+    "pathlib.Path.cwd": "cwd",
+    "os.getcwd": "cwd",
+    "os.getcwdb": "cwd",
 }
+PROCESS_STARTS = {
+    "subprocess.run",
+    "subprocess.call",
+    "subprocess.check_call",
+    "subprocess.check_output",
+    "subprocess.Popen",
+    "subprocess.getoutput",
+    "subprocess.getstatusoutput",
+    "asyncio.create_subprocess_exec",
+    "asyncio.create_subprocess_shell",
+    "xeda.proc_utils.run_process",
+    "xeda.proc_utils.run_capture_pty",
+}
+#: Process starts that take no working directory at all: always a finding.
+NO_CWD_STARTS = (
+    {"os.system", "os.popen", "pty.spawn"}
+    | {
+        f"os.{name}{suffix}"
+        for name in ("execv", "execl", "spawnv", "spawnl")
+        for suffix in ("", "e", "p", "pe")
+    }
+    | {"os.posix_spawn", "os.posix_spawnp"}
+)
 
 #: (module, function) -> why it changes the working directory.
 REVIEWED_CHDIRS: dict[tuple[str, str], str] = {
@@ -85,29 +107,47 @@ REVIEWED_PROCESS_STARTS: dict[tuple[str, str], str] = {
 }
 
 
-def _owner(node: ast.expr) -> str | None:
-    """The last name of `a.b` or `b`: what an attribute is looked up on."""
-    if isinstance(node, ast.Attribute):
-        return node.attr
-    return node.id if isinstance(node, ast.Name) else None
+def _imports(tree: ast.AST, module: str) -> dict[str, str]:
+    """The full dotted name of each name that `module` imports (`import a.b as c`, `from a import
+    b as c`, relative imports within `xeda`). The module's own top-level functions count as
+    imported from it."""
+    names: dict[str, str] = {}
+    package = ["xeda", *module.split("/")[:-1]]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    names[alias.asname] = alias.name
+                else:
+                    top = alias.name.split(".")[0]
+                    names[top] = top
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:
+                base = ".".join([*package[: len(package) - node.level + 1], *filter(None, [base])])
+            for alias in node.names:
+                names[alias.asname or alias.name] = f"{base}.{alias.name}"
+    own = "xeda." + module.removesuffix(".py").replace("/", ".")
+    for node in getattr(tree, "body", []):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name not in names:
+            names[node.name] = f"{own}.{node.name}"
+    return names
 
 
-def _called(node: ast.Call) -> tuple[str | None, str]:
-    """(`owner`, `name`) of `owner.name(...)`, or (None, `name`) of a bare `name(...)`."""
-    func = node.func
-    if isinstance(func, ast.Attribute):
-        return _owner(func.value), func.attr
-    if isinstance(func, ast.Name):
-        return None, func.id
-    return None, ""
+def _dotted(node: ast.expr, names: dict[str, str]) -> str | None:
+    """The full dotted name of `a.b.c` or `a`, through the imports in `names`."""
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name) or node.id not in names:
+        return None
+    return ".".join([names[node.id], *reversed(parts)])
 
 
-#: Lookups that change or read the working directory, called or passed on (`factory=Path.cwd`).
-DIRECTORY_LOOKUPS = {("os", "chdir"): "chdir", ("Path", "cwd"): "cwd", ("os", "getcwd"): "cwd"}
-
-
-def _scan(tree: ast.AST) -> Iterator[tuple[str, str]]:
+def _scan(tree: ast.AST, module: str = "xeda/m.py") -> Iterator[tuple[str, str]]:
     """(kind, function qualname) for each reviewed kind of use in `tree`."""
+    names = _imports(tree, module)
 
     def walk(node: ast.AST, scope: list[str]) -> Iterator[tuple[str, str]]:
         for child in ast.iter_child_nodes(node):
@@ -115,20 +155,30 @@ def _scan(tree: ast.AST) -> Iterator[tuple[str, str]]:
                 yield from walk(child, [*scope, child.name])
                 continue
             where = ".".join(scope) or "<module>"
-            if isinstance(child, ast.Attribute):
-                kind = DIRECTORY_LOOKUPS.get((_owner(child.value), child.attr))  # type: ignore[arg-type]
-                if kind:
-                    yield kind, where
-            elif isinstance(child, ast.ImportFrom) and child.module == "os":
-                for alias in child.names:
-                    if ("os", alias.name) in DIRECTORY_LOOKUPS:
-                        yield DIRECTORY_LOOKUPS[("os", alias.name)], where
-            elif isinstance(child, ast.Call):
-                owner, name = _called(child)
-                if (owner, name) in PROCESS_STARTS or (None, name) in PROCESS_STARTS:
-                    if not any(k.arg == "cwd" for k in child.keywords):
+            if isinstance(child, ast.Call):
+                called = _dotted(child.func, names)
+                if called in NO_CWD_STARTS:
+                    yield "process", where
+                elif called in PROCESS_STARTS:
+                    cwd = [k.value for k in child.keywords if k.arg == "cwd"]
+                    if not cwd or (isinstance(cwd[0], ast.Constant) and cwd[0].value is None):
                         yield "process", where
+                if called in LOOKUPS:
+                    yield LOOKUPS[called], where
+                    # The called name itself is not visited again as a lookup.
+                    for part in [*child.args, *(k.value for k in child.keywords)]:
+                        yield from walk_expression(part, scope)
+                    continue
+            elif isinstance(child, (ast.Attribute, ast.Name)) and isinstance(child.ctx, ast.Load):
+                looked_up = _dotted(child, names)
+                if looked_up in LOOKUPS:
+                    yield LOOKUPS[looked_up], where
+                    continue
             yield from walk(child, scope)
+
+    def walk_expression(node: ast.AST, scope: list[str]) -> Iterator[tuple[str, str]]:
+        wrapper = ast.Expr(value=node)  # type: ignore[arg-type]
+        yield from walk(wrapper, scope)
 
     yield from walk(tree, [])
 
@@ -137,7 +187,7 @@ def _found() -> dict[str, Counter]:
     found: dict[str, Counter] = {"chdir": Counter(), "cwd": Counter(), "process": Counter()}
     for file in sorted(SRC.rglob("*.py")):
         module = file.relative_to(SRC).as_posix()
-        for kind, where in _scan(ast.parse(file.read_text(), str(file))):
+        for kind, where in _scan(ast.parse(file.read_text(), str(file)), module):
             found[kind][(module, where)] += 1
     return found
 
@@ -163,20 +213,47 @@ def test_every_process_starts_in_an_explicit_directory():
 
 
 def test_the_scan_sees_each_kind_of_call():
-    """The teeth of the scan: each spelling it looks for is found, in the right function."""
+    """The teeth of the scan: each spelling it looks for is found, in the right function, and a
+    process started in an explicit directory is not."""
     source = """
+import contextlib
 import os, subprocess
+import os as o
+import pathlib
+import subprocess as sp
+from contextlib import chdir
+from os import getcwd as here
 from pathlib import Path
+from pathlib import Path as P
+from subprocess import Popen, run
+from ..proc_utils import run_process
 class C:
     def f(self):
         os.chdir("x")
+        o.chdir("x")
+        contextlib.chdir("x")
+        chdir("x")
+    def g(self):
         Path.cwd()
-        os.getcwd()
+        P.cwd()
         pathlib.Path.cwd()
+        os.getcwd()
+        here()
         attrs.field(factory=Path.cwd)
+        Path(Path.cwd())
+    def h(self):
         subprocess.run(["true"])
-        subprocess.run(["true"], cwd="/")
+        sp.run(["true"])
+        run(["true"])
+        Popen(["true"], cwd=None)
         run_process("true", [])
+        os.system("true")
+        os.execvp("true", ["true"])
+    def fine(self):
+        subprocess.run(["true"], cwd="/")
+        run(["true"], cwd=Path("/"))
+        run_process("true", [], cwd="/")
+        cwd()
 """
-    seen = Counter((kind, where) for kind, where in _scan(ast.parse(source)))
-    assert seen == Counter({("chdir", "C.f"): 1, ("cwd", "C.f"): 4, ("process", "C.f"): 2}), seen
+    seen = Counter(_scan(ast.parse(source), "flow_runner/m.py"))
+    assert seen == Counter({("chdir", "C.f"): 4, ("cwd", "C.g"): 7, ("process", "C.h"): 7}), seen

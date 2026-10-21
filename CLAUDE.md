@@ -200,8 +200,9 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   (`tests/test_code_digest.py`); a flow class without a source file
   always runs, through `Flow.always_runs`, and gets no digest.
 - Library code never calls `os.chdir`, reads the working directory only where a call receives a
-  path, and starts every process with an explicit `cwd=`; a relative path in a design or project
-  file resolves against its directory (`tests/test_working_directory_reads.py`).
+  path, and starts every process with an explicit `cwd=`; each exception is reviewed in
+  `tests/test_working_directory_reads.py`. A relative path in a design or project file resolves
+  against the directory of that file.
 - Every write in a run directory goes through `RunDirectory` (`xeda/run_dir.py`):
   `writable(path)`, then `utils.replacing_file` / `replacing_copy`; delete with `remove`,
   `clear`, `delete`. Tool logs go through `utils.live_log` only. Never write, delete or follow
