@@ -10,16 +10,12 @@ from pydantic import Field
 
 from xeda import Design
 from xeda.flow import Flow, registered_flows
-from xeda.digest import package_files
 from xeda.flow_runner.trace_inputs import (
-    XEDA_PACKAGE,
     artifact_files,
     design_files,
-    flow_code_digest,
     implicit_input_files,
     parse_depfile,
     setting_files,
-    xeda_code_digest,
 )
 from xeda.listing import directory_files
 
@@ -186,27 +182,6 @@ def test_a_file_valued_parameter_and_define_are_design_files(tmp_path):
     assert sorted(design_files(design)) == sorted(
         [(tmp_path / f).resolve() for f in ("a.v", "rom.mem", "init.hex")]
     )
-
-
-def test_the_flow_code_digest_is_stable_and_names_the_flow(hooked):
-    assert flow_code_digest(hooked) == flow_code_digest(hooked)
-    assert len(flow_code_digest(hooked)) == 32
-
-
-def test_the_xeda_code_digest_covers_helpers_templates_and_data():
-    """An editable install keeps its version string across edits: a helper flows use (template
-    filters in utils.py, cocotb.py, tool.py) or bundled board data must count as xeda's code."""
-    files = {p.relative_to(XEDA_PACKAGE).as_posix() for p in package_files(XEDA_PACKAGE)}
-    assert {"utils.py", "cocotb.py", "tool.py", "data/boards.toml"} <= files
-    assert "flows/yosys/templates/yosys_synth.ys" in files
-    assert not any("__pycache__" in f or f.endswith(".pyc") for f in files)
-    assert xeda_code_digest() == xeda_code_digest() and len(xeda_code_digest()) == 32
-
-
-def test_a_flow_of_xeda_s_own_has_no_separate_code_digest():
-    from xeda.flows import YosysFpga
-
-    assert flow_code_digest(YosysFpga) == ""
 
 
 def test_one_walker_lists_every_file_under_a_directory():

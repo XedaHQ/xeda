@@ -25,7 +25,6 @@ their metadata (`digest.FileRecord.trusted`) as it does for an input.
 
 from __future__ import annotations
 
-import inspect
 import logging
 import os
 import re
@@ -34,7 +33,6 @@ import time
 import uuid
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from functools import lru_cache
 from pathlib import Path
 from typing import (
     Any,
@@ -47,7 +45,6 @@ from typing import (
     Sequence,
     Set,
     Tuple,
-    Type,
 )
 
 from pydantic import BaseModel
@@ -59,9 +56,7 @@ from ..digest import (
     UNRECORDED_BEFORE_RUN,
     FileRecord,
     content_digest,
-    digest_files,
     filesystem_time_ns,
-    package_files,
     record_file,
     unknown_record,
     written_since,
@@ -74,6 +69,7 @@ from ..flow.flow import _annotation_contains_path, map_keyed_path_leaves
 from ..listing import VCS_METADATA, directory_files
 from ..proc_utils import DOCKER_IMAGE_PREFIX, program_state
 from ..version import __version__
+from .code_digest import CodeDigests
 from .run_lock import lock_file
 from .trace import (
     RESERVED_FILES,
@@ -561,46 +557,6 @@ def _resolved(path: Path, run_path: Path) -> Path:
     return (path if path.is_absolute() else run_path / path).resolve()
 
 
-#: The directory of the installed xeda package.
-XEDA_PACKAGE = Path(__file__).resolve().parent.parent
-
-
-@lru_cache(maxsize=None)
-def xeda_code_digest() -> str:
-    """Return a digest of every file of the installed xeda package.
-
-    That covers code, templates and bundled data.
-
-    It is computed once per process. An editable install keeps one version string across edits,
-    so this digest, and not the version, notices a change to a helper that a flow uses."""
-    return digest_files(package_files(XEDA_PACKAGE), XEDA_PACKAGE)
-
-
-@lru_cache(maxsize=None)
-def flow_code_digest(flow_class: Type[Flow]) -> str:
-    """Return a digest of the modules that define `flow_class` or its bases outside xeda.
-
-    The digest covers these modules (the modules of a plugin flow) with their templates. It is
-    "" when the xeda package defines them all: `xeda_code_digest` covers that case."""
-    files = set()
-    for cls in flow_class.__mro__:
-        if not (isinstance(cls, type) and issubclass(cls, Flow)):
-            continue
-        source = inspect.getsourcefile(cls)
-        if source is None:
-            continue
-        module_file = Path(source).resolve()
-        if module_file.is_relative_to(XEDA_PACKAGE):
-            continue
-        files.add(module_file)
-        templates = module_file.parent / "templates"
-        if templates.is_dir():
-            files.update(p.resolve() for p in directory_files(templates) if p.is_file())
-    if not files:
-        return ""
-    return digest_files(sorted(files), Path("/"))
-
-
 def candidate_inputs(
     flow_class: type[Flow],
     run_path: Path,
@@ -668,6 +624,7 @@ def expected_run(
     registered: Sequence[Path],
     declared: Sequence[DeclaredInputRecord],
     dependency_run_ids: Mapping[str, str],
+    digests: CodeDigests,
 ) -> Expectation:
     """Return what a run of a flow would consume now, from explicit data.
 
@@ -676,14 +633,15 @@ def expected_run(
     by the flow). `registered` are the files that the flow registers in `init()` and
     `prepare_inputs()` (`Flow.locate_prepared_inputs` says where they are without making them).
     `declared` are its input records with what the producers handed over, and
-    `dependency_run_ids` are the runs consumed, as provenance."""
+    `dependency_run_ids` are the runs consumed, as provenance. `digests` holds the code digests
+    of the launch (`code_digest.CodeDigests`), which a launch keeps for its length and no longer."""
     return Expectation(
         flow=name,
         flowrun_hash=flowrun_hash,
         design_hash=design_hash,
         xeda_version=__version__,
-        xeda_code=xeda_code_digest(),
-        flow_code=flow_code_digest(flow_class),
+        xeda_code=digests.xeda(),
+        flow_code=digests.flow(flow_class),
         inputs=tuple(
             candidate_inputs(
                 flow_class, run_path, design, input_settings, registered, declared, run_root
@@ -703,6 +661,7 @@ def expectation(
     input_settings: Flow.Settings,
     run_root: Path,
     producers: Sequence[Flow],
+    digests: CodeDigests,
 ) -> Expectation:
     """Return what `flow` would consume now.
 
@@ -731,6 +690,7 @@ def expectation(
         registered=flow.implicit_inputs,
         declared=getattr(flow, "declared_input_records", ()),
         dependency_run_ids=dependency_runs(producers, run_root),
+        digests=digests,
     )
 
 

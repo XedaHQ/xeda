@@ -193,6 +193,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 ### Writes, caching and isolation
 
 - Runs are make-like; hashes are semantic and location-free; writes are judged by file identity.
+- Code digests (`flow_runner/code_digest.py`) read the files at each launch, never cached per
+  process, with names relative to the code root (`tests/test_code_digest.py`).
 - Every write in a run directory goes through `RunDirectory` (`xeda/run_dir.py`):
   `writable(path)`, then `utils.replacing_file` / `replacing_copy`; delete with `remove`,
   `clear`, `delete`. Tool logs go through `utils.live_log` only. Never write, delete or follow

@@ -29,7 +29,7 @@ never read, because reading it could block.
 
 A whole tree is digested by the names and content of its files (`digest_files` over
 `package_files`), with no metadata and no record to trust. This identifies the installed `xeda`
-package (`trace_inputs.xeda_code_digest`).
+package (`code_digest.xeda_code_digest`).
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ import hashlib
 import os
 import stat
 import tempfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import List, Optional
 
@@ -276,13 +276,20 @@ def package_files(directory: Path) -> List[Path]:
 
 
 def digest_files(files: Sequence[Path], base: Path) -> str:
-    """Return a digest of the names and content of `files`.
+    """Return a digest of the names and content of `files`, which all lie under `base`.
 
-    A name is relative to `base` where the file lies under it.
+    A name is relative to `base`, so the digest does not depend on where `base` is.
     """
+    return digest_named((file.relative_to(base).as_posix(), file) for file in files)
+
+
+def digest_named(entries: Iterable[tuple[str, Path]]) -> str:
+    """Return a digest of the `(name, file)` entries: each name with the content of its file.
+
+    The digest does not depend on the order of the entries or on where the files are."""
+    named = sorted({(name, content_digest(file)) for name, file in entries})
     h = hashlib.sha3_256()
-    for file in files:
-        name = file.relative_to(base) if file.is_relative_to(base) else file
-        h.update(name.as_posix().encode() + b"\0")
-        h.update(content_digest(file).encode())
+    for name, sha in named:
+        h.update(name.encode() + b"\0")
+        h.update(sha.encode())
     return h.hexdigest()[:32]

@@ -235,8 +235,8 @@ A flow is stale, and runs again, in any of these cases:
 - Its settings changed (the reason names which ones), or a path that a setting names now points
   elsewhere, from another start directory or for another design tree.
 - Xeda changed: its version, or any file of the installed package (code, templates, bundled data).
-  An editable install keeps one version string across edits. For a flow defined outside Xeda, its
-  own modules and templates count.
+  An editable install keeps one version string across edits.
+- The code of a flow defined outside Xeda changed (see `The code of a flow outside Xeda`_).
 - A program the flow started changed (the path, size or mtime of an executable, or the ID of a
   container image), or was replaced while the run was going on.
 - What a producer handed over changed. This means the files of the outputs that the flow takes from
@@ -294,8 +294,8 @@ The trace records:
 
 - The identity of the run: ``flowrun_hash`` (the settings and where the declared inputs come from),
   ``settings_hash`` (the settings alone) and the design hash.
-- The Xeda version, a digest of every file of the installed Xeda package, and a digest of the flow's
-  own modules when the flow is defined outside Xeda.
+- The Xeda version, a digest of every file of the installed Xeda package, and a digest of the code
+  of the flow when the flow is defined outside Xeda.
 - The programs the run started, each as a file record (below) of the resolved executable: size,
   mtime, inode change time, inode and content hash. A program that was replaced during the run is
   caught like any other input. A program whose record from the previous run still vouches for it
@@ -504,6 +504,27 @@ To run a rejected flow again, change what it consumes, or run with ``--rebuild-a
 notices a change only in what it tracks. If a file that the run reads is not tracked (see `What is
 not tracked`_), an edit of it goes unnoticed, and Xeda reports the old rejection. A data file that a
 testbench reads is the common case: declare it as a source of the design.
+
+The code of a flow outside Xeda
+-------------------------------
+
+A flow that a plugin or your own code defines is stale when its code changed. Xeda reads the files
+again at each launch, so an edit counts at once, also in a process that lives long, such as a
+notebook. A digest names each file relative to the root of the code, so moving the code to another
+place does not make the run stale. The root of the code is:
+
+- For a flow defined in a package, the top-level package: the directory with the ``__init__.py``
+  files from the module of the flow up. Every file in it counts: helper modules, templates and
+  data.
+- For a flow defined in a module outside a package, the module and the modules that it imports from
+  its own directory (the ``import`` statements in the source, and so on for each module found), with
+  the ``templates`` directory next to it. A package of that directory counts as a whole. Other files
+  next to the module do not count. A module that the code imports with ``importlib.import_module``
+  is not found: put the code in a package.
+
+A flow class must be defined in a module file. A class that has no file on disk, for example one
+defined in a notebook cell or in the interactive interpreter, cannot be launched: Xeda refuses it
+at planning, names the class and asks you to define it in a ``.py`` file.
 
 What is not tracked
 ---------------------

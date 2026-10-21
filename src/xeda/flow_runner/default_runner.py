@@ -96,6 +96,7 @@ from .bindings import (
 )
 from . import launch_identity, launch_input, launch_producers, launch_report, launch_run
 from .chains import ChainElement, FlowRequest, parse_request
+from .code_digest import CodeDigests
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
 from .launch_report import (
@@ -560,6 +561,8 @@ class FlowLauncher:
         self._launch_inputs: List[Path] = []
         #: Every file the flows of the current launch read (`xeda.deliver.ReadInputs`).
         self._read_inputs = ReadInputs()
+        #: The code digests of the current launch (`code_digest.CodeDigests`).
+        self._code_digests = CodeDigests()
         self._delivered_files = DeliveredFiles()
         #: The deliveries of the current launch's flows, made when it has finished.
         self._pending_deliveries: List[Tuple[Flow, Deliveries]] = []
@@ -905,6 +908,7 @@ class FlowLauncher:
             # Every file that the flows of this launch read: the requested flow registers the
             # settings of the whole plan, and each flow the files it prepares.
             self._read_inputs = ReadInputs(self._launch_inputs)
+            self._code_digests = CodeDigests()  # read the code once per launch, never longer
             self._delivered_files = DeliveredFiles()
             self._pending_deliveries = []
         self._launch_depth += 1
@@ -1350,7 +1354,9 @@ class FlowLauncher:
                 expected = (
                     None
                     if always is not None
-                    else expectation(flow, derived, input_settings, self.run_root, producers)
+                    else expectation(
+                        flow, derived, input_settings, self.run_root, producers, self._code_digests
+                    )
                 )
                 if expected is None:
                     flow.stale_reason = always
