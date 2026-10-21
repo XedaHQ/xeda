@@ -722,7 +722,7 @@ class Verilator(SimFlow):
         hooks: list[Any] = []
         build_env: dict[str, str] | None = None
         if hooked:
-            sim_dir.mkdir(parents=True, exist_ok=True)
+            self.run_file(sim_dir).mkdir(parents=True, exist_ok=True)
             self.copy_from_template("xeda_hooks.h", script_filename=sim_dir / "xeda_hooks.h")
             self.copy_from_template(HOOKS_MAKEFILE, script_filename=sim_dir / HOOKS_MAKEFILE)
             hooks.append(
@@ -780,7 +780,7 @@ class Verilator(SimFlow):
                 sources.append(cocotb_cpp_path)
             elif cocotb_cpp_path.exists():
                 log.debug("Using cocotb verilator.cpp from %s", cocotb_cpp_path)
-                sim_dir.mkdir(parents=True, exist_ok=True)
+                self.run_file(sim_dir).mkdir(parents=True, exist_ok=True)
                 target = self.run_directory.writable(sim_dir / "cocotb_verilator.cpp")
                 sources.append(replacing_copy(cocotb_cpp_path, target))
             else:
@@ -866,6 +866,7 @@ class Verilator(SimFlow):
         sim_dir = self.settings.sim_dir
         if not sim_dir:
             return
-        if os.path.exists(sim_dir):
+        sim_path = self.run_file(sim_dir)
+        if os.path.exists(sim_path):
             log.info("Removing dependency files to trigger verilator")
-            self.run_directory.remove(*glob(f"{glob_escape(str(sim_dir))}{os.sep}*.d"))
+            self.run_directory.remove(*glob(f"{glob_escape(str(sim_path))}{os.sep}*.d"))
