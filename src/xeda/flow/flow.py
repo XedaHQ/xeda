@@ -1855,7 +1855,7 @@ class Flow(metaclass=ABCMeta):
         template = self.jinja_env.get_template(resource_name)
         template.environment.lstrip_blocks = lstrip_blocks
         template.environment.trim_blocks = trim_blocks
-        script_path = Path(script_filename) if script_filename else self.run_path / resource_name
+        script_path = self.run_file(script_filename or resource_name)
 
         log.debug("generating %s from template.", str(script_path.resolve()))
         rendered_content = template.render(
@@ -1919,12 +1919,21 @@ class Flow(metaclass=ABCMeta):
         self.results.update(**res)
         return self.results.success
 
+    def run_file(self, path: Union[str, os.PathLike]) -> Path:
+        """Return `path` as an absolute path: a relative one is relative to the run directory.
+
+        A tool runs in the run directory, so the flow names its files relative to it. The process
+        never changes its working directory, so Python code reads and writes such a file through
+        this method (the file helpers of `Flow` do), never through a relative path."""
+        return self.run_path / path
+
     def written_by_this_run(self, path: Union[str, os.PathLike]) -> bool:
         """Return whether the file `path` exists and is this run's.
 
         The run must have written it (`wrote_output`, judged by the identity and state of the
         file, never by a clock). For a flow that no launcher started (`run_started` is false),
-        any file that exists counts."""
+        any file that exists counts. A relative `path` is relative to the run directory."""
+        path = self.run_file(path)
         if not os.path.lexists(path):
             return False
         return not self.run_started or self.wrote_output(path)
@@ -1940,8 +1949,9 @@ class Flow(metaclass=ABCMeta):
         Every report a flow reads goes through here (`parse_regex` does). Every `path` asked for
         is noted in `reports_read`, and each one returned as None in `reports_missing`, unless
         `optional` is true. A read is optional when the flow does not fail for the lack of the
-        file: the lack is then no cause of a failure, and the launcher never names it as one."""
-        path = Path(path)
+        file: the lack is then no cause of a failure, and the launcher never names it as one. A
+        relative `path` is relative to the run directory, and the returned path is absolute."""
+        path = self.run_file(path)
         self.reports_read.append(Path(os.path.abspath(path)))
         if not path.exists():
             log.warning(

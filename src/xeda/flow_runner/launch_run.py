@@ -94,7 +94,7 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
 
     with WorkingDirectory(run_path):
         if flow.settings.reports_dir:
-            flow.settings.reports_dir.mkdir(exist_ok=True, parents=True)
+            flow.run_file(flow.settings.reports_dir).mkdir(exist_ok=True, parents=True)
         try:
             flow.run()
             tool_completed = True
