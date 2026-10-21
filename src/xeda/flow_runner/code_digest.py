@@ -162,12 +162,13 @@ def _package_root(module_file: Path) -> Path | None:
 
 
 def _imported_modules(source: Path) -> set[str]:
-    """Return the names of the modules that the `import` statements of `source` name.
+    """Return the dotted names of the modules that the `import` statements of `source` name.
 
-    These are the first parts of the names of absolute imports. A relative import of one dot
-    (`from . import helper`, `from .helper import x`) names the module in the directory of
-    `source`: it occurs in a namespace package, a directory without an `__init__.py`. Other
-    relative imports name none. A module that does not parse names none."""
+    `import a.b` names `a.b`, and `from a.b import c` names `a.b` and `a.b.c` (`c` can be a module
+    or a name in `a.b`). A relative import of one dot (`from . import helper`, `from .helper import
+    x`) names the module in the directory of `source`: it occurs in a namespace package, a
+    directory without an `__init__.py`. Other relative imports name none. A module that does not
+    parse names none."""
     try:
         tree = ast.parse(source.read_bytes())
     except (OSError, SyntaxError, ValueError):
@@ -175,15 +176,33 @@ def _imported_modules(source: Path) -> set[str]:
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            names.update(alias.name.partition(".")[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            names.add(node.module.partition(".")[0])
-        elif isinstance(node, ast.ImportFrom) and node.level == 1:
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level <= 1 and (node.level or node.module):
             if node.module:
-                names.add(node.module.partition(".")[0])
-            else:
-                names.update(alias.name for alias in node.names)
+                names.add(node.module)
+            for alias in node.names:
+                names.add(f"{node.module}.{alias.name}" if node.module else alias.name)
     return names
+
+
+def _local_module(root: Path, dotted: str) -> list[tuple[str, Path]]:
+    """Return the `(name, file)` pairs of the module `dotted` in the directory `root`.
+
+    A module is a file `a/b.py` or a package `a/b` (with an `__init__.py`), found under `root`
+    through the directories of its name. A directory without an `__init__.py` on the way is a
+    namespace package: it leads on, and only the module found counts, never the directory. Nothing
+    is returned for a module that is not under `root`."""
+    path, parts = root, dotted.split(".")
+    for index, part in enumerate(parts):
+        if (path / part / "__init__.py").is_file():
+            # the whole package, as the rest of the name is inside it
+            return _tree("/".join(parts[: index + 1]), path / part)
+        if (path / f"{part}.py").is_file():
+            return [("/".join(parts[: index + 1]) + ".py", path / f"{part}.py")]
+        if not (path / part).is_dir():
+            return []
+        path = path / part
+    return []
 
 
 def _tree(name: str, directory: Path) -> list[tuple[str, Path]]:
@@ -202,14 +221,7 @@ def _module_files(module_file: Path) -> list[tuple[str, Path]]:
     pending = [module_file]
     while pending:
         for name in sorted(_imported_modules(pending.pop())):
-            package, module = root / name, root / f"{name}.py"
-            if (package / "__init__.py").is_file():
-                found = _tree(name, package)
-            elif module.is_file():
-                found = [(module.name, module)]
-            else:
-                continue
-            for found_name, file in found:
+            for found_name, file in _local_module(root, name):
                 if found_name not in files:
                     files[found_name] = file
                     if file.suffix == ".py":

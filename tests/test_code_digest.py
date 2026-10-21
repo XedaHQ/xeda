@@ -262,6 +262,13 @@ def test_the_files_of_a_run_root_in_the_package_do_not_count(plugin):
     assert flow_code_digest(plugin.flow_class) == before
 
 
+def test_a_directory_named_like_a_run_root_without_its_marker_counts(plugin):
+    """Only a directory that holds the marker of a run root is left out, never one by its name."""
+    before = flow_code_digest(plugin.flow_class)
+    _write(plugin.directory / "xeda_run" / "table.csv", "a,b\n")
+    assert flow_code_digest(plugin.flow_class) != before
+
+
 # The digest of a plugin flow in a module outside a package
 
 
@@ -305,6 +312,36 @@ def test_a_flow_in_a_namespace_package_covers_the_modules_it_imports_relatively(
             (root / namespace / "helper.py").write_text('TEXT = "two"\n')
             assert flow_code_digest(flow_class) != digest
         finally:
+            _forget_modules(namespace)
+
+
+def test_a_dotted_import_through_a_directory_without_an_init_file_is_followed(
+    tmp_path, monkeypatch
+):
+    """`import tools.codec` reaches `tools/codec.py` through a namespace directory. The directory
+    counts only by the module found, so another file in it does not."""
+    unique = uuid.uuid4().hex[:8]
+    module, namespace = f"dotted_{unique}", f"tools_{unique}"
+    root = tmp_path / "scripts"
+    _write(root / namespace / "codec.py", 'TEXT = "one"\n')
+    _write(root / namespace / "unused.py", "UNUSED = 1\n")
+    _write(root / "templates" / "message.txt", "message one\n")
+    _write(
+        root / f"{module}.py",
+        LOOSE_FLOW_MODULE.format(cls="DottedToy", helper=f"{namespace}.codec"),
+    )
+    monkeypatch.syspath_prepend(str(root))
+    importlib.invalidate_caches()
+    with preserved_flow_registry():
+        try:
+            flow_class = importlib.import_module(module).DottedToy
+            digest = flow_code_digest(flow_class)
+            (root / namespace / "unused.py").write_text("UNUSED = 2\n")
+            assert flow_code_digest(flow_class) == digest
+            (root / namespace / "codec.py").write_text('TEXT = "two"\n')
+            assert flow_code_digest(flow_class) != digest
+        finally:
+            _forget_modules(module)
             _forget_modules(namespace)
 
 

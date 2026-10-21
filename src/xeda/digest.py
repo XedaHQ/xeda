@@ -46,7 +46,7 @@ from typing import List, Optional
 
 from .dataclass import XedaBaseModel
 from .listing import directory_files
-from .run_root import DEFAULT_RUN_ROOT, RUN_ROOT_MARKER
+from .run_root import RUN_ROOT_MARKER, is_run_root
 
 #: The timestamp granularity that the racy check assumes. 2 s covers FAT and HFS+. On file systems
 #: with nanosecond timestamps it costs one extra hash of files written just before a record.
@@ -269,10 +269,10 @@ def package_files(directory: Path) -> List[Path]:
     a launch started in the directory writes.
     """
     top = directory.resolve()
-    listed = directory_files(
-        top, skip=frozenset({"__pycache__", DEFAULT_RUN_ROOT}), follow_links=True
+    listed = directory_files(top, skip=frozenset({"__pycache__"}), follow_links=True)
+    run_roots = tuple(
+        p.parent for p in listed if p.name == RUN_ROOT_MARKER and is_run_root(p.parent)
     )
-    run_roots = tuple(p.parent for p in listed if p.name == RUN_ROOT_MARKER)
     return sorted(
         p
         for p in listed
