@@ -116,22 +116,18 @@ def link_on_way(
     """Return the first symbolic link on the way from the run root down to `directory`, or None.
 
     `directory` is the directory that holds run directories: the one of the design, of the
-    target, or of the mirror of a host. It is included. Only the names that `directory` shows
-    below the run root count, so a run root that is a link itself is fine: the run root is
-    resolved first. The run directory is not on the way. Its own rule is
+    target, or of the mirror of a host. It is included. The way starts below the first name, from
+    the top, that resolves to the run root, so a run root that is a link itself is fine, and so is
+    any other name for it. The run directory is not on the way. Its own rule is
     `run_directory_problem`. The function only reads. It returns None for a `directory` that
-    does not lie below the run root by name; `RunDirectory.lies_under` judges that.
+    does not lie below the run root; `RunDirectory.lies_under` judges that.
     """
     given = Path(os.path.abspath(directory))
-    root = Path(os.path.realpath(run_root))
-    for base in (Path(os.path.abspath(run_root)), root):
-        if given.is_relative_to(base):
-            current = base
-            for part in given.relative_to(base).parts:
-                current = current / part
-                if current.is_symlink():
-                    return current
-            return None
+    root = os.path.realpath(run_root)
+    names = [*reversed(given.parents), given]
+    for index, name in enumerate(names):
+        if os.path.realpath(name) == root:
+            return next((below for below in names[index + 1 :] if below.is_symlink()), None)
     return None
 
 

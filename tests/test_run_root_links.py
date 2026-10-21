@@ -205,6 +205,13 @@ def test_the_link_is_found_between_the_resolved_run_root_and_the_directory(tmp_p
     assert link_on_way(world.root / "b", world.root) is None
     assert link_on_way(world.root, world.root) is None
     assert link_on_way(tmp_path / "elsewhere" / "x", world.root) is None
+    # Another name for the run root: the way starts below it, whichever name a caller gives.
+    alias = tmp_path / "alias"
+    alias.symlink_to(world.root.parent, target_is_directory=True)
+    through = alias / world.root.name / world.link.relative_to(world.root)
+    assert link_on_way(through / SCRUBBED, world.root) == through
+    assert link_on_way(world.link / SCRUBBED, alias / world.root.name) == world.link
+    assert link_on_way(alias / world.root.name / "b", world.root) is None
 
 
 # ---------------------------------------------------------------------------------- scrub
