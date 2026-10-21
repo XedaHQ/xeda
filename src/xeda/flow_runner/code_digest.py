@@ -108,11 +108,12 @@ def _package_root(module_file: Path) -> Path | None:
 
 
 def _imported_modules(source: Path) -> set[str]:
-    """Return the top-level names that the `import` statements of the module `source` name.
+    """Return the names of the modules that the `import` statements of `source` name.
 
-    A relative import names none: in a module that is not in a package it cannot occur, and
-    in a package it stays inside the package. A directory without an `__init__.py` is no package
-    here, so a relative import in it is not followed. A module that does not parse names none."""
+    These are the first parts of the names of absolute imports. A relative import of one dot
+    (`from . import helper`, `from .helper import x`) names the module in the directory of
+    `source`: it occurs in a namespace package, a directory without an `__init__.py`. Other
+    relative imports name none. A module that does not parse names none."""
     try:
         tree = ast.parse(source.read_bytes())
     except (OSError, SyntaxError, ValueError):
@@ -123,6 +124,11 @@ def _imported_modules(source: Path) -> set[str]:
             names.update(alias.name.partition(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             names.add(node.module.partition(".")[0])
+        elif isinstance(node, ast.ImportFrom) and node.level == 1:
+            if node.module:
+                names.add(node.module.partition(".")[0])
+            else:
+                names.update(alias.name for alias in node.names)
     return names
 
 

@@ -282,6 +282,32 @@ def test_a_flow_in_a_module_covers_what_the_module_imports(loose_plugin):
         assert flow_code_digest(loose_plugin.flow_class) == digest
 
 
+def test_a_flow_in_a_namespace_package_covers_the_modules_it_imports_relatively(
+    tmp_path, monkeypatch
+):
+    """The directory has no `__init__.py`, so it is no package for the code root, and the
+    relative import names a module next to the flow."""
+    unique = uuid.uuid4().hex[:8]
+    namespace = f"namespace_{unique}"
+    root = tmp_path / "code"
+    _write(root / namespace / "helper.py", 'TEXT = "one"\n')
+    _write(root / namespace / "other.py", "OTHER = 1\n")
+    _write(root / namespace / "flows.py", FLOW_MODULE.format(cls="NamespaceToy"))
+    _write(root / namespace / "templates" / "message.txt", "message one\n")
+    monkeypatch.syspath_prepend(str(root))
+    importlib.invalidate_caches()
+    with preserved_flow_registry():
+        try:
+            flow_class = importlib.import_module(f"{namespace}.flows").NamespaceToy
+            digest = flow_code_digest(flow_class)
+            (root / namespace / "other.py").write_text("OTHER = 2\n")
+            assert flow_code_digest(flow_class) == digest
+            (root / namespace / "helper.py").write_text('TEXT = "two"\n')
+            assert flow_code_digest(flow_class) != digest
+        finally:
+            _forget_modules(namespace)
+
+
 def test_a_file_next_to_a_module_that_it_does_not_import_does_not_count(loose_plugin):
     digest = flow_code_digest(loose_plugin.flow_class)
     (loose_plugin.root / "unrelated.py").write_text("UNRELATED = 2\n")

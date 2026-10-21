@@ -515,13 +515,13 @@ place does not make the run stale. The root of the code is:
 
 - For a flow defined in a package, the top-level package: the directory with the ``__init__.py``
   files from the module of the flow up. Every file in it counts: helper modules, templates and
-  data. Hidden files, compiled bytecode and run roots do not count. A directory without an
-  ``__init__.py`` is no package for this rule.
+  data. Hidden files, compiled bytecode and run roots do not count.
 - For a flow defined in a module outside a package, the module and the modules that it imports from
-  its own directory (the ``import`` statements in the source, and so on for each module found), with
-  the ``templates`` directory next to it. A package of that directory counts as a whole. Other files
-  next to the module do not count. A module that the code imports with ``importlib.import_module``
-  is not found: put the code in a package.
+  its own directory, with the ``templates`` directory next to it. The ``import`` statements in the
+  source tell which modules (a relative import with one dot too), and so on for each module found.
+  A package of that directory counts as a whole. Other files next to the module do not count. A
+  directory without an ``__init__.py`` is no package for this rule. A module that the code imports
+  with ``importlib.import_module`` is not found: put the code in a package.
 
 A flow class must be defined in a module file. A class that has no file on disk, for example one
 defined in a notebook cell or in the interactive interpreter, cannot be launched: Xeda refuses it
