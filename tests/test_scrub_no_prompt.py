@@ -193,7 +193,7 @@ def _prompts(path: Path) -> list[int]:
             asks = function.id in {"input", "getpass"}
         elif isinstance(function, ast.Attribute):
             owner = function.value.id if isinstance(function.value, ast.Name) else ""
-            asks = function.attr in {"input", "getpass"} or (
+            asks = function.attr in {"input", "getpass", "ask", "readline"} or (
                 owner == "click" and function.attr in {"prompt", "confirm"}
             )
         if asks:
@@ -221,5 +221,7 @@ def test_the_scan_sees_a_prompt(tmp_path):
         "    console.input('b')\n"
         "    click.confirm('c')\n"
         "    click.prompt('d')\n"
+        "    Confirm.ask('e')\n"
+        "    sys.stdin.readline()\n"
     )
-    assert _prompts(source) == [4, 5, 6, 7]
+    assert _prompts(source) == [4, 5, 6, 7, 8, 9]

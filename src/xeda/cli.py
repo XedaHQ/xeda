@@ -869,7 +869,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "--scrub",
     is_flag=True,
     help="Before running, remove the flow's other run directories for this design; asks for "
-    "confirmation.",
+    "confirmation. With --remote nothing can ask, so the host removes nothing.",
 )
 @click.option(
     "--remote",
