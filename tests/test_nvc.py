@@ -408,11 +408,14 @@ def test_nvc_evidence_excludes_build_diagnostics_and_avoids_redirect_conflict(
             text = (
                 "lib/std.08/env-body.vhd:42:9: note: 0ms+0: FINISH called\nXEDA_NVC_RUNTIME_START\n"
             )
+            here = tool.working_directory()
+            tee = kwargs.get("tee")
             return run_process(
                 sys.executable,
                 ["-c", f"import sys; sys.stderr.write({text!r})"],
-                tee=kwargs.get("tee"),
+                tee=None if tee is None else here / tee,
                 merge_stderr=kwargs.get("merge_stderr", False),
+                cwd=here,
             )
         return original(tool, *args, **kwargs)
 
@@ -485,7 +488,6 @@ def test_nvc_evidence_compiles_against_container_paths(tmp_path, monkeypatch):
     use_fake_tools(monkeypatch)
     run_path = tmp_path / "run"
     run_path.mkdir()
-    monkeypatch.chdir(run_path)
     flow = Nvc(
         {"docker": "test/nvc", "dockerized": True},
         _evidence_design(tmp_path, ""),

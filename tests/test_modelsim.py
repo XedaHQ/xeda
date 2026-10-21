@@ -131,7 +131,6 @@ def test_the_default_image_runs_vsim_on_amd64(monkeypatch, tmp_path) -> None:
     """Not run: the `docker run` command is captured. The image is amd64-only."""
     ran = []
     monkeypatch.setattr(xeda.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd]))
-    monkeypatch.chdir(tmp_path)
     tool = ModelsimTool(version_flag=None)
     tool.dockerized = True
     tool.run("-batch", "-do", "do run.tcl")
@@ -196,7 +195,7 @@ def test_modelsim_requires_both_current_outputs(missing, tmp_path, monkeypatch):
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
         if "-do" in args:
-            Path(missing).unlink(missing_ok=True)
+            (tool.working_directory() / missing).unlink(missing_ok=True)
         return result
 
     monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
@@ -220,7 +219,7 @@ def test_modelsim_rejects_malformed_checkpoints(checkpoint, tmp_path, monkeypatc
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
         if "-do" in args:
-            Path("modelsim_end.txt").write_text(checkpoint)
+            (tool.working_directory() / "modelsim_end.txt").write_text(checkpoint)
         return result
 
     monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
@@ -268,8 +267,8 @@ def test_modelsim_checkpoint_must_match_native_observations(mode, tmp_path, monk
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
         if "-do" in args:
-            record = Path("modelsim_end.txt")
-            transcript = Path("modelsim_runtime.log")
+            record = tool.working_directory() / "modelsim_end.txt"
+            transcript = tool.working_directory() / "modelsim_runtime.log"
             if mode == "checkpoint_reason":
                 record.write_text(record.read_text().replace("{$finish}", "unknown"))
             elif mode == "transcript_reason":
@@ -349,7 +348,7 @@ def test_modelsim_refuses_links_created_by_analysis(path, tmp_path, monkeypatch)
 
     def execute(tool, executable, *args, **kwargs):
         if "-do" in args:
-            script = Path(args[args.index("-do") + 1].split(None, 1)[1])
+            script = tool.working_directory() / args[args.index("-do") + 1].split(None, 1)[1]
             text = script.read_text()
             script.write_text(
                 text.replace(
@@ -423,7 +422,7 @@ def test_modelsim_bounds_native_stop_evidence(state, tmp_path, monkeypatch):
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
         if "-do" in args:
-            log = Path("modelsim_runtime.log")
+            log = tool.working_directory() / "modelsim_runtime.log"
             outside = (
                 "# ** Note: $stop    : tb.v(3)\n"
                 "# Break in Process line__1 at uut.vhd line 3\n"
@@ -448,7 +447,7 @@ def test_modelsim_unknown_stop_requires_a_known_vhdl_break(replacement, tmp_path
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
         if "-do" in args:
-            log = Path("modelsim_runtime.log")
+            log = tool.working_directory() / "modelsim_runtime.log"
             text = log.read_text()
             text = (
                 text.replace("at uut.vhd", "at " + replacement)
