@@ -508,9 +508,11 @@ testbench reads is the common case: declare it as a source of the design.
 The code of a flow outside Xeda
 -------------------------------
 
-A flow that a plugin or your own code defines is stale when its code changed. Xeda reads the files
-again at each launch, so an edit counts at once, also in a process that lives long, such as a
-notebook. A digest names each file relative to the root of the code, so moving the code to another
+A flow that a plugin or your own code defines is stale when its code changed. Xeda lists the files
+and checks each one at every launch, also in a process that lives long, such as a notebook, so an
+edit, an added file and a removed file count at once. The check is by the metadata of a file, as for
+the inputs of a run: Xeda reads a file again only when its size, times or inode changed, or when it
+changed just before the last check. A digest names each file relative to the root of the code, so moving the code to another
 place does not make the run stale.
 The runs of such a flow that an older Xeda made are stale once, because the digest is made in a
 new way. The root of the code is:

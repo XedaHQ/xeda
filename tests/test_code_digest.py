@@ -422,6 +422,49 @@ def test_a_launch_reads_the_xeda_package_once(monkeypatch):
     assert len(calls) == 2
 
 
+def _count_reads(monkeypatch) -> list[Path]:
+    """Return the list that gets each file the digests read from now on."""
+    from xeda import digest
+
+    read: list[Path] = []
+    real = digest.content_digest
+    monkeypatch.setattr(
+        digest, "content_digest", lambda path: read.append(Path(path)) or real(path)
+    )
+    return read
+
+
+def test_a_settled_relaunch_reads_no_code_file_and_an_edit_reads_only_that_file(
+    plugin, monkeypatch
+):
+    """Each launch checks every code file by its metadata, as the trace checks its inputs."""
+    import os
+    import time
+
+    from xeda import digest
+
+    monkeypatch.setattr(digest, "RACY_NS", 300_000_000)  # 0.3 s rather than 2 s, not to wait
+    time.sleep(0.5)
+    cls = plugin.flow_class
+    first = (flow_code_digest(cls), xeda_code_digest())
+    read = _count_reads(monkeypatch)
+    assert (flow_code_digest(cls), xeda_code_digest()) == first
+    assert read == [], "a settled file was read again"
+    helper = plugin.directory / "helper.py"
+    _write(helper, 'TEXT = "two\\n"\n')
+    assert flow_code_digest(cls) != first[0]
+    assert read == [helper.resolve()]
+    # An edit of the same size, with the old modification time put back, changes the inode change
+    # time, and the next launch notices it.
+    time.sleep(0.5)
+    flow_code_digest(cls)
+    stat = helper.stat()
+    settled = flow_code_digest(cls)
+    helper.write_text('TEXT = "six\\n"\n')
+    os.utime(helper, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert flow_code_digest(cls) != settled
+
+
 def test_all_the_flows_of_a_tree_get_one_snapshot_of_it_in_a_launch(plugin):
     """Two flow classes of one package see the same files, also when the tree changes between
     their first lookups. The next launch reads the tree again."""

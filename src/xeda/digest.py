@@ -27,9 +27,10 @@ be listed cannot be recorded (`PermissionError`), since what it holds is unknown
 (a FIFO, a socket, a device) is recorded by its metadata and `SPECIAL_DIGEST` plus its kind. It is
 never read, because reading it could block.
 
-A whole tree is digested by the names and content of its files (`digest_files` over
-`package_files`), with no metadata and no record to trust. This identifies the installed `xeda`
-package (`code_digest.xeda_code_digest`).
+A whole tree is digested by the names and content of its files (`content_pairs` and
+`digest_pairs` over `package_files`). This identifies the installed `xeda` package and the code of
+a plugin flow (`code_digest`), which keeps a record of each file in the process and reads a file
+again only when its record cannot vouch for it.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ import hashlib
 import os
 import stat
 import tempfile
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import List, Optional
 
@@ -282,24 +283,13 @@ def package_files(directory: Path) -> List[Path]:
     )
 
 
-def digest_files(files: Sequence[Path], base: Path) -> str:
-    """Return a digest of the names and content of `files`, which all lie under `base`.
+def content_pairs(
+    entries: Iterable[tuple[str, Path]], read: Callable[[Path], str] = content_digest
+) -> list[tuple[str, str]]:
+    """Return the `(name, content digest)` pairs of the `(name, file)` entries.
 
-    A name is relative to `base`, so the digest does not depend on where `base` is.
-    """
-    return digest_named((file.relative_to(base).as_posix(), file) for file in files)
-
-
-def digest_named(entries: Iterable[tuple[str, Path]]) -> str:
-    """Return a digest of the `(name, file)` entries: each name with the content of its file.
-
-    The digest does not depend on the order of the entries or on where the files are."""
-    return digest_pairs(content_pairs(entries))
-
-
-def content_pairs(entries: Iterable[tuple[str, Path]]) -> list[tuple[str, str]]:
-    """Return the `(name, content digest)` pairs of the `(name, file)` entries, read now."""
-    return [(name, content_digest(file)) for name, file in entries]
+    `read` gives the content digest of a file."""
+    return [(name, read(file)) for name, file in entries]
 
 
 def digest_pairs(pairs: Iterable[tuple[str, str]]) -> str:

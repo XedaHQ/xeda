@@ -12,8 +12,11 @@ A digest is a function of the content of files on disk, and of nothing else: not
 that a process has imported, and not of where the files lie. A name in a digest is relative to
 the root of its code, so a moved tree has the same digest.
 
-Nothing here is cached. Every call reads the files, so an edit counts at once, also in a process
-that lives long (a notebook). A launch computes each digest once and keeps it for its length
+A call lists the files and checks each of them, so an edit counts at once, also in a process that
+lives long (a notebook), and so does an added or a removed file. A check is by the metadata of a
+file, as the trace checks its inputs: the process keeps a record of each code file, and reads the
+file again only when the record cannot vouch for it (`_content_digest`). A relaunch of unchanged
+code then reads no file. A launch computes each digest once and keeps it for its length
 (`CodeDigests`).
 
 The root of the code of a Flow class that is not part of Xeda is:
@@ -36,22 +39,67 @@ from __future__ import annotations
 
 import ast
 import inspect
+import time
+from functools import lru_cache
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Type
 
-from ..digest import content_pairs, digest_files, digest_pairs, package_files
+from ..digest import FileRecord, content_pairs, digest_pairs, package_files, record_file
 from ..flow import Flow, FlowFatalError
 
 #: The directory of the installed xeda package.
 XEDA_PACKAGE = Path(__file__).resolve().parent.parent
 
 
+#: The most files whose records the process keeps. It holds the code of a few trees; a process
+#: that meets more, like a test suite, starts the store afresh.
+RECORD_LIMIT = 50_000
+
+
+@lru_cache(maxsize=None)
+def _records() -> dict[Path, tuple[FileRecord, int]]:
+    """Return the store of the records of the code files that this process has read.
+
+    Each entry is the record of a file and the time (`time.time_ns()`) at which it was taken. The
+    store only saves reading. It never decides what a digest is: `_content_digest` checks the
+    metadata of a file at each use."""
+    return {}
+
+
+def _content_digest(path: Path) -> str:
+    """Return the content digest of the code file `path`, reading it only if it may have changed.
+
+    This is the rule of the trace (`digest.record_file`): the stored record is used when the
+    size, the modification time, the inode change time and the inode of the file are the same,
+    and the file had last changed well before the record was taken (outside the racy window,
+    `FileRecord.trusted`). Otherwise the file is read and a new record is stored. Every call
+    checks the file, so an edit counts at once, and a same-size edit with the old time put back
+    changes the inode change time."""
+    records = _records()
+    taken_ns = time.time_ns()
+    held = records.get(path)
+    record = record_file(
+        path,
+        None if held is None else held[0],
+        None if held is None else held[1],
+    )
+    if held is None or record is not held[0]:
+        if len(records) >= RECORD_LIMIT:
+            records.clear()
+        records[path] = (record, taken_ns)
+    return record.sha
+
+
 def xeda_code_digest() -> str:
     """Return a digest of every file of the installed xeda package.
 
-    That covers code, templates and bundled data. It reads the files on every call."""
-    return digest_files(package_files(XEDA_PACKAGE), XEDA_PACKAGE)
+    That covers code, templates and bundled data. It lists the files and checks each of them on
+    every call (`_content_digest`)."""
+    entries = [
+        (file.relative_to(XEDA_PACKAGE).as_posix(), file) for file in package_files(XEDA_PACKAGE)
+    ]
+    return digest_pairs(content_pairs(entries, _content_digest))
 
 
 def _source_file(cls: type) -> Path:
@@ -201,7 +249,7 @@ def flow_code_digest(flow_class: Type[Flow], snapshots: Snapshots | None = None)
     for cls in plugin_classes(flow_class):
         root = _code_root(cls)
         if root not in snapshots:
-            snapshots[root] = content_pairs(_named_files(cls))
+            snapshots[root] = content_pairs(_named_files(cls), _content_digest)
         pairs += snapshots[root]
     return digest_pairs(pairs) if pairs else ""
 
