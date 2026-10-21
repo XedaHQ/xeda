@@ -28,6 +28,17 @@ from xeda.proc_utils import run_process
 from xeda.tool import Tool
 from xeda.utils import NonZeroExitCode, live_log
 
+from .test_proc_utils import (
+    LEADER_PROBE,
+    TIME_LIMITS,
+    _is_running,
+    _kill,
+    _read_pid,
+    _stopped_within,
+    _tree,
+    _wait_until,
+)
+
 pytestmark = [
     pytest.mark.python_compat,
     pytest.mark.skipif(os.name != "posix", reason="pseudo-terminals are POSIX"),
@@ -393,3 +404,74 @@ def test_a_tool_asks_for_a_terminal_if_it_declares_one_and_colors_are_wanted(
     plain = Tool(executable="some-tool")
     plain.run(tee=tmp_path / "plain.log")
     assert asked["terminal"] is False
+
+
+def test_a_tool_with_a_terminal_leads_a_process_group_and_a_session_of_its_own(terminal, tmp_path):
+    """The pseudo-terminal route starts the tool as the other routes do, with and without a time
+    limit. The terminal is the output of the tool, not its controlling terminal."""
+    record = tmp_path / "record"
+    for timeout in (None, 60):
+        run_process(
+            sys.executable,
+            ["-c", LEADER_PROBE, str(record)],
+            tee=tmp_path / "tool.log",
+            terminal=True,
+            timeout=timeout,
+        )
+    assert record.read_text().splitlines() == ["True True"] * 2
+    run_process(
+        sys.executable,
+        child("import os; print(os.isatty(1))"),
+        tee=tmp_path / "tty.log",
+        terminal=True,
+    )
+    assert log_lines(tmp_path / "tty.log") == ["True"]
+
+
+def test_an_interrupt_stops_what_a_tool_with_a_terminal_started(terminal, tmp_path, monkeypatch):
+    """Ctrl-C while the tool runs, with no time limit, ends the child that the tool started."""
+    started = tmp_path / "started"
+
+    def interrupted(*args, **kwargs):
+        _wait_until(lambda: _read_pid(started), "the child to run")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(proc_utils, "_copy_from_terminal", interrupted)
+    grandchild = None
+    try:
+        with pytest.raises(KeyboardInterrupt), _stopped_within():
+            run_process(
+                sys.executable,
+                child(_tree(started)),
+                tee=tmp_path / "tool.log",
+                terminal=True,
+            )
+        grandchild = _read_pid(started)
+        assert grandchild is not None, "the child did not run"
+        _wait_until(lambda: not _is_running(grandchild), "the child to stop")
+    except BaseException:
+        _kill(grandchild or _read_pid(started))  # a failed test leaves no sleeping process
+        raise
+
+
+def test_a_time_limit_stops_what_a_tool_with_a_terminal_started(terminal, tmp_path):
+    grandchild = None
+    try:
+        for attempt, limit in enumerate(TIME_LIMITS):
+            started = tmp_path / f"started-{attempt}"
+            with pytest.raises(proc_utils.ProcessTimeout), _stopped_within(limit):
+                run_process(
+                    sys.executable,
+                    child(_tree(started)),
+                    tee=tmp_path / "tool.log",
+                    terminal=True,
+                    timeout=limit,
+                )
+            grandchild = _read_pid(started)
+            if grandchild is not None:  # the child ran when the limit expired
+                break
+        assert grandchild is not None, f"the child did not run within {limit} s"
+        _wait_until(lambda: not _is_running(grandchild), "the child to stop")
+    except BaseException:
+        _kill(grandchild)
+        raise

@@ -145,6 +145,17 @@ class ProcessTimeout(NonZeroExitCode):
         return f"{what} ran past its time limit of {self.timeout} s and was stopped"
 
 
+#: The signals that stop Xeda from outside (a `kill`, a CI cancel, a closed terminal or ssh
+#: session) and that Xeda would not survive. While a tool runs, they stop the tool as Ctrl-C does.
+_STOP_SIGNALS = tuple(
+    getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)
+)
+
+
+def _interrupt_like_ctrl_c(number: int, _frame: Any) -> None:
+    raise KeyboardInterrupt(f"{signal.Signals(number).name} received")
+
+
 class _Deadline:
     """A watch on `proc`. Once `timeout` seconds pass (`None`: never) while the process still
     runs, it stops the process and, when the process leads a session of its own (`group`,
@@ -158,6 +169,12 @@ class _Deadline:
     before the leader is reaped, so the group id cannot be recycled (the other members of the
     group are not children of the caller, so they cannot be reaped here). `on_stop` then runs,
     on the thread that leaves the context, as `run_process` documents.
+
+    A process with a `group` runs in a session of its own, so the terminal's Ctrl-C and hangup
+    do not reach it. Within the context, on the main thread, SIGTERM and SIGHUP therefore raise
+    `KeyboardInterrupt` in place of their default action (the end of Xeda, with the tool left
+    running). A signal that the caller ignores (`nohup`) stays ignored. The previous handlers
+    return on leaving.
     """
 
     def __init__(
@@ -173,6 +190,7 @@ class _Deadline:
         self._on_stop = on_stop
         self._lock = threading.Lock()
         self._cancelled = False
+        self._previous_handlers: dict[int, Any] = {}
         self._timer = threading.Timer(timeout, self._expire) if timeout is not None else None
         if self._timer is not None:
             self._timer.daemon = True
@@ -220,7 +238,18 @@ class _Deadline:
                 self._timer.join()
 
     def __enter__(self) -> "_Deadline":
+        if self._group and threading.current_thread() is threading.main_thread():
+            for number in _STOP_SIGNALS:
+                previous = signal.getsignal(number)
+                if previous is not None and previous != signal.SIG_IGN:
+                    self._previous_handlers[number] = previous
+                    signal.signal(number, _interrupt_like_ctrl_c)
         return self
+
+    def _restore_handlers(self) -> None:
+        for number, previous in self._previous_handlers.items():
+            signal.signal(number, previous)
+        self._previous_handlers.clear()
 
     def _exited_unreaped(self) -> bool:
         """Return whether the leader has exited but is still waiting to be reaped (a zombie).
@@ -241,6 +270,12 @@ class _Deadline:
             time.sleep(min(0.01, remaining))
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        try:
+            self._stop_and_reap(exc_type)
+        finally:
+            self._restore_handlers()
+
+    def _stop_and_reap(self, exc_type: Any) -> None:
         self.cancel()
         was_running = exc_type is not None and self.proc.poll() is None
         if was_running:
@@ -482,11 +517,15 @@ def run_process(
 ) -> Union[None, str]:
     """Run `executable`, and return its captured stdout when `stdout` is True.
 
-    `timeout` stops the process after this many seconds and raises `ProcessTimeout`. On POSIX it
-    also stops the processes that the child started, which share its process group. On other
-    systems it stops only the child. `tee` also writes every line of the output to this file. The output is
-    then not captured, so `tee` with a `stdout` other than `None` is a `ValueError`. A `stdout`
-    that is a path sends the output to that file alone. Either file is the log of a tool. Xeda
+    On POSIX the child leads a session and a process group of its own, so that stopping it also
+    stops the processes that it started: after `timeout` seconds, and when an exception (Ctrl-C
+    included) interrupts the wait. On other systems only the child is stopped. `timeout` stops
+    the process after this many seconds and raises `ProcessTimeout`. SIGTERM and SIGHUP to Xeda
+    stop the tool as Ctrl-C does, while it runs on the main thread (`_Deadline`).
+
+    `tee` also writes every line of the output to this file. The output is then not captured, so
+    `tee` with a `stdout` other than `None` is a `ValueError`. A `stdout` that is a path sends
+    the output to that file alone. Either file is the log of a tool. Xeda
     makes it as a new file at the given name before the tool starts and writes it as the output
     arrives (`utils.live_log`). The new file replaces whatever was there, a link or a hard link
     included, and Xeda never writes through that link. A log that cannot be made starts no tool.
@@ -496,7 +535,7 @@ def run_process(
     exception (Ctrl-C included) was raised while the process still ran. It is never called for a
     process that ended by itself. It runs synchronously, on the thread that called
     `run_process`, after the process was stopped and reaped and, when the process leads a
-    process group of its own (POSIX, with a `timeout`), after that group was sent SIGKILL. A
+    process group of its own (POSIX), after that group was sent SIGKILL. A
     `KeyboardInterrupt` (a second Ctrl-C) or `SystemExit` that it raises propagates. Any other
     `Exception` is logged and never replaces the exception in flight, nor the `ProcessTimeout`.
     Nothing bounds its run time from outside, and the caller waits for it. A hook that can block
@@ -514,6 +553,8 @@ def run_process(
     each redraw and no empty line. In any other case (a pipe, a file, a CI log, a captured
     stream) `terminal` has no effect, and the child sees the pipe that it always saw.
     `highlight_rules` do not apply to a child with a terminal, which colors its own output.
+    The terminal is the output of the child, not its controlling terminal: the child leads a
+    session of its own, as with any other output.
     """
     if timeout is not None and not timeout > 0:
         raise ValueError(f"timeout must be a positive number of seconds, not {timeout!r}")
@@ -533,7 +574,15 @@ def run_process(
         log.debug("Running `%s`", cmd_str)
     if cwd:
         log.debug("cwd=%s", cwd)
-    new_session = timeout is not None and os.name == "posix"
+    # Every tool leads a session of its own on POSIX, with or without a time limit, so that
+    # stopping the tool (a time limit, Ctrl-C) reaches the processes that it started. A session
+    # and not only a process group: the tool then has no controlling terminal, so a tool that
+    # reads its inherited standard input is never stopped by SIGTTIN, and one that changes the
+    # terminal modes is never stopped by SIGTTOU, as a member of a background process group of the
+    # terminal would be. The terminal's own Ctrl-C reaches only the process group of Xeda. Xeda
+    # then raises `KeyboardInterrupt`, and `_Deadline` signals the group of the tool. SIGTERM and
+    # SIGHUP to Xeda do the same (`_Deadline`).
+    new_session = os.name == "posix"
     if terminal and stdout is None and tee is not None and _stdout_terminal_fd() is not None:
         _run_in_terminal(command, env, cwd, check, merge_stderr, timeout, tee, on_stop, new_session)
         return None

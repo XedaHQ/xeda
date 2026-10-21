@@ -366,8 +366,8 @@ Ctrl-C and lost connections
 
 A normal remote run stops when you stop it or when the connection goes away:
 
-* **Ctrl-C** during the launch asks the host to cancel it. The launch and the tools in its process
-  group get SIGINT first, as they do at a terminal, so the tools stop as they stop in a local run.
+* **Ctrl-C** during the launch asks the host to cancel it. The launch gets SIGINT first, as it does
+  at a terminal. It passes the signal on to its tools, so they stop as they stop in a local run.
   After 15 seconds it gets SIGTERM, and after 10 more seconds SIGKILL. The same holds for the
   processes that the tools started. A second Ctrl-C closes the connection at once. The host then
   stops the launch by itself.
