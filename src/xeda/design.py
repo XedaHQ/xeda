@@ -3046,9 +3046,9 @@ class Design(XedaBaseModel):
         # Compatibility processing, generators and source normalization all consume or enrich
         # nested mappings. The data of the caller is input, not a workspace that Xeda owns.
         data = deepcopy(data)
-        if not design_root:
+        if design_root is None:
             design_root = data.pop("design_root", Path.cwd())
-        if not design_root:
+        if design_root is None:
             raise ValueError("design_root is not set")
 
         # Everything up to `super().__init__` runs outside the validators of pydantic, so this

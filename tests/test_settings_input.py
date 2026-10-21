@@ -577,33 +577,6 @@ DOCUMENTED_CONVERSIONS: "dict[tuple[str, str], tuple[tuple[type, ...], str]]" = 
         (int,),
         "a standard is naturally written as a number (docs/design-file.rst: `standard: 2008`)",
     ),
-    ("Design", "design_root"): (
-        (list, dict, bool, int),
-        "an argument of the constructor, not a setting of a design file: an empty one stands "
-        "for the working directory",
-    ),
-}
-
-_REGION = ["1 um", "1 um", "9 um", "9 um"]
-
-#: A valid value for each required field of a model that the sweep builds alone (the ones in
-#: `settings_fields.REQUIRED_VALUES` are not repeated). A model with a required field that is not
-#: in one of the two tables fails the sweep, so that it never goes unjudged.
-SWEEP_REQUIRED: "dict[tuple[str, str], object]" = {
-    ("Clock", "port"): "clk",
-    ("DesignReference", "uri"): "design.yaml",
-    ("DVSettings", "sources"): [],
-    ("GlobalConnect", "net"): "VDD",
-    ("GlobalConnect", "pin_pattern"): "VDD",
-    ("HiLoMap", "hi"): ("TIEHI", "Z"),
-    ("HiLoMap", "lo"): ("TIELO", "Z"),
-    ("PinConstraint", "region"): {"edge": "top"},
-    ("PlacementBlockage", "region"): _REGION,
-    ("RegionAdjustment", "region"): _REGION,
-    ("RoutingBlockage", "region"): _REGION,
-    ("TechmapFile", "path"): "map.v",
-    ("ViaInPin", "bottom"): "m1",
-    ("ViaInPin", "top"): "m2",
 }
 
 #: The input that a model needs and that no required field names.
@@ -620,7 +593,9 @@ def _sweep_models() -> "list[type]":
 
 
 def _sweep_base(model) -> dict:
-    """Return the least that `model` needs to be built alone."""
+    """Return the least that `model` needs to be built alone. A model with a required field that
+    `settings_fields.REQUIRED_VALUES` does not list fails the sweep, so that it never goes
+    unjudged."""
     from xeda.design import Design
 
     from .settings_fields import REQUIRED_VALUES, key_of
@@ -635,7 +610,7 @@ def _sweep_base(model) -> dict:
     for name, info in model.model_fields.items():
         if info.is_required():
             key = key_of(model, name)
-            base[name] = {**REQUIRED_VALUES, **SWEEP_REQUIRED}[key]
+            base[name] = REQUIRED_VALUES[key]
     return base
 
 
@@ -706,10 +681,15 @@ def test_a_scalar_setting_refuses_a_value_of_another_type_naming_the_setting(mod
 
 
 def _names(error: Exception, name: str, alias: "str | None") -> bool:
-    """Whether the validation error says which setting is wrong."""
+    """Whether the location of the validation error is the setting, as the error gives it."""
+    import re
+
+    names = (name, alias)
     if isinstance(error, ValidationError):
         return any(item["loc"][:1] in ((name,), (alias,)) for item in error.errors())
-    return name in str(error) or (alias is not None and alias in str(error))
+    if isinstance(getattr(error, "errors", None), list):  # settings and design errors
+        return any(re.split(r"\s*->\s*", str(item[0]))[0] in names for item in error.errors)
+    return False
 
 
 @pytest.mark.parametrize("given", [{}, {"a": 1}, 5, 2.5, True, {"a"}], ids=repr)
@@ -754,3 +734,9 @@ def test_no_validator_of_a_setting_turns_what_it_cannot_read_into_a_default():
                         continue
                     found.append(f"{path.name}:{node.lineno} {function.name}")
     assert not found, found
+
+
+@pytest.mark.parametrize("given", [0, False, [], {}], ids=repr)
+def test_a_design_root_that_is_no_path_is_refused_not_replaced_by_the_working_directory(given):
+    with pytest.raises(DesignValidationError, match="design_root"):
+        Design(name="d", rtl={"sources": [], "top": "t"}, design_root=given)
