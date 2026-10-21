@@ -63,21 +63,43 @@ The board builds of the design with PHY and endpoint (W = 8) met their clocks:
 | ULX3S, 25 MHz | `yosys_fpga`, `nextpnr` | 846 TRELLIS_COMB | 635 | 2 DP16KD | Fmax 79.0 MHz |
 | STLV7325 v2, 200 MHz | `yosys_fpga`, `nextpnr` (openXC7) | 560 | 586 | 2 RAMB18 | Fmax 214.0 MHz, WNS +0.328 ns |
 
-The hardware results come from `host/hw_suite.py` on a Mac, with the Arty and the Basys-3 at
-12 Mbaud, and the ULX3S and the STLV7325 at 3 Mbaud:
+The hardware results come from `host/hw_suite.py` and the final host library, on a Mac, with the
+Arty at 12 Mbaud and the ULX3S and the STLV7325 at 3 Mbaud:
 
 - Soak: 100,000 requests of random sizes on every board, with every echo byte and every execution
-  count checked. No request ran twice and no byte was wrong.
+  count checked. No request ran twice and no byte was wrong (0 violations).
 - Faults: with a host backend that drops, corrupts or inserts bytes at a rate of 1e-3 per byte in
-  both directions, 60,000 requests per board all got the exact response. No session was lost.
+  both directions, 60,000 fault-injected requests per board all got the exact response (0
+  violations). No session was lost.
 - Blackouts of 200 ms (both directions, or one direction): 4000 requests per run, all answered, the
   session kept.
 - Reconfiguration of the FPGA during a busy session: the host saw the UNBOUND status frame in every
   run (40 runs on the four boards) and no request ran again.
-- Goodput on the Arty with the largest requests (239 bytes), pyftdi, latency timer 1 ms and event
-  character `0x00` (see the end of this file): 1119 kB/s, 93.3 % of the line rate at 12 Mbaud.
-- Latency of a 16-byte request on the Arty with the same settings: 0.22 ms (median). With the chip
-  as shipped it is 16 ms.
+- Round trip of a 16-byte request (median, stop-and-wait): Arty 0.26 ms, ULX3S 0.47 ms, STLV7325
+  0.89 ms. These use pyftdi with a latency timer of 1 ms and the event character `0x00` on the
+  FTDI boards, and the macOS serial driver on the STLV7325. With the FTDI chip as shipped, a
+  round trip is 16 ms (see the end of this file).
+
+Goodput at the default budgets (request payload in kB/s, median of 5 runs of 2 s, and the share of
+the line rate of the board, 1200 kB/s at 12 Mbaud and 300 kB/s at 3 Mbaud). The three payload sizes
+are 16 bytes, 64 bytes and the largest request, 239 bytes:
+
+| board | `bridge_budget` | 16 bytes | 64 bytes | 239 bytes |
+|---|---|---|---|---|
+| Arty A7-100T | 2048 | 192 (16%) | 610 (51%) | 1113 (93%) |
+| ULX3S | 512 | 124 (41%) | 228 (76%) | 162 (54%) |
+| STLV7325 v2 | 1024 | 136 (45%) | 224 (75%) | 249 (83%) |
+
+The host machine was heavily loaded during all these runs (load average 94 to 301), so the numbers
+are lower bounds. The protocol caps the goodput at 93.7% of the line rate for the largest payload
+(1124 kB/s at 12 Mbaud, 281 kB/s at 3 Mbaud), because every frame has 12 bytes of overhead. The
+Basys-3 has the same FT2232H as the Arty, and it was measured only under the highest load, so it
+is not in the table.
+
+At a small budget the credit window holds only one response frame, and each response waits for
+new credit. The credit-first frame of the host (see [doc/protocol.md](doc/protocol.md)) raised
+the goodput of the largest payload by 45 to 59% there (STLV7325 with a budget of 256 and 512,
+ULX3S with 256).
 
 ## Simulation
 

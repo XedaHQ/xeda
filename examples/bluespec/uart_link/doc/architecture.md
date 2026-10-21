@@ -634,5 +634,7 @@ example.
   captured on the Arty, the Basys-3 and the STLV7325. The ULX3S programmer owns the serial port
   during programming, so the byte cannot be captured there, but the host saw UNBOUND in every
   reconfiguration run. On the Arty with `pyftdi` (1 ms latency timer and event character `0x00`),
-  the goodput with the largest payload is 1119 kB/s (93.3 % of the 12 Mbaud line rate), and the
-  median round trip of a 16-byte request is 0.22 ms.
+  the goodput with the largest payload is 1113 kB/s (93% of the 12 Mbaud line rate) and the
+  median round trip of a 16-byte request is 0.26 ms. The README has the goodput of the other
+  boards. All of these numbers come from a host machine under heavy load, so they are lower
+  bounds.
