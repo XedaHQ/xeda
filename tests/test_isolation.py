@@ -2200,11 +2200,12 @@ REVIEWED_WRITES = [
     ),
     (
         "remote/agent.py",
-        "descriptor = os.open(path / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)",
-        "`xeda.remote.agent clean`, outside a run directory: a read-only descriptor on the lock "
-        "file of a workspace, an environment or a code copy, to try the lock. It creates and "
-        "writes nothing, `O_NOFOLLOW` makes it fail on a link, and `O_NONBLOCK` keeps a FIFO from "
-        "blocking it (`clean` then skips a lock that is no regular file)",
+        "descriptor = os.open(path / name, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)",
+        "`xeda.remote.agent clean`, outside a run directory: the lock file of a workspace, an "
+        "environment or a code copy, opened to try the exclusive lock, not written (an exclusive "
+        "flock on Linux NFS needs a file open for writing). It creates nothing, `O_NOFOLLOW` "
+        "makes it fail on a link, and `O_NONBLOCK` keeps a FIFO from blocking it (`clean` then "
+        "skips a lock that is no regular file)",
     ),
     (
         "remote/agent.py",

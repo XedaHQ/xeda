@@ -7,6 +7,7 @@ blocks (`XEDA_FAKE_FPGA_READY`), so no test waits for a time to pass. Every test
 processes by process id.
 """
 
+import errno
 import fcntl
 import io
 import json
@@ -762,6 +763,11 @@ def test_clean_does_not_enter_a_kind_directory_that_is_a_link(tmp_path, kind):
     outside = tmp_path / "outside"
     (outside / "entry").mkdir(parents=True)
     (outside / "entry" / "lock").write_text("")
+    # A directory there that has the name of what an ended `clean` of this host left behind.
+    ended = subprocess.Popen([sys.executable, "-c", "pass"])
+    ended.wait(timeout=TIMEOUT)
+    leftover = outside / f".removing-{ended.pid}-{agent_module._host_tag()}-old"
+    leftover.mkdir()
     base = tmp_path / "remote" / "v1"
     base.mkdir(parents=True)
     (base / kind).symlink_to(outside, target_is_directory=True)
@@ -774,7 +780,29 @@ def test_clean_does_not_enter_a_kind_directory_that_is_a_link(tmp_path, kind):
         kept["kind"] == ("workspace" if kind == "ws" else kind)
         and kept["reason"] == "the directory is a link"
     )
-    assert (outside / "entry" / "lock").exists()
+    assert (outside / "entry" / "lock").exists() and leftover.is_dir()
+
+
+def test_clean_takes_its_exclusive_locks_on_files_open_for_writing(tmp_path, monkeypatch):
+    # On Linux NFS, flock is emulated with a lock of the whole file, and an exclusive lock needs
+    # a file that is open for writing.
+    base = tmp_path / "remote" / "v1"
+    for kind, lock in (("env", ".xeda-lock"), ("code", ".xeda-lock"), ("ws", "lock")):
+        (base / kind / "unused").mkdir(parents=True)
+        (base / kind / "unused" / lock).write_text("")
+    real = fcntl.flock
+
+    def nfs_flock(descriptor: int, operation: int) -> None:
+        read_only = fcntl.fcntl(descriptor, fcntl.F_GETFL) & os.O_ACCMODE == os.O_RDONLY
+        if operation & fcntl.LOCK_EX and read_only:
+            raise OSError(errno.EBADF, os.strerror(errno.EBADF))
+        real(descriptor, operation)
+
+    monkeypatch.setattr(agent_module.fcntl, "flock", nfs_flock)
+    report = agent_module.clean(tmp_path / "remote", older_than=0, everything=True)
+
+    assert report["kept"] == []
+    assert sorted(entry["kind"] for entry in report["removed"]) == ["code", "env", "workspace"]
 
 
 def test_clean_only_removes_the_listed_paths_and_checks_them_again(tmp_path):

@@ -1441,8 +1441,11 @@ def _remove_directory(path: Path) -> None:
 
 def _remove_leftovers(directory: Path) -> None:
     """Remove the directories that an earlier `clean` renamed and did not finish to delete, if
-    that `clean` ran on this host and its process is gone."""
+    that `clean` ran on this host and its process is gone. A `directory` that is a link is not
+    entered: what it leads to is not Xeda's."""
     try:
+        if stat.S_ISLNK(directory.lstat().st_mode):
+            return
         names = [n for n in os.listdir(directory) if n.startswith(_REMOVING)]
     except OSError:
         return
@@ -1554,8 +1557,9 @@ def clean(
         descriptor: Optional[int] = None
         try:
             try:
-                # Not `O_CREAT`; a link is refused; a FIFO does not block the open.
-                descriptor = os.open(path / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                # Not `O_CREAT`; a link is refused; a FIFO does not block the open. Open for
+                # writing: on Linux NFS, an exclusive flock needs it.
+                descriptor = os.open(path / name, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
             except FileNotFoundError:
                 keep(kind, path, missing)
                 return None
