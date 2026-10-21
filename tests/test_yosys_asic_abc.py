@@ -559,8 +559,9 @@ def test_the_description_of_mfs3_warns_and_states_what_was_measured():
     assert description.startswith("Warning:")
     for fact in (
         "`Abc_TtExpand`",
-        "OSS CAD yosys 0.69+286",
+        "OSS CAD Suite yosys 0.69+286 and 0.70+179",
         "Homebrew yosys 0.69+post",
+        "Commit a4fb2d39c of berkeley-abc/abc fixes it",
         "yosys 0.68 and 0.66",
         "`mfs3 -e -m`",
         "`src/opt/sfm/sfmDec.c`",
