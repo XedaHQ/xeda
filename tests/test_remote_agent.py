@@ -7,6 +7,8 @@ blocks (`XEDA_FAKE_FPGA_READY`), so no test waits for a time to pass. Every test
 processes by process id.
 """
 
+import contextlib
+import errno
 import fcntl
 import io
 import json
@@ -594,6 +596,56 @@ def test_setup_lines_and_profile_env_reach_the_launch(
     assert Path(recorded["PYTHONPATH"]) == Path(xeda.__file__).resolve().parent.parent
 
 
+@contextmanager
+def background_program(tmp_path: Path) -> Iterator[Path]:
+    """The file in which a shell line `sleep 600 & echo $! > <file>` records the process id of
+    its background program. The block ends that program, by its process id."""
+    pid_file = tmp_path / "background.pid"
+    try:
+        yield pid_file
+    finally:
+        if pid_file.is_file():
+            with contextlib.suppress(psutil.Error, ValueError):
+                psutil.Process(int(pid_file.read_text())).kill()
+
+
+def file_is_unlocked(path: Path) -> bool:
+    """Whether this process can take an exclusive lock on the file `path` now. The file is open
+    for writing, as Linux NFS needs for an exclusive lock."""
+    with path.open("r+b") as stream:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        return True
+
+
+@pytest.mark.parametrize("where", ["login profile", "setup line"])
+def test_a_background_program_of_the_profile_does_not_keep_the_locks(
+    tmp_path, toolchain, start_agent, provisioned, where
+):
+    """The login profile and the setup lines run before the launch entry. A program that they
+    leave in the background lives on after the launch, so it must not inherit any lock."""
+    with background_program(tmp_path) as pid_file:
+        start = f"sleep 600 &\necho $! > {pid_file}\n"
+        setup = path_setup(toolchain)
+        if where == "login profile":
+            (tmp_path / "home" / ".bash_profile").write_text(start)
+        else:
+            setup += start.splitlines()
+        agent = provisioned.start(start_agent)
+        agent.get("hello")
+        agent.sync(DESIGN, "run-1")
+        agent.send(launch_message(tmp_path, "run-1", setup))
+        assert agent.get("result", whole=True)["result"]["success"] is True
+        agent.send({"bye": True})
+        assert agent.process.wait(timeout=TIMEOUT) == 0
+        assert psutil.Process(int(pid_file.read_text())).is_running()
+        assert file_is_unlocked(workspace(tmp_path) / "lock")
+        assert file_is_unlocked(provisioned.env / USE_LOCK)
+        assert file_is_unlocked(provisioned.code / USE_LOCK)
+
+
 def test_a_missing_bash_fails_the_launch_and_names_it(tmp_path, toolchain, start_agent):
     empty = tmp_path / "empty"
     empty.mkdir()
@@ -762,6 +814,11 @@ def test_clean_does_not_enter_a_kind_directory_that_is_a_link(tmp_path, kind):
     outside = tmp_path / "outside"
     (outside / "entry").mkdir(parents=True)
     (outside / "entry" / "lock").write_text("")
+    # A directory there that has the name of what an ended `clean` of this host left behind.
+    ended = subprocess.Popen([sys.executable, "-c", "pass"])
+    ended.wait(timeout=TIMEOUT)
+    leftover = outside / f".removing-{ended.pid}-{agent_module._host_tag()}-old"
+    leftover.mkdir()
     base = tmp_path / "remote" / "v1"
     base.mkdir(parents=True)
     (base / kind).symlink_to(outside, target_is_directory=True)
@@ -774,7 +831,29 @@ def test_clean_does_not_enter_a_kind_directory_that_is_a_link(tmp_path, kind):
         kept["kind"] == ("workspace" if kind == "ws" else kind)
         and kept["reason"] == "the directory is a link"
     )
-    assert (outside / "entry" / "lock").exists()
+    assert (outside / "entry" / "lock").exists() and leftover.is_dir()
+
+
+def test_clean_takes_its_exclusive_locks_on_files_open_for_writing(tmp_path, monkeypatch):
+    # On Linux NFS, flock is emulated with a lock of the whole file, and an exclusive lock needs
+    # a file that is open for writing.
+    base = tmp_path / "remote" / "v1"
+    for kind, lock in (("env", ".xeda-lock"), ("code", ".xeda-lock"), ("ws", "lock")):
+        (base / kind / "unused").mkdir(parents=True)
+        (base / kind / "unused" / lock).write_text("")
+    real = fcntl.flock
+
+    def nfs_flock(descriptor: int, operation: int) -> None:
+        read_only = fcntl.fcntl(descriptor, fcntl.F_GETFL) & os.O_ACCMODE == os.O_RDONLY
+        if operation & fcntl.LOCK_EX and read_only:
+            raise OSError(errno.EBADF, os.strerror(errno.EBADF))
+        real(descriptor, operation)
+
+    monkeypatch.setattr(agent_module.fcntl, "flock", nfs_flock)
+    report = agent_module.clean(tmp_path / "remote", older_than=0, everything=True)
+
+    assert report["kept"] == []
+    assert sorted(entry["kind"] for entry in report["removed"]) == ["code", "env", "workspace"]
 
 
 def test_clean_only_removes_the_listed_paths_and_checks_them_again(tmp_path):

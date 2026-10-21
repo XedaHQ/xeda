@@ -1,10 +1,11 @@
 """The remote launch entry: run one packaged request and record its result.
 
-`python -m xeda.remote.launch_entry <launch dir>` reads `<launch dir>/request.json` (a
-`LaunchRequest`), plans the request, checks that this plan is the one the local xeda made, runs
-it, and writes `<launch dir>/result.json`. The agent starts this module on the remote host. The
-exit status is 0 when the launch succeeded and 1 when it did not. The result is in
-`result.json` in both cases.
+`python -m xeda.remote.launch_entry <launch dir> <hand-over fd>` first takes the locks that the
+launch holds (`take_locks`), and then reads `<launch dir>/request.json` (a `LaunchRequest`),
+plans the request, checks that this plan is the one the local xeda made, runs it, and writes
+`<launch dir>/result.json`. The agent starts this module on the remote host. The launch holds the
+locks until it ends. The exit status is 0 when the launch succeeded and 1 when it did not. The
+result is in `result.json` in both cases.
 
 `result.json` is the document that `xeda run --json` prints (or the dry-run document), so the
 local xeda can report it as it reports a local run. It has two more keys for a launch that was
@@ -19,6 +20,7 @@ entry writes the failure document first and then raises the exception again.
 import json
 import logging
 import os
+import socket
 import stat
 import sys
 from collections.abc import Iterable, Mapping, Sequence
@@ -28,12 +30,18 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..dataclass import XedaBaseModel
 from ..utils import replacing_file
-from .errors import RemoteIncompatible
+from .errors import RemoteError, RemoteIncompatible
 
 log = logging.getLogger(__name__)
 
 REQUEST_FILE = "request.json"
 RESULT_FILE = "result.json"
+
+#: What a launch reads from the lock hand-over socket: the most descriptors (a launch holds the
+#: workspace lock, the lock of its environment and the lock of its code copy), and the most bytes
+#: of the message, which is the number of descriptors as text.
+HAND_OVER_MAX = 16
+HAND_OVER_SIZE = 16
 
 #: What identifies the state of a file without comparing a clock of another machine: the device
 #: and inode, the size and the two time stamps. A file system gives all five.
@@ -155,6 +163,59 @@ class RunDirectorySnapshot:
             and not any(path.is_relative_to(place) for place in unread)
         )
         return written, sorted(place.relative_to(directory).as_posix() for place in unread)
+
+
+def take_locks(hand_over: int) -> List[int]:
+    """Take the lock files that the agent sent through the Unix socket `hand_over`, and return
+    their descriptors. Close the socket. The message of the agent is the number of descriptors.
+
+    The agent keeps the locks of the launch in flight in the socket while the login profile and
+    the `setup` lines run, so that a program left in the background by them cannot inherit and
+    hold a lock. The launch holds the descriptors until it ends. They are not inheritable, so no
+    tool gets them. Raise `RemoteError` if the socket does not give them."""
+    taken: List[int] = []
+    try:
+        with socket.socket(fileno=hand_over) as hand_over_socket:
+            message, taken, _flags, _address = socket.recv_fds(
+                hand_over_socket, HAND_OVER_SIZE, HAND_OVER_MAX
+            )
+            for descriptor in taken:
+                os.set_inheritable(descriptor, False)
+            if not message:
+                raise RemoteError("the lock hand-over socket was closed with no message")
+            try:
+                expected = int(message)
+            except ValueError:
+                raise RemoteError(f"the lock hand-over has the message {message!r}") from None
+            if len(taken) != expected:
+                raise RemoteError(
+                    f"the lock hand-over has {len(taken)} locks, and the agent sent {expected}"
+                )
+    except (OSError, RemoteError) as e:
+        for descriptor in taken:
+            os.close(descriptor)
+        if isinstance(e, RemoteError):
+            raise
+        raise RemoteError(f"the launch did not get its locks: {e}") from None
+    return taken
+
+
+def early_failure(message: str, error_type: str) -> Dict[str, Any]:
+    """The result document of a launch that ended before it knew its request: no flow, no
+    design."""
+    return {
+        "flow": None,
+        "design": None,
+        "design_file": None,
+        "target": None,
+        "success": False,
+        "results": {},
+        "error": {"type": error_type, "message": message},
+        "request": [],
+        "nodes": [],
+        "written": {},
+        "unreadable": {},
+    }
 
 
 def write_result(launch_dir: Path, document: Mapping[str, Any]) -> None:
@@ -315,12 +376,22 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Run the launch in the directory that `argv` names and return the exit status."""
+    """Run the launch in the directory that `argv` names and return the exit status. The first
+    action is to take the locks from the socket that `argv` names."""
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if len(arguments) != 1:
-        print("usage: python -m xeda.remote.launch_entry <launch dir>", file=sys.stderr)
+    if len(arguments) != 2 or not arguments[1].isdecimal():
+        print(
+            "usage: python -m xeda.remote.launch_entry <launch dir> <hand-over fd>", file=sys.stderr
+        )
         return 2
     launch_dir = Path(arguments[0])
+    try:
+        take_locks(int(arguments[1]))  # nothing closes the descriptors: they end with the process
+    except RemoteError as e:
+        message = str(e)
+        print(message, file=sys.stderr)
+        write_result(launch_dir, early_failure(message, type(e).__name__))
+        return 1
     try:
         request = LaunchRequest.model_validate_json(
             (launch_dir / REQUEST_FILE).read_text(encoding="utf-8")
@@ -329,22 +400,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         # Nothing is known of the request, so the document has no flow and no design.
         message = f"{REQUEST_FILE} is not a launch request: {type(e).__name__}: {e}"
         print(message, file=sys.stderr)
-        write_result(
-            launch_dir,
-            {
-                "flow": None,
-                "design": None,
-                "design_file": None,
-                "target": None,
-                "success": False,
-                "results": {},
-                "error": {"type": type(e).__name__, "message": message},
-                "request": [],
-                "nodes": [],
-                "written": {},
-                "unreadable": {},
-            },
-        )
+        write_result(launch_dir, early_failure(message, type(e).__name__))
         return 1
     document, raised = execute(request)
     write_result(launch_dir, document)

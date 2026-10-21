@@ -4,10 +4,13 @@ Each test runs `python -m xeda.remote.launch_entry` as a subprocess of the test 
 the remote agent does. The subprocess inherits the PATH with the fake tools.
 """
 
+import fcntl
 import json
 import os
+import socket
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Optional
 
@@ -23,6 +26,25 @@ pytestmark = pytest.mark.python_compat
 
 #: A part for which the fake `nextpnr-ecp5` reports 250 MHz.
 PART = "LFE5U-25F-6BG381C"
+
+
+def run_entry(
+    command: Sequence[str],
+    *,
+    locks: Sequence[int] = (),
+    message: Optional[bytes] = None,
+    **keywords: Any,
+) -> subprocess.CompletedProcess:
+    """Run the entry `command` with the socket from which it takes its locks, as the agent does:
+    the number of `locks` is the message that the agent sends (unless `message` is given), and
+    the descriptors go with it. With `message` and no locks, the socket holds no descriptor."""
+    sender, receiver = socket.socketpair()
+    with sender, receiver:
+        socket.send_fds(sender, [str(len(locks)).encode() if message is None else message], locks)
+        sender.close()
+        return subprocess.run(
+            [*command, str(receiver.fileno())], pass_fds=(receiver.fileno(),), **keywords
+        )
 
 
 def make_inputs(tmp_path: Path, frequency: str = "100 MHz") -> Path:
@@ -73,7 +95,7 @@ def launch(
         expected=expected_hashes(tmp_path, design) if expected is None else expected,
     ).model_copy(update=fields)
     (launch_dir / "request.json").write_text(request.model_dump_json())
-    process = subprocess.run(
+    process = run_entry(
         [sys.executable, "-m", "xeda.remote.launch_entry", str(launch_dir)],
         cwd=tmp_path,
         env=dict(os.environ, **(env or {})),
@@ -253,7 +275,7 @@ def test_a_request_file_that_is_not_a_request_gets_a_failure_document(tmp_path):
     launch_dir = tmp_path / "launch"
     launch_dir.mkdir()
     (launch_dir / "request.json").write_text('{"chain": "nextpnr"}')
-    process = subprocess.run(
+    process = run_entry(
         [sys.executable, "-m", "xeda.remote.launch_entry", str(launch_dir)],
         capture_output=True,
         text=True,
@@ -331,7 +353,7 @@ def run(self, *args, **kwargs):
     raise {exception}
 
 DefaultRunner.run = run
-sys.exit(main([sys.argv[1]]))
+sys.exit(main(sys.argv[1:]))
 """
 
 
@@ -355,7 +377,7 @@ def launch_raising(tmp_path: Path, exception: str) -> tuple[subprocess.Completed
         expected=expected_hashes(tmp_path, design),
     )
     (launch_dir / "request.json").write_text(request.model_dump_json())
-    process = subprocess.run(
+    process = run_entry(
         [sys.executable, "-c", RAISING_LAUNCH.format(exception=exception), str(launch_dir)],
         cwd=tmp_path,
         capture_output=True,
@@ -404,3 +426,125 @@ def test_the_entry_writes_only_in_the_run_root_and_the_launch_directory(tmp_path
     # The launch directory holds the request (written by `launch` above), the result, and nothing
     # left over from the atomic write of the result.
     assert {p.name for p in new if p.parent == launch_dir} == {"request.json", "result.json"}
+
+
+# --- The hand-over of the locks ------------------------------------------------------------------
+
+
+def entry_command(launch_dir: Path) -> list[str]:
+    return [sys.executable, "-m", "xeda.remote.launch_entry", str(launch_dir)]
+
+
+def failed_before_anything_ran(tmp_path: Path, process: subprocess.CompletedProcess) -> str:
+    """Check that the entry stopped at the hand-over, with a failure document. Return the message
+    of the failure."""
+    launch_dir = tmp_path / "launch"
+    assert process.returncode == 1, process.stderr
+    result = json.loads((launch_dir / "result.json").read_text())
+    assert result["success"] is False and result["nodes"] == [] and result["flow"] is None
+    message = result["error"]["message"]
+    assert message in process.stderr
+    assert not (tmp_path / "remote" / "xeda_run").exists()  # no run
+    return message
+
+
+@pytest.fixture
+def waiting_launch(tmp_path):
+    """A launch directory whose request is complete and valid: the entry would run it if the
+    hand-over worked."""
+    design = make_inputs(tmp_path)
+    launch_dir = tmp_path / "launch"
+    launch_dir.mkdir()
+    request = LaunchRequest(
+        chain="nextpnr",
+        design_file=design.name,
+        inputs_dir=str(design.parent),
+        run_root=str(tmp_path / "remote" / "xeda_run"),
+        path_identities={},
+        hashed_run_dirs=False,
+        clean=False,
+        rebuild_all=False,
+        scrub=False,
+        dry_run=False,
+        log_level=20,
+        detailed_logs=False,
+        expected={},
+    )
+    (launch_dir / "request.json").write_text(request.model_dump_json())
+    return launch_dir
+
+
+def test_an_empty_hand_over_socket_fails_the_launch_and_runs_nothing(tmp_path, waiting_launch):
+    process = run_entry(
+        entry_command(waiting_launch), message=b"", capture_output=True, text=True, timeout=600
+    )
+    assert "closed with no message" in failed_before_anything_ran(tmp_path, process)
+
+
+def test_fewer_locks_than_the_agent_sent_fail_the_launch_and_run_nothing(tmp_path, waiting_launch):
+    with open(tmp_path / "some-file", "w") as stream:
+        process = run_entry(
+            entry_command(waiting_launch),
+            locks=[stream.fileno()],
+            message=b"3",
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    message = failed_before_anything_ran(tmp_path, process)
+    assert "has 1 locks, and the agent sent 3" in message
+
+
+def test_a_hand_over_that_is_no_socket_fails_the_launch_and_runs_nothing(tmp_path, waiting_launch):
+    process = subprocess.run(
+        [*entry_command(waiting_launch), "97"], capture_output=True, text=True, timeout=600
+    )
+    assert "did not get its locks" in failed_before_anything_ran(tmp_path, process)
+
+
+def test_a_launch_without_the_hand_over_argument_is_a_usage_error(tmp_path, waiting_launch):
+    process = subprocess.run(
+        entry_command(waiting_launch), capture_output=True, text=True, timeout=600
+    )
+    assert process.returncode == 2 and "usage:" in process.stderr
+    assert not (waiting_launch / "result.json").exists()
+
+
+TAKING_LOCKS = """
+import json, os, sys
+from xeda.remote.launch_entry import take_locks
+
+descriptors = take_locks(int(sys.argv[1]))
+try:
+    os.fstat(int(sys.argv[1]))
+    socket_open = True
+except OSError:
+    socket_open = False
+print(json.dumps({
+    "count": len(descriptors),
+    "inheritable": [os.get_inheritable(d) for d in descriptors],
+    "open": [os.fstat(d).st_size >= 0 for d in descriptors],
+    "socket_open": socket_open,
+}))
+"""
+
+
+def test_the_entry_takes_the_locks_keeps_them_and_closes_the_socket(tmp_path):
+    first = (tmp_path / "first").open("wb")
+    second = (tmp_path / "second").open("wb")
+    with first, second:
+        fcntl.flock(first, fcntl.LOCK_EX)
+        process = run_entry(
+            [sys.executable, "-c", TAKING_LOCKS],
+            locks=[first.fileno(), second.fileno()],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    assert process.returncode == 0, process.stderr
+    assert json.loads(process.stdout) == {
+        "count": 2,
+        "inheritable": [False, False],
+        "open": [True, True],
+        "socket_open": False,
+    }
