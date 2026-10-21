@@ -122,7 +122,7 @@ def test_pure_paths_create_nothing_and_launch_revalidates_containment(tmp_path, 
     outside = tmp_path / "outside"
     outside.mkdir()
     (tmp_path / "xeda_run" / "d").symlink_to(outside, target_is_directory=True)
-    with pytest.raises(RunDirectoryError, match="leads out"):
+    with pytest.raises(RunDirectoryError, match="xeda_run/d is a symbolic link"):
         runner.launch_flow(_Taker, design, {}, plan=plan)
     assert list(outside.iterdir()) == []
 

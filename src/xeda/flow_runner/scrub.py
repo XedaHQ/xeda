@@ -19,6 +19,7 @@ from ..run_dir import (
     RunDirectory,
     RunDirectoryError,
     record_output_state,
+    refuse_link_on_way,
     run_directory_name,
     run_directory_problem,
 )
@@ -154,25 +155,35 @@ def _say_skipped(skipped: Iterable[_Skipped]) -> None:
         _say(f"skipped {link}: {problem}")
 
 
-def _target_parents(design_dir: Path, run_root: Path) -> list[Path]:
+def _target_parents(design_dir: Path) -> _Scan:
     """Return the directories below `design_dir` that can hold the run directories of a target.
 
     They could be named as a target (`target_name_problem`: a name that is no flow's) and are no
     run directory (a launch writes `LAUNCH_DOCUMENTS` in every one). They are found as they are
-    on disk, a target that no design file names any more included, and never searched deeper. A
-    link leading out of the run root, or out of `design_dir`, is not followed."""
+    on disk, a target that no design file names any more included, and never searched deeper.
+    `design_dir` is no symbolic link (`refuse_link_on_way`). A link to a directory that fits
+    the description is not listed, because Xeda neither follows nor removes a link at the level
+    of a target. It is returned with the reason, as `skipped`."""
     if not design_dir.is_dir():
-        return []
-    xr = design_dir.resolve()
-    return [
-        p
-        for p in sorted(design_dir.iterdir())
-        if p.is_dir()
-        and target_name_problem(p.name) is None
-        and not any((p / name).exists() for name in LAUNCH_DOCUMENTS)
-        and xr in p.resolve().parents
-        and RunDirectory.lies_under(p, run_root)
-    ]
+        return _Scan([], [])
+    parents: list[Path] = []
+    skipped: list[_Skipped] = []
+    for p in sorted(design_dir.iterdir()):
+        if (
+            p.is_dir()
+            and target_name_problem(p.name) is None
+            and not any((p / name).exists() for name in LAUNCH_DOCUMENTS)
+        ):
+            if p.is_symlink():
+                skipped.append(_Skipped(p, _link_problem(p)))
+            else:
+                parents.append(p)
+    return _Scan(parents, skipped)
+
+
+def _link_problem(link: Path) -> str:
+    """Return why scrub does not list a symbolic link at the level of a design or target."""
+    return f"it is a symbolic link (to {os.readlink(link)}), which Xeda neither follows nor removes"
 
 
 class _Listed(NamedTuple):
@@ -412,25 +423,24 @@ def scrub_design(
     never built is nothing to do. A link named like a run directory that is none
     (`run_directory_problem`) is not listed: it is said before the question, and returned as
     `skipped`. A `target` that is no target name is a `RunDirectoryError`, before anything is
-    looked at."""
+    looked at. So is a symbolic link at the design or the named target (`refuse_link_on_way`);
+    the error names it. A link found at a target below the design is not followed: it is said
+    and returned as `skipped`."""
     if target is not None:
         problem = target_name_problem(target)
         if problem is not None:
             raise RunDirectoryError(problem)
+        refuse_link_on_way(design_dir / target, run_root)
         parent = design_dir / target
-        xr = design_dir.resolve()
-        found = (
-            [parent]
-            if parent.is_dir()
-            and xr in parent.resolve().parents
-            and RunDirectory.lies_under(parent, run_root)
-            else []
-        )
+        found, found_skipped = ([parent] if parent.is_dir() else []), []
     else:
-        found = [design_dir, *_target_parents(design_dir, run_root)] if design_dir.is_dir() else []
+        refuse_link_on_way(design_dir, run_root)
+        targets = _target_parents(design_dir)
+        found = [design_dir, *targets.candidates] if design_dir.is_dir() else []
+        found_skipped = targets.skipped
     parents = _distinct(found)
     scans = [_run_directories_in(flow_name, parent, (), run_root) for parent in parents]
-    skipped = unique([s for scan in scans for s in scan.skipped])
+    skipped = unique([*found_skipped, *(s for scan in scans for s in scan.skipped)])
     candidates = [p for scan in scans for p in scan.candidates]
     _say_skipped(skipped)
     done = _remove_confirmed(_listed(flow_name, candidates), run_root)

@@ -379,8 +379,54 @@ def test_the_mirror_must_lie_below_its_run_root(tmp_path):
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     (run_root / "@host").symlink_to(elsewhere, target_is_directory=True)
-    with pytest.raises(RemoteFetchError, match="not below its run root"):
+    with pytest.raises(RemoteFetchError, match="@host is a symbolic link"):
         publish_mirror(run_root / "@host", [], io.BytesIO(), remote_run_root=PurePosixPath("/r"))
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_a_mirror_that_is_a_link_inside_the_run_root_is_refused_too(tmp_path):
+    run_root = tmp_path / "local"
+    (run_root / "b").mkdir(parents=True)
+    (run_root / "@host").symlink_to("b", target_is_directory=True)
+    remote_root = tmp_path / "remote"
+    run = _run_dir(remote_root)
+    selected = {"d/flow/results.json": run / "results.json"}
+    with pytest.raises(RemoteFetchError, match="@host is a symbolic link .to b.. Xeda neither"):
+        _publish(remote_root, selected, run_root / "@host")
+    assert list((run_root / "b").iterdir()) == []
+
+
+@pytest.mark.parametrize("leads", ["inside", "outside"])
+@pytest.mark.parametrize("level", ["mirror", "design"])
+def test_the_mirror_of_an_unfinished_run_is_not_emptied_through_a_link(
+    tmp_path, caplog, leads, level
+):
+    """`_discard_mirrors` locks before it clears, and the lock refuses a link on the way."""
+    from types import SimpleNamespace
+
+    from xeda.remote import client
+
+    run_root = tmp_path / "xeda_run"
+    (run_root / "b" / "yosys_fpga").mkdir(parents=True)
+    (tmp_path / "outside" / "yosys_fpga").mkdir(parents=True)
+    home = run_root / "b" if leads == "inside" else tmp_path / "outside"
+    sentinel = home / "yosys_fpga" / "KEEP"
+    sentinel.write_text("keep\n")
+    if level == "mirror":
+        link = run_root / "@host"
+        link.symlink_to(home, target_is_directory=True)
+        planned = run_root / "yosys_fpga"  # its mirror is @host/yosys_fpga
+        (run_root / "yosys_fpga").mkdir()
+    else:
+        (run_root / "@host").mkdir()
+        link = run_root / "@host" / "a"
+        link.symlink_to(home, target_is_directory=True)
+        planned = run_root / "a" / "yosys_fpga"
+    local = SimpleNamespace(run_paths=[planned])
+    with caplog.at_level("WARNING"):
+        client._discard_mirrors(local, run_root / "@host", run_root)
+    assert sentinel.read_text() == "keep\n"
+    assert f"{link} is a symbolic link" in caplog.text
 
 
 # --------------------------------------------------------------------------------- the results

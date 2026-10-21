@@ -199,7 +199,7 @@ def test_a_run_directory_led_out_of_the_run_root_is_refused(tmp_path, monkeypatc
     run_root = runner.run_root
     (run_root / "d").symlink_to(elsewhere, target_is_directory=True)
     design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
-    with pytest.raises(RunDirectoryError, match="leads out of the run root"):
+    with pytest.raises(RunDirectoryError, match="xeda_run/d is a symbolic link"):
         runner.run_flow(_Probe, design, {})
     assert _files(elsewhere) == before
     assert not list(elsewhere.glob("*.lock"))

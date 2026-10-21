@@ -381,6 +381,13 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         "the launcher handed a run directory that is not the path given: a bug in the caller, no "
         "user input",
     ),
+    "xeda.run_dir:refuse_link_on_way": (
+        1,
+        "a flow claims a cache directory below the run root when it prepares its inputs (the "
+        "board files of `nextpnr`, the chip database of a Xilinx flow), and a symbolic link on "
+        "the way there is refused as one on the way to a run directory is at planning "
+        "(`run_path_of`); the path is the run root's, not the flow's settings or design",
+    ),
     "xeda.flow.flow:Flow.Settings.from_input": (
         2,
         "validates settings given as a mapping to a flow built directly; a launched flow gets "

@@ -36,7 +36,10 @@ __all__ = [
     "OutputState",
     "RunDirectory",
     "RunDirectoryError",
+    "link_on_way",
+    "link_refusal",
     "record_output_state",
+    "refuse_link_on_way",
     "resolved_inside",
     "rmtree",
     "run_directory_name",
@@ -105,6 +108,48 @@ def run_directory_problem(path: Path, flow_name: str, parent: Path) -> Optional[
             f"{flow_name}_<hash> in {parent}"
         )
     return None
+
+
+def link_on_way(
+    directory: Union[str, os.PathLike], run_root: Union[str, os.PathLike]
+) -> Path | None:
+    """Return the first symbolic link on the way from the run root down to `directory`, or None.
+
+    `directory` is the directory that holds run directories: the one of the design, of the
+    target, or of the mirror of a host. It is included. The way starts below the first name, from
+    the top, that resolves to the run root, so a run root that is a link itself is fine, and so is
+    any other name for it. The run directory is not on the way. Its own rule is
+    `run_directory_problem`. The function only reads. It returns None for a `directory` that
+    does not lie below the run root; `RunDirectory.lies_under` judges that.
+    """
+    given = Path(os.path.abspath(directory))
+    root = os.path.realpath(run_root)
+    names = [*reversed(given.parents), given]
+    for index, name in enumerate(names):
+        if os.path.realpath(name) == root:
+            return next((below for below in names[index + 1 :] if below.is_symlink()), None)
+    return None
+
+
+def refuse_link_on_way(
+    directory: Union[str, os.PathLike], run_root: Union[str, os.PathLike]
+) -> None:
+    """Raise a `RunDirectoryError` that names the first symbolic link found by `link_on_way`.
+
+    Xeda neither follows nor removes such a link, and writes or deletes nothing through it. This
+    is the one rule of the launch, of `xeda scrub` and of the mirror of a remote run.
+    """
+    link = link_on_way(directory, run_root)
+    if link is not None:
+        raise RunDirectoryError(link_refusal(link))
+
+
+def link_refusal(link: Path) -> str:
+    """Return the sentence that refuses `link`, a symbolic link on the way to a run directory."""
+    return (
+        f"{link} is a symbolic link (to {os.readlink(link)}). Xeda neither follows nor removes "
+        "it: remove the link, or give the run root another place with --run-root."
+    )
 
 
 #: The state of a file or directory: `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)`.
@@ -239,7 +284,11 @@ class RunDirectory:
 
     @classmethod
     def claimed(cls, path: Path, run_root: Path) -> RunDirectory:
-        """Return a run directory that Xeda chose under `run_root`. `path` must lie under it."""
+        """Return a run directory that Xeda chose under `run_root`. `path` must lie under it.
+
+        No name between the run root and `path` is a symbolic link (`link_on_way`): the
+        `RunDirectoryError` names the first one."""
+        refuse_link_on_way(Path(os.path.abspath(path)).parent, run_root)
         if not cls.lies_under(path, run_root):
             raise ValueError(f"{path} is not under the run root {run_root}: it is not Xeda's")
         return cls(Path(os.path.realpath(path)), Path(os.path.realpath(run_root)))

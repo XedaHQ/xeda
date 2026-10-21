@@ -397,7 +397,8 @@ def test_a_run_directory_linked_out_of_the_run_root_is_refused(tmp_path, monkeyp
         link = link / "vivado_synth"
     link.symlink_to(elsewhere, target_is_directory=True)
 
-    with pytest.raises(RunDirectoryError, match="leads out of the run root"):
+    why = "sqrt is a symbolic link" if level == "design" else "leads out of the run root"
+    with pytest.raises(RunDirectoryError, match=why):
         launcher.get_flow_run_path("sqrt", "vivado_synth")
     with pytest.raises(XedaException) as refused:
         launcher.run(

@@ -49,7 +49,9 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
 A run directory is `<run root>/<design>[/<target>]/<flow>[_<run hash>]` (the hash only with
 `--hashed-run-dirs`; run root `./xeda_run/`). A dependency's run directory is a sibling, never
 nested. Launch and `xeda scrub` share one rule, `run_dir.run_directory_problem`
-(`tests/test_run_directory_rule.py`). User-facing rules: `docs/run-directories.rst`.
+(`tests/test_run_directory_rule.py`). No symbolic link lies between the run root and a run
+directory (design, target, mirror `@host`): `run_dir.link_on_way` (`tests/test_run_root_links.py`).
+User-facing rules: `docs/run-directories.rst`.
 
 ## Architecture
 

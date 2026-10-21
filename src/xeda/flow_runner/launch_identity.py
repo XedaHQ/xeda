@@ -20,6 +20,7 @@ from ..run_dir import (
     DIR_NAME_HASH_LEN,
     RunDirectory,
     RunDirectoryError,
+    refuse_link_on_way,
     run_directory_problem,
 )
 from ..run_root import ensure_run_root
@@ -85,7 +86,9 @@ def run_path_of(
     The second form is the name with hashed run directories.
 
     The path lies strictly inside the run root and is resolved. Otherwise a `RunDirectoryError`
-    is raised, before anything (the lock beside it included) is written. A link at that name is
+    is raised, before anything (the lock beside it included) is written. No name between the run
+    root and the run directory (the design, the target) is a symbolic link (`refuse_link_on_way`;
+    a run root that is a link is fine). A link at the name of the run directory is
     used only if it is a run directory of the node by `run_directory_problem`, the rule by which
     scrub lists run directories: it leads to a directory named like one beside it. A design
     selected as a target runs in the directory of that target, as its producers do. A design
@@ -105,6 +108,7 @@ def run_path_of(
         parent /= target
     ensure_run_root(run_root, start=start, create=False)
     run_path = run_root / parent / subdir
+    refuse_link_on_way(run_path.parent, run_root)
     if not RunDirectory.lies_under(run_path, run_root):
         raise RunDirectoryError(
             f"{run_path} leads out of the run root {run_root} (through a symbolic "

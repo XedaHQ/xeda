@@ -302,7 +302,9 @@ Xeda copies the files of a remote run into ``<run root>/@<host>/``, with the lay
 root (``<design>[/<target>]/<flow>[_<hash>]``). ``<host>`` is the text of ``--remote``, with each
 character other than a letter, a digit, ``.``, ``_``, ``@`` and ``-`` replaced by ``_``. The mirror
 keeps the files as the host wrote them. Xeda checks each file against its SHA-256 and writes it
-atomically. It follows no link. The mirror holds no ``trace.json``, so a local run never reuses a
+atomically. A symbolic link at ``@<host>``, at a design or at a target below it makes Xeda
+refuse the run before it writes or deletes anything there, as for a local run root (see
+:doc:`run-directories`). The mirror holds no ``trace.json``, so a local run never reuses a
 mirror directory.
 
 The records ``results.json`` and ``settings.json`` of each mirror directory are written again with
