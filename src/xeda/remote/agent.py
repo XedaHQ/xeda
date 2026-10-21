@@ -26,7 +26,7 @@ root `R`, and the workspace is `R/v1/ws/<key>/` with the directories `inputs/<de
 5. client: `J {"bye": true}`. The agent releases the lock and exits with status 0.
 
 A launch with `"keep_running": true` in the `launch` frame survives the session. The child
-inherits the workspace lock and keeps it until it ends. When the client is gone, or the agent
+holds the workspace lock and keeps it until it ends. When the client is gone, or the agent
 gets a signal, the agent leaves the launch running and exits with status 0. Only a `C` frame
 cancels it. The `sync` frame can carry a `"digest"` of the request. If a launch that keeps
 running has that digest, the agent answers the `sync` with `J {"attached": {...}}` and no `need`: it
@@ -57,9 +57,13 @@ are gone.
 
 An agent process (every command) that runs from an environment and a code copy in `R/v1/env/` and
 `R/v1/code/` takes a shared lock on the file `.xeda-lock` of each before it does anything else
-(before `hello`, for a session), and holds both until it ends. A launch that keeps running inherits
-both locks. If the directory is being removed or was removed (by `clean`), the agent reports an
-`error` (a session sends an `error` frame) and exits with status 1.
+(before `hello`, for a session), and holds both until it ends. Every launch holds both locks and
+the workspace lock until it ends, also when the agent has died. The agent does not pass them to the
+login shell of the launch, since a program that the login profile or a `setup` line leaves in the
+background would keep them for ever. It sends them through a Unix socket, and the launch entry
+(`xeda.remote.launch_entry`) takes them from it as its first action. If the directory is being
+removed or was removed (by `clean`), the agent reports an `error` (a session sends an `error`
+frame) and exits with status 1.
 
 `check [--json] <executables...>` and `clean <root> [--older-than DAYS] [--all] [--list]
 [--only PATH]...` write `MAGIC` and then one JSON document and a newline. With `--list`, `clean`
@@ -109,7 +113,13 @@ from .frames import (
     decode_json,
     read_frame,
 )
-from .launch_entry import REQUEST_FILE, RESULT_FILE, LaunchRequest
+from .launch_entry import (
+    HAND_OVER_MAX,
+    HAND_OVER_SIZE,
+    REQUEST_FILE,
+    RESULT_FILE,
+    LaunchRequest,
+)
 from .manifest import Entry, apply_sync, build_manifest, plan_sync, safe_member_path, write_tar
 
 #: Seconds between two `L` lines that say the agent waits for the workspace lock.
@@ -683,6 +693,9 @@ class Session:
         #: them (`_hold_use_locks`); the session passes them on to a launch that keeps running.
         self._use_fds = tuple(use_locks)
         self._child: Optional["subprocess.Popen[bytes]"] = None
+        #: The end of the lock hand-over socket (`launch`) that the launch reads. The session
+        #: keeps it until the launch has ended (`release_hand_over`).
+        self._hand_over: Optional[socket.socket] = None
 
     # -- sending
 
@@ -808,6 +821,7 @@ class Session:
             if child is not None and child.poll() is None and not self.keep_running:
                 self.stop_launch(child, None, "the session ends")
         finally:
+            self.release_hand_over()
             if self._lock_fd is not None:
                 os.close(self._lock_fd)
                 self._lock_fd = None
@@ -928,9 +942,32 @@ class Session:
                 f"run_root {request.run_root} is not the run root of the workspace"
             )
 
-    def _inherited_locks(self) -> tuple[int, ...]:
+    def _lock_fds(self) -> list[int]:
         locks = [] if self._lock_fd is None else [self._lock_fd]
-        return (*locks, *self._use_fds)
+        return [*locks, *self._use_fds]
+
+    def release_hand_over(self) -> None:
+        """Close the end of the hand-over socket that the session kept for the launch. If the
+        launch has ended and its entry never took the locks (the launch was canceled while the
+        profile ran), take them from the socket and close them: a program that the profile
+        left in the background has the socket, and so it would hold them. While the launch runs,
+        its entry may still read the socket, so the locks stay in it."""
+        receiver, self._hand_over = self._hand_over, None
+        if receiver is None:
+            return
+        try:
+            if self._child is not None and self._child.poll() is not None:
+                receiver.setblocking(False)
+                try:
+                    _data, left, _flags, _address = socket.recv_fds(
+                        receiver, HAND_OVER_SIZE, HAND_OVER_MAX
+                    )
+                except OSError:  # nothing in the socket
+                    left = []
+                for descriptor in left:
+                    os.close(descriptor)
+        finally:
+            receiver.close()
 
     def launch(self, message: dict[str, Any]) -> None:
         launch_id = message.get("id")
@@ -967,13 +1004,25 @@ class Session:
             raise RemoteProtocolError(f"the launch {launch_id} exists already") from None
         _write_json(launch_dir / REQUEST_FILE, request.model_dump(mode="json"))
         code = Path(__file__).resolve().parent.parent.parent
-        script = "".join(f"{line}\n" for line in setup) + (
-            f"PYTHONPATH={shlex.quote(str(code))} exec {shlex.quote(sys.executable)} "
-            f"-m xeda.remote.launch_entry {shlex.quote(str(launch_dir))}"
-        )
         log = launch_dir / "log"
         descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+        # The launch must hold the workspace lock and the locks on its environment and code copy
+        # until it ends, also when this agent has exited or died. But the login profile and the
+        # `setup` lines run first, and a program that they leave in the background would inherit
+        # the locks and hold them for ever. So the locks go into a Unix socket, and they stay in
+        # flight there (the open files, and so the locks, stay alive) until the launch entry
+        # takes them as its first action. The shell gets only the end of the socket that the entry
+        # reads, and the number of that descriptor is an argument of the entry, so that no profile
+        # can change it. The agent keeps its copy of that end until the launch has ended.
+        sender, receiver = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
+            locks = self._lock_fds()
+            socket.send_fds(sender, [str(len(locks)).encode()], locks)
+            sender.close()
+            script = "".join(f"{line}\n" for line in setup) + (
+                f"PYTHONPATH={shlex.quote(str(code))} exec {shlex.quote(sys.executable)} "
+                f"-m xeda.remote.launch_entry {shlex.quote(str(launch_dir))} {receiver.fileno()}"
+            )
             child = subprocess.Popen(
                 [bash, "-lc", script],
                 stdin=subprocess.DEVNULL,
@@ -982,14 +1031,17 @@ class Session:
                 cwd=launch_dir,
                 env={**os.environ, "PYTHONUNBUFFERED": "1"},
                 start_new_session=True,
-                # Every launch inherits the workspace lock and the locks on its environment and
-                # code copy, and holds them until it ends, also when this agent has exited or died.
-                # Its tools do not inherit them: a file from `os.open` is not inheritable, and the
-                # launcher starts its processes with `close_fds`.
-                pass_fds=self._inherited_locks(),
+                # Its tools do not inherit the locks: the entry makes them not inheritable, and
+                # the launcher starts its processes with `close_fds`.
+                pass_fds=(receiver.fileno(),),
             )
+        except BaseException:
+            receiver.close()
+            raise
         finally:
+            sender.close()
             os.close(descriptor)
+        self._hand_over = receiver
         self._child = child
         self.keep_running = keep_running
         state: dict[str, Any] = {
@@ -1009,6 +1061,7 @@ class Session:
             self.flush_log(tail)
         finally:
             tail.close()
+        self.release_hand_over()  # a session that ends early does it in `close`
         # `xeda remote cancel` may have stopped the launch from another session.
         recorded = _read_json(launch_dir / "state.json")
         canceled = canceled or (isinstance(recorded, dict) and recorded.get("state") in _CANCELED)

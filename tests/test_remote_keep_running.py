@@ -38,6 +38,7 @@ from .test_remote_agent import (
     USE_LOCK,
     Beats,
     BlockingTool,
+    file_is_unlocked,
     launch_message,
     path_setup,
     provisioned,
@@ -440,6 +441,130 @@ def test_a_launch_that_does_not_keep_running_holds_the_locks_when_the_agent_is_k
     launch.wait(timeout=TIMEOUT)
     for directory in (provisioned.env, provisioned.code):
         assert not provisioned.lock_is_held(directory)
+
+
+class SlowProfile:
+    """A login profile that starts a background program and then blocks, so that the test can act
+    while the launch is still in its profile, before the launch entry runs. The profile reports
+    the process id of the launch shell (which becomes the launch) and of the background program
+    through a FIFO, and it goes on when the test opens a second FIFO. With `detached`, the
+    program is not a descendant of the launch, so that a cancel does not reach it."""
+
+    def __init__(self, tmp_path: Path, detached: bool) -> None:
+        self.ready = tmp_path / "profile-ready"
+        self.go = tmp_path / "profile-go"
+        os.mkfifo(self.ready)
+        os.mkfifo(self.go)
+        if detached:
+            # The program leaves the process tree of the launch: its parent exits at once.
+            program = (
+                "import os, sys, time\n"
+                "if os.fork() == 0:\n"
+                "    os.setsid()\n"
+                "    with open(sys.argv[2], 'w') as ready:\n"
+                "        ready.write(f'{sys.argv[1]} {os.getpid()}')\n"
+                "    time.sleep(600)\n"
+            )
+            start = f'{sys.executable} -c "{program}" "$$" {self.ready}\n'
+        else:
+            start = f'sleep 600 &\necho "$$ $!" > {self.ready}\n'  # blocks until the test reads
+        (tmp_path / "home" / ".bash_profile").write_text(
+            start + f"cat {self.go} > /dev/null\n"  # blocks until the test opens the FIFO
+        )
+
+    def pids(self) -> tuple[int, int]:
+        """Wait until the profile blocks. Return the process ids of the launch and the program."""
+        found: "queue.Queue[str]" = queue.Queue()
+
+        def read() -> None:
+            with open(self.ready, "rb") as stream:
+                found.put(stream.read().decode())
+
+        threading.Thread(target=read, daemon=True).start()
+        try:
+            launch, program = found.get(timeout=TIMEOUT).split()
+        except queue.Empty:
+            pytest.fail(f"the profile did not run in {TIMEOUT} s")
+        return int(launch), int(program)
+
+    def release(self) -> None:
+        with open(self.go, "wb"):  # blocks until the profile reads the FIFO
+            pass
+
+
+def _all_locks_held(tmp_path: Path, provisioned: Any) -> bool:
+    return all(
+        not file_is_unlocked(path)
+        for path in (
+            workspace(tmp_path) / "lock",
+            provisioned.env / USE_LOCK,
+            provisioned.code / USE_LOCK,
+        )
+    )
+
+
+def _no_lock_held(tmp_path: Path, provisioned: Any) -> bool:
+    return all(
+        file_is_unlocked(path)
+        for path in (
+            workspace(tmp_path) / "lock",
+            provisioned.env / USE_LOCK,
+            provisioned.code / USE_LOCK,
+        )
+    )
+
+
+@pytest.mark.parametrize("keep_running", [True, False])
+def test_the_locks_of_a_launch_stay_held_when_the_agent_dies_during_its_profile(
+    tmp_path, toolchain, monkeypatch, start_agent, leftovers, provisioned, keep_running
+):
+    """The locks are in flight in a socket while the profile runs: they stay held without the
+    agent, they pass to the launch entry, and they end with the launch, not with the program that
+    the profile left in the background."""
+    profile = SlowProfile(tmp_path, detached=False)
+    tool = BlockingTool(tmp_path, monkeypatch)
+    agent = provisioned.start(start_agent)
+    agent.get("hello")
+    agent.sync(DESIGN, "run-1")
+    agent.send(
+        {**launch_message(tmp_path, "run-1", path_setup(toolchain)), "keep_running": keep_running}
+    )
+    launch_pid, program_pid = profile.pids()
+    leftovers.append(launch_pid)
+    leftovers.append(program_pid)
+    agent.process.kill()
+    agent.process.wait(timeout=TIMEOUT)
+    assert _all_locks_held(tmp_path, provisioned)
+    profile.release()
+    leftovers.append(tool._pid.get(timeout=TIMEOUT))  # the launch entry runs the tool now
+    assert _all_locks_held(tmp_path, provisioned)
+    launch = psutil.Process(launch_pid)
+    launch.kill()
+    launch.wait(timeout=TIMEOUT)
+    assert psutil.Process(program_pid).is_running()
+    assert _no_lock_held(tmp_path, provisioned)
+
+
+def test_a_launch_canceled_in_its_profile_releases_the_locks_that_a_background_program_could_hold(
+    tmp_path, toolchain, start_agent, leftovers, provisioned
+):
+    """The launch entry never took the locks, and a program of the profile outside the process
+    group of the launch holds the end of the socket that they wait in. The agent takes them from
+    the socket when the launch has ended."""
+    profile = SlowProfile(tmp_path, detached=True)
+    agent = provisioned.start(start_agent)
+    agent.get("hello")
+    agent.sync(DESIGN, "run-1")
+    agent.send(launch_message(tmp_path, "run-1", path_setup(toolchain)))
+    launch_pid, program_pid = profile.pids()
+    leftovers.append(launch_pid)
+    leftovers.append(program_pid)
+    agent.writer.send(CANCEL)
+    assert agent.get("result", whole=True)["canceled"] is True
+    agent.send({"bye": True})
+    assert agent.process.wait(timeout=TIMEOUT) == 0
+    assert psutil.Process(program_pid).is_running()
+    assert _no_lock_held(tmp_path, provisioned)
 
 
 def test_the_agent_leaves_a_launch_that_keeps_running_when_the_lease_ends(

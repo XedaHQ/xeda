@@ -7,6 +7,7 @@ blocks (`XEDA_FAKE_FPGA_READY`), so no test waits for a time to pass. Every test
 processes by process id.
 """
 
+import contextlib
 import errno
 import fcntl
 import io
@@ -593,6 +594,55 @@ def test_setup_lines_and_profile_env_reach_the_launch(
     assert recorded["XEDA_FAKE_FPGA_SETUP"] == "from the setup"
     assert recorded["XEDA_FAKE_FPGA_PROFILE"] == "from-the-profile-env"
     assert Path(recorded["PYTHONPATH"]) == Path(xeda.__file__).resolve().parent.parent
+
+
+@contextmanager
+def background_program(tmp_path: Path) -> Iterator[Path]:
+    """The file in which a shell line `sleep 600 & echo $! > <file>` records the process id of
+    its background program. The block ends that program, by its process id."""
+    pid_file = tmp_path / "background.pid"
+    try:
+        yield pid_file
+    finally:
+        if pid_file.is_file():
+            with contextlib.suppress(psutil.Error, ValueError):
+                psutil.Process(int(pid_file.read_text())).kill()
+
+
+def file_is_unlocked(path: Path) -> bool:
+    """Whether this process can take an exclusive lock on the file `path` now."""
+    with path.open("rb") as stream:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        return True
+
+
+@pytest.mark.parametrize("where", ["login profile", "setup line"])
+def test_a_background_program_of_the_profile_does_not_keep_the_locks(
+    tmp_path, toolchain, start_agent, provisioned, where
+):
+    """The login profile and the setup lines run before the launch entry. A program that they
+    leave in the background lives on after the launch, so it must not inherit any lock."""
+    with background_program(tmp_path) as pid_file:
+        start = f"sleep 600 &\necho $! > {pid_file}\n"
+        setup = path_setup(toolchain)
+        if where == "login profile":
+            (tmp_path / "home" / ".bash_profile").write_text(start)
+        else:
+            setup += start.splitlines()
+        agent = provisioned.start(start_agent)
+        agent.get("hello")
+        agent.sync(DESIGN, "run-1")
+        agent.send(launch_message(tmp_path, "run-1", setup))
+        assert agent.get("result", whole=True)["result"]["success"] is True
+        agent.send({"bye": True})
+        assert agent.process.wait(timeout=TIMEOUT) == 0
+        assert psutil.Process(int(pid_file.read_text())).is_running()
+        assert file_is_unlocked(workspace(tmp_path) / "lock")
+        assert file_is_unlocked(provisioned.env / USE_LOCK)
+        assert file_is_unlocked(provisioned.code / USE_LOCK)
 
 
 def test_a_missing_bash_fails_the_launch_and_names_it(tmp_path, toolchain, start_agent):
