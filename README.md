@@ -247,8 +247,8 @@ uv run pytest tests/ -n logical --shard 2/4  # the second of four disjoint parts
 `uv sync` installs xeda in editable mode, with the dependency group `dev` of `pyproject.toml`. This
 group includes the group `test` (pytest and the packages of the tests), the group `examples` (the
 Python packages of the cocotb testbenches of the examples, which the tests run, and `pyserial` for
-the host test of the `uart_echo` example) and the quality tools. The dependency groups are not part
-of the published package: `pip install xeda` installs none of them.
+the host programs of the `uart_echo` and `uart_link` examples) and the quality tools. The
+dependency groups are not part of the published package: `pip install xeda` installs none of them.
 
 The marked command runs the compatibility cases that CI runs on Python 3.11 through 3.14. CI runs
 the full tool-backed suite on Python 3.15 as four parallel jobs, one shard each, and one Verilator

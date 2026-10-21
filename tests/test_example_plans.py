@@ -73,6 +73,32 @@ COMMANDS = [
         "yosys_fpga+nextpnr+fpga_pack",
         ["bsc", "yosys_fpga", "nextpnr", "fpga_pack"],
     ),
+    ("uart_link", None, "bsc_sim", ["bsc_sim"]),
+    ("uart_link", None, "bsc", ["bsc"]),
+    ("uart_link", None, "vivado_synth", ["bsc", "vivado_synth"]),
+    ("uart_link", "artix7", "yosys_fpga", ["bsc", "yosys_fpga"]),
+    ("uart_link", "ecp5", "yosys_fpga+nextpnr", ["bsc", "yosys_fpga", "nextpnr"]),
+    ("uart_link", "core_w8", "yosys_fpga", ["bsc", "yosys_fpga"]),
+    ("uart_link", "core_w1", "yosys_fpga", ["bsc", "yosys_fpga"]),
+    ("uart_link", "arty", "vivado_synth+openfpgaloader", ["bsc", "vivado_synth", "openfpgaloader"]),
+    (
+        "uart_link",
+        "basys3",
+        "vivado_synth+openfpgaloader",
+        ["bsc", "vivado_synth", "openfpgaloader"],
+    ),
+    (
+        "uart_link",
+        "ulx3s",
+        "yosys_fpga+nextpnr+fpga_pack+openfpgaloader",
+        ["bsc", "yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"],
+    ),
+    (
+        "uart_link",
+        "stlv7325",
+        "yosys_fpga+nextpnr+fpga_pack+openfpgaloader",
+        ["bsc", "yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"],
+    ),
 ]
 
 

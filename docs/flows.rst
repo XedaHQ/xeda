@@ -2135,7 +2135,10 @@ without quoting. Use a run root without whitespace (``--run-root``).
 
 See ``examples/bluespec/`` for self-checking designs in BSV and BH. They include a design with
 several packages, one that macros size, one that imports Verilog with ``import "BVI"``, and one
-that mixes BSV and BH.
+that mixes BSV and BH. ``examples/bluespec/uart_link`` shows a larger design: a reliable packet
+link whose bench compares the exact bytes of frames that a Python codec makes, whose cocotb tests
+(``tb/cosim.yaml``) run on the Verilog that ``bsc`` makes, and which has board targets for four
+boards and a host library in Python.
 
 .. _converted-designs:
 

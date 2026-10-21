@@ -1,0 +1,38 @@
+name: uart_link_cosim
+description: >-
+  The cocotb tests of the LeanLink core, run with Verilator on the Verilog that bsc makes from
+  the Bluespec source. The design is the link with its test endpoint for W = 8 pages of 256 bytes.
+  The target `w1` builds W = 1 page of 64 bytes. The targets `core_w8` and `core_w1` build the bare
+  core, where the test plays the core.
+rtl.sources:
+  - "../rtl/LeanLink.bsv"
+  - "../rtl/LeanLinkTestTop.bsv"
+  - "LeanLinkCosimTops.bsv"
+rtl.top: mkLeanLinkCosimW8
+tb.sources:
+  - "lean_tb.py"
+  - "lean_basic.py"
+  - "lean_reject.py"
+  - "lean_session.py"
+  - "lean_arq.py"
+  - "lean_credit.py"
+  - "lean_sizes.py"
+  - "lean_perf.py"
+  - "lean_stress.py"
+  - "lean_core_port.py"
+tb.cocotb.module: "lean_basic,lean_reject,lean_session,lean_arq,lean_credit,lean_sizes,lean_perf,lean_stress"
+# The tests drive the active-low reset RST_N of bsc. (Xeda makes the reset active high by default.)
+flows.bsc.positive_reset: false
+targets:
+  w1:
+    rtl.top: mkLeanLinkCosimW1
+  core_w8:
+    rtl.sources:
+      - "../rtl/LeanLinkTops.bsv"
+    rtl.top: mkLeanLinkW8P256
+    tb.cocotb.module: lean_core_port
+  core_w1:
+    rtl.sources:
+      - "../rtl/LeanLinkTops.bsv"
+    rtl.top: mkLeanLinkW1P64
+    tb.cocotb.module: lean_core_port
