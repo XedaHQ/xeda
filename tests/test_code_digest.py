@@ -411,18 +411,26 @@ def test_planning_refuses_a_flow_class_without_a_source_file(tmp_path, design, m
 # A launch keeps its digests for its length and no longer
 
 
-def test_a_launch_computes_each_digest_once(monkeypatch, plugin):
+def test_a_launch_reads_the_xeda_package_once(monkeypatch):
     calls = []
-    real_xeda, real_flow = code_digest.xeda_code_digest, code_digest.flow_code_digest
-    monkeypatch.setattr(
-        code_digest, "xeda_code_digest", lambda: calls.append("xeda") or real_xeda()
-    )
-    monkeypatch.setattr(
-        code_digest, "flow_code_digest", lambda cls: calls.append(cls.name) or real_flow(cls)
-    )
+    real = code_digest.xeda_code_digest
+    monkeypatch.setattr(code_digest, "xeda_code_digest", lambda: calls.append(1) or real())
     digests = CodeDigests()
-    first = (digests.xeda(), digests.flow(plugin.flow_class))
-    assert (digests.xeda(), digests.flow(plugin.flow_class)) == first
-    assert calls == ["xeda", plugin.flow_class.name]
+    assert digests.xeda() == digests.xeda()
+    assert len(calls) == 1
     CodeDigests().xeda()
-    assert calls[-1] == "xeda" and len(calls) == 3
+    assert len(calls) == 2
+
+
+def test_all_the_flows_of_a_tree_get_one_snapshot_of_it_in_a_launch(plugin):
+    """Two flow classes of one package see the same files, also when the tree changes between
+    their first lookups. The next launch reads the tree again."""
+    _write(plugin.directory / "more.py", FLOW_MODULE.format(cls="SecondToy"))
+    second = importlib.import_module(f"{plugin.package}.more").SecondToy
+    assert second is not plugin.flow_class
+    digests = CodeDigests()
+    first = digests.flow(plugin.flow_class)
+    _write(plugin.directory / "helper.py", 'TEXT = "changed"\n')
+    assert digests.flow(second) == first
+    assert digests.flow(plugin.flow_class) == first
+    assert CodeDigests().flow(second) != first

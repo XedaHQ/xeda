@@ -294,9 +294,18 @@ def digest_named(entries: Iterable[tuple[str, Path]]) -> str:
     """Return a digest of the `(name, file)` entries: each name with the content of its file.
 
     The digest does not depend on the order of the entries or on where the files are."""
-    named = sorted({(name, content_digest(file)) for name, file in entries})
+    return digest_pairs(content_pairs(entries))
+
+
+def content_pairs(entries: Iterable[tuple[str, Path]]) -> list[tuple[str, str]]:
+    """Return the `(name, content digest)` pairs of the `(name, file)` entries, read now."""
+    return [(name, content_digest(file)) for name, file in entries]
+
+
+def digest_pairs(pairs: Iterable[tuple[str, str]]) -> str:
+    """Return a digest of the `(name, content digest)` pairs, whatever their order."""
     h = hashlib.sha3_256()
-    for name, sha in named:
+    for name, sha in sorted(set(pairs)):
         h.update(name.encode() + b"\0")
         h.update(sha.encode())
     return h.hexdigest()[:32]

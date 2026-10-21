@@ -511,7 +511,9 @@ The code of a flow outside Xeda
 A flow that a plugin or your own code defines is stale when its code changed. Xeda reads the files
 again at each launch, so an edit counts at once, also in a process that lives long, such as a
 notebook. A digest names each file relative to the root of the code, so moving the code to another
-place does not make the run stale. The root of the code is:
+place does not make the run stale.
+The runs of such a flow that an older Xeda made are stale once, because the digest is made in a
+new way. The root of the code is:
 
 - For a flow defined in a package, the top-level package: the directory with the ``__init__.py``
   files from the module of the flow up. Every file in it counts: helper modules, templates and

@@ -40,7 +40,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Type
 
-from ..digest import digest_files, digest_named, package_files
+from ..digest import content_pairs, digest_files, digest_pairs, package_files
 from ..flow import Flow, FlowFatalError
 
 #: The directory of the installed xeda package.
@@ -177,26 +177,46 @@ def _named_files(cls: type) -> Iterable[tuple[str, Path]]:
     return _module_files(module_file)
 
 
-def flow_code_digest(flow_class: Type[Flow]) -> str:
+def _code_root(cls: type) -> Path:
+    """Return the root of the code of `cls`: its top-level package, or its module file."""
+    module_file = _source_file(cls)
+    return _package_root(module_file) or module_file
+
+
+#: What was read of the code of a flow: the `(name, content digest)` pairs of each code root.
+Snapshots = dict[Path, list[tuple[str, str]]]
+
+
+def flow_code_digest(flow_class: Type[Flow], snapshots: Snapshots | None = None) -> str:
     """Return a digest of the code of `flow_class` outside Xeda.
 
     The code of a class is found as the module docstring says. The digest is "" when the xeda
     package defines all the Flow classes of the MRO: `xeda_code_digest` covers that case. It
-    raises `FlowFatalError` if the code of a class cannot be found (`check_flow_code`)."""
-    entries = [pair for cls in plugin_classes(flow_class) for pair in _named_files(cls)]
-    return digest_named(entries) if entries else ""
+    raises `FlowFatalError` if the code of a class cannot be found (`check_flow_code`).
+
+    `snapshots` holds what was read of each code root before, and gets what this reads. Two
+    classes of one tree then see the same files."""
+    snapshots = {} if snapshots is None else snapshots
+    pairs: list[tuple[str, str]] = []
+    for cls in plugin_classes(flow_class):
+        root = _code_root(cls)
+        if root not in snapshots:
+            snapshots[root] = content_pairs(_named_files(cls))
+        pairs += snapshots[root]
+    return digest_pairs(pairs) if pairs else ""
 
 
 class CodeDigests:
     """The code digests of one launch.
 
-    A launch needs the same digests for each of its flows. This computes each of them at its first
-    use and keeps it, so a launch reads the files of a tree once. A new launch makes a new object,
-    so an edit between two launches always counts."""
+    A launch needs the same digests for each of its flows. This reads each code root once, at its
+    first use, and keeps what it read for the launch: all the flows of a tree get one snapshot of
+    it, also when the tree changes during the launch. A new launch makes a new object, so an edit
+    between two launches always counts."""
 
     def __init__(self) -> None:
         self._xeda: str | None = None
-        self._flows: dict[type, str] = {}
+        self._snapshots: Snapshots = {}
 
     def xeda(self) -> str:
         """Return `xeda_code_digest()`, computed once."""
@@ -205,7 +225,5 @@ class CodeDigests:
         return self._xeda
 
     def flow(self, flow_class: Type[Flow]) -> str:
-        """Return `flow_code_digest(flow_class)`, computed once."""
-        if flow_class not in self._flows:
-            self._flows[flow_class] = flow_code_digest(flow_class)
-        return self._flows[flow_class]
+        """Return `flow_code_digest(flow_class)` over the snapshots of the launch."""
+        return flow_code_digest(flow_class, self._snapshots)
