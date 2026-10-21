@@ -547,8 +547,9 @@ def _order(state: dict[str, Any]) -> tuple[int, str]:
 
 
 #: The lock file of an environment or a code copy (`bootstrap.sh` makes it). A session holds a
-#: shared lock on it while the session runs from the directory, and so does a launch that keeps
-#: running. `clean` removes the directory only while it holds the exclusive lock.
+#: shared lock on it while the session runs from the directory, and so does every launch, which
+#: takes it through the hand-over socket. `clean` removes the directory only while it holds the
+#: exclusive lock.
 USE_LOCK = ".xeda-lock"
 
 
@@ -566,7 +567,8 @@ def _runtime_directories() -> list[Path]:
 
 def _hold_use_locks() -> list[int]:
     """Take the shared locks on the environment and the code copy that this process runs from.
-    The process holds them until it ends, and a launch that keeps running inherits them."""
+    The process holds them until it ends, and every launch takes them through the hand-over
+    socket."""
     held: list[int] = []
     try:
         for directory in _runtime_directories():

@@ -610,8 +610,9 @@ def background_program(tmp_path: Path) -> Iterator[Path]:
 
 
 def file_is_unlocked(path: Path) -> bool:
-    """Whether this process can take an exclusive lock on the file `path` now."""
-    with path.open("rb") as stream:
+    """Whether this process can take an exclusive lock on the file `path` now. The file is open
+    for writing, as Linux NFS needs for an exclusive lock."""
+    with path.open("r+b") as stream:
         try:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:

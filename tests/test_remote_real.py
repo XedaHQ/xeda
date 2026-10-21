@@ -35,6 +35,7 @@ from xeda.cli import cli
 from xeda.remote.constants import UV_VERSION
 from xeda.remote.errors import RemoteCanceled
 from xeda.remote.profile import load_host_profile
+from xeda.remote.provision import env_file_text
 from xeda.remote.ssh import SshSession
 
 from .remote_fixtures import remote_request
@@ -142,10 +143,11 @@ def ssh_with_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def require_ghdl() -> None:
-    """Skip unless `ghdl` runs on the host as a launch would start it: in the login shell, after
-    the `setup` lines of the host profile."""
-    setup = "".join(f"{line}\n" for line in load_host_profile(HOST).setup)
-    found = remote(f"{setup}ghdl --version")
+    """Skip unless `ghdl` runs on the host as a launch would start it: in the login shell, with
+    the `env` table and after the `setup` lines of the host profile."""
+    profile = load_host_profile(HOST)
+    setup = "".join(f"{line}\n" for line in profile.setup)
+    found = remote(f"{env_file_text(profile.env)}{setup}ghdl --version")
     if found.returncode != 0:
         why = (found.stderr.strip().splitlines() or [f"exit status {found.returncode}"])[-1]
         pytest.skip(f"ghdl does not run on {HOST} after the setup lines of its profile: {why}")
