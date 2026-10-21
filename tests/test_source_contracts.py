@@ -58,14 +58,15 @@ def _calls(flow, design, settings, tmp_path, monkeypatch, elements=True):
     def marked(self, template_name, *args, **kwargs):
         path = original(self, template_name, *args, **kwargs)
         if template_name in MAIN_SCRIPTS:
-            text = Path(path).read_text()
+            script = self.run_file(path)
+            text = script.read_text()
             sentinel = "\nxeda_source_contract_complete\n"
             # DC ends normally with exit; early exits must not reach the sentinel.
             if text.rstrip().endswith("\nexit"):
                 text = text.rstrip()[:-4] + sentinel + "exit\n"
             else:
                 text += sentinel
-            Path(path).write_text(text)
+            script.write_text(text)
         return path
 
     monkeypatch.setattr(Flow, "copy_from_template", marked)

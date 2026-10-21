@@ -54,7 +54,7 @@ class _Judged(Flow):
         type(self).runs += 1
         self.run_directory.writable(self.run_path / "report.txt").write_text("report\n")
         if self.settings.report_copy is not None:
-            copy = Path(self.settings.report_copy)
+            copy = self.run_file(self.settings.report_copy)
             copy.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(self.run_path / "report.txt", copy)
         if self.settings.raise_in_run:
