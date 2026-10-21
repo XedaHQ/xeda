@@ -13,7 +13,6 @@ import pytest
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoProject, VivadoSynth
-from xeda.utils import WorkingDirectory
 
 from .test_vivado_step_tables import PART, _design, _run, _script, needs_tclsh
 from .tool_utils import use_fake_tools
@@ -220,9 +219,8 @@ def test_a_property_that_carries_the_mode_holds_it_once_in_the_script(
         out_of_context=True,
         set_synth_properties={PROPERTY: "-flatten_hierarchy none -mode out_of_context"},
     )
-    with WorkingDirectory(tmp_path):
-        flow.init()
-        flow.run()
+    flow.init()
+    flow.run()
     value = project_mode_options((tmp_path / script).read_text())
     assert value == "-flatten_hierarchy none -mode out_of_context"
 

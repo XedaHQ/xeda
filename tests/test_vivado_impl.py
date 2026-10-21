@@ -91,7 +91,6 @@ NETLIST = (
 def toolchain(tmp_path, monkeypatch) -> Path:
     """The fake FPGA tools first on `PATH`, with the fake Vivado behind them."""
     prefix = use_fake_fpga_tools(monkeypatch, tmp_path / "toolchain")
-    monkeypatch.chdir(tmp_path)
     return prefix
 
 
@@ -518,7 +517,6 @@ def test_a_hierarchy_the_settings_do_not_show_stops_the_chain_before_vivado_star
     finds the hierarchy."""
     require_yosys()
     use_fake_tools(monkeypatch)
-    monkeypatch.chdir(tmp_path)
     source, attributes = BLINKY_OVER_A_COUNTER, None
     if kept_by == "rtl_attributes":  # a bare name selects a module in yosys; the instance is `c:`
         source = source.replace("(* keep_hierarchy *)\n", "")

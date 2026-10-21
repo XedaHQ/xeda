@@ -283,14 +283,21 @@ def post_step_hooks(
             user_hooks = []  # TODO add alternative methods for adding multiple user hooks?
             if current_hook:
                 user_hooks.append(current_hook)
-            post_step_hook = flow.copy_from_template(
-                "write_bitstream_hook.tcl" if step == "WRITE_BITSTREAM" else "post_step_hook.tcl",
-                script_filename=f"post_{step.lower()}_hook.tcl",
-                run_dir=flow.run_path,
-                user_hooks=user_hooks,
-                step=step.lower(),
-                outputs=outputs,
-                bin_file=bitstream_bin_file(outputs[BITSTREAM]) if BITSTREAM in outputs else None,
+            template = (
+                "write_bitstream_hook.tcl" if step == "WRITE_BITSTREAM" else "post_step_hook.tcl"
+            )
+            post_step_hook = flow.run_file(
+                flow.copy_from_template(
+                    template,
+                    script_filename=f"post_{step.lower()}_hook.tcl",
+                    run_dir=flow.run_path,
+                    user_hooks=user_hooks,
+                    step=step.lower(),
+                    outputs=outputs,
+                    bin_file=(
+                        bitstream_bin_file(outputs[BITSTREAM]) if BITSTREAM in outputs else None
+                    ),
+                )
             ).resolve()
             tcl_settings["POST"] = post_step_hook
             hooks.append(post_step_hook)
@@ -647,8 +654,11 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
 
         # Only this run's reports, logs and bitstream are artifacts. A previous run's files in the
         # run directory are not (`written_by_this_run`).
-        for report_file in self.settings.reports_dir.glob("**/*"):
-            if report_file.is_file() and self.written_by_this_run(report_file):
+        reports_dir = self.settings.reports_dir
+        reports_root = self.run_file(reports_dir)
+        for found in reports_root.glob("**/*"):
+            report_file = reports_dir / found.relative_to(reports_root)
+            if found.is_file() and self.written_by_this_run(report_file):
                 self.artifacts[str(report_file)] = report_file
 
         for log_file in self.run_path.glob("**/*.log"):
@@ -657,7 +667,7 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
                 self.artifacts[str(log_file)] = log_file
 
         if self.settings.bitstream is not None and not self.artifacts.get(BITSTREAM):
-            if self.settings.bitstream.exists():
+            if self.run_file(self.settings.bitstream).exists():
                 if self.report_file(self.settings.bitstream, optional=True) is not None:
                     self.artifacts[BITSTREAM] = self.settings.bitstream
             else:
@@ -996,7 +1006,7 @@ class VivadoSynth(VivadoImplementation):
             log.debug("Bitstream path: %s", bs_str)
             if self.runner_cwd and bs_str.startswith("$PWD/"):
                 self.settings.bitstream = self.runner_cwd / bs_str[5:]
-            self.settings.bitstream = Path(self.settings.bitstream).resolve()
+            self.settings.bitstream = self.run_file(self.settings.bitstream).resolve()
 
         outputs = project_outputs(self, settings)
         run_status = self.run_path / RUN_STATUS_FILE
