@@ -2,7 +2,6 @@
 
 import csv
 import logging
-from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional, Set
 
 from ...dataclass import Field
@@ -351,7 +350,7 @@ class Quartus(FpgaSynthFlow):
                 whs = try_convert_to_primitives(whs)
                 self.results["whs"] = whs
 
-        timing_reports_folder = Path(reports["timing_dir"])
+        timing_reports_folder = self.run_file(reports["timing_dir"])
         max_fmax = 0.0
         for found in timing_reports_folder.glob("Slow_*_Model/Slow_*_Model_Fmax_Summary.csv"):
             fmax_report = self.report_file(found, optional=True)
