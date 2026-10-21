@@ -232,9 +232,8 @@ if action == "rebuild":
         _Maker, Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}), {})
 else:
     # Keep the actual scrub confirmation/ownership/deletion path, suppressing its display.
-    console.input = lambda *a, **kw: "yes"
     console.print = lambda *a, **kw: None
-    assert scrub_runs("__maker", p.parent, run_root=root / "run")
+    assert scrub_runs("__maker", p.parent, run_root=root / "run", confirm=lambda directories: True)
 print("done", flush=True)
 """
 
@@ -452,7 +451,6 @@ from xeda.console import console
 from xeda.flow_runner import DefaultRunner, default_runner
 from tests.io_flows import _Maker
 root = Path(sys.argv[1])
-console.input = lambda *a, **kw: "yes"
 console.print = lambda *a, **kw: None
 original = default_runner.scrub_runs
 def scrub(*args, **kwargs):
@@ -465,8 +463,10 @@ def checked_run(self):
     assert self.outputs.made.read_text() == sys.argv[2]
 _Maker.run = checked_run
 default_runner.scrub_runs = scrub
-flow = DefaultRunner(root / "run", hashed_run_dirs=True, scrub_old_runs=True,
-                     display_results=False).launch_flow(
+runner = DefaultRunner(root / "run", hashed_run_dirs=True, scrub_old_runs=True,
+                       display_results=False)
+runner.confirm_scrub = lambda directories: True
+flow = runner.launch_flow(
     _Maker, Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}),
     {"text": sys.argv[2]})
 assert flow.succeeded
@@ -583,12 +583,17 @@ def test_a_scrub_that_waited_for_a_producer_keeps_the_run_that_ended_while_it_wa
     listed = threading.Event()
     outcome: dict = {}
     monkeypatch.setattr(console, "print", lambda *args, **kwargs: None)
-    monkeypatch.setattr(console, "input", lambda *args, **kwargs: (listed.set(), "yes")[1])
+
+    def confirm(directories):
+        listed.set()
+        return True
 
     def scrubbing():
         root = ensure_run_root(tmp_path / "run")
         try:
-            outcome["result"] = default_runner.scrub_design(_Maker.name, root / "d", run_root=root)
+            outcome["result"] = default_runner.scrub_design(
+                _Maker.name, root / "d", run_root=root, confirm=confirm
+            )
         except BaseException as error:  # noqa: BLE001 - reported by the test thread, below
             outcome["error"] = error
 

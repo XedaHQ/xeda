@@ -33,7 +33,8 @@ width, so parse JSON.
 
 `xeda scrub` and `run --scrub` prompt on stdin and remove nothing unless you type `yes`:
 `echo yes | xeda scrub vivado_synth sqrt --json`. `scrub --json` reports `scrubbed`, `kept`, `gone`
-and `skipped` paths.
+and `skipped` paths. The Python API never prompts: `scrub_design` and a launch with
+`scrub_old_runs` remove nothing unless the caller passes `confirm` / sets `confirm_scrub`.
 
 ```bash
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5ns --json | jq '.results.Fmax'
@@ -435,9 +436,9 @@ Behavior:
 
 - The host keeps a workspace (`v1/ws/<key>/`) per machine, resolved run root and `ssh -G` user,
   host name and port. Another `--run-root` is another workspace. Runs there are make-like: only
-  changed inputs are sent, and a fresh flow is not run again. `--hashed-run-dirs`, `--clean`,
-  `--rebuild-all` and `--scrub` act on the host. A command waits for the workspace lock and logs
-  the launch that holds it.
+  changed inputs are sent, and a fresh flow is not run again. `--hashed-run-dirs`, `--clean` and
+  `--rebuild-all` act on the host. `--scrub` removes nothing there (no prompt can reach you; it
+  logs that). A command waits for the workspace lock and logs the launch that holds it.
 - Refused before any connection: `--post-cleanup`, `--post-cleanup-purge` (use `xeda remote clean`),
   a deliverable setting that names a location (use `--outputs-to`), a chain with a programmer
   flow (`openfpgaloader`; run the part before it with `--remote`, then program locally with a

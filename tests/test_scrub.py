@@ -59,9 +59,8 @@ def test_scrub_runs_removes_unhashed_and_hashed_dirs_only(tmp_path, monkeypatch)
     base = tmp_path / "foo"
     base.mkdir()
     dirs = _make_flow_dirs(base)
-    monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
 
-    removed = scrub_runs("vivado_synth", base, exclude=[])
+    removed = scrub_runs("vivado_synth", base, exclude=[], confirm=lambda directories: True)
 
     assert removed is True
     assert not dirs["vivado_synth"].exists()
@@ -77,9 +76,10 @@ def test_scrub_runs_respects_exclude(tmp_path, monkeypatch):
     base = tmp_path / "foo"
     base.mkdir()
     dirs = _make_flow_dirs(base)
-    monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
 
-    removed = scrub_runs("vivado_synth", base, exclude=[dirs["vivado_synth"]])
+    removed = scrub_runs(
+        "vivado_synth", base, exclude=[dirs["vivado_synth"]], confirm=lambda directories: True
+    )
 
     assert removed is True
     assert dirs["vivado_synth"].exists(), "excluded directory must survive"
@@ -91,9 +91,8 @@ def test_scrub_runs_declines_without_confirmation(tmp_path, monkeypatch):
     base = tmp_path / "foo"
     base.mkdir()
     dirs = _make_flow_dirs(base)
-    monkeypatch.setattr(console, "input", lambda *a, **kw: "no")
 
-    removed = scrub_runs("vivado_synth", base, exclude=[])
+    removed = scrub_runs("vivado_synth", base, exclude=[], confirm=lambda directories: False)
 
     assert removed is False
     assert dirs["vivado_synth"].exists()
@@ -105,9 +104,8 @@ def test_scrub_runs_does_not_match_longer_flow_name(tmp_path, monkeypatch):
     base = tmp_path / "foo"
     base.mkdir()
     dirs = _make_flow_dirs(base)
-    monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
 
-    scrub_runs("yosys", base, exclude=[])
+    scrub_runs("yosys", base, exclude=[], confirm=lambda directories: True)
 
     assert dirs["yosys_fpga"].exists()
 

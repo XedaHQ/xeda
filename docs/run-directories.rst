@@ -568,9 +568,10 @@ earlier runs works there as it does locally. Xeda mirrors the results, the logs,
 the declared outputs under ``<run root>/@<host>/``, with the same layout as a local run root
 (``<design>[/<target>]/<flow>[_<hash>]``). The mirror holds no ``trace.json``, so a local run never
 reuses it. A mirror directory is replaced by each fetch. ``--hashed-run-dirs``, ``--clean``,
-``--rebuild-all``, ``--scrub`` and ``--dry-run`` act on the remote run directories, as they do for a
-local run. ``--post-cleanup`` and ``--post-cleanup-purge`` are refused, because the run directories
-are not on your machine: ``xeda remote clean`` frees the space on the host. See :doc:`remote`.
+``--rebuild-all`` and ``--dry-run`` act on the remote run directories, as they do for a local run.
+``--scrub`` removes nothing there: the remote launch cannot ask you to confirm it.
+``--post-cleanup`` and ``--post-cleanup-purge`` are refused, because the run directories are not on
+your machine: ``xeda remote clean`` frees the space on the host. See :doc:`remote`.
 
 Cleaning up
 ===========
@@ -596,7 +597,9 @@ Cleaning up
    * - ``--scrub``
      - Before the run, remove the other run directories of the flow for this design. Xeda asks
        for confirmation. If the launch also has to ask whether to replace a file that you named
-       for an output, it asks that first. A launch that you decline removes nothing.
+       for an output, it asks that first. A launch that you decline removes nothing. A launch
+       that runs on a remote host (``--remote``) cannot ask you, so it removes nothing there. It
+       logs the run directories that it did not remove.
 
 Pruning (``--post-cleanup`` and ``--post-cleanup-purge``) removes the trace first. A pruned run is
 therefore not reused, even though its ``settings.json`` and ``results.json`` remain.
@@ -660,6 +663,13 @@ Do not scrub a flow whose runs other launches are starting to use.
 
 ``--scrub`` on a launch removes the other run directories of the flow in the launch's own directory.
 It never reaches the directories of another target.
+
+Only the command line asks for the confirmation. The Python functions ``scrub_design`` and
+``scrub_runs``, and a ``DefaultRunner`` launch with ``scrub_old_runs``, never prompt. They ask the
+callback that you give them (the ``confirm`` argument, or the ``confirm_scrub`` attribute of the
+launcher). The callback gets the listed run directories and returns whether to remove them. Without
+a callback, nothing is removed, and Xeda logs a warning that names the run directories. This holds
+when stdin is closed, in a notebook or a CI job.
 
 Xeda's space and yours
 -----------------------

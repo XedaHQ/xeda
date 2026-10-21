@@ -20,7 +20,7 @@ from click.testing import CliRunner
 
 import xeda.deliver as deliver
 from xeda import Design
-from xeda.cli import cli
+from xeda.cli import _prompt_scrub, cli
 from xeda.console import console
 from xeda.dataclass import Field, deliverable
 from xeda.deliver import Deliveries, DeliveryError, OutputExistsError
@@ -149,7 +149,10 @@ def world(tmp_path, monkeypatch):
 
 
 def _runner(tmp_path: Path, **settings) -> DefaultRunner:
-    return DefaultRunner(tmp_path / "xeda_run", display_results=False, **settings)
+    """A launcher that asks the way the command line does (`console.input`), as `--scrub` does."""
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, **settings)
+    runner.confirm_scrub = _prompt_scrub
+    return runner
 
 
 def _launch(world, runner=None, own=None, **sections):

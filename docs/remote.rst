@@ -292,8 +292,10 @@ A workspace has these parts:
 The runs are make-like, as local runs are. A second run of the same request finds the run
 directories of the first one in the workspace. A flow whose inputs and settings did not change is
 fresh, and its results come back without running the tool. A run that passed or was rejected by its
-checks is reused. A run that failed runs again. ``--rebuild-all``, ``--clean`` and ``--scrub``
-act on the run directories of the host.
+checks is reused. A run that failed runs again. ``--rebuild-all`` and ``--clean`` act on the run
+directories of the host. ``--scrub`` does not remove them: the host has no terminal to ask you, so
+it keeps the run directories and logs that it did not remove them. Run ``xeda remote clean`` to
+free the space.
 
 The local mirror
 ================

@@ -119,7 +119,7 @@ from .plan_freshness import (
     NodeFreshness,
     judge_plan,
 )
-from .scrub import run_directory_names, scrub_runs
+from .scrub import ScrubConfirmation, run_directory_names, scrub_runs
 from .run_lock import CompletedRun, run_dir_lock
 from .settings_layers import (
     API_ORIGIN,
@@ -556,6 +556,9 @@ class FlowLauncher:
         #: Asked, at an interactive terminal, whether to replace files in the way of named
         #: outputs (`xeda.deliver.Deliveries.check`); None: only `overwrite_outputs` counts.
         self.confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]] = None
+        #: Asked whether to remove the older runs of `scrub_old_runs` (`xeda.flow_runner.scrub`).
+        #: None: nothing is removed, and the launch logs that.
+        self.confirm_scrub: Optional[ScrubConfirmation] = None
         #: The design and project file `run()` was given: never an output's destination.
         self._launch_inputs: List[Path] = []
         #: Every file the flows of the current launch read (`xeda.deliver.ReadInputs`).
@@ -1201,7 +1204,13 @@ class FlowLauncher:
         # Scrub siblings before taking the lock of this run directory: concurrent hashed
         # variants must not each hold their directory while waiting to delete the other one.
         if policy.scrub_old_runs:
-            scrub_runs(flow_name, run_path.parent, [run_path], run_root=self.run_root)
+            scrub_runs(
+                flow_name,
+                run_path.parent,
+                [run_path],
+                run_root=self.run_root,
+                confirm=self.confirm_scrub,
+            )
         with run_dir_lock(run_path, self.run_root), ExitStack() as read_leases:
             run_path.mkdir(parents=True, exist_ok=True)
             run_directory = RunDirectory.claimed(run_path, self.run_root)
