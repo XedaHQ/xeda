@@ -10,7 +10,6 @@ from xeda import Design
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.bsc import BscSim
-from xeda.utils import WorkingDirectory
 
 from .tool_utils import require_bluesim_evidence
 from .tool_utils import HANG_GUARD
@@ -140,9 +139,8 @@ def test_bluesim_checkpoint_fails_closed(tmp_path, change):
             (run / "bluesim_events.jsonl").unlink()
         else:
             (run / "bluesim_events.jsonl").write_text("")
-    with WorkingDirectory(run):
-        assert flow.has_evidence_adapter()
-        assert not flow.check_results()
+    assert flow.has_evidence_adapter()
+    assert not flow.check_results()
 
 
 def test_bluesim_plusargs_and_vcd_survive_owned_script(tmp_path):
@@ -248,10 +246,9 @@ def test_iverilog_partial_line_native_diagnostic_parser(tmp_path):
         "progress: ERROR: /tmp/source.v:42: runtime PROBE\n"
         "       Time: 5000 Scope: main\n"
     )
-    with WorkingDirectory(run):
-        assert flow.has_evidence_adapter()
-        assert not flow.check_results()
-        assert flow.results["sim.errors"] == 1
+    assert flow.has_evidence_adapter()
+    assert not flow.check_results()
+    assert flow.results["sim.errors"] == 1
 
 
 def test_iverilog_parser_ignores_plain_warning_text(tmp_path):
@@ -273,10 +270,9 @@ def test_iverilog_parser_ignores_plain_warning_text(tmp_path):
     (run / "sim.log").write_text(
         "XEDA_ICARUS_RUNTIME_START\nprogress: this text contains Warning only\n"
     )
-    with WorkingDirectory(run):
-        assert flow.has_evidence_adapter()
-        assert flow.check_results()
-        assert flow.results["sim.warnings"] == 0
+    assert flow.has_evidence_adapter()
+    assert flow.check_results()
+    assert flow.results["sim.warnings"] == 0
 
 
 def test_verilator_parser_ignores_plain_warning_text(tmp_path):
@@ -296,10 +292,9 @@ def test_verilator_parser_ignores_plain_warning_text(tmp_path):
         )
     )
     (run / "sim.log").write_text("progress: Warning is only ordinary text\n")
-    with WorkingDirectory(run):
-        assert flow.has_evidence_adapter()
-        assert flow.check_results()
-        assert flow.results["sim.warnings"] == 0
+    assert flow.has_evidence_adapter()
+    assert flow.check_results()
+    assert flow.results["sim.warnings"] == 0
 
 
 @pytest.mark.parametrize("backend", ["verilator", "iverilog"])
@@ -356,9 +351,8 @@ def test_verilator_bsc_exit_record_is_not_driver_evidence(tmp_path, change):
     if change != "stale":
         flow.start_run()
         (run / "xeda_end.json").write_text("bad" if change == "malformed" else json.dumps(data))
-    with WorkingDirectory(run):
-        assert flow.has_evidence_adapter()
-        assert not flow.check_results()
+    assert flow.has_evidence_adapter()
+    assert not flow.check_results()
 
 
 def require_bsc_backend(backend):
@@ -529,11 +523,10 @@ def test_iverilog_native_diagnostic_parser(tmp_path, kind, severity, ok):
         "WARNING: source.v:1: analysis only\nXEDA_ICARUS_RUNTIME_START\n"
         + f"{kind}: /tmp/source.v:42: runtime PROBE\n       Time: 5000 Scope: main\n"
     )
-    with WorkingDirectory(run):
-        assert flow.has_evidence_adapter()
-        assert flow.check_results() is ok
-        assert flow.results["sim.warnings"] == (1 if kind == "WARNING" else 0)
-        assert flow.results["sim.errors"] == (0 if kind == "WARNING" else 1)
+    assert flow.has_evidence_adapter()
+    assert flow.check_results() is ok
+    assert flow.results["sim.warnings"] == (1 if kind == "WARNING" else 0)
+    assert flow.results["sim.errors"] == (0 if kind == "WARNING" else 1)
 
 
 @pytest.mark.parametrize(
@@ -544,7 +537,6 @@ def test_iverilog_builtin_registration_capability(tmp_path, task):
     import os
     import subprocess
     import sys
-    from pathlib import Path
     from .tool_utils import require_iverilog, require_c_toolchain
 
     if sys.platform != "linux":
@@ -555,52 +547,51 @@ def test_iverilog_builtin_registration_capability(tmp_path, task):
     run = tmp_path / "probe"
     run.mkdir()
     flow = BscSim({"simulator": "iverilog"}, design, run)
-    with WorkingDirectory(run):
-        flow._build_iverilog_monitor()
-        source = Path("probe.v")
-        source.write_text(
-            "`timescale 1ns/1ps\nmodule probe; initial begin #5; "
-            + task
-            + '; $display("AFTER_TASK"); end endmodule\n'
-        )
-        subprocess.run(["iverilog", "-o", "probe.vvp", source], check=True, timeout=HANG_GUARD)
-        native = subprocess.run(
-            ["vvp", "-n", "probe.vvp"], capture_output=True, text=True, timeout=HANG_GUARD
-        )
-        hooked = subprocess.run(
-            ["vvp", "-n", "-m", "./iverilog_evidence.vpi", "probe.vvp"],
-            capture_output=True,
-            text=True,
-            timeout=HANG_GUARD,
-            env={**os.environ, "XEDA_END_RECORD": "xeda_end.json"},
-        )
-        assert hooked.returncode == native.returncode == 0
-        assert hooked.stdout.replace("XEDA_ICARUS_RUNTIME_START\n", "") == native.stdout
-        assert hooked.stderr == native.stderr
-        assert "AFTER_TASK" not in hooked.stdout
-        assert "XEDA_ICARUS_RUNTIME_START\n" in hooked.stdout
-        record = json.loads(Path("xeda_end.json").read_text())
-        stop = task.startswith("$stop")
-        assert record == {
-            "ended_by": "unknown" if stop else "finish",
-            "time": 5000,
-            "time_unit": "1ps",
-            "events": [{"kind": "stop" if stop else "finish", "time": 5000}],
-        }
-        Path("xeda_end.json").unlink()
-        Path("xeda_end.json.tmp").unlink(missing_ok=True)
-        source.write_text("`timescale 1ns/1ps\nmodule probe; initial #5; endmodule\n")
-        subprocess.run(["iverilog", "-o", "probe.vvp", source], check=True, timeout=HANG_GUARD)
-        drained = subprocess.run(
-            ["vvp", "-n", "-m", "./iverilog_evidence.vpi", "probe.vvp"],
-            capture_output=True,
-            timeout=HANG_GUARD,
-            env={**os.environ, "XEDA_END_RECORD": "xeda_end.json"},
-        )
-        assert drained.returncode == 0
-        assert not Path(
-            "xeda_end.json"
-        ).exists(), "A drained queue must not look like a quiet finish"
+    flow._build_iverilog_monitor()
+    source = run / "probe.v"
+    source.write_text(
+        "`timescale 1ns/1ps\nmodule probe; initial begin #5; "
+        + task
+        + '; $display("AFTER_TASK"); end endmodule\n'
+    )
+    subprocess.run(["iverilog", "-o", "probe.vvp", source], check=True, cwd=run, timeout=HANG_GUARD)
+    native = subprocess.run(
+        ["vvp", "-n", "probe.vvp"], capture_output=True, text=True, cwd=run, timeout=HANG_GUARD
+    )
+    hooked = subprocess.run(
+        ["vvp", "-n", "-m", "./iverilog_evidence.vpi", "probe.vvp"],
+        capture_output=True,
+        cwd=run,
+        text=True,
+        timeout=HANG_GUARD,
+        env={**os.environ, "XEDA_END_RECORD": "xeda_end.json"},
+    )
+    assert hooked.returncode == native.returncode == 0
+    assert hooked.stdout.replace("XEDA_ICARUS_RUNTIME_START\n", "") == native.stdout
+    assert hooked.stderr == native.stderr
+    assert "AFTER_TASK" not in hooked.stdout
+    assert "XEDA_ICARUS_RUNTIME_START\n" in hooked.stdout
+    record = json.loads((run / "xeda_end.json").read_text())
+    stop = task.startswith("$stop")
+    assert record == {
+        "ended_by": "unknown" if stop else "finish",
+        "time": 5000,
+        "time_unit": "1ps",
+        "events": [{"kind": "stop" if stop else "finish", "time": 5000}],
+    }
+    (run / "xeda_end.json").unlink()
+    (run / "xeda_end.json.tmp").unlink(missing_ok=True)
+    source.write_text("`timescale 1ns/1ps\nmodule probe; initial #5; endmodule\n")
+    subprocess.run(["iverilog", "-o", "probe.vvp", source], check=True, cwd=run, timeout=HANG_GUARD)
+    drained = subprocess.run(
+        ["vvp", "-n", "-m", "./iverilog_evidence.vpi", "probe.vvp"],
+        capture_output=True,
+        cwd=run,
+        timeout=HANG_GUARD,
+        env={**os.environ, "XEDA_END_RECORD": "xeda_end.json"},
+    )
+    assert drained.returncode == 0
+    assert not (run / "xeda_end.json").exists(), "A drained queue must not look like a quiet finish"
 
 
 def test_iverilog_helper_compiles_with_installed_headers(tmp_path):
@@ -615,8 +606,7 @@ def test_iverilog_helper_compiles_with_installed_headers(tmp_path):
     run = tmp_path / "probe"
     run.mkdir()
     flow = BscSim({"simulator": "iverilog"}, design, run)
-    with WorkingDirectory(run):
-        flow._build_iverilog_monitor()
+    flow._build_iverilog_monitor()
     assert (run / "iverilog_evidence.vpi").is_file()
 
 

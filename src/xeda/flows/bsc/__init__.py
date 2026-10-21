@@ -805,10 +805,10 @@ class BscFlow(Flow, metaclass=ABCMeta):
         """
         ss = self.settings
         assert isinstance(ss, BscFlow.Settings)
-        bdir = Path(ss.bobj_dir).absolute()
-        info_dir = Path(ss.info_dir).absolute() if ss.info_dir else bdir
+        bdir = self.run_file(ss.bobj_dir)
+        info_dir = self.run_file(ss.info_dir) if ss.info_dir else bdir
         flags = ["-bdir", str(bdir), "-info-dir", str(info_dir)]
-        flags += ["-simdir" if backend == "sim" else "-vdir", str(out_dir.absolute())]
+        flags += ["-simdir" if backend == "sim" else "-vdir", str(self.run_file(out_dir))]
         package_dirs = [src.file.parent for src in sources]
         package_dirs += [self.normalize_path_to_design_root(p) for p in ss.search_paths]
         flags += ["-p", _bsc_path(package_dirs, "search_paths")]
@@ -978,7 +978,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 "bsc runs each `verilog_filters` command on a generated file through a shell, "
                 f"without quoting, so the output directory cannot contain whitespace: {out_dir}"
             )
-        bdir = Path(self.settings.bobj_dir)
+        bdir = self.run_file(self.settings.bobj_dir)
         stale = []
         if self.settings.cleanup_bobjs:
             stale += [obj for pattern in ("*.bo", "*.ba") for obj in bdir.glob(pattern)]
@@ -989,7 +989,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         bdir.mkdir(parents=True, exist_ok=True)
         out_dir.mkdir(parents=True, exist_ok=True)
         if self.settings.info_dir:
-            Path(self.settings.info_dir).mkdir(parents=True, exist_ok=True)
+            self.run_file(self.settings.info_dir).mkdir(parents=True, exist_ok=True)
 
     def _compile(
         self,
@@ -1190,7 +1190,7 @@ class Bsc(BscFlow):
         assert top
         sources = self._bsc_sources(tb=False)
         top_file = self._top_file(sources, "RTL")
-        vout_dir = Path(ss.verilog_out_dir).absolute()
+        vout_dir = self.run_file(ss.verilog_out_dir)
         log.info("Verilog output directory: %s", vout_dir)
         self._prepare_dirs(vout_dir)
 
@@ -1256,7 +1256,7 @@ class Bsc(BscFlow):
         for src in design_verilog:
             for module in _verilog_modules(src.file):
                 defined_in.setdefault(module, src.file)
-        library_dirs = [d for d in verilog_path if d.absolute() != vout_dir]
+        library_dirs = [d for d in verilog_path if self.run_file(d) != vout_dir]
 
         modules: list[str] = []  # pre-order, the top first
         generated: list[Path] = []  # post-order, the top last
@@ -1693,7 +1693,7 @@ class BscSim(BscFlow, SimFlow):
         sources = self._bsc_sources(tb=True)
         tb_sources = [src for src in sources if src in self.design.tb.sources]
         top_file = self._top_file(tb_sources or sources, "testbench")
-        sim_dir = Path(ss.sim_dir).absolute()
+        sim_dir = self.run_file(ss.sim_dir)
         # bsc's Verilog link searches `sim_dir` first, so a module that an earlier run generated
         # there must not outlive that run.
         self._prepare_dirs(sim_dir)
@@ -1702,8 +1702,8 @@ class BscSim(BscFlow, SimFlow):
             self.run_directory.remove(
                 *sim_dir.glob("*.o"),
                 *sim_dir.glob("*.so"),
-                *Path(ss.bobj_dir).glob("*.bo"),
-                *Path(ss.bobj_dir).glob("*.ba"),
+                *self.run_file(ss.bobj_dir).glob("*.bo"),
+                *self.run_file(ss.bobj_dir).glob("*.ba"),
             )
 
         path_flags = self._path_flags(backend, sim_dir, sources)
@@ -1735,7 +1735,7 @@ class BscSim(BscFlow, SimFlow):
             directory = re.search(r"^Bluespec directory: (.+)$", help_text or "", re.MULTILINE)
             if directory is not None:
                 link_flags += ["-Xc++", "-I" + str(Path(directory[1]) / "Bluesim")]
-            link_flags += ["-Xc++", "-include", "-Xc++", str(header.absolute())]
+            link_flags += ["-Xc++", "-include", "-Xc++", str(self.run_file(header))]
         elif ss.simulator == "verilator":
             hook_flags, link_env = self._build_verilator_hooks()
             link_flags += hook_flags
@@ -1764,7 +1764,7 @@ class BscSim(BscFlow, SimFlow):
         sim_args = list(ss.sim_args)
         vcd = Path(ss.vcd) if ss.vcd else None
         if vcd:
-            vcd.parent.mkdir(parents=True, exist_ok=True)  # no simulator creates it
+            self.run_file(vcd).parent.mkdir(parents=True, exist_ok=True)  # no simulator creates it
         if bluesim:
             script = self.copy_from_template("bluesim_run.tcl")
             sim_args += ["-f", str(script)]
@@ -1820,7 +1820,7 @@ class BscSim(BscFlow, SimFlow):
                 if dump != vcd:
                     # Copy the dump whole, then remove it. A link at `vcd` is replaced, never
                     # written through.
-                    replacing_copy(dump, self.run_directory.writable(vcd))
+                    replacing_copy(self.run_file(dump), self.run_directory.writable(vcd))
                     self.run_directory.remove(dump)
                 self.artifacts.vcd = str(vcd)
                 dumped = True

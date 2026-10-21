@@ -36,7 +36,7 @@ from xeda.flows.bsc import (
 )
 from xeda.proc_utils import ProcessTimeout
 from xeda.run_dir import RunDirectory
-from xeda.utils import NonZeroExitCode, WorkingDirectory
+from xeda.utils import NonZeroExitCode
 
 from .tool_utils import (
     require_bluesim,
@@ -648,8 +648,7 @@ def test_an_earlier_runs_output_is_removed_before_compiling(cleanup, tmp_path):
         },
     )
     _write(run / "bobjs", {"Old.bo": "", "Old.ba": ""})
-    with WorkingDirectory(run):
-        flow._prepare_dirs(out.absolute())
+    flow._prepare_dirs(out)
     left = {p.name for p in out.iterdir()} | {p.name for p in (run / "bobjs").iterdir()}
     # The generated modules go in either case: bsc writes them again, so every module the run
     # records is one it wrote. The packages stay without `cleanup_bobjs`.
@@ -815,7 +814,6 @@ def test_the_path_settings_reach_bsc(tmp_path, monkeypatch):
     )
     (tmp_path / "run" / "bobjs").mkdir()
     (tmp_path / "out").mkdir()
-    monkeypatch.chdir(tmp_path / "run")  # where the flow runs bsc
     record = _bsc_record(
         *flow._path_flags("verilog", tmp_path / "out", design.rtl.sources), cwd=tmp_path / "run"
     )
@@ -900,7 +898,7 @@ def test_a_link_path_with_whitespace_is_rejected_before_compiling(tmp_path):
     design = _accum_design(tmp_path / "d")
     run = tmp_path / "run dir"
     flow = _flow(BscSim, design, run)
-    with WorkingDirectory(run), pytest.raises(FlowSettingsException, match="whitespace"):
+    with pytest.raises(FlowSettingsException, match="whitespace"):
         flow.run()
     assert not (run / "bobjs").exists() or not any((run / "bobjs").iterdir())  # nothing compiled
 
