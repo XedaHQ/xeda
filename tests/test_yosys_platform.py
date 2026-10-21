@@ -22,7 +22,6 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.trace_inputs import located_input_files, registered_input_files
 from xeda.flows import Yosys
 from xeda.platforms import PdkNotInstalled
-from xeda.utils import WorkingDirectory
 
 from .tiny_platform import TINY_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import fake_calls, require_yosys, use_fake_asic_tools
@@ -266,9 +265,8 @@ def _platform_files(store: Path) -> list[Path]:
 def test_the_registered_inputs_are_the_located_inputs(tmp_path):
     store = tiny_store(tmp_path)
     flow = _flow(tmp_path, store)
-    with WorkingDirectory(tmp_path / "run"):
-        flow.init()
-        flow.prepare_inputs()
+    flow.init()
+    flow.prepare_inputs()
     expected = [*_platform_files(store), TINY_RESIDUE]
     assert sorted(registered_input_files(flow)) == sorted(p.resolve() for p in expected)
     assert located_input_files(flow) == registered_input_files(flow)
@@ -289,10 +287,9 @@ def test_an_abc_script_file_stays_the_abc_script_and_comes_first(tmp_path):
     script = tmp_path / "map.abc"
     script.write_text("strash; map\n")
     flow = _flow(tmp_path, store, abc_script=str(script))
-    with WorkingDirectory(tmp_path / "run"):
-        flow.init()
-        assert flow.implicit_inputs == [script]
-        flow.prepare_inputs()
+    flow.init()
+    assert flow.implicit_inputs == [script]
+    flow.prepare_inputs()
     assert flow.settings.abc_script == str(script)
     assert flow.implicit_inputs == [script, *_platform_files(store), TINY_RESIDUE]
     assert flow.implicit_inputs.count(script) == 1

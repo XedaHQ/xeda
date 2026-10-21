@@ -55,7 +55,7 @@ def _recorded_launch(
     calls: list[tuple[str, Any, bool]] = []
 
     def record(executable, args=None, **kwargs):
-        run_dir = Path.cwd()
+        run_dir = Path(kwargs["cwd"])
         directory = run_dir / YOSYS_TEMPORARY_DIRECTORY
         calls.append(
             (
