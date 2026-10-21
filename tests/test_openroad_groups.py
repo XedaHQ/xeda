@@ -1376,6 +1376,14 @@ INSTALLED_HELP = {
         "-annealing",
         "-write_pin_placement",
     },
+    "set_place_config": {
+        "-io_pin_hor_layers",
+        "-io_pin_ver_layers",
+        "-io_pin_corner_avoidance",
+        "-io_pin_min_distance",
+        "-io_pin_min_distance_in_tracks",
+    },
+    "exclude_io_pin_region": {"-region"},
     "cluster_flops": {
         "-tray_weight",
         "-timing_weight",
@@ -1691,6 +1699,11 @@ INSTALLED_HELP = {
 #: them with `render_flags`, which would write the unit. The installed tool must know each one.
 QUANTITY_FLAGS = {
     "place_pins": {"-min_distance", "-min_distance_in_tracks", "-corner_avoidance"},
+    "set_place_config": {
+        "-io_pin_min_distance",
+        "-io_pin_min_distance_in_tracks",
+        "-io_pin_corner_avoidance",
+    },
     "set_pin_length": {"-hor_length", "-ver_length"},
     "set_pin_length_extension": {"-hor_extension", "-ver_extension"},
     "initialize_floorplan": {"-gap", "-core_space", "-die_area", "-core_area"},

@@ -179,8 +179,9 @@ def _layer_adjustments(
 
 
 def places_pins(settings: "OpenroadPlace.Settings") -> bool:
-    """Return whether the flow runs `place_pins`: after a placement without pins, unless a DEF
-    file gives the pins, and after a placement of the pins together with the cells."""
+    """Return whether the flow places the pins. `io.flow: concurrent` places them together with
+    the cells (`global_placement -place_ios`). `io.flow: skip_io_pass` places them with
+    `place_pins` after a placement without pins, except when a DEF file gives the pins."""
     flow = settings.io.flow
     return flow == "concurrent" or (flow == "skip_io_pass" and settings.floorplan.sizing != "def")
 
@@ -467,8 +468,9 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
         """Refuse what the groups cannot judge alone. The swap of arithmetic modules needs the
         hierarchy of the design. The buffers to remove need the timing-driven placement, and the
         limit of the utilization needs a command of the resize stage that reads it. A floorplan from a DEF file keeps the pins of the file, so a
-        setting for the placement of the pins has no effect. Pins that stay need a DEF file or
-        pins placed by hand. A platform that gives no density or
+        setting for the placement of the pins has no effect. The annealing of the pin placer
+        needs `place_pins`, which the concurrent placement of the pins does not run. Pins that
+        stay need a DEF file or pins placed by hand. A platform that gives no density or
         no pin layer, and cannot get one, needs the setting. This reads the settings and the
         residue files only."""
         super().check_settings_supported(settings)
@@ -511,12 +513,31 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
             for leaf in differing_leaves(settings.io, "io"):
                 if leaf == "io.fixed_pins":
                     continue  # the pins by hand replace pins of the file
+                if leaf == "io.algorithm" or leaf.startswith("io.annealing."):
+                    refuse(
+                        leaf,
+                        f"`{leaf}` has no effect with `floorplan.sizing: def`: the flow keeps the "
+                        "pins of the DEF file and runs no `place_pins`, and only `place_pins` "
+                        f"anneals the pins: delete `{leaf}`",
+                    )
+                    continue
                 refuse(
                     leaf,
                     f"`{leaf}` has no effect with `floorplan.sizing: def`, which keeps the pins "
                     f"of the DEF file: set `io.flow: concurrent` to place the pins again, or "
                     f"delete `{leaf}`",
                 )
+        if settings.io.flow == "concurrent" and settings.io.algorithm == "annealing":
+            advice = (
+                "with `floorplan.sizing: def` no flow runs `place_pins`: delete `io.algorithm`"
+                if settings.floorplan.sizing == "def"
+                else "set `io.flow: skip_io_pass`, or delete `io.algorithm`"
+            )
+            refuse(
+                "io.algorithm",
+                "`io.algorithm: annealing` is an algorithm of `place_pins`, and `io.flow: "
+                f"concurrent` places the pins with `global_placement -place_ios` instead; {advice}",
+            )
         if (
             settings.io.flow == "fixed"
             and settings.floorplan.sizing != "def"
