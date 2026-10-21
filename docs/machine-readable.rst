@@ -333,8 +333,8 @@ the same representation for the inputs (the section on planning, below, describe
 a producer fails, the planned nodes that were never entered come after the other nodes, with
 ``"state": "not run"``. A chain that is malformed (an empty element, an unknown flow or output, a
 repeated flow, a programmer before the end, or a pair with no compatible output) is a usage error.
-It gives one error document and exit status 2, with no ``request``, ``plan`` or ``nodes``. Chains
-are local requests, and ``--remote`` and ``dse`` refuse them.
+It gives one error document and exit status 2, with no ``request``, ``plan`` or ``nodes``. ``xeda
+dse`` refuses a chain. ``xeda run --remote`` takes one.
 
 ``design`` is always the name of the design: the ``name`` in its design file, or the name you gave
 for a design of a project (``--design-name``). ``design_file`` is the absolute path of the design
@@ -475,10 +475,10 @@ option, a design file that does not exist and a malformed chain. Xeda prints one
 the class of the click error as ``error.type`` (``BadParameter``, ``NoSuchOption``, ``UsageError``)
 and exits with status 2. Such a document has no ``request`` or ``nodes``. Xeda applies several
 refusals before it starts a run, and they use the same document with ``UsageError``. For example,
-``--remote`` refuses ``--clean``, ``--hashed-run-dirs``, ``--dry-run`` and chains this way. A
-binding that cannot be applied (an unknown input or producer, a binding for a flow that declares no
-inputs, or a chain together with a command-line or API binding of the same input) is a settings
-error. It names the input and the place where the binding was written.
+``--remote`` refuses ``--post-cleanup``, and ``--keep-running`` and ``--fetch-all`` need
+``--remote``. A binding that cannot be applied (an unknown input or producer, a binding for a flow
+that declares no inputs, or a chain together with a command-line or API binding of the same input)
+is a settings error. It names the input and the place where the binding was written.
 
 The ``results.json`` of every node is a failure document too, and its ``error.type`` is more
 specific than the one of the top-level document. The top-level ``FlowFailed`` is the verdict of the
@@ -504,10 +504,44 @@ a ``MissingOutput``.
 Other documents of executional commands
 ---------------------------------------
 
-The document of ``xeda run --remote ... --json`` has the keys ``flow``, ``design``, ``design_file``,
-``target``, ``success``, ``results`` and ``error`` as above, and ``run_path`` and ``results_json``
-when the remote returned results. It also has the key ``remote``, which holds the host. It has no
-``settings_json``, ``request`` or ``nodes``.
+The document of ``xeda run --remote ... --json`` is the document of a run, as above, with these
+differences. It has the key ``remote``, which holds the text of ``--remote``, and the key
+``mirror``, the directory ``<run root>/@<host>`` that holds the fetched files. ``run_path``,
+``results_json``, ``settings_json`` and the ``run_path`` of each ``nodes`` entry name directories
+in the mirror, and the paths in ``results`` are paths in the mirror. ``design_file`` is your local
+design file. A failure of the remote step itself (a lost connection or an error while it makes the
+environment) gives the failure document of a run, with ``remote`` and without ``mirror``.
+
+The document of a launch that Xeda stopped following (``--keep-running``, then Ctrl-C or a lost
+connection) is a failure with ``error.type`` ``RemoteDetached``, and the key ``launch``, an object
+with the ``id`` of the launch and the ``host``. The launch keeps running on the host.
+
+The document of a remote dry run is the document of a local dry run with these keys: ``remote``,
+``mirror``, and ``uploaded``, the list of input files that the dry run sent to the host. Each node
+of ``plan`` has the ``run_path`` that the run would use in the mirror, and ``remote_run_path``, the
+directory on the host.
+
+``xeda remote attach HOST [LAUNCH_ID] --json`` prints the document of the finished run, with the
+key ``launch`` (``id`` and ``host``). The other commands of ``xeda remote`` print one document
+each. A failure is ``{"success": false, "error": {"type": ..., "message": ...}}`` with exit status
+1.
+
+``check``
+    ``success``, ``host``, ``platform`` (``system``, ``machine``, ``libc``, ``libc_version``),
+    ``xeda`` (the version), ``python`` (``version``, ``implementation``, ``executable``),
+    ``environment`` (``key``, ``code``, ``prefix``, ``lock_file``, ``lock``), ``disk`` (``path``,
+    ``free`` and ``total`` in bytes), ``kill_user_processes`` (``yes``, ``no`` or ``unknown``),
+    ``executables`` (``found``, a table of name and path, and ``missing``, a list), ``docker``
+    (``found`` and ``path``) and ``warnings``.
+
+``clean``
+    ``success``, ``host``, ``removed`` and ``kept``. Each entry has ``kind`` (``env``, ``code`` or
+    ``workspace``) and ``path``, and an entry of ``kept`` has a ``reason``. ``--json`` removes
+    without asking.
+
+``cancel``
+    ``success``, ``host``, ``launch`` and ``survivors``, the number of processes that SIGKILL did
+    not stop. ``success`` is false when ``survivors`` is not zero.
 
 ``xeda dse ... --json`` prints ``flow``, ``design``, ``design_file``, ``target``, ``optimizer``,
 ``success`` and ``best``. The value of ``best`` is ``null`` or an object with the ``settings``,
@@ -702,8 +736,8 @@ Planning changes no run root, marker, lock, result or delivery. It refreshes no 
 process and probes no tool. If the declarations of the design already rule out the request, Xeda
 refuses it first, before a generator runs (see :ref:`generators`). Loading that needs a generator or
 the fetch of a Git dependency is refused before those side effects. Materialize the sources first,
-or pass an already materialized ``Design`` to ``DefaultRunner.plan``. ``--dry-run`` with
-``--remote`` is refused.
+or pass an already materialized ``Design`` to ``DefaultRunner.plan``. With ``--remote``, the host
+makes the plan (see :doc:`remote`).
 
 Planning a chain
 ----------------

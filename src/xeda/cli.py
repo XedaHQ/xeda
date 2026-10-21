@@ -22,6 +22,7 @@ from .cli_types import (
 )
 from .flow_catalog import flow_names
 from .pdk_cli import add_pdk_commands
+from .remote.commands import add_remote_commands
 
 # Click resolves completion before invoking command callbacks. Share the declarations below,
 # but keep execution and help-rendering dependencies out of a completion process.
@@ -52,7 +53,6 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         add_file_logger,
         scrub_design,
     )
-    from .flow_runner.bindings import LOCAL_REQUESTS_ONLY
     from .flow_runner.chains import parse_request
     from .flow_runner.dse import Dse
     from .flow_runner.resolver import Plan
@@ -387,6 +387,25 @@ def pdk():
 add_pdk_commands(pdk, DeclaredEnvvarsCommand, CONTEXT_SETTINGS)
 
 
+@cli.group(
+    "remote",
+    context_settings=CONTEXT_SETTINGS,
+    cls=XedaHelpGroup,
+    short_help="Check, clean and follow launches on remote hosts.",
+)
+def remote_group():
+    """The hosts that `xeda run --remote HOST` uses.
+
+    `check` connects to a host, makes the environment of xeda there if it is missing, and reports
+    what a remote run finds. `clean` removes the environments and workspaces that nobody uses.
+    `attach` follows a launch that `xeda run --remote HOST --keep-running` started, and fetches its
+    result. `cancel` stops such a launch.
+    """
+
+
+add_remote_commands(remote_group, DeclaredEnvvarsCommand, CONTEXT_SETTINGS)
+
+
 @cli.command(
     context_settings=CONTEXT_SETTINGS, short_help="List design-space exploration optimizers."
 )
@@ -507,8 +526,8 @@ flows between its two flows: `yosys_fpga+fpga_pack` runs `nextpnr` in between.
 
 -s KEY=VALUE sets a setting of the last flow. -s flows.NAME.KEY=VALUE sets a setting of another
 flow of the run. To save a binding, write it under flows.NAME.inputs in a YAML design file or
-project file. --dry-run shows the plan and runs no tools. A chain is a local request, so
---remote does not accept it.
+project file. --dry-run shows the plan and runs no tools. With --remote HOST, the whole request
+runs on a Linux host over SSH; Xeda installs what it needs there on the first run.
 
 Example: xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
 """
@@ -844,7 +863,24 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     type=str,
     envvar="XEDA_REMOTE",
     show_envvar=True,
-    help="Run on a remote machine with SSH access. Xeda must be installed on the remote machine, and the PATH environment variable there must be set correctly.",
+    help="Run the request on a Linux host over SSH. HOST is an SSH destination; xeda installs "
+    "what it needs there on the first run.",
+    metavar="HOST",
+)
+@click.option(
+    "--fetch-all",
+    is_flag=True,
+    default=False,
+    help="With --remote, fetch every file of the run directories, not only the results, logs, "
+    "reports and final outputs.",
+)
+@click.option(
+    "--keep-running",
+    is_flag=True,
+    default=False,
+    help="With --remote, keep the launch running on the host when the connection ends or Ctrl-C "
+    "stops the local follow. `xeda remote attach` follows it again and `xeda remote cancel` "
+    "stops it. Running the same request again attaches to the running launch.",
 )
 @click.option(
     "--debug",
@@ -922,6 +958,8 @@ def run(
     post_cleanup_purge: bool = False,
     scrub: bool = False,
     remote: Optional[str] = None,
+    fetch_all: bool = False,
+    keep_running: bool = False,
     debug: bool = False,
     help_settings: bool = False,
     outputs_to: Optional[Path] = None,
@@ -978,104 +1016,75 @@ def run(
             )
         sys.exit(1)
 
-    if dry_run and remote:
-        raise click.UsageError("`--dry-run` is not supported with --remote", ctx=ctx)
-    if remote and len(request.elements) > 1:
-        raise click.UsageError(LOCAL_REQUESTS_ONLY, ctx=ctx)
-
+    if fetch_all and not remote:
+        raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
+    if keep_running and not remote:
+        raise click.UsageError("`--keep-running` needs --remote", ctx=ctx)
+    if keep_running and dry_run:
+        raise click.UsageError(
+            "`--keep-running` has no launch to keep running in a dry run", ctx=ctx
+        )
     if remote:
-        from .flow_runner import remote as remote_runner
-
-        # The remote flow always runs fresh in hashed run directories. `--rebuild-all` also
-        # forces local generators to run before their design is shipped.
         for name, given in (
-            ("--clean", clean),
-            ("--hashed-run-dirs", hashed_run_dirs),
+            ("--post-cleanup", post_cleanup),
+            ("--post-cleanup-purge", post_cleanup_purge),
         ):
             if given:
                 raise click.UsageError(
-                    f"`{name}` is not supported with --remote: remote runs always run fresh, "
-                    "mirrored in hashed run directories",
+                    f"`{name}` removes run directories after delivery; with --remote, the run "
+                    "directories are on the remote: use `xeda remote clean`",
                     ctx=ctx,
                 )
-        rl = remote_runner.RemoteRunner(
-            run_root,
+        from .remote import client as remote_client
+
+        outcome = remote_client.run_remote(
+            chain,
+            design=design,
+            destination_text=remote,
+            run_root=run_root,
+            flow_settings=flow_settings,
+            xedaproject=xedaproject,
+            design_overrides=design_overrides,
+            design_allow_extra=design_allow_extra,
+            target=target,
+            select_design_in_project=select_design_in_project,
+            hashed_run_dirs=hashed_run_dirs,
+            clean=clean,
+            rebuild_all=rebuild_all,
+            scrub=scrub,
+            dry_run=dry_run,
+            fetch_all=fetch_all,
             outputs_to=outputs_to,
             overwrite_outputs=overwrite_outputs,
-            rebuild_all=rebuild_all,
-            debug=debug,
+            confirm_overwrite=_prompt_overwrite if _interactive(json_flag) else None,
+            log_level=log_level,
+            detailed_logs=detailed_logs,
+            keep_running=keep_running,
         )
-        if _interactive(json_flag):
-            rl.confirm_overwrite = _prompt_overwrite
-        assert design
-        try:
-            remote_results = rl.run_remote(
-                design,
-                flow,
-                host=remote,
-                flow_settings=flow_settings,
-                xedaproject=xedaproject,
-                design_overrides=design_overrides,
-                design_allow_extra=design_allow_extra,
-                target=target,
-            )
-        except XedaException as e:
-            log.critical("%s", _error_message(e))
+        document = outcome.document
+        if outcome.error is not None:
+            log.critical("%s", document["error"]["message"])
             if json_flag:
-                emit_structured(
-                    _remote_document(
-                        flow,
-                        design,
-                        remote,
-                        None,
-                        False,
-                        error=e,
-                        target=rl.target or target,
-                        loaded=rl.design_name,
-                    ),
-                    "json",
-                )
-            if debug:
-                raise e
+                emit_structured(document, "json")
+            if debug or (not json_flag and not isinstance(outcome.error, XedaException)):
+                raise outcome.error
             sys.exit(1)
-        except Exception as e:
-            if not json_flag:
-                raise
-            log.critical("%s", _error_message(e))
-            emit_structured(
-                _remote_document(
-                    flow,
-                    design,
-                    remote,
-                    None,
-                    False,
-                    error=e,
-                    target=rl.target or target,
-                    loaded=rl.design_name,
-                ),
-                "json",
-            )
-            if debug:
-                raise
-            sys.exit(1)
-        # The success of the remote flow decides the success of this run.
-        success = bool(remote_results and remote_results.get("success"))
-        if not success:
+        if dry_run:
+            if json_flag:
+                emit_structured(document, "json")
+            else:
+                _print_remote_plan(document)
+            if not outcome.success:
+                error = document.get("error") or {}
+                if error.get("message"):
+                    log.critical("%s", error["message"])
+                log.critical("Remote dry run of flow '%s' on '%s' failed.", flow, remote)
+            sys.exit(0 if outcome.success else 1)
+        if not outcome.success:
             log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
         if json_flag:
-            emit_structured(
-                _remote_document(
-                    flow,
-                    design,
-                    remote,
-                    remote_results,
-                    success,
-                    target=rl.target,
-                    loaded=rl.design_name,
-                ),
-                "json",
-            )
-        sys.exit(0 if success else 1)
+            emit_structured(document, "json")
+        sys.exit(0 if outcome.success else 1)
 
     launcher: Optional[DefaultRunner] = None
 
@@ -1090,20 +1099,9 @@ def run(
         log.critical("%s", message)
         if json_flag:
             emit_structured(
-                {
-                    "flow": flow,
-                    **design_info(design, loaded_design()),
-                    "target": (launcher.target if launcher is not None else None) or target,
-                    "success": False,
-                    "results": {},
-                    "error": {"type": error_type, "message": message},
-                    "request": request_info(request),
-                    "nodes": (
-                        _node_states(launcher.launched, launcher.last_plan)
-                        if launcher is not None
-                        else []
-                    ),
-                },
+                _failure_document(
+                    flow, design, launcher, target, error_type, message, request_info(request)
+                ),
                 "json",
             )
         if debug:
@@ -1195,64 +1193,88 @@ def run(
             document["request"] = request_info(request)
             emit_structured(document, "json")
         sys.exit(0 if success else 1)
-    except FlowFatalError as e:
-        emit_failure(
-            "FlowFatalError",
-            f"Flow {flow} failed: FlowFatalException {' '.join(str(a) for a in e.args)}",
-            e,
-        )
-    except NonZeroExitCode as e:
-        emit_failure("NonZeroExitCode", f"Flow {flow} failed: {e}", e)
-    except ExecutableNotFound as e:
-        emit_failure(
-            "ExecutableNotFound",
-            f"Executable '{e.exec}' was not found in PATH. flow:{flow}, tool:{e.tool}"
-            + (f", PATH:{e.path}" if debug else ""),
-            e,
-        )
-    except XedaException as e:
-        # A user error is reported by its own class name: a design file or project file that
-        # does not load, an unknown flow or design, invalid settings or a failed producer.
-        emit_failure(type(e).__name__, _error_message(e), e)
     except Exception as e:
-        if not json_flag:
+        if not json_flag and not isinstance(e, XedaException):
             raise
-        emit_failure(type(e).__name__, _error_message(e), e)
+        emit_failure(*_failure_of(e, flow, debug), e)
 
 
-def _remote_document(
+def _failure_of(exc: Exception, flow: str, debug: bool) -> Tuple[str, str]:
+    """Return the `error.type` and `error.message` that report why a run of `flow` failed. A
+    user error is reported by its own class name: a design file or project file that does not
+    load, an unknown flow or design, invalid settings or a failed producer."""
+    if isinstance(exc, FlowFatalError):
+        return (
+            "FlowFatalError",
+            f"Flow {flow} failed: FlowFatalException {' '.join(str(a) for a in exc.args)}",
+        )
+    if isinstance(exc, NonZeroExitCode):
+        return "NonZeroExitCode", f"Flow {flow} failed: {exc}"
+    if isinstance(exc, ExecutableNotFound):
+        return (
+            "ExecutableNotFound",
+            f"Executable '{exc.exec}' was not found in PATH. flow:{flow}, tool:{exc.tool}"
+            + (f", PATH:{exc.path}" if debug else ""),
+        )
+    return type(exc).__name__, _error_message(exc)
+
+
+def _failure_document(
     flow_name: str,
     design: Any,
-    host: str,
-    results: Optional[Dict[str, Any]],
-    success: bool,
-    error: Optional[BaseException] = None,
-    target: str | None = None,
-    loaded: str | None = None,
+    launcher: Optional[DefaultRunner],
+    target: str | None,
+    error_type: str,
+    message: str,
+    request: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """Build the machine-readable summary that `xeda run --remote --json` prints. `design` is what
-    the command line gave for the design, and `loaded` is the name of the design that the runner
-    loaded."""
-    document: Dict[str, Any] = {
+    """Build the document that `xeda run --json` prints when the run failed outside any flow's
+    results: the error, the request, and every node that `launcher` had launched. `design` is
+    what the command line gave, and `request` is `request_info` of the request."""
+    return {
         "flow": flow_name,
-        **design_info(design, loaded),
-        "target": target,
-        "remote": host,
-        "success": success,
-        "results": json_safe(results or {}),
+        **design_info(design, launcher.design_name if launcher is not None else None),
+        "target": (launcher.target if launcher is not None else None) or target,
+        "success": False,
+        "results": {},
+        "error": {"type": error_type, "message": message},
+        "request": request,
+        "nodes": (
+            _node_states(launcher.launched, launcher.last_plan) if launcher is not None else []
+        ),
     }
-    run_path = (results or {}).get("run_path")
-    if run_path:
-        document["run_path"] = str(run_path)
-        document["results_json"] = str(Path(run_path) / "results.json")
-    if error is not None:
-        document["error"] = {"type": type(error).__name__, "message": _error_message(error)}
-    elif not success:
-        document["error"] = {
-            "type": "FlowFailed",
-            "message": f"Remote flow '{flow_name}' did not complete successfully.",
-        }
-    return document
+
+
+def _print_remote_plan(document: Dict[str, Any]) -> None:
+    """Print the plan of a remote dry run, as `_print_plan` prints a local one, and the input
+    files that the dry run uploaded."""
+    plan = document.get("plan") or {}
+    target = f", target {plan['target']}" if plan.get("target") else ""
+    click.echo(
+        f"Plan for {plan.get('requested')}{target} on {document.get('remote')} "
+        "(a dry run: nothing runs)"
+    )
+    for node in plan.get("nodes", []):
+        click.echo(f"  {node['name']}  {node['run_path']}")
+        said = node.get("state")
+        if said:
+            click.echo(f"      {said}" + (f": {node['reason']}" if node.get("reason") else ""))
+        if node.get("action_reason"):
+            click.echo(f"      always runs: {node['action_reason']}")
+        for resolved in node.get("inputs", []):
+            origin = resolved["origin"] + (
+                f" {resolved['producer']}.{resolved['output']}" if resolved.get("producer") else ""
+            )
+            click.echo(f"      input {resolved['name']}: {origin}")
+        for output in node.get("switched_on", []):
+            click.echo(f"      output {output} switched on: a consumer reads it")
+    uploaded = document.get("uploaded") or []
+    if uploaded:
+        click.echo(f"Uploaded {len(uploaded)} input file(s) to {document.get('remote')}:")
+        for path in uploaded:
+            click.echo(f"  {path}")
+    else:
+        click.echo(f"Uploaded no input file to {document.get('remote')}: it had them all.")
 
 
 def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:

@@ -14,9 +14,11 @@ import pytest
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoSynth
 
+from .remote_fixtures import fake_remote, fake_ssh, remote_host
 from .test_vivado_step_tables import PART, _design
 from .tool_utils import use_fake_tools
 
+FIXTURES = (fake_ssh, fake_remote, remote_host)
 SETTINGS = {"fpga": PART, "clock": {"period": "5.5 ns"}}
 NAMES = ("", "xeda", "xeda.flow_runner", "xeda.flows.vivado", "not.xeda")
 
@@ -190,25 +192,39 @@ def test_a_direct_search_launch_logs_at_debug_when_asked(tmp_path, monkeypatch) 
     assert logging.getLogger("xeda").level == logging.NOTSET
 
 
-def test_a_remote_launch_logs_at_debug_when_asked(tmp_path, monkeypatch) -> None:
-    """`RemoteRunner.run_remote` is a way in too."""
-    from xeda.flow_runner.remote import RemoteRunner
+def test_a_remote_launch_changes_no_logger(tmp_path, remote_host) -> None:
+    """`run_remote` is a way in too: it takes the log level as an argument, and it neither sets
+    a logger of the process nor leaves one changed."""
+    from xeda.remote.client import run_remote
 
-    seen: list = []
-
-    class Stop(Exception):
-        pass
-
-    def refuse(self, *args, **kwargs):
-        seen.append(logging.getLogger("xeda.flow_runner").isEnabledFor(logging.DEBUG))
-        raise Stop
-
-    monkeypatch.setattr(RemoteRunner, "_refuse_unaccepted_request", refuse)
-    runner = RemoteRunner(tmp_path / "run", debug=True)
-    with pytest.raises(Stop):
-        runner.run_remote(_design(), "vivado_synth", "nowhere")
-    assert seen == [True]
-    assert logging.getLogger("xeda").level == logging.NOTSET
+    design = tmp_path / "d.yaml"
+    design.write_text("name: d\nrtl:\n  sources: []\n  top: t\n")
+    before = levels()
+    outcome = run_remote(
+        "nextpnr",
+        design=design,
+        destination_text="somewhere",
+        run_root=tmp_path / "run",
+        flow_settings=["no_such_setting=1"],  # refused at planning, before any connection
+        xedaproject=None,
+        design_overrides=[],
+        design_allow_extra=False,
+        target=None,
+        select_design_in_project=None,
+        hashed_run_dirs=False,
+        clean=False,
+        rebuild_all=False,
+        scrub=False,
+        dry_run=False,
+        fetch_all=False,
+        outputs_to=None,
+        overwrite_outputs=False,
+        confirm_overwrite=None,
+        log_level=logging.DEBUG,
+        detailed_logs=False,
+    )
+    assert not outcome.success and outcome.error is not None
+    assert levels() == before
 
 
 class _RecordingLauncher:
@@ -221,30 +237,32 @@ class _RecordingLauncher:
     def __init__(self, *args, **settings):
         self.given.append(settings)
 
-    def run_remote(self, *args, **kwargs):
-        return {"success": True, "run_path": "/remote/run"}
-
     def run(self, *args, **kwargs):
         return None
 
 
 @pytest.mark.parametrize("where", ["command", "group"])
-def test_the_command_line_hands_its_debug_option_to_the_remote_runner(
+def test_the_command_line_hands_its_debug_option_to_the_remote_run(
     where, tmp_path, monkeypatch
 ) -> None:
     from click.testing import CliRunner
 
     from xeda.cli import cli
-    from xeda.flow_runner import remote
+    from xeda.remote import client
+
+    given: list = []
+
+    def recorded(chain, **arguments):
+        given.append(arguments)
+        return client.RemoteOutcome({"success": True, "run_path": "/mirror/run"}, True)
 
     sqrt = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(remote, "RemoteRunner", _RecordingLauncher)
-    _RecordingLauncher.given = []
+    monkeypatch.setattr(client, "run_remote", recorded)
     args = ["run", "vivado_synth", str(sqrt), "--remote", "host", "--json"]
     args = ["--debug", *args] if where == "group" else [*args, "--debug"]
     CliRunner().invoke(cli, args, catch_exceptions=False)
-    assert [given.get("debug") for given in _RecordingLauncher.given] == [True]
+    assert [arguments["log_level"] for arguments in given] == [logging.DEBUG]
 
 
 @pytest.mark.parametrize("where", ["command", "group"])

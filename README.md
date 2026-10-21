@@ -107,6 +107,19 @@ xeda run yosys_fpga+nextpnr+fpga_pack examples/boards/ulx3s/blinky/blinky.xeda.y
 Flow names accept snake case, dashes, CamelCase class names and the documented aliases. Setting
 names are exact: an unknown setting is an error.
 
+### Remote runs
+
+`--remote HOST` runs the whole request on a Linux machine over SSH. `HOST` is any destination that
+`ssh` accepts. The host needs no Xeda: the first run installs it, and the results come back to your
+run root.
+
+```bash
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --remote <host>
+```
+
+See the [remote runs](https://xeda.readthedocs.io/en/latest/remote.html) page for the setup,
+`xeda remote check` and runs that keep going after you disconnect.
+
 ### Finding out what is available
 
 ```bash

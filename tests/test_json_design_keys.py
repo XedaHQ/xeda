@@ -18,10 +18,12 @@ import pytest
 from click.testing import CliRunner
 
 from xeda.cli import cli
-from xeda.flow_runner import remote as remote_module
 from xeda.introspect import design_info
 
 from .project_files import PROJECT_FILE
+from .remote_fixtures import fake_remote, fake_ssh, remote_host
+
+FIXTURES = (fake_ssh, fake_remote, remote_host)
 
 EXAMPLE = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 FAKE_TOOLS = Path(__file__).parent / "fake_tools"
@@ -128,18 +130,13 @@ def test_no_design_at_all_names_neither(world):
     assert document["design"] is None and document["design_file"] is None
 
 
-def test_a_remote_run_reports_the_same_two_keys(world, monkeypatch):
+def test_a_remote_run_reports_the_same_two_keys(world, remote_host, monkeypatch):
     """The design loads before anything connects, so the document has its name."""
-
-    class Unreachable:
-        def __init__(self, host, user=None, port=None):
-            raise ConnectionRefusedError(f"connected to {host}")
-
-    monkeypatch.setattr(remote_module, "Connection", Unreachable)
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
     status, document = _json("run", "verilator", "blink.toml", "--remote", "somewhere")
 
     assert status == 1 and document["success"] is False
-    assert document["error"]["type"] == "ConnectionRefusedError"
+    assert document["error"]["type"] == "RemoteConnectionError"
     assert document["design"] == "blink"
     assert _is(document["design_file"], world / "blink.toml")
 

@@ -74,18 +74,19 @@ the same flow. An unrecognized name gets a list of close matches.
 Settings
 ========
 
-Every flow declares its own settings. A setting can come from six places. This is the order from
+Every flow declares its own settings. A setting can come from seven places. This is the order from
 the lowest to the highest precedence:
 
 1. the defaults of the flow
-2. the ``flows.<flow_name>`` section of a project file (``xedaproject.yaml``)
-3. the ``flows.<flow_name>`` section of the design file
-4. the ``flows.<flow_name>`` section of the selected target, if you chose a target with
+2. with ``--remote``, the ``flows`` section of the host profile (see :doc:`remote`)
+3. the ``flows.<flow_name>`` section of a project file (``xedaproject.yaml``)
+4. the ``flows.<flow_name>`` section of the design file
+5. the ``flows.<flow_name>`` section of the selected target, if you chose a target with
    ``--target`` (see :ref:`targets`)
-5. the command line, with ``-s`` or ``--settings``. The ``flow_settings`` argument of ``run()`` and
+6. the command line, with ``-s`` or ``--settings``. The ``flow_settings`` argument of ``run()`` and
    ``plan()`` is the same layer, so messages call it "the command line (``-s``) or
    ``flow_settings``".
-6. the API, with ``flow_overrides``
+7. the API, with ``flow_overrides``
 
 The layers merge key by key. ``-s clock.freq=100MHz`` changes that one setting of a ``clock``
 section from the design file and does not replace the whole section. A higher layer replaces only
@@ -162,9 +163,8 @@ value or as a table, as for any setting. ``-s set_synth_properties.A=1`` and
 ``-s flows.vivado_synth.set_synth_properties.A.B=2`` are one origin, so Xeda refuses them too. A
 name with a backslash before a dot (``A\.B``) is refused in every origin, because the names of the
 tool have no backslash.
-A remote run (``--remote``) refuses such a table when it holds a name that starts with another
-name and a dot (``A`` and ``A.B``), before it connects. The message names the table and the keys.
-A local run accepts a table whose names come from different origins.
+A remote run (``--remote``) gets the table as the local origins merged it, ``A`` and ``A.B``
+included.
 
 A name with a space is a quoted shell item::
 
@@ -613,8 +613,8 @@ Xeda first refuses a request that the declarations of the design already rule ou
 generator runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch
 is refused before those side effects. Materialize the sources first, or pass an already
 materialized ``Design`` to ``DefaultRunner.plan`` of the library (``plan_with_freshness`` adds
-what each node would do). Planning does not call ``init()`` of a flow, and ``--dry-run --remote``
-is refused.
+what each node would do). Planning does not call ``init()`` of a flow. With ``--remote``, the
+host makes the plan (see :doc:`remote`).
 
 The plan also says what a run would do with each flow. The state is ``fresh`` (Xeda reuses the
 result), ``stale: <reason>`` (the flow runs, for the reason that the log would give),
@@ -918,9 +918,9 @@ sections, below those of the design:
         inputs:
           netlist: yosys_fpga
 
-Bindings are local, like chains. ``--remote`` and ``xeda dse`` refuse a chain and any binding that
-the request reaches, before they connect or start a worker. They ignore a binding saved for a flow
-that the request does not reach.
+``xeda dse`` refuses a chain and any binding that the request reaches, before it starts a worker.
+It ignores a binding saved for a flow that the request does not reach. A remote run takes chains
+and bindings (see :doc:`remote`).
 
 What is supported today
 -----------------------
@@ -2188,7 +2188,8 @@ sources, and more than one flow converts them``.
   simulator refuses it, and the error names ``bsc_sim``.
 * ``--dry-run`` judges the flow on the design that ``bsc`` would derive. While ``bsc`` is stale,
   it reports the later flow as ``unknown: depends on bsc``.
-* A remote run converts the design on the remote machine, so ``bsc`` must be installed there.
+* A remote run converts the design on the remote machine, so ``bsc`` must be installed there (see
+  :doc:`remote`).
 
 What reruns after an edit follows from what each flow reads:
 

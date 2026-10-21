@@ -92,6 +92,8 @@ class IseSynth(FpgaSynthFlow):
     The bitstream, `<top>.bit`, is recorded as the `bitstream` artifact.
     """
 
+    executables = ("xtclsh",)
+
     results_description = describe_results(
         "minimum_period",
         "maximum_frequency",

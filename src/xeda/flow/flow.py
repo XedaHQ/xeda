@@ -955,6 +955,12 @@ class Flow(metaclass=ABCMeta):
     #: a separate, dynamic decision: the launcher asks it at run time whether the flow must run.
     action_reason: ClassVar[str | None] = None
 
+    #: The names of every program that the flow may start, under any setting: its tools and the
+    #: helpers that only some settings need (a compiler, `make`). `xeda remote check` looks for
+    #: them on the login `PATH` of a remote host. A program that a run builds (`simv`) is not
+    #: one. `tests/test_flow_executables.py` finds the programs that the code names.
+    executables: ClassVar[tuple[str, ...]] = ()
+
     @classmethod
     def required_settings_for(cls, settings: Flow.Settings) -> Mapping[str, str]:
         """Return the settings this flow cannot run without, given `settings`.

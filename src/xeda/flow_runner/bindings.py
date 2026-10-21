@@ -162,8 +162,7 @@ def split_bindings(
 
 
 LOCAL_REQUESTS_ONLY = (
-    "Flow chains and input bindings are local `xeda run` requests: --remote and dse do not "
-    "take them."
+    "Flow chains and input bindings are local `xeda run` requests: dse does not take them."
 )
 
 _REFERENCE = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)(?:\.([A-Za-z_][A-Za-z0-9_]*))?\Z")

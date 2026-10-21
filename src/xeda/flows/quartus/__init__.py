@@ -75,6 +75,8 @@ def try_float(s: str):
 class Quartus(FpgaSynthFlow):
     """Compile a design for an Intel FPGA with Quartus."""
 
+    executables = ("quartus_sh",)
+
     #: The `quartus_sh` tool. `init()` makes one for each flow, because a tool holds the flow's
     #: settings (`dockerized`) and what it learned about the program. Neither belongs to the class.
     quartus_sh: Tool

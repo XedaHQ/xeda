@@ -129,6 +129,7 @@ from .settings_layers import (
     check_not_removed,
     command_line_sections,
     compose_flow_settings,
+    host_profile_origin,
     merge_flow_sections,
     split_flow_sections,
     transitive_dependencies,
@@ -277,6 +278,20 @@ class _Request:
     api_overrides: dict[str, Any]
     flow_request: FlowRequest
     binding_layers: tuple[BindingLayer, ...]
+
+
+@dataclass(frozen=True)
+class PreparedRequest:
+    """A request that is loaded, resolved and checked, and not yet launched.
+
+    `FlowLauncher.prepare_request` returns it. `sections` are the merged `flows` sections of all
+    layers, flow by flow, as a launch is handed them."""
+
+    design: Design
+    sections: dict[str, Any]
+    plan: Plan
+    flow_request: FlowRequest
+    target: str | None
 
 
 def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
@@ -1712,7 +1727,7 @@ class FlowLauncher:
     ) -> None:
         """Refuse, before anything is loaded, what a launcher that takes no requests refuses.
 
-        Such launchers are `Dse` and `RemoteRunner.run_remote`. What they refuse here needs no
+        Such a launcher is `Dse`. What it refuses here needs no
         design: a chain, and an input binding of the requested node given on the command line,
         through the API or in the project file (`LOCAL_REQUESTS_ONLY`). Loading a design may
         clone a Git dependency into the run root, so a refusal that came after it would leave
@@ -1864,6 +1879,55 @@ class FlowLauncher:
         )[1]
 
     @with_debug_logging
+    def prepare_request(
+        self,
+        flow: type[Flow] | str | FlowRequest,
+        design: str | Path | Design | dict[str, Any] | None = None,
+        xedaproject: str | None = None,
+        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
+        select_design_in_project=None,
+        design_overrides: Iterable[str] | dict[str, Any] | None = None,
+        design_allow_extra: bool = False,
+        target: str | None = None,
+        *,
+        host_flows: Mapping[str, Mapping[str, Any]] | None = None,
+        host: str | None = None,
+        planning: bool = False,
+    ) -> PreparedRequest:
+        """Load, resolve and check a request as `run()` does before it launches, and launch nothing.
+
+        The checks are those of `run()`: what the design declarations show, the plan of a launcher
+        that takes no chain or binding, and what a launch refuses of the plan (a run directory
+        that a flow refuses, `--outputs-to` for a programmer). With `planning`, loading also
+        refuses to start a generator or to fetch, as `plan()` does.
+
+        `host_flows` is the `flows` table of a host profile (flow name to settings), and `host`
+        names that profile in messages ("the host profile of <host>"). The table is the lowest
+        layer of the settings of every flow, below the `flows` section of the project file. Only
+        this method takes it."""
+        if not self.accepts_bindings:
+            self._refuse_unaccepted_request(flow, flow_settings, [], xedaproject)
+        request, plan = self._judged_request(
+            flow,
+            design,
+            xedaproject,
+            flow_settings,
+            [],
+            select_design_in_project,
+            design_overrides,
+            design_allow_extra,
+            [],
+            target=target,
+            planning=planning,
+            host_layer=(host_profile_origin(host), host_flows) if host_flows is not None else None,
+        )
+        self._refuse_unaccepted_plan(request, plan)
+        self._refuse_planned(plan, run_directories_here=host_flows is None)
+        return PreparedRequest(
+            request.design, request.sections, plan, request.flow_request, request.design.target
+        )
+
+    @with_debug_logging
     def plan_with_freshness(
         self,
         flow: type[Flow] | str,
@@ -1936,14 +2000,15 @@ class FlowLauncher:
         self._refuse_planned(plan)
         return request, plan
 
-    def _refuse_planned(self, plan: Plan) -> None:
+    def _refuse_planned(self, plan: Plan, *, run_directories_here: bool = True) -> None:
         """Refuse what a launch refuses of a resolved plan before anything runs.
 
         A plan reports it too: a run directory that a flow cannot work in, and `--outputs-to`
-        for a programmer."""
+        for a programmer. A remote run builds in run directories on the remote host, and the
+        launch there judges them (`run_directories_here` is false)."""
         # The launch refuses these too, where it decides the directory
         # (`launch_identity.run_identity`).
-        for node in plan.nodes:
+        for node in plan.nodes if run_directories_here else ():
             node.flow_class.check_run_directory(node.settings, node.run_path)
         if self.settings.outputs_to is not None:
             refuse_outputs_to_a_programmer(
@@ -1974,6 +2039,7 @@ class FlowLauncher:
         *,
         target: str | None,
         planning: bool = False,
+        host_layer: tuple[str, Mapping[str, Any]] | None = None,
     ) -> tuple[_Request, Plan]:
         """Load and resolve a request, refusing first what needs only the design declarations.
 
@@ -2006,7 +2072,9 @@ class FlowLauncher:
         declared: _Request | None = None
         with deferring_load_side_effects() as deferred:
             try:
-                declared = self._request(*arguments, target=target, _planning=planning)
+                declared = self._request(
+                    *arguments, target=target, _planning=planning, host_layer=host_layer
+                )
             except Exception as error:
                 # `_request` names the design once it has loaded it. What fails after that is
                 # the request's own refusal, which the full load makes too: it reads the
@@ -2028,8 +2096,10 @@ class FlowLauncher:
         if declared is not None and deferred.complete:
             plan = self._resolve_request(declared, identify_design=False)
             self._refuse_unaccepted_plan(declared, plan)
-            self._refuse_planned(plan)
-        request = self._request(*arguments, target=target, _planning=planning)
+            self._refuse_planned(plan, run_directories_here=host_layer is None)
+        request = self._request(
+            *arguments, target=target, _planning=planning, host_layer=host_layer
+        )
         return request, self._resolve_request(request)
 
     def _request(
@@ -2046,8 +2116,12 @@ class FlowLauncher:
         *,
         target: str | None = None,
         _planning: bool = False,
+        host_layer: tuple[str, Mapping[str, Any]] | None = None,
     ) -> _Request:
-        """Load the design and the layers of settings of a request, and return the request."""
+        """Load the design and the layers of settings of a request, and return the request.
+
+        `host_layer` is the label and the `flows` table of a host profile: the lowest layer of
+        the settings of every flow (`prepare_request`)."""
         # Nothing is loaded yet: a request that fails before its design loads reports none.
         self.target = None
         self.design_name = None
@@ -2180,6 +2254,8 @@ class FlowLauncher:
         design_label = str(given_file.absolute()) if given_file else f"the design {design.name}"
         if xeda_project is not None and not design_not_in_project:
             design_label = f"{project_label}: design {design.name}"
+        host_label, host_table = host_layer if host_layer is not None else ("", {})
+        host_sections, host_bindings = split_bindings(host_table, location=host_label)
         project_sections, project_bindings = split_bindings(flows_settings, location=project_label)
         design_sections, design_bindings = split_bindings(design.flow, location=design_label)
         # The `-s flows.<node>.key` items of the command line are the third origin. They may only
@@ -2196,7 +2272,13 @@ class FlowLauncher:
         api_sections, api_bindings = split_bindings(
             {flow_class.name: flow_overrides}, location=API_ORIGIN, kind="api"
         )
-        binding_layers = (project_bindings, design_bindings, cli_bindings, api_bindings)
+        binding_layers = (
+            *((host_bindings,) if host_layer is not None else ()),
+            project_bindings,
+            design_bindings,
+            cli_bindings,
+            api_bindings,
+        )
         effective_bindings(binding_layers, default_nodes([flow_class]), request=flow_request)
         # Ordinary calls keep the early CLI addressing check. A bound request is checked by
         # the resolver against its graph: an alternate producer can be outside the default one.
@@ -2207,7 +2289,12 @@ class FlowLauncher:
             command_line_sections(
                 explicit_flow_settings, flow_class, flow_class_for=_get_flow_class_if_known
             )
-        origins = [project_sections, design_sections, cli_sections, api_sections]
+        file_origins = [
+            *([host_sections] if host_layer is not None else []),
+            project_sections,
+            design_sections,
+        ]
+        origins = [*file_origins, cli_sections, api_sections]
         all_sections = merge_flow_sections(*origins, flow_class_for=_get_flow_class_if_known)
         # `-s` wins over the design and project files, as documented; see `settings_layers`.
         final_flow_settings = compose_flow_settings(flow_class, origins)
@@ -2215,7 +2302,10 @@ class FlowLauncher:
             # Preserve the final-value model API while the captured CLI origin records only
             # supplied contributions for nested-default diagnostics and shared agreement.
             final_flow_settings = compose_flow_settings(
-                flow_class, origins[:2], flow_settings, api_sections[flow_class.name]
+                flow_class,
+                file_origins,
+                flow_settings,
+                api_sections[flow_class.name],
             )
         if self.settings.debug:
             log.info("design: %s" % PrettyPrinter().pformat(design.model_dump()))
@@ -2233,6 +2323,7 @@ class FlowLauncher:
             tuple(
                 (label, deepcopy(section))
                 for label, section in (
+                    *(((host_label, host_sections),) if host_layer is not None else ()),
                     (project_label, project_sections),
                     (design_label, design_sections),
                 )

@@ -1,6 +1,7 @@
 """How a flow's settings layers combine (`xeda.flow_runner.settings_layers`).
 
-Lowest precedence first: the flow's defaults, the project's `flows` section, the design's
+Lowest precedence first: the flow's defaults, the `flows` table of the host profile of a remote
+run, the project's `flows` section, the design's
 `[flows.<flow>]` section, the command line's `-s`. Layers merge deeply -- `-s yosys.flatten=true`
 changes one setting of a nested section instead of replacing it -- and a local run, a remote run
 and a dependency's settings all combine them the same way.
@@ -15,11 +16,19 @@ import pytest
 from xeda import Design
 from xeda.flow import FlowSettingsError, flowrun_hash
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import merge_flow_sections, merge_layers, split_flow_sections
+from xeda.flow_runner.settings_layers import (
+    compose_flow_settings,
+    merge_flow_sections,
+    merge_layers,
+    split_flow_sections,
+)
 from xeda.flows import GhdlSim, Nextpnr, VivadoPostsynthSim, VivadoSynth, YosysFpga
 from xeda.xedaproject import XedaProject
 
 from .project_files import PROJECT_FILE
+from .remote_fixtures import fake_remote, fake_ssh, remote_host, remote_request
+
+FIXTURES = (fake_ssh, fake_remote, remote_host)
 
 pytestmark = pytest.mark.python_compat
 
@@ -66,6 +75,22 @@ def test_merging_leaves_every_layer_unchanged():
     design = {"yosys": {"abc9": True}}
     merge_layers(design, {"yosys": {"flatten": True}})
     assert design == {"yosys": {"abc9": True}}
+
+
+def test_a_host_profile_section_is_the_lowest_origin_of_a_flow():
+    host = {"vivado_synth": {"nthreads": 8, "fail_timing": True}}
+    project = {"vivado_synth": {"nthreads": 4}}
+    design = {"vivado_synth": {"fail_timing": False}}
+
+    assert compose_flow_settings(VivadoSynth, [host]) == host["vivado_synth"]
+    assert compose_flow_settings(VivadoSynth, [host, project]) == {
+        "nthreads": 4,
+        "fail_timing": True,
+    }
+    assert compose_flow_settings(VivadoSynth, [host, project, design]) == {
+        "nthreads": 4,
+        "fail_timing": False,
+    }
 
 
 def test_a_design_section_refines_the_projects_section_for_the_same_flow():
@@ -520,10 +545,35 @@ def test_a_flow_section_written_with_an_alias_is_applied(tmp_path, monkeypatch, 
     assert launched["all_flows"] == {"ghdl_sim": {"werror": True}}
 
 
-def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, monkeypatch):
-    """The remote runner merged the other way round: the design file beat `-s`."""
-    from xeda.flow_runner import remote
+@pytest.fixture
+def sent(monkeypatch, remote_host):
+    """What `run_remote` hands to packaging, without running anything: the merged flow sections
+    and the flows of the plan."""
+    from xeda.remote import client
 
+    captured = {}
+
+    def package_inputs(design, sections, planned, **kwargs):
+        captured.update(design=design, sections=sections, planned=planned)
+        raise _Launched
+
+    monkeypatch.setattr(client, "package_inputs", package_inputs)
+    return captured
+
+
+def _composed(sent, name, design_root):
+    """The settings of the flow `name` that the remote composes from the sections it receives."""
+    from pathlib import Path
+
+    from xeda.flow_runner import get_flow_class
+
+    return get_flow_class(name).Settings.from_input(
+        sent["sections"][name], design_root=design_root, runner_cwd=Path.cwd()
+    )
+
+
+def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, sent):
+    """The remote runner merged the other way round: the design file beat `-s`."""
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     design = _write(
         tmp_path / "d.toml",
@@ -538,58 +588,36 @@ def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, m
         out_of_context = false
         """,
     )
-    composed = {}
-
-    def capture(settings):
-        composed.update(settings=settings)
-        raise _Launched
-
-    monkeypatch.setattr(remote, "written_path_problems", capture)
-    with pytest.raises(_Launched):
-        remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
-            design, "vivado_synth", "host", flow_settings=["out_of_context=true"]
-        )
-
-    assert (composed["settings"].fail_timing, composed["settings"].out_of_context) == (
-        True,
-        True,
+    outcome = remote_request(
+        tmp_path, design, "vivado_synth", flow_settings=["out_of_context=true"]
     )
+    assert isinstance(outcome.error, _Launched), outcome.document
+    settings = _composed(sent, "vivado_synth", tmp_path)
+    assert (settings.fail_timing, settings.out_of_context) == (True, True)
 
 
-def test_a_remote_run_canonicalizes_the_flow_name_and_does_not_mutate_the_design(
-    tmp_path, monkeypatch
-):
-    from xeda.flow_runner import remote
-
+def test_a_remote_run_canonicalizes_the_flow_name(tmp_path, sent):
     (tmp_path / "top.vhd").write_text("entity top is end; architecture rtl of top is begin end;\n")
-    design = Design(
-        name="d",
-        design_root=tmp_path,
-        rtl={"sources": ["top.vhd"], "top": "top"},
-        flows={"ghdl": {"warn_error": True}},
+    design = _write(
+        tmp_path / "d.toml",
+        """
+        name = "d"
+        [rtl]
+        sources = ["top.vhd"]
+        top = "top"
+        [flows.ghdl]
+        warn_error = true
+        """,
     )
-    before = deepcopy(design.flow)
-    captured = {}
-
-    def capture(settings):
-        captured.update(settings=settings)
-        raise _Launched
-
-    monkeypatch.setattr(remote, "written_path_problems", capture)
-    with pytest.raises(_Launched):
-        remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
-            design, "ghdl", "host", flow_settings=["warn_error=false"]
-        )
-
-    assert type(captured["settings"]).__qualname__ == "GhdlSim.Settings"
-    assert captured["settings"].werror is False
-    assert design.flow == before
+    outcome = remote_request(tmp_path, design, "ghdl", flow_settings=["warn_error=false"])
+    assert isinstance(outcome.error, _Launched), outcome.document
+    settings = _composed(sent, "ghdl_sim", tmp_path)
+    assert type(settings).__qualname__ == "GhdlSim.Settings"
+    assert settings.werror is False
 
 
-def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypatch):
+def test_a_remote_run_layers_project_design_and_command_line(tmp_path, sent):
     """A remote run layers project design and command line."""
-    from xeda.flow_runner import remote
-
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     project = _write(
         tmp_path / PROJECT_FILE,
@@ -608,23 +636,15 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
                 out_of_context: false
         """,
     )
-    captured = {}
-
-    def capture(settings):
-        captured.update(settings=settings)
-        raise _Launched
-
-    monkeypatch.setattr(remote, "written_path_problems", capture)
-    with pytest.raises(_Launched):
-        remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
-            "d",
-            "vivado_synth",
-            "host",
-            xedaproject=project,
-            flow_settings=["fail_timing=false"],
-        )
-
-    settings = captured["settings"]
+    outcome = remote_request(
+        tmp_path,
+        "d",
+        "vivado_synth",
+        xedaproject=project,
+        flow_settings=["fail_timing=false"],
+    )
+    assert isinstance(outcome.error, _Launched), outcome.document
+    settings = _composed(sent, "vivado_synth", tmp_path)
     assert type(settings).__qualname__ == "VivadoSynth.Settings"
     assert settings.nthreads == 2
     assert settings.fail_timing is False
@@ -840,12 +860,10 @@ def test_every_accepted_spelling_of_a_setting_gets_the_same_input_conveniences(t
     }
 
 
-def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, monkeypatch):
+def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, sent):
     """The remote runner composes a flow's settings as the local launcher does: the device given
-    only in `[flows.vivado_synth]` reaches `vivado_postsynth_sim` (and gets it past its required settings).
-    """
-    from xeda.flow_runner import remote
-
+    only in `[flows.vivado_synth]` reaches `vivado_postsynth_sim` (and gets it past its required
+    settings, so that the plan is accepted and the sections go to the remote)."""
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     design = _write(
         tmp_path / "d.toml",
@@ -858,18 +876,10 @@ def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, monkeypa
         fpga.part = "xc7a100t"
         """,
     )
-    composed = {}
-
-    def capture(settings):
-        composed.update(settings=settings)
-        raise _Launched
-
-    monkeypatch.setattr(remote, "written_path_problems", capture)
-    with pytest.raises(_Launched):
-        remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
-            design, "vivado_postsynth_sim", "host"
-        )
-    assert composed["settings"].fpga.part == "xc7a100t"
+    outcome = remote_request(tmp_path, design, "vivado_postsynth_sim")
+    assert isinstance(outcome.error, _Launched), outcome.document
+    assert "vivado_postsynth_sim" in sent["planned"] and "vivado_synth" in sent["planned"]
+    assert _composed(sent, "vivado_synth", tmp_path).fpga.part == "xc7a100t"
 
 
 def _one_design(tmp_path, flows_toml: str):

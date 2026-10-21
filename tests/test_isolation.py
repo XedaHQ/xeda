@@ -1558,6 +1558,40 @@ REVIEWED_PY_DELETIONS = {
         "the install command writes the PDK store, outside a run: the partial directory that "
         "this install made, removed after a failure or an interrupt (`rmtree` follows no link)",
     ),
+    ("remote/manifest.py", "os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)"): (
+        1,
+        "the remote sync, outside a run directory (the inputs area of a workspace, or the "
+        "mirror's staging area): a file that passed its SHA-256 check, renamed from its "
+        "temporary name over the name in the same directory, which `parent` holds as an open "
+        "descriptor reached without a link; a link at the name is replaced, never followed",
+    ),
+    ("remote/manifest.py", "os.unlink(name, dir_fd=parent)"): (
+        1,
+        "the remote sync, outside a run directory: a file, or a link as itself, removed by name "
+        "in a directory that `parent` holds as an open descriptor reached without a link; "
+        "`_remove_entry` removes a stale input, a leftover temporary file, or what is at a "
+        "place that the manifest gives to another kind of entry",
+    ),
+    ("remote/agent.py", "shutil.rmtree(path)"): (
+        1,
+        "`xeda.remote.agent clean`, on the remote host outside any run directory: an environment, "
+        "a code copy or a workspace of the remote root that nothing uses (no lock or running "
+        "launch holds it). `clean` enters no link, and `rmtree` "
+        "follows none",
+    ),
+    ("remote/agent.py", "os.rename(path, hidden)"): (
+        1,
+        "`xeda.remote.agent clean`, on the remote host outside any run directory: a workspace, "
+        "an environment or a code copy whose lock `clean` holds is renamed to a hidden name in "
+        "the same directory, so that no session works in it while `rmtree` deletes it. A rename replaces no file: the hidden "
+        "name has the process id of `clean`",
+    ),
+    ("remote/manifest.py", "os.rmdir(name, dir_fd=parent)"): (
+        1,
+        "the remote sync, outside a run directory: a directory that `_remove_entry` has emptied "
+        "(it enters a directory only by `O_NOFOLLOW` and removes a link as a link); `rmdir` "
+        "removes no file",
+    ),
 }
 
 
@@ -1801,6 +1835,107 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
         IN_THE_RUN_DIRECTORY,
         None,
     ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_BREAKER"',
+    ): (
+        2,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: the break directory of a lock, which this process made or which is older "
+        "than the lock limit (its process stopped)",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_SWEEP_PATH"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: a work, staging or uv directory whose name has this host and a process "
+        "that is gone (a process that was killed)",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_ENV_BUILDING"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: the environment directory that this bootstrap process is building, removed after a failure",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_STAGE"',
+    ): (
+        2,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: the staging directory (`code/.<key>.<pid>`, `uv/<release>.new.<pid>`) that this bootstrap process made",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_WORK"',
+    ): (
+        2,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: the work directory (`tmp/<pid>`) that this bootstrap process made",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_LOCKS/$XEDA_BOOT_HELD.lock"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: a lock directory that this bootstrap process holds, released at its end",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$1"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: a lock directory whose owner process is gone, broken under the break lock after the owner was read again",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_LOCKS/$1.lock"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: a lock directory that this bootstrap process holds, released",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_UV_DIR"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: an incomplete uv directory (no `uv` file), under the lock of that uv release",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_ENV_DIR"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: an environment directory without a valid completion marker, under the lock of its key",
+        None,
+    ),
+    (
+        "remote/bootstrap.sh",
+        'rm -rf "$XEDA_BOOT_V/code/$XEDA_BOOT_KEY"',
+    ): (
+        1,
+        "the bootstrap script runs on the remote host, outside a run directory, in its own "
+        "layout `R/v1`: a code directory without a valid completion marker, under the lock of its key",
+        None,
+    ),
 }
 
 #: Commands that replace a project or a directory by its name, whatever their options: each is
@@ -2015,22 +2150,6 @@ REVIEWED_WRITES = [
     ),
     ("run_root.py", 'with os.fdopen(fd, "w") as f:', "the marker or ignore file it just created"),
     (
-        "flow_runner/remote.py",
-        'with open(design_file, "w") as f:',
-        f"`send_design`: the archive's design file, in a `TemporaryDirectory` it made: {_OUTSIDE_RUNS}",
-    ),
-    (
-        "flow_runner/remote.py",
-        'with gzip.open(copy, "wt", encoding="utf-8") as stream:',
-        f"`send_design`: the same copy, compressed as its original is: {_OUTSIDE_RUNS}",
-    ),
-    (
-        "flow_runner/remote.py",
-        'with open(copy, "w", encoding="utf-8") as f:',
-        f"`send_design`: a copy of a Liberty file with its include names changed, in the "
-        f"`TemporaryDirectory` it made: {_OUTSIDE_RUNS}",
-    ),
-    (
         "flows/yosys/common.py",
         "alias.symlink_to(target, target_is_directory=target.is_dir())",
         "creates a link of its own under `path_aliases/`, where no entry is left at the name",
@@ -2070,6 +2189,91 @@ REVIEWED_WRITES = [
         "the install command writes the PDK store, outside a run: the lock file of the store, "
         "opened to be locked, not written; `O_NOFOLLOW` makes the open fail on a link, and the "
         "install checked the way to the file for links just before",
+    ),
+    (
+        "remote/agent.py",
+        "descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)",
+        "the remote agent, outside a run directory: the lock file of a workspace, opened to be "
+        "locked, not written. `O_NOFOLLOW` makes the open fail on a link, and the agent checks "
+        "that the open file is a regular file and still the file at that name before it relies on "
+        "the lock",
+    ),
+    (
+        "remote/agent.py",
+        "descriptor = os.open(path / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)",
+        "`xeda.remote.agent clean`, outside a run directory: a read-only descriptor on the lock "
+        "file of a workspace, an environment or a code copy, to try the lock. It creates and "
+        "writes nothing, `O_NOFOLLOW` makes it fail on a link, and `O_NONBLOCK` keeps a FIFO from "
+        "blocking it (`clean` then skips a lock that is no regular file)",
+    ),
+    (
+        "remote/agent.py",
+        "descriptor = os.open(path, os.O_RDONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)",
+        "the remote agent, outside a run directory: the lock file of an environment or a code "
+        "copy of the remote root, opened to be locked, not written (it is empty, and made only "
+        "when provisioning did not make it). `O_NOFOLLOW` makes the open fail on a link, "
+        "`O_NONBLOCK` keeps a FIFO from blocking it, and the agent checks that the open file is "
+        "a regular file and still the file at that name before it relies on the lock",
+    ),
+    (
+        "remote/agent.py",
+        "os.rename(path, hidden)",
+        "`xeda.remote.agent clean`, outside a run directory: the workspace, environment or code "
+        "copy whose lock `clean` holds, renamed to a hidden name before its deletion (see `REVIEWED_PY_DELETIONS`)",
+    ),
+    (
+        "remote/agent.py",
+        "descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)",
+        "the remote agent, outside a run directory: the log of a launch, a new file in the new "
+        "directory of the launch, created exclusively (an existing entry, a link included, is "
+        "refused); the launch writes its output to it",
+    ),
+    (
+        "remote/manifest.py",
+        "return os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)",
+        "the remote sync: a read-only descriptor on a directory; it creates and writes nothing, "
+        "and `O_NOFOLLOW` makes it fail on a link",
+    ),
+    (
+        "remote/manifest.py",
+        "descriptor = os.open(temporary, flags, 0o600, dir_fd=parent)",
+        "the remote sync, outside a run directory: a new temporary file in a directory reached "
+        "without a link, created exclusively with a random name (an existing entry, a link "
+        "included, is refused); it is checked against its SHA-256 and then renamed",
+    ),
+    (
+        "remote/environment.py",
+        'with tarfile.open(fileobj=out, mode="w", format=tarfile.GNU_FORMAT) as tar:',
+        "`write_code_tar`: writes the code snapshot to the stream that it is given and names no "
+        "file",
+    ),
+    (
+        "remote/manifest.py",
+        'with tarfile.open(fileobj=out, mode="w|", format=tarfile.PAX_FORMAT) as archive:',
+        "`write_tar`: writes to the stream that it is given and names no file",
+    ),
+    (
+        "remote/manifest.py",
+        'archive = tarfile.open(fileobj=tar_stream, mode="r|")',
+        "`iter_tar`: reads the stream that it is given and extracts nothing",
+    ),
+    (
+        "remote/manifest.py",
+        "descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)",
+        "the remote sync: a read-only descriptor on a file, to compare its digest; it creates and "
+        "writes nothing, `O_NOFOLLOW` makes it fail on a link and `O_NONBLOCK` keeps a pipe from "
+        "blocking it",
+    ),
+    (
+        "remote/manifest.py",
+        "os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)",
+        "the remote sync: a file that passed its SHA-256 check, renamed over its name; a link at "
+        "the name is replaced, never written through",
+    ),
+    (
+        "remote/manifest.py",
+        'with os.fdopen(descriptor, "wb") as out:',
+        "the remote sync: the temporary file that was just created exclusively",
     ),
 ]
 

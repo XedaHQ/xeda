@@ -548,6 +548,8 @@ class Openfpgaloader(FpgaSynthFlow):
     device.
     """
 
+    executables = ("openFPGALoader",)
+
     #: No setting is required, except the device to program the flash (`required_settings_for`).
     required_settings: dict[str, str] = {}
 

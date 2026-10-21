@@ -161,6 +161,8 @@ class Verilator(SimFlow):
     the file. Xeda opens no waveform.
     """
 
+    executables = ("verilator", "make")
+
     cocotb_sim_name = "verilator"
 
     #: Verilator compiles the Verilog, SystemVerilog and C++ sources, and finds a header through

@@ -45,6 +45,8 @@ class Nvc(SimFlow):
     or on the compiler's include search path. The monitor schedules no simulation events.
     """
 
+    executables = ("nvc", "sh", "c++")
+
     cocotb_sim_name = "nvc"
     #: NVC analyzes VHDL.
     reads_sources = frozenset({SourceType.Vhdl})

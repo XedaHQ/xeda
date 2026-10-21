@@ -338,6 +338,8 @@ def _verilog_modules(path: Path) -> list[str]:
 class BscFlow(Flow, metaclass=ABCMeta):
     """Compile Bluespec with bsc: the settings and the compilation `bsc` and `bsc_sim` share."""
 
+    executables: ClassVar[tuple[str, ...]] = ("bsc",)
+
     #: The name of the setting for the output directory, which `cleanup_bobjs` removes modules from.
     output_dir_setting: ClassVar[str]
 
@@ -1406,6 +1408,18 @@ class BscSim(BscFlow, SimFlow):
     compilation. The Linux CI job checks the real Icarus evidence and the registration of the
     built-in tasks.
     """
+
+    executables = BscFlow.executables + (
+        "vsim",
+        "vvp",
+        "xsim",
+        "verilator",
+        "iverilog",
+        "c++",
+        "cc",
+        "sh",
+        "make",
+    )
 
     results_description = describe_results(
         "sim.evidence",

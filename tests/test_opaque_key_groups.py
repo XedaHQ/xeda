@@ -254,21 +254,3 @@ def test_a_path_variable_in_a_nested_name_expands_as_in_the_folded_name(tmp_path
     assert dict(settings.ir_drop.vsrc_files) == {"u_core.VDD": root / "vsrc.csv"}
     again = Openroad.Settings.from_input(settings.model_dump(mode="json"), design_root=root)
     assert again.ir_drop.vsrc_files == settings.ir_drop.vsrc_files
-
-
-def test_a_table_that_holds_a_name_inside_another_is_found_at_any_depth():
-    """A local run accepts such a table. The remote run refuses it."""
-    from xeda.dataclass import names_inside_names
-
-    plain = {"ir_drop": {"instance_power": {"u_core.reg_1": "1 mW", "u_core.reg_2": "1 mW"}}}
-    assert names_inside_names(Openroad.Settings, plain) == []
-    both = {"ir_drop": {"instance_power": {"u_core": "2 mW", "u_core.reg_1": "1 mW"}}}
-    assert names_inside_names(Openroad.Settings, both) == [
-        ("ir_drop.instance_power", "u_core", "u_core.reg_1")
-    ]
-    merged = merge_layers(
-        {"ir_drop.instance_power.u_core": "2 mW"},
-        {f"ir_drop.instance_power.{NAME}": "1 mW"},
-        settings_cls=Openroad.Settings,
-    )
-    assert len(names_inside_names(Openroad.Settings, merged)) == 1, "also as merged names"

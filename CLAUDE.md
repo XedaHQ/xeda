@@ -38,7 +38,9 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
   `XEDA_TESTS_YOSYS_TCL` (a yosys with Tcl), `XEDA_TESTS_PDK_ROOT` (a PDK store) with
   `XEDA_TESTS_PLATFORMS` (the bundled platforms it holds) and `XEDA_TESTS_PDK_PROVIDERS` (extra
   `platform:provider` pairs it holds), `XEDA_TESTS_ASIC_QOR` with
-  `XEDA_TESTS_ORFS` (an OpenROAD-flow-scripts checkout).
+  `XEDA_TESTS_ORFS` (an OpenROAD-flow-scripts checkout), `XEDA_TESTS_REMOTE_HOST` (a Linux host
+  that `ssh` reaches without a prompt; `tools/remote_test_sshd.py start` runs one in Docker) with
+  `XEDA_TESTS_REMOTE_SSH_CONFIG` (its `ssh -F` file).
 - `pytest &` in a non-interactive shell ignores SIGINT: a test that interrupts a tool sets
   `DEFAULT_SIGINT` (`tests/test_proc_utils.py`) and waits for a ready signal, never a sleep.
 
@@ -59,6 +61,9 @@ nested. Launch and `xeda scrub` share one rule, `run_dir.run_directory_problem`
   `default_runner` (`tests/test_launcher_modules.py`). Patch a name on the module whose code
   looks it up (`tests/test_patch_targets.py`). `resolver.py` plans every run before any flow is
   built. `xeda/introspect.py` is the one source of metadata for the CLI, docs and skill.
+- `--remote` (`xeda/remote/`) runs the whole launch on the host through one OpenSSH master per
+  launch (no option that weakens authentication or host keys); both ends run the same provisioned
+  code, so there is no version check (`tests/test_remote_client.py`, `tests/test_remote_agent.py`).
 
 ### Flow lifecycle
 
@@ -129,6 +134,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   (`tests/test_openroad_templates.py`).
 - Each flow needs its own docstring, a `results_description` from `describe_results(...)` (`{}`
   if none) and `description=` on every settings field (`tests/test_documentation.py`).
+- `Flow.executables` lists every program the flow may start, helpers included; `xeda remote check`
+  reads it (`tests/test_flow_executables.py` scans `Tool(...)` and `.derive(...)` calls).
 - A flow that reads design sources declares `reads_sources` and iterates `sources_read()`
   (`None`: declared inputs only). Declare `design_parts` (with `tb` if code or a template reads
   it) and `design_source_types` completely; a missing part is a stale reuse
@@ -210,7 +217,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - Fake tools: `tool_utils.use_fake_tools(monkeypatch)` runs Tcl scripts under `tclsh` and
   records tool commands (`fake_calls`, `XEDA_FAKE_TOOL_FAIL`). A new fake is a symlink to
   `tests/fake_tools/fake_tool.py` plus a `fake_tools` entry. No test starts a real
-  `openFPGALoader` (`programmer_guard`).
+  `openFPGALoader` (`programmer_guard`). The fake `ssh`, `uv` and `curl` are in
+  `tests/fake_tools/remote/`, on a `PATH` only through the remote fixtures.
 - `--json` puts exactly one JSON document on stdout; tool output goes to stderr, so a process
   started outside `run_process` must honor `proc_utils.tool_output_redirect()`. Every failure,
   usage errors too, emits `{"success": false, "error": ...}` (`tests/test_cli_json_contract.py`).

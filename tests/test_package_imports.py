@@ -124,11 +124,8 @@ expected = {{
     "SynthFlow": ("xeda.flow", "SynthFlow"),
     "Tool": ("xeda.tool", "Tool"),
 }}
-assert xeda.REMOTE_PROTOCOL_VERSION == 1
 assert isinstance(xeda.__version__, str)
-assert set(xeda.__all__) == set(expected) | {{
-    "REMOTE_PROTOCOL_VERSION", "__version__", "design", "flow_runner", "flows"
-}}
+assert set(xeda.__all__) == set(expected) | {{"__version__", "design", "flow_runner", "flows"}}
 for name, (module_name, attribute) in expected.items():
     assert getattr(xeda, name) is getattr(importlib.import_module(module_name), attribute)
 for name in ("design", "flow_runner", "flows"):

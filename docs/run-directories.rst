@@ -553,32 +553,15 @@ file with one of these names.
 Remote runs
 ===========
 
-A remote host must run Xeda 0.4.4 or newer (a development build of this release line counts), with
-remote protocol 1 or newer. Protocol 1 provides:
-
-- canonical resolved settings;
-- relocated read inputs, with their original path identities;
-- declared output records and checked hand-over;
-- the rule for simulation evidence (a remote simulation must confirm that it ended successfully);
-- the FPGA build graph: ``fpga_pack``, ``nextpnr`` on Xilinx 7-series, and an ``openfpgaloader``
-  that only programs;
-- the node identity of chains (the hash of a node is its settings plus where its declared inputs
-  come from, and the local mirror is named by it, so a remote that computes another hash cannot take
-  part);
-- the declared outputs of Vivado synthesis;
-- the declared netlist of ``yosys``, with its ASIC configuration derived from its own ``platform``
-  and with the files of a bundled platform counted relative to the Xeda installation.
-
-Before it ships the design, Xeda checks the package that the remote interpreter actually imports. A
-release without the protocol marker, or with a lower protocol, is refused with an "upgrade the
-remote Xeda" error.
-
-A remote run (``--remote``) always runs fresh on the remote. Xeda mirrors its results locally in the
-hashed layout (``<design>[/<target>]/<flow>_<hash>``), so remote runs of different settings never
-share a directory. ``--clean`` and ``--hashed-run-dirs`` would change nothing, so Xeda refuses both.
-``--rebuild-all`` forces the local loading of generators before the design is shipped, while the
-remote flow still runs fresh. The remote setting ``clean`` does not force a local generator on
-ordinary invocations. Chains and ``--dry-run`` are refused with ``--remote``.
+A remote run (``--remote HOST``) runs the request on a Linux host over SSH. The run directories
+are on the remote host, below the run root of a workspace that stays between runs. The reuse of
+earlier runs works there as it does locally. Xeda mirrors the results, the logs, the reports and
+the declared outputs under ``<run root>/@<host>/``, with the same layout as a local run root
+(``<design>[/<target>]/<flow>[_<hash>]``). The mirror holds no ``trace.json``, so a local run never
+reuses it. A mirror directory is replaced by each fetch. ``--hashed-run-dirs``, ``--clean``,
+``--rebuild-all``, ``--scrub`` and ``--dry-run`` act on the remote run directories, as they do for a
+local run. ``--post-cleanup`` and ``--post-cleanup-purge`` are refused, because the run directories
+are not on your machine: ``xeda remote clean`` frees the space on the host. See :doc:`remote`.
 
 Cleaning up
 ===========
@@ -878,9 +861,9 @@ one path. Xeda refuses a deliverable setting that is given as a location, or ``o
 the search starts.
 
 ``xeda run --remote`` delivers ``--outputs-to`` only after a run that succeeded, and only from its
-local mirror, once the remote's results are there. The mirror always uses the hashed layout,
-``<design>[/<target>]/<flow>_<hash>/``, whatever ``--hashed-run-dirs`` says for local runs. Xeda
-refuses a deliverable that is given as a location before it ships anything, because the flow runs on
+local mirror, once the results of the host are there. The mirror has the layout of the run
+directories of the host, so ``--hashed-run-dirs`` decides whether its directories carry the hash.
+Xeda refuses a deliverable that is given as a location before it connects, because the flow runs on
 the remote host and would write the location there, on the remote file system. Use ``--outputs-to``:
 it delivers from the artifacts that Xeda fetched into the local mirror. For a remote run,
 ``--outputs-to`` may never land on or in anything that the requested flow reads. Xeda takes this

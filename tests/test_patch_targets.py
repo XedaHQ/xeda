@@ -124,7 +124,7 @@ def _module_names(tree: ast.AST, package: str | None = None) -> dict[str, str]:
 
     Covers `import xeda.flow_runner.default_runner as runner`, `import xeda.tool` (which binds
     `xeda`), `from xeda.flow_runner import default_runner` and, with `package`, xeda's own
-    relative form `from .flow_runner import remote as remote_runner` -- the `from` cases only
+    relative form `from .flow_runner import resolver as plan_resolver` -- the `from` cases only
     when the imported name really is a module, so a class or function imported the same way is
     not mistaken for one.
     """
@@ -139,7 +139,7 @@ def _module_names(tree: ast.AST, package: str | None = None) -> dict[str, str]:
                 else:  # `import xeda.tool` binds `xeda`
                     names[alias.name.split(".")[0]] = alias.name.split(".")[0]
         elif isinstance(node, ast.ImportFrom):
-            if node.level and package:  # `from .flow_runner import remote`
+            if node.level and package:  # `from .flow_runner import resolver`
                 base = ".".join(package.split(".")[: len(package.split(".")) - node.level + 1])
                 prefix = f"{base}.{node.module}" if node.module else base
             elif not node.level and (node.module or "").startswith("xeda"):
@@ -359,8 +359,8 @@ def _reads_module_attribute(
     if tree is None:
         return None
     local = {alias for alias, dotted in _aliases(source, package) if dotted == module}
-    # the code xeda ships as a string and runs in another interpreter (`REMOTE_PROBE`,
-    # `remote_runner`) looks names up there just as ordinary code does
+    # the code xeda ships as a string and runs in another interpreter looks names up there just
+    # as ordinary code does
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if "import" in node.value and name in node.value:
@@ -408,11 +408,10 @@ def _reads_module_attribute(
 def _read_in_the_product(module: str, name: str) -> str | None:
     """Where `src/xeda` reads `name` as an attribute of the `module` object, or None.
 
-    `remote_runner.RemoteRunner(...)` in `cli.py`, and `xeda.__version__` and
-    `getattr(xeda, "REMOTE_PROTOCOL_VERSION")` inside `remote.py`'s `REMOTE_PROBE` -- code xeda
-    ships as a string and runs in the remote interpreter -- are live patch targets even though
-    the owning module never reads the name itself: the lookup happens at run time, on the module
-    object the patch changed.
+    `remote_client.run_remote(...)` in `cli.py`, and a name that code xeda ships as a string and
+    runs in another interpreter looks up, are live patch targets even though the owning module
+    never reads the name itself: the lookup happens at run time, on the module object the patch
+    changed.
     """
     for path, source in _sources(SOURCE):
         found = _reads_module_attribute(
@@ -451,7 +450,6 @@ LAUNCHER_TARGETS = {
     "expectation",
     "snapshot_inputs",
     "scrub_runs",
-    "_drop_unwritten_artifacts",
     "write_trace",
 }
 
@@ -598,8 +596,10 @@ def test_the_launcher_stage_names_are_looked_up_in_the_product(name: str):
 
 #: The launcher names a plain successful launch must go through, and `scrub_runs`, which needs
 #: `scrub_old_runs` with the hashed layout. `_drop_unwritten_artifacts` runs only on a failure,
-#: so it has its own case below.
-ON_A_SUCCESSFUL_LAUNCH = sorted(LAUNCHER_TARGETS - {"_drop_unwritten_artifacts"})
+#: so it has its own cases below. They patch it through `_intercepting`, by a name in a
+#: variable that the scan of the suite cannot read, so it is not in `LAUNCHER_TARGETS`. The cases
+#: keep the lookup in the product honest.
+ON_A_SUCCESSFUL_LAUNCH = sorted(LAUNCHER_TARGETS)
 
 
 def _intercepting(monkeypatch, names):
@@ -700,7 +700,7 @@ def test_patching_the_failed_run_artifact_drop_intercepts_an_ordinary_failed_exe
     raise: the execution returns, its results say `success: false`, and the failed run's
     artifacts are filtered on that path instead. The launch must not raise here, so the call
     that is observed is the one for a run that ended, and it must go through the module
-    (`tests/test_remote_run.py` replaces the filter on it, to see a failed run's artifacts).
+    (a test can replace the filter on it, to see a failed run's artifacts).
     """
     from xeda import Design
     from xeda.flow_runner import DefaultRunner

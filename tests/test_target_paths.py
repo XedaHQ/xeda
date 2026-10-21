@@ -30,8 +30,11 @@ from xeda.run_dir import RunDirectoryError
 from .flow_registry import preserved_flow_registry
 from . import tool_utils
 from .io_flows import _Join, _Maker, _Taker
+from .remote_fixtures import fake_remote, fake_ssh, remote_host, remote_request
 from .test_fpga_chains import RESOURCES as CHAINS
 from .test_openfpgaloader import assert_fake_loader
+
+FIXTURES = (fake_ssh, fake_remote, remote_host)
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
@@ -492,29 +495,22 @@ def test_the_maker_alone_is_not_reached_through_the_taker_s_target(tmp_path):
 # ------------------------------------------------------------------------- the remote's mirror
 
 
-def test_the_local_mirror_of_a_remote_run_lies_in_the_designs_target(tmp_path, monkeypatch):
-    """`--remote` mirrors into `<design>/<target>/<flow>_<hash>`: two targets, two mirrors.
-    (Nothing is shipped: the remote never sees the target; only where the mirror is changes.)"""
-    from xeda.flow_runner.remote import RemoteRunner
-
-    class _Named(Exception):
-        pass
-
-    def named(self, design_name, flow_name, identity, *, target=None):
-        raise _Named((design_name, flow_name, identity, target))
-
-    monkeypatch.setattr(RemoteRunner, "get_flow_run_path", named)
+def test_the_local_mirror_of_a_remote_run_lies_in_the_designs_target(tmp_path, remote_host):
+    """`--remote` mirrors into `@<host>/<design>/<target>/<flow>`, as the remote has its run
+    directories: two targets, two mirrors, and the same identity."""
+    remote_host.load_test_flows()
     path = write_design(tmp_path, {"a": {}, "b": {}})
-    seen = {}
+    mirror = tmp_path / "local" / "xeda_run" / "@somewhere"
+    hashes = {}
     for target in "ab":
-        with pytest.raises(_Named) as named_as:
-            RemoteRunner(tmp_path / "mirror").run_remote(
-                Design.from_file(path, target=target), _Taker.name, "fake"
-            )
-        seen[target] = named_as.value.args[0]
-    assert seen["a"][:2] == seen["b"][:2] == ("d", "__taker")
-    assert seen["a"][2] == seen["b"][2], "one identity: the target is no part of it"
-    assert (seen["a"][3], seen["b"][3]) == ("a", "b")
+        outcome = remote_request(tmp_path, path, _Taker.name, target=target)
+        assert outcome.error is None and outcome.success, outcome.document
+        assert outcome.document["target"] == target
+        assert Path(outcome.document["run_path"]) == mirror / "d" / target / "__taker"
+        assert (remote_host.workspace() / "xeda_run" / "d" / target / "__taker").is_dir()
+        hashes[target] = outcome.document["results"]["flow_hash"]
+    assert hashes["a"] == hashes["b"], "one identity: the target is no part of it"
+    assert sorted(p.name for p in (mirror / "d").iterdir() if p.is_dir()) == ["a", "b"]
 
 
 # --------------------------------------------------------- a removed flow's name is no target's

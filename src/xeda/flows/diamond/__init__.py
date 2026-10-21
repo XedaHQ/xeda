@@ -18,6 +18,8 @@ class DiamondSynth(FpgaSynthFlow):
     `<impl_folder>/<design>_<impl_name>.bit`, is recorded as the `bitstream` artifact.
     """
 
+    executables = ("diamondc",)
+
     results_description = describe_results(
         "clock_period",
         "clock_frequency",

@@ -120,8 +120,7 @@ jobs:
   # XEDA_TESTS_REQUIRE_TOOLS is not set on purpose. The full suite runs on Linux, where the EDA
   # tools are installed.
   # Why each file is here:
-  #   process groups, signals and pseudo-terminals: test_proc_utils, test_proc_utils_terminal,
-  #     test_remote_streaming
+  #   process groups, signals and pseudo-terminals: test_proc_utils, test_proc_utils_terminal
   #   file locks (flock): test_read_locks (run-directory leases), test_target_scrub (scrub, which
   #     also handles links), test_generator_staleness (a lock on the design directory),
   #     test_external_cache (six processes fill one cache)
@@ -142,6 +141,16 @@ jobs:
   #     test_verilator_hooks_makefile
   #   interactive shell completion and cursor placement through a pseudo-terminal:
   #     test_cli_settings_completion
+  #   Unix socket paths (at most 103 bytes on macOS), a SIGINT that a process ignores, and the end
+  #     of a pipe when a process dies: test_remote_ssh
+  #   directory locks and their owner processes, a SIGTERM that stops a shell script and its child
+  #     (kill, wait, trap), and the macOS userland (sh, tar, df, shasum): test_remote_provision
+  #   process groups, signals, file locks (flock) and process trees (psutil): test_remote_agent
+  #   a SIGINT handler during a launch, a killed SSH client and the processes of a canceled
+  #     launch on the same machine: test_remote_client
+  #   the file locks that `xeda remote clean` finds held, on a fake remote host: test_remote_commands
+  #   a launch that keeps the workspace lock and its own session after the agent has exited, and
+  #     the processes of a canceled launch: test_remote_keep_running
   macos:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
@@ -168,7 +177,7 @@ jobs:
           python -m pytest -n logical
           tests/test_proc_utils.py
           tests/test_proc_utils_terminal.py
-          tests/test_remote_streaming.py
+          tests/test_remote_launch_entry.py
           tests/test_read_locks.py
           tests/test_target_scrub.py
           tests/test_generator_staleness.py
@@ -195,6 +204,13 @@ jobs:
           tests/test_cli_settings_completion.py
           tests/test_liberty_shared.py
           tests/test_liberty_freshness.py
+          tests/test_remote_ssh.py
+          tests/test_remote_manifest.py
+          tests/test_remote_provision.py
+          tests/test_remote_agent.py
+          tests/test_remote_client.py
+          tests/test_remote_commands.py
+          tests/test_remote_keep_running.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only

@@ -200,6 +200,11 @@ The section is also accepted as ``test`` or ``tests``. It takes the same ``sourc
    * - ``cocotb``
      - ``true``, or a table with ``module``, ``toplevel`` and ``testcase``. Xeda sets it when a
        ``.py`` source is present, so ``cocotb: true`` is usually redundant.
+   * - ``python_packages``
+     - A list of the Python packages that the testbench imports, for example ``cocotb``. Give
+       only the distribution name, with no version and no extras. A simulation flow refuses the
+       design, at planning, when one of them is not installed in the Python environment that
+       runs Xeda. A remote run installs the same versions on the host (see :doc:`remote`).
 
 .. _sources:
 
@@ -619,9 +624,9 @@ does not force a regeneration, and ``--rebuild-all`` does. Use it when something
 see has changed, such as an environment variable that the generator reads or anything that its
 ``sources`` do not name.
 
-With ``--remote``, the flow on the remote host always runs. ``--rebuild-all`` forces the local
-generator to load before Xeda ships the generated design. The default ``clean`` setting of the
-remote runner does not force local generation on ordinary invocations.
+With ``--remote``, the generator runs on your machine, when Xeda loads the design, and Xeda sends
+the generated sources to the host. ``--rebuild-all`` and ``--clean`` force the generator here, and
+they also act on the run directories of the host.
 
 Writing into the tree of the design is the purpose of a generator, so what it writes there is its
 own business (a LiteX build directory, for example). Xeda itself writes nothing outside its run

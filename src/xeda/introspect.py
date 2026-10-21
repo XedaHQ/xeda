@@ -230,6 +230,12 @@ def all_flow_classes() -> List[Type[Flow]]:
     return sorted(classes, key=lambda cls: cls.name)
 
 
+def flow_executables() -> List[str]:
+    """Return the programs of every registered flow (`Flow.executables`), without repeats, in
+    the order of the flows."""
+    return unique([name for cls in all_flow_classes() for name in cls.executables])
+
+
 def _resolve(flow: Union[str, Type[Flow]]) -> Type[Flow]:
     if isinstance(flow, str):
         return get_flow_class(flow)

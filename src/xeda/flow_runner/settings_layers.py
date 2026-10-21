@@ -3,13 +3,14 @@
 The settings of a flow are assembled from these layers, lowest precedence first:
 
 1. the defaults of the flow (supplied by validation, not here)
-2. the `flows.<flow>` section of the project file
-3. the `flows.<flow>` section of the design file
-4. the `flows.<flow>` section of the selected target (`--target`), key by key. The target is
+2. with `--remote`, the `flows` table of the host profile (`FlowLauncher.prepare_request` only)
+3. the `flows.<flow>` section of the project file
+4. the `flows.<flow>` section of the design file
+5. the `flows.<flow>` section of the selected target (`--target`), key by key. The target is
    the author of the design saying "for this build, these values", so what it writes wins over
    the design. The loader merges it into the design before anything else sees the design, so it
    is part of the origin of the design, and below the command line and the API
-5. the command line (`-s KEY=VALUE`, or the `flow_settings` of `run` and `plan`), then the
+6. the command line (`-s KEY=VALUE`, or the `flow_settings` of `run` and `plan`), then the
    overrides given through the API (`flow_overrides`)
 
 The layers are merged deeply. A nested section such as `clock` combines key by key, so
@@ -20,8 +21,9 @@ layer. Local and remote runs, and the settings of every producer, all go through
 
 Every way to launch a flow takes the same layers. `run`, `plan` and the remote runner load the
 files and hand them to `FlowLauncher.resolve` as origins. A launch that is given a built design
-instead (`run_flow`, `launch_flow`) hands none, and `resolve` takes layers 3 and 4 from the
-design itself. Only `run`, `plan` and the remote runner read a project file.
+instead (`run_flow`, `launch_flow`) hands none, and `resolve` takes layers 4 and 5 from the
+design itself. Only `run`, `plan` and the remote runner read a project file. Only `prepare_request` takes
+layer 2.
 """
 
 import difflib
@@ -63,11 +65,13 @@ from ..utils import (
 __all__ = [
     "API_ORIGIN",
     "COMMAND_LINE_ORIGIN",
+    "HOST_PROFILE_ORIGIN",
     "REMOVED_FLOWS",
     "SUPPLIED_SECTIONS_ORIGIN",
     "FlowNotFoundError",
     "FlowRemovedError",
     "check_not_removed",
+    "host_profile_origin",
     "carry_diagnostics",
     "settings_in_context",
     "suggest_dependency_node",
@@ -87,8 +91,16 @@ __all__ = [
 COMMAND_LINE_ORIGIN = "the command line (`-s`) or `flow_settings`"
 #: The layer that the API's overrides, and the settings a launch is handed directly, form.
 API_ORIGIN = "the API"
+#: How messages name the `flows` table of a host profile, which `--remote` adds as the lowest
+#: layer. `host_profile_origin` adds the name of the host.
+HOST_PROFILE_ORIGIN = "the host profile"
 #: The `flows` sections that a launch with a built design is handed (`all_flows_settings`).
 SUPPLIED_SECTIONS_ORIGIN = "the supplied flow sections"
+
+
+def host_profile_origin(host: str | None) -> str:
+    """Return the label of the host profile of `host`, as messages name that layer."""
+    return f"{HOST_PROFILE_ORIGIN} of {host}" if host else HOST_PROFILE_ORIGIN
 
 
 class FlowNotFoundError(XedaException):

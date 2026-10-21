@@ -44,6 +44,8 @@ class Modelsim(SimFlow):
     fails at the default `fail_severity`. Verified with ModelSim-Intel Starter 2020.1.
     """
 
+    executables = ("vsim",)
+
     #: `vlog` compiles Verilog and SystemVerilog, `vcom` compiles VHDL.
     reads_sources = frozenset({SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl})
 

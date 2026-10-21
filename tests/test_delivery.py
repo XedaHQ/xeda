@@ -35,7 +35,10 @@ from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
 from xeda.utils import PATH_VARIABLES
 
+from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
 from .tool_utils import producers_of
+
+FIXTURES = (fake_ssh, fake_remote, remote_host)
 
 pytestmark = pytest.mark.python_compat
 
@@ -196,7 +199,11 @@ def world(tmp_path, monkeypatch):
     )
     # the wrapper's producer is found by name
     registered_flows.update(_REGISTERED)
-    yield SimpleNamespace(user=user, design=design, root=tmp_path / "xeda_run")
+    design_file = tmp_path / "design" / "d.yaml"
+    design_file.write_text("name: d\nrtl:\n  sources: [top.v]\n  top: top\n")
+    yield SimpleNamespace(
+        user=user, design=design, root=tmp_path / "xeda_run", design_file=design_file
+    )
     for name in _REGISTERED:
         registered_flows.pop(name, None)
 
@@ -1774,37 +1781,37 @@ def test_an_exploration_delivers_nothing(world, tmp_path):
         dse.run_flow(_Deliverer, world.design, {"netlist": str(world.user / "net.v")})
 
 
-def test_a_remote_run_refuses_a_located_output_before_connecting(world, monkeypatch):
-    from xeda.flow_runner import remote
+def test_a_remote_run_refuses_a_located_output_before_connecting(world, remote_host):
+    outcome = remote_request(
+        world.root.parent,
+        world.design_file,
+        "vivado_synth",
+        run_root=world.root,
+        flow_settings=["fpga.part=xc7a12tcsg325-1", "bitstream=$PWD/top.bit"],
+    )
+    assert isinstance(outcome.error, DeliveryError) and "--outputs-to" in str(outcome.error)
+    assert not connected(remote_host)
 
-    monkeypatch.setattr(remote, "Connection", lambda *a, **k: pytest.fail("it connected"))
-    with pytest.raises(DeliveryError, match="--outputs-to"):
-        remote.RemoteRunner(world.root).run_remote(
-            world.design,
-            "vivado_synth",
-            "host",
-            flow_settings=["fpga.part=xc7a12tcsg325-1", "bitstream=$PWD/top.bit"],
-        )
 
-
-def test_a_remote_run_checks_its_output_names_before_connecting(world, monkeypatch):
+def test_a_remote_run_checks_its_output_names_before_connecting(world, remote_host):
     """`results.json` would overwrite the remote's own record."""
-    from xeda.flow_runner import remote
-
-    monkeypatch.setattr(remote, "Connection", lambda *a, **k: pytest.fail("it connected"))
-    with pytest.raises(FlowSettingsError, match="a name Xeda keeps"):
-        remote.RemoteRunner(world.root).run_remote(
-            world.design,
-            "yosys_fpga",
-            "host",
-            flow_settings=["fpga.part=LFE5U-25F-6BG381C", "netlist_json=results.json"],
-        )
+    outcome = remote_request(
+        world.root.parent,
+        world.design_file,
+        "yosys_fpga",
+        run_root=world.root,
+        flow_settings=["fpga.part=LFE5U-25F-6BG381C", "netlist_json=results.json"],
+    )
+    assert isinstance(outcome.error, FlowSettingsError) and "a name Xeda keeps" in str(
+        outcome.error
+    )
+    assert not connected(remote_host)
 
 
 def test_a_remote_run_protects_every_read_input_it_can_name(world):
     """Remote delivery protects requested flow settings and every producer's own section,
     as well as the design's source files."""
-    from xeda.flow_runner.remote import remote_read_inputs
+    from xeda.remote.fetch import remote_read_inputs
     from xeda.flows import VivadoPostsynthSim
 
     for name in ("nested.sdf", "section.xdc", "nested_lib/a.v", "section_lib/b.v"):
@@ -1857,7 +1864,7 @@ def test_a_remote_run_registers_its_own_flow_s_section_as_the_launch_uses_it(wor
     settings (the command line's over it), never as written -- `lib_paths` given on the command
     line replaces the section's, and the run reads only that; another flow's section is
     registered as written, since which dependencies the remote launches is not known here."""
-    from xeda.flow_runner.remote import remote_read_inputs
+    from xeda.remote.fetch import remote_read_inputs
     from xeda.flows import GhdlSim, VivadoSynth
 
     for name in ("old", "new", "other"):
@@ -1891,20 +1898,20 @@ def test_a_failed_remote_run_delivers_nothing(world):
     """`--outputs-to` delivers a remote run's fetched artifacts only when it succeeded:
     a failed run's files never replace xeda's earlier copies."""
     from xeda.deliver import Deliveries, ReadInputs
-    from xeda.flow_runner.remote import RemoteRunner
+    from xeda.remote.fetch import deliver_fetched
 
     root = ensure_run_root(world.root)
     assert root is not None
-    mirror = root / "d" / "flow_0123456789abcdef"
-    fetched = mirror / "artifacts"
-    fetched.mkdir(parents=True)
-    (fetched / "a.txt").write_text("fetched\n")
-    runner = RemoteRunner(root, outputs_to=world.user / "got")
+    mirror = root / "@host" / "d" / "flow_0123456789abcdef"
+    mirror.mkdir(parents=True)
+    (mirror / "a.txt").write_text("fetched\n")
     for success in (False, True):
         results = {"success": success}
         delivery = Deliveries(mirror, root, inputs=ReadInputs())
         artifacts = {"a": "/remote/run/a.txt"}  # as the remote reported them
-        runner._deliver_fetched(delivery, results, artifacts, "/remote/run", fetched)
+        deliver_fetched(
+            delivery, results, artifacts, "/remote/run", mirror, outputs_to=world.user / "got"
+        )
         assert (world.user / "got" / "a.txt").exists() is success
         assert ("deliveries" in results) is success
 

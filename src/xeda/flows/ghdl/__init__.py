@@ -83,6 +83,8 @@ class GhdlTool(Tool):
 class Ghdl(Flow, metaclass=ABCMeta):
     """Common settings and steps of the GHDL flows."""
 
+    executables = ("ghdl",)
+
     #: GHDL analyzes VHDL.
     reads_sources = frozenset({SourceType.Vhdl})
 

@@ -359,6 +359,8 @@ class Openroad(OpenroadStage):
     wire RC and the cells that the resizer must not use are no part of the database. Each process
     sets them again from the platform and the settings."""
 
+    executables = OpenroadStage.executables + ("klayout",)
+
     results_description = describe_results(
         "wns",
         "tns",

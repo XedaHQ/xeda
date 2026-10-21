@@ -298,6 +298,8 @@ class Nextpnr(FpgaSynthFlow):
     any producer runs.
     """
 
+    executables = tuple(EXECUTABLES.get(family, f"nextpnr-{family}") for family in NEXTPNR_FAMILIES)
+
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
     #: Whether every constrained clock domain met its constraint, as the last

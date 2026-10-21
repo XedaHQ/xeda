@@ -9,7 +9,6 @@ import pytest
 from click.testing import CliRunner
 
 from xeda.cli import cli
-from xeda.flow_runner import remote
 
 pytestmark = pytest.mark.python_compat
 
@@ -133,54 +132,3 @@ def test_scrub_removed_incremental_names_its_replacement(sqrt):
     assert result.exit_code != 0
     assert document["success"] is False
     assert "scrub always looks in <design>/" in document["error"]["message"]
-
-
-class _RecordingRemoteRunner:
-    """Stands in for `RemoteRunner`: records the launcher settings instead of connecting."""
-
-    settings_seen: list = []
-    target = None  # what `RemoteRunner` records of the design it loaded
-    design_name = None  # likewise
-
-    def __init__(self, run_root, **settings):
-        self.settings_seen.append(settings)
-
-    def run_remote(self, *args, **kwargs):
-        return {"success": True, "run_path": "/remote/run"}
-
-
-def test_remote_mirrors_into_hashed_run_directories(sqrt, monkeypatch):
-    """A remote run's results are mirrored in `<flow>_<flowrun_hash>`, the remote runner's own
-    layout: the command line hands it none -- only where its outputs are delivered."""
-    _RecordingRemoteRunner.settings_seen = []
-    monkeypatch.setattr(remote, "RemoteRunner", _RecordingRemoteRunner)
-    result, document = _run(str(sqrt), "--remote", "host", "--json")
-    assert result.exit_code == 0 and document["success"]
-    assert _RecordingRemoteRunner.settings_seen == [
-        {"outputs_to": None, "overwrite_outputs": False, "rebuild_all": False, "debug": False}
-    ]
-
-
-def test_remote_rebuild_all_is_a_local_generator_escape(sqrt, monkeypatch):
-    """The remote flow stays fresh, and the explicit flag also reaches local design loading."""
-    _RecordingRemoteRunner.settings_seen = []
-    monkeypatch.setattr(remote, "RemoteRunner", _RecordingRemoteRunner)
-    result, document = _run(str(sqrt), "--remote", "host", "--rebuild-all", "--json")
-    assert result.exit_code == 0 and document["success"]
-    assert _RecordingRemoteRunner.settings_seen == [
-        {"outputs_to": None, "overwrite_outputs": False, "rebuild_all": True, "debug": False}
-    ]
-
-
-@pytest.mark.parametrize("option", ["--clean", "--hashed-run-dirs"])
-def test_remote_refuses_local_layout_flags(sqrt, monkeypatch, option):
-    """These flags still conflict with the remote runner's fresh hashed layout."""
-    _RecordingRemoteRunner.settings_seen = []
-    monkeypatch.setattr(remote, "RemoteRunner", _RecordingRemoteRunner)
-    result, document = _run(str(sqrt), "--remote", "host", option, "--json")
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"]["message"] == (
-        f"`{option}` is not supported with --remote: remote runs always run fresh, mirrored in "
-        "hashed run directories"
-    )
-    assert _RecordingRemoteRunner.settings_seen == []

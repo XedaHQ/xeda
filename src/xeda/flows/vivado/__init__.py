@@ -133,6 +133,8 @@ class VivadoTool(Tool):
 class Vivado(Flow, metaclass=ABCMeta):
     """Base class of the AMD Vivado synthesis and simulation flows."""
 
+    executables = ("vivado",)
+
     class Settings(Flow.Settings):
         tcl_shell: bool = Field(
             False,

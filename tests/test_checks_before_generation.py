@@ -25,25 +25,12 @@ from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.dse import Dse
 from xeda.flow_runner.dse.fmax import FmaxOptimizer
-from xeda.flow_runner.remote import RemoteRunner
+from xeda.remote.errors import RemoteConnectionError
 
+from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
 from .tool_utils import use_fake_tools
 
-
-class StopBeforeConnection(Exception):
-    """Raised in place of a connection: a remote launch got as far as the transport."""
-
-
-@pytest.fixture(autouse=True)
-def no_connection(monkeypatch):
-    """No test of this file reaches a network: a remote launch that gets as far as connecting
-    fails at once with `StopBeforeConnection`."""
-    from xeda.flow_runner import remote
-
-    def connect(**_kwargs):
-        raise StopBeforeConnection
-
-    monkeypatch.setattr(remote, "Connection", connect)
+FIXTURES = (fake_ssh, fake_remote, remote_host)
 
 
 @pytest.fixture
@@ -202,19 +189,16 @@ def test_the_command_line_reports_the_refusal_and_runs_no_generator(tmp_path, mo
     assert generated.runs == 0
 
 
-def test_a_remote_launch_refuses_before_the_generator_runs(tmp_path, monkeypatch):
+def test_a_remote_launch_refuses_before_the_generator_runs(tmp_path, monkeypatch, remote_host):
     """Before the design is shipped, and before a connection is made to a host that has none."""
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.edf"])
-    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
-    with pytest.raises(FlowSettingsException, match="yosys_fpga reads none of the design's"):
-        runner.run_remote(
-            str(generated.file),
-            "yosys_fpga",
-            "host.invalid",
-            flow_settings=["fpga=xc7a12tcsg325-1"],
-        )
-    assert generated.runs == 0
+    outcome = remote_request(
+        tmp_path, generated.file, "yosys_fpga", flow_settings=["fpga=xc7a12tcsg325-1"]
+    )
+    assert isinstance(outcome.error, FlowSettingsException)
+    assert "yosys_fpga reads none of the design's" in str(outcome.error)
+    assert generated.runs == 0 and not connected(remote_host)
 
 
 def test_an_exploration_refuses_before_the_generator_runs(tmp_path, monkeypatch):
@@ -438,16 +422,13 @@ def test_a_malformed_design_is_refused_without_running_its_generator(tmp_path, m
 
 
 def test_a_remote_launch_refuses_a_malformed_design_without_running_its_generator(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, remote_host
 ):
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.v"], sources=[1])
-    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
-    with pytest.raises(DesignValidationError):
-        runner.run_remote(
-            str(generated.file), "vivado_synth", "host.invalid", flow_settings=dict(XILINX)
-        )
-    assert generated.runs == 0
+    outcome = remote_request(tmp_path, generated.file, "vivado_synth", flow_settings=dict(XILINX))
+    assert isinstance(outcome.error, DesignValidationError)
+    assert generated.runs == 0 and not connected(remote_host)
 
 
 def test_a_source_given_as_both_file_and_path_is_refused_as_it_is_without_deferral(
@@ -581,7 +562,7 @@ def test_a_local_dependency_the_generator_writes_is_loaded_after_it_runs(tmp_pat
 
 
 def test_a_remote_launch_loads_a_local_dependency_the_generator_writes_in_full(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, remote_host
 ):
     monkeypatch.chdir(tmp_path)
     generated = Generated(
@@ -590,12 +571,10 @@ def test_a_remote_launch_loads_a_local_dependency_the_generator_writes_in_full(
         sources=["gen/top.v"],
         dependencies=["gen/dep.toml"],
     )
-    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
-    # the generator runs, the design loads, and the launch stops where it would connect
-    with pytest.raises(StopBeforeConnection):
-        runner.run_remote(
-            str(generated.file), "vivado_synth", "host.invalid", flow_settings=dict(XILINX)
-        )
+    # the generator runs, the design loads, and the launch stops where it connects
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
+    outcome = remote_request(tmp_path, generated.file, "vivado_synth", flow_settings=dict(XILINX))
+    assert isinstance(outcome.error, RemoteConnectionError)
     assert generated.runs == 1
 
 
@@ -620,16 +599,57 @@ def test_a_malformed_field_beside_a_missing_generated_file_runs_no_generator(tmp
 
 
 def test_a_remote_launch_runs_no_generator_for_a_malformed_field_beside_a_missing_file(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, remote_host
 ):
     monkeypatch.chdir(tmp_path)
     generated = Generated(
         tmp_path, ["gen/top.v", "gen/tb.v"], sources=["gen/top.v"], tb={"sources": ["gen/tb.v"]}
     )
     _malformed_top(generated)
-    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
-    with pytest.raises(DesignValidationError, match="rtl"):
-        runner.run_remote(
-            str(generated.file), "vivado_synth", "host.invalid", flow_settings=dict(XILINX)
+    outcome = remote_request(tmp_path, generated.file, "vivado_synth", flow_settings=dict(XILINX))
+    assert isinstance(outcome.error, DesignValidationError) and "rtl" in str(outcome.error)
+    assert generated.runs == 0 and not connected(remote_host)
+
+
+def test_a_remote_rebuild_all_forces_only_the_local_generation_before_transport(
+    tmp_path, monkeypatch, remote_host
+):
+    """Only the explicit `--rebuild-all` runs the generator again; a request runs it as a local
+    one does, at most once for a design that has not changed."""
+    from .io_flows import _Maker
+
+    root = tmp_path / "design"
+    root.mkdir()
+    counter = tmp_path / "generator-runs"
+    (root / "gen.py").write_text(
+        "from pathlib import Path\n"
+        "import os, sys\n"
+        "root = Path(os.environ['DESIGN_ROOT'])\n"
+        "(root / 'gen').mkdir(exist_ok=True)\n"
+        "(root / 'gen' / 'top.v').write_text('module top; endmodule\\n')\n"
+        "Path(sys.argv[1]).open('a').write('ran\\n')\n"
+    )
+    (root / "design.yaml").write_text(
+        "name: remote-generated\n"
+        "rtl:\n"
+        "  sources: [gen/top.v]\n"
+        "  top: top\n"
+        "  generator:\n"
+        f"    executable: {sys.executable!r}\n"
+        "    args: [gen.py, " + repr(str(counter)) + "]\n"
+        "    sources: [gen.py]\n"
+    )
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")  # the launch stops where it connects
+
+    def attempt(rebuild_all=False):
+        outcome = remote_request(
+            tmp_path, root / "design.yaml", _Maker.name, rebuild_all=rebuild_all
         )
-    assert generated.runs == 0
+        assert isinstance(outcome.error, RemoteConnectionError), outcome.document
+
+    attempt()
+    assert len(counter.read_text().splitlines()) == 1
+    attempt()
+    assert len(counter.read_text().splitlines()) == 1, "an ordinary request ran the generator again"
+    attempt(rebuild_all=True)
+    assert len(counter.read_text().splitlines()) == 2

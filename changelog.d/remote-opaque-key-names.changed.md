@@ -1,3 +1,2 @@
-- `--remote` refuses a table of tool or netlist names that holds `A` and `A.B`, with a message that
-  names the table and the keys, before it connects. A local run accepts the names from different
-  origins.
+- `--remote` keeps a table of tool or netlist names whole when one layer gives `A` and another
+  gives `A.B`, as a local run merges it.

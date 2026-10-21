@@ -80,9 +80,9 @@ __all__ = [
     "opaque_key_fields_of",
     "opaque_key_declaration_problems",
     "opaque_key_paths",
-    "names_inside_names",
     "fold_dotted_keys",
     "atomic_keys",
+    "escaped_names_atomic",
     "AtomicName",
     "name_inside_another",
     "shape_problems",
@@ -463,31 +463,6 @@ def opaque_key_paths(model: Type[BaseModel]) -> Tuple[str, ...]:
 ESCAPED_DOT = "\\."
 
 
-def names_inside_names(
-    model: Type[BaseModel], values: Mapping[str, Any], prefix: str = ""
-) -> List[Tuple[str, str, str]]:
-    """Return `(table, outer, inner)` for each table of `opaque_key_fields` (at any depth) in
-    `values`, the settings of `model` as a table, that holds a name `inner` inside another name
-    `outer` (`A` and `A.B`). `table` is the dotted path of the setting. The origins of a local run
-    give such names separately and merge them name by name, so a local run accepts them."""
-    names = input_names(model)
-    opaque = opaque_key_fields_of(model)
-    found: List[Tuple[str, str, str]] = []
-    for key, value in values.items():
-        target = names.get(key, key)
-        info = model.model_fields.get(target)
-        child = nested_model(info.annotation) if info is not None else None
-        if target in opaque and isinstance(value, Mapping):
-            pair = name_inside_another(
-                str(n.name if isinstance(n, AtomicName) else n) for n in value
-            )
-            if pair is not None:
-                found.append((f"{prefix}{key}", *pair))
-        elif child is not None and isinstance(value, Mapping):
-            found.extend(names_inside_names(child, value, f"{prefix}{key}."))
-    return found
-
-
 class AtomicName(str):
     """A name of a setting in `opaque_key_fields` that a merged table keeps whole, dots included.
 
@@ -562,6 +537,25 @@ def atomic_keys(value: Any) -> Any:
     if not isinstance(folded, Mapping) or folded is value:
         return value
     return {AtomicName.of(key): entry for key, entry in folded.items()}
+
+
+def escaped_names_atomic(value: Any) -> Any:
+    """Return `value` with each key that contains `ESCAPED_DOT` as an `AtomicName`, at any depth.
+
+    This reads the document that the local xeda packaged for a remote host. It writes the names
+    of a setting in `opaque_key_fields` as `AtomicName` text, and JSON keeps only that text. A
+    user never writes such a key (`utils.EscapedName`), so the text is the name of a merged table
+    that holds `A` and `A.B` (`atomic_keys`)."""
+    if isinstance(value, Mapping):
+        return {
+            (AtomicName(key) if isinstance(key, str) and ESCAPED_DOT in key else key): (
+                escaped_names_atomic(entry)
+            )
+            for key, entry in value.items()
+        }
+    if isinstance(value, list):
+        return [escaped_names_atomic(entry) for entry in value]
+    return value
 
 
 def name_inside_another(names: Iterable[str]) -> Optional[Tuple[str, str]]:

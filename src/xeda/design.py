@@ -49,6 +49,7 @@ from .dataclass import (
     ValidationError,
     XedaBaseModel,
     canonical_tree,
+    escaped_names_atomic,
     field_validator,
     input_names,
     model_validator,
@@ -1058,7 +1059,7 @@ def _normalize_parameters(value: Any) -> Any:
     one value of the parameter, and nothing else records the table that it was written as. The
     design's identity must not depend on where the design lives, so
     `Design._parameters_fingerprint` leaves that part out. A remote run re-roots such a path from
-    the value alone (`send_design`).
+    the value alone (`remote.packaging.package_inputs`).
     """
     if value is None:
         # Do not test `not value`: an empty list (`parameters: []`) is the list form and must
@@ -1741,6 +1742,10 @@ class CocotbTestbench(XedaBaseModel):
     )
 
 
+#: The name of a Python distribution, without a version specifier or extras.
+PYTHON_PACKAGE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
 class TbSettings(DVSettings):
     """The testbench: sources, top modules, unit under test, cocotb, parameters and defines."""
 
@@ -1759,6 +1764,24 @@ class TbSettings(DVSettings):
         "the defaults, or a table of cocotb settings. `false` means no cocotb testbench. A source "
         "of type `Cocotb` sets it automatically.",
     )
+    python_packages: List[str] = Field(
+        [],
+        description="Python packages that the testbench imports, for example cocotb. Xeda checks "
+        "that they are installed before a simulation, and installs the same versions on a remote "
+        "host.",
+    )
+
+    @field_validator("python_packages")
+    @classmethod
+    def _python_package_names(cls, value: List[str]) -> List[str]:
+        for name in value:
+            if not PYTHON_PACKAGE_NAME.fullmatch(name):
+                raise ValueError(
+                    f"`{name}` is not a distribution name. Give only the name of the package, "
+                    "such as `cocotb`, with no version and no extras. Xeda installs the local "
+                    "version of the package on a remote host."
+                )
+        return value
 
     @field_validator("top", mode="before")
     @classmethod
@@ -2525,8 +2548,8 @@ class Design(XedaBaseModel):
     )
     # `SerializeAsAny`: a dependency is usually a `GitReference`, and pydantic 2 serializes a
     # nested model by its annotated type unless told otherwise. That would silently drop
-    # `repo_url`, `design_file`, `branch`, `commit` and the clone settings that `send_design()`
-    # relies on.
+    # `repo_url`, `design_file`, `branch`, `commit` and the clone settings that the package of a
+    # remote run relies on.
     dependencies: List[SerializeAsAny[DesignReference]] = []
     rtl: RtlSettings
     tb: TbSettings = TbSettings()  # type: ignore
@@ -3092,8 +3115,8 @@ class Design(XedaBaseModel):
                     self.tb.top = dep_design.tb.top
             # The merge consumes the dependencies: the design now holds their sources itself, and
             # it is recorded as built. A record that kept the dependencies as well would merge
-            # them again on every reload (a `settings.json`, the archive that `send_design`
-            # ships) and duplicate sources.
+            # them again on every reload (a `settings.json`, the package of a remote run) and
+            # duplicate sources.
             if self.dependencies:
                 self.dependencies = []
 
@@ -3165,11 +3188,22 @@ class Design(XedaBaseModel):
         allow_extra: bool = False,
         remove_extra: Optional[List[str]] = None,
         target: str | None = None,
+        packaged: bool = False,
     ) -> DesignType:
         """Load and validate a design from a TOML, JSON or YAML file.
 
         `target` selects one of the design's `targets` (`select_target`). Without it, the design
         is loaded with no target. `overrides` are applied last, over the selected target.
+
+        `packaged` is for the document that the local xeda wrote for a remote host
+        (`xeda.remote.packaging`) and only for the remote launch entry. Such a document holds
+        the design as its target made it, with the name of that target in `target`, so that the
+        remote plans the run directories and identities of the local plan. A design file written
+        by a user never has the key, whatever its name. The document also writes each name of a
+        table of tool or netlist names with its dots escaped (`dataclass.ESCAPED_DOT`), and the
+        loader reads that text as the merged name (`dataclass.AtomicName`). So the remote gets the
+        tables as the local layers merged them, even when they hold `A` and `A.B`. A user's design
+        file may not have such a key.
 
         A file that cannot be read as a design raises `DesignFileParseError`. A file whose design
         does not validate raises `DesignValidationError`. Both errors name the file.
@@ -3184,7 +3218,22 @@ class Design(XedaBaseModel):
         if allow_extra:
             cls = model_with_allow_extra(cls)
         try:
+            recorded_target = None
+            if packaged:
+                recorded_target = design_dict.pop("target", None)
+                problem = None if recorded_target is None else target_name_problem(recorded_target)
+                if problem:
+                    raise DesignValidationError(
+                        [("target", problem, "", "value_error")], data=dict(design_dict)
+                    )
             design_dict = cls.target_selected(design_dict, target, overrides)
+            if packaged:
+                # the names of a table that layers merged, `A` and `A.B` (`dataclass.AtomicName`)
+                for section in ("flow", "flows"):
+                    if section in design_dict:
+                        design_dict[section] = escaped_names_atomic(design_dict[section])
+            if recorded_target is not None:
+                design_dict["target"] = recorded_target
             if "name" not in design_dict:
                 design_name = design_file.stem
                 design_name = removesuffix(design_name, ".xeda")

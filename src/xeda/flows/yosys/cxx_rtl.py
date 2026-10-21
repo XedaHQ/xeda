@@ -44,6 +44,8 @@ class CxxRtl(XedaBaseModel):
 class YosysSim(YosysBase, SimFlow):
     """Simulate a design with a CXXRTL model that Yosys generates."""
 
+    executables = YosysBase.executables + ("g++",)
+
     # this flow sets no minimum yosys release
     minimum_yosys = None
 
