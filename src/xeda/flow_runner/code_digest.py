@@ -40,8 +40,8 @@ from __future__ import annotations
 import ast
 import inspect
 import time
-from functools import lru_cache
 from collections.abc import Iterable
+from functools import lru_cache
 from pathlib import Path
 from typing import Type
 
@@ -75,7 +75,13 @@ def _content_digest(path: Path) -> str:
     and the file had last changed well before the record was taken (outside the racy window,
     `FileRecord.trusted`). Otherwise the file is read and a new record is stored. Every call
     checks the file, so an edit counts at once, and a same-size edit with the old time put back
-    changes the inode change time."""
+    changes the inode change time.
+
+    The time of a record is the clock of this machine. The trace uses the clock of the file system
+    of the run directory, which needs a marker file written there, and a launch writes nothing in
+    a code tree. So a code tree on a network file system whose clock is more than the racy window
+    behind this machine's is not covered against two edits of one file, of the same size, within
+    one timestamp tick."""
     records = _records()
     taken_ns = time.time_ns()
     held = records.get(path)

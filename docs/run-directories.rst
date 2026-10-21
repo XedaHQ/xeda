@@ -512,10 +512,12 @@ A flow that a plugin or your own code defines is stale when its code changed. Xe
 and checks each one at every launch, also in a process that lives long, such as a notebook, so an
 edit, an added file and a removed file count at once. The check is by the metadata of a file, as for
 the inputs of a run: Xeda reads a file again only when its size, times or inode changed, or when it
-changed just before the last check. A digest names each file relative to the root of the code, so moving the code to another
-place does not make the run stale.
-The runs of such a flow that an older Xeda made are stale once, because the digest is made in a
-new way. The root of the code is:
+changed just before the last check. It judges "just before" by the clock of this machine. A code
+tree on a network file system whose clock is several seconds behind this machine's can miss two
+edits of one file made within one timestamp tick of that file system. A digest names each file
+relative to the root of the code, so moving the code to another place does not make the run stale.
+The runs of such a flow that an older Xeda made are stale once, because the digest is made in a new
+way. The root of the code is:
 
 - For a flow defined in a package, the top-level package: the directory with the ``__init__.py``
   files from the module of the flow up. Every file in it counts: helper modules, templates and
