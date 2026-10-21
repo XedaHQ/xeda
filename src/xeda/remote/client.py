@@ -61,7 +61,7 @@ from ..flow_runner.default_runner import PreparedRequest, print_results
 from ..flow_runner.outputs import declared_output_files
 from ..flow_runner.run_lock import run_dir_lock
 from ..proc_utils import tool_output_stream
-from ..run_dir import RunDirectory
+from ..run_dir import RunDirectory, refuse_link_on_way
 from ..xedaproject import resolve_project_file
 from .constants import HEARTBEAT, LAYOUT
 from .environment import CodeSnapshot, DependencySpec, code_snapshot, dependency_spec
@@ -1332,6 +1332,10 @@ def _run(
     key = workspace_key(local_root, destination)
     launch_id = new_launch_id()
     local = prepared.local()
+    # The mirror of a node lies below the run root like the node: no link on the way to it
+    # (`@host` included) is followed, so refuse one before the host runs anything.
+    for directory in sorted(_planned_mirrors(local, mirror_root, local_root)):
+        refuse_link_on_way(directory.parent, local_root)
     log.info("Connecting to %s...", destination_text)
     try:
         with SshSession(destination, ssh_options) as session:

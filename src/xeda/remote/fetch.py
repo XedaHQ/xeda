@@ -35,7 +35,7 @@ from ..flow.derived import recorded_files
 from ..flow_runner.default_runner import _get_flow_class_if_known
 from ..flow_runner.outputs import declared_output_files
 from ..flow_runner.trace_inputs import design_files, register_read_settings
-from ..run_dir import RunDirectory, RunDirectoryError
+from ..run_dir import RunDirectory, RunDirectoryError, link_refusal
 from ..utils import dump_json, replacing_file
 from .errors import RemoteFetchError
 from .manifest import Entry, copy_verified, iter_tar
@@ -272,6 +272,8 @@ def publish_mirror(
     caller holds the lock of the mirror and removes what an earlier fetch left.
 
     Return the local path of every published file, by the path it has below `remote_run_root`."""
+    if mirror_root.is_symlink():
+        raise RemoteFetchError(f"cannot publish into the mirror: {link_refusal(mirror_root)}")
     mirror_root.mkdir(parents=True, exist_ok=True)
     try:
         run_directory = RunDirectory.claimed(mirror_root, mirror_root.parent)

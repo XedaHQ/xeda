@@ -83,6 +83,15 @@ flow, to a directory below or above, to a place outside the run root, to a file,
 launch refuses such a link before it writes anything, and the error names the link and what it leads
 to. ``xeda scrub`` skips it (see `Cleaning up`_). One rule decides both.
 
+No name between the run root and a run directory may be a symbolic link. This holds for the design
+directory (``<run root>/<design>``), for the target directory, and for ``@<host>`` and the
+directories below it in the mirror of a remote run (see :doc:`remote`). Xeda neither follows nor
+removes such a link, whether it leads into the run root or out of it. A launch (``--dry-run``
+included) refuses it before it writes anything. ``xeda scrub`` refuses a design directory or a
+named ``--target`` that is a link. When it finds a link at a target, it skips the link and says
+which one. Every error names the link and what it leads to. A run root that is itself a link works:
+Xeda resolves the run root first, so you can keep it on another disk.
+
 By default, Xeda reuses the directory of a flow from run to run. This helps while you iterate,
 because incremental tool state (a synthesis checkpoint, a compiled library) survives between runs.
 Use ``--clean`` for a run that must start from nothing (see `Rebuilding only what changed`_).
@@ -640,7 +649,7 @@ leads to. Before it asks, it says so with one line for each link:
 Scrub writes each message on one line, with full paths. The end of the message depends on the
 reason. For example, a link to a place that does not exist ends with ``which does not exist``. Scrub
 never searches the run directories of another flow, and never follows a link that leads out of the
-run root.
+run root, or one at the design or target level.
 
 The lock does not protect a run that was complete when scrub listed it. If another launch is about
 to read that run, scrub removes it. For example, a consumer has run its producer but has not yet

@@ -381,6 +381,12 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         "the launcher handed a run directory that is not the path given: a bug in the caller, no "
         "user input",
     ),
+    "xeda.run_dir:refuse_link_on_way": (
+        1,
+        "a flow claims its run directory when it is built, and a symbolic link between the run "
+        "root and the run directory is refused there as at planning (`run_path_of`); the path "
+        "is the launcher's, not the flow's settings or design",
+    ),
     "xeda.flow.flow:Flow.Settings.from_input": (
         2,
         "validates settings given as a mapping to a flow built directly; a launched flow gets "

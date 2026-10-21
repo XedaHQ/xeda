@@ -298,16 +298,21 @@ def test_a_target_that_is_no_name_is_refused_before_anything_is_looked_at(
 def test_a_target_directory_that_is_a_link_out_of_the_run_root_is_never_followed(
     tmp_path, confirmations
 ):
+    """A scan of the design says which link it skipped. A named target that is a link is refused,
+    and the error names the link."""
     tree = Tree(tmp_path)
     outside = tmp_path / "outside"
     canary = run_dir(outside / FLOW)
-    (tree.design / "out").symlink_to(outside, target_is_directory=True)
-    for args in ((), ("--target", "out")):
-        result, document = scrub(tmp_path, *args)
-        assert result.exit_code == 0, result.output
-        assert str(tree.design / "out") not in document["scrubbed"]
-        assert canary.exists() and (canary / "out.txt").exists()
-        assert (outside / FLOW).is_dir()
+    link = tree.design / "out"
+    link.symlink_to(outside, target_is_directory=True)
+    result, document = scrub(tmp_path)
+    assert result.exit_code == 0, result.output
+    assert str(link) not in document["scrubbed"] and document["skipped"] == [str(link)]
+    result, document = scrub(tmp_path, "--target", "out")
+    assert result.exit_code == 1, result.output
+    assert f"{link} is a symbolic link (to {outside})" in document["error"]["message"]
+    assert canary.exists() and (canary / "out.txt").exists()
+    assert (outside / FLOW).is_dir()
 
 
 def test_a_run_directory_that_is_a_link_out_of_the_run_root_is_never_followed(
@@ -863,8 +868,9 @@ def test_a_design_directory_that_is_a_link_out_of_the_run_root_is_never_searched
     canary = run_dir(tmp_path / "outside" / FLOW)
     (tree.root / "linked").symlink_to(canary.parent, target_is_directory=True)
     result, document = scrub(tmp_path, design="linked")
-    assert result.exit_code == 0, result.output
-    assert document["scrubbed"] == [] and confirmations == []
+    assert result.exit_code == 1, result.output
+    assert f"{tree.root / 'linked'} is a symbolic link" in document["error"]["message"]
+    assert confirmations == []
     assert canary.exists() and (canary / "out.txt").exists()
 
 
