@@ -153,6 +153,17 @@ def test_the_vcd_starts_before_the_prerun_and_the_saif_after_it(tmp_path, monkey
     assert prerun < commands.index("open_saif") < commands.index("log_saif")
 
 
+@pytest.mark.parametrize(
+    "settings, flag", [({}, None), ({"quiet": True}, None), ({"verbose": 1}, "-verbose")]
+)
+def test_quiet_does_not_make_log_vcd_ignore_its_errors(tmp_path, monkeypatch, settings, flag):
+    """Vivado's `-quiet` makes a command ignore its errors, and `quiet` only asks for less text."""
+    flow = launch(tmp_path, monkeypatch, "clock", {"vcd": True, "stop_time": "20ns", **settings})
+    assert flow.succeeded
+    (call,) = [call for call in fake_calls(flow.run_path) if call[0] == "log_vcd"]
+    assert call[1:] == ([flag] if flag else [])
+
+
 @pytest.mark.parametrize("command", ["xvlog", "xelab", "xsim", "run", "close_vcd", "close_saif"])
 def test_vivado_script_errors_override_finish(tmp_path, monkeypatch, command):
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", command)
