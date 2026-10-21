@@ -19,6 +19,7 @@ import pytest
 import xeda.tool
 from xeda import Design
 from xeda.flows import Yosys
+from xeda.run_dir import RunDirectoryError
 from xeda.tool import Docker, Tool
 
 Call = Tuple[str, List[str], dict]
@@ -140,11 +141,53 @@ def test_a_query_runs_in_a_scratch_directory_that_is_removed(tmp_path, calls, mo
     assert list(flow.run_path.iterdir()) == []
 
 
-def test_a_query_that_makes_a_file_leaves_it_in_the_scratch_directory(tmp_path, calls):
+def test_a_query_that_makes_a_file_leaves_it_in_the_scratch_directory(tmp_path, monkeypatch):
     flow = _flow(tmp_path)
+    written: List[Tuple[Path, str]] = []
+
+    def look(executable, args=None, **kwargs):
+        # The file exists when the process starts, in the directory the process gets.
+        scratch = Path(kwargs["cwd"])
+        written.append((scratch, (scratch / "env.sh").read_text()))
+        return ""
+
+    monkeypatch.setattr(xeda.tool, "run_process", look)
     _tool(flow).probe_stdout("--version", env={"ONE": "1"})
+    ((scratch, text),) = written
+    assert text == 'export ONE="1"'
+    assert scratch.name.startswith("xeda-probe-")
+    assert scratch not in (flow.run_path, Path.cwd())
     assert list(flow.run_path.iterdir()) == []
     assert not (Path.cwd() / "env.sh").exists()
+
+
+def test_the_environment_file_of_a_start_outside_the_run_directory_is_not_checked(tmp_path, calls):
+    flow = _flow(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    _tool(flow).run("arg", env={"ONE": "1"}, cwd=elsewhere)
+    assert (elsewhere / "env.sh").read_text() == 'export ONE="1"'
+    assert list(flow.run_path.iterdir()) == []
+
+
+def test_the_environment_file_of_a_start_below_the_run_directory_goes_there(tmp_path, calls):
+    flow = _flow(tmp_path)
+    (flow.run_path / "sub").mkdir()
+    _tool(flow).run("arg", env={"ONE": "1"}, cwd=Path("sub"))
+    assert (flow.run_path / "sub" / "env.sh").read_text() == 'export ONE="1"'
+    assert calls[0][2]["cwd"] == flow.run_path / "sub"
+
+
+def test_a_start_in_a_link_that_leads_out_of_the_run_directory_is_refused(tmp_path, calls):
+    """A tool may leave a link in its run directory. Xeda writes nothing through it."""
+    flow = _flow(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (flow.run_path / "link").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(RunDirectoryError, match="symbolic link"):
+        _tool(flow).run("arg", env={"ONE": "1"}, cwd=Path("link"))
+    assert list(outside.iterdir()) == []
+    assert calls == []
 
 
 # ----------------------------------------------------------------------------- Docker
@@ -206,6 +249,26 @@ def test_the_cpu_information_is_asked_in_a_scratch_directory(tmp_path, calls):
     workdir = next(a for a in command if a.startswith("--workdir="))
     assert Path(workdir.removeprefix("--workdir=")).name.startswith("xeda-probe-")
     assert Path(kwargs["cwd"]).name.startswith("xeda-probe-")
+
+
+def test_a_container_works_in_the_resolved_directory_of_a_linked_run_path(tmp_path, calls):
+    """A container sees the physical directory: the work directory, the writable mount and the
+    read-only mounts all use the resolved path, not the link into the run root."""
+    flow = _flow(tmp_path, linked=True)
+    real = flow.run_path.resolve()
+    inside = real / "sub"
+    inside.mkdir()
+    flow.implicit_inputs.append(inside / "x")
+    _docker_tool(flow).run("arg", env={"ONE": "1"}, stdout=Path("out.txt"))
+    command = _docker_command(calls)
+    link = str(flow.run_path)
+    assert f"--workdir={real}" in command
+    assert f"--volume={real}:{real}" in command
+    assert not [a for a in command if f"={link}:" in a or a.endswith(f":{link}")], command
+    assert f"--volume={inside}:{inside}:ro" not in command
+    assert command[command.index("--env-file") + 1] == str(real / ".some-tool_docker.env")
+    assert calls[0][2]["cwd"] == real
+    assert Path(calls[0][2]["stdout"]).resolve() == real / "out.txt"
 
 
 def test_the_read_only_mounts_leave_out_the_directory_of_the_tool(tmp_path, calls):

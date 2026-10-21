@@ -116,11 +116,12 @@ class Docker(XedaBaseModel):
         """Run the tool in a Docker container.
 
         The container works in `cwd` (by default the current directory, read once here) and mounts
-        it writable. It mounts each directory of `read_only` read-only: the design's, and those
-        of the flow's inputs (`Tool.execute` chooses them). A mount configured in `mounts` stays
-        as configured. The `docker` client starts in `cwd` too, and the files that Xeda writes
-        for the container (the environment file, the CPU information) go there."""
-        cwd = Path.cwd() if cwd is None else Path(os.path.abspath(cwd))
+        it writable. It sees the resolved path of that directory, as a process that changed into
+        it would. It mounts each directory of `read_only` read-only: the design's, and those of
+        the flow's inputs (`Tool.execute` chooses them). A mount configured in `mounts` stays as
+        configured. The `docker` client starts in `cwd` too, and the files that Xeda writes for
+        the container (the environment file, the CPU information) go there."""
+        cwd = Path(os.path.realpath(Path.cwd() if cwd is None else cwd))
         stdout = _placed(cwd, stdout)
         tee = None if tee is None else cwd / tee
         note_program(f"{DOCKER_IMAGE_PREFIX}{self.image}:{self.tag or 'latest'}")
@@ -525,8 +526,8 @@ class Tool(XedaBaseModel):
         if env:
             env = {k: str(v) for k, v in env.items() if v is not None}
             env_file = self._directory(cwd) / "env.sh"
-            if self._run_directory is not None and cwd is None:
-                self._run_directory.writable(env_file)  # inside the flow's run directory
+            if self._in_run_directory(env_file):
+                self._run_directory.writable(env_file)
             with replacing_file(env_file) as f:
                 f.write("\n".join(f'export {k}="{v}"' for k, v in env.items()))
         return self.execute(
@@ -559,6 +560,17 @@ class Tool(XedaBaseModel):
             return base
         cwd = Path(cwd)
         return cwd if cwd.is_absolute() else base / cwd
+
+    def _in_run_directory(self, path: Path) -> bool:
+        """Return whether `path` lies in the run directory of the flow of this tool, by its name
+        or by where it leads. A file in a probe's scratch directory does not."""
+        run_directory = self._run_directory
+        if run_directory is None:
+            return False
+        lexical = Path(os.path.abspath(path))
+        return lexical.is_relative_to(self.working_directory()) or (
+            run_directory.named_within(lexical) is not None
+        )
 
     def _read_only_directories(self, cwd: Path) -> List[Path]:
         """Return the directories that a container mounts read-only in this run.
@@ -621,19 +633,22 @@ class Tool(XedaBaseModel):
         else:
             highlight_rules = None
         if self.docker and self.dockerized:
+            # The container sees the physical directory (`Docker.run`), and so do its read-only
+            # mounts, which are compared with it.
+            container_directory = Path(os.path.realpath(directory))
             return self.docker.run(
                 executable,
                 *args,
                 env=env,
                 stdout=stdout,
                 check=check,
-                read_only=self._read_only_directories(directory),
+                read_only=self._read_only_directories(container_directory),
                 print_command=self.print_command,
                 highlight_rules=highlight_rules,
                 merge_stderr=merge_stderr,
                 timeout=timeout,
                 tee=tee,
-                cwd=directory,
+                cwd=container_directory,
             )
         if env is not None:
             env = {**os.environ, **env}
