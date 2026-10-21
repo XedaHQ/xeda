@@ -123,7 +123,7 @@ BOARDS = {
         ["--board", "ulx3s"],
         "uart_link/ulx3s/fpga_pack/outputs/uart_link.bit",
         (256, 512, 1024, 2048),
-        256,
+        512,  # the FIFO of the FT231X holds 512 bytes
         "ftdi:1:0",
         chunk=4096,
     ),
@@ -132,8 +132,8 @@ BOARDS = {
         3_000_000,
         ["--board", "stlv7325"],
         "uart_link/stlv7325/fpga_pack/outputs/uart_link.bit",
-        (128, 256),
-        256,
+        (256, 512, 1024, 2048),
+        1024,  # the CH9102 datasheet gives no buffer size: keep margin on other host drivers
         "serial",
     ),
 }

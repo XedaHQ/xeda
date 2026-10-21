@@ -1444,6 +1444,98 @@ def test_sequence_numbers_wrap_modulo_2w() -> None:
     assert seqs == [0, 1, 0, 1, 0, 1]
 
 
+def frame_kinds(frames: list[bytes], w: int = 4) -> list[str]:
+    return ["request" if parse_host(f, w=w)["data"] else "header" for f in frames]
+
+
+def credit_first_session(budget: int, payload_a: int = 1) -> HostProtocol:
+    """A session with two requests on the wire and the first response read: the FPGA has used
+    the credit of the first grant, and a request is due."""
+    p = started(w=4, bridge_budget=budget, rsp_limit=255)
+    p.submit(b"a" * payload_a)
+    p.submit(b"b")
+    assert frame_kinds(drain(p, 0.001)) == ["request", "request"]
+    return p
+
+
+def test_credit_first_sends_a_header_frame_before_a_request_when_the_fpga_may_be_blocked() -> None:
+    p = credit_first_session(400)  # grant = consumed + 324: the window holds one response frame
+    p.feed(response_wire(seq=0, exp=2, cursor=12 + 255, payload=bytes(243)), 0.002)
+    p.submit(b"c")
+    frames = drain(p, 0.003)
+    assert frame_kinds(frames) == ["header", "request"]
+    header, request = (parse_host(f) for f in frames)
+    assert header["grant"] == request["grant"] == u16(12 + 255 + 324)
+    assert header["ack"] == request["ack"] == 1 and request["seq"] == 2
+    assert p.stats["credit_first_frames"] == 1
+
+
+@pytest.mark.parametrize(
+    "payload, header",
+    [(57, False), (58, True)],
+    ids=["credit-for-one-response-left", "one-byte-short"],
+)
+def test_credit_first_fires_when_less_than_one_response_of_credit_is_left(
+    payload: int, header: bool
+) -> None:
+    """The first grant was 12 + 324 = 336. After a response of 12 + payload bytes the cursor is
+    c = 12 + 12 + payload, and the FPGA may have 336 - c bytes of credit: 255 or more is enough
+    for one full response (rsp_limit 255)."""
+    p = credit_first_session(400)
+    p.feed(response_wire(seq=0, exp=2, cursor=24 + payload, payload=bytes(payload)), 0.002)
+    p.submit(b"c")
+    expected = ["header", "request"] if header else ["request"]
+    assert frame_kinds(drain(p, 0.003)) == expected
+
+
+def test_credit_first_never_fires_when_credit_is_ample() -> None:
+    p = started(w=4, bridge_budget=4096, rsp_limit=255)  # the window holds seven response frames
+    p.submit(b"a")
+    p.submit(b"b")
+    assert frame_kinds(drain(p, 0.001)) == ["request", "request"]
+    cursor = 12
+    kinds: list[str] = []
+    for i in range(24):  # one response in, one request out, many times
+        cursor += 12 + 200
+        now = 0.002 + 0.0001 * i
+        p.feed(response_wire(seq=i % 8, exp=(i + 2) % 8, cursor=cursor, payload=bytes(200)), now)
+        p.submit(b"x")
+        kinds += frame_kinds(drain(p, now))
+    assert kinds and set(kinds) == {"request"}
+    assert "credit_first_frames" not in p.stats
+
+
+def test_credit_first_never_fires_when_no_response_is_outstanding() -> None:
+    p = started(w=4, bridge_budget=400, rsp_limit=255)
+    p.submit(b"a")
+    assert frame_kinds(drain(p, 0.001)) == ["request"]
+    p.feed(response_wire(seq=0, exp=1, cursor=12 + 255, payload=bytes(243)), 0.002)
+    p.submit(b"b")  # the credit is short, but nothing waits for the FPGA
+    assert frame_kinds(drain(p, 0.003)) == ["request"]
+    assert "credit_first_frames" not in p.stats
+
+
+def test_credit_first_cannot_starve_the_requests() -> None:
+    """At most one credit-first frame goes before a request, however many FPGA frames arrive in
+    between: each request frame follows its header, and all queued requests go out."""
+    p = credit_first_session(400)
+    p.feed(response_wire(seq=0, exp=2, cursor=12 + 255, payload=bytes(243)), 0.002)
+    for name in (b"c", b"d"):
+        p.submit(name)
+    sent: list[str] = []
+    cursor = 12 + 255
+    for step in range(12):
+        frame = p.next_frame(0.003 + 0.0001 * step)
+        if frame is not None:
+            sent += frame_kinds([frame])
+        cursor += 12  # a status frame arrives after every frame: the grant moves again
+        p.feed(status_wire(w=4, seq=1, exp=2 + sent.count("request") - 0, cursor=cursor), 0.0035)
+        if sent.count("request") == 2:
+            break
+    assert sent.count("request") == 2, sent
+    assert "header" not in [a for a, b in zip(sent, sent[1:]) if a == b == "header"], sent
+
+
 def test_every_frame_carries_ack_and_grant_of_consumed_plus_budget_minus_76() -> None:
     p = started(w=4, bridge_budget=2048)
     for k in range(3):

@@ -170,6 +170,7 @@ class HostProtocol:
         self._rsp = 0  # responses delivered in order
         self._consumed = 0  # cursor of the last valid FPGA frame (u16)
         self._last_grant = 0
+        self._credit_first_sent = False  # a credit-first frame went out; the request is next
         self._epoch = 0
         self._need_poll = False
         self._need_resync = False
@@ -571,25 +572,48 @@ class HostProtocol:
             return False
         return self._snd - self._rsp < self.W
 
-    def _update_due(self) -> bool:
-        """Host rule: send a header-only frame when new credit is worth sending.
+    def _credit_gap(self) -> tuple[int, int] | None:
+        """Return ``(step, left)`` while the host waits for responses and new credit exists.
 
-        The host knows the last grant it sent and the cursor of the last frame it read. The
-        difference is the credit that the FPGA may still have. If it is below one full response
-        frame, the FPGA may be blocked, so any new credit is worth a frame. Otherwise the host
-        waits until ``grant_step`` bytes have piled up. The host sends such a frame only if it
-        waits for responses.
+        ``step`` is the new credit that a frame would carry: the grant now minus the last grant
+        sent. ``left`` is the credit that the FPGA may still have: the last grant sent minus the
+        cursor of the last frame read. Return None if no response is outstanding or the grant has
+        not moved.
         """
         if self._rsp >= len(self._reqs):
-            return False
+            return None
         step = (self._grant() - self._last_grant) & U16
         if not 0 < step < 0x8000:
-            return False
+            return None
         left = (self._last_grant - self._consumed) & U16
         if left >= 0x8000:
             left = 0
+        return step, left
+
+    def _update_due(self) -> bool:
+        """Host rule: send a header-only frame when new credit is worth sending.
+
+        If the credit that the FPGA may still have is below one full response frame, the FPGA may
+        be blocked, so any new credit is worth a frame. Otherwise the host waits until
+        ``grant_step`` bytes have piled up. The host sends such a frame only if it waits for
+        responses.
+        """
+        gap = self._credit_gap()
+        if gap is None:
+            return False
+        step, left = gap
         grant_step = self.cfg.grant_step if self.cfg.grant_step is not None else self.rsp_limit
         return left < self.rsp_limit or step >= grant_step
+
+    def _credit_first_due(self) -> bool:
+        """Host rule (credit first): a request is due, the FPGA may be credit-blocked and new
+        credit exists. The credit rides in the request, but a request frame (up to 255 bytes)
+        takes much longer on the line than a header-only frame (12 bytes), and the FPGA applies
+        the grant only when it has the whole frame. So the host sends the header-only frame with
+        the current grant first. With a window of several frames the FPGA is not blocked, and
+        the rule never fires."""
+        gap = self._credit_gap()
+        return gap is not None and gap[1] < self.rsp_limit
 
     def next_frame(self, now: float) -> bytes | None:
         """Return the next wire frame to send, or None."""
@@ -603,6 +627,12 @@ class HostProtocol:
         if self._need_resync:
             return self._send_header(now)  # RESYNC goes in a header-only frame
         if self._can_send_request():
+            # At most one credit-first frame precedes a request, so the rule cannot starve it.
+            if not self._credit_first_sent and self._credit_first_due():
+                self._credit_first_sent = True
+                self._count("credit_first_frames")
+                return self._send_header(now)
+            self._credit_first_sent = False
             return self._send_request(now)
         if self._need_poll or self._update_due():
             return self._send_header(now)

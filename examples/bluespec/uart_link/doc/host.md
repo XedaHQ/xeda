@@ -136,8 +136,18 @@ gives wrong results. Measured limits:
 | FT231X (ULX3S, 512-byte FIFO) | up to 500 bytes (1024 gives chip overruns) |
 | CH9102 (STLV7325, no flow control) | 256 and 512 lost no byte. 1024 lost frames in some stall tests, and 2048 in one of four. |
 
-The data window of a budget is `bridge_budget - 76` bytes, and `rsp_limit` must fit in it. A budget
-of 2048 allows `rsp_limit=255`. A budget of 256 allows `rsp_limit=180` at most.
+The data window of a budget is `bridge_budget - 76` bytes, and `rsp_limit` must fit in it. The
+defaults of `host/hw_suite.py` are:
+
+| Bridge (board) | `bridge_budget` | `rsp_limit` | Reason |
+| --- | --- | --- | --- |
+| FT2232H (Arty, Basys-3) | 2048 | 255 | The receive buffer holds 4 KiB. |
+| FT231X (ULX3S) | 512 | 255 | The FIFO of the chip holds 512 bytes, and the host keeps up with it. |
+| CH9102 (STLV7325) | 1024 | 255 | The datasheet gives no buffer size. 1024 keeps margin on other host drivers. |
+
+A smaller budget needs a smaller `rsp_limit`: it is `bridge_budget - 76` at most, so 180 for a
+budget of 256. A budget that holds only one response frame also costs throughput, because each
+response then waits for new credit (Section 5, credit first).
 
 Keep the number of bytes in flight well below the chip FIFO. A host that is busy can fall behind
 the line rate and lose bytes in the chip.
@@ -153,6 +163,14 @@ the line rate and lose bytes in the chip.
   that the reply carries and sends the OPEN again.
 - It sends request `s` only after the response to `s - W` arrived. It sends a header-only frame
   with new credit when the FPGA might be blocked, but only while it waits for a reply.
+- Credit first: when a request is due, a response is outstanding, the grant has moved, and the
+  credit that the FPGA may still have (the last grant sent minus the cursor of the last frame read)
+  is below `rsp_limit`, the host sends a header-only frame with the current grant before the
+  request. The FPGA applies a grant only when it has the whole frame, and a request frame takes
+  much longer on the line than a header-only frame. At most one such frame goes before a request,
+  so a request is never held back (`stats["credit_first_frames"]` counts them). With a budget
+  that holds several response frames the rule does not fire. It is a choice of the host. The FPGA
+  is the same.
 - Go-back-N goes from `exp`, once per timer expiry (not at once on a status frame). The REWIND
   epoch advances on the response timer. An idle POLL runs on the idle timer. RESYNC goes in a
   header-only frame.

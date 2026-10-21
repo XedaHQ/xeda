@@ -505,6 +505,16 @@ host cannot learn the cursor. RESYNC solves this.
   frame has a stale `ack`. The FPGA ignores a frame whose `ack` is for a response that it never
   sent.
 - Window rule: see Section 5.2.
+- Credit first. The host knows the last `grant` that it sent and the `cursor` of the last frame
+  that it read. Their difference is the credit that the FPGA may still have. When a request is
+  due, at least one response is outstanding, the `grant` has moved, and that credit is below one
+  response frame (`rspLimit` bytes), the FPGA may be blocked with a response that waits for
+  credit. A request frame takes much longer on the line than a 12-byte header-only frame, and the
+  FPGA applies the `grant` of a frame only when it has the whole frame. So the host sends a
+  header-only frame with the current `grant` first, and then the request. At most one such frame
+  goes before a request, so the rule cannot hold a request back. With a window of several
+  response frames the credit is ample and the rule does not fire. This is a choice of the host.
+  The FPGA does not change.
 - Go-back-N for requests, REWIND for responses, POLL when idle, RESYNC when silent. The timers
   and retry limits belong to the host. Their values depend on the bridge latency.
 - Learn W and `maxLen` from the OPEN reply (`ctl[2:0]` and `len`). Make sure that the largest

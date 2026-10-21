@@ -192,8 +192,17 @@ print(device.transact(b"hello"))    # 4-byte count of earlier requests, then b"h
 `bridge_budget` (B) is the number of bytes that the USB bridge can hold for you. The FPGA never
 sends more than B bytes that the host has not read. Use a value below the receive buffer of the
 bridge. The data window is `bridge_budget - 76` bytes (64 for the status reserve, 12 for RESYNC),
-and `rsp_limit` must fit in it. For the FT2232H (4 KiB buffer) use `bridge_budget=2048` and
-`rsp_limit=255`. For the CH9102 and the FT231X use `bridge_budget=256` and `rsp_limit=180`.
+and `rsp_limit` must fit in it. These are the defaults of `host/hw_suite.py`, with `rsp_limit`
+at the largest value that fits (255 at most):
+
+| bridge | board | `bridge_budget` | `rsp_limit` | reason |
+|---|---|---|---|---|
+| FT2232H | Arty, Basys-3 | 2048 | 255 | the receive buffer holds 4 KiB |
+| FT231X | ULX3S | 512 | 255 | the FIFO of the chip holds 512 bytes |
+| CH9102 | STLV7325 v2 | 1024 | 255 | the datasheet gives no buffer size; 1024 keeps margin on other host drivers |
+
+With a smaller budget, `rsp_limit` is `bridge_budget - 76` (for example 180 for 256). A small budget
+also means that the window holds fewer response frames, which lowers the throughput.
 `device.submit(payload)` and `device.wait_result(ticket)` keep several requests in flight.
 `device.transact` raises `UnknownOutcome` if the session is lost while the request is in flight.
 
