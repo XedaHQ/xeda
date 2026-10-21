@@ -17,7 +17,6 @@ import pytest
 from pydantic import Field
 
 from xeda import Design
-from xeda.console import console
 from xeda.design import SourceType
 from xeda.flow import (
     Flow,
@@ -809,12 +808,11 @@ def test_scrubbing_a_run_directory_retains_its_lock(tmp_path, toys, design, monk
     old, _ = _run(tmp_path, producer, design, hashed_run_dirs=True)
     lock = lock_file(old.run_path)
     assert lock.is_file()
-    monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
-    assert scrub_runs(producer.name, old.run_path.parent)
+    assert scrub_runs(producer.name, old.run_path.parent, confirm=lambda directories: True)
     assert not old.run_path.exists() and lock.is_file()
     kept, _ = _run(tmp_path, producer, design, hashed_run_dirs=True)
-    monkeypatch.setattr(console, "input", lambda *a, **kw: "no")  # declined: nothing removed
-    assert not scrub_runs(producer.name, kept.run_path.parent)
+    # declined: nothing removed
+    assert not scrub_runs(producer.name, kept.run_path.parent, confirm=lambda directories: False)
     assert kept.run_path.exists() and lock_file(kept.run_path).is_file()
 
 
