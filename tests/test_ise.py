@@ -1,5 +1,7 @@
 import json
 import re
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -70,6 +72,26 @@ def test_ise_synth_py(monkeypatch) -> None:
 
 ISE_SETTINGS = dict(fpga=FPGA("xc7a12tcsg325-1"), clock={"period": "5.5 ns"})
 
+#: A launch of `ise_synth` for a process that starts in the user's own directory. It takes the run
+#: root as its argument and prints one JSON line about the run.
+USER_DIRECTORY_LAUNCH = f"""
+import json, sys
+from pathlib import Path
+from xeda import Design
+from xeda.flow import FPGA
+from xeda.flow_runner import DefaultRunner
+from xeda.flows import IseSynth
+
+design = Design.from_file({str(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")!r})
+settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock={{"period": "5.5 ns"}})
+flow = DefaultRunner(Path(sys.argv[1]), rebuild_all=True).run_flow(IseSynth, design, settings)
+print(json.dumps(dict(
+    run_path=str(flow.run_path),
+    success=bool(flow.results.success),
+    artifacts=[str(path) for path in flow.artifacts.values()],
+)))
+"""
+
 
 def _run_ise(run_dir: Path, monkeypatch, **launcher) -> Flow:
     use_fake_tools(monkeypatch)
@@ -119,23 +141,31 @@ def test_a_failed_ise_run_leaves_nothing_of_the_previous_run_in_its_run_director
     (work / "rtl").mkdir()
     (work / "rtl" / "core.vhdl").write_text("-- a source\n")
     use_fake_tools(monkeypatch)
-    monkeypatch.chdir(work)
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
-    runner = DefaultRunner(tmp_path / "xeda_run", rebuild_all=True)
 
-    first = runner.run_flow(IseSynth, design, ISE_SETTINGS)
-    assert first is not None
-    earlier = [path for path in first.run_path.rglob("*") if path.suffix in {".bit", ".syr"}]
+    def launch() -> dict:
+        """Run the flow in a process that starts in the user's directory `work`."""
+        done = subprocess.run(
+            [sys.executable, "-I", "-c", USER_DIRECTORY_LAUNCH, str(tmp_path / "xeda_run")],
+            cwd=work,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return json.loads(done.stdout.splitlines()[-1])
+
+    first = launch()
+    run_path = Path(first["run_path"])
+    earlier = [path for path in run_path.rglob("*") if path.suffix in {".bit", ".syr"}]
     assert any(path.suffix == ".bit" for path in earlier)
 
     # a run that writes none of the files: whatever is left of them would be from before
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "{Implement Design}")
-    flow = runner.run_flow(IseSynth, design, ISE_SETTINGS)
+    second = launch()
 
-    assert flow is not None and flow.run_path == first.run_path
-    assert not flow.results.success
+    assert second["run_path"] == first["run_path"]
+    assert not second["success"]
     assert [path for path in earlier if path.exists()] == []
-    assert not flow.artifacts
+    assert not second["artifacts"]
     assert all(path.read_text() == "the user's\n" for path in theirs)
     assert (work / "rtl" / "core.vhdl").is_file()
 
@@ -145,7 +175,6 @@ def test_an_ise_run_without_its_bitstream_fails_naming_it(tmp_path, monkeypatch)
     expected, and records nothing that does not exist."""
     use_fake_tools(monkeypatch)
     monkeypatch.setenv("XEDA_FAKE_TOOL_NO_OUTPUT", "1")
-    monkeypatch.chdir(tmp_path)
     design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
     flow = IseSynth(IseSynth.Settings(**ISE_SETTINGS), design, tmp_path)
     flow.init()
