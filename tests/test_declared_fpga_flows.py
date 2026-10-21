@@ -72,7 +72,9 @@ def tools(monkeypatch):
         for arg in map(str, args):
             name, _, value = arg.partition("=")
             if name in ("--report", "--textcfg", "--asc", "--fasm"):
-                Path(value).write_text(REPORT if name == "--report" else "config\n")
+                (tool.working_directory() / value).write_text(
+                    REPORT if name == "--report" else "config\n"
+                )
 
     monkeypatch.setattr(YosysFpga, "run", yosys_run)
     monkeypatch.setattr(YosysFpga, "parse_reports", lambda self: True)
@@ -330,7 +332,7 @@ def test_missing_or_stale_configuration_fails(
     def no_config(self, *args, env=None):
         for arg in map(str, args):
             if arg.startswith("--report="):
-                Path(arg.partition("=")[2]).write_text(REPORT)
+                (self.working_directory() / arg.partition("=")[2]).write_text(REPORT)
 
     monkeypatch.setattr(NextpnrTool, "run", no_config)
     runner = DefaultRunner(tmp_path / "xeda_run", rebuild_all=True, display_results=False)
