@@ -66,7 +66,7 @@ class Emission:
 
     start: float
     wire: bytes
-    kind: str  # "data" or "status"
+    kind: str  # "data", "status" or "delimiter" (the byte after power-up)
     byte_time: float
     boot: int  # boot counter value when the frame started
     cut: float | None = None  # time of a reboot that cut the frame
@@ -107,7 +107,7 @@ class FpgaModel:
         byte_time: float = BYTE_TIME_12M,
         token_time: float = 20e-9,
         core_delay: float | Callable[[bytes], float] = 0.0,
-        boot_grant: int = 0,
+        boot_grant: int = 0xFFCC,
     ) -> None:
         if w not in (1, 2, 4, 8, 16, 32, 64, 128):
             raise ValueError(f"W must be a power of two from 1 to 128, got {w}")
@@ -141,7 +141,9 @@ class FpgaModel:
     def _count(self, name: str) -> None:
         self.stats[name] = self.stats.get(name, 0) + 1
 
-    def _power_on(self, now: float) -> None:
+    def _power_on(self, now: float, up: float | None = None) -> None:
+        """Reset all state at ``now``. The FPGA runs from ``up`` (default: ``now``), and its first
+        byte is a delimiter, which belongs to no frame and is not counted in the cursor."""
         self._t = now
         # Session state.
         self.sid = 0
@@ -177,6 +179,7 @@ class FpgaModel:
         self._tx_kind = ""
         self._tx_index = 0
         self._tx_end: float | None = None
+        self._begin(now if up is None else up, "delimiter", b"", 0)
         # Core.
         self._phase = "idle"  # idle, read, delay, wait, write
         self._core_t: float | None = None
@@ -189,9 +192,9 @@ class FpgaModel:
         self.advance(now)
         if self._tx_frame is not None:
             self._tx_frame.cut = now
-        self._power_on(now)
-        self._boot_until = now + downtime
         self.boot_times.append(now)
+        self._power_on(now, now + downtime)
+        self._boot_until = now + downtime
         self._count("reboots")
 
     @property
@@ -511,7 +514,7 @@ class FpgaModel:
         self._count("status_frames" if self.bound else "unbound_status_frames")
 
     def _begin(self, now: float, kind: str, decoded: bytes, index: int) -> None:
-        wire = lc.encode_fpga_wire(decoded)
+        wire = b"\x00" if kind == "delimiter" else lc.encode_fpga_wire(decoded)
         emission = Emission(now, wire, kind, self.byte_time, self.boot)
         self.emissions.append(emission)
         self._tx_frame = emission

@@ -509,7 +509,7 @@ async def stale_frame_straddling_the_session_reset(dut):
             snap["m_count"] != base + 1
             or snap["link_exp"] != 0
             or snap["link_dack"] != 0
-            or snap["link_grant"] != hB.grant_for(0)
+            or snap["link_grant"] != 0
             or snap["link_rwHost"] != 0
             or kinds != ["status"]
         ):
@@ -584,7 +584,7 @@ async def stale_frame_straddling_the_session_reset_minimal(dut):
         b.peek_frames(),
     )
     snap = b.snapshot()
-    assert snap["link_grant"] == hB.grant_for(0), f"stale grant {snap['link_grant']:#x} took effect"
+    assert snap["link_grant"] == 0, f"stale grant {snap['link_grant']:#x} took effect"
     assert snap["link_rwHost"] == 0, "stale REWIND epoch took effect"
     assert len(b.peek_frames()) == 1, "the stale frame got a reply"
     assert after == base + 1, f"the stale frame of session A was executed in session B ({after})"

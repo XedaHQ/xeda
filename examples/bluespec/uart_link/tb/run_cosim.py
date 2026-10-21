@@ -56,12 +56,20 @@ def run(job: tuple[str | None, int, Path]) -> tuple[str, int, str]:
     return name, proc.returncode, summary
 
 
+def positive(text: str) -> int:
+    """An argparse type: an integer above zero."""
+    value = int(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"{text} is not above zero")
+    return value
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--seeds", type=int, default=100, help="seeds of the stress test")
-    ap.add_argument("--jobs", type=int, default=4, help="runs in parallel")
+    ap.add_argument("--seeds", type=positive, default=100, help="seeds of the stress test")
+    ap.add_argument("--jobs", type=positive, default=4, help="runs in parallel")
     ap.add_argument("--run-root", type=Path, help="directory of the runs and logs")
     args = ap.parse_args()
     run_root = args.run_root or Path(tempfile.mkdtemp(prefix="uart_link_cosim_"))

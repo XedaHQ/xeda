@@ -96,6 +96,10 @@ A backend has four methods: `write(data)`, `read(max_bytes, timeout)`, `purge()`
 - `LoopbackBackend(peer, clock)`: in memory, for tests. The peer has `rx(data, now)` and
   `tx(now) -> bytes`. The Python FPGA model in `host/leanlink/fpga_model.py` is such a peer.
 
+`FtdiBackend.purge` and `FtdiBackend.close` take a lock and wait for the reader thread. Do not call
+them from a signal handler or from inside another call of the backend, because that deadlocks. Let
+`KeyboardInterrupt` unwind the program, and close the backend in a `finally` block.
+
 ### 4.1 FTDI latency timer and event character
 
 An FTDI chip holds received bytes until its latency timer runs out, its buffer is full, or the
@@ -152,8 +156,10 @@ the line rate and lose bytes in the chip.
 - Go-back-N goes from `exp`, once per timer expiry (not at once on a status frame). The REWIND
   epoch advances on the response timer. An idle POLL runs on the idle timer. RESYNC goes in a
   header-only frame.
-- Every timer has a retry limit with back-off (factor 2, at most 8). The counters reset on
-  progress. A limit that runs out ends the session.
+- Every timer of an active session has a retry limit with back-off (factor 2, at most 8). The
+  counters reset on progress. A limit that runs out ends the session.
+- The OPEN retries are different. They have no back-off: the host sends the OPEN again every
+  `open_timeout`, at most `open_retries` times in all. Then the OPEN fails.
 - An FPGA frame that is valid under S = 0 during the session ends the session (UNBOUND).
 - After the session ends, every ticket without a result becomes `UNKNOWN_OUTCOME`. `submit`
   raises `SessionClosed`.

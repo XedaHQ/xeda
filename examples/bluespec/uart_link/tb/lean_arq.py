@@ -265,8 +265,9 @@ async def rewind_while_a_frame_is_in_flight(dut):
     then the replay starts from the delivery ACK."""
     b, h = await open_session(dut, tx_gap=40)
     n = min(W, 3)
+    tx_before = len(b.tx_bytes)  # the OPEN reply is already on the wire
     pays = await send_requests(b, h, n, size=30)
-    await b.until(lambda: len(b.tx_bytes) >= 8, 5000, "first response bytes")
+    await b.until(lambda: len(b.tx_bytes) >= tx_before + 8, 5000, "first response bytes")
     h.rewind = 1
     b.send(h.hdr(ack=0))
     await b.until(

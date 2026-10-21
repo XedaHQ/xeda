@@ -96,6 +96,10 @@ class FtdiBackend:
     queue, so a slow chip timer delays data but never blocks a write. ``overruns`` counts the
     reads whose status byte had the chip's receive-overrun flag. It needs pyftdi 0.5x (it uses
     ``Ftdi._read``).
+
+    ``purge`` and ``close`` take one lock and wait for the reader thread. Do not call them from a
+    signal handler or from inside another call of the backend: that deadlocks. Let
+    ``KeyboardInterrupt`` unwind the program and close the backend in a ``finally`` block.
     """
 
     OVERRUN_BIT = 0x02  # modem status byte 2: OE (the chip's receive FIFO overflowed)
@@ -131,7 +135,11 @@ class FtdiBackend:
             self._ftdi.purge_buffers()
         self.overruns = 0
         self._queue: deque[bytes] = deque()
+        self._pause = False  # a purge is under way: the reader must park between reads
+        self._parked = False  # the reader waits between two reads
+        self.purge_timeout = 2.0  # seconds that purge waits for the reader to park
         self._cond = threading.Condition()
+        self._op_lock = threading.Lock()  # one purge or close at a time
         self._stop = False
         self._hold_until = 0.0
         self._error: BaseException | None = None
@@ -152,12 +160,25 @@ class FtdiBackend:
             out += raw[start + 2 : start + packet]
         return bytes(out)
 
+    def _park_while_paused(self) -> None:
+        """Wait between two reads while a purge is under way."""
+        with self._cond:
+            while self._pause and not self._stop:
+                self._parked = True
+                self._cond.notify_all()
+                self._cond.wait()
+            self._parked = False
+
     def _reader(self) -> None:
         try:
             while not self._stop:
+                self._park_while_paused()
+                if self._stop:
+                    break
                 delay = self._hold_until - time.monotonic()
                 if delay > 0:
-                    time.sleep(delay)
+                    time.sleep(min(delay, 0.005))
+                    continue
                 raw = bytes(self._ftdi._read())
                 data = self._strip(raw)
                 if data:
@@ -202,17 +223,40 @@ class FtdiBackend:
             return bytes(out)
 
     def purge(self) -> None:
-        """Drop the chip's receive buffer and everything that the reader has queued."""
-        self._ftdi.purge_rx_buffer()
-        # A read may be under way. Wait one latency period, then drop what it brought.
-        time.sleep(min(0.05, 1.5e-3 * self.latency_ms))
-        with self._cond:
-            self._queue.clear()
+        """Drop the chip's receive buffer and everything that the reader has queued.
+
+        The reader parks between two reads first, so no read is under way when the chip buffer is
+        purged. Bytes that a read brought before that are older than the purge and are dropped.
+        A byte that the chip receives after the chip purge is never dropped. Raise ``RuntimeError``
+        if the reader does not park within ``purge_timeout`` seconds, or if the backend is closed.
+        """
+        with self._op_lock:
+            if self._stop:
+                raise RuntimeError("the FTDI backend is closed")
+            with self._cond:
+                self._pause = True
+                try:
+                    parked = self._cond.wait_for(
+                        lambda: self._parked or self._error is not None, self.purge_timeout
+                    )
+                    if self._error is not None:
+                        raise RuntimeError(f"FTDI reader failed: {self._error!r}")
+                    if not parked:
+                        raise RuntimeError("the FTDI reader did not stop for the purge")
+                    self._ftdi.purge_rx_buffer()
+                    self._queue.clear()
+                finally:
+                    self._pause = False
+                    self._cond.notify_all()
 
     def close(self) -> None:
-        self._stop = True
-        self._thread.join(timeout=1.0 + 2e-3 * self.latency_ms)
-        self._ftdi.close()
+        with self._op_lock:  # wait for a purge that is under way
+            with self._cond:
+                self._stop = True
+                self._cond.notify_all()
+            if threading.current_thread() is not self._thread:  # the reader cannot join itself
+                self._thread.join(timeout=1.0 + 2e-3 * self.latency_ms)
+            self._ftdi.close()
 
 
 class LoopbackBackend:

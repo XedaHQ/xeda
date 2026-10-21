@@ -383,9 +383,7 @@ async def open_with_resync_poll_rewind_bits_is_valid_and_ignores_them(dut):
         b.frames()
         rw0 = b.sig("link_rwHost")
         ctl = lc.host_ctl(open_frame=True) | ctl_bits
-        dec = lc.build_host_frame(
-            ctl, 0, 0, hn.grant_for(0), hn.sid.to_bytes(4, "little") + bytes([MAXLEN]), 0
-        )
+        dec = lc.build_host_frame(ctl, 0, 0, 0, hn.sid.to_bytes(4, "little") + bytes([MAXLEN]), 0)
         b.send(lc.encode_host_wire(dec))
         await b.until(lambda: bool(b._new), 8000, "OPEN reply")
         await b.settle()

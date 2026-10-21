@@ -16,6 +16,7 @@ adds what only this example has:
 from __future__ import annotations
 
 import ast
+import json
 import re
 import subprocess
 import sys
@@ -199,3 +200,70 @@ def test_the_hardware_script_starts_without_a_board():
         [*run, "stlv7325", "soak"], capture_output=True, text=True, timeout=HANG_GUARD
     )
     assert refused.returncode != 0 and "needs --port" in refused.stderr
+
+
+def test_the_hardware_script_fails_on_a_recorded_violation():
+    """A result with a violation, a mismatch, a failed programmer or an undetected reset is a
+    failed run (a nonzero exit status)."""
+    code = (
+        "import sys, json\n"
+        f"sys.path.insert(0, {str(EXAMPLE / 'host')!r})\n"
+        "import hw_suite\n"
+        "good = {'rows': [{'violations': 0, 'reset_detected': True, 'new_session_first_count': 0, 'programmer_rc': 0}]}\n"
+        "bad = {'rows': [{'violations': 2}], 'reconfig': {'busy0': {'reset_detected': False}}}\n"
+        "run = {'reset_detected': True, 'new_session_first_count': 0}\n"
+        "again = {'a': dict(run, new_session_first_count=3), 'b': dict(run), 'c': dict(run)}\n"
+        "del again['c']['new_session_first_count']\n"
+        "print(json.dumps([hw_suite.failures(good), hw_suite.failures(bad),\n"
+        "                  hw_suite.failures({'a': run}), hw_suite.failures(again)]))\n"
+    )
+    run = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=HANG_GUARD,
+    )
+    good, bad, first_ok, first_bad = json.loads(run.stdout)
+    assert good == [] and first_ok == []
+    assert bad == [
+        "rows[0].violations = 2",
+        "reconfig.busy0.new_session_first_count = None",
+        "reconfig.busy0.reset_detected = False",
+    ]
+    # a new session must start at count 0: a higher count, or no count, fails the run
+    assert first_bad == ["a.new_session_first_count = 3", "c.new_session_first_count = None"]
+
+
+@pytest.mark.parametrize(
+    "script, args",
+    [
+        (EXAMPLE / "tb" / "run_cosim.py", ["--seeds", "0"]),
+        (EXAMPLE / "tb" / "run_cosim.py", ["--seeds", "-3"]),
+    ],
+    ids=["zero-seeds", "negative-seeds"],
+)
+def test_the_cosim_script_rejects_a_seed_count_below_one(script, args):
+    run = subprocess.run(
+        [sys.executable, "-I", "-B", str(script), *args],
+        capture_output=True,
+        text=True,
+        timeout=HANG_GUARD,
+    )
+    assert run.returncode == 2 and "is not above zero" in run.stderr
+
+
+def test_the_protocol_simulation_rejects_a_request_count_below_one():
+    code = (
+        "import sys\n"
+        f"sys.path.insert(0, {str(EXAMPLE / 'host')!r})\n"
+        "from leanlink import sim\n"
+        "sim.main(['throughput', '--n', '0'])\n"
+    )
+    run = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=HANG_GUARD,
+    )
+    assert run.returncode == 2 and "is not above zero" in run.stderr

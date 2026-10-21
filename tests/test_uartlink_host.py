@@ -13,6 +13,7 @@ import importlib.util
 import os
 import random
 import sys
+import threading
 import time
 import types
 from pathlib import Path
@@ -223,6 +224,8 @@ class ModelHost:
         self.m.advance(self.t)
         out = []
         for em in self.m.pop_emissions():
+            if em.kind == "delimiter":  # the byte after power-up belongs to no frame
+                continue
             frame = None
             for sid in (self.m.sid, self.sid, 0):
                 frame = lc.check_fpga_frame(em.wire[:-1], sid, self.W, None).frame
@@ -275,6 +278,20 @@ def test_cobs_vectors_with_the_full_block_code(data, cobs, rcobs) -> None:
     if rcobs is not None:
         assert lc.rcobs_encode(data) == rcobs
     assert lc.rcobs_decode(lc.rcobs_encode(data)) == data
+
+
+def test_the_codec_rejects_trunc_in_a_status_frame() -> None:
+    ctl = lc.fpga_ctl(trunc=True, log2w=2)
+    status = lc.encode_fpga_wire(lc.build_fpga_frame(ctl, 0, 0, 12, b"", SID, len_field=255))
+    verdict = lc.check_fpga_frame(status[:-1], SID, 4, 255)
+    assert verdict.frame is None and verdict.failures == ("header",)
+    clean = lc.fpga_ctl(log2w=2)
+    status = lc.encode_fpga_wire(lc.build_fpga_frame(clean, 0, 0, 12, b"", SID, len_field=255))
+    assert lc.check_fpga_frame(status[:-1], SID, 4, 255).frame is not None
+    # TRUNC is allowed in a DATA frame
+    data = lc.fpga_ctl(data=True, trunc=True, log2w=2)
+    wire = lc.encode_fpga_wire(lc.build_fpga_frame(data, 0, 1, 40, b"abc", SID))
+    assert lc.check_fpga_frame(wire[:-1], SID, 4, 255).frame["trunc"] is True
 
 
 def test_the_codec_accepts_the_resync_bit_and_judges_the_other_rules() -> None:
@@ -375,6 +392,19 @@ def test_abort_gives_unknown_outcome_and_a_new_session_works() -> None:
     dev.open(timeout=1.0)  # OPEN with a busy core: it waits for the request in progress
     assert dev.transact(b"fresh") == (1).to_bytes(4, "little") + b"fresh"
     assert model.executed == [b"in flight", b"fresh"]
+
+
+def test_wait_result_returns_a_ready_result_before_it_pumps_the_device() -> None:
+    dev, _model, _clock = make_device()
+    dev.open(timeout=1.0)
+    ticket = dev.submit(b"in flight")
+    dev.abort()  # the first session ends: the ticket has the result UNKNOWN_OUTCOME
+    dev.open(timeout=1.0)  # a new session; the old ticket belongs to the old protocol
+    pumped = []
+    real = dev.pump
+    dev.pump = lambda wait=0.0: (pumped.append(wait), real(wait))[1]
+    assert dev.wait_result(ticket, timeout=1.0).status is Status.UNKNOWN_OUTCOME
+    assert not pumped
 
 
 def test_a_transact_that_times_out_leaves_no_ticket_behind() -> None:
@@ -551,6 +581,331 @@ def test_ftdi_backend_strips_status_bytes_and_sets_chip_options(
     be.close()
     assert ("latency", 2) in log and ("event", 0, True) in log and ("chunk", 64) in log
     assert ("write", b"ab") in log and log[-1] == ("close",)
+
+
+class FakeChip:
+    """A pyftdi `Ftdi` with a receive buffer. `_read` waits up to 20 ms for bytes, like a read of
+    the chip with a latency timer.
+
+    A test sets `gate` to hold the next read. With `capture_first` the read takes the bytes of the
+    buffer first and then waits at the gate, so it returns bytes that are older than the gate.
+    Without it the read waits at the gate first and takes the bytes when the gate opens."""
+
+    VENDOR = None
+    _max_packet_size = 64
+
+    def __init__(self) -> None:
+        self.buffer = bytearray()
+        self.lock = threading.Lock()
+        self.started_held = threading.Event()  # a read has started that the gate will hold
+        self.blocked = threading.Event()  # a read waits at the gate
+        self.gate: threading.Event | None = None
+        self.capture_first = False
+        self.calls: list[str] = []
+        self.closed = False
+        self.read_after_close = False
+        self.backend = None  # set by the test: the backend that reads this chip
+        self.read_after_stop = False  # a read started after the backend was told to stop
+        self.on_read = None  # a function that the next read calls once
+
+    def feed(self, data: bytes) -> None:
+        with self.lock:
+            self.buffer += data
+
+    def purge_rx_buffer(self) -> None:
+        self.calls.append("purge_rx_buffer")
+        with self.lock:
+            self.buffer.clear()
+
+    def _take(self, seconds: float = 0.02) -> bytes:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and not self.buffer:
+            time.sleep(0.0005)
+        with self.lock:
+            data = bytes(self.buffer)
+            self.buffer.clear()
+        return data
+
+    def _read(self) -> bytes:
+        if self.closed:
+            self.read_after_close = True
+        if self.backend is not None and self.backend._stop:
+            self.read_after_stop = True
+        hook, self.on_read = self.on_read, None
+        if hook is not None:
+            hook()
+        gate = self.gate
+        held = gate is not None and not gate.is_set()
+        if held:
+            self.started_held.set()
+        data = self._take(5.0 if held else 0.02) if self.capture_first else b""
+        if held:
+            self.blocked.set()
+            gate.wait(5)
+        if not self.capture_first:
+            data = self._take()
+        return bytes([1, 0]) + data
+
+    def close(self):
+        self.calls.append("close")
+        self.closed = True
+
+    def open_from_url(self, url):
+        pass
+
+    def set_baudrate(self, b):
+        return b
+
+    def set_line_property(self, *a):
+        pass
+
+    def set_latency_timer(self, ms):
+        pass
+
+    def set_event_char(self, ch, enable):
+        pass
+
+    def read_data_set_chunksize(self, n):
+        pass
+
+    def purge_buffers(self):
+        pass
+
+    def write_data(self, data):
+        pass
+
+
+def ftdi_backend_on_a_fake_chip(monkeypatch: pytest.MonkeyPatch):
+    chip = FakeChip()
+    module = types.ModuleType("pyftdi.ftdi")
+    module.Ftdi = lambda: chip
+    monkeypatch.setitem(sys.modules, "pyftdi", types.ModuleType("pyftdi"))
+    monkeypatch.setitem(sys.modules, "pyftdi.ftdi", module)
+    backend = leanlink.FtdiBackend("ftdi://x/2", 12_000_000)
+    chip.backend = backend
+    return chip, backend
+
+
+class WatchedLock:
+    """A lock that tells when a thread is about to wait for it: `waiting` is set right before the
+    blocking acquire, so a test knows that the competing call waits and does not go on."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.waiting = threading.Event()
+
+    def __enter__(self):
+        if not self._lock.acquire(blocking=False):
+            self.waiting.set()
+            self._lock.acquire()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._lock.release()
+
+    def locked(self) -> bool:
+        return self._lock.locked()
+
+
+def wait_until(predicate, seconds: float = 5.0) -> None:
+    """Wait for a state, not for a time: poll until the predicate holds."""
+    end = time.monotonic() + seconds
+    while not predicate():
+        assert time.monotonic() < end, "the state did not come"
+        time.sleep(0.0002)
+
+
+def purge_then_feed(be, chip, data: bytes) -> threading.Thread:
+    """A thread that purges and then lets `data` arrive at the chip: the bytes come after the
+    purge has returned, in the order of this thread."""
+
+    def run() -> None:
+        be.purge()
+        chip.feed(data)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    return thread
+
+
+def purger_is_in_the_handshake_or_done(be, thread) -> bool:
+    return getattr(be, "_pause", False) or not thread.is_alive()
+
+
+def test_ftdi_purge_drops_the_bytes_that_a_read_brought_before_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A read has taken the stale bytes `AB` and waits before it returns them. The purge starts, and
+    the read returns `AB` after that. They are older than the purge and must go. The bytes `C`
+    arrive after the purge returned and must stay."""
+    chip, be = ftdi_backend_on_a_fake_chip(monkeypatch)
+    gate = threading.Event()
+    try:
+        chip.capture_first = True
+        chip.gate = gate
+        assert chip.started_held.wait(5)  # the next read is the one that the gate holds
+        chip.feed(b"AB")  # it takes these bytes, and then it waits at the gate
+        assert chip.blocked.wait(5)
+        purger = purge_then_feed(be, chip, b"C")
+        wait_until(lambda: purger_is_in_the_handshake_or_done(be, purger))
+        gate.set()
+        purger.join(5)
+        assert not purger.is_alive()
+        assert be.read(10, 1.0) == b"C"
+    finally:
+        gate.set()
+        be.close()
+
+
+def test_ftdi_purge_keeps_the_bytes_that_arrive_right_after_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A read is under way when the purge starts and holds there. The reply arrives as soon as
+    purge has returned. The read that was under way must not drop it."""
+    chip, be = ftdi_backend_on_a_fake_chip(monkeypatch)
+    gate = threading.Event()
+    try:
+        chip.gate = gate
+        assert chip.blocked.wait(5)  # a read is under way and holds at the gate
+        purger = purge_then_feed(be, chip, b"reply")
+        wait_until(lambda: purger_is_in_the_handshake_or_done(be, purger))
+        gate.set()
+        purger.join(5)
+        assert not purger.is_alive()
+        assert be.read(10, 1.0) == b"reply"
+    finally:
+        gate.set()
+        be.close()
+
+
+def test_ftdi_purge_fails_when_the_reader_does_not_stop(monkeypatch: pytest.MonkeyPatch) -> None:
+    chip, be = ftdi_backend_on_a_fake_chip(monkeypatch)
+    gate = threading.Event()
+    try:
+        be.purge_timeout = 0.05
+        chip.gate = gate
+        assert chip.blocked.wait(5)
+        with pytest.raises(RuntimeError, match="did not stop"):
+            be.purge()
+    finally:
+        gate.set()
+        be.close()
+
+
+def test_two_ftdi_purges_at_once_both_succeed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The second purge waits for the first. It does not time out because the reader went on."""
+    chip, be = ftdi_backend_on_a_fake_chip(monkeypatch)
+    errors: list[BaseException] = []
+
+    def purge() -> None:
+        try:
+            be.purge()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    try:
+        be.purge_timeout = 0.5
+        for _ in range(30):
+            lock = be._op_lock = WatchedLock()
+            gate = threading.Event()
+            chip.blocked.clear()
+            chip.gate = gate
+            assert chip.blocked.wait(5)  # a read holds at the gate
+            first = threading.Thread(target=purge)
+            first.start()
+            wait_until(lambda: be._pause)  # the first purge is in its handshake
+            second = threading.Thread(target=purge)
+            second.start()
+            assert lock.waiting.wait(5)  # the second purge waits for the lock of the first
+            gate.set()
+            first.join(5)
+            second.join(5)
+            assert not first.is_alive() and not second.is_alive()
+            assert errors == []
+    finally:
+        be.close()
+
+
+def test_ftdi_close_waits_for_a_purge_and_a_purge_after_close_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chip, be = ftdi_backend_on_a_fake_chip(monkeypatch)
+    lock = be._op_lock = WatchedLock()
+    gate = threading.Event()
+    errors: list[BaseException] = []
+
+    def purge() -> None:
+        try:
+            be.purge()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    try:
+        chip.gate = gate
+        assert chip.blocked.wait(5)
+        purger = threading.Thread(target=purge)
+        purger.start()
+        wait_until(lambda: be._pause)  # the purge is in its handshake
+        closer = threading.Thread(target=be.close)
+        closer.start()
+        assert lock.waiting.wait(5)  # close waits for the lock of the purge
+        assert not be._stop  # it has not stopped the reader
+        gate.set()
+        purger.join(5)
+        closer.join(5)
+        assert not purger.is_alive() and not closer.is_alive()
+        assert errors == []
+        assert chip.calls == ["purge_rx_buffer", "close"]  # the purge ran on an open chip
+        assert not chip.read_after_close
+        with pytest.raises(RuntimeError, match="closed"):
+            be.purge()
+        assert chip.calls == ["purge_rx_buffer", "close"]
+    finally:
+        gate.set()
+
+
+def test_ftdi_close_stops_the_reader_before_it_starts_another_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A read is under way when close starts. After close has set the stop flag, the reader ends
+    when that read returns: it starts no read, and the chip is closed once."""
+    chip, be = ftdi_backend_on_a_fake_chip(monkeypatch)
+    gate = threading.Event()
+    try:
+        chip.gate = gate
+        assert chip.blocked.wait(5)
+        closer = threading.Thread(target=be.close)
+        closer.start()
+        wait_until(lambda: be._stop)  # close has told the reader to stop and waits for it
+        gate.set()
+        closer.join(5)
+        assert not closer.is_alive() and not be._thread.is_alive()
+        assert not chip.read_after_stop and not chip.read_after_close
+        assert chip.calls == ["close"]
+    finally:
+        gate.set()
+
+
+def test_ftdi_close_on_the_reader_thread_still_closes_the_chip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reader cannot join itself. Close skips the join and closes the chip, and the reader
+    ends by itself."""
+    chip, be = ftdi_backend_on_a_fake_chip(monkeypatch)
+    errors: list[BaseException] = []
+
+    def close_on_the_reader() -> None:
+        try:
+            be.close()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    chip.on_read = close_on_the_reader
+    be._thread.join(5)  # the next read runs the hook; the reader then ends
+    assert not be._thread.is_alive()
+    assert errors == []
+    assert chip.calls == ["close"]
+    assert be._error is None
 
 
 @pytest.mark.parametrize("purge_on_open", [True, False])
@@ -907,7 +1262,7 @@ def test_a_frame_that_a_reboot_cuts_is_cut_on_the_wire() -> None:
     open_wire = lc.encode_host_wire(lc.build_open_frame(SID, 255, grant=0))
     peer.rx(open_wire, 0.0)
     now = len(open_wire) * byte_time + 1e-3
-    assert len(peer.tx(now)) == 12  # the OPEN reply
+    assert len(peer.tx(now)) == 1 + 12  # the delimiter after power-up, then the OPEN reply
     request = lc.build_host_frame(lc.host_ctl(data=True), 0, 0, 2000, bytes(200), SID)
     wire = lc.encode_host_wire(request)
     peer.rx(wire, now)
@@ -917,6 +1272,30 @@ def test_a_frame_that_a_reboot_cuts_is_cut_on_the_wire() -> None:
     model.reboot(now + 100 * byte_time)
     later = peer.tx(now + 400 * byte_time)
     assert len(sent) + len(later) < 216
+
+
+def test_the_model_sends_a_delimiter_after_power_up_and_after_a_reboot() -> None:
+    model = fm.FpgaModel(4, 256)
+    peer = fm.ModelPeer(model)
+    byte_time = model.byte_time
+    assert peer.tx(10 * byte_time) == b"\x00"
+    assert model.state()["grant"] == 0xFFCC and model.state()["cursor"] == 0
+    model.reboot(1e-3, downtime=2e-3)
+    assert peer.tx(1e-3 + 10 * byte_time) == b""  # the FPGA is still in reset
+    assert peer.tx(3e-3 + 10 * byte_time) == b"\x00"
+    assert model.state()["grant"] == 0xFFCC and model.state()["cursor"] == 0
+
+
+def test_the_power_up_grant_pays_for_exactly_one_unbound_status_frame() -> None:
+    model, h = make_model()
+    first = h.settle()  # the delimiter is no frame
+    assert first == []
+    h.req(0, b"x")
+    frames = h.settle()
+    assert [f["kind"] for f in frames] == ["status"] and frames[0]["cursor"] == 12
+    h.req(0, b"y")
+    h.hdr(poll=True)
+    assert h.settle() == []  # the reserve is used up
 
 
 @pytest.mark.parametrize("w, p", [(3, 256), (256, 256), (0, 256), (8, 10), (8, 100), (8, 512)])

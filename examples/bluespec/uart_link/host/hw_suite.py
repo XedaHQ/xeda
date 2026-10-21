@@ -897,12 +897,15 @@ def measure_goodput(rig: Rig, size: int, seconds: float, seed: int) -> dict:
     led = Ledger()
     rng = random.Random(seed)
     gen = fixed_gen(rng, size)
-    mark = len(PROTOCOLS)
     # Calibrate with a short run, then run for about `seconds`.
     drive(rig, Ledger(), 50, gen, limit_s=60)
     t = drive(rig, Ledger(), 100, gen, limit_s=60)
     rate = 100 / max(t["elapsed_s"], 1e-3)
     n = int(min(30000, max(200, rate * seconds)))
+    # The session that is active now counts from here on: its counters so far are the baseline.
+    first = len(PROTOCOLS) - 1
+    base_stats = dict(PROTOCOLS[first].stats)
+    base_lost = PROTOCOLS[first].lost_bytes
     tx0, rx0 = rig.tap.tx, rig.tap.rx
     cpu0 = time.process_time()
     out = drive(rig, led, n, gen, limit_s=120)
@@ -927,8 +930,9 @@ def measure_goodput(rig: Rig, size: int, seconds: float, seed: int) -> dict:
         "violations": chk["violations"],
         "ok": chk["ok"],
         "unknown": chk["unknown_sent"],
-        "lost_bytes": lost_bytes(PROTOCOLS[mark:]),
-        "retransmissions": sum_stats(PROTOCOLS[mark:]).get("retransmissions", 0),
+        "lost_bytes": lost_bytes(PROTOCOLS[first:]) - base_lost,
+        "retransmissions": sum_stats(PROTOCOLS[first:]).get("retransmissions", 0)
+        - base_stats.get("retransmissions", 0),
     }
 
 
@@ -1348,7 +1352,8 @@ def cmd_reconfig(
                 out = drive(
                     rig, led, 1_000_000, fixed_gen(rng, 64), reopen=False, hook=hook, limit_s=300
                 )
-                if rig.dev.protocol.state is not State.LOST:
+                detected = rig.dev.protocol.state is State.LOST
+                if not detected:
                     tail_note = "host did not end the session within 20 s of the programmer"
                     rig.dev.abort()
                     drain(rig.dev, out["_pending"], led)
@@ -1374,6 +1379,7 @@ def cmd_reconfig(
                 while pend and time.perf_counter() < guard:
                     rig.dev.pump(0.001)
                     drain(rig.dev, pend, led)
+                detected = rig.dev.protocol.state is State.LOST
                 lost_reason = rig.dev.protocol.lost_reason
             proc = proc_holder["p"]
             proc.wait(timeout=300)
@@ -1404,6 +1410,7 @@ def cmd_reconfig(
                 "programmer_seconds": (events["t_done"] or 0) - (events["t_start"] or 0),
                 "transport_released_during_programming": swapped,
                 "session_state": rig.dev.protocol.state.value,
+                "reset_detected": detected,  # False: the host never noticed the new FPGA
                 "lost_reason": lost_reason,
                 "before_count": before_count,
                 "tickets": chk_old["tickets"],
@@ -1509,6 +1516,44 @@ def cmd_powerup(board: Board, spec: BackendSpec, budget: int, seed: int) -> dict
 
 # ------------------------------------------------------------------------------------------
 # CLI
+
+
+#: Result keys that must be zero, true or absent in a passing run.
+ZERO_KEYS = ("violations", "new_session_violations", "mismatches", "programmer_rc")
+TRUE_KEYS = (
+    "count_span_ok",
+    "reset_detected",
+    "host_opening_state_kept",
+    "host_active_state_kept",
+    "host_stats_unchanged_in_active",
+)
+
+
+def failures(result: object, where: str = "") -> list[str]:
+    """The checks of a command result that failed: a violation, a mismatch, a programmer that
+    failed, a reset that the host never noticed, a new session that does not start at count 0, or a
+    host that lost its state."""
+    found: list[str] = []
+    if isinstance(result, dict):
+        if "reset_detected" in result and result.get("new_session_first_count") != 0:
+            # A reconfiguration run: the first count of the new session must be 0. A higher count
+            # is a request that ran again on the new FPGA (or a count that is missing).
+            found.append(
+                f"{where or 'result'}.new_session_first_count = "
+                f"{result.get('new_session_first_count')}"
+            )
+        for key, value in result.items():
+            path = f"{where}.{key}" if where else str(key)
+            if key in ZERO_KEYS and value:
+                found.append(f"{path} = {value}")
+            elif key in TRUE_KEYS and value is False:
+                found.append(f"{path} = {value}")
+            else:
+                found += failures(value, path)
+    elif isinstance(result, list):
+        for index, value in enumerate(result):
+            found += failures(value, f"{where}[{index}]")
+    return found
 
 
 def parse_sizes(text: str) -> tuple[object, ...]:
@@ -1626,6 +1671,10 @@ def main() -> None:
     else:
         raise SystemExit(a.command)
     save(board, name, res)
+    failed = failures(res)
+    if failed:
+        print("FAILED checks:", *failed, sep="\n  ", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

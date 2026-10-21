@@ -478,8 +478,10 @@ the next valid frame fixes `consumed`.
 ### 6.3 Power-up grant, RESYNC and the permit
 
 **Power-up.** After an FPGA reset the FPGA is unbound, `cursor = 0` and `grant = 0xFFCC` (-52).
-Exactly one 12-byte status frame (the UNBOUND status frame) fits the reserve: `-52 - 12 = -64`.
-The FPGA then stays silent until an OPEN arrives.
+The FPGA sends nothing but one delimiter (0x00, not counted in the cursor) until it receives a
+frame. The first frame that it receives while it is unbound, and that is not a valid OPEN, makes it
+owe a status frame. It answers with one UNBOUND status frame. Exactly one 12-byte status frame fits
+the reserve: `-52 - 12 = -64`. The FPGA then stays silent until a valid OPEN arrives.
 
 **RESYNC.** If the host has not received an FPGA byte for a quiet period, while it waits for a
 reply, the host sets RESYNC in a header-only frame. The quiet period must be well above the
@@ -542,7 +544,7 @@ the response as a stream of tokens.
 | Duplicate request | The FPGA does not commit it. It sends a status frame. It does not execute it twice. | (not applicable) |
 | Lost FPGA frames until no credit is left | (not applicable) | The host sees silence and sets RESYNC. The FPGA sends one status frame under the permit. |
 | Blackout (long loss in one direction) | Frames are dropped. Timers run. | Timers run. Retries continue until a limit. After the limit the session is lost (unknown outcomes). A shorter blackout recovers with no loss of session. |
-| FPGA reset or reconfiguration | The FPGA is unbound. It sends a delimiter, then one UNBOUND status frame (S = 0). It ignores frames until an OPEN. | The host sees a frame valid under S = 0. The session is lost. Unknown outcomes. The user may open a new session. |
+| FPGA reset or reconfiguration | The FPGA is unbound. It sends a delimiter. It answers the first frame that it receives (not a valid OPEN) with one UNBOUND status frame (S = 0). It ignores frames until an OPEN. | The host sees a frame valid under S = 0. The session is lost. Unknown outcomes. The user may open a new session. |
 | OPEN while the core is busy | The FPGA waits for the core to finish the request in progress, drops unstarted requests, then resets the session. | The host waits for the OPEN reply. |
 
 An unbound FPGA answers every frame that is not a valid OPEN frame with the UNBOUND status
@@ -618,6 +620,7 @@ sequenceDiagram
     H->>F: DATA seq 3
     Note over H,F: The FPGA is configured again. Its state is lost.
     F->>H: delimiter 0x00
+    H->>F: DATA seq 3 (repeated), or another frame
     F->>H: status (S = 0, cursor 12) UNBOUND
     Note over H,F: The frame is valid under S = 0. The session is lost.
     Note over H,F: Requests with no response become UnknownOutcome (sent), or never sent.

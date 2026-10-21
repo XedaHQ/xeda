@@ -153,9 +153,12 @@ def test_the_sweep_covers_the_targets_of_the_examples():
         ("uart_echo.yaml", "stlv7325"),
         ("uart_echo.yaml", "switches"),
         ("uart_echo.yaml", "echo_transform"),
+        ("uart_link.yaml", "artix7"),
+        ("uart_link.yaml", "ecp5"),
         ("uart_link.yaml", "arty"),
         ("uart_link.yaml", "basys3"),
         ("uart_link.yaml", "ulx3s"),
         ("uart_link.yaml", "stlv7325"),
         ("uart_link.yaml", "core_w8"),
+        ("uart_link.yaml", "core_w1"),
     } <= swept

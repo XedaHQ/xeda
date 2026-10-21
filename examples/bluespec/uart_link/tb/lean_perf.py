@@ -71,15 +71,16 @@ async def rx_backlog_with_a_lost_request_and_a_long_response(dut):
 
 @cocotb.test()
 async def rx_service_rate(dut):
-    """Find the smallest byte gap that the RX sustains (no growing backlog). A frame of the
-    maximum length is sent at gaps from 14 down to 6 clocks."""
+    """Measure the RX backlog at byte gaps from 14 down to 6 clocks, with frames of the maximum
+    length. The RX must keep up (no byte waits) at the gaps 14 and 12, the gaps that the other
+    tests use. The results for the shorter gaps are logged as a metric and are not asserted."""
     b, h = await open_session(dut, rx_gap=12, tx_gap=12)
     rng = random.Random(5)
     results = {}
     for gap in (14, 12, 11, 10, 9, 8, 7, 6):
         b.rx_gap = gap
         b.rx_max_waiting = b.rx_max_incl = b.rx_max_wait_clocks = 0
-        seq = mod(2)  # a gap frame: rejected, so no TX traffic
+        seq = mod(1)  # a gap frame (the FPGA expects 0): not committed
         w = h.req(pay(rng, MAXLEN - 12), seq=seq)
         for _ in range(3):
             b.send(w)

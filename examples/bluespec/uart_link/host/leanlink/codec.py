@@ -462,13 +462,13 @@ def check_fpga_frame(
 ) -> Verdict:
     """Judge FPGA wire bytes (rCOBS, delimiter removed) against doc/protocol.md.
 
-    doc/protocol.md has no explicit validity list for FPGA frames, so this function applies its
-    general frame rules and its field definitions. A frame is valid only if all of these hold:
+    This function applies the acceptance rules of the section "FPGA frames" of doc/protocol.md. A
+    frame is valid only if all of these hold:
 
     - rCOBS structure is valid;
     - DATA = 1: decoded length = len - 2 and 12 <= len <= max_len;
-    - DATA = 0 (status frame): decoded length = 10 (wire length 12) and len is the capability.
-      The capability is in 12..255, and equals ``max_len`` if ``max_len`` is known;
+    - DATA = 0 (status frame): decoded length = 10 (wire length 12), TRUNC = 0, and len is the
+      capability. The capability is in 12..255, and equals ``max_len`` if ``max_len`` is known;
     - version (ctl[7:6]) = 10 and the reserved bit ctl[5] = 0;
     - seq < 2W and exp < 2W;
     - ctl[2:0] = log2(W);
@@ -479,8 +479,8 @@ def check_fpga_frame(
     ``sid`` is the session ID under which the frame is judged. The host library also parses
     with ``sid = 0`` to find an UNBOUND FPGA. That is a second call, outside this function.
 
-    Interpretation: TRUNC in a status frame, and a DATA response longer than rspLimit, are
-    not rejected. doc/protocol.md does not forbid them.
+    Interpretation: the function does not receive ``rspLimit``, so it checks the length of a DATA
+    frame against ``max_len`` and does not reject a response longer than ``rspLimit``.
     """
     _check_params(sid, w, max_len)
     decoded = rcobs_decode(wire)
@@ -506,6 +506,7 @@ def check_fpga_frame(
             return Verdict(None, tuple(failures), decoded)
 
     header_ok = ctl >> 6 == FPGA_VERSION and not ctl & FPGA_RESERVED
+    header_ok = header_ok and (is_data or not ctl & FPGA_TRUNC)
     if w is not None:
         header_ok = header_ok and seq < 2 * w and exp < 2 * w and (ctl & 7) == w.bit_length() - 1
     if not header_ok:

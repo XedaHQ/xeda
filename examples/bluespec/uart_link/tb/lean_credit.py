@@ -303,8 +303,9 @@ async def resync_gets_one_status_frame_then_a_grant_restores_data(dut):
 @cocotb.test()
 async def resync_carried_by_a_request_and_other_cases(dut):
     """RESYNC in a DATA frame: the request commits and one status frame goes without credit. RESYNC
-    does nothing in an invalid frame, in a frame with an ack for an unsent response, while unbound,
-    in an OPEN frame, or from the old session while OPEN is pending."""
+    does nothing in an invalid frame, in a frame with an ack for an unsent response, or in a frame
+    of another session. The tests below cover RESYNC in an OPEN frame, while unbound, and from the
+    old session while OPEN is pending."""
     b, h = await open_session(dut)
     edge = 12 + FRAME8 - 1
     c = await exhaust_status_reserve(b, h, edge)
@@ -329,13 +330,38 @@ async def resync_carried_by_a_request_and_other_cases(dut):
         await b.run(600)  # W = 1: the core may be blocked, so no settle
         await b.run(300)
         assert not b.frames() and b.snapshot() == snap
-    # RESYNC in an OPEN frame is ignored: with no credit for the reply, no reply goes
+    # an OPEN with no credit for its reply: the reply waits (the next test: RESYNC in an OPEN frame)
     hn = Host(b, tb.mk_sid(7))
     b.sid = hn.sid
     b.send(hn.open_wire(grant=(-60) & 0xFFFF, rsp_limit=MAXLEN))
     await b.run(600)  # W = 1: the core may be blocked, so no settle
     await b.run(300)
     assert not b.frames()
+    s = b.snapshot()
+    assert s["link_bound"] == 1 and s["link_sid"] == hn.sid and s["link_permit"] == 0, s
+    # a header-only frame with credit releases the OPEN reply
+    hn.consumed = 0
+    b.send(hn.hdr(grant=0x1000))
+    await b.run(600)  # W = 1: the core may be blocked, so no settle
+    fr = hn.absorb(b.frames())
+    assert len(fr) == 1
+    status_ok(fr[0], seq=0, exp=0, cursor=12)
+
+
+@cocotb.test()
+async def resync_in_an_open_frame_sets_no_permit(dut):
+    """RESYNC in an OPEN frame is ignored. The OPEN waits for the endpoint, which is stalled in the
+    middle of a request, so the session reset cannot clear a permit that the frame would have set:
+    `permit` must be 0 while the OPEN waits and after the reset, and with no credit for the reply
+    no status frame goes."""
+    b, h = await open_session(dut)
+    size = min(100, MAXLEN - 12 - 4 - 4)
+    b.send(h.req(bytes(range(1, 1 + size))))
+    await b.until(lambda: b.sig("link_wActive") == 1, 20000, "endpoint in the middle of a request")
+    b.stall(True)
+    await b.run(20)
+    hn = Host(b, tb.mk_sid(8))
+    b.sid = hn.sid
     resync_open = lc.encode_host_wire(
         lc.build_host_frame(
             lc.host_ctl(open_frame=True) | 1,
@@ -347,18 +373,14 @@ async def resync_carried_by_a_request_and_other_cases(dut):
         )
     )
     b.send(resync_open)
-    await b.run(600)  # W = 1: the core may be blocked, so no settle
-    await b.run(300)
-    assert not b.frames(), "RESYNC in an OPEN frame gave a status frame"
+    await b.run(1500)
+    s = b.snapshot()
+    assert s["link_openPending"] == 1 and s["link_permit"] == 0, s
+    b.stall(False)
+    await b.run(3000)
     s = b.snapshot()
     assert s["link_bound"] == 1 and s["link_sid"] == hn.sid and s["link_permit"] == 0, s
-    # a header-only frame with credit releases the OPEN reply
-    hn.consumed = 0
-    b.send(hn.hdr(grant=0x1000))
-    await b.run(600)  # W = 1: the core may be blocked, so no settle
-    fr = hn.absorb(b.frames())
-    assert len(fr) == 1
-    status_ok(fr[0], seq=0, exp=0, cursor=12)
+    assert not [f for f in b.frames() if f.kind == "status"], "the OPEN reply went with no credit"
 
 
 @cocotb.test()

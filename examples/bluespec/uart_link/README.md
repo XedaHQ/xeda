@@ -221,7 +221,9 @@ python3 examples/bluespec/uart_link/host/hw_suite.py ulx3s latency --ftdi ftdi:/
 ```
 
 The script reads the bitstream of a Xeda build from the run root `./xeda_run` (`--run-root`), or you
-give it with `--bit`. Results go to `hw_logs/*.json` (`--log-dir`).
+give it with `--bit`. Results go to `hw_logs/*.json` (`--log-dir`). The script exits with status 1
+if a check failed (a violation, a mismatch, a failed programmer, a reset that the host never
+noticed, or a new session that does not start at count 0).
 
 ### The latency of the FTDI chips
 

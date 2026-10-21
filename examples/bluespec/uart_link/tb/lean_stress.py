@@ -290,7 +290,7 @@ async def run_seed(dut, seed: int):
     b.sid = st.sid
     b.hooks.append(st.hook)
     start = b.clk
-    while st.rsp_next < st.n or (st.done_time is None):
+    while True:  # until 3000 clocks after the last response: no late execution, no extra frame
         await b.tick()
         if st.rsp_next >= st.n and st.done_time is None:
             st.done_time = b.clk

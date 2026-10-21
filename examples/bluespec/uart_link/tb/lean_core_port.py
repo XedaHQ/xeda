@@ -326,7 +326,7 @@ async def trunc_bit_of_a_frame_on_the_wire_is_not_changed_by_a_response_dropped_
             b.send(h.req(b"r1", ack=0))
             await b.until(lambda: len(core.req_tokens) >= 4, 20000, "request 1 read")
             core.take = False
-            hn = Host(b, tb.mk_sid(5000 + d * 20 + e))
+            hn = Host(b, tb.mk_sid(5000 + d * 20 + e), rsp_limit=12)
             ow = hn.open_wire()
             b.send(ow[:-1])  # OPEN without its delimiter
             await b.until(

@@ -178,12 +178,12 @@ class LinkDevice:
         proto, _local = self._tickets[ticket]
         deadline = None if timeout is None else self._clock() + timeout
         while True:
-            self.pump(self._slice(proto, deadline))
             result = self.take_result(ticket)
             if result is not None:
                 return result
             if deadline is not None and self._clock() >= deadline:
                 raise TimeoutError(f"no result for ticket {ticket}")
+            self.pump(self._slice(proto, deadline))
 
     def transact(self, payload: bytes, timeout: float | None = None) -> bytes:
         """Send one request and return its response.

@@ -152,7 +152,6 @@ class Bench:
         self._en_rx = 0
         self._en_tx = 0
         self._has_runT = hasattr(dut, self._resolve("link_runT") or "link_runT")  # optional signal
-        self.drop_tx = None  # optional callable(clk, byte) -> list of bytes to deliver instead
 
     # ---- setup ----
     @classmethod
@@ -467,7 +466,7 @@ class Host:
     ) -> bytes:
         sid = self.sid if sid is None else sid
         lim = self.rsp_limit if rsp_limit is None else rsp_limit
-        g = self.grant_for(0) if grant is None else grant
+        g = 0 if grant is None else grant  # the grant of an OPEN frame is 0 (doc/protocol.md)
         pl = sid.to_bytes(4, "little") + bytes([lim]) if payload is None else payload
         ctl = lc.host_ctl(open_frame=True, data=data, poll=poll, rewind=rewind)
         dec = lc.build_host_frame(ctl, seq, ack, g, pl, crc_sid, len_field)

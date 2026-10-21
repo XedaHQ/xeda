@@ -1210,25 +1210,33 @@ def cmd_one(ns: argparse.Namespace) -> int:
     return 0 if res["ok"] else 1
 
 
+def _positive(text: str) -> int:
+    """An argparse type: an integer above zero."""
+    value = int(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"{text} is not above zero")
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("campaign")
-    c.add_argument("--seeds", type=int, default=60)
+    c.add_argument("--seeds", type=_positive, default=60)
     c.add_argument("--first", type=int, default=0)
-    c.add_argument("--jobs", type=int, default=1)
+    c.add_argument("--jobs", type=_positive, default=1)
     c.add_argument("--mixes", default="")
     c.add_argument("--out", default="")
     c.set_defaults(func=cmd_campaign)
     t = sub.add_parser("throughput")
-    t.add_argument("--n", type=int, default=600)
+    t.add_argument("--n", type=_positive, default=600)
     t.add_argument("--b", type=int, default=4096)
     t.add_argument("--sizes", default="16,64,236")
     t.add_argument("--sweep-b", action="store_true", help="also sweep B at W=32, size 236")
     t.add_argument("--out", default="")
     t.set_defaults(func=cmd_throughput)
     b = sub.add_parser("burst")
-    b.add_argument("--seeds", type=int, default=60)
+    b.add_argument("--seeds", type=_positive, default=60)
     b.add_argument("--first", type=int, default=0)
     b.set_defaults(func=cmd_burst)
     o = sub.add_parser("one")
