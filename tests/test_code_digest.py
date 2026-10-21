@@ -252,6 +252,16 @@ def test_the_flow_code_digest_ignores_compiled_files_and_files_outside_the_packa
     assert flow_code_digest(plugin.flow_class) == before
 
 
+def test_the_files_of_a_run_root_in_the_package_do_not_count(plugin):
+    """A launch started in the package directory writes its run root there."""
+    before = flow_code_digest(plugin.flow_class)
+    for name in ("xeda_run", "runs_elsewhere"):
+        run_root = plugin.directory / name
+        _write(run_root / ".xeda-run-root", "{}\n")
+        _write(run_root / "design" / "flow" / "out.txt", "output\n")
+    assert flow_code_digest(plugin.flow_class) == before
+
+
 # The digest of a plugin flow in a module outside a package
 
 
@@ -284,6 +294,22 @@ def test_a_moved_module_has_the_same_flow_code_digest(tmp_path, monkeypatch, loo
     names = [loose_plugin.package, loose_plugin.helper, loose_plugin.library]
     moved = _import_copy(monkeypatch, loose_plugin, names, tmp_path / "elsewhere" / "scripts")
     assert flow_code_digest(moved) == digest
+
+
+def test_a_helper_and_a_template_directory_that_are_links_keep_the_digest(tmp_path, loose_plugin):
+    """The files lie outside the directory of the module, and the digest is as for the files in
+    it."""
+    digest = flow_code_digest(loose_plugin.flow_class)
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    helper = loose_plugin.root / f"{loose_plugin.helper}.py"
+    shutil.move(helper, shared / helper.name)
+    shutil.move(loose_plugin.root / "templates", shared / "templates")
+    shutil.move(loose_plugin.root / loose_plugin.library, shared / loose_plugin.library)
+    helper.symlink_to(shared / helper.name)
+    (loose_plugin.root / "templates").symlink_to(shared / "templates")
+    (loose_plugin.root / loose_plugin.library).symlink_to(shared / loose_plugin.library)
+    assert flow_code_digest(loose_plugin.flow_class) == digest
 
 
 def test_an_edit_of_a_helper_of_a_module_makes_the_next_launch_stale(

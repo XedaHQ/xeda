@@ -515,7 +515,8 @@ place does not make the run stale. The root of the code is:
 
 - For a flow defined in a package, the top-level package: the directory with the ``__init__.py``
   files from the module of the flow up. Every file in it counts: helper modules, templates and
-  data.
+  data. Hidden files, compiled bytecode and run roots do not count. A directory without an
+  ``__init__.py`` is no package for this rule.
 - For a flow defined in a module outside a package, the module and the modules that it imports from
   its own directory (the ``import`` statements in the source, and so on for each module found), with
   the ``templates`` directory next to it. A package of that directory counts as a whole. Other files

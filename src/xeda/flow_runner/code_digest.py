@@ -42,7 +42,6 @@ from typing import Type
 
 from ..digest import digest_files, digest_named, package_files
 from ..flow import Flow, FlowFatalError
-from ..listing import directory_files
 
 #: The directory of the installed xeda package.
 XEDA_PACKAGE = Path(__file__).resolve().parent.parent
@@ -112,7 +111,8 @@ def _imported_modules(source: Path) -> set[str]:
     """Return the top-level names that the `import` statements of the module `source` name.
 
     A relative import names none: in a module that is not in a package it cannot occur, and
-    in a package it stays inside the package. A module that does not parse names none."""
+    in a package it stays inside the package. A directory without an `__init__.py` is no package
+    here, so a relative import in it is not followed. A module that does not parse names none."""
     try:
         tree = ast.parse(source.read_bytes())
     except (OSError, SyntaxError, ValueError):
@@ -126,30 +126,37 @@ def _imported_modules(source: Path) -> set[str]:
     return names
 
 
-def _module_files(module_file: Path) -> list[Path]:
-    """Return the files of a module outside a package: it, what it imports from its directory
-    (and so on, for each module found), and its `templates` directory."""
+def _tree(name: str, directory: Path) -> list[tuple[str, Path]]:
+    """Return the `(name, file)` pairs of `package_files(directory)`, named under `name`.
+
+    The names do not depend on where the directory is, also when it is a link to another place."""
+    top = directory.resolve()
+    return [(f"{name}/{file.relative_to(top).as_posix()}", file) for file in package_files(top)]
+
+
+def _module_files(module_file: Path) -> list[tuple[str, Path]]:
+    """Return the `(name, file)` pairs of a module outside a package: it, what it imports from
+    its directory (and so on, for each module found), and its `templates` directory."""
     root = module_file.parent
-    files = {module_file}
+    files = {module_file.name: module_file}
     pending = [module_file]
     while pending:
         for name in sorted(_imported_modules(pending.pop())):
             package, module = root / name, root / f"{name}.py"
             if (package / "__init__.py").is_file():
-                found = package_files(package)
+                found = _tree(name, package)
             elif module.is_file():
-                found = [module.resolve()]
+                found = [(module.name, module)]
             else:
                 continue
-            for file in found:
-                if file not in files:
-                    files.add(file)
+            for found_name, file in found:
+                if found_name not in files:
+                    files[found_name] = file
                     if file.suffix == ".py":
                         pending.append(file)
-    templates = root / "templates"
-    if templates.is_dir():
-        files.update(p for p in directory_files(templates) if p.is_file())
-    return sorted(files)
+    if (root / "templates").is_dir():
+        files.update(_tree("templates", root / "templates"))
+    return sorted(files.items())
 
 
 def _named_files(cls: type) -> Iterable[tuple[str, Path]]:
@@ -160,11 +167,8 @@ def _named_files(cls: type) -> Iterable[tuple[str, Path]]:
     module_file = _source_file(cls)
     package = _package_root(module_file)
     if package is not None:
-        return [
-            (file.relative_to(package.parent).as_posix(), file) for file in package_files(package)
-        ]
-    root = module_file.parent
-    return [(file.relative_to(root).as_posix(), file) for file in _module_files(module_file)]
+        return _tree(package.name, package)
+    return _module_files(module_file)
 
 
 def flow_code_digest(flow_class: Type[Flow]) -> str:
