@@ -488,8 +488,17 @@ class SlowProfile:
         return int(launch), int(program)
 
     def release(self) -> None:
-        with open(self.go, "wb"):  # blocks until the profile reads the FIFO
-            pass
+        """Let the profile go on. Fail if it does not read the FIFO (its shell has died)."""
+
+        def open_go() -> None:
+            with open(self.go, "wb"):  # blocks until the profile reads the FIFO
+                pass
+
+        opener = threading.Thread(target=open_go, daemon=True)
+        opener.start()
+        opener.join(timeout=TIMEOUT)
+        if opener.is_alive():
+            pytest.fail(f"the profile did not read {self.go} in {TIMEOUT} s")
 
 
 def _all_locks_held(tmp_path: Path, provisioned: Any) -> bool:

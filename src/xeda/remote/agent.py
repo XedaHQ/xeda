@@ -690,7 +690,7 @@ class Session:
         self.digest: Optional[str] = None
         self._lock_fd: Optional[int] = None
         #: The shared locks on the environment and the code copy of this agent. The process owns
-        #: them (`_hold_use_locks`); the session passes them on to a launch that keeps running.
+        #: them (`_hold_use_locks`); the session hands them over to every launch (`launch`).
         self._use_fds = tuple(use_locks)
         self._child: Optional["subprocess.Popen[bytes]"] = None
         #: The end of the lock hand-over socket (`launch`) that the launch reads. The session
