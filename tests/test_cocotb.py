@@ -9,7 +9,6 @@ from xeda.cocotb import TestResults as CocotbTestResults  # alias: pytest collec
 from xeda.flow import SimFlow
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import __builtin_flows__
-from xeda.utils import WorkingDirectory
 
 from .tool_utils import require_cocotb, require_ghdl, require_nvc, require_verilator
 
@@ -137,18 +136,18 @@ def test_cocotb_version():
     assert cocotb.version_gte(1, 6)
 
 
-def test_cocotb_parse_xml():
+def test_cocotb_parse_xml(monkeypatch):
     assert (RESOURCES_DIR / "cocotb" / "results.xml").exists()
-    with WorkingDirectory(RESOURCES_DIR / "cocotb"):
-        cocotb = Cocotb(sim_name="dummy")  # type: ignore
-        if cocotb.results is not None:
-            for suite in cocotb.results.test_suites:
-                for case in suite.test_cases:
-                    print(case)
-        results: Dict[str, Any] = {"success": True}
-        cocotb.add_results(results)
-        print("Results:", results)
-        assert results["success"] is False
+    monkeypatch.setattr(Cocotb, "working_directory", lambda self: RESOURCES_DIR / "cocotb")
+    cocotb = Cocotb(sim_name="dummy")  # type: ignore
+    if cocotb.results is not None:
+        for suite in cocotb.results.test_suites:
+            for case in suite.test_cases:
+                print(case)
+    results: Dict[str, Any] = {"success": True}
+    cocotb.add_results(results)
+    print("Results:", results)
+    assert results["success"] is False
 
 
 def test_all_cocotb_flows_use_shared_verdict_check():
@@ -161,7 +160,7 @@ def test_all_cocotb_flows_use_shared_verdict_check():
 
 @pytest.mark.parametrize("content", [None, "<broken>"])
 def test_missing_or_unreadable_cocotb_results_fail(tmp_path, monkeypatch, content):
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Cocotb, "working_directory", lambda self: tmp_path)
     if content is not None:
         (tmp_path / "results.xml").write_text(content)
     results: Dict[str, Any] = {"success": True}
@@ -179,7 +178,7 @@ def test_missing_or_unreadable_cocotb_results_fail(tmp_path, monkeypatch, conten
 )
 def test_cocotb_results_without_a_test_fail(tmp_path, monkeypatch, xml):
     """A results file in which no test ran verified nothing."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Cocotb, "working_directory", lambda self: tmp_path)
     (tmp_path / "results.xml").write_text(xml)
     results: Dict[str, Any] = {"success": True}
     assert Cocotb(sim_name="verilator").add_results(results) is False
@@ -333,8 +332,8 @@ def _testcase_env(tmp_path, monkeypatch, version: str, testcase) -> Dict[str, An
         rtl={"sources": ["dut.sv"], "top": "dut"},
         tb={"sources": ["tb_dut.py"], "cocotb": True},
     )
-    with WorkingDirectory(tmp_path):
-        return Cocotb(sim_name="verilator", testcase=testcase).env(design)  # type: ignore
+    monkeypatch.setattr(Cocotb, "working_directory", lambda self: tmp_path)
+    return Cocotb(sim_name="verilator", testcase=testcase).env(design)  # type: ignore
 
 
 @pytest.mark.parametrize("version", ["2.0.0", "2.1.0", "3.0.0.dev0"])
