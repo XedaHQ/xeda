@@ -42,7 +42,6 @@ def test_diamond_synth_without_clock_raises_flow_settings_exception(tmp_path: Pa
 
 def _diamond(tmp_path: Path, monkeypatch) -> DiamondSynth:
     use_fake_tools(monkeypatch)
-    monkeypatch.chdir(tmp_path)
     design = Design.from_file(Path(__file__).parent / "resources/design0/design0.toml")
     return DiamondSynth(
         DiamondSynth.Settings(fpga=FPGA("LFE5U-25F-6BG256C"), clock={"period": "5.5 ns"}),
