@@ -1188,8 +1188,8 @@ class IoGroup(SettingsGroup):
                     (
                         leaf,
                         f"`{leaf}` has no effect with `{key}.algorithm: {self.algorithm}`: set "
-                        f"`{key}.algorithm: annealing` (with `{key}.flow: skip_io_pass`) or "
-                        f"delete `{leaf}`",
+                        f"`{key}.algorithm: annealing` (with `{key}.flow: skip_io_pass` and a "
+                        f"floorplan that is not a DEF file) or delete `{leaf}`",
                     )
                 )
         for leaf in ("horizontal_layers", "vertical_layers"):

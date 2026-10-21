@@ -5,8 +5,8 @@
    Of the leaves of the global placement, the placement without pins takes only the density, the
    padding, the seed and the perturbation (see `global_place_skip_io.tcl.j2`). The concurrent
    placement of the pins reads the layers and the spacing of the pins from `set_place_config`,
-   which stores them in the design, so the stage removes them again after the placement, as
-   OpenROAD-flow-scripts does. #}
+   which stores them in the design, so the stage removes them again after the placement, also
+   after a failed one, as OpenROAD-flow-scripts does. #}
 {% set io = settings.io %}
 {% set gp = settings.global_placement %}
 {% set concurrent = settings.io.flow == "concurrent" %}
@@ -40,9 +40,12 @@ proc xeda_global_place {} {
 {% if concurrent %}
     {{ ["set_place_config", "-io_pin_hor_layers " ~ (P.io_horizontal|tcl_list), "-io_pin_ver_layers " ~ (P.io_vertical|tcl_list), ("-io_pin_min_distance " ~ (io.min_distance|micrometers)) if io.min_distance is not none else "", ("-io_pin_min_distance_in_tracks -io_pin_min_distance " ~ (io.min_distance_tracks|tcl_number)) if io.min_distance_tracks is not none else "", ("-io_pin_corner_avoidance " ~ (io.corner_avoidance|micrometers|tcl_word)) if io.corner_avoidance is not none else ""]|select|join(" ") }}
 {% endif %}
-    {{ ["global_placement -density [xeda_density]", "-pad_left " ~ (gp.cell_padding|tcl_number), "-pad_right " ~ (gp.cell_padding|tcl_number), "-place_ios" if concurrent else "", render_flags(gp.routability_driven), "-routability_use_grt" if gp.routability_driven.estimator == "grt" else "", render_flags(gp.timing_driven), render_flags(gp.initial_place), render_flags(gp.nesterov), render_flags(gp), ("-perturb_dist " ~ (gp.perturb_distance|nanometers)) if gp.perturb_distance is not none else ""]|select|join(" ") }}
+    {%+ if concurrent %}set failed [catch { {% endif %}{{ ["global_placement -density [xeda_density]", "-pad_left " ~ (gp.cell_padding|tcl_number), "-pad_right " ~ (gp.cell_padding|tcl_number), "-place_ios" if concurrent else "", render_flags(gp.routability_driven), "-routability_use_grt" if gp.routability_driven.estimator == "grt" else "", render_flags(gp.timing_driven), render_flags(gp.initial_place), render_flags(gp.nesterov), render_flags(gp), ("-perturb_dist " ~ (gp.perturb_distance|nanometers)) if gp.perturb_distance is not none else ""]|select|join(" ") }}{% if concurrent %} } message options]{% endif +%}
 {% if concurrent %}
     reset_place_config
+    if {$failed} {
+        return -options $options $message
+    }
 {% endif %}
     estimate_parasitics -placement
 {% if gp.flop_clustering.enabled %}

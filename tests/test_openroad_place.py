@@ -1879,8 +1879,9 @@ def test_concurrent_placement_of_the_pins_places_them_with_the_cells(tmp_path):
         'set_place_config -io_pin_hor_layers [list "m3"] -io_pin_ver_layers [list "m4"] '
         '-io_pin_min_distance 3.0 -io_pin_corner_avoidance "1.0"'
     )
-    (placement,) = [line for line in body if line.startswith("global_placement ")]
-    assert " -place_ios " in placement
+    (placement,) = [line for line in body if " -place_ios " in line]
+    assert placement.startswith("set failed [catch { global_placement -density [xeda_density] ")
+    assert placement.endswith(" } message options]")
     assert "-timing_driven" in placement and "-routability_driven" in placement
     assert configured < body.index(placement) < body.index("reset_place_config")
     calls = run_script(flow, script)
@@ -1899,12 +1900,50 @@ def test_concurrent_placement_of_the_pins_gives_the_spacing_in_tracks(tmp_path):
     assert line.endswith("-io_pin_min_distance_in_tracks -io_pin_min_distance 3")
 
 
+def fails_under_the_fake(flow: OpenroadPlace, script: str) -> str:
+    """Run `script` as the driver of `flow` under the fake OpenROAD, insist that it fails and
+    writes the failed database, and return its output."""
+    require_tclsh()
+    flow.bind_template_values()
+    flow.copy_from_template("clocks.sdc", trim_blocks=True, lstrip_blocks=True)
+    done = run_fake_openroad(flow.run_path, script, driver="openroad_place")
+    assert done.returncode != 0
+    assert (flow.run_path / "openroad_place-failed.odb").is_file()
+    assert not (flow.run_path / "place.odb").exists()
+    return done.stdout + done.stderr
+
+
+def recorded(flow: OpenroadPlace, *wanted: str) -> list[str]:
+    """The names of the commands among `wanted` that the fake OpenROAD recorded before the script
+    failed (`fake_calls` fails a test on the recorded error)."""
+    found = []
+    words = (flow.run_path / "fake_openroad.calls").read_text().splitlines()
+    for line, following in zip(words, words[1:]):
+        if line.startswith("CALL ") and following.startswith("ARG "):
+            found.append(following[4:])
+    return [name for name in found if name in wanted]
+
+
 def test_concurrent_placement_of_the_pins_stops_on_an_openroad_without_the_command(tmp_path):
-    script = render(place_flow(tmp_path, {"io": {"flow": "concurrent"}}))
+    flow = place_flow(tmp_path, {"io": {"flow": "concurrent"}})
+    script = render(flow)
     body = stage(script, "xeda_global_place")
     check = body.index('if {[info commands set_place_config] eq ""} {')
-    assert "26Q4-11" in body[check + 1] and "io.flow: skip_io_pass" in body[check + 1]
-    assert check < next(i for i, line in enumerate(body) if line.startswith("set_place_config"))
+    assert check == 1  # before the stage changes the design
+    # an OpenROAD older than 26Q4-11, which has no `set_place_config`
+    output = fails_under_the_fake(flow, "rename set_place_config {}\n" + script)
+    assert "26Q4-11" in output and "io.flow: skip_io_pass" in output
+    assert recorded(flow, "set_place_config", "global_placement") == []
+
+
+def test_a_failed_concurrent_placement_removes_the_configuration_of_the_pins(tmp_path, monkeypatch):
+    """`set_place_config` stores the configuration in the design, and the failed database holds
+    the design, so the stage removes the configuration before it passes the error on."""
+    flow = place_flow(tmp_path, {"io": {"flow": "concurrent"}})
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "global_placement")
+    fails_under_the_fake(flow, render(flow))
+    calls = recorded(flow, "global_placement", "reset_place_config", "write_db")
+    assert calls == ["global_placement", "reset_place_config", "write_db"]
 
 
 def test_the_annealing_of_the_pin_placer_is_refused_with_the_concurrent_placement(tmp_path):
@@ -1918,8 +1957,10 @@ def test_the_annealing_of_the_pin_placer_is_refused_with_a_floorplan_from_a_def_
     """No flow anneals the pins of a DEF floorplan, so the message does not offer
     `io.flow: concurrent`, which refuses the annealing too."""
     def_texts = ["floorplan.sizing=def", "floorplan.def_file=plan.def"]
-    message = refusal(tmp_path, *def_texts, "io.algorithm=annealing")
-    assert "io.flow: skip_io_pass" in message and "io.flow: concurrent" not in message
+    for flow in ("skip_io_pass", "concurrent"):
+        message = refusal(tmp_path / flow, *def_texts, f"io.flow={flow}", "io.algorithm=annealing")
+        assert "floorplan.sizing: def" in message and "delete `io.algorithm`" in message
+        assert "set `io.flow" not in message
 
 
 def test_concurrent_placement_of_the_pins_sets_the_rules_of_the_pins_before_it(tmp_path):

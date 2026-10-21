@@ -516,10 +516,9 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
                 if leaf == "io.algorithm" or leaf.startswith("io.annealing."):
                     refuse(
                         leaf,
-                        f"`{leaf}` has no effect with `floorplan.sizing: def`, which keeps the "
-                        "pins of the DEF file, and the annealing of the pin placer needs "
-                        "`io.flow: skip_io_pass`, which places pins only without a DEF "
-                        f"floorplan: delete `{leaf}`",
+                        f"`{leaf}` has no effect with `floorplan.sizing: def`: the flow keeps the "
+                        "pins of the DEF file and runs no `place_pins`, and only `place_pins` "
+                        f"anneals the pins: delete `{leaf}`",
                     )
                     continue
                 refuse(
@@ -529,11 +528,15 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
                     f"delete `{leaf}`",
                 )
         if settings.io.flow == "concurrent" and settings.io.algorithm == "annealing":
+            advice = (
+                "with `floorplan.sizing: def` no flow runs `place_pins`: delete `io.algorithm`"
+                if settings.floorplan.sizing == "def"
+                else "set `io.flow: skip_io_pass`, or delete `io.algorithm`"
+            )
             refuse(
                 "io.algorithm",
                 "`io.algorithm: annealing` is an algorithm of `place_pins`, and `io.flow: "
-                "concurrent` places the pins with `global_placement -place_ios` instead: set "
-                "`io.flow: skip_io_pass`, or delete `io.algorithm`",
+                f"concurrent` places the pins with `global_placement -place_ios` instead; {advice}",
             )
         if (
             settings.io.flow == "fixed"
