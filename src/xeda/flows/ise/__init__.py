@@ -35,6 +35,7 @@ class XTclSh(Tool):
             merge_stderr: bool = False,
             timeout: float | None = None,
             tee: Path | None = None,
+            cwd: Path | None = None,
         ) -> Union[None, str]:
             XILINX = "/opt/Xilinx/14.7/ISE_DS"
             args_str = " ".join(str(a) for a in args)
@@ -57,6 +58,7 @@ class XTclSh(Tool):
                 merge_stderr=merge_stderr,
                 timeout=timeout,
                 tee=tee,
+                cwd=cwd,
             )
 
     executable: str = "xtclsh"
