@@ -91,10 +91,11 @@ are 16 bytes, 64 bytes and the largest request, 239 bytes:
 | STLV7325 v2 | 1024 | 136 (45%) | 224 (75%) | 249 (83%) |
 
 The host machine was heavily loaded during all these runs (load average 94 to 301), so the numbers
-are lower bounds. The protocol caps the goodput at 93.7% of the line rate for the largest payload
-(1124 kB/s at 12 Mbaud, 281 kB/s at 3 Mbaud), because every frame has 12 bytes of overhead. The
-Basys-3 has the same FT2232H as the Arty, and it was measured only under the highest load, so it
-is not in the table.
+are lower bounds. For the largest payload this test can reach at most 93.7% of the line rate
+(1124 kB/s at 12 Mbaud, 281 kB/s at 3 Mbaud): every frame has 12 bytes of overhead, and the test
+endpoint adds a 4-byte execution count, so the response to a 239-byte request is 255 bytes on the
+wire, and 239 / 255 = 93.7%. The Basys-3 has the same FT2232H as the Arty, and it was measured
+only under the highest load, so it is not in the table.
 
 At a small budget the credit window holds only one response frame, and each response waits for
 new credit. The credit-first frame of the host (see [doc/protocol.md](doc/protocol.md)) raised
