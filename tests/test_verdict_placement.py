@@ -339,7 +339,7 @@ def test_nextpnr_rejects_missed_timing(tmp_path):
     flow = _nextpnr(tmp_path, NEXTPNR_MISSED)
     assert flow.parse_reports() is True
     assert_rejected(flow, "timing not met", "100", "200")
-    assert flow.results["Fmax"] == pytest.approx(100.0)
+    assert flow.results["fmax"] == pytest.approx(100.0)
 
 
 def test_nextpnr_accepts_met_timing(tmp_path):
@@ -373,9 +373,9 @@ def test_nextpnr_judges_only_the_last_parse(tmp_path):
 
 def test_quartus_rejects_negative_slack(tmp_path):
     flow = build(tmp_path, Quartus)
-    flow.results.update({"wns": -0.4, "whs": -0.2, "Fmax": 100.0})
+    flow.results.update({"wns": -0.4, "whs": -0.2, "fmax": 100.0})
     assert_rejected(flow, "setup slack", "-0.4", "hold slack", "-0.2")
-    assert flow.results["Fmax"] == 100.0
+    assert flow.results["fmax"] == 100.0
 
 
 def test_quartus_rejects_only_the_failed_slack(tmp_path):

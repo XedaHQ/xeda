@@ -326,7 +326,7 @@ def test_xsim_native_power_uses_successful_declared_activity(work_dir):
     flow = launch()
     assert flow.succeeded
     assert not any(key.startswith("sim.") for key in flow.results)
-    assert "Total On-Chip Power (W)" in flow.results
+    assert "power.total" in flow.results
     assert not (flow.run_path / "xsim_runtime.log").exists()
     simulation = next(f for f in runner.launched if f.name == "vivado_postsynth_sim")
     assert simulation.results["sim.ended_by"] == "stop_time"
@@ -422,7 +422,7 @@ def test_vivado_impl_builds_the_bitstream_of_a_yosys_netlist(work_dir) -> None:
     )
     assert flow is not None and flow.succeeded
     assert flow.results["ff"] == 27 and flow.results["lut"] == 1
-    assert flow.results["wns"] > 0 and flow.results["Fmax"] > 100
+    assert flow.results["wns"] > 0 and flow.results["fmax"] > 100
     assert (flow.run_path / bitstream).stat().st_size > 100_000
     assert _logged(flow.run_path, "Parsing EDIF File [./blinky.edif]")
     assert _logged(flow.run_path, "link_design completed successfully")
@@ -546,7 +546,7 @@ def test_vivado_impl_implements_block_ram_dsp_and_carry_chains_and_the_result_wo
         VivadoImpl, design, {**IMPL_SETTINGS, "bitstream": bitstream}
     )
     assert flow is not None and flow.succeeded
-    assert (flow.results["bram_RAMB18"], flow.results["dsp"], flow.results["ff"]) == (1, 1, 36)
+    assert (flow.results["bram.ramb18"], flow.results["dsp"], flow.results["ff"]) == (1, 1, 36)
     assert (flow.run_path / bitstream).stat().st_size > 100_000
 
     sim = work_dir / "sim"

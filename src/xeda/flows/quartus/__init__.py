@@ -81,9 +81,15 @@ class Quartus(FpgaSynthFlow):
     quartus_sh: Tool
 
     results_description = describe_results(
-        "Fmax",
+        "fmax",
         "wns",
         "whs",
+        fmax_by_clock=MetricSpec(
+            "Maximum clock frequency of each constrained clock under each timing model, keyed by "
+            "the clock name and the model conditions (`clk@1100mV:85C`).",
+            "numbers",
+            "MHz",
+        ),
         lut=MetricSpec("Number of combinational ALUTs / logic elements used.", "integer"),
         ff=MetricSpec("Number of dedicated logic registers used.", "integer"),
     )
@@ -350,6 +356,7 @@ class Quartus(FpgaSynthFlow):
 
         timing_reports_folder = self.run_file(reports["timing_dir"])
         max_fmax = 0.0
+        fmax_by_clock: dict[str, float] = {}
         for found in timing_reports_folder.glob("Slow_*_Model/Slow_*_Model_Fmax_Summary.csv"):
             fmax_report = self.report_file(found, optional=True)
             if fmax_report is None:
@@ -373,9 +380,11 @@ class Quartus(FpgaSynthFlow):
                     assert flst[1] == "MHz"
                 if fmhz > max_fmax:
                     max_fmax = fmhz
-                self.results[f'{clock} Fmax@{":".join(conditions)} (MHz)'] = fmhz
+                fmax_by_clock[f"{clock}@{':'.join(conditions)}"] = fmhz
+        if fmax_by_clock:
+            self.results["fmax_by_clock"] = fmax_by_clock
         if max_fmax:
-            self.results["Fmax"] = max_fmax
+            self.results["fmax"] = max_fmax
 
         return True
 

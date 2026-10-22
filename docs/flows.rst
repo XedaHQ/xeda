@@ -1262,15 +1262,15 @@ itself a port of the top module. A domain that is named for the output net of a 
 generator keeps its raw name alone. A run that misses its timing constraint fails with the
 "Max frequency ... (FAIL at ...)" line that nextpnr prints, unless ``timing_allow_fail`` is set.
 
-``lut`` is reported per toolchain and per stage, and ``LUT:STAGE`` and ``LUT:METHOD`` say which.
-After ``nextpnr`` it is the number of distinct LUT locations (tile, site and one of A-D) that the
-placement occupies. A location whose two outputs are both used counts once, and LUTs used as
-distributed RAM or shift registers are included. ``yosys_fpga`` estimates it from the mapped
-primitives (``LUT:LOGIC``, ``LUT:RAM``, ``LUT:SRL``) before packing. The two numbers differ for one
-design, and neither is certified comparable with the utilization report of Vivado. Compare a
-design against itself across settings or seeds with one toolchain, and not across toolchains. The
-same holds for ``Fmax``: the timing model of nextpnr is not the model of Vivado (see
-:ref:`flow-results`).
+``lut`` is reported per toolchain and per stage, and ``lut_basis.stage`` and
+``lut_basis.method`` say which. After ``nextpnr`` it is the number of distinct LUT locations (tile,
+site and one of A-D) that the placement occupies. A location whose two outputs are both used counts
+once, and LUTs used as distributed RAM or shift registers are included. ``yosys_fpga`` estimates it
+from the mapped primitives (``lut_use.logic``, ``lut_use.ram``, ``lut_use.srl``) before packing.
+The two numbers differ for one design, and neither is certified comparable with the utilization
+report of Vivado. Compare a design against itself across settings or seeds with one toolchain, and
+not across toolchains. The same holds for ``fmax``: the timing model of nextpnr is not the model of
+Vivado (see :ref:`flow-results`).
 
 Packing and programming
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -1506,7 +1506,7 @@ clock period drives the ABC9 delay of Yosys and the constraint of Vivado. Xeda w
 when ``bitstream`` is set, or when a flow after ``vivado_impl`` needs it, such as
 ``openfpgaloader``. A bitstream needs every port to be constrained. Without ``bitstream``, Vivado
 stops after routing, and the flow reports timing and utilization only. The results are those of
-``vivado_synth`` (``Fmax``, ``wns``, ``lut``, ``ff``, ``dsp`` and others), read from the reports of
+``vivado_synth`` (``fmax``, ``wns``, ``lut``, ``ff``, ``dsp`` and others), read from the reports of
 Vivado for the routed design. ``impl.strategy`` and ``impl.steps`` choose the steps and their
 options as for ``vivado_alt_synth``. Only 7-series parts were tested.
 
@@ -2218,30 +2218,16 @@ Every flow reports a common set of keys (``success``, ``runtime``, ``tools``, ``
 ``run_path``, ``timestamp`` and the hashes). Each flow also reports keys of its own. Run ``xeda
 list-results <flow>`` for the list.
 
-Different flows report some quantities under different names. Xeda also records a canonical name
-next to the name that the flow reported, so a script does not need to know which
-flow produced the file:
-
-.. list-table::
-   :header-rows: 1
-
-   * - Canonical key
-     - Also reported as
-   * - ``Fmax``
-     - ``f_max``, ``maximum_frequency``
-   * - ``lut``
-     - ``LUT``
-   * - ``ff``
-     - ``FF``
-
-The original keys stay in ``results.json``.
+A metric name is lower snake case. A dot joins the parts of a group (``lut_use.logic``). A
+quantity has one name in every flow that reports it, such as ``fmax``, ``lut`` and ``ff``, so a
+script does not need to know which flow produced the file.
 
 .. note::
-   ``clock_frequency`` has no alias ``Fmax`` on purpose. It is the frequency that was constrained,
-   and not the maximum that was achieved.
+   ``clock_frequency`` is not ``fmax`` on purpose. It is the frequency that was constrained, and not
+   the maximum that was achieved.
 
 .. note::
-   Every tool times a design with its own model, so compare ``Fmax`` only between runs of the same
+   Every tool times a design with its own model, so compare ``fmax`` only between runs of the same
    tool. ``nextpnr`` and Vivado, which place and route with different models, show it. For one
    Artix-7 design with a block RAM and a multiply-accumulate, ``nextpnr`` reported 453 MHz for the
    netlist from Yosys and 429 MHz for the netlist from Vivado. Vivado placed and routed the same two

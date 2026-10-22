@@ -110,12 +110,12 @@ def test_xilinx_lut_resource_footprint(counts, expected, tmp_path):
     flow.artifacts.utilization_report = report
     assert flow.parse_reports()
     lut, logic, ram, srl = expected
-    assert flow.results.get("LUT") == lut
-    assert flow.results.get("LUT:LOGIC", 0) == logic
-    assert flow.results.get("LUT:RAM", 0) == ram
-    assert flow.results.get("LUT:SRL", 0) == srl
-    assert flow.results.get("LUT:STAGE") == "mapped"
-    assert flow.results.get("LUT:METHOD") == "primitive-footprint estimate"
+    assert flow.results.get("lut") == lut
+    assert flow.results.get("lut_use.logic", 0) == logic
+    assert flow.results.get("lut_use.ram", 0) == ram
+    assert flow.results.get("lut_use.srl", 0) == srl
+    assert flow.results.get("lut_basis.stage") == "mapped"
+    assert flow.results.get("lut_basis.method") == "primitive-footprint estimate"
 
 
 @pytest.mark.parametrize(
@@ -159,9 +159,9 @@ def test_xilinx_lut_footprint_uses_design_totals_once_with_hierarchy(tmp_path):
     flow.init()
     flow.artifacts.utilization_report = report
     assert flow.parse_reports()
-    assert flow.results["LUT"] == 7
-    assert flow.results["LUT:LOGIC"] == 3
-    assert flow.results["LUT:RAM"] == 4
+    assert flow.results["lut"] == 7
+    assert flow.results["lut_use.logic"] == 3
+    assert flow.results["lut_use.ram"] == 4
 
 
 #: Every module of the installed yosys's `xilinx/cells_sim.v` that `xilinx_lut_footprint`

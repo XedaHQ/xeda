@@ -49,14 +49,6 @@ class Dc(AsicSynthFlow):
 
     executables = ("dc_shell",)
 
-    #: `num_cells_sequentual` is a misspelling. It is the name of the regex group that parses the
-    #: area report, so `results.json` has this key. Scripts read it, so the key stays. The correct
-    #: spelling is added next to it, as for the canonical aliases of every flow.
-    results_canonical_aliases: Dict[str, Tuple[str, ...]] = {
-        **AsicSynthFlow.results_canonical_aliases,
-        "num_cells_sequential": ("num_cells_sequential", "num_cells_sequentual"),
-    }
-
     required_settings = {
         "target_libraries": "one or more target libraries (liberty `.db` files): "
         "`-s target_libraries=<file.db>`; in the design file, as "
@@ -64,7 +56,7 @@ class Dc(AsicSynthFlow):
     }
 
     results_description = describe_results(
-        "Fmax",
+        "fmax",
         "clock_name",
         "clock_period",
         "setup_wns",
@@ -98,11 +90,6 @@ class Dc(AsicSynthFlow):
         ),
         num_cells_sequential=MetricSpec(
             "Number of sequential cells in the mapped design.", "integer"
-        ),
-        num_cells_sequentual=MetricSpec(
-            "Deprecated misspelling of `num_cells_sequential`, still reported so existing "
-            "scripts keep working.",
-            "integer",
         ),
         num_macro_bbox=MetricSpec(
             "Number of macros / black boxes in the mapped design.", "integer"
@@ -467,7 +454,7 @@ class Dc(AsicSynthFlow):
             assert isinstance(clock_period, float)
             wns = self.results["setup_wns"]
             if isinstance(wns, float) and (clock_period - wns) > 0:
-                self.results["Fmax"] = 1000.0 / (clock_period - wns)
+                self.results["fmax"] = 1000.0 / (clock_period - wns)
 
         return not failed
 
@@ -481,7 +468,7 @@ class Dc(AsicSynthFlow):
             r"Number of nets:\s*(?P<num_nets>\d+)",
             r"Number of cells:\s*(?P<num_cells>\d+)",
             r"Number of combinational cells:\s*(?P<num_cells_combinational>\d+)",
-            r"Number of sequential cells:\s*(?P<num_cells_sequentual>\d+)",
+            r"Number of sequential cells:\s*(?P<num_cells_sequential>\d+)",
             r"Number of macros/black boxes:\s*(?P<num_macro_bbox>\d+)",
             r"Number of buf/inv:\s*(?P<_num_buf_inv>\d+)",
             r"Number of references:\s*(?P<_num_refs>\d+)",

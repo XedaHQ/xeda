@@ -11,7 +11,7 @@ from pathlib import Path
 
 from xeda import Design
 from xeda.flow import FPGA, MetricSpec
-from xeda.flows import Dc, Nextpnr, VivadoPower, Yosys, YosysFpga
+from xeda.flows import Dc, Nextpnr, Quartus, VivadoPower, Yosys, YosysFpga
 from xeda.flows.openroad import Openroad
 
 from .metric_types import VALUE_TESTS, descriptor_of, described_keys, mismatches
@@ -38,13 +38,10 @@ def test_the_oracle_tells_each_type_from_the_others():
     assert VALUE_TESTS["object"]({}) and not VALUE_TESTS["object"]([])
 
 
-def test_a_key_with_a_placeholder_is_described_by_its_entry():
+def test_a_key_is_described_by_its_own_entry_only():
     declared = VivadoPower.results_description
-    assert (
-        descriptor_of("Component Power: Clocks", declared)
-        is declared["Component Power: <component>"]
-    )
-    assert descriptor_of("Component Power: ", declared) is None
+    assert descriptor_of("power.total", declared) is declared["power.total"]
+    assert descriptor_of("power.components.Clocks", declared) is None
     assert descriptor_of("Unknown", declared) is None
 
 
@@ -168,12 +165,49 @@ def test_vivado_power_writes_the_declared_types(tmp_path):
     flow = VivadoPower.__new__(VivadoPower)
     results = flow.parse_power_report(report)
     check(VivadoPower, results, 7)
-    assert results["Total On-Chip Power (W)"] == 0.5
-    assert results["Component Power: Clocks"] == 0.2
-    assert results["Confidence Level"] == "High"
+    assert results["power.total"] == 0.5
+    assert results["power.components"] == {"Clocks": 0.2}
+    assert results["power.confidence"] == "High"
     # a bound is no number, so no value is written
-    assert "Device Static (W)" not in results
-    assert "Component Power: Signals" not in results
+    assert "power.static" not in results
+
+
+def test_quartus_reports_the_frequency_of_each_clock_as_one_table(tmp_path):
+    design = Design(
+        name="top",
+        rtl={"sources": [], "top": "top", "clock": "clk"},  # type: ignore[arg-type]
+    )
+    settings = Quartus.Settings.from_input(
+        {"fpga": {"part": "10CL025YU256C8G"}, "clock": {"period": "10 ns"}}
+    )
+    flow = Quartus(settings, design, tmp_path)
+    flow.init()
+    reports = tmp_path / flow.settings.reports_dir
+    timing = reports / "Timing_Analyzer"
+    for model, fmax in (("1200mV_85C", "150.5 MHz"), ("1200mV_0C", "0.2 GHz")):
+        directory = timing / f"Slow_{model}_Model"
+        directory.mkdir(parents=True)
+        (directory / f"Slow_{model}_Model_Fmax_Summary.csv").write_text(
+            f'Clock Name,Fmax,Restricted Fmax\nmain_clock,"{fmax}","{fmax}"\n'
+        )
+    (reports / "Fitter" / "Resource_Section").mkdir(parents=True)
+    (reports / "Flow_Summary.csv").write_text("Flow Status,Successful\n")
+    (
+        reports / "Fitter" / "Resource_Section" / "Fitter_Resource_Utilization_by_Entity.csv"
+    ).write_text(
+        "Compilation Hierarchy Node,LUT-Only LCs,LUT/Register LCs,Register-Only LCs\ntop,3,2,1\n"
+    )
+    (timing / "Multicorner_Timing_Analysis_Summary.csv").write_text(
+        "Clock,Setup,Hold\nWorst-case Slack,1.5,0.25\n"
+    )
+    assert flow.parse_reports()
+    check(Quartus, flow.results, 5)
+    assert flow.results["fmax"] == 200.0
+    assert sorted(flow.results["fmax_by_clock"].items()) == [
+        ("main_clock@1200mV:0C", 200.0),
+        ("main_clock@1200mV:85C", 150.5),
+    ]
+    assert not [key for key in flow.results if "Fmax" in str(key)]
 
 
 def test_openroad_final_writes_the_declared_types(tmp_path):

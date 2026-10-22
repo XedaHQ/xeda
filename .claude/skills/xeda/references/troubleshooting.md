@@ -233,25 +233,25 @@ PULLUP`.
 
 ## Reading numbers
 
-- `clock_frequency` is the frequency constrained. `Fmax` is the frequency achieved.
-- `Fmax` is per tool: `nextpnr` and Vivado time the same netlist differently. Compare `Fmax`
+- `clock_frequency` is the frequency constrained. `fmax` is the frequency achieved.
+- `fmax` is per tool: `nextpnr` and Vivado time the same netlist differently. Compare `fmax`
   only between runs of one tool.
-- Prefer the canonical keys `Fmax`, `lut` and `ff`; keys that start with `_` are internal.
+- Keys that start with `_` are internal.
 - `xeda list-results <flow> --json` lists every metric with its `type` and `unit`. The unit is
   `null` when the metric has no fixed physical unit: a count, a text, a ratio or a percentage, or a
   value in the platform's own units, such as a cell area. A flow can report no metric of its own.
 - Flows that enforce timing fail on negative slack by default. Check `wns` and `whs`, and whether
   `fail_timing` (Vivado) or `timing_allow_fail` (`nextpnr`) was turned off.
-- `lut` is per toolchain and stage; `LUT:STAGE` and `LUT:METHOD` say which. For 7-series, `nextpnr`
-  counts distinct occupied LUT locations in its placement, and `yosys_fpga` estimates from mapped
-  primitives (`LUT:LOGIC`, `LUT:RAM`, `LUT:SRL`). Neither is certified comparable with Vivado's
-  count: compare one toolchain with itself. `fabric` names the die whose `available` totals are
-  shown (an `xc7a35t` is routed as an `xc7a50t`).
+- `lut` is per toolchain and stage; `lut_basis.stage` and `lut_basis.method` say which. For
+  7-series, `nextpnr` counts distinct occupied LUT locations in its placement, and `yosys_fpga`
+  estimates from mapped primitives (`lut_use.logic`, `lut_use.ram`, `lut_use.srl`). Neither is
+  certified comparable with Vivado's count: compare one toolchain with itself. `fabric` names the
+  die whose `available` totals are shown (an `xc7a35t` is routed as an `xc7a50t`).
 - `nextpnr` parses timing and utilization from the JSON report named by its `report` setting. Its
   `lut`, `ff`, `bram`, `dsp` and `io` are given for ECP5 and Xilinx 7-series; other families get
   raw bel-type counts (`ICESTORM_LC`, `OXIDE_COMB`) plus timing.
 - `nextpnr`'s `wns` is derived: the difference between the constrained and achieved clock periods.
-  With several constrained clock domains, `Fmax` is the lowest achieved frequency and `wns` is the
+  With several constrained clock domains, `fmax` is the lowest achieved frequency and `wns` is the
   least-slack domain's (they may differ), and the scalar `clock_frequency` and `clock_period` are
   omitted. `clock_domains` gives the count; per-domain detail is in `_fmax`.
 

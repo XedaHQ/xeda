@@ -37,7 +37,7 @@ and `skipped` paths. The Python API never prompts: `scrub_design` and a launch w
 `scrub_old_runs` remove nothing unless the caller passes `confirm` / sets `confirm_scrub`.
 
 ```bash
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5ns --json | jq '.results.Fmax'
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5ns --json | jq '.results.fmax'
 ```
 
 The exit status is 0 on success, 1 on a failed run and 2 on a usage error. The `run` document has:
@@ -307,11 +307,11 @@ sets `platform` and `clock.period`, and `bsc` converts the design first.
 
 `results.json` in the run directory is authoritative. Every flow reports `success`, `runtime`,
 `tools`, `artifacts`, `design`, `flow`, `run_path`, `timestamp`, `design_hash`, `flow_hash` and
-`settings_hash`; the rest is flow-specific (`xeda list-results <flow> --json`). The runner adds
-canonical keys `Fmax`, `lut` and `ff` beside the flow's own (`f_max`, `maximum_frequency`, `LUT`,
-`FF`); read the canonical ones.
+`settings_hash`; the rest is flow-specific (`xeda list-results <flow> --json`). Every metric
+name is lower snake case, with dots between the parts of a group (`fmax`, `lut`, `ff`,
+`lut_use.logic`); a quantity has one name in every flow.
 
-- `Fmax` is the frequency achieved; `clock_frequency` is the one constrained. Compare `Fmax` and
+- `fmax` is the frequency achieved; `clock_frequency` is the one constrained. Compare `fmax` and
   `lut` only between runs of the same tool. See "Reading numbers" in
   `references/troubleshooting.md`.
 - `outputs` (declared output records `{path, sha}`) and `artifacts` are bookkeeping, not metrics.
@@ -521,7 +521,7 @@ from xeda.introspect import flows_info, settings_info, results_info, design_sche
 design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
 flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock.period=5ns"])
 if flow and flow.results.success:
-    print(flow.results.Fmax)
+    print(flow.results.fmax)
 ```
 
 `xeda.introspect` returns the data the CLI's `--json` renders.

@@ -115,7 +115,7 @@ _EPSILON = 1e-9
 #: The OpenROAD flows of xeda, in the order of the chain.
 OPENROAD_FLOWS = ("openroad_place", "openroad_cts", "openroad_grt", "openroad")
 #: The metrics of a row and the result of the last xeda flow that gives each: the ORFS metric, the
-#: result, and the factor that turns the unit of xeda into the unit of ORFS. xeda reports `Fmax`
+#: result, and the factor that turns the unit of xeda into the unit of ORFS. xeda reports `fmax`
 #: in MHz and ORFS in Hz. Both give times in ns, areas in um^2 and power in W. The worst slack is
 #: the result `worst_slack`: the result `wns` stops at zero, and the ORFS metric does not.
 XEDA_RESULTS = (
@@ -127,7 +127,7 @@ XEDA_RESULTS = (
     ("finish__power__total", "power", 1),
     ("detailedroute__route__drc_errors", "drc_errors", 1),
     ("detailedroute__antenna__violating__nets", "antenna_violating_nets", 1),
-    ("finish__timing__fmax", "Fmax", 1_000_000),
+    ("finish__timing__fmax", "fmax", 1_000_000),
     ("finish__timing__drv__setup_violation_count", "setup_violations", 1),
     ("finish__design__instance__count__stdcell", "instances", 1),
     ("finish__design__core__area", "core_area", 1),

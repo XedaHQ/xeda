@@ -389,7 +389,7 @@ def test_vivado_impl_implements_the_edif_netlist_yosys_fpga_writes(tmp_path, too
         *("route_design", "write_bitstream"),
     ]
     assert flow.results["lut"] and flow.results["ff"] and "wns" in flow.results
-    assert flow.results["Fmax"] and "status" not in flow.results
+    assert flow.results["fmax"] and "status" not in flow.results
     assert (flow.run_path / "b.bit").is_file()
     assert flow.results["outputs"]["bitstream"]["path"] == str(flow.run_path / "b.bit")
 
@@ -712,7 +712,7 @@ def test_timing_that_is_not_met_fails_the_flow_unless_it_is_allowed(
 def test_the_results_are_those_of_vivado_synth_but_for_the_projects_status() -> None:
     kept = {key: spec for key, spec in VivadoSynth.results_description.items() if key != "status"}
     assert VivadoImpl.results_description == kept
-    for key in ("Fmax", "wns", "whs", "lut", "ff", "dsp", "bram_RAMB36"):
+    for key in ("fmax", "wns", "whs", "lut", "ff", "dsp", "bram.ramb36"):
         assert key in VivadoImpl.results_description
 
 
@@ -926,7 +926,7 @@ def test_a_design_without_pin_constraints_is_implemented_for_its_timing(
     flow = _runner(tmp_path).run_flow(VivadoImpl, design, SETTINGS)
     assert flow is not None and flow.succeeded
     assert [c[1] for c in fake_calls(flow.run_path) if c[0] == "read_xdc"] == ["clock.xdc"]
-    assert "wns" in flow.results and "Fmax" in flow.results
+    assert "wns" in flow.results and "fmax" in flow.results
     assert "write_bitstream" not in {call[0] for call in fake_calls(flow.run_path)}
 
 

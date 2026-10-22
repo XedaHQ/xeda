@@ -121,7 +121,6 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
         log.critical("parse_reports or check_results threw an exception: %s", e)
         if tool_completed and reports_ok is not False:  # if so far so good this is a bug!
             raise e
-    flow.add_canonical_result_aliases()
     # `reject()` is the verdict: a run that called it never passes, whatever the checks
     # returned.
     rejected = flow.rejection is not None

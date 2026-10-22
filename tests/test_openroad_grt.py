@@ -1293,7 +1293,7 @@ def test_a_launch_reports_the_recorded_metrics_of_the_global_route(tmp_path, mon
     assert results["tns"] == pytest.approx(-11.083)
     assert results["whs"] == pytest.approx(0.0142931)
     assert results["hold_tns"] == 0
-    assert results["Fmax"] == pytest.approx(2009.06)
+    assert results["fmax"] == pytest.approx(2009.06)
     assert results["area"] == pytest.approx(773.528)
     assert results["utilization"] == pytest.approx(0.887668)
     assert results["power"] == pytest.approx(0.00571903)
@@ -1316,7 +1316,7 @@ def test_the_results_are_described():
         "tns",
         "whs",
         "worst_slack",
-        "Fmax",
+        "fmax",
         "utilization",
         "power",
         "area",
@@ -1331,7 +1331,7 @@ def test_the_results_are_described():
         "platform",
     ):
         assert described[key].description, key
-    for key in ("wns", "tns", "whs", "worst_slack", "Fmax", "utilization", "power"):
+    for key in ("wns", "tns", "whs", "worst_slack", "fmax", "utilization", "power"):
         assert described[key] == COMMON_METRICS[key]
 
 

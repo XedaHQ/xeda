@@ -12,14 +12,15 @@ import re
 import subprocess
 import textwrap
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Set, Tuple, get_args, get_origin
+from typing import Any, ClassVar, List, Literal, Optional, Set, Tuple, get_args, get_origin
 
 import pytest
 
+from xeda import cocotb as cocotb_module
 from xeda.dataclass import Field, annotation_args, tier, tier_of
 from xeda.design import SOURCE_SUFFIXES
 from xeda.flow import COMMON_METRICS, Flow, MetricSpec, MetricType, describe_results
-from xeda.flow.metrics import COCOTB_METRICS, metric_unit_known
+from xeda.flow.metrics import COCOTB_METRICS, METRIC_PATH, metric_unit_known
 from xeda.flow.settings_group import SettingsGroup
 from xeda.flow.sim import SimFlow
 from xeda.flow_runner import FlowNotFoundError, get_flow_class
@@ -215,10 +216,12 @@ def test_a_frequency_metric_is_in_mhz_and_a_time_metric_in_ns():
 
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
 def test_a_metric_that_names_its_unit_carries_it(flow_class):
-    """A unit belongs to the descriptor: `Fmax` is in MHz, a slack is in ns, a power is in W."""
+    """A unit belongs to the descriptor: `fmax` is in MHz, a slack is in ns, a power is in W."""
     for path, spec in flow_class.results_description.items():
-        if path in ("Fmax", "fmax", "f_max") or path.endswith("frequency"):
+        if path == "fmax" or path.endswith("frequency"):
             assert (spec.type, spec.unit) == ("number", "MHz"), path
+        if path == "fmax_by_clock":
+            assert (spec.type, spec.unit) == ("numbers", "MHz"), path
         if path in ("wns", "whs", "tns", "worst_slack", "clock_period"):
             assert (spec.type, spec.unit) == ("number", "ns"), path
         if path == "power" or path.startswith("power_"):
@@ -278,58 +281,56 @@ def test_results_info_lists_the_declared_metrics(flow_class):
         }
 
 
-class _AliasFlow(Flow):
-    """Minimal flow used to exercise result-alias behavior."""
-
-    results_description: ClassVar[Dict[str, MetricSpec]] = {}
-
-    def run(self) -> None:  # pragma: no cover - never executed
-        raise NotImplementedError
-
-
-def _aliased(raw: Dict[str, object]) -> Dict[str, object]:
-    flow = _AliasFlow.__new__(_AliasFlow)
-    flow.results = Flow.Results(**raw)  # type: ignore[attr-defined]
-    flow.add_canonical_result_aliases()
-    return dict(flow.results)
-
-
-def test_canonical_aliases_are_additive():
-    """Aliases add the canonical name; they never rename or drop what the flow reported."""
-    out = _aliased({"LUT": 42, "FF": 7, "f_max": 250.0})
-    assert out["LUT"] == 42 and out["FF"] == 7 and out["f_max"] == 250.0
-    assert out["lut"] == 42
-    assert out["ff"] == 7
-    assert out["Fmax"] == 250.0
-
-
-def test_canonical_aliases_do_not_overwrite_an_existing_key():
-    out = _aliased({"lut": 1, "LUT": 2})
-    assert out["lut"] == 1
-
-
-def test_canonical_aliases_ignore_missing_keys():
-    out = _aliased({"wns": -0.1})
-    assert "Fmax" not in out and "lut" not in out
-
-
-def test_clock_frequency_is_never_aliased_to_fmax():
-    """`clock_frequency` is the constraint given to the tool, not the achieved maximum."""
-    out = _aliased({"clock_frequency": 200.0})
-    assert "Fmax" not in out
-
-
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
-def test_result_alias_candidates_are_documented_somewhere(flow_class):
-    """A flow reporting an alias candidate must also document the canonical key."""
-    documented = list(flow_class.results_description)
-    for canonical, candidates in flow_class.results_canonical_aliases.items():
-        reported = [c for c in candidates if c in documented]
-        if reported and canonical not in documented:
-            pytest.fail(
-                f"{flow_class.name} documents {reported} but not the canonical key "
-                f"{canonical!r}, which the runner adds to results.json."
-            )
+def test_every_metric_path_fits_the_grammar(flow_class):
+    for path in flow_class.results_description:
+        assert METRIC_PATH.fullmatch(path), f"{flow_class.name}: {path!r}"
+
+
+def test_no_flow_has_result_aliases():
+    assert not hasattr(Flow, "results_canonical_aliases")
+    assert not hasattr(Flow, "add_canonical_result_aliases")
+    for flow_class in all_flow_classes():
+        assert not hasattr(flow_class, "results_canonical_aliases"), flow_class.name
+
+
+FMAX_FLOWS = (
+    "dc",
+    "ise_synth",
+    "nextpnr",
+    "openroad",
+    "openroad_cts",
+    "openroad_grt",
+    "openroad_place",
+    "quartus",
+    "vivado_alt_synth",
+    "vivado_impl",
+    "vivado_synth",
+)
+
+
+@pytest.mark.parametrize("name", FMAX_FLOWS)
+def test_fmax_is_one_path_in_every_flow_that_reports_it(name):
+    described = get_flow_class(name).results_description
+    spec = described["fmax"]
+    assert (spec.type, spec.unit) == ("number", "MHz")
+    # the quantity has no second spelling
+    assert not {"Fmax", "f_max", "maximum_frequency"} & set(described)
+
+
+def test_cocotb_simulated_time_is_one_path_in_ns():
+    described = get_flow_class("ghdl_sim").results_description
+    spec = described["cocotb.sim_time"]
+    assert (spec.type, spec.unit) == ("number", "ns")
+    assert "cocotb.sim_time_ns" not in described
+    assert "cocotb.sim_time" in COCOTB_METRICS and "cocotb.sim_time_ns" not in COCOTB_METRICS
+    # the cocotb results writer uses the same path
+    results: dict[str, Any] = {}
+    cocotb_module.cocotb_verdict(
+        cocotb_module.TestResults(1, 0, 0, 0, 1.0, 12.5, test_suites=[]), results
+    )
+    assert results["cocotb.sim_time"] == 12.5
+    assert "cocotb.sim_time_ns" not in results
 
 
 # ------------------------------------------------------------------ README flow catalog
@@ -662,7 +663,7 @@ def test_the_documents_state_what_the_lut_count_is_and_is_not():
         root / "src/xeda/data/agent/references/troubleshooting.md",
     ):
         text = " ".join(document.read_text().split())
-        assert "LUT:STAGE" in text and "LUT:METHOD" in text, document
+        assert "lut_basis.stage" in text and "lut_basis.method" in text, document
         assert re.search(r"(not|neither is) certified comparable", text, re.IGNORECASE), document
 
 

@@ -640,7 +640,7 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
                                 wns,
                             )
                         else:
-                            self.results["Fmax"] = 1000.0 / (clock_period - wns)
+                            self.results["fmax"] = 1000.0 / (clock_period - wns)
                     else:
                         log.critical(
                             "Parsed value for `clock_period`: %s (%s) is not a number.",
@@ -721,10 +721,10 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             ("latch", ["CLB Logic", "Register as Latch"]),
             ("bram_tile", ["Memory", "Block RAM Tile"]),
             ("bram_tile", ["BLOCKRAM", "Block RAM Tile"]),
-            ("bram_RAMB36", ["Memory", "RAMB36/FIFO*"]),
-            ("bram_RAMB36", ["BLOCKRAM", "RAMB36/FIFO*"]),
-            ("bram_RAMB18", ["Memory", "RAMB18"]),
-            ("bram_RAMB18", ["BLOCKRAM", "RAMB18"]),
+            ("bram.ramb36", ["Memory", "RAMB36/FIFO*"]),
+            ("bram.ramb36", ["BLOCKRAM", "RAMB36/FIFO*"]),
+            ("bram.ramb18", ["Memory", "RAMB18"]),
+            ("bram.ramb18", ["BLOCKRAM", "RAMB18"]),
             ("dsp", ["DSP", "DSPs"]),
             ("dsp", ["ARITHMETIC", "DSPs"]),
         ]
@@ -844,7 +844,7 @@ class VivadoSynth(VivadoImplementation):
     """
 
     results_description = describe_results(
-        "Fmax",
+        "fmax",
         "clock_period",
         "clock_frequency",
         "wns",
@@ -869,8 +869,12 @@ class VivadoSynth(VivadoImplementation):
             "Number of LUTs used as memory (distributed RAM or shift registers).", "integer"
         ),
         latch=MetricSpec("Number of latches inferred. Usually a design bug on FPGAs.", "integer"),
-        bram_RAMB36=MetricSpec("Number of RAMB36/FIFO36 block RAM primitives used.", "integer"),
-        bram_RAMB18=MetricSpec("Number of RAMB18 block RAM primitives used.", "integer"),
+        **{
+            "bram.ramb36": MetricSpec(
+                "Number of RAMB36/FIFO36 block RAM primitives used.", "integer"
+            ),
+            "bram.ramb18": MetricSpec("Number of RAMB18 block RAM primitives used.", "integer"),
+        },
         bram_tile=MetricSpec(
             "Number of block RAM tiles used. A RAMB18 uses half a tile, so the number can end in "
             "`.5`.",

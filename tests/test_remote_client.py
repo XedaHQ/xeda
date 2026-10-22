@@ -168,7 +168,7 @@ def test_remote_run_matches_a_local_run(tmp_path, remote_host):
     assert local is not None
     document = _succeeded(_request(tmp_path, design))
     results = document["results"]
-    for key in ("success", "Fmax", "wns", "timing_met", "lut", "ff", "clock_domains"):
+    for key in ("success", "fmax", "wns", "timing_met", "lut", "ff", "clock_domains"):
         assert results[key] == local.results[key], key
     # the identity does not depend on the place of the run
     for key in ("flow_hash", "settings_hash", "design_hash"):
@@ -224,7 +224,7 @@ def test_second_run_reuses_and_a_source_edit_reruns(tmp_path, remote_host):
     second = _succeeded(_request(tmp_path, design))
     assert _states(second) == {"yosys_fpga": "fresh", "nextpnr": "fresh"}
     assert (inputs / "top.xeda.json").stat().st_ino == unchanged
-    assert second["results"]["Fmax"] == first["results"]["Fmax"]
+    assert second["results"]["fmax"] == first["results"]["fmax"]
     # the reused result still comes back
     assert (Path(second["run_path"]) / "config.txt").is_file()
 

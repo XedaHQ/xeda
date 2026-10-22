@@ -117,7 +117,7 @@ class FmaxOptimizer(Optimizer):
 
     @staticmethod
     def get_result_value(res):
-        return res.get("Fmax")
+        return res.get("fmax")
 
     @property
     def best_freq(self) -> Optional[float]:
@@ -410,7 +410,7 @@ class FmaxOptimizer(Optimizer):
 
         if fmax is None:
             log.error(
-                "Flow #%d: No valid 'Fmax' in the results! run_path=%s",
+                "Flow #%d: No valid 'fmax' in the results! run_path=%s",
                 idx,
                 outcome.run_path,
             )

@@ -366,7 +366,7 @@ class Openroad(OpenroadStage):
         "tns",
         "whs",
         "worst_slack",
-        "Fmax",
+        "fmax",
         "setup_violations",
         "hold_violations",
         "utilization",

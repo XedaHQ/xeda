@@ -88,7 +88,7 @@ STAGE_TABLE: tuple[tuple[str, str, str], ...] = (
     ("tns", "timing__setup__tns", "time"),
     ("whs", "timing__hold__ws", "time"),
     ("hold_tns", "timing__hold__tns", "time"),
-    ("Fmax", "timing__fmax", "hertz"),
+    ("fmax", "timing__fmax", "hertz"),
     ("area", "design__instance__area__stdcell", "plain"),
     ("utilization", "design__instance__utilization", "plain"),
     ("power", "power__total", "plain"),
@@ -103,7 +103,7 @@ def stage_results(
     """Return the results of one stage from its metrics, by result name.
 
     `worst_slack` is the worst setup slack, and `wns` is `min(0, worst_slack)`, since OpenROAD
-    writes no WNS. `Fmax` is in MHz and every time is in ns (`time_unit` is the unit of the
+    writes no WNS. `fmax` is in MHz and every time is in ns (`time_unit` is the unit of the
     Liberty files, such as `1ns`). `area` is the area of the standard cells in um^2, and `power`
     is in watts. A result whose metric is absent is left out. A metric that is present and not a
     finite number raises `MetricsError`."""
@@ -173,7 +173,7 @@ def final_results(
 
     `route` holds the metrics of the detailed route (`detailedroute__*`, from `route_file`) and
     `final` those of the final report (`finish__*`, from `final_file`). The times are in
-    nanoseconds (`time_unit` is the unit of the Liberty files), `Fmax` is in MHz, the areas are
+    nanoseconds (`time_unit` is the unit of the Liberty files), `fmax` is in MHz, the areas are
     in um^2, `power` is in watts, `wirelength` is in um, and the rest are counts and ratios.
 
     The four values that the verdicts read must be there and valid: the worst setup slack and

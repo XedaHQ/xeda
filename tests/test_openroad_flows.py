@@ -623,7 +623,7 @@ def test_the_results_of_the_chain_are_the_recorded_metrics(tmp_path, monkeypatch
     assert results["wns"] == pytest.approx(-0.244411)
     assert results["tns"] == pytest.approx(-10.9686)
     assert results["whs"] == pytest.approx(0.0159159)
-    assert results["Fmax"] == pytest.approx(2022.61)
+    assert results["fmax"] == pytest.approx(2022.61)
     assert results["area"] == pytest.approx(773.528)
     assert results["utilization"] == pytest.approx(0.887668)
     assert results["power"] == pytest.approx(0.00566387)

@@ -15,6 +15,18 @@ logger = logging.getLogger(__name__)
 #: A label of the summary that ends in a unit: `Dynamic (W)`, `Junction Temperature (C)`.
 NUMERIC_LABEL = re.compile(r"\((?:W|C|C/W)\)$")
 
+#: The labels of Vivado's power summary that this flow reports, each with its metric. Vivado
+#: always writes these. A label that is not here keeps its text as the key.
+SUMMARY_METRICS = {
+    "Total On-Chip Power (W)": "power.total",
+    "Dynamic (W)": "power.dynamic",
+    "Device Static (W)": "power.static",
+    "Effective TJA (C/W)": "power.effective_tja",
+    "Junction Temperature (C)": "power.junction_temperature",
+    "Thermal Margin (C)": "power.thermal_margin",
+    "Confidence Level": "power.confidence",
+}
+
 
 class VivadoPower(Vivado, FpgaSynthFlow):
     """Estimate post-implementation power from the switching activity of a simulation.
@@ -28,34 +40,32 @@ class VivadoPower(Vivado, FpgaSynthFlow):
     ignores the test vectors. This result follows them, so use a representative testbench.
     """
 
-    # Keys are taken verbatim from the labels in Vivado's XML power report, so the exact set
-    # depends on the device and design. These are the ones Vivado always emits.
     results_description = {
-        "Total On-Chip Power (W)": MetricSpec("Total on-chip power.", "number", "W"),
-        "Dynamic (W)": MetricSpec(
+        "power.total": MetricSpec("Total on-chip power.", "number", "W"),
+        "power.dynamic": MetricSpec(
             "Dynamic (switching) power, driven by the SAIF activity.", "number", "W"
         ),
-        "Device Static (W)": MetricSpec("Static (leakage) power.", "number", "W"),
-        "Effective TJA (C/W)": MetricSpec(
+        "power.static": MetricSpec("Static (leakage) power of the device.", "number", "W"),
+        "power.effective_tja": MetricSpec(
             "Effective junction-to-ambient thermal resistance, in degrees Celsius per watt.",
             "number",
         ),
-        "Junction Temperature (C)": MetricSpec(
+        "power.junction_temperature": MetricSpec(
             "Estimated junction temperature in degrees Celsius.", "number"
         ),
-        "Thermal Margin (C)": MetricSpec(
+        "power.thermal_margin": MetricSpec(
             "Margin between the estimated junction temperature and the limit, in degrees "
             "Celsius.",
             "number",
         ),
-        "Confidence Level": MetricSpec(
+        "power.confidence": MetricSpec(
             'Vivado\'s confidence in the estimate, e.g. "High".', "text"
         ),
-        "Component Power: <component>": MetricSpec(
-            "Per-component on-chip power, one key per component Vivado reports (Clocks, Slice "
-            "Logic, Signals, Block RAM, DSP, I/O, ...). A value that Vivado prints as a bound, "
-            "such as <0.001, is not reported.",
-            "number",
+        "power.components": MetricSpec(
+            "On-chip power of each component that Vivado reports (Clocks, Slice Logic, Signals, "
+            "Block RAM, DSP, I/O, ...), keyed by the component name. A value that Vivado prints "
+            "as a bound, such as <0.001, is not reported.",
+            "numbers",
             "W",
         ),
     }
@@ -125,27 +135,33 @@ class VivadoPower(Vivado, FpgaSynthFlow):
         self.vivado.run("-source", script_path)
 
     def parse_power_report(self, report_xml) -> Dict[str, Any]:
-        """Return the values of the report by label.
+        """Return the values of the report by metric.
 
-        A label that names a unit (`Dynamic (W)`, `Junction Temperature (C)`) and every component
-        power are numbers. A value that is no number, such as the bound `<0.001`, is left out.
-        Any other value stays the text of the report."""
+        The labels in `SUMMARY_METRICS` give the `power.*` metrics. The power of the components
+        is the table `power.components`. A label that names a unit (`Dynamic (W)`) gives a
+        number. A value that is no number, such as the bound `<0.001`, is left out. Any other
+        value stays the text of the report, under its label."""
         tree = ElementTree.parse(report_xml)
         results: Dict[str, Any] = {}
+        components: Dict[str, float] = {}
 
-        def record(key: str, value: str) -> None:
-            if not (key.startswith("Component Power: ") or NUMERIC_LABEL.search(key)):
-                results[key] = value
-                return
+        def number(label: str, value: str) -> float | None:
             try:
-                results[key] = float(value)
+                return float(value)
             except ValueError:
-                logger.debug("The power report gives %r for %r, which is no number.", value, key)
+                logger.debug("The power report gives %r for %r, which is no number.", value, label)
+                return None
 
         for tablerow in tree.findall("./section[@title='Summary']/table/tablerow"):
             tablecells = tablerow.findall("tablecell")
-            key, value = (html.unescape(x.attrib["contents"]).strip() for x in tablecells)
-            record(key, value)
+            label, value = (html.unescape(x.attrib["contents"]).strip() for x in tablecells)
+            key = SUMMARY_METRICS.get(label, label)
+            if NUMERIC_LABEL.search(label):
+                parsed = number(label, value)
+                if parsed is not None:
+                    results[key] = parsed
+            else:
+                results[key] = value
 
         for tablerow in tree.findall(
             "./section[@title='Summary']/section[@title='On-Chip Components']/table/tablerow"
@@ -153,10 +169,11 @@ class VivadoPower(Vivado, FpgaSynthFlow):
             tablecells = tablerow.findall("tablecell")
             if len(tablecells) >= 2:
                 contents = [html.unescape(x.attrib["contents"]).strip() for x in tablecells]
-                key = contents[0]
-                value = contents[1]
-                record(f"Component Power: {key}", value)
-
+                parsed = number(contents[0], contents[1])
+                if parsed is not None:
+                    components[contents[0]] = parsed
+        if components:
+            results["power.components"] = components
         return results
 
     def parse_reports(self) -> bool:

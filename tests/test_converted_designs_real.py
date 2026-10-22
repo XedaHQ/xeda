@@ -154,7 +154,7 @@ def test_gcd_goes_to_ecp5_through_bsc_yosys_fpga_and_nextpnr(tmp_path) -> None:
     assert [f.name for f in runner.launched] == ["bsc", "yosys_fpga", "nextpnr"]
     assert flow.name == "nextpnr"
     assert flow.settings.fpga.part == "LFE5U-85F-6BG381C"
-    assert flow.results["lut"] > 0 and flow.results["ff"] > 0 and flow.results["Fmax"] > 0
+    assert flow.results["lut"] > 0 and flow.results["ff"] > 0 and flow.results["fmax"] > 0
     for name in ("bsc", "yosys_fpga", "nextpnr"):
         assert (tmp_path / "run" / "gcd" / "ecp5" / name / "results.json").is_file(), name
 

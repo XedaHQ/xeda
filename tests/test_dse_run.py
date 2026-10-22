@@ -260,7 +260,7 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     run_path = Path(best["run_path"])
     recorded_results = json.loads((run_path / "results.json").read_text())
     assert recorded_results["success"] is True
-    assert best["results"]["Fmax"] == recorded_results["Fmax"]
+    assert best["results"]["fmax"] == recorded_results["fmax"]
 
     # The search's own record of it is the same view the CLI printed.
     (best_file,) = (tmp_path / "xeda_run").glob("fmax_sqrt_vivado_synth_*.json")
@@ -446,7 +446,7 @@ class _FmaxPlace(_DsePlace):
 
     def run(self):
         super().run()
-        self.results["Fmax"] = 150.0
+        self.results["fmax"] = 150.0
 
 
 class _ObservedFmax(FmaxOptimizer):
@@ -548,7 +548,7 @@ def test_a_promotion_leaves_the_default_table_as_it_was(monkeypatch):
     optimizer.num_variations = 2  # reached when a search stalls
     optimizer.variation_choices = [{"synth.strategy": 2, "impl.strategy": 3}]
     results = Flow.Results()
-    results["Fmax"] = 150.0
+    results["fmax"] = 150.0
     results.success = True
     outcome = FlowOutcome(settings=Flow.Settings(), results=results, timestamp=None, run_path=None)
     assert optimizer.process_outcome(outcome, 0)
@@ -639,7 +639,7 @@ class _TimingJudged(FpgaSynthFlow):
             f.write(previous + "run\n")
         period = self.settings.main_clock.period.to("ns")
         self.results["period"] = period
-        self.results["Fmax"] = round(1000.0 / period, 4)
+        self.results["fmax"] = round(1000.0 / period, 4)
         self.results["started_at"] = time.time_ns()
 
     def check_results(self):
@@ -705,7 +705,7 @@ def _search_timing_judged(tmp_path) -> Dse:
 def test_a_search_gets_the_same_outcomes_when_it_replays_the_rejections_of_the_first(tmp_path):
     """A candidate whose checks rejected it keeps its trace. The same search again reports each
     rejection from the recorded results, without running the flow. The optimizer gets the same
-    failed outcome, with its `Fmax`, as on the first search, and picks the same best run.
+    failed outcome, with its `fmax`, as on the first search, and picks the same best run.
 
     The worker processes of the search return only a `FlowOutcome`, which does not carry
     `Flow.rejected_again`, so the replay shows in the count of runs of each run directory and in
@@ -727,7 +727,7 @@ def test_a_search_gets_the_same_outcomes_when_it_replays_the_rejections_of_the_f
     for period, outcome in after.items():
         rejected = period < _TimingJudged.MIN_PERIOD
         assert outcome.results.success is (not rejected)
-        assert outcome.results["Fmax"] == round(1000.0 / period, 4), "a rejection keeps its Fmax"
+        assert outcome.results["fmax"] == round(1000.0 / period, 4), "a rejection keeps its Fmax"
         assert outcome.results.get("error", {}).get("code") == ("rejected" if rejected else None)
         assert outcome.run_path == before[period].run_path
         assert _as_json(outcome.results) == _as_json(before[period].results)
@@ -787,7 +787,10 @@ def test_dse_refuses_the_openroad_flows_before_any_worker(tmp_path):
         runner = Dse(
             _ClockWritingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1
         )
-        with pytest.raises(FlowSettingsException, match="Fmax exploration of the OpenROAD flows"):
+        with pytest.raises(
+            FlowSettingsException,
+            match="Fmax exploration of the OpenROAD flows",
+        ):
             runner.run_flow("openroad", Design.from_file(design))
     assert not (tmp_path / "run").exists()
 

@@ -3920,7 +3920,7 @@ def test_a_launch_runs_the_commands_in_order_and_reports_the_recorded_metrics(
     assert results["tns"] == pytest.approx(-7.7916)
     assert results["whs"] == pytest.approx(0.0846772)
     assert results["hold_tns"] == 0
-    assert results["Fmax"] == pytest.approx(2306.81)
+    assert results["fmax"] == pytest.approx(2306.81)
     assert results["area"] == pytest.approx(657.02)
     assert results["utilization"] == pytest.approx(0.753968)
     assert results["power"] == pytest.approx(0.00388374)
@@ -3982,7 +3982,7 @@ def test_the_results_are_described():
         "tns",
         "whs",
         "worst_slack",
-        "Fmax",
+        "fmax",
         "utilization",
         "power",
         "area",

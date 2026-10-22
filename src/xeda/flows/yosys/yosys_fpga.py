@@ -154,26 +154,22 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
     minimum_yosys = MINIMUM_YOSYS
 
     results_description = describe_results(
-        "LUT",
         "lut",
         "ff",
         **{
-            "LUT:LOGIC": MetricSpec(
+            "lut_use.logic": MetricSpec(
                 "Mapped Xilinx logic LUT footprint estimate at the synthesis stage.", "integer"
             ),
-            "LUT:RAM": MetricSpec(
+            "lut_use.ram": MetricSpec(
                 "Mapped distributed RAM LUT footprint estimate at the synthesis stage.", "integer"
             ),
-            "LUT:SRL": MetricSpec(
+            "lut_use.srl": MetricSpec(
                 "Mapped shift-register LUT footprint estimate at the synthesis stage.", "integer"
             ),
-            "LUT:STAGE": MetricSpec(
-                "Stage represented by the canonical LUT resource estimate.", "text"
+            "lut_basis.stage": MetricSpec(
+                "Stage that the `lut` resource estimate describes.", "text"
             ),
-            "LUT:METHOD": MetricSpec(
-                "Method used to estimate the canonical LUT resource units.", "text"
-            ),
-            "FF": MetricSpec("Number of flip-flops (registers) used.", "integer"),
+            "lut_basis.method": MetricSpec("Method that gave the `lut` resource estimate.", "text"),
         },
     )
 
@@ -1093,14 +1089,14 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                     logic_luts = lut_footprint["logic"]
                     ram_luts = lut_footprint["ram"]
                     srl_luts = lut_footprint["srl"]
-                    self.results["LUT"] = logic_luts + ram_luts + srl_luts
-                    self.results["LUT:LOGIC"] = logic_luts
-                    self.results["LUT:RAM"] = ram_luts
-                    self.results["LUT:SRL"] = srl_luts
-                    self.results["LUT:STAGE"] = "mapped"
-                    self.results["LUT:METHOD"] = "primitive-footprint estimate"
+                    self.results["lut"] = logic_luts + ram_luts + srl_luts
+                    self.results["lut_use.logic"] = logic_luts
+                    self.results["lut_use.ram"] = ram_luts
+                    self.results["lut_use.srl"] = srl_luts
+                    self.results["lut_basis.stage"] = "mapped"
+                    self.results["lut_basis.method"] = "primitive-footprint estimate"
                     add_util_sum_if_nonzero(
-                        "FF",
+                        "ff",
                         [
                             "FDCE",  # D Flip-Flop with Clock Enable and Asynchronous Clear
                             "FDPE",  # D Flip-Flop with Clock Enable and Asynchronous Preset

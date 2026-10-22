@@ -6,6 +6,7 @@ in `results_description`, and `xeda list-results` reports them.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Dict, Literal, Optional
 
@@ -14,6 +15,7 @@ from ..units import is_quantity_unit
 __all__ = [
     "COCOTB_METRICS",
     "COMMON_METRICS",
+    "METRIC_PATH",
     "MetricSpec",
     "MetricType",
     "describe_results",
@@ -30,6 +32,11 @@ __all__ = [
 MetricType = Literal[
     "number", "integer", "boolean", "text", "text_list", "counts", "numbers", "object"
 ]
+
+
+#: The spelling of a metric path: dot-separated segments of lower snake case, each starting with a
+#: letter. Match a path with `METRIC_PATH.fullmatch`.
+METRIC_PATH = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*")
 
 
 @dataclass(frozen=True)
@@ -57,17 +64,17 @@ def metric_unit_known(unit: str) -> bool:
 #: that the flow does not produce.
 COMMON_METRICS: Dict[str, MetricSpec] = {
     # timing
-    "Fmax": MetricSpec(
+    "fmax": MetricSpec(
         "Maximum achievable clock frequency, derived from the constrained period and the worst "
         "negative slack. This is the achieved result, unlike `clock_frequency`. Each tool times "
-        "a design with its own model: compare `Fmax` only between runs of the same tool.",
+        "a design with its own model: compare `fmax` only between runs of the same tool.",
         "number",
         "MHz",
     ),
     "clock_period": MetricSpec("Constrained clock period, as given to the tool.", "number", "ns"),
     "clock_frequency": MetricSpec(
         "Constrained clock frequency. This is the constraint that was given to the tool, not "
-        "the achieved maximum (see `Fmax`).",
+        "the achieved maximum (see `fmax`).",
         "number",
         "MHz",
     ),
@@ -92,13 +99,9 @@ COMMON_METRICS: Dict[str, MetricSpec] = {
     "num_violating_paths": MetricSpec("Number of paths that fail setup timing.", "integer"),
     "hold_num_violating_paths": MetricSpec("Number of paths that fail hold timing.", "integer"),
     "minimum_period": MetricSpec("Minimum achievable clock period.", "number", "ns"),
-    "maximum_frequency": MetricSpec("Maximum achievable clock frequency.", "number", "MHz"),
-    "f_max": MetricSpec("Maximum achievable clock frequency.", "number", "MHz"),
     # FPGA resources
     "lut": MetricSpec("Number of LUTs used.", "integer"),
-    "LUT": MetricSpec("Number of LUTs used.", "integer"),
     "ff": MetricSpec("Number of flip-flops (registers) used.", "integer"),
-    "FF": MetricSpec("Number of flip-flops (registers) used.", "integer"),
     "slice": MetricSpec("Number of slices / logic elements occupied.", "integer"),
     "dsp": MetricSpec("Number of DSP blocks used.", "integer"),
     "bram": MetricSpec("Number of block RAM primitives used.", "integer"),
@@ -177,9 +180,7 @@ COMMON_METRICS: Dict[str, MetricSpec] = {
     "cocotb.failures": MetricSpec("Number of cocotb tests that failed.", "integer"),
     "cocotb.skipped": MetricSpec("Number of cocotb tests that were skipped.", "integer"),
     "cocotb.time": MetricSpec("Wall-clock duration of the cocotb regression.", "number", "s"),
-    "cocotb.sim_time_ns": MetricSpec(
-        "Total simulated time of the cocotb regression.", "number", "ns"
-    ),
+    "cocotb.sim_time": MetricSpec("Total simulated time of the cocotb regression.", "number", "ns"),
 }
 
 
@@ -190,7 +191,7 @@ COCOTB_METRICS = (
     "cocotb.failures",
     "cocotb.skipped",
     "cocotb.time",
-    "cocotb.sim_time_ns",
+    "cocotb.sim_time",
 )
 
 

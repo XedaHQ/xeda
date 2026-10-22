@@ -107,8 +107,8 @@ XILINX_RESOURCES: dict[str, tuple[str, ...]] = {
     "io": ("PAD",),
 }
 
-#: How each family's canonical `lut` is counted (`LUT:METHOD`). The stage (`LUT:STAGE`) is always
-#: this flow's.
+#: How each family's canonical `lut` is counted (`lut_basis.method`). The stage
+#: (`lut_basis.stage`) is always this flow's.
 LUT_STAGE = "placed and routed"
 LUT_METHODS = {
     "ecp5": "TRELLIS_COMB bels in nextpnr's utilization report",
@@ -292,10 +292,10 @@ class Nextpnr(FpgaSynthFlow):
     `Xdc` sources, or the pin constraints of a board). The chip database is generated once for
     each run root, unless `chipdb` names one. Canonical resource names (`lut`, `ff`, ...) are
     mapped for ECP5 and 7-series. Other families report raw bel-type counts. `lut` is counted at
-    this stage by the method that `LUT:METHOD` names. For 7-series it is the number of occupied
-    physical LUTs, read from the placement dump. It is not certified comparable with the count of
-    another toolchain. `Fmax` is the timing of nextpnr itself: compare it only with other nextpnr
-    runs. A family without a tested mapping of device, constraints and output is refused before
+    this stage by the method that `lut_basis.method` names. For 7-series it is the number of
+    occupied physical LUTs, read from the placement dump. It is not certified comparable with the
+    count of another toolchain. `fmax` is the timing of nextpnr itself: compare it only with other
+    nextpnr runs. A family without a tested mapping of device, constraints and output is refused before
     any producer runs.
     """
 
@@ -321,7 +321,7 @@ class Nextpnr(FpgaSynthFlow):
     )
 
     results_description = describe_results(
-        "Fmax",
+        "fmax",
         "wns",
         "clock_frequency",
         "clock_period",
@@ -334,8 +334,10 @@ class Nextpnr(FpgaSynthFlow):
         "dsp",
         "io",
         **{
-            "LUT:STAGE": MetricSpec("The stage that the canonical `lut` count describes.", "text"),
-            "LUT:METHOD": MetricSpec(
+            "lut_basis.stage": MetricSpec(
+                "The stage that the canonical `lut` count describes.", "text"
+            ),
+            "lut_basis.method": MetricSpec(
                 "The method that gave the canonical `lut` count at that stage.", "text"
             ),
             "clock_port": MetricSpec(
@@ -1304,7 +1306,7 @@ class Nextpnr(FpgaSynthFlow):
             return ok
         target = self.results.get("clock_frequency")
         self.reject(
-            f"timing not met: Fmax {self.results.get('Fmax')} MHz"
+            f"timing not met: Fmax {self.results.get('fmax')} MHz"
             + (f" is below the target {target} MHz" if target is not None else "")
             + f" (worst slack {self.results.get('wns')} ns)"
         )
@@ -1345,7 +1347,7 @@ class Nextpnr(FpgaSynthFlow):
         # Fmax is the lowest achieved frequency: the frequency at which every domain is still
         # satisfied. `wns` comes from the domain with the least slack, which in a multi-domain
         # design can be another domain.
-        self.results["Fmax"] = round(min(v["achieved_mhz"] for v in constrained), 3)
+        self.results["fmax"] = round(min(v["achieved_mhz"] for v in constrained), 3)
         wns = min(raw_slacks.values())
         self.results["wns"] = round(wns, _SLACK_DECIMALS)
         self.results["timing_met"] = wns >= 0
@@ -1364,7 +1366,7 @@ class Nextpnr(FpgaSynthFlow):
                 "Timing not met: worst slack is %s ns (target %s MHz, achieved %s MHz)",
                 wns,
                 self.results.get("clock_frequency"),
-                self.results.get("Fmax"),
+                self.results.get("fmax"),
             )
         return bool(wns >= 0)
 
@@ -1415,8 +1417,8 @@ class Nextpnr(FpgaSynthFlow):
             log.warning("No `lut` result: placement dump %s cannot be counted: %s", path, e)
             return
         self.results["lut"] = locations
-        self.results["LUT:STAGE"] = LUT_STAGE
-        self.results["LUT:METHOD"] = LUT_METHODS["xilinx"]
+        self.results["lut_basis.stage"] = LUT_STAGE
+        self.results["lut_basis.method"] = LUT_METHODS["xilinx"]
 
     def _parse_utilization(self, utilization: Dict[str, Any]) -> None:
         """Record the usage of each bel type, and canonical resource names for a known family."""
@@ -1453,8 +1455,8 @@ class Nextpnr(FpgaSynthFlow):
             if "SLICE_LUTX" in detail:
                 self._count_xilinx_luts(detail["SLICE_LUTX"]["used"])
         elif "lut" in self.results:
-            self.results["LUT:STAGE"] = LUT_STAGE
-            self.results["LUT:METHOD"] = LUT_METHODS[family]
+            self.results["lut_basis.stage"] = LUT_STAGE
+            self.results["lut_basis.method"] = LUT_METHODS[family]
 
     def _parse_critical_paths(self, critical_paths: List[Dict[str, Any]]) -> None:
         """Summarize each reported critical path.
