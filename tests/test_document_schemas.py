@@ -21,7 +21,7 @@ from xeda import Design
 from xeda.digest import content_digest
 from xeda.design import SourceType
 from xeda.errors import RecordError
-from xeda.flow import Flow, MetricSpec, Out
+from xeda.flow import Flow, MetricSpec, Out, registered_flows
 from xeda.flow.sim import SimFlow, judge_evidence
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.trace import previous_trace
@@ -142,6 +142,13 @@ class _Simulator(SimFlow):
 
     def check_results(self) -> bool:
         return judge_evidence(self, None, "error")
+
+
+# Test-only flows, launched by class: out of the registry at once, so that no sweep over every
+# registered flow collected after this module finds them.
+for _cls in (_Counts, _Lists, _Simulator):
+    for _name in (_cls.name, _cls.__name__):
+        registered_flows.pop(_name, None)
 
 
 @pytest.fixture(autouse=True)
