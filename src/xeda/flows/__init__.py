@@ -4,7 +4,7 @@ from __future__ import annotations
 import pkgutil
 from importlib import import_module
 from inspect import isabstract, isclass
-from typing import List, Type
+from typing import Dict, List, Type
 
 from ..flow import Flow
 from .bsc import Bsc, BscSim
@@ -65,9 +65,34 @@ __all__ = [
     "__builtin_flows__",
 ]
 
-for loader, module_name, is_pkg in pkgutil.walk_packages(__path__):
-    module = import_module("." + module_name, __package__)
-    for attribute_name in dir(module):
-        cls = getattr(module, attribute_name)
-        if isclass(cls) and issubclass(cls, Flow) and not isabstract(cls):
-            __builtin_flows__.append(cls)
+
+def _discover_builtin_flows() -> List[Type[Flow]]:
+    """Every concrete flow class that a module of this package defines, sorted by flow name.
+
+    A class counts once, at the module that defines it, and only if that module is part of this
+    package. A class that a module only imports (`Flow` itself, or a flow of another module)
+    does not add a second entry. Two different classes with one flow name are an error.
+
+    The walk starts with the full package name as `prefix`. Without it, `walk_packages` imports
+    each subpackage under its bare name, which fails, and it then skips the subpackage silently.
+    A module that cannot be imported raises here, since `import_module` runs on every module.
+    """
+    found: Dict[str, Type[Flow]] = {}
+    for module_info in pkgutil.walk_packages(__path__, prefix=__name__ + "."):
+        module = import_module(module_info.name)
+        for value in vars(module).values():
+            if not (isclass(value) and issubclass(value, Flow) and not isabstract(value)):
+                continue
+            if value.__module__ != __name__ and not value.__module__.startswith(__name__ + "."):
+                continue
+            other = found.setdefault(value.name, value)
+            if other is not value:
+                raise ImportError(
+                    f"two built-in flows have the name {value.name!r}: "
+                    f"{other.__module__}.{other.__qualname__} and "
+                    f"{value.__module__}.{value.__qualname__}"
+                )
+    return [found[name] for name in sorted(found)]
+
+
+__builtin_flows__.extend(_discover_builtin_flows())
