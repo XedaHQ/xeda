@@ -1078,6 +1078,9 @@ def node_results(document: Mapping[str, Any], flow: str) -> dict[str, Any]:
                 loaded = json.loads((Path(node["run_path"]) / "results.json").read_text())
             except (OSError, ValueError):
                 return {}
+            # Only a record of schema 1 is read; a file that an older Xeda wrote gives nothing.
+            if not isinstance(loaded, dict) or loaded.get("schema_version") != 1:
+                return {}
             metrics = loaded.get("metrics") or {}
             found = {key: metrics[key] for key in ("area", "cells") if key in metrics}
             if "runtime" in loaded:

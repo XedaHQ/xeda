@@ -997,7 +997,7 @@ def test_the_results_of_a_node_are_read_from_its_run_directory(tmp_path: Path) -
     run = tmp_path / "xeda_run" / "d" / "yosys"
     write(
         run / "results.json",
-        json.dumps({"metrics": {"area": 506.9, "cells": 357}, "runtime": 1.5}),
+        json.dumps({"schema_version": 1, "metrics": {"area": 506.9, "cells": 357}, "runtime": 1.5}),
     )
     document = {
         "nodes": [
@@ -1009,6 +1009,8 @@ def test_the_results_of_a_node_are_read_from_its_run_directory(tmp_path: Path) -
     assert tool.node_results(document, "openroad") == {}, "no results file"
     assert tool.node_results(document, "openroad_cts") == {}, "no such node"
     assert tool.node_results({}, "yosys") == {}
+    write(run / "results.json", json.dumps({"area": 506.9, "cells": 357, "runtime": 1.5}))
+    assert tool.node_results(document, "yosys") == {}, "a file that an older Xeda wrote"
 
 
 def test_the_times_of_a_half_split_at_the_synthesis() -> None:
