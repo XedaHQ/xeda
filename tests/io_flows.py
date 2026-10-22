@@ -36,7 +36,9 @@ class _Maker(Flow):
 class _Taker(Flow):
     """Reads its declared input `made`: by default `_Maker`'s output."""
 
-    results_description: ClassVar[dict[str, MetricSpec]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {
+        "read": MetricSpec("The text it read.", "text")
+    }
 
     class Inputs(Flow.Inputs):
         made: Path = In(
@@ -89,8 +91,6 @@ class _ReadsInstalled(_Maker):
 class _InstalledTaker(_Taker):
     """Reads the output of `_ReadsInstalled`."""
 
-    results_description = {}
-
     class Inputs(_Taker.Inputs):
         made: Path = In(
             SourceType.Data,
@@ -129,8 +129,6 @@ class _PartialMaker(_Maker):
 class _InputTaker(_Taker):
     """Reads the settings-file producer's declared output."""
 
-    results_description = {}
-
     class Inputs(_Taker.Inputs):
         made: Path = In(
             SourceType.Data, producer="__input_maker", output="made", description="What it reads."
@@ -140,7 +138,9 @@ class _InputTaker(_Taker):
 class _Reader(Flow):
     """Reads a `Data` file the design must list: an input with no default producer."""
 
-    results_description: ClassVar[dict[str, MetricSpec]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {
+        "read": MetricSpec("The text it read.", "text")
+    }
 
     class Inputs(Flow.Inputs):
         data: Path = In(SourceType.Data, description="The data file it reads.")
@@ -377,7 +377,10 @@ class _Right(_Branch):
 class _Join(Flow):
     """Reads both branches, which both read `_Fork`: a diamond."""
 
-    results_description: ClassVar[dict[str, MetricSpec]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {
+        "read": MetricSpec("The text it read.", "text"),
+        "more": MetricSpec("More text it read.", "text_list"),
+    }
 
     class Inputs(Flow.Inputs):
         left: Path = In(SourceType.Data, producer="__left", output="out", description="Left.")

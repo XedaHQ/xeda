@@ -736,7 +736,7 @@ def test_a_load_that_reports_an_id_error_fails_although_the_loader_exits_with_0(
     flow = program(tmp_path, {"board": "basys_3"})
     assert not flow.succeeded
     results = recorded(tmp_path)
-    assert results["success"] is False
+    assert results["outcome"] == "failed"
     error = results["error"]
     assert error["code"] == "reported_failure"  # the tool exited 0 and its report says otherwise
     assert "exited with status 0" in error["message"]
@@ -762,7 +762,7 @@ def test_a_load_that_ends_with_done_high_passes(tmp_path, fake_loader, monkeypat
     ]
     assert not call["stdout_is_terminal"]
     results = recorded(tmp_path)
-    assert results["success"] is True and "error" not in results
+    assert results["outcome"] == "passed" and results["error"] is None
 
 
 def test_a_failure_the_loader_prints_on_stderr_is_in_the_log_and_decides(
@@ -804,7 +804,7 @@ def test_a_nonzero_exit_status_fails_the_run_and_keeps_its_own_error(
     else:
         assert not flow.succeeded
     results = recorded(tmp_path)
-    assert results["success"] is False and results["error"]["code"] == "nonzero_exit"
+    assert results["outcome"] == "failed" and results["error"]["code"] == "nonzero_exit"
 
 
 def test_the_log_of_an_earlier_failure_does_not_decide_the_next_run(
@@ -815,7 +815,7 @@ def test_the_log_of_an_earlier_failure_does_not_decide_the_next_run(
     printing(monkeypatch, stdout=owner_log("arty-configured.txt"))
     assert program(tmp_path).succeeded
     results = recorded(tmp_path)
-    assert results["success"] is True and "error" not in results
+    assert results["outcome"] == "passed" and results["error"] is None
     printing(monkeypatch, stdout=owner_log("basys3-id-error.txt"))
     assert not program(tmp_path).succeeded  # and a failure again after a success
 
@@ -979,7 +979,7 @@ def test_a_xilinx_flash_write_the_loader_reports_finished_passes(
     assert call["argv"][2:5] == ["--board", "basys3", "--write-flash"]
     assert not call["stdout_is_terminal"]  # the loader wrote its bars to a pipe
     results = recorded(tmp_path)
-    assert results["success"] is True and "error" not in results
+    assert results["outcome"] == "passed" and results["error"] is None
 
 
 @pytest.mark.parametrize("verify", [False, True])

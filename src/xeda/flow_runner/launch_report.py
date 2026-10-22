@@ -27,6 +27,7 @@ from ..errors import RecordError
 from ..flow import Flow
 from ..records import RunRecord, encode_record, read_record, record_of
 from ..utils import LOCATION_FORMS, dump_json, json_encodable, with_json_keys
+from .launch_run import timestamp_text
 from .outputs import recorded_outputs
 from .trace import Freshness
 
@@ -228,7 +229,8 @@ def adoptable_document(
 
 def results_of(record: RunRecord) -> dict[str, Any]:
     """Return what `record` puts in `Flow.results`: its metrics, flat by their dotted paths, and
-    the verdict, the error, the runtime, the artifacts and the declared outputs of the run."""
+    the verdict, the error, the runtime, the artifacts (as absolute paths in the run directory) and
+    the declared outputs of the run."""
     from ..frozen import thaw
 
     results: dict[str, Any] = {path: thaw(record.metric(path)) for path in record.metric_info}
@@ -236,7 +238,9 @@ def results_of(record: RunRecord) -> dict[str, Any]:
     results["runtime"] = record.runtime
     if record.error is not None:
         results["error"] = record.error.as_json_value()
-    results["artifacts"] = dict(record.artifacts)
+    results["artifacts"] = {
+        key: str(record.run_dir / name) for key, name in record.artifacts.items()
+    }
     outputs = recorded_outputs(record)
     if outputs:
         results["outputs"] = outputs
@@ -262,8 +266,9 @@ def reuse_results(flow: Flow, run_root: Path, freshness: Freshness) -> bool:
     if not adoptable_document(record, freshness.verdict, freshness.error, freshness.run_id):
         return False
     flow.record = record
+    flow.timestamp = timestamp_text(record.started)
     flow.results.update(**results_of(record))
-    flow.artifacts = Box(dict(record.artifacts))
+    flow.artifacts = Box(flow.results["artifacts"])
     flow.reused = True
     if freshness.verdict == "rejected":
         assert freshness.error is not None

@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from collections.abc import Iterable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +75,11 @@ def free_working_locations(flow: Flow) -> None:
         return leaf
 
     map_written_leaves(flow.settings, free)
+
+
+def timestamp_text(moment: datetime) -> str:
+    """Return `moment` as the local time text of `Flow.timestamp` (`YYYY-MM-DD-HHMMSS`)."""
+    return moment.astimezone().strftime("%Y-%m-%d-%H%M%S")
 
 
 def record_identity(flow: Flow, run_path: Path) -> None:

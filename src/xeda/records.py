@@ -818,8 +818,9 @@ def _artifacts_of(flow: Flow) -> dict[str, str]:
     from .artifacts import iter_artifact_paths
 
     artifacts: dict[str, str] = {}
-    held = flow.results.get("artifacts") or flow.artifacts
-    for key, value in held.items():
+    # The launcher copies `Flow.artifacts` into the results and drops what a failed run did not
+    # write, so the results are the list to record.
+    for key, value in (flow.results.get("artifacts") or {}).items():
         leaves = list(iter_artifact_paths(value))
         grouped = isinstance(value, (list, tuple, Mapping)) or len(leaves) > 1
         for index, leaf in enumerate(leaves):
@@ -865,10 +866,7 @@ def _outputs_of(flow: Flow) -> dict[str, OutputRecord]:
                     }
                 )
         else:
-            try:
-                types = selected_types(type(flow), flow.settings, name, output=True)
-            except ValueError:
-                types = ()
+            types = selected_types(type(flow), flow.settings, name, output=True)
             kind = (types or declaration.types)[0].name
             for entry in (
                 [] if recorded is None else (recorded if isinstance(recorded, list) else [recorded])

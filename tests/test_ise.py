@@ -67,7 +67,9 @@ def test_ise_synth_py(monkeypatch) -> None:
         assert flow.artifacts == expected
         assert all(path.is_file() for path in expected.values())
         recorded_artifacts = json.loads(results_json.read_text())["artifacts"]
-        assert recorded_artifacts == {k: str(v) for k, v in expected.items()}
+        assert recorded_artifacts == {
+            k: v.relative_to(flow.run_path).as_posix() for k, v in expected.items()
+        }
 
 
 ISE_SETTINGS = dict(fpga=FPGA("xc7a12tcsg325-1"), clock={"period": "5.5 ns"})

@@ -1303,13 +1303,13 @@ class FlowLauncher:
                 flow.design_hash = design_hash
                 flow.flow_hash = flowrun_hash
                 flow.settings_hash = settings_hash
-                flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+                flow.started = datetime.now(timezone.utc)
+                flow.timestamp = launch_run.timestamp_text(flow.started)
                 # The run time of the flow includes init() and the execution of its producers.
                 flow.init_time = time.monotonic()
                 # One id for this execution, whether it ends well or not: the record, the trace and
                 # the consumers of the run name it.
                 flow.run_id = uuid.uuid4().hex
-                flow.started = datetime.now(timezone.utc)
                 try:
                     if design_failure is not None:
                         raise design_failure

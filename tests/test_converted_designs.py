@@ -522,7 +522,11 @@ def test_the_converter_runs_before_the_flow_is_built_and_the_flow_reads_what_it_
     # (`mkTop.v`) before any of it.
     after = events[verified + 1 :]
     assert after[:4] == [("check", derived_names), "design hash", "construct", "init"]
-    assert after[-1] == ("reader runs", derived_names)
+    # the record of the run asks for the design scope again, after the run
+    assert ("reader runs", derived_names) in after[4:]
+    assert [event for event in after[4:] if event != "design hash"] == [
+        ("reader runs", derived_names)
+    ]
     assert "construct" not in events[:verified] and "init" not in events[:verified]
     assert ("check", ["mkTop.v", "ext.v"]) in events[:ran]
 
@@ -656,8 +660,11 @@ def test_a_fresh_converter_whose_record_does_not_verify_leaves_the_reader_unknow
     converter_run = the_runner.run_path_of(design.name, converter.name)
     results_path = converter_run / "results.json"
     document = json.loads(results_path.read_text())
-    (generated,) = [s for s in document["outputs"]["design"]["sources"] if "generated" in s]
-    generated["sha"] = "0" * 32
+    (name,) = document["outputs"]["design"]["names"]
+    generated = {"generated": str(converter_run / name)}
+    (digest,) = document["outputs"]["design"]["digests"]
+    document["outputs"]["design"]["digests"] = ["0" * 32]
+    assert digest != "0" * 32
     results_path.write_text(json.dumps(document))
     real = plan_freshness.check_trace
 
@@ -692,7 +699,7 @@ def test_a_generated_file_that_changed_before_the_hand_over_fails_the_flow(
         launch(tmp_path, classes)
     assert "construct" in events and "init" not in events
     results = results_of(tmp_path, classes[1].name)
-    assert results["success"] is False
+    assert results["outcome"] == "failed"
     assert results["error"]["code"] == "producer_failed"
 
 
@@ -717,8 +724,8 @@ def test_a_converter_that_fails_fails_the_flow_with_the_reason_it_was_needed(
     assert [f.name for f in the_runner.launched] == [converter.name, reader.name]
     assert the_runner.launched[-1].blocked_by == converter.name
     results = results_of(tmp_path, reader.name)
-    assert results["success"] is False and results["error"]["code"] == "producer_failed"
-    assert results["design_hash"] == ""
+    assert results["outcome"] == "failed" and results["error"]["code"] == "producer_failed"
+    assert results["identity"]
     assert classes  # both registered for the test only
 
 
@@ -743,7 +750,7 @@ def test_a_failing_converter_leaves_a_real_flow_built_on_the_planned_design_unto
     planned = [s.file for s in consumer.design.rtl.sources]
     assert [f.name for f in planned] == ["mkTop.v"] and not planned[0].exists()
     results = results_of(tmp_path, "yosys")
-    assert results["success"] is False and results["design_hash"] == ""
+    assert results["outcome"] == "failed"
     assert "mkTop.v" not in {f.name for f in consumer.run_path.iterdir()}
 
 

@@ -477,7 +477,9 @@ def _failed_run_artifacts(tmp_path: Path, run_dir: Path, artifact: str, rewrite=
         for name in (DeclaresAnOutput.name, DeclaresAnOutput.__name__):
             registered_flows.pop(name, None)
     assert not flow.succeeded
-    return json.loads((run_dir / "results.json").read_text()).get("artifacts", {})
+    # what the failed run reports, whatever the record can name: a name outside the run directory
+    # (through a link) is in the results of the run, and in no record
+    return json.loads(json.dumps(flow.results.get("artifacts", {}), default=str))
 
 
 #: Ways to name an earlier output other than as the run-directory walk spells it: the name the

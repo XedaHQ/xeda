@@ -486,6 +486,28 @@ def translate_paths(document: Any, translate: Callable[[str], Optional[str]]) ->
     return document
 
 
+def _only_fetched_artifacts(document: Any, mirror_dir: Path) -> Any:
+    """Return the record `document` of a run that did not pass, with the artifacts that came back.
+
+    The record of a run lists the files it wrote. A remote that lists a file it never wrote
+    (`select_fetch` takes only the files that the remote vouches for) must not make the mirror
+    record name a file that the mirror lacks. A record of a run that passed is returned as it is:
+    every file it names came back, or the fetch failed."""
+    if not isinstance(document, Mapping) or document.get("outcome") == "passed":
+        return document
+    artifacts = document.get("artifacts")
+    if not isinstance(artifacts, Mapping):
+        return document
+    return {
+        **document,
+        "artifacts": {
+            key: name
+            for key, name in artifacts.items()
+            if isinstance(name, str) and _is_regular_inside(str(mirror_dir), name)
+        },
+    }
+
+
 def rewrite_records(
     mirror_dir: Path,
     run_root: Path,
@@ -506,6 +528,8 @@ def rewrite_records(
             document = json.loads(record.read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
             raise RemoteFetchError(f"cannot read the fetched {record}: {error}") from None
+        if name == "results.json":
+            document = _only_fetched_artifacts(document, mirror_dir)
         try:
             target = run_directory.writable(name)
         except RunDirectoryError as error:

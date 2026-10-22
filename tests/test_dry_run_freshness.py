@@ -838,11 +838,13 @@ def _forge_record(graph: Graph, node: str, edit: Callable[[dict], None]) -> None
 
 
 def _as_a_list(outputs: dict) -> None:
-    outputs["produced"] = [outputs["produced"]]
+    """The record says the output is a list of files, and the flow declares one file."""
+    outputs["produced"]["cardinality"] = "many"
 
 
 def _as_a_table(outputs: dict) -> None:
-    outputs["produced"] = outputs["produced"][0]
+    """The record says the output is one file, and the flow declares a list."""
+    outputs["produced"]["cardinality"] = "one"
 
 
 @pytest.mark.parametrize("always", [False, True], ids=["reusable", "always runs"])
