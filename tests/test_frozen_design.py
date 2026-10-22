@@ -133,14 +133,14 @@ def test_a_clock_is_a_table_with_a_port_and_a_name(design):
 
 
 def test_the_models_are_built_from_the_tables(design):
-    generator = generator_of(design.rtl)
+    generator = generator_of(design.rtl, root=design.root_path)
     assert generator is not None and generator.command == "python gen.py"
     assert generator.args == ["a"] and generator.always_runs
     cocotb = cocotb_of(design.tb)
     assert cocotb is not None and cocotb.module == "tb"
     assert language_of(design).vhdl.standard == "08"
     assert cocotb_of(design_module.Testbench()) is None
-    assert generator_of(Rtl(sources=())) is None
+    assert generator_of(Rtl(sources=()), root=design.root_path) is None
 
 
 @pytest.mark.parametrize(

@@ -1353,24 +1353,42 @@ class Generator(XedaBaseModel):
     @field_validator("sources", mode="before")
     @classmethod
     def _sources_to_files(cls, value):
-        """Expand source patterns and normalize the resulting paths."""
+        """Expand source patterns and normalize the resulting paths.
+
+        A relative source lies below the root of the design that is being loaded
+        (`loading_in_design_root`; `generator_of` gives the root of its design). Without a root,
+        only an absolute source is valid: no source resolves against the working directory."""
+        root = _loading_root.get()
+
+        def below_root(path: Path) -> Path:
+            if path.is_absolute():
+                return path
+            if root is None:
+                raise ValueError(
+                    f"the generator source {str(path)!r} is relative, and no design root says "
+                    "where it lies"
+                )
+            return root / path
+
         if isinstance(value, str):
             value = [value]
-        root = design_relative_root()
         sources: List[Path] = []
         for src in unique(value):
             if isinstance(src, str):
+                if root is None and not os.path.isabs(src):
+                    below_root(Path(src))  # raises: a relative source needs a root
+                base = root if root is not None else Path(os.sep)
                 if _is_source_pattern(src):
                     sources.extend(
-                        (root / m).resolve()
-                        for m in _expand_source_glob(src, root, "generator source")
+                        below_root(Path(m)).resolve()
+                        for m in _expand_source_glob(src, base, "generator source")
                     )
                 else:
-                    sources.append((root / _expand_design_path(src, root)).resolve())
+                    sources.append(below_root(_expand_design_path(src, base)).resolve())
             elif isinstance(src, Path):
                 # Resolve it like the string spelling, so a relative path does not keep
                 # depending on the working directory it was given in.
-                sources.append((root / src).resolve())
+                sources.append(below_root(src).resolve())
             else:
                 raise ValueError(f"Invalid source type: {type(src)} for source '{src}'")
         # Remove duplicates and keep the order.
@@ -1553,34 +1571,35 @@ class ChiselGenerator(Generator):
         return self.run_cmd(self.execution_command())
 
 
-def generator_model(recipe: Any) -> Generator | None:
+def generator_model(recipe: Any, root: Optional[Path] = None) -> Generator | None:
     """Return the generator that a table recipe stands for, or `None` for another form.
 
     The table names its class with `class` (`chisel`); without one it is a plain `Generator`. A
     mistake in the table raises the `ValidationError` of the model, and an unknown class raises a
     `ValueError`. A command text and a list of arguments (the other forms of a recipe) have no
-    model."""
+    model. The relative `sources` of the table lie below `root`."""
     if isinstance(recipe, Generator):
         return recipe
     if not isinstance(recipe, Mapping):
         return None
     table = thaw(recipe)
     clazz = table.get("class") or table.get("use")
-    if not clazz:
-        return Generator(**table)
-    if not isinstance(clazz, str):
+    if clazz and not isinstance(clazz, str):
         raise ValueError(f"class={clazz} must be a string")
-    if clazz.lower() == "chisel":
-        return ChiselGenerator(**table)
-    raise ValueError(f"unknown generator class: {clazz}")
+    if clazz and clazz.lower() != "chisel":
+        raise ValueError(f"unknown generator class: {clazz}")
+    model = ChiselGenerator if clazz else Generator
+    with nullcontext() if root is None else loading_in_design_root(root):
+        return model(**table)
 
 
-def _generator_recipe(value: Any) -> Any:
+def _generator_recipe(value: Any, root: Optional[Path] = None) -> Any:
     """Return the recipe of `rtl.generator` as the design states it, frozen.
 
     It is a command text, a list of arguments, or a table. A `Generator` is read as the table
-    that makes it again. A table is checked here (`generator_model`), so a mistake in it fails
-    when the design loads, though the table is what the design keeps."""
+    that makes it again. A table is checked here (`generator_model`, with its sources below
+    `root`), so a mistake in it fails when the design loads, though the table is what the design
+    keeps."""
     if isinstance(value, Generator):
         table = value.model_dump(by_alias=True, exclude_none=True)
         if isinstance(value, ChiselGenerator):
@@ -1594,7 +1613,7 @@ def _generator_recipe(value: Any) -> Any:
         return tuple(value)
     if isinstance(value, Mapping):
         recipe = freeze(value)
-        generator_model(recipe)
+        generator_model(recipe, root)
         return recipe
     raise ValueError(
         f"a generator is a command text, a list of arguments or a table, not {value!r:.80}"
@@ -1943,13 +1962,13 @@ class Testbench(DesignPart):
         return value
 
 
-def generator_of(rtl: Rtl) -> Generator | None:
+def generator_of(rtl: Rtl, *, root: Path) -> Generator | None:
     """Return the generator that the recipe `rtl.generator` stands for, validated.
 
     A recipe that is a table gives a new `Generator`. A command text and a list of arguments give
-    `None`: they have no model. The `sources` of the model are paths that resolve against the
-    working directory at this call (the design root while the design loads)."""
-    return generator_model(rtl.generator)
+    `None`: they have no model. The relative `sources` of the model lie below `root`, the root of
+    the design that holds `rtl`."""
+    return generator_model(rtl.generator, root)
 
 
 def language_of(design: Design) -> Language:
@@ -3112,7 +3131,7 @@ class Design(XedaBaseModel):
                 elif isinstance(generator, (Mapping, Generator)):
                     # A new model: the run adds the working directory and the environment to
                     # it, and the recipe in `rtl` stays as the design declared it.
-                    generator_for_run = generator_model(generator)
+                    generator_for_run = generator_model(generator, design_root)
                     assert generator_for_run is not None
                     generator = generator_for_run
 
