@@ -817,11 +817,13 @@ def artifact_problem(run_path: Path, key: object, value: Any) -> str | None:
     """Return why a flow cannot register `value` as the artifact `key`, or None if it can.
 
     An artifact is one file, under a key of `ARTIFACT_KEY`. A list, a table, a key off the grammar
-    and a directory are not one. A path outside the run directory `run_path` or a file that is not
+    and a directory are not one. An empty value (`None`, `""`, `[]`) is no artifact. A path outside the run directory `run_path` or a file that is not
     there is no problem here: the record leaves it out."""
     from .artifacts import iter_artifact_paths
     from .flow.metrics import ARTIFACT_KEY
 
+    if not value:  # `None`, `""`, `[]`: no artifact, in every mapping that holds it
+        return None
     if not ARTIFACT_KEY.fullmatch(str(key)):
         return "the key is not lower snake case"
     leaves = list(iter_artifact_paths(value))
@@ -1070,9 +1072,14 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
                 log=None,
             )
     artifacts = _artifacts_of(flow)
-    if error is not None and error.log not in artifacts:
-        # The log to read is the one of the tool that failed, else the one of the main tool.
-        error = replace(error, log="log" if "log" in artifacts else None)
+    if error is not None:
+        # The log to read is the one of the child run that failed, if the flow knows one, else the
+        # one of the tool that failed, else the one of the main tool.
+        named = flow.failure_log_key()
+        if named in artifacts:
+            error = replace(error, log=named)
+        elif error.log not in artifacts:
+            error = replace(error, log="log" if "log" in artifacts else None)
     runtime = results.get("runtime")
     if runtime is None:
         runtime = 0.0 if flow.init_time is None else time.monotonic() - flow.init_time

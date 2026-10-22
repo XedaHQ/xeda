@@ -103,7 +103,11 @@ def drop_bad_artifacts(flow: Flow) -> list[str]:
     A flow registers an artifact as one file under a key of the grammar (`artifact_problem`). One
     that registers a list, a table, a directory or a bad key has a bug. The flow loses that
     artifact, so that the record of its run can be written."""
-    held = {**flow.artifacts, **{k: v for k, v in flow.results.artifacts.items() if v}}
+    # An empty value (`None`, `""`, `[]`) is no artifact in either mapping, as in the copy below.
+    held = {
+        **{k: v for k, v in flow.artifacts.items() if v},
+        **{k: v for k, v in flow.results.artifacts.items() if v},
+    }
     found = []
     for key, value in held.items():
         problem = artifact_problem(flow.run_path, key, value)
@@ -181,29 +185,34 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
     for bad in invalid:
         log.error("%s", bad)
         flow.results.pop(bad.path, None)
-    if invalid and flow.outcome != "failed":
+    # An error that the run has already (a failed tool, a rejection) stays the cause.
+    if invalid:
+        earlier = flow.outcome == "failed" or bool(flow.results.get("error"))
         flow.outcome = "failed"
-        flow.results["error"] = ErrorInfo(
-            code=INVALID_METRIC,
-            message="; ".join(str(bad) for bad in invalid),
-            node=flow.name,
-            exit_status=None,
-            log=None,
-        ).as_json_value()
-    # A bad artifact is a bug of the flow. The node fails (unless it failed already, and that
-    # error stays the cause), and the record is written without the artifact.
-    bad = drop_bad_artifacts(flow)
-    for line in bad:
+        if not earlier:
+            flow.results["error"] = ErrorInfo(
+                code=INVALID_METRIC,
+                message="; ".join(str(bad) for bad in invalid),
+                node=flow.name,
+                exit_status=None,
+                log=None,
+            ).as_json_value()
+    # A bad artifact is a bug of the flow. The node fails, and the record is written without
+    # the artifact. An earlier error stays the cause, a rejection included.
+    bad_artifacts = drop_bad_artifacts(flow)
+    for line in bad_artifacts:
         log.error("%s", line)
-    if bad and flow.outcome != "failed":
+    if bad_artifacts:
+        earlier = flow.outcome == "failed" or bool(flow.results.get("error"))
         flow.outcome = "failed"
-        flow.results["error"] = ErrorInfo(
-            code=INTERNAL_ERROR,
-            message="; ".join(bad),
-            node=flow.name,
-            exit_status=None,
-            log=None,
-        ).as_json_value()
+        if not earlier:
+            flow.results["error"] = ErrorInfo(
+                code=INTERNAL_ERROR,
+                message="; ".join(bad_artifacts),
+                node=flow.name,
+                exit_status=None,
+                log=None,
+            ).as_json_value()
     success = flow.outcome == "passed"
     if not success and not input_settings.is_quiet:
         log.debug("Failure was reported in the parsed results.")

@@ -420,15 +420,19 @@ proc __vivado_run {run to_step} {
     set status "$to_step Complete!"
     set completed 0
     set here [pwd]
+    # the log of the run, where Vivado puts it; the error of a failed step is there
+    set runlog "fake Vivado run $run\n"
     cd $dir
     foreach step $steps {
         if {![__vivado_step $run $step]} {
             set status "$step ERROR"
+            append runlog "ERROR: \[fake 1-1\] the step $step of the run $run failed\n"
             break
         }
         incr completed
     }
     cd $here
+    __vivado_text [file join $dir runme.log] $runlog
     set ::__vivado_property($run,STATUS) $status
     set progress [expr {100.0 * $completed / [llength $steps]}]
     if {$progress == int($progress)} {

@@ -285,7 +285,10 @@ Artifact keys
   device family, and for ``dc`` it is the program that ``dc_shell_name`` names.
 - ``<name>_log`` is the log of another program that the flow starts, such as ``klayout_log`` for
   ``openroad`` or ``g_log`` for the compiler ``g++``. The name is the program name in lower snake
-  case.
+  case, with the prefix ``tool_`` when it does not start with a letter (``tool_7z_log``).
+- ``synth_1_log`` and ``impl_1_log`` are the logs of the two runs that ``vivado_synth`` starts in
+  Vivado (``<design>.runs/<run>/runme.log``). The error of a failed run is in its log, so
+  ``error.log`` names it, and not ``log``.
 - ``simulation_log`` is the output of the simulation program that the run built (``bsc_sim``,
   ``verilator``, ``vcs``, ``yosys_sim``).
 - ``waveform`` is a waveform that the simulation wrote.

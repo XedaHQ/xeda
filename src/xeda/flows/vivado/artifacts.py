@@ -1,4 +1,8 @@
-"""The artifacts of the Vivado flows: the logs of the tools and the reports of the steps.
+"""The artifacts of the Vivado flows: the logs of the runs and the reports of the steps.
+
+The project mode flows start two child runs in Vivado, `synth_1` and `impl_1`. Each writes a log
+`<design>.runs/<run>/runme.log`, and the error of a failed run is there. The key of that log is
+`<run>_log`.
 
 A report is a file in `<reports_dir>/<step>/`. Its artifact key is the lower snake case of the step
 and the file name together, extension included: `route_design_timing_summary_rpt`,
@@ -16,10 +20,14 @@ from ...flow import ArtifactSpec
 __all__ = [
     "ALT_SYNTH_REPORTS",
     "PROJECT_REPORTS",
+    "RUNS",
     "SCRIPT_REPORTS",
+    "register_run_logs",
     "report_artifacts",
     "report_key",
     "register_reports",
+    "run_log_artifacts",
+    "run_log_key",
 ]
 
 _ALWAYS = "when the run reaches the step"
@@ -174,3 +182,32 @@ def register_reports(flow, reports_dir: Path, reports: dict[str, tuple[str, ...]
             report = reports_dir / step / name
             if flow.wrote_output(report):
                 flow.artifacts[report_key(step, name)] = report
+
+
+#: The child runs that a project mode flow starts in Vivado, in order.
+RUNS = ("synth_1", "impl_1")
+
+
+def run_log_key(run: str) -> str:
+    """Return the artifact key of the log of the child run `run`."""
+    return f"{re.sub(r'[^a-z0-9]+', '_', run.lower()).strip('_')}_log"
+
+
+def run_log_artifacts() -> dict[str, ArtifactSpec]:
+    """Describe the log of each child run, by artifact key."""
+    return {
+        run_log_key(run): ArtifactSpec(
+            f"Log of the Vivado run `{run}` (`<design>.runs/{run}/runme.log`). The error of a "
+            "failed run is there.",
+            f"when Vivado starts the run `{run}`",
+        )
+        for run in RUNS
+    }
+
+
+def register_run_logs(flow) -> None:
+    """Register as artifacts the logs of the child runs that this run of `flow` wrote."""
+    for run in RUNS:
+        log_file = Path(f"{flow.design.name}.runs") / run / "runme.log"
+        if flow.wrote_output(log_file):
+            flow.artifacts[run_log_key(run)] = log_file

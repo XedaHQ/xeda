@@ -21,7 +21,7 @@ from xeda import Design
 from xeda.digest import content_digest
 from xeda.design import SourceType
 from xeda.errors import RecordError
-from xeda.flow import Flow, MetricSpec, Out, registered_flows
+from xeda.flow import Flow, FlowFatalError, MetricSpec, Out, registered_flows
 from xeda.flow.sim import SimFlow, judge_evidence
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.outputs import handed_entries
@@ -612,6 +612,91 @@ def test_a_flow_with_an_artifact_that_is_not_one_file_under_a_valid_key_fails_wi
     assert record.error.code == "internal_error" and record.error.node == flow.name
     assert f"`{flow.name}` registers the artifact {key!r}" in record.error.message
     assert key not in record.artifacts
+
+
+def _bad_artifact_flow(
+    *, rejects: bool = False, raises: bool = False, reports_fail: bool = False, metric: bool = False
+) -> type[Flow]:
+    """A flow that registers a list of files, a bad artifact, and then ends as the arguments say."""
+
+    class BadArtifact(Flow):
+        """Registers a list of files and ends as told."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {
+            "count": MetricSpec("A count.", "integer")
+        }
+
+        def run(self) -> None:
+            for name in ("a.rpt", "b.rpt"):
+                (self.run_path / name).write_text(name)
+            (self.run_path / "kept.log").write_text("kept")
+            self.artifacts["reports"] = ["a.rpt", "b.rpt"]
+            self.artifacts["kept"] = "kept.log"
+            if metric:
+                self.results["count"] = "not a number"
+            if raises:
+                raise FlowFatalError("the tool broke")
+
+        def parse_reports(self) -> bool:
+            return not reports_fail
+
+        def check_results(self) -> bool:
+            if rejects:
+                self.reject("the results are not good enough")
+            return True
+
+    return BadArtifact
+
+
+@pytest.mark.parametrize(
+    "ending, code, message",
+    [
+        ({"rejects": True}, "rejected", "not good enough"),
+        ({"raises": True}, "reported_failure", "the tool broke"),
+        ({"reports_fail": True}, "reported_failure", "reported failure"),
+        ({"rejects": True, "metric": True}, "rejected", "not good enough"),
+    ],
+    ids=["a rejection", "an exception", "failed reports", "a rejection and a bad metric"],
+)
+def test_a_bad_artifact_fails_the_node_but_an_earlier_error_stays_the_cause(
+    tmp_path, design, ending, code, message
+):
+    runner = _runner(tmp_path)
+    with preserved_flow_registry():
+        flow_class = _bad_artifact_flow(**ending)
+        if ending.get("raises"):  # the launch records the failure, and raises it again
+            with pytest.raises(FlowFatalError):
+                runner.launch_flow(flow_class, design, {})
+        else:
+            assert not runner.launch_flow(flow_class, design, {}).succeeded
+        run_path = runner.get_flow_run_path(design.name, flow_class.name)
+
+    record = read_record(run_path, run_root=tmp_path / "xeda_run")
+    assert record.outcome.value == "failed"
+    assert record.error is not None and record.error.code == code
+    assert message in record.error.message
+    assert "reports" not in record.artifacts and record.artifacts["kept"] == "kept.log"
+
+
+def test_a_bad_artifact_turns_a_passed_run_into_an_internal_error(tmp_path, design):
+    with preserved_flow_registry():
+        flow = _runner(tmp_path).launch_flow(_bad_artifact_flow(), design, {})
+
+    assert not flow.succeeded
+    record = read_record(flow.run_path, run_root=flow.record.run_root)
+    assert record.outcome.value == "failed" and record.error is not None
+    assert record.error.code == "internal_error"
+    assert f"`{flow.name}` registers the artifact 'reports'" in record.error.message
+    assert "several files" in record.error.message
+
+
+def test_a_bad_metric_on_a_passed_run_is_still_the_cause_of_the_failure(tmp_path, design):
+    with preserved_flow_registry():
+        flow = _runner(tmp_path).launch_flow(_bad_artifact_flow(metric=True), design, {})
+
+    record = read_record(flow.run_path, run_root=flow.record.run_root)
+    assert record.outcome.value == "failed" and record.error is not None
+    assert record.error.code == "invalid_metric"
 
 
 def test_a_record_with_an_artifact_key_off_the_grammar_is_malformed(tmp_path, design):

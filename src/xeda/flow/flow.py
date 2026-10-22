@@ -895,6 +895,15 @@ class Flow(metaclass=ABCMeta):
         executables = type(self).executables
         return executables[0] if executables else ""
 
+    def failure_log_key(self) -> str | None:
+        """Return the artifact key of the log to read for a failure of this run, or None.
+
+        The default is None: the log of the program that failed, or else `log`, is the one
+        (`error_codes.failure_log`). A flow whose tool starts child runs, each with a log of its
+        own, names the log of the run that failed: the error is there and not in the log of the
+        tool. A key the run did not register is ignored."""
+        return None
+
     def note_tool_log(self, program: str, key: str | None = None) -> None:
         """Register the log `logs/<program>.log` of a run of `program` as an artifact, if this run
         wrote it.

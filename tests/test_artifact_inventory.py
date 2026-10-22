@@ -40,6 +40,9 @@ from .flow_registry import preserved_flow_registry
 from .test_artifacts import EXAMPLE, FAKE_TOOL_FLOWS, _sqrt_with_a_vhdl_testbench
 from .tool_utils import use_fake_tools
 
+#: The log of a child run that a tool starts (`synth_1_log`): no program of the flow.
+RUN_LOG = re.compile(r"[a-z]+_\d+_log")
+
 FLOWS = all_flow_classes()
 FLOW_IDS = [cls.name for cls in FLOWS]
 #: The flows that start a program, which is every flow but the abstract bases.
@@ -75,7 +78,7 @@ def test_a_documented_program_log_belongs_to_a_program_of_the_flow(flow_class):
     logs = {
         key
         for key in flow_class.artifacts_description
-        if key.endswith("_log") and key != "simulation_log"
+        if key.endswith("_log") and key != "simulation_log" and not RUN_LOG.fullmatch(key)
     }
     assert logs <= programs, f"{flow_class.name}: {sorted(logs - programs)}"
 

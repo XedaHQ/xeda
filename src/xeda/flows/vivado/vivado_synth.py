@@ -22,7 +22,16 @@ from ...flow import (
     describe_results,
 )
 from ...records import MISSING_REPORT, ErrorInfo
-from .artifacts import PROJECT_REPORTS, SCRIPT_REPORTS, register_reports, report_artifacts
+from .artifacts import (
+    PROJECT_REPORTS,
+    RUNS,
+    SCRIPT_REPORTS,
+    register_reports,
+    register_run_logs,
+    report_artifacts,
+    run_log_artifacts,
+    run_log_key,
+)
 from ...units import count
 from ...utils import HierDict, parse_xml, replacing_file, try_convert
 
@@ -676,6 +685,8 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
 
+        if run_log_key("synth_1") in self.artifacts_description:  # project mode has child runs
+            register_run_logs(self)
         run_status = self.run_path / RUN_STATUS_FILE
         # In project mode, the script records the status after it waits for a run. Only this
         # run's record counts, never a previous run's.
@@ -754,6 +765,18 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
         # not (`Flow.report_file`).
         register_reports(self, self.settings.reports_dir, self.report_steps)
         return not failed
+
+    def failure_log_key(self) -> str | None:
+        """Return the key of the log of the child run that did not complete its step, if one did
+        not: the last run that the script waited for. The script stops at the first run that
+        failed, so that is `impl_1` when its log is there, else `synth_1`."""
+        status = self.results.get("status")
+        if not isinstance(status, str) or status.endswith("Complete!"):
+            return None
+        for run in reversed(RUNS):
+            if run_log_key(run) in self.artifacts:
+                return run_log_key(run)
+        return None
 
     def check_results(self) -> bool:
         """Reject the run if the timing reports show a violation and `fail_timing` is set.
@@ -852,6 +875,7 @@ class VivadoSynth(VivadoImplementation):
             "The constraints of the routed design (`write_xdc`).",
             "when the setting `write_netlist` is on",
         ),
+        **run_log_artifacts(),
         **report_artifacts(PROJECT_REPORTS),
     )
 
