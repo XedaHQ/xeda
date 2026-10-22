@@ -218,8 +218,8 @@ class _NoDirectEdge(ChainRefusal):
 
     A link that passes through other flows may still be valid."""
 
-    def __init__(self, message: str) -> None:
-        super().__init__(message, code="no_edge")
+    def __init__(self, message: str, *, code: str = "no_edge") -> None:
+        super().__init__(message, code=code)
 
 
 def _repeated(flow: type[Flow]) -> str:
@@ -306,6 +306,7 @@ def _link(index: int, producer: ChainElement, consumer: ChainElement) -> ChainLi
         link = _converter_link(index, producer, consumer)
         if link is not None:
             return link
+    code = "no_edge"
     try:
         matched = match_required_inputs(
             producer.flow_class, consumer.flow_class, output=producer.output
@@ -319,7 +320,7 @@ def _link(index: int, producer: ChainElement, consumer: ChainElement) -> ChainLi
             if not matched:
                 refusal = _no_conversion(producer.flow_class, consumer.flow_class)
     except _NoDirectEdge as e:
-        matched, refusal = [], str(e)
+        matched, refusal, code = [], str(e), e.code
     except ChainRefusal as e:
         unknown = producer.output is not None and producer.output not in declared_outputs(
             producer.flow_class
@@ -331,8 +332,8 @@ def _link(index: int, producer: ChainElement, consumer: ChainElement) -> ChainLi
     through = graph.between(producer.flow_class)
     if not through or not _binding_edges(graph, producer.flow_class):
         if not converter and _has_design_output(producer.flow_class):
-            refusal = _converts_no_design(producer.flow_class)
-        raise _EdgeFailure(index, refusal, code="no_edge")
+            refusal, code = _converts_no_design(producer.flow_class), "no_edge"
+        raise _EdgeFailure(index, refusal, code=code)
     try:
         points = binding_points(graph, producer.flow_class, producer.output)
     except ChainRefusal as e:
@@ -978,7 +979,8 @@ def match_required_inputs(
             input_name, output_name = cardinality_mismatches[0]
             raise _NoDirectEdge(
                 f"Flow `{producer.name}` output `{output_name}` has incompatible cardinality "
-                f"for `{consumer.name}` input `{input_name}`."
+                f"for `{consumer.name}` input `{input_name}`.",
+                code="cardinality_mismatch",
             )
         raise _NoDirectEdge(_no_edge(producer, consumer))
     return matches

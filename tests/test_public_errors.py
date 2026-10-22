@@ -1,6 +1,7 @@
 """The public errors and the stable codes of the failures of a launch."""
 
 import ast
+import copy
 import json
 import pickle
 from pathlib import Path
@@ -9,6 +10,7 @@ import pytest
 
 from xeda import errors
 from xeda.deliver import DeliveryError
+from xeda.design import DesignFileParseError, DesignValidationError
 from xeda.flow import (
     Flow,
     FlowDependencyFailure,
@@ -35,7 +37,8 @@ from xeda.proc_utils import ProcessTimeout
 from xeda.records import ErrorInfo
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import RunRootError, ensure_run_root
-from xeda.utils import ExecutableNotFound, NonZeroExitCode, ToolException
+from xeda.utils import ConflictingKeys, ExecutableNotFound, NonZeroExitCode, ToolException
+from xeda.xedaproject import ProjectFileError
 
 from . import test_failure_results as failing
 from .flow_registry import preserved_flow_registry
@@ -99,6 +102,31 @@ def test_an_error_holds_its_code_and_message_and_survives_pickling():
     )
 
 
+def test_a_settings_error_keeps_its_self_reference_through_pickling_and_copying():
+    error = errors.SettingsError("m", code="invalid_value", setting="a.b", suggestions=["a.c"])
+    assert error.errors == (error,)
+    for again in (pickle.loads(pickle.dumps(error)), copy.deepcopy(error)):
+        assert isinstance(again, errors.SettingsError) and again is not error
+        assert again.errors[0] is again
+        assert (again.code, again.message, again.setting, again.suggestions) == (
+            "invalid_value",
+            "m",
+            "a.b",
+            ("a.c",),
+        )
+
+
+def test_the_findings_of_a_settings_error_survive_pickling_together():
+    first = public_error(
+        FlowSettingsError([_error("extra_forbidden", "a"), _error("missing", "b")], Flow.Settings)
+    )
+    assert isinstance(first, errors.SettingsError) and len(first.errors) == 2
+    again = pickle.loads(pickle.dumps(first))
+    assert again.errors[0] is again
+    assert [finding.code for finding in again.errors] == ["unknown_setting", "required_setting"]
+    assert again.errors[1].errors[0] is again.errors[1]
+
+
 def test_the_internal_errors_are_public_errors_with_a_code(tmp_path):
     assert FlowNotFoundError("x").code == "flow_not_found"
     assert FlowNotFoundError("x").name == "x"
@@ -155,6 +183,15 @@ def test_a_node_failure_has_its_code(exc, code, exit_status):
         (PermissionError(13, "read-only"), "storage_error"),
         (RunDirectoryError("leads out of the run directory"), "storage_error"),
         (FlowSettingsException("needs a setting"), "reported_failure"),
+        (FlowSettingsError([("knob", "no knob", None, "value_error")], object), "reported_failure"),
+        (ChainRefusal("no edge", code="no_edge"), "reported_failure"),
+        (ConflictingKeys("a", "b"), "reported_failure"),
+        (
+            DesignValidationError([("rtl -> top", "required", None, "missing")], file="d.yaml"),
+            "reported_failure",
+        ),
+        (DesignFileParseError("d.yaml", "not YAML"), "reported_failure"),
+        (ProjectFileError("no project file", code="project_file_not_found"), "reported_failure"),
         (FlowException("flow"), "reported_failure"),
         (ToolException("tool too old"), "reported_failure"),
         (DeliveryError("refused"), "reported_failure"),
@@ -281,6 +318,25 @@ def test_a_refused_chain_has_its_code(request_text, code):
     assert pickle.loads(pickle.dumps(refused.value)).code == code
 
 
+def test_a_many_output_for_a_scalar_input_has_the_cardinality_code():
+    from .test_chains import _ChainAmbiguousConsumer, _ChainProducer
+
+    with pytest.raises(ChainRefusal) as refused:
+        chains.match_required_inputs(_ChainProducer, _ChainAmbiguousConsumer, output="many_json")
+    assert "cardinality" in str(refused.value)
+    assert public_error(refused.value).code == "cardinality_mismatch"
+    assert pickle.loads(pickle.dumps(refused.value)).code == "cardinality_mismatch"
+    # a chain that holds the link refuses it with the same code
+    with pytest.raises(ChainRefusal) as refused:
+        chains.validate_chain(
+            (
+                chains.ChainElement(_ChainProducer, output="many_json"),
+                chains.ChainElement(_ChainAmbiguousConsumer),
+            )
+        )
+    assert public_error(refused.value).code == "cardinality_mismatch"
+
+
 def test_every_refusal_in_the_chain_module_names_its_code():
     """A chain refusal is a `ChainRefusal` with a code: none is a bare settings exception."""
     module = ast.parse(Path(chains.__file__).read_text())
@@ -365,6 +421,70 @@ def test_a_run_that_lacks_a_report_it_asked_for_has_the_missing_report_code(tmp_
     assert document["error"]["code"] == "missing_report"
     assert "absent.rpt" in document["error"]["message"]
     assert flow.reports_missing == [flow.run_path / "absent.rpt"]
+
+
+def test_an_optional_report_that_is_absent_is_not_a_missing_report(tmp_path):
+    class OptionalReport(Flow):
+        results_description = {}
+
+        def run(self) -> None:
+            pass
+
+        def parse_reports(self) -> bool:
+            assert self.report_file(self.run_path / "extra.rpt", optional=True) is None
+            return False  # an unrelated failure of the parse
+
+    with preserved_flow_registry():
+        flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
+            OptionalReport, failing._design(tmp_path), {}
+        )
+    document = json.loads((flow.run_path / "results.json").read_text())
+    assert document["error"]["code"] == "reported_failure"
+    assert flow.reports_missing == []
+    assert flow.reports_read == [flow.run_path / "extra.rpt"]
+
+
+def test_a_required_report_that_is_absent_still_names_the_cause_beside_an_optional_one(tmp_path):
+    class BothReports(Flow):
+        results_description = {}
+
+        def run(self) -> None:
+            pass
+
+        def parse_reports(self) -> bool:
+            self.report_file(self.run_path / "extra.rpt", optional=True)
+            return self.report_file(self.run_path / "needed.rpt") is not None
+
+    with preserved_flow_registry():
+        flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
+            BothReports, failing._design(tmp_path), {}
+        )
+    document = json.loads((flow.run_path / "results.json").read_text())
+    assert document["error"]["code"] == "missing_report"
+    assert "needed.rpt" in document["error"]["message"]
+    assert "extra.rpt" not in document["error"]["message"]
+
+
+def test_an_absent_power_report_is_a_missing_report(tmp_path):
+    from types import SimpleNamespace
+
+    from xeda.flows.vivado.vivado_synth import power_report_written
+
+    flow = SimpleNamespace(
+        name="vivado_synth",
+        run_path=tmp_path,
+        results={},
+        settings=SimpleNamespace(report_power=True, reports_dir=tmp_path / "reports"),
+        report_file=lambda path: None,
+    )
+    assert power_report_written(flow) is False
+    error = flow.results["error"]
+    assert (error["code"], error["node"]) == ("missing_report", "vivado_synth")
+    assert "reports/route_design/power.xml" in error["message"]
+    # a failed tool's own error stays the cause
+    flow.results = {"error": {"code": "nonzero_exit"}}
+    assert power_report_written(flow) is False
+    assert flow.results["error"] == {"code": "nonzero_exit"}
 
 
 def test_a_rejected_run_is_adopted_by_its_code_and_message():

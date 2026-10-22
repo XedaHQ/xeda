@@ -564,7 +564,7 @@ class Verilator(SimFlow):
             return None
         if ss.fail_severity == "warning" and self._model_log is not None:
             # `$warning` reaches no hook: Verilator prints it as `[time] %Warning: ...`
-            log_file = self.report_file(self._model_log)
+            log_file = self.report_file(self._model_log, optional=True)
             if log_file is not None:
                 for line in log_file.read_text(errors="replace").splitlines():
                     if re.match(r"\[\d+\] %Warning:", line):

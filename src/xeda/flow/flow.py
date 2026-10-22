@@ -1901,6 +1901,7 @@ class Flow(metaclass=ABCMeta):
         dotall: bool = True,
         required: bool = False,
         sequential: bool = False,
+        optional: bool = False,
     ) -> bool:
         res = self.parse_regex(
             reportfile_path,
@@ -1909,6 +1910,7 @@ class Flow(metaclass=ABCMeta):
             dotall=dotall,
             required=required,
             sequential=sequential,
+            optional=optional,
         )
         if not res:
             return False
@@ -1927,14 +1929,18 @@ class Flow(metaclass=ABCMeta):
             return False
         return not self.run_started or self.wrote_output(path)
 
-    def report_file(self, path: Union[str, os.PathLike]) -> Optional[Path]:
+    def report_file(
+        self, path: Union[str, os.PathLike], *, optional: bool = False
+    ) -> Optional[Path]:
         """Return `path`, a report (or any file) that the tools write, if this run wrote it.
 
         Return None, with a warning, if the file does not exist or is not this run's
         (`written_by_this_run`: its identity and state are what they were before the run). A
         previous run's report, left in a reused run directory, is never taken for this run's.
         Every report a flow reads goes through here (`parse_regex` does). Every `path` asked for
-        is noted in `reports_read`, and each one returned as None in `reports_missing`."""
+        is noted in `reports_read`, and each one returned as None in `reports_missing`, unless
+        `optional` is true. A read is optional when the flow does not fail for the lack of the
+        file: the lack is then no cause of a failure, and the launcher never names it as one."""
         path = Path(path)
         self.reports_read.append(Path(os.path.abspath(path)))
         if not path.exists():
@@ -1943,7 +1949,8 @@ class Flow(metaclass=ABCMeta):
                 path.absolute(),
                 self.run_path,
             )
-            self.reports_missing.append(Path(os.path.abspath(path)))
+            if not optional:
+                self.reports_missing.append(Path(os.path.abspath(path)))
             return None
         if not self.written_by_this_run(path):
             log.warning(
@@ -1952,7 +1959,8 @@ class Flow(metaclass=ABCMeta):
                 path.absolute(),
                 self.run_path,
             )
-            self.reports_missing.append(Path(os.path.abspath(path)))
+            if not optional:
+                self.reports_missing.append(Path(os.path.abspath(path)))
             return None
         return path
 
@@ -1964,8 +1972,12 @@ class Flow(metaclass=ABCMeta):
         dotall: bool = True,
         required: bool = False,
         sequential: bool = False,
+        optional: bool = False,
     ) -> Optional[dict]:
-        report = self.report_file(reportfile_path)
+        """Return the values that the patterns find in the report, or None without a report.
+
+        `optional` is the argument of `report_file`."""
+        report = self.report_file(reportfile_path, optional=optional)
         if report is None:
             return None
         reportfile_path = report

@@ -951,7 +951,7 @@ class Nextpnr(FpgaSynthFlow):
         path = self.settings.log
         if path is None:
             return []
-        path = self.report_file(path if path.is_absolute() else self.run_path / path)
+        path = self.report_file(path if path.is_absolute() else self.run_path / path, optional=True)
         if path is None:
             return []
         try:
@@ -1398,7 +1398,7 @@ class Nextpnr(FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
         path = self.run_path / self._placement_dump()
         try:
-            if self.report_file(path) is None:
+            if self.report_file(path, optional=True) is None:
                 raise ValueError("nextpnr did not write it")
             cells, locations = xilinx_lut_locations(json.loads(path.read_text()))
             if cells != positions:

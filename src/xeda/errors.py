@@ -34,11 +34,14 @@ __all__ = [
 ]
 
 
-def _rebuild(cls: type[XedaError], message: str, state: dict[str, Any]) -> XedaError:
-    """Rebuild an error that was pickled: its fields are its `__dict__`."""
+def _rebuild(cls: type[XedaError], message: str) -> XedaError:
+    """Rebuild an error that was pickled, without its fields.
+
+    Pickle sets the fields afterwards, from the state that `XedaError.__reduce__` gives. An
+    error that holds itself (`SettingsError.errors`) needs this order: the rebuilt error exists
+    when its state is read."""
     error = Exception.__new__(cls)
     Exception.__init__(error, message)
-    error.__dict__.update(state)
     return error
 
 
@@ -53,7 +56,7 @@ class XedaError(XedaException):
         self.message = message
 
     def __reduce__(self) -> tuple[Any, ...]:  # an exception crosses a process boundary by pickling
-        return (_rebuild, (type(self), self.message, dict(self.__dict__)))
+        return (_rebuild, (type(self), self.message), dict(self.__dict__))
 
 
 class SpecError(XedaError):

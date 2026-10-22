@@ -24,7 +24,7 @@ from ..flow import (
     FlowSettingsError,
     FlowSettingsException,
 )
-from ..flow.flow import FlowException, _model_at, registered_flows
+from ..flow.flow import _model_at, registered_flows
 from ..proc_utils import ProcessTimeout
 from ..run_dir import RunDirectoryError
 from ..records import (
@@ -42,7 +42,12 @@ from ..records import (
     TIMEOUT,
     ErrorInfo,
 )
-from ..utils import ConflictingKeys, ExecutableNotFound, NonZeroExitCode, ToolException
+from ..utils import (
+    ConflictingKeys,
+    ExecutableNotFound,
+    NonZeroExitCode,
+    XedaException,
+)
 from ..xedaproject import ProjectFileError
 from .chains import ChainRefusal
 
@@ -104,11 +109,13 @@ def error_info(exc: BaseException, *, node: str | None, log: str | None = None) 
         # A hand-over that found an output of a producer missing or changed is a problem with
         # the declared outputs. Any other delivery refusal is the flow's own failure.
         code = MISSING_OUTPUT if exc.output_problem else REPORTED_FAILURE
-    elif isinstance(exc, (FlowException, ToolException)):
-        # The flow refused to run, or a check of its tool failed: the flow says so itself.
-        code = REPORTED_FAILURE
     elif isinstance(exc, (OSError, RunDirectoryError)):
         code = STORAGE_ERROR
+    elif isinstance(exc, XedaException):
+        # The flow refused to run, a check of its tool failed, or the design, the project or the
+        # settings were refused: an error that Xeda raises on purpose is the failure of the node.
+        # Only an exception that Xeda does not know is a bug of Xeda.
+        code = REPORTED_FAILURE
     else:
         code = INTERNAL_ERROR
     return ErrorInfo(code=code, message=str(exc), node=node, exit_status=exit_status, log=log)

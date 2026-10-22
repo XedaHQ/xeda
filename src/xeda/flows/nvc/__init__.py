@@ -411,7 +411,11 @@ class Nvc(SimFlow):
         evidence = parse_nvc_log(self, self._sim_log)
         if evidence is None:
             return None
-        report = self.report_file(self._end_record) if self._end_record is not None else None
+        report = (
+            self.report_file(self._end_record, optional=True)
+            if self._end_record is not None
+            else None
+        )
         if report is None:
             # A native FINISH/STOP still proves an end if its optional checkpoint is absent.
             return evidence

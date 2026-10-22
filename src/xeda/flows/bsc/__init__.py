@@ -1022,7 +1022,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         except NonZeroExitCode as error:
             if type(error) is not NonZeroExitCode:
                 raise
-            report = self.report_file(log_file)
+            report = self.report_file(log_file, optional=True)
             found = (
                 diagnostic_lines(report.read_text(encoding="utf-8", errors="replace"))
                 if report is not None

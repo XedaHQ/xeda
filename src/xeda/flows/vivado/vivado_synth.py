@@ -18,7 +18,7 @@ from ...flow import (
     Out,
     describe_results,
 )
-from ...records import REPORTED_FAILURE, ErrorInfo
+from ...records import MISSING_REPORT, ErrorInfo
 from ...units import count
 from ...utils import HierDict, parse_xml, replacing_file, try_convert
 
@@ -315,7 +315,7 @@ def power_report_written(flow: Any) -> bool:
     log.error("%s", message)
     if not flow.results.get("error"):  # a failed tool's own error is the cause
         flow.results["error"] = ErrorInfo(
-            code=REPORTED_FAILURE, message=message, node=flow.name, exit_status=None, log=None
+            code=MISSING_REPORT, message=message, node=flow.name, exit_status=None, log=None
         ).as_json_value()
     return False
 
@@ -658,7 +658,7 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
 
         if self.settings.bitstream is not None and not self.artifacts.get(BITSTREAM):
             if self.settings.bitstream.exists():
-                if self.report_file(self.settings.bitstream) is not None:
+                if self.report_file(self.settings.bitstream, optional=True) is not None:
                     self.artifacts[BITSTREAM] = self.settings.bitstream
             else:
                 for bitstream in self.run_path.glob("**/*.bit"):
@@ -674,7 +674,11 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
 
         reports_dir = self.settings.reports_dir / "route_design"
         failed = not self.parse_timing_report(reports_dir)
-        hier_util_xml = self.report_file(reports_dir / "hierarchical_utilization.xml")
+        # The lack of this report fails the run only when nothing else did: after a failure it is
+        # no cause.
+        hier_util_xml = self.report_file(
+            reports_dir / "hierarchical_utilization.xml", optional=failed
+        )
         hier_util = parse_hier_util(hier_util_xml) if hier_util_xml is not None else None
         if hier_util:
             hier_json = self.run_directory.writable(reports_dir / "hierarchical_utilization.json")
@@ -685,7 +689,7 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             failed = True
             log.error("Parsing the hierarchical utilization report failed.")
         report_file = reports_dir / "utilization.xml"
-        utilization = self.parse_xml_report(report_file)
+        utilization = self.parse_xml_report(report_file, optional=True)
         # (result key, path in the utilization report). For a key with several paths, the first
         # path that gives a value wins.
         fields = [

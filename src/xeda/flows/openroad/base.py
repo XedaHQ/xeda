@@ -721,7 +721,7 @@ class OpenroadStage(AsicPlatformFlow, Flow):
         the script and the error lines of this run's log (`failure_lines`). OpenROAD reports the
         error of a script only in the log."""
         message = f"{self.name}: OpenROAD stopped while it ran {driver}.tcl"
-        report = self.report_file(log_file)
+        report = self.report_file(log_file, optional=True)
         found = failure_lines(report.read_text(errors="replace")) if report is not None else []
         if not found:
             return f"{message}; see {driver}.log"

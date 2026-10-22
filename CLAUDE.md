@@ -86,7 +86,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   `check_settings_supported` / `check_design_supported` (call `super()`), never in `init()`,
   `prepare_inputs()` or a constructor (`tests/test_refusals_at_planning.py`).
 - Read every report or log through `Flow.report_file(path)`, which ignores a file this run did
-  not write (`tests/test_stale_reports.py`).
+  not write (`tests/test_stale_reports.py`). Pass `optional=True` for a read whose lack fails
+  nothing: only a lack that can fail the run is `missing_report`.
 - A failure after a run starts leaves `results.json` with `success: false`, `error.code` and
   `error.message` (`tests/test_failure_results.py`). The code is stable and never a class name
   (`flow_runner/error_codes.py`, `tests/test_public_errors.py`); `reported_failure` is a node's
