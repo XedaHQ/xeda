@@ -133,8 +133,9 @@ output of the host. A login profile that prints text does no harm (up to 1 MiB b
 ## Simulation verdicts
 
 A simulation passes only on recognized evidence that it ended, never on exit status alone.
-`results.json` holds `sim.evidence` (the normalized record), `sim.ended_by`, `sim.time`,
-`sim.time_unit`, `sim.errors` and `sim.warnings`. `error.message` states the cause and the fix.
+`results.json` holds `sim.evidence` (the normalized record), `sim.ended_by`, `sim.time` (an
+integer number of femtoseconds; absent when the simulator reported no time), `sim.errors` and
+`sim.warnings`. `error.message` states the cause and the fix.
 
 - A silent exit 0, a missing or malformed end record, an unknown end, or a drained event queue
   fails. A testbench that ends with `wait;` needs `std.env.finish` or `$finish`, or a `stop_time`.
@@ -249,7 +250,7 @@ PULLUP`.
   die whose `available` totals are shown (an `xc7a35t` is routed as an `xc7a50t`).
 - `nextpnr` parses timing and utilization from the JSON report named by its `report` setting. Its
   `lut`, `ff`, `bram`, `dsp` and `io` are given for ECP5 and Xilinx 7-series; other families get
-  raw bel-type counts (`ICESTORM_LC`, `OXIDE_COMB`) plus timing.
+  the bel-type counts in `cell_types` (`ICESTORM_LC`, `OXIDE_COMB`) plus timing.
 - `nextpnr`'s `wns` is derived: the difference between the constrained and achieved clock periods.
   With several constrained clock domains, `fmax` is the lowest achieved frequency and `wns` is the
   least-slack domain's (they may differ), and the scalar `clock_frequency` and `clock_period` are

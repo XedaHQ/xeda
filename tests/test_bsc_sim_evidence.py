@@ -56,8 +56,7 @@ def test_bluesim_native_tasks(tmp_path, body, ok, ending, time):
     assert flow is not None and flow.succeeded is ok
     if ending:
         assert flow.results["sim.ended_by"] == ending
-        assert flow.results["sim.time"] == time
-        assert flow.results["sim.time_unit"] == "1us"
+        assert flow.results["sim.time"] == time * 10**9  # the model counts microseconds
     assert (flow.run_path / "sim.log").is_file()
 
 
@@ -203,13 +202,9 @@ def test_verilator_iverilog_native_tasks(tmp_path, backend, body, ok):
     if ok:
         assert flow.results["sim.ended_by"] == "finish"
         if backend == "verilator":
-            assert flow.results["sim.time"] in (5, 25)
-            assert flow.results["sim.time_unit"] == "1ps"
+            assert flow.results["sim.time"] in (5_000, 25_000)
         else:
-            from xeda.flow.sim import time_in_fs
-
             assert flow.results["sim.time"] >= 0
-            assert time_in_fs(1, flow.results["sim.time_unit"]) > 0
     assert (flow.run_path / "sim.log").is_file()
 
 

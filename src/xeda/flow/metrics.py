@@ -162,12 +162,10 @@ COMMON_METRICS: Dict[str, MetricSpec] = {
         "text",
     ),
     "sim.time": MetricSpec(
-        "Simulated time at the end, in the unit `sim.time_unit` gives; null when the simulator "
-        "did not report it.",
+        "Simulated time at the end, as an integer number of femtoseconds. The metric is absent "
+        "when the simulator did not report the time.",
         "integer",
-    ),
-    "sim.time_unit": MetricSpec(
-        "The unit of `sim.time`, e.g. `1ps` (the model's time precision).", "text"
+        "fs",
     ),
     "sim.errors": MetricSpec(
         "Number of errors the simulation reported: $error, failed assertions, $stop and $fatal.",

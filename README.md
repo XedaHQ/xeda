@@ -193,7 +193,7 @@ generated scripts, reports and the effective settings are in the run root, `xeda
   - `nextpnr`: places and routes the netlist that `yosys_fpga` writes, and reports achieved
     frequency, slack and utilization. The tested device families are Lattice ECP5 and iCE40, and
     Xilinx 7-series through nextpnr-himbaechel of openXC7. Nexus is best-effort. Families other
-    than ECP5 and 7-series report raw per-bel-type counts
+    than ECP5 and 7-series report only the bel-type counts
   - `fpga_pack`: packs the routed configuration that `nextpnr` records (or a configuration source
     of the matching type) into a bitstream, with ecppack, icepack or fpga-as of openXC7. It
     programs nothing

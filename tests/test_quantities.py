@@ -31,6 +31,9 @@ from xeda.units import (
     QuantityError,
     Power,
     Resistance,
+    Temperature,
+    TemperatureDifference,
+    ThermalResistance,
     Time,
     Voltage,
     count,
@@ -64,6 +67,9 @@ TABLE: dict[type[Quantity], list[tuple[str, float]]] = {
     Voltage: [("mV", 2.5e-3), ("V", 2.5)],
     Resistance: [("ohm", 2.5), ("kohm", 2500.0), ("Mohm", 2.5e6)],
     Power: [("nW", 2.5e-9), ("uW", 2.5e-6), ("µW", 2.5e-6), ("mW", 2.5e-3), ("W", 2.5)],
+    Temperature: [("degC", 2.5)],
+    TemperatureDifference: [("delta_degC", 2.5), ("K", 2.5)],
+    ThermalResistance: [("K/W", 2.5)],
 }
 KINDS = {
     Time: ("time", "ns"),
@@ -73,6 +79,9 @@ KINDS = {
     Voltage: ("voltage", "V"),
     Resistance: ("resistance", "ohm"),
     Power: ("power", "W"),
+    Temperature: ("temperature", "degC"),
+    TemperatureDifference: ("temperature difference", "delta_degC"),
+    ThermalResistance: ("thermal resistance", "K/W"),
 }
 CASES = [(cls, unit, mag) for cls, rows in TABLE.items() for unit, mag in rows]
 
@@ -119,6 +128,24 @@ def test_minutes_and_hours() -> None:
     assert Time("1 h").magnitude == 3600e9
     assert Time("90 s").to("min") == 1.5
     assert Time("1.5 h").to("min") == 90.0
+
+
+def test_a_temperature_and_a_temperature_difference_are_different_kinds() -> None:
+    assert Temperature("5 degC").to("degC") == 5.0
+    assert TemperatureDifference("5 delta_degC").to("K") == 5.0
+    assert TemperatureDifference("5 K") == TemperatureDifference("5 delta_degC")
+    with pytest.raises(QuantityError, match="is a temperature difference, not a temperature"):
+        Temperature("5 delta_degC")
+    with pytest.raises(QuantityError, match="is a temperature, not a temperature difference"):
+        TemperatureDifference("5 degC")
+    assert str(ThermalResistance("2.5 K/W")) == "2.5 K/W"
+    assert ThermalResistance(str(ThermalResistance("2.5 K/W"))) == ThermalResistance("2.5 K/W")
+
+
+def test_the_units_of_a_metric_do_not_change_what_a_setting_reads() -> None:
+    for text in ("5 ns/s", "5 ns_x", "5 K/W", "5 delta_degC"):
+        with pytest.raises(QuantityError):
+            Time(text)
 
 
 # ---- canonical text ------------------------------------------------------------------------

@@ -1254,8 +1254,8 @@ Result keys
 ~~~~~~~~~~~
 
 ``ff`` counts ``SLICE_FFX`` cells, ``bram`` counts ``RAMB18E1`` plus ``RAMB36E1``, ``dsp`` counts
-``DSP48E1`` and ``io`` counts pads. Xeda reports ``CARRY4`` and the other cell types under their
-own names. ``device`` is the part, and ``fabric`` is the die that was routed. Every ``available``
+``DSP48E1`` and ``io`` counts pads. ``cell_types`` holds the number of bels used of each type,
+by the bel name that nextpnr gives (``CARRY4``, ``SLICE_LUTX``). ``device`` is the part, and ``fabric`` is the die that was routed. Every ``available``
 total in the utilization describes the fabric, so an ``xc7a35t`` (routed as an ``xc7a50t``) shows
 the totals of the larger die. ``clock_port`` is given only when the one reported clock domain is
 itself a port of the top module. A domain that is named for the output net of a buffer or a clock
@@ -2252,8 +2252,9 @@ recognized end:
 A run fails when its record is missing or malformed, when its end is unknown, on a silent exit 0,
 on an unrequested stop, and when the event queue drains without a finish. A nonzero exit status of
 the tool or the driver always fails, even after a finish. Xeda saves the normalized record as
-``sim.evidence`` next to ``sim.ended_by``, ``sim.time``, ``sim.time_unit``, ``sim.errors`` and
-``sim.warnings``.
+``sim.evidence`` next to ``sim.ended_by``, ``sim.time``, ``sim.errors`` and ``sim.warnings``.
+``sim.time`` is an integer number of femtoseconds. It is absent when the simulator did not report
+the time.
 
 When a simulation fails these checks, ``error.message`` in ``results.json`` says what happened and
 what to do. For a testbench that stops with no finish, it tells you to end the testbench with
@@ -2390,7 +2391,7 @@ record how the run ended. They set the ``sim.ended_by`` and ``sim.time`` result 
 The run passes when the testbench ends it with ``$finish`` and nothing reported reaches
 ``fail_severity`` (``warning``, ``error``, ``failure`` or ``fatal``; default ``error``). An event
 queue that runs empty without a ``$finish`` fails (``sim.ended_by`` is ``drained``, and
-``sim.time`` is empty), and ``timeout`` stops a run that does not end. Xeda also copies the output
+``sim.time`` is absent), and ``timeout`` stops a run that does not end. Xeda also copies the output
 of the model to ``sim.log`` in ``sim_dir``, except under cocotb, whose output goes straight to the
 terminal.
 

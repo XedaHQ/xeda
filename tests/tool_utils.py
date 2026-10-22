@@ -1409,7 +1409,7 @@ def require_modelsim() -> None:
         )
         if flow is None or not flow.succeeded or flow.results.get("sim.ended_by") != "finish":
             pytest.fail(f"{image} did not provide native quiet-finish runtime evidence")
-        if flow.results.get("sim.time") != 0 or flow.results.get("sim.time_unit") is None:
+        if flow.results.get("sim.time") != 0:
             pytest.fail(f"{image} did not provide native time/precision")
     finally:
         shutil.rmtree(work, ignore_errors=True)

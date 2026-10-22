@@ -229,8 +229,11 @@ def test_a_metric_that_names_its_unit_carries_it(flow_class):
 
 
 def test_metric_unit_known_accepts_the_units_of_the_units_table_only():
-    assert all(metric_unit_known(unit) for unit in ("MHz", "ns", "W", "um", "s", "fs"))
-    assert not any(metric_unit_known(unit) for unit in ("mhz", "NS", "", "furlong", "um2"))
+    units = ("MHz", "ns", "W", "um", "s", "fs", "degC", "delta_degC", "K/W")
+    assert all(metric_unit_known(unit) for unit in units)
+    assert not any(
+        metric_unit_known(unit) for unit in ("mhz", "NS", "", "furlong", "um2", "delta", "degc")
+    )
 
 
 def test_describe_results_rejects_unknown_keys():
@@ -406,7 +409,6 @@ def test_every_simulator_exposes_shared_settings_and_evidence_results():
         "sim.evidence",
         "sim.ended_by",
         "sim.time",
-        "sim.time_unit",
         "sim.errors",
         "sim.warnings",
     }

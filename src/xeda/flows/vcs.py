@@ -43,7 +43,7 @@ class Vcs(SimFlow):
     )
 
     results_description = describe_results(
-        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+        "sim.evidence", "sim.ended_by", "sim.time", "sim.errors", "sim.warnings"
     )
 
     unsupported_waveforms = {

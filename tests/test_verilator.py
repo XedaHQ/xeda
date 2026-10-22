@@ -6,6 +6,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowFatalError, FlowSettingsError, FlowSettingsException
+from xeda.flow.sim import time_in_fs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Verilator
 from xeda.run_dir import RunDirectoryError
@@ -315,8 +316,9 @@ def test_verilator_records_the_finish_time_in_the_models_precision(tmp_path, tim
         tmp_path, "initial begin #15ns; $finish; end", {"timing": True}, timescale=timescale
     )
     assert flow.results["sim.ended_by"] == "finish"
-    assert flow.results["sim.time"] == ticks
-    assert flow.results["sim.time_unit"] == timescale.split("/")[1]
+    precision = timescale.split("/")[1]
+    assert flow.results["sim.time"] == time_in_fs(ticks, precision)
+    assert "sim.time_unit" not in flow.results
     assert flow.succeeded
 
 

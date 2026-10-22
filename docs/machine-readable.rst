@@ -254,6 +254,11 @@ as a cell area in the area unit of the Liberty files, has the unit ``null``, and
 says so. The keys that every flow reports (``success``, ``runtime``, ...) are no metrics and are not
 listed. The table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
 
+A temperature is in ``degC``. A temperature difference is in ``delta_degC``, and 5 ``delta_degC`` is
+5 K. A thermal resistance is in ``K/W``. The simulated time ``sim.time`` is an integer number of
+femtoseconds. The counts of cells by type are one ``counts`` metric, ``cell_types``, with the name
+of the cell as the key.
+
 A metric names a quantity, not one way to measure it. ``lut`` is reported per toolchain and per
 stage. The open-source FPGA flows add ``lut_basis.stage`` (``mapped`` for ``yosys_fpga``, ``placed
 and routed`` for ``nextpnr``) and ``lut_basis.method`` beside it. Counts from different toolchains

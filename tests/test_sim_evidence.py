@@ -14,6 +14,7 @@ import pytest
 
 from xeda.design import SourceType
 from xeda.flow import Flow, registered_flows
+from xeda.flow.metrics import COMMON_METRICS
 from xeda.flow.sim import (
     SimEvent,
     SimEvidence,
@@ -386,8 +387,36 @@ def test_the_verdict_is_recorded_in_the_results():
     flow = _Stub()
     judge_evidence(flow, SimEvidence(ended_by="finish", time=34, time_unit="1ps"), "error")
     assert flow.results["sim.ended_by"] == "finish"
-    assert flow.results["sim.time"] == 34
-    assert flow.results["sim.time_unit"] == "1ps"
+    assert flow.results["sim.time"] == 34_000
+    assert "sim.time_unit" not in flow.results
+
+
+def test_simulated_time_is_an_integer_in_femtoseconds():
+    flow = _Stub()
+    judge_evidence(flow, SimEvidence(ended_by="finish", time=42, time_unit="1000fs"), "error")
+    assert flow.results["sim.time"] == 42_000
+    assert type(flow.results["sim.time"]) is int
+    assert "sim.time_unit" not in flow.results
+    assert COMMON_METRICS["sim.time"].type == "integer"
+    assert COMMON_METRICS["sim.time"].unit == "fs"
+    assert "sim.time_unit" not in COMMON_METRICS
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        SimEvidence(ended_by="finish"),
+        SimEvidence(ended_by="finish", time=5),
+        SimEvidence(ended_by="finish", time_unit="1ps"),
+        SimEvidence(ended_by="finish", time=5, time_unit="bogus"),
+    ],
+)
+def test_a_simulation_that_reported_no_time_writes_no_time(evidence):
+    flow = _Stub()
+    judge_evidence(flow, evidence, "error")
+    assert "sim.time" not in flow.results
+    assert "sim.time_unit" not in flow.results
+    assert flow.results["sim.ended_by"] == "finish"
 
 
 ALL_SKIPPED = """<testsuites><testsuite name="t" tests="2" skipped="2">
@@ -783,7 +812,7 @@ def test_every_simulator_documents_the_shared_evidence(flow_name):
     from xeda.flow_runner import get_flow_class
 
     expected = describe_results(
-        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+        "sim.evidence", "sim.ended_by", "sim.time", "sim.errors", "sim.warnings"
     )
     assert get_flow_class(flow_name).results_description.items() >= expected.items()
 

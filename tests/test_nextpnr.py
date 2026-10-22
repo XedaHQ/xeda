@@ -98,8 +98,8 @@ def test_parses_a_real_ecp5_report(tmp_path):
     assert r["bram"] == 0  # DP16KD
     assert r["dsp"] == 0  # MULT18X18D + ALU54B
     # raw bel-type counts are reported too, and only for bels actually used
-    assert r["TRELLIS_COMB"] == 37
-    assert "DP16KD" not in r
+    assert r["cell_types"]["TRELLIS_COMB"] == 37
+    assert "DP16KD" not in r["cell_types"]
     # TRELLIS_SLICE only exists in much older nextpnr, so `slice` must stay unset
     assert "slice" not in r
 
@@ -255,7 +255,7 @@ def test_non_ecp5_family_gets_raw_bel_counts_only(tmp_path):
     flow = make_flow(tmp_path, report, family="ice40")
     assert flow.parse_reports() is True
     assert flow.results["fmax"] == pytest.approx(300.0)  # timing is family-independent
-    assert flow.results["ICESTORM_LC"] == 11
+    assert flow.results["cell_types"]["ICESTORM_LC"] == 11
     assert "lut" not in flow.results
 
 
@@ -566,8 +566,8 @@ def test_nextpnr_ecp5_end_to_end(tmp_path):
     assert r.bram == 0
     # the report is recorded and the raw bel counts agree with the canonical ones
     assert Path(flow.artifacts["report"]).is_file()
-    assert r["TRELLIS_COMB"] == r.lut
-    assert r["TRELLIS_FF"] == r.ff
+    assert r["cell_types"]["TRELLIS_COMB"] == r.lut
+    assert r["cell_types"]["TRELLIS_FF"] == r.ff
     # the tool version was detected despite nextpnr printing it to stderr
     versions = {t["executable"]: t["version"] for t in r.tools}
     assert versions["nextpnr-ecp5"], "nextpnr version was not detected"

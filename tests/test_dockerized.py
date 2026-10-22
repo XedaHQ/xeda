@@ -279,7 +279,8 @@ def test_modelsim_native_runtime_contract(language, body, settings, passes, work
     )
     assert flow is not None and flow.succeeded is passes
     if passes:
-        assert flow.results["sim.time_unit"] == "1ps"
+        assert "sim.time_unit" not in flow.results
+        assert isinstance(flow.results["sim.time"], int)
     if "timeout" in settings:
         assert flow.results["error"]["code"] == "timeout"
         assert "XEDA_MODELSIM_RUNTIME_START" in (flow.run_path / "modelsim_process.log").read_text()

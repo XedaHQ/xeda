@@ -91,8 +91,8 @@ def test_vivado_absolute_stop_includes_prerun(tmp_path, monkeypatch):
     flow = launch(tmp_path, monkeypatch, "clock", {"prerun_time": "10ns", "stop_time": "20ns"})
     assert flow.succeeded
     assert flow.results["sim.ended_by"] == "stop_time"
-    assert flow.results["sim.time"] == 20_000
-    assert flow.results["sim.time_unit"] == "1000fs"
+    assert flow.results["sim.time"] == 20_000_000
+    assert "sim.time_unit" not in flow.results
 
 
 @pytest.mark.parametrize("flow_class", [VivadoSim, VivadoPostsynthSim])
@@ -135,7 +135,7 @@ def test_vivado_runtime_verdict(
 def test_vivado_prerun_is_capped_at_absolute_bound(tmp_path, monkeypatch, prerun):
     flow = launch(tmp_path, monkeypatch, "clock", {"prerun_time": prerun, "stop_time": "20ns"})
     assert flow.succeeded
-    assert flow.results["sim.time"] == 20_000
+    assert flow.results["sim.time"] == 20_000_000
 
 
 def test_the_vcd_starts_before_the_prerun_and_the_saif_after_it(tmp_path, monkeypatch):
@@ -226,7 +226,7 @@ def test_vivado_power_reports_after_fresh_and_reused_producer_evidence(
     assert effective["timeout"] == 10.0
     assert effective["fail_severity"] == settings.get("fail_severity", "error")
     if "stop_time" in settings:
-        assert recorded["sim.time"] == 20000
+        assert recorded["sim.time"] == 20_000_000
     before = (simulation / "fake_vivado.calls").read_text()
     # Change only the reporter's settings: it runs while its activity dependency is trace-reused.
     rerun = DefaultRunner(tmp_path / "run").run_flow(
@@ -348,7 +348,7 @@ def test_vivado_power_propagates_failing_simulation_controls(
 def test_vivado_quantities_use_the_common_unit_contract(tmp_path, monkeypatch, quantity):
     flow = launch(tmp_path, monkeypatch, "clock", {"stop_time": quantity})
     assert flow.succeeded
-    assert flow.results["sim.time"] == (0 if quantity == "0ns" else 10000)
+    assert flow.results["sim.time"] == (0 if quantity == "0ns" else 10_000_000)
 
 
 @pytest.mark.parametrize(

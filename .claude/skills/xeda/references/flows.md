@@ -19,7 +19,7 @@ Simulate a Bluespec testbench compiled by bsc, with Bluesim or a Verilog simulat
 
 76 flow-specific settings (plus the common ones): `xeda list-settings bsc_sim --json`
 
-Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `simulator`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `simulator`
 
 ### `ghdl_sim`
 
@@ -29,7 +29,7 @@ Simulate a VHDL design with GHDL.
 
 35 flow-specific settings (plus the common ones): `xeda list-settings ghdl_sim --json`
 
-Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
 
 ### `modelsim`
 
@@ -39,7 +39,7 @@ Simulate a VHDL, Verilog, SystemVerilog or mixed-language design with Siemens Mo
 
 10 flow-specific settings (plus the common ones): `xeda list-settings modelsim --json`
 
-Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`
 
 ### `nvc`
 
@@ -49,7 +49,7 @@ Simulate VHDL with NVC, using its native diagnostics and a passive VHPI end moni
 
 34 flow-specific settings (plus the common ones): `xeda list-settings nvc --json`
 
-Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
 
 ### `vcs`
 
@@ -59,7 +59,7 @@ Simulate a design with Synopsys VCS and judge it by runtime evidence. The flow r
 
 40 flow-specific settings (plus the common ones): `xeda list-settings vcs --json`
 
-Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`
 
 ### `verilator`
 
@@ -69,7 +69,7 @@ Simulate a Verilog or SystemVerilog design with Verilator 5.048 or newer. Verila
 
 34 flow-specific settings (plus the common ones): `xeda list-settings verilator --json`
 
-Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
 
 ### `vivado_postsynth_sim`
 
@@ -79,7 +79,7 @@ Simulate the testbench on the routed netlist that `vivado_synth` writes. The pro
 
 24 flow-specific settings (plus the common ones): `xeda list-settings vivado_postsynth_sim --json`
 
-Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `sim.evidence`
+Reports: `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `sim.evidence`
 
 ### `vivado_sim`
 
@@ -89,7 +89,7 @@ Simulate a design with the Vivado simulator (`xsim`). `elab_debug` must keep sou
 
 20 flow-specific settings (plus the common ones): `xeda list-settings vivado_sim --json`
 
-Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `sim.evidence`
+Reports: `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `sim.evidence`
 
 ### `yosys_sim`
 
@@ -99,7 +99,7 @@ Simulate a design with a CXXRTL model that Yosys generates.
 
 27 flow-specific settings (plus the common ones): `xeda list-settings yosys_sim --json`
 
-Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`
 
 ## FPGA synthesis / implementation
 
@@ -149,7 +149,7 @@ Required settings: `fpga`
 
 60 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
 
-Reports: `fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`, `lut_basis.stage`, `lut_basis.method`, `clock_port`, `device`, `fabric`
+Reports: `fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`, `lut_basis.stage`, `lut_basis.method`, `clock_port`, `cell_types`, `device`, `fabric`
 
 ### `openfpgaloader`
 
@@ -243,7 +243,7 @@ Required settings: `fpga`
 
 69 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
-Reports: `lut`, `ff`, `lut_use.logic`, `lut_use.ram`, `lut_use.srl`, `lut_basis.stage`, `lut_basis.method`
+Reports: `lut`, `ff`, `dsp`, `lut_use.logic`, `lut_use.ram`, `lut_use.srl`, `lut_basis.stage`, `lut_basis.method`, `latch`, `bram.ramb18`, `bram.ramb36`, `cell_types`
 
 ## ASIC synthesis
 
@@ -325,7 +325,7 @@ Group `abc`: `abc.strategy`, `abc.driver_cell`, `abc.load`; 14 more: `xeda list-
 
 Group `finish`: `finish.tie_undefined`, `finish.tie_cells`, `finish.buffer_cell`; 7 more: `xeda list-settings yosys --tier expert --json`
 
-Reports: `area`, `cells`, `platform`
+Reports: `area`, `cells`, `cell_types`, `platform`
 
 ## Other
 

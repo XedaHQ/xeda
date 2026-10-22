@@ -305,11 +305,11 @@ def test_the_measured_counter_reports_occupied_luts_not_positions(tmp_path, monk
     r = flow.results
     assert ok is True
     assert r["lut"] == 29  # physical LUT locations: (tile, site, A-D)
-    assert r["SLICE_LUTX"] == 57  # nextpnr's own count: 5LUT/6LUT positions
+    assert r["cell_types"]["SLICE_LUTX"] == 57  # nextpnr's own count: 5LUT/6LUT positions
     assert r["lut_basis.stage"] == "placed and routed"
     assert "placement dump" in r["lut_basis.method"]
-    assert r["ff"] == 25 and r["SLICE_FFX"] == 25
-    assert r["CARRY4"] == 7  # raw, never folded into another resource
+    assert r["ff"] == 25 and r["cell_types"]["SLICE_FFX"] == 25
+    assert r["cell_types"]["CARRY4"] == 7  # never folded into another resource
     assert r["bram"] == 0 and r["dsp"] == 0 and r["io"] == 2
     assert r["fmax"] == pytest.approx(325.839, abs=1e-3)
     assert r["clock_frequency"] == 100 and r["timing_met"] is True
@@ -330,7 +330,7 @@ def test_the_two_outputs_of_a_lut6_2_are_two_locations(tmp_path, monkeypatch, pr
         tmp_path, monkeypatch, prefix, _resource("lut6_2_report"), _resource("lut6_2_placement")
     )
     assert ok is True
-    assert flow.results["lut"] == 2 and flow.results["SLICE_LUTX"] == 2
+    assert flow.results["lut"] == 2 and flow.results["cell_types"]["SLICE_LUTX"] == 2
     assert "fmax" not in flow.results and "clock_port" not in flow.results
     assert flow.results["ff"] == 0
 
@@ -342,7 +342,7 @@ def test_ram_and_shift_register_luts_count_as_the_locations_they_occupy(
         tmp_path, monkeypatch, prefix, _resource("ram_srl_report"), _resource("ram_srl_placement")
     )
     assert ok is True
-    assert flow.results["lut"] == 12 and flow.results["SLICE_LUTX"] == 20
+    assert flow.results["lut"] == 12 and flow.results["cell_types"]["SLICE_LUTX"] == 20
     assert flow.results["ff"] == 8
     # one domain, named for a net inside the RAM, and no single clock xeda knows: no port
     assert "clock_port" not in flow.results
@@ -389,7 +389,7 @@ def test_an_unusable_placement_dump_gives_no_lut_count(tmp_path, monkeypatch, pr
     )
     assert ok is True
     assert "lut" not in flow.results and "lut_basis.method" not in flow.results
-    assert flow.results["SLICE_LUTX"] == 3
+    assert flow.results["cell_types"]["SLICE_LUTX"] == 3
 
 
 def test_a_previous_run_s_placement_dump_is_not_counted(tmp_path, monkeypatch, prefix):

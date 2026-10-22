@@ -67,10 +67,12 @@ def test_area_comes_from_the_report(parsed_flow: Yosys):
 
 
 def test_per_cell_type_counts_are_reported(parsed_flow: Yosys):
-    """`num_cells_by_type` is splatted into the results, keyed by liberty cell name."""
+    """`num_cells_by_type` is one table in the results, keyed by liberty cell name. No cell name
+    is a key of the results."""
     by_type = json.loads(STAT_REPORT.read_text())["design"]["num_cells_by_type"]
-    for cell, count in by_type.items():
-        assert parsed_flow.results.get(cell) == count, cell
+    assert parsed_flow.results.get("cell_types") == by_type
+    for cell in by_type:
+        assert cell not in parsed_flow.results, cell
 
 
 @pytest.mark.parametrize(

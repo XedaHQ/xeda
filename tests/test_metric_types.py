@@ -8,20 +8,36 @@ oracle is `tests/metric_types.py`: an integer is an `int` and no `bool`, a numbe
 import json
 from pathlib import Path
 
+import pytest
 
 from xeda import Design
 from xeda.flow import FPGA, MetricSpec
+from xeda.flow.sim import SimEvent, SimEvidence, SimFlow, judge_evidence
 from xeda.flows import Dc, Nextpnr, Quartus, VivadoPower, Yosys, YosysFpga
 from xeda.flows.openroad import Openroad
 
-from .metric_types import VALUE_TESTS, descriptor_of, described_keys, mismatches
+from .metric_types import (
+    VALUE_TESTS,
+    descriptor_of,
+    described_keys,
+    mismatches,
+    undescribed_keys,
+)
+from .test_documentation import FLOW_CLASSES
 from .test_nextpnr import load_ecp5_report, make_flow
+from .test_sim_evidence import _Stub
 from .test_openroad_final import parsed as parsed_openroad_final
 from .test_yosys_results import RESOURCES_DIR, parsed_flow  # noqa: F401  (a fixture)
 
+SIM_FLOW_CLASSES = [cls for cls in FLOW_CLASSES if issubclass(cls, SimFlow)]
 
-def check(flow_class, results, minimum: int) -> None:
+
+def check(flow_class, results, minimum: int, *, all_described: bool = False) -> None:
+    """Check the types of the described keys. With `all_described`, every key must be described
+    (or internal)."""
     assert not mismatches(flow_class, results)
+    if all_described:
+        assert not undescribed_keys(flow_class, results)
     assert len(described_keys(flow_class, results)) >= minimum
 
 
@@ -54,11 +70,22 @@ def test_the_oracle_finds_a_value_of_the_wrong_type():
 
 
 def test_yosys_writes_the_declared_types(parsed_flow):  # noqa: F811
-    check(Yosys, parsed_flow.results, 2)
+    check(Yosys, parsed_flow.results, 2, all_described=True)
+    by_type = json.loads((RESOURCES_DIR / "yosys" / "stat_liberty.json").read_text())
+    assert parsed_flow.results["cell_types"] == by_type["design"]["num_cells_by_type"]
 
 
 def test_yosys_fpga_writes_the_declared_types(tmp_path):
-    cells = {"LUT6": 5, "LUT2": 3, "FDRE": 7, "FDCE": 1, "LDCE": 1, "RAMB36E1": 1, "DSP48E1": 2}
+    cells = {
+        "LUT6": 5,
+        "LUT2": 3,
+        "FDRE": 7,
+        "FDCE": 1,
+        "LDCE": 1,
+        "RAMB36E1": 1,
+        "DSP48E1": 2,
+        "CARRY4": 2,
+    }
     report = tmp_path / "utilization.json"
     report.write_text(json.dumps({"design": {"num_cells_by_type": cells}, "modules": {}}))
     design = Design.from_file(RESOURCES_DIR / "design0" / "design0.toml")
@@ -66,13 +93,35 @@ def test_yosys_fpga_writes_the_declared_types(tmp_path):
     flow.init()
     flow.artifacts.utilization_report = report
     assert flow.parse_reports()
-    check(YosysFpga, flow.results, 6)
+    check(YosysFpga, flow.results, 6, all_described=True)
+    assert flow.results["latch"] == 1 and flow.results["dsp"] == 2
+    assert flow.results["bram.ramb36"] == 1 and "bram.ramb18" not in flow.results
+    assert flow.results["cell_types"] == {"CARRY4": 2}
+
+
+@pytest.mark.parametrize("flow_class", SIM_FLOW_CLASSES, ids=lambda cls: cls.name)
+def test_every_simulation_flow_writes_the_declared_types(flow_class):
+    flow = _Stub()
+    judge_evidence(
+        flow,
+        SimEvidence(
+            ended_by="finish",
+            time=42,
+            time_unit="1ps",
+            events=[SimEvent(kind="warning", message="w"), SimEvent(kind="error", message="e")],
+        ),
+        "fatal",
+    )
+    check(flow_class, flow.results, 5, all_described=True)
+    assert flow.results["sim.time"] == 42_000
+    assert (flow.results["sim.errors"], flow.results["sim.warnings"]) == (1, 1)
 
 
 def test_nextpnr_writes_the_declared_types(tmp_path):
     flow = make_flow(tmp_path, load_ecp5_report())
     assert flow.parse_reports()
-    check(Nextpnr, flow.results, 8)
+    check(Nextpnr, flow.results, 8, all_described=True)
+    assert flow.results["cell_types"]["TRELLIS_COMB"] == flow.results["lut"]
 
 
 TIMING_MAX = """\

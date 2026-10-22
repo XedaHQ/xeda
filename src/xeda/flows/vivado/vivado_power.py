@@ -47,16 +47,18 @@ class VivadoPower(Vivado, FpgaSynthFlow):
         ),
         "power.static": MetricSpec("Static (leakage) power of the device.", "number", "W"),
         "power.effective_tja": MetricSpec(
-            "Effective junction-to-ambient thermal resistance, in degrees Celsius per watt.",
+            "Effective junction-to-ambient thermal resistance, in kelvin per watt.",
             "number",
+            "K/W",
         ),
         "power.junction_temperature": MetricSpec(
-            "Estimated junction temperature in degrees Celsius.", "number"
+            "Estimated junction temperature in degrees Celsius.", "number", "degC"
         ),
         "power.thermal_margin": MetricSpec(
-            "Margin between the estimated junction temperature and the limit, in degrees "
-            "Celsius.",
+            "Margin between the estimated junction temperature and the limit. It is a "
+            "temperature difference.",
             "number",
+            "delta_degC",
         ),
         "power.confidence": MetricSpec(
             'Vivado\'s confidence in the estimate, e.g. "High".', "text"

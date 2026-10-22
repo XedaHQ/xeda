@@ -144,8 +144,8 @@ def test_nvc_runtime_evidence(
     )
     assert flow is not None and flow.succeeded is passes
     assert flow.results["sim.ended_by"] == ended
-    assert flow.results["sim.time"] == time
-    assert flow.results["sim.time_unit"] == "1fs"
+    assert flow.results.get("sim.time") == time
+    assert "sim.time_unit" not in flow.results
     saved = json.loads((flow.run_path / "results.json").read_text())
     assert saved["sim.evidence"] == flow.results["sim.evidence"]
     assert flow.settings.messages == messages
