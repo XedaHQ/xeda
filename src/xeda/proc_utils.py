@@ -569,9 +569,9 @@ def run_process(
     interrupted wait also stops a child that outlived the tool and still holds its output open,
     because Xeda reaps the tool only after the output ends.
 
-    The process starts in `cwd`. Its environment variable `PWD` is then `cwd` as an absolute
-    path, not resolved, and replaces an inherited value or one in `env`. `env` itself is not
-    changed.
+    The process starts in `cwd`, else in the current directory. Its environment variable `PWD`
+    names that directory (`cwd` as an absolute path, not resolved) and replaces an inherited
+    value or one in `env`. `env` itself is not changed.
 
     `tee` also writes every line of the output to this file. The output is then not captured, so
     `tee` with a `stdout` other than `None` is a `ValueError`. A `stdout` that is a path sends
@@ -620,11 +620,12 @@ def run_process(
     args = [str(a) for a in args]
     if env is not None:
         env = {k: str(v) for k, v in env.items() if v is not None}
-    if cwd is not None:
-        # The process starts in `cwd`, and `PWD` says so to a program that reads it (a shell, a
-        # build script): never an inherited or given value that names another directory. It is
-        # the path as given, not resolved, as a shell keeps it after `cd` through a link.
-        env = {**(os.environ if env is None else env), "PWD": os.path.abspath(cwd)}
+    # `PWD` names the directory that the process starts in, for a program that reads it (a shell,
+    # a build script): never an inherited or given value that names another directory. It is
+    # `cwd` as given, not resolved, as a shell keeps it after `cd` through a link. Without `cwd`,
+    # the process starts in the current directory of Xeda.
+    pwd = os.getcwd() if cwd is None else os.path.abspath(cwd)
+    env = {**(os.environ if env is None else env), "PWD": pwd}
     command: List[str] = [str(c) for c in (executable, *args)]
     cmd_str = " ".join(map(lambda x: str(x), command))
     if print_command:

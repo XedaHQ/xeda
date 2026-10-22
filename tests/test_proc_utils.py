@@ -1728,3 +1728,14 @@ def test_the_pwd_of_a_process_keeps_the_spelling_of_a_linked_directory(tmp_path)
     pwd, cwd = _directory_seen(cwd=link)
     assert pwd == str(link)
     assert os.path.samefile(cwd, real)
+
+
+def test_a_process_without_a_directory_gets_the_current_directory_as_pwd(monkeypatch):
+    monkeypatch.setenv("PWD", "/no/such/directory")
+    pwd, cwd = _directory_seen()
+    assert os.path.samefile(pwd, os.getcwd())
+    assert os.path.samefile(cwd, os.getcwd())
+    env = {"PWD": "/no/such/directory"}
+    pwd, _ = _directory_seen(env=env)
+    assert os.path.samefile(pwd, os.getcwd())
+    assert env == {"PWD": "/no/such/directory"}

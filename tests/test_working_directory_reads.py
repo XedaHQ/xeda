@@ -90,6 +90,7 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
     ("flow_runner/default_runner.py", "FlowLauncher._validate_plan"): "relative setting paths",
     ("flow_runner/default_runner.py", "FlowLauncher.plan_with_freshness"): "relative setting paths",
     ("flow_runner/default_runner.py", "FlowLauncher.resolve"): "relative setting paths",
+    ("proc_utils.py", "run_process"): "the `PWD` of a process started without a directory",
     ("remote/client.py", "_run"): "the default run root of a command",
     ("remote/packaging.py", "package_inputs"): "relative setting paths",
     ("remote/packaging.py", "package_inputs.packaged_liberty"): "relative setting paths",
