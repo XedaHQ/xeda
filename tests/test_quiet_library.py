@@ -423,3 +423,11 @@ def test_a_failed_result_names_the_launch_of_the_records_of_the_launch_that_fail
     error = ErrorInfo("internal_error", "a bug", None, None, None)
     result = failed_result(runner, spec, None, error, launch_id=launch_id_of(raised[0]))
     assert result.launch_id == inside.xeda_launch_id
+
+
+def test_a_failed_capture_says_the_last_lines_of_its_output() -> None:
+    """A captured command has no log; when it fails, its error says what it printed."""
+    script = "import sys; print('the reason'); print('more', file=sys.stderr); sys.exit(3)"
+    with pytest.raises(NonZeroExitCode) as failed:
+        run_process(sys.executable, ["-c", script], stdout=True)
+    assert "the reason" in str(failed.value) and "more" in str(failed.value)

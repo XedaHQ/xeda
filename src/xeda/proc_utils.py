@@ -845,7 +845,7 @@ def _run_capturing(
 ) -> str:
     """Run a child and return its output. The error output joins the output with `merge_stderr`.
     Without it, the error output goes to the standard error in `"terminal"` mode and to the
-    `xeda` logger at DEBUG otherwise."""
+    `xeda` logger at DEBUG otherwise. A failure says the last lines of the output."""
     show = TOOL_OUTPUT.get() == "terminal"
     with subprocess.Popen(
         command,
@@ -863,9 +863,10 @@ def _run_capturing(
         log.debug("Started %s[%d]", command[0], proc.pid)
         with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
             out, err = proc.communicate(timeout=None)
-    _finish(command, proc, deadline, check, timeout)
     for line in (err or "").splitlines():
         log.debug("%s: %s", Path(command[0]).name, line)
+    lines = [*(out or "").splitlines(), *(err or "").splitlines()]
+    _finish(command, proc, deadline, check, timeout, lines[-OUTPUT_TAIL_LINES:])
     return out.strip()
 
 
