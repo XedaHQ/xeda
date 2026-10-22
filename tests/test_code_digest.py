@@ -566,3 +566,23 @@ def test_a_class_in_the_tree_of_its_base_adds_nothing_to_the_flow_code_digest(pl
     names = [name for name, _ in _named_files(plugin.flow_class)]
     assert f"{plugin.package}/more.py" in names
     assert flow_code_digest(second) == flow_code_digest(plugin.flow_class)
+
+
+def test_two_code_roots_with_the_same_file_count_twice(tmp_path, monkeypatch):
+    """Two modules in two places, with the same name and the same text, are two roots: taking one
+    of them away from the classes of a flow changes the digest."""
+    classes = []
+    for place in ("one", "two"):
+        _write(tmp_path / place / "twin.py", "class Twin:\n    pass\n")
+        spec = importlib.util.spec_from_file_location(
+            f"twin_{place}_{uuid.uuid4().hex[:8]}", tmp_path / place / "twin.py"
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, spec.name, module)
+        spec.loader.exec_module(module)
+        classes.append(module.Twin)
+    monkeypatch.setattr(code_digest, "plugin_classes", lambda flow_class: classes)
+    both = flow_code_digest(Flow)
+    monkeypatch.setattr(code_digest, "plugin_classes", lambda flow_class: classes[:1])
+    assert flow_code_digest(Flow) != both
