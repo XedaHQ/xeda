@@ -144,7 +144,7 @@ def test_post_cleanup_purge_alone_removes_every_run_directory(tmp_path, toy_flow
 
 
 def test_post_cleanup_keeps_reported_artifacts_and_removes_other_files(tmp_path, design):
-    """Artifact values can be nested and can be reported through either results mapping."""
+    """Artifacts can be reported through either results mapping, as files and links."""
     external = tmp_path / "external.txt"
     external.write_text("outside the run directory")
 
@@ -172,9 +172,9 @@ def test_post_cleanup_keeps_reported_artifacts_and_removes_other_files(tmp_path,
             (self.run_path / "top_link.txt").symlink_to("targets/real.txt")
             (self.run_path / "external_link.txt").symlink_to(external)
             self.artifacts["netlist"] = "top.txt"
-            self.artifacts["outputs"] = {"primary": ["outputs/kept.txt", None, ""]}
-            self.artifacts["bundle"] = "bundle"
-            self.artifacts["links"] = ["top_link.txt", "external_link.txt"]
+            self.artifacts["primary"] = "outputs/kept.txt"
+            self.artifacts["link"] = "top_link.txt"
+            self.artifacts["external_link"] = "external_link.txt"
             self.artifacts["external"] = external
             self.results.artifacts["result"] = "reports/result.txt"
 
@@ -188,9 +188,6 @@ def test_post_cleanup_keeps_reported_artifacts_and_removes_other_files(tmp_path,
         assert flow.succeeded
         assert external.read_text() == "outside the run directory"
         assert sorted(str(p.relative_to(flow.run_path)) for p in flow.run_path.rglob("*")) == [
-            "bundle",
-            "bundle/netlist.v",
-            "bundle/other.txt",
             "external_link.txt",
             "outputs",
             "outputs/kept.txt",
@@ -208,27 +205,27 @@ def test_post_cleanup_keeps_reported_artifacts_and_removes_other_files(tmp_path,
             registered_flows.pop(name, None)
 
 
-def test_post_cleanup_keeps_a_run_directory_artifact(tmp_path, design):
-    """The run directory itself can be a reported directory artifact."""
+def test_a_directory_is_no_artifact(tmp_path, design):
+    """An artifact is one file: the record refuses a directory."""
 
     class DirectoryFlow(Flow):
-        """Report the full run directory."""
+        """Report a directory."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
-            (self.run_path / "whole_run.txt").write_text("keep")
-            self.artifacts["directory"] = "."
+            (self.run_path / "bundle").mkdir()
+            (self.run_path / "bundle" / "whole.txt").write_text("keep")
+            self.artifacts["directory"] = "bundle"
 
         def parse_reports(self) -> bool:
             return True
 
     try:
-        flow = DefaultRunner(
-            tmp_path / "run", display_results=False, post_cleanup=True
-        ).launch_flow(DirectoryFlow, design, {})
-        assert flow.succeeded
-        assert (flow.run_path / "whole_run.txt").read_text() == "keep"
+        with pytest.raises(ValueError, match="a directory"):
+            DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
+                DirectoryFlow, design, {}
+            )
     finally:
         for name in (DirectoryFlow.name, DirectoryFlow.__name__):
             registered_flows.pop(name, None)

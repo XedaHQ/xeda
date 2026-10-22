@@ -1298,14 +1298,26 @@ class ToolException(XedaException):
 
 class NonZeroExitCode(ToolException):
     """A command ended with a nonzero exit code. `args` holds what the tool reported, if the
-    caller knows it. The message shows it after the code."""
+    caller knows it. The message shows it after the code.
 
-    def __init__(self, command_args: Any, exit_code: int, *args: object) -> None:
+    `program` is the program that failed, as the flow started it. `Tool` sets it. It can differ
+    from the first word of `command_args`: a container runs the program through `docker`."""
+
+    program: str | None = None
+
+    def __init__(
+        self, command_args: Any, exit_code: int, *args: object, program: str | None = None
+    ) -> None:
         if isinstance(command_args, (list, tuple)):
             command_args = " ".join(map(str, command_args))
         self.command_args = command_args
         self.exit_code = exit_code
+        self.program = program
         super().__init__(*args)
+
+    def with_message(self, *args: object):
+        """Return the same failure with `args` as what the tool reported."""
+        return NonZeroExitCode(self.command_args, self.exit_code, *args, program=self.program)
 
     def __str__(self) -> str:
         message = f"Command '{self.command_args}' exited with code {self.exit_code}!"

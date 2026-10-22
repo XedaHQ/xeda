@@ -121,7 +121,7 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
                 ),
                 e.exit_code,
             )
-        flow.results["error"] = error_info(e, node=flow.name).as_json_value()
+        flow.results["error"] = error_info(e, node=flow.name, flow=flow).as_json_value()
     if flow.init_time is not None:
         flow.results.runtime = time.monotonic() - flow.init_time
     reports_ok: bool | None = None

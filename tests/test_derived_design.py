@@ -543,13 +543,6 @@ def test_bsc_records_the_design_from_what_it_collected(tmp_path, capfd) -> None:
     library = shape[1:-5]
     assert library and all(kind == "G" for kind, _ in library)
     assert [name for kind, name in shape if kind == "G"][1:-2] == [name for _, name in library]
-    # artifacts.verilog lists the same Verilog files, in the same order
-    verilog = [
-        str(design.rtl.sources[item["source"]].file) if "source" in item else item["generated"]
-        for item in record["sources"]
-        if item.get("type") == "Verilog"
-    ]
-    assert verilog == flow.artifacts.verilog
     assert all(len(set(item.values())) == len(item) for item in record["sources"])
     assert (record["top"], record["kind"]) == ("mkTop", "design")
     assert record["input_design"] == design.parts_hash({"rtl", "tb"})

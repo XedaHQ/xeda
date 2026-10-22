@@ -440,8 +440,9 @@ def run_dir(tmp_path: Path, name: str = "openroad") -> Path:
     return tmp_path / "xeda_run" / "counter" / name
 
 
-def xeda_run(tmp_path: Path, *settings: str) -> tuple[Any, dict]:
-    """Run `xeda run openroad --json` and return the result and its document."""
+def xeda_run(tmp_path: Path, *settings: str, **named: Any) -> tuple[Any, dict]:
+    """Run `xeda run openroad --json` and return the result and its document. `named` are the
+    options of `chain_settings` (`layout=True`)."""
     result = CliRunner().invoke(
         cli,
         [
@@ -451,7 +452,7 @@ def xeda_run(tmp_path: Path, *settings: str) -> tuple[Any, dict]:
             "--run-root",
             str(tmp_path / "xeda_run"),
             "-s",
-            *chain_settings(tmp_path, *settings),
+            *chain_settings(tmp_path, *settings, **named),
             "--json",
         ],
     )

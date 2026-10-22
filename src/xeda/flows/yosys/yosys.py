@@ -16,6 +16,8 @@ from ...flow import (
     SynthFlow,
     MetricSpec,
     describe_results,
+    ArtifactSpec,
+    describe_artifacts,
 )
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from ...flow.flow import FlowSettingsException
@@ -38,6 +40,8 @@ from .asic_groups import (
 )
 from .flag_hatches import LIBERTY_HATCHES, flag_problems
 from .common import (
+    REPORT_ARTIFACTS,
+    RTL_ARTIFACTS,
     STOP_AFTER_DESCRIPTION,
     YosysBase,
     YosysSynthesisBase,
@@ -314,6 +318,15 @@ def _no_liberty_message(settings: "Yosys.Settings", key: str) -> str:
 
 class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
     """Synthesize a design with Yosys to a standard-cell, gate or LUT netlist."""
+
+    artifacts_description = describe_artifacts(
+        "log",
+        **RTL_ARTIFACTS,
+        **REPORT_ARTIFACTS,
+        netlist_json=ArtifactSpec(
+            "The synthesized netlist as JSON.", "when the setting `netlist_json` is set"
+        ),
+    )
 
     results_description = describe_results(
         "area",
@@ -698,6 +711,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             ss.abc_dff = not ss.maps_to_liberty()
         super().init()
         ss.liberty = [self.normalize_path_to_design_root(lib) for lib in ss.liberty]
+        if ss.netlist_json:  # the Verilog netlist is the declared output
+            self.artifacts.netlist_json = ss.netlist_json
 
     def prepare_inputs(self) -> None:
         """Build the platform model, when abc maps to the liberty library of a platform."""

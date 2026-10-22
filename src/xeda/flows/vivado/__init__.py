@@ -10,7 +10,11 @@ import colorama
 
 from ...dataclass import Field
 from ...design import DesignSource, SourceType
-from ...flow import Flow, SynthFlow
+from ...flow import (
+    Flow,
+    SynthFlow,
+    describe_artifacts,
+)
 from ...tool import Docker, Tool
 from ...utils import tcl_word
 
@@ -134,6 +138,8 @@ class Vivado(Flow, metaclass=ABCMeta):
     """Base class of the AMD Vivado synthesis and simulation flows."""
 
     executables = ("vivado",)
+
+    artifacts_description = describe_artifacts("log")
 
     class Settings(Flow.Settings):
         tcl_shell: bool = Field(

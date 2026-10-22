@@ -1,11 +1,15 @@
 import logging
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
 from ...dataclass import Field, field_validator
 from ...design import SourceType
-from ...flow import Flow, FpgaSynthFlow
+from ...flow import (
+    Flow,
+    FpgaSynthFlow,
+)
 from .vivado_synth import (
+    VivadoImplementation,
     CHECKPOINT_SYNTH,
     OUT_OF_CONTEXT,
     RunOptions,
@@ -442,6 +446,9 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
     (`checkpoint_synth`, `checkpoint_place`, `checkpoint_route`). `bitstream` writes the
     bitstream.
     """
+
+    report_names: ClassVar[tuple[str, ...]] = VivadoImplementation.report_names
+    artifacts_description = VivadoImplementation.artifacts_description
 
     # Only project mode has Vivado runs, so there is no run `status`.
     results_description = {

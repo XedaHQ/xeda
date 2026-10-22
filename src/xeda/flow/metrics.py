@@ -1,7 +1,9 @@
-"""Descriptors of the metrics that a flow writes to `results.json`.
+"""Descriptors of the metrics and the artifacts that a flow writes to `results.json`.
 
 A flow declares each metric as a `MetricSpec`: a description, a type and a unit. `Flow` keeps them
-in `results_description`, and `xeda list-results` reports them.
+in `results_description`, and `xeda list-results` reports them. A flow declares each artifact as
+an `ArtifactSpec`: a description and the condition under which the run writes it. `Flow` keeps
+them in `artifacts_description`, and `xeda list-results` reports them as well.
 """
 
 from __future__ import annotations
@@ -10,17 +12,25 @@ import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional
 
 from ..units import is_metric_unit
 
 __all__ = [
+    "ARTIFACT_KEY",
     "COCOTB_METRICS",
+    "COMMON_ARTIFACTS",
     "COMMON_METRICS",
     "METRIC_PATH",
+    "ArtifactSpec",
     "MetricSpec",
     "MetricType",
+    "describe_artifacts",
     "describe_results",
+    "log_artifact_key",
+    "log_stem",
+    "program_logs",
     "metric_unit_known",
     "non_finite_in",
     "value_fits",
@@ -274,4 +284,96 @@ def describe_results(*shared: str, **own: MetricSpec) -> Dict[str, MetricSpec]:
         if not isinstance(spec, MetricSpec):
             raise TypeError(f"The metric {key!r} is described by a MetricSpec, not {spec!r}.")
         described[key] = spec
+    return described
+
+
+#: The spelling of an artifact key: lower snake case, starting with a letter. Match a key with
+#: `ARTIFACT_KEY.fullmatch`.
+ARTIFACT_KEY = re.compile(r"[a-z][a-z0-9_]*")
+
+
+@dataclass(frozen=True)
+class ArtifactSpec:
+    """What one artifact of a flow is: a description and the condition under which a run has it.
+
+    An artifact is one file in the run directory that the run keeps about its process or its
+    outputs: a log, a report, a waveform. `when` is a short condition, such as `always` or `when
+    the setting `sdf` is set`. A run that does not meet the condition has no such key."""
+
+    description: str
+    when: str
+
+
+#: The suffixes that a program name can have, and that its log does not keep.
+_PROGRAM_SUFFIXES = (".exe", ".bat", ".cmd", ".sh", ".py")
+
+
+def log_stem(executable: str) -> str:
+    """Return the name of the log of a program: its file name without a suffix such as `.exe`."""
+    name = Path(executable).name
+    suffix = Path(name).suffix
+    return name[: -len(suffix)] if suffix.lower() in _PROGRAM_SUFFIXES else name
+
+
+def log_artifact_key(program: str) -> str:
+    """Return the artifact key of the log of `program`: `<name>_log`, with the name in lower snake
+    case. Its file is `logs/<program>.log` (`log_stem`). The log of the main tool of a flow has the
+    key `log` instead (`Flow.main_executable`)."""
+    name = re.sub(r"[^a-z0-9]+", "_", log_stem(program).lower()).strip("_")
+    return f"{name}_log"
+
+
+def program_logs(*programs: str, when: str = "when the flow starts it") -> Dict[str, ArtifactSpec]:
+    """Describe the log of each program in `programs`, which a flow starts besides its main tool.
+
+    The key of each is `log_artifact_key(program)`."""
+    return {
+        log_artifact_key(program): ArtifactSpec(
+            f"Output of `{program}`, which the flow starts besides its main tool.", when
+        )
+        for program in programs
+    }
+
+
+#: Artifacts that several flows keep with the same meaning. A flow declares the subset it keeps
+#: through `describe_artifacts`, so `xeda list-results <flow>` never advertises an artifact that
+#: the flow does not write.
+COMMON_ARTIFACTS: Dict[str, ArtifactSpec] = {
+    "log": ArtifactSpec(
+        "Output and error output of the main tool of the flow, as `logs/<program>.log`.",
+        "when the flow starts its main tool",
+    ),
+    "waveform": ArtifactSpec(
+        "Waveform dump of the simulation (VCD or FST).",
+        "when the simulation writes a waveform",
+    ),
+    "simulation_log": ArtifactSpec(
+        "Output of the simulation program that the run built and started.",
+        "when the flow starts the simulation program",
+    ),
+}
+
+
+def describe_artifacts(*shared: str, **own: ArtifactSpec) -> Dict[str, ArtifactSpec]:
+    """Build a flow's `artifacts_description` from the shared artifacts plus its own.
+
+    Positional arguments name keys of `COMMON_ARTIFACTS`. A keyword argument adds an artifact of
+    the flow or replaces a shared one. A shared key that `COMMON_ARTIFACTS` lacks raises
+    `KeyError`. A key that is not lower snake case raises `ValueError`."""
+    described: Dict[str, ArtifactSpec] = {}
+    for key in shared:
+        try:
+            described[key] = COMMON_ARTIFACTS[key]
+        except KeyError:
+            raise KeyError(
+                f"No shared description for artifact key {key!r}. Add it to COMMON_ARTIFACTS, or "
+                "pass it as a keyword argument."
+            ) from None
+    for key, spec in own.items():
+        if not isinstance(spec, ArtifactSpec):
+            raise TypeError(f"The artifact {key!r} is described by an ArtifactSpec, not {spec!r}.")
+        described[key] = spec
+    for key in described:
+        if not ARTIFACT_KEY.fullmatch(key):
+            raise ValueError(f"The artifact key {key!r} is not lower snake case.")
     return described

@@ -199,6 +199,21 @@ def test_every_flow_declares_its_results(flow_class):
     )
 
 
+BUILT_IN_FLOWS = [cls for cls in FLOW_CLASSES if cls.__module__.startswith("xeda.flows.")]
+
+
+@pytest.mark.parametrize("flow_class", BUILT_IN_FLOWS, ids=[cls.name for cls in BUILT_IN_FLOWS])
+def test_every_flow_declares_its_artifacts(flow_class):
+    assert any(
+        "artifacts_description" in klass.__dict__
+        for klass in flow_class.__mro__
+        if klass is not Flow
+    ), (
+        f"{flow_class.name} does not declare `artifacts_description`. Declare the files it "
+        "keeps, or `artifacts_description = {}` if it keeps none."
+    )
+
+
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
 def test_every_metric_has_a_type_and_a_known_unit(flow_class):
     for path, spec in flow_class.results_description.items():
@@ -272,7 +287,14 @@ def test_a_cocotb_simulator_describes_the_cocotb_metrics(flow_class):
 def test_results_info_lists_the_declared_metrics(flow_class):
     info = results_info(flow_class)
     assert set(info) == {"flow", "metrics", "artifacts", "note"}
-    assert info["artifacts"] == []
+    assert [a["key"] for a in info["artifacts"]] == list(flow_class.artifacts_description)
+    for artifact in info["artifacts"]:
+        spec = flow_class.artifacts_description[artifact["key"]]
+        assert artifact == {
+            "key": artifact["key"],
+            "description": spec.description,
+            "when": spec.when,
+        }
     assert [m["path"] for m in info["metrics"]] == list(flow_class.results_description)
     for metric in info["metrics"]:
         spec = flow_class.results_description[metric["path"]]

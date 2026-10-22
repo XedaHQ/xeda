@@ -2,7 +2,12 @@ import logging
 
 from ...dataclass import Field, input_names
 from ...design import SourceType
-from ...flow import Flow, FpgaSynthFlow
+from ...flow import (
+    Flow,
+    FpgaSynthFlow,
+    ArtifactSpec,
+    describe_artifacts,
+)
 from ..vivado import Vivado
 from ..vivado.vivado_sim import VivadoSim
 from ..vivado.vivado_synth import (
@@ -40,6 +45,11 @@ class VivadoProject(Vivado, FpgaSynthFlow):
     """
 
     # Creating a project reports nothing beyond the keys every flow reports.
+    artifacts_description = describe_artifacts(
+        "log",
+        project=ArtifactSpec("The Vivado project file (.xpr).", "always"),
+    )
+
     results_description = {}
 
     #: The project's simulation fileset holds the testbench, so the flow reads `tb`.
@@ -106,7 +116,6 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         """Create the Vivado project and configure its synthesis and implementation runs."""
         assert isinstance(self.settings, self.Settings)
         settings = self.settings
-        self.artifacts.project = f"{self.design.name}.xpr"
 
         synth_steps, impl_steps = run_steps(settings, out_of_context=settings.out_of_context)
         # Repeat the check of planning, because a flow built directly is not planned.
@@ -135,4 +144,8 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         """Check that this run created the Vivado project file.
 
         A project file that a previous run left does not count (`Flow.report_file`)."""
-        return self.report_file(self.run_path / f"{self.design.name}.xpr") is not None
+        project = self.report_file(self.run_path / f"{self.design.name}.xpr")
+        if project is None:
+            return False
+        self.artifacts.project = project
+        return True

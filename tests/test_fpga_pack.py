@@ -146,7 +146,8 @@ def test_the_default_graph_synthesizes_places_and_packs(
     assert flow.outputs.bitstream == flow.run_path / name
     assert flow.outputs.bitstream.read_bytes() == BITSTREAM
     assert _results(flow)["outputs"]["bitstream"]["names"] == [name]
-    assert flow.artifacts["bitstream"] == flow.run_path / name
+    assert "bitstream" not in flow.artifacts  # a declared output is no artifact
+    assert flow.artifacts["log"] == f"logs/{packer}.log"
     assert not list(flow.run_path.glob(".xeda-pack-*"))
     assert len(_tools(tmp_path)) == 3
     again = runner.run("fpga_pack", design, flow_settings={"fpga": part})

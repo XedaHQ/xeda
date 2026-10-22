@@ -92,7 +92,13 @@ from ..utils import (
 
 from .derived import DesignConversion
 from .source_file import without_source_file
-from .metrics import MetricSpec, describe_results
+from .metrics import (
+    ArtifactSpec,
+    MetricSpec,
+    describe_results,
+    log_artifact_key,
+    log_stem,
+)
 from .io import (
     DESIGN,
     FlowInputs,
@@ -814,6 +820,14 @@ class Flow(metaclass=ABCMeta):
     #: `describe_results`.
     results_description: ClassVar[Dict[str, MetricSpec]] = {}
 
+    #: The artifacts this flow keeps, each with a description and the condition under which a run
+    #: has it. An artifact is one file in the run directory. The key is lower snake case
+    #: (`ARTIFACT_KEY`). `log` is the log of the main tool (`main_executable`), and `<name>_log`
+    #: the log of each other program that the flow starts (`log_artifact_key`). A declared output
+    #: is never an artifact. Reported by `xeda list-results <flow>`. Build it with
+    #: `describe_artifacts`.
+    artifacts_description: ClassVar[Dict[str, ArtifactSpec]] = {}
+
     #: Settings this flow cannot run without, each with what it is and how to give it (the text
     #: may name the flow as `{flow}`). Checked when the flow is launched, by
     #: `check_required_settings`, not when its settings are validated: a layer of settings, such
@@ -872,6 +886,30 @@ class Flow(metaclass=ABCMeta):
     #: them on the login `PATH` of a remote host. A program that a run builds (`simv`) is not
     #: one. `tests/test_flow_executables.py` finds the programs that the code names.
     executables: ClassVar[tuple[str, ...]] = ()
+
+    def main_executable(self) -> str:
+        """Return the program of the main tool of this flow. Its log is the artifact `log`.
+
+        That is the first of `executables`, unless the settings select another one. A flow that
+        names no program has no main tool: the empty text."""
+        executables = type(self).executables
+        return executables[0] if executables else ""
+
+    def note_tool_log(self, program: str, key: str | None = None) -> None:
+        """Register the log `logs/<program>.log` of a run of `program` as an artifact, if this run
+        wrote it.
+
+        The key is `key`, if the tool has one. Else it is `log` for the main tool
+        (`main_executable`) and `log_artifact_key(program)` for another program. A log that a program wrote before the run started (`start_run`), or that
+        an earlier run left, is no artifact."""
+        name = (Path("logs") / f"{log_stem(program)}.log").as_posix()
+        if not self.wrote_output(name):
+            return
+        if key is None:
+            main = log_stem(program) == log_stem(self.main_executable())
+            key = "log" if main else log_artifact_key(program)
+        self.artifacts[key] = name
+        self.tool_log_keys[log_stem(program)] = key
 
     @classmethod
     def required_settings_for(cls, settings: Flow.Settings) -> Mapping[str, str]:
@@ -1587,6 +1625,9 @@ class Flow(metaclass=ABCMeta):
         # Artifact labels map to paths or to nested mappings, lists and tuples of paths. Relative
         # paths are rooted at run_path. The launchers walk path leaves through `xeda.artifacts`.
         self.artifacts = Box()
+        #: The artifact key of the log of each program that wrote one in this run, by the name of
+        #: the program (`log_stem`).
+        self.tool_log_keys: dict[str, str] = {}
         self.results = self.Results()
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
         self.jinja_env.globals["sources_read"] = self.sources_read

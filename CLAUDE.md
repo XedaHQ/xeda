@@ -155,6 +155,12 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - Each flow needs its own docstring, a `results_description` from `describe_results(...)` (`{}`
   if none), each entry a `MetricSpec` with a type, and a unit when it is a physical quantity, and
   `description=` on every settings field (`tests/test_documentation.py`).
+- An artifact is one file in the run directory under a documented key: each flow has an
+  `artifacts_description` from `describe_artifacts(...)` (`{}` if none), and registers a key only
+  for a file the run wrote. `log` is the log of `Flow.main_executable()`, `<name>_log` that of
+  another program (`program_logs`), `simulation_log` that of a program the run builds
+  (`Tool.log_key`). A declared output is never an artifact, and a tool's own log is a working file
+  (`tests/test_artifact_inventory.py`).
 - `Flow.executables` lists every program the flow may start, helpers included; `xeda remote check`
   reads it (`tests/test_flow_executables.py` scans `Tool(...)` and `.derive(...)` calls).
 - A flow that reads design sources declares `reads_sources` and iterates `sources_read()`

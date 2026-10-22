@@ -15,7 +15,16 @@ from xml.sax.saxutils import escape as xml_escape
 
 from ...dataclass import Field, tier
 from ...design import SourceType
-from ...flow import Flow, In, MetricSpec, NoReplacement, Out, describe_results
+from ...flow import (
+    Flow,
+    In,
+    MetricSpec,
+    NoReplacement,
+    Out,
+    describe_results,
+    describe_artifacts,
+)
+from ...flow.metrics import program_logs
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import PlatformModel
 from ...tool import NonZeroExitCode, Tool
@@ -360,6 +369,11 @@ class Openroad(OpenroadStage):
     sets them again from the platform and the settings."""
 
     executables = OpenroadStage.executables + ("klayout",)
+
+    artifacts_description = describe_artifacts(
+        "log",
+        **program_logs("klayout", when="when the setting `write_gds` is on"),
+    )
 
     results_description = describe_results(
         "wns",
@@ -1067,10 +1081,8 @@ class Openroad(OpenroadStage):
             report = self.report_file(log_file, optional=True)
             found = failure_lines(report.read_text(errors="replace")) if report else []
             message = f"{self.name}: KLayout stopped while it merged the layout"
-            raise NonZeroExitCode(
-                error.command_args,
-                error.exit_code,
-                f"{message}; see klayout.log" + (": " + " | ".join(found) if found else ""),
+            raise error.with_message(
+                f"{message}; see klayout.log" + (": " + " | ".join(found) if found else "")
             ) from None
 
     def run(self) -> None:

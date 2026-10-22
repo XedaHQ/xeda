@@ -655,6 +655,12 @@ proc open_saif {path} {
     close $f
     return 1
 }
+# `open_vcd <file>` creates the waveform file, which the simulation then fills
+proc open_vcd {path} {
+    __record open_vcd $path
+    __output $path
+    return 1
+}
 # Synthetic xsim states using native Vivado 2024.2 forms measured on a real install.
 # A fixed-duration run advances even an empty queue; run all drains at its last event.
 set __xsim_time 0

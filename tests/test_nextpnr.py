@@ -491,7 +491,7 @@ def test_nextpnr_ice40_end_to_end(tmp_path, monkeypatch):
     assert flow is not None and flow.succeeded
     assert (flow.run_path / "config.asc").is_file()
     assert (flow.run_path / "report.json").is_file()
-    assert Path(flow.artifacts["asc"]).is_file()
+    assert flow.outputs.config == flow.run_path / "config.asc"
 
 
 # --------------------------------------------------------------------------- ECP5 PLL settings

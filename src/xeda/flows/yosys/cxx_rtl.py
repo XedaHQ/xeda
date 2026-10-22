@@ -10,14 +10,23 @@ from ...flow import (
     FlowSettingsException,
     NoReplacement,
     SimFlow,
+    describe_artifacts,
     describe_results,
+    ArtifactSpec,
 )
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import read_sim_evidence
 from ...flows.ghdl import GhdlSynth
 from ...tool import NonZeroExitCode
 from ...units import count
-from .common import READ_SOURCE_TYPES, YosysBase, YosysSynthesisBase, process_parameters
+from ...flow.metrics import program_logs
+from .common import (
+    RTL_ARTIFACTS,
+    READ_SOURCE_TYPES,
+    YosysBase,
+    YosysSynthesisBase,
+    process_parameters,
+)
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +54,18 @@ class YosysSim(YosysBase, SimFlow):
     """Simulate a design with a CXXRTL model that Yosys generates."""
 
     executables = YosysBase.executables + ("g++",)
+
+    artifacts_description = describe_artifacts(
+        "log",
+        "simulation_log",
+        **RTL_ARTIFACTS,
+        **program_logs("g++", when="always"),
+        cxxrtl_cpp=ArtifactSpec("The C++ model that yosys generates.", "always"),
+        cxxrtl_header=ArtifactSpec(
+            "The header of the C++ model.", "when the setting `cxxrtl.header` is set"
+        ),
+        simulator=ArtifactSpec("The simulation program that the flow builds.", "always"),
+    )
 
     # this flow sets no minimum yosys release
     minimum_yosys = None
@@ -211,7 +232,11 @@ class YosysSim(YosysBase, SimFlow):
         cxx_args += ["-include", monitor_header, monitor]
         cxx.run(*cxx_args)
         self.artifacts["simulator"] = sim_bin_file
-        sim_bin = yosys.derive(executable=str(self.run_file(sim_bin_file)), redirect_stdout=None)
+        sim_bin = yosys.derive(
+            executable=str(self.run_file(sim_bin_file)),
+            redirect_stdout=None,
+            log_key="simulation_log",
+        )
         self._driver_exit_code = None
         self._end_record = Path("cxxrtl_end.json")
         self._events_record = Path("cxxrtl_events.jsonl")

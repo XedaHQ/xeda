@@ -4,7 +4,14 @@ from typing import Any, List, Literal
 
 from ...dataclass import WORKING, Field
 from ...design import SourceType
-from ...flow import FlowFatalError, FlowSettingsException, FpgaSynthFlow, describe_results
+from ...flow import (
+    FlowFatalError,
+    FlowSettingsException,
+    FpgaSynthFlow,
+    describe_results,
+    ArtifactSpec,
+    describe_artifacts,
+)
 from ...tool import Tool
 
 log = logging.getLogger(__name__)
@@ -19,6 +26,16 @@ class DiamondSynth(FpgaSynthFlow):
     """
 
     executables = ("diamondc",)
+
+    artifacts_description = describe_artifacts(
+        "log",
+        timing_report=ArtifactSpec("Timing report of Diamond (.twr).", "when Diamond writes it"),
+        place_route_report=ArtifactSpec(
+            "Place and route report of Diamond (.par).", "when Diamond writes it"
+        ),
+        map_report=ArtifactSpec("Map report of Diamond (.mrp).", "when Diamond writes it"),
+        bitstream=ArtifactSpec("The bitstream (.bit) from Bitgen.", "always"),
+    )
 
     results_description = describe_results(
         "clock_period",

@@ -173,7 +173,7 @@ def test_ghdl_synth_writes_one_verilog_file_per_same_stem_source(tmp_path, ghdl_
         GhdlSynth, design, {"verilog_output": "vout"}
     )
     assert flow is not None and flow.succeeded
-    generated = [flow.run_path / p for p in flow.artifacts.generated_verilog]
+    generated = list(flow.outputs.verilog)
     assert [p.name for p in generated] == ["rtl_a_fifo.v", "rtl_b_fifo.v"]
     assert [_modules(p) for p in generated] == [["fifo_a"], ["fifo_b"]]
     assert "make" not in ghdl_commands
@@ -192,7 +192,7 @@ def test_ghdl_synth_single_output_needs_no_make(tmp_path, ghdl_commands):
     assert len(modules) == 3 and "top" in modules
     assert "make" not in ghdl_commands
     # a list in either output mode, so a consumer need not know which one ran
-    assert flow.artifacts.generated_verilog == [Path("stem.v")]
+    assert flow.outputs.verilog == [flow.run_path / "stem.v"]
 
 
 def test_ghdl_synth_output_name_collision_is_reported_before_synthesis(

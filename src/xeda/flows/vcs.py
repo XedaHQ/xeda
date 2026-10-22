@@ -8,7 +8,14 @@ from colorama import Style as style
 
 from ..dataclass import WORKING, Field, field_validator, waveform
 from ..design import SourceType
-from ..flow import Flow, FlowSettingsException, SimFlow, NoReplacement
+from ..flow import (
+    Flow,
+    FlowSettingsException,
+    SimFlow,
+    NoReplacement,
+    describe_artifacts,
+)
+from ..flow.metrics import program_logs
 from ..flow.flow import describe_results
 from ..flow.sim import SimEvidence
 from ..tool import Tool
@@ -29,6 +36,15 @@ class Vcs(SimFlow):
     """
 
     executables = ("vcs", "vlogan", "vhdlan", "fsdb2vcd", "vpd2vcd")
+
+    artifacts_description = describe_artifacts(
+        "log",
+        "simulation_log",
+        **program_logs("vlogan", when="when the design has Verilog or SystemVerilog sources"),
+        **program_logs("vhdlan", when="when the design has VHDL sources"),
+        **program_logs("fsdb2vcd", when="when the setting `fsdb` is set"),
+        **program_logs("vpd2vcd", when="when the setting `vpd` is set"),
+    )
 
     #: `vlogan` analyzes Verilog and SystemVerilog sources and finds a header through the directory
     #: it lies in (`+incdir+`). `vhdlan` analyzes VHDL.
@@ -304,7 +320,11 @@ class Vcs(SimFlow):
         # a user's script drives simv, so its output is the script's and stays uncolored
         driven_by_user = ss.ucli_script is not None
         self.simv = Tool(
-            "./simv", self, version_flag=None, highlight_rules=None if driven_by_user else rules
+            "./simv",
+            self,
+            version_flag=None,
+            highlight_rules=None if driven_by_user else rules,
+            log_key="simulation_log",
         )
 
     def run(self):

@@ -24,6 +24,8 @@ from ..flow import (
     Out,
     MetricSpec,
     describe_results,
+    ArtifactSpec,
+    describe_artifacts,
 )
 from ..tool import NonZeroExitCode, Tool
 from ..run_dir import RunDirectory
@@ -304,7 +306,39 @@ class Nextpnr(FpgaSynthFlow):
 
     executables = tuple(EXECUTABLES.get(family, f"nextpnr-{family}") for family in NEXTPNR_FAMILIES)
 
+    artifacts_description = describe_artifacts(
+        "log",
+        report=ArtifactSpec(
+            "JSON report of nextpnr: the achieved frequency, the utilization and the critical "
+            "paths. The flow reads its results from it.",
+            "when the setting `report` is set and nextpnr wrote the report",
+        ),
+        write=ArtifactSpec(
+            "Post-routing design as a JSON netlist.", "when the setting `write` is set"
+        ),
+        sdf=ArtifactSpec(
+            "Post-routing timing as an SDF file, for timing-annotated simulation.",
+            "when the setting `sdf` is set",
+        ),
+        placed_svg=ArtifactSpec(
+            "SVG image of the placed design.", "when the setting `placed_svg` is set"
+        ),
+        routed_svg=ArtifactSpec(
+            "SVG image of the routed design.", "when the setting `routed_svg` is set"
+        ),
+        placement=ArtifactSpec(
+            "Placement dump in JSON (cell to tile, site and bel), which the flow counts the LUTs "
+            "from.",
+            "for a Xilinx 7-series device",
+        ),
+    )
+
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
+
+    def main_executable(self) -> str:
+        """Return the program of the family of the device: `nextpnr-ecp5`, `nextpnr-himbaechel`..."""
+        family = self.io_family(self.settings)
+        return EXECUTABLES.get(family, f"nextpnr-{family}")
 
     #: Whether every constrained clock domain met its constraint, as the last
     #: `parse_reports()` found it. None if no report was parsed.
@@ -1041,9 +1075,7 @@ class Nextpnr(FpgaSynthFlow):
         more = len(reported) - len(shown)
         assert isinstance(self.settings, self.Settings)
         rest = f" (and {more} more in {self.settings.log})" if more else ""
-        return NonZeroExitCode(
-            error.command_args, error.exit_code, f"nextpnr error: {'; '.join(shown)}{rest}"
-        )
+        return error.with_message(f"nextpnr error: {'; '.join(shown)}{rest}")
 
     def _target(self) -> tuple[str, list[str]]:
         """Return the validated architecture and the device arguments of this flow."""
@@ -1249,9 +1281,11 @@ class Nextpnr(FpgaSynthFlow):
             raise FlowFatalError(
                 f"nextpnr did not write enabled {config[0]} configuration {declared.config}."
             )
-        for name in outputs:
+        # `log` is the working file that `--log` names, and `report` is registered when the
+        # flow has read it. The configuration is a declared output, and so no artifact.
+        for name in ("write", "sdf", "placed_svg", "routed_svg"):
             path = getattr(ss, name)
-            if name != "report" and path:
+            if path:
                 path = path if path.is_absolute() else self.run_path / path
                 if path.is_file() and self.wrote_output(path):  # never an earlier run's
                     self.artifacts[name] = path

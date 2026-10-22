@@ -232,7 +232,8 @@ for streaming or grepping.
 Discovering what comes back
 ===========================
 
-``xeda list-results <flow> --json`` lists the metrics that the flow writes to ``results.json``:
+``xeda list-results <flow> --json`` lists the metrics that the flow writes to ``results.json`` and
+its artifacts (see :ref:`artifact-keys`):
 
 .. code-block:: json
 
@@ -243,7 +244,10 @@ Discovering what comes back
          "type": "number", "unit": "MHz"},
         {"path": "lut", "description": "Number of LUTs used.", "type": "integer", "unit": null}
       ],
-      "artifacts": [],
+      "artifacts": [
+        {"key": "log", "description": "Output and error output of the main tool of the flow, ...",
+         "when": "when the flow starts its main tool"}
+      ],
       "note": "..."
     }
 
@@ -266,6 +270,35 @@ and routed`` for ``nextpnr``) and ``lut_basis.method`` beside it. Counts from di
 or stages are not certified comparable, and this holds in particular for Vivado's utilization
 report. ``fmax`` works the same way. Each tool times a design with its own model, so compare
 ``fmax`` only between runs of the same tool (see :ref:`flow-results`).
+
+.. _artifact-keys:
+
+Artifact keys
+-------------
+
+``xeda list-results <flow> --json`` lists the artifacts of a flow in ``artifacts``, each as
+``{key, description, when}``. ``when`` is the condition under which a run has the key. The table of
+``xeda list-results`` shows them under the metrics. A key is lower snake case.
+
+- ``log`` is the output of the main tool of the flow, in ``logs/<program>.log``. Every flow that
+  starts a tool has it. For ``nextpnr`` and ``fpga_pack`` the main tool is the program of the
+  device family, and for ``dc`` it is the program that ``dc_shell_name`` names.
+- ``<name>_log`` is the log of another program that the flow starts, such as ``klayout_log`` for
+  ``openroad`` or ``g_log`` for the compiler ``g++``. The name is the program name in lower snake
+  case.
+- ``simulation_log`` is the output of the simulation program that the run built (``bsc_sim``,
+  ``verilator``, ``vcs``, ``yosys_sim``).
+- ``waveform`` is a waveform that the simulation wrote.
+- A report has the lower snake case of its file name as key, with the extension: the Vivado flows
+  keep the reports of the last step, ``route_design``, as ``timing_summary_rpt``,
+  ``utilization_xml`` and so on.
+
+A tool can keep a log of its own, such as the file that ``--log`` gives to nextpnr. That file is a
+working file and no artifact: ``log`` already holds the output of the tool.
+
+``error.log`` names the key of the log to read after a failure. For a program that exited with a
+nonzero status it is the key of that program, so a failure of KLayout points at ``klayout_log``. In
+every other case it is ``log``, if the run wrote one, and ``null`` if not.
 
 .. _results-json:
 
@@ -312,8 +345,9 @@ The record has these fields:
     the run wrote none. ``design`` holds the derived design of a converter.
 ``artifacts``
     The files that the run wrote for a reader, by key, as names relative to the run directory. A
-    key that held several files has one key for each: ``reports[0]``, ``reports[1]``. A file
-    outside the run directory is not listed.
+    key names one file, and the flow documents it (see :ref:`artifact-keys`). A key is present only
+    when the run wrote its file. A file outside the run directory is not listed. A declared output
+    is never an artifact.
 ``settings``
     The effective settings of the node, as ``settings.json`` writes them.
 ``inputs``
@@ -570,7 +604,7 @@ the name of a class, and stable enough to branch on. The set of codes is open: a
 add codes, so keep an unknown code as text. ``message`` is the text for a person, without the name of a class in front of it (the log line has
 the name). ``node`` names the
 node that the error belongs to, or is ``null`` for an error of the whole launch. ``exit_status`` is
-the exit status of the tool for ``nonzero_exit``. ``log`` is the artifact to read, or ``null``.
+the exit status of the tool for ``nonzero_exit``. ``log`` is the key of the artifact to read for the cause (see :ref:`artifact-keys`), or ``null``.
 
 The code of an error of a node, in its ``record.error`` and in the top-level ``error`` when it is
 the cause:

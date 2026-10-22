@@ -64,11 +64,13 @@ def test_ise_synth_py(monkeypatch) -> None:
             "place_route_report": Path(f"{top}_par.xrpt"),
             "synthesis_report": Path(f"{top}.syr"),
         }
+        assert flow.artifacts.pop("log") == "logs/xtclsh.log"
         assert flow.artifacts == expected
         assert all(path.is_file() for path in expected.values())
         recorded_artifacts = json.loads(results_json.read_text())["artifacts"]
         assert recorded_artifacts == {
-            k: v.relative_to(flow.run_path).as_posix() for k, v in expected.items()
+            "log": "logs/xtclsh.log",
+            **{k: v.relative_to(flow.run_path).as_posix() for k, v in expected.items()},
         }
 
 
@@ -90,7 +92,7 @@ flow = DefaultRunner(Path(sys.argv[1]), rebuild_all=True).run_flow(IseSynth, des
 print(json.dumps(dict(
     run_path=str(flow.run_path),
     success=bool(flow.results.success),
-    artifacts=[str(path) for path in flow.artifacts.values()],
+    artifacts={{key: str(path) for key, path in flow.artifacts.items()}},
 )))
 """
 
@@ -133,7 +135,7 @@ def test_a_failed_ise_run_leaves_nothing_of_the_previous_run_in_its_run_director
 ) -> None:
     """ISE empties its run directory before running (a stale ISE project would be reopened
     otherwise), so a run whose tool writes nothing leaves none of the previous run's outputs
-    (bitstream, reports) and lists no artifacts. The run directory is xeda's; the user's own
+    (bitstream, reports) and lists no artifact but its log. The run directory is xeda's; the user's own
     files, in the directory xeda was started from, are never touched."""
     work = tmp_path / "work"
     work.mkdir()
@@ -167,7 +169,7 @@ def test_a_failed_ise_run_leaves_nothing_of_the_previous_run_in_its_run_director
     assert second["run_path"] == first["run_path"]
     assert not second["success"]
     assert [path for path in earlier if path.exists()] == []
-    assert not second["artifacts"]
+    assert set(second["artifacts"]) == {"log"}  # no output of the failed run, only its log
     assert all(path.read_text() == "the user's\n" for path in theirs)
     assert (work / "rtl" / "core.vhdl").is_file()
 
@@ -184,7 +186,7 @@ def test_an_ise_run_without_its_bitstream_fails_naming_it(tmp_path, monkeypatch)
     with pytest.raises(FlowFatalError, match=re.escape(str(tmp_path / "design0.bit"))):
         flow.run()
     assert ["process", "run", "Generate Programming File"] in fake_calls(tmp_path)
-    assert not flow.artifacts
+    assert set(flow.artifacts) == {"log"}  # no output that does not exist, only the log
 
 
 def test_ise_needs_a_top_before_any_tool_runs(tmp_path, monkeypatch) -> None:

@@ -8,7 +8,15 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from ...dataclass import Field
 from ...design import SOURCE_SUFFIXES, Design, SourceType
-from ...flow import Flow, FlowFatalError, FlowSettingsException, FpgaSynthFlow, describe_results
+from ...flow import (
+    Flow,
+    FlowFatalError,
+    FlowSettingsException,
+    FpgaSynthFlow,
+    describe_results,
+    ArtifactSpec,
+    describe_artifacts,
+)
 from ...tool import Docker, OptionalBoolOrPath, Tool
 from ...utils import replacing_copy, tcl_word, try_convert_to_primitives
 
@@ -99,6 +107,15 @@ class IseSynth(FpgaSynthFlow):
     """
 
     executables = ("xtclsh",)
+
+    artifacts_description = describe_artifacts(
+        "log",
+        place_route_report=ArtifactSpec(
+            "Place and route report of ISE (.xrpt).", "when ISE writes it"
+        ),
+        synthesis_report=ArtifactSpec("Synthesis report of ISE (.syr).", "when ISE writes it"),
+        bitstream=ArtifactSpec("The bitstream (.bit) from bitgen.", "always"),
+    )
 
     results_description = describe_results(
         "minimum_period",

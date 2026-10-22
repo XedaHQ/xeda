@@ -564,29 +564,64 @@ def test_a_source_input_lists_its_file_with_its_digest(tmp_path, design):
     assert flow.record.inputs[0].sources[0].path == "given.dat"
 
 
-def test_an_artifact_is_a_name_in_the_run_directory(tmp_path, design):
+def test_an_artifact_is_one_name_in_the_run_directory(tmp_path, design):
     class Writes(Flow):
-        """Registers a file, a list of files, a file outside the run and a value that is none."""
+        """Registers a file, a file outside the run, a file not there and a value that is none."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
-            for name in ("one.log", "a.rpt", "b.rpt"):
-                (self.run_path / name).write_text(name)
+            (self.run_path / "one.log").write_text("one")
             outside = tmp_path / "outside.txt"
             outside.write_text("x")
             self.artifacts.log = self.run_path / "one.log"
-            self.artifacts.reports = [self.run_path / "a.rpt", "b.rpt"]
+            self.artifacts.relative = "one.log"
             self.artifacts.elsewhere = outside
+            self.artifacts.missing = "never.log"
             self.artifacts.nothing = None
 
     flow = _runner(tmp_path).launch_flow(Writes, design, {})
-    assert dict(flow.record.artifacts) == {
-        "log": "one.log",
-        "reports[0]": "a.rpt",
-        "reports[1]": "b.rpt",
-    }
+    assert dict(flow.record.artifacts) == {"log": "one.log", "relative": "one.log"}
     assert _document(flow)["artifacts"] == dict(flow.record.artifacts)
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [("reports", ["a.rpt", "b.rpt"]), ("group", {"a": "a.rpt"}), ("Report-1", "a.rpt")],
+    ids=["a list", "a group", "a key off the grammar"],
+)
+def test_the_record_refuses_an_artifact_that_is_not_one_file_under_a_valid_key(
+    tmp_path, design, key, value
+):
+    class Writes(Flow):
+        """Registers an artifact that a record cannot hold."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        def run(self) -> None:
+            (self.run_path / "a.rpt").write_text("a")
+            (self.run_path / "b.rpt").write_text("b")
+            self.artifacts[key] = value
+
+    with pytest.raises(Exception, match="registers the artifact"):
+        _runner(tmp_path).launch_flow(Writes, design, {})
+
+
+def test_a_record_with_an_artifact_key_off_the_grammar_is_malformed(tmp_path, design):
+    class Writes(Flow):
+        """Writes one file."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        def run(self) -> None:
+            (self.run_path / "a.rpt").write_text("a")
+            self.artifacts.report = "a.rpt"
+
+    flow = _runner(tmp_path).launch_flow(Writes, design, {})
+    document = json.loads((flow.run_path / "results.json").read_text())
+    document["artifacts"] = {"reports[0]": "a.rpt"}
+    with pytest.raises(RecordError, match="artifacts.reports"):
+        decode_record(document, run_dir=flow.run_path, run_root=flow.record.run_root)
 
 
 # --- Reuse, hand-over, delivery and the dry run -------------------------------------------------

@@ -62,4 +62,5 @@ def test_dc_records_the_outputs_its_script_writes(sdf_version, tmp_path, monkeyp
         ["write_sdc", "-nosplit", written["sdc"]],
     ):
         assert call in calls
+    assert flow.artifacts.pop("log") == "logs/dc_shell.log"  # the log of the main tool
     assert {label: str(path) for label, path in flow.artifacts.items()} == written

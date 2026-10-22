@@ -18,6 +18,7 @@ from ...flow import (
     FlowSettingsException,
     SimFlow,
     describe_results,
+    describe_artifacts,
 )
 from ...flow.metrics import COCOTB_METRICS
 from ...flow.sim import SimEvent, SimEvidence
@@ -163,6 +164,8 @@ class Verilator(SimFlow):
     """
 
     executables = ("verilator", "make")
+
+    artifacts_description = describe_artifacts("log", "simulation_log")
 
     cocotb_sim_name = "verilator"
 
@@ -809,7 +812,7 @@ class Verilator(SimFlow):
             # the model takes no argument of Xeda's: the hooks read the record's path from here
             env = {**(env or {}), "XEDA_END_RECORD": str(record)}
         self._free_model_outputs(model_args)
-        model = verilator.derive(verilated_bin)
+        model = verilator.derive(verilated_bin, log_key="simulation_log")
         # the model's output, copied to `sim.log` (line-buffered by the hooks, so none is lost
         # when the model is stopped); cocotb's goes straight to the terminal, keeping its colors,
         # since its results decide the run and nothing reads its log

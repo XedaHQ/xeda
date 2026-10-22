@@ -116,6 +116,7 @@ def test_the_declared_flows():
     ]
     assert set(files) == {
         "fpga_pack",
+        "ghdl_synth",
         "nextpnr",
         "openfpgaloader",
         "openroad",

@@ -346,7 +346,7 @@ def test_ghdl_synth_writes_its_conventional_name_when_unset(tmp_path):
     first = runner.run("ghdl_synth", design)
     assert first is not None and first.succeeded
     written = first.run_path / "outputs/inv.v"
-    assert written.is_file() and first.artifacts.generated_verilog == [Path("outputs/inv.v")]
+    assert written.is_file() and first.outputs.verilog == [first.run_path / "outputs/inv.v"]
     location = tmp_path / "delivered" / "inverter.v"
     location.parent.mkdir()
     again = runner.run("ghdl_synth", design, flow_settings={"verilog_output": str(location)})

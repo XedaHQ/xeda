@@ -4,7 +4,10 @@ from typing import ClassVar, Dict, List, Optional, Union
 
 from ...dataclass import Field
 from ...design import DesignValidationError, SourceType
-from ...flow import SimFlow
+from ...flow import (
+    SimFlow,
+    describe_artifacts,
+)
 from ...flow.flow import describe_results
 from ...flow.sim import SimEvidence
 from ...units import convert_unit
@@ -45,6 +48,8 @@ class Modelsim(SimFlow):
     """
 
     executables = ("vsim",)
+
+    artifacts_description = describe_artifacts("log")
 
     #: `vlog` compiles Verilog and SystemVerilog, `vcom` compiles VHDL.
     reads_sources = frozenset({SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl})

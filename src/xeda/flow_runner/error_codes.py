@@ -24,7 +24,9 @@ from ..flow import (
     FlowSettingsError,
     FlowSettingsException,
 )
+from ..flow import Flow
 from ..flow.flow import _model_at, registered_flows
+from ..flow.metrics import log_stem
 from ..proc_utils import ProcessTimeout
 from ..run_dir import RunDirectoryError
 from ..records import (
@@ -101,11 +103,30 @@ _SETTINGS_CODES = {
 }
 
 
-def error_info(exc: BaseException, *, node: str | None, log: str | None = None) -> ErrorInfo:
+def failure_log(exc: BaseException, flow: Flow | None) -> str | None:
+    """Return the artifact key of the log to read for the failure `exc` of `flow`, or None.
+
+    A program that exited with a nonzero status (`NonZeroExitCode`) names its own log, if the run
+    wrote one: `log` for the main tool of the flow and `<name>_log` for another program. Any
+    other failure names `log`, if the flow wrote the log of its main tool."""
+    if flow is None:
+        return None
+    if isinstance(exc, NonZeroExitCode):
+        program = exc.program or (exc.command_args or "").split(" ")[0]
+        key = flow.tool_log_keys.get(log_stem(program)) if program else None
+        if key is not None:
+            return key
+    return "log" if "log" in flow.tool_log_keys.values() else None
+
+
+def error_info(
+    exc: BaseException, *, node: str | None, flow: Flow | None = None, log: str | None = None
+) -> ErrorInfo:
     """Return the record of the error `exc` that ended `node` (`None`: the whole launch).
 
-    The code follows the kind of failure, never the name of the class. `log` is the artifact key
-    of the log to read, if the caller knows one."""
+    The code follows the kind of failure, never the name of the class. `flow` is the flow that
+    raised it, if there is one: the error then names the log to read (`failure_log`). `log` is the
+    artifact key of that log, when the caller knows it better."""
     exit_status: int | None = None
     if isinstance(exc, ProcessTimeout):
         code = TIMEOUT
@@ -129,7 +150,13 @@ def error_info(exc: BaseException, *, node: str | None, log: str | None = None) 
         code = REPORTED_FAILURE
     else:
         code = INTERNAL_ERROR
-    return ErrorInfo(code=code, message=str(exc), node=node, exit_status=exit_status, log=log)
+    return ErrorInfo(
+        code=code,
+        message=str(exc),
+        node=node,
+        exit_status=exit_status,
+        log=log if log is not None else failure_log(exc, flow),
+    )
 
 
 def _finding_code(kind: str | None, refuses_support: bool) -> str:

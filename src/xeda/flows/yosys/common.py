@@ -10,7 +10,15 @@ from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple
 
 from ...dataclass import WORKING, Field, deliverable, field_validator
 from ...design import LANGUAGE_TYPES, Design, SourceType
-from ...flow import Flow, FlowException, FlowSettingsError, FlowSettingsException, NoReplacement
+from ...flow import (
+    ArtifactSpec,
+    describe_artifacts,
+    Flow,
+    FlowException,
+    FlowSettingsError,
+    FlowSettingsException,
+    NoReplacement,
+)
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
 from ...utils import ToolException, hierarchical_merge, tcl_word, unique
@@ -226,10 +234,35 @@ quote."""
 YOSYS_TEMPORARY_DIRECTORY = "yosys_tmp"
 
 
+#: The artifacts of the RTL outputs, which every flow that reads a design with Yosys can write.
+RTL_ARTIFACTS = {
+    "rtl_json": ArtifactSpec(
+        "The elaborated design as JSON, before synthesis.", "when the setting `rtl_json` is set"
+    ),
+    "rtl_verilog": ArtifactSpec(
+        "The elaborated design as Verilog, before synthesis.",
+        "when the setting `rtl_verilog` is set",
+    ),
+}
+
+#: The artifacts of the reports that a synthesis flow with Yosys writes.
+REPORT_ARTIFACTS = {
+    "utilization_report": ArtifactSpec(
+        "Cell statistics of the synthesized design (`stat`), as JSON.",
+        "when the run reaches the synthesis stage (`stop_after` is not `rtl`)",
+    ),
+    "timing_report": ArtifactSpec(
+        "Longest topological path and static timing analysis (`ltp`, `sta`).",
+        "when the setting `sta` is on",
+    ),
+}
+
+
 class YosysBase(Flow):
     """The base of the flows that read a design with Yosys."""
 
     executables: ClassVar[tuple[str, ...]] = ("yosys", "yosys-config")
+    artifacts_description = describe_artifacts("log", **RTL_ARTIFACTS)
 
     # The generic synthesis flow accepts older yosys releases. `yosys_fpga` sets a higher minimum
     # for its pass flags.
@@ -473,6 +506,10 @@ class YosysBase(Flow):
         test, can call it to get all of them.
         """
         assert isinstance(self.settings, self.Settings)
+        # The netlist files that the script writes, by setting name. `init()` of the flows that
+        # write netlists fills it.
+        self.netlist_files: dict[str, Path] = {}
+        self.jinja_env.globals["netlists"] = self.netlist_files
         tcl = type(self).script_format(self.settings) == "tcl"
         # values are stored canonically (unescaped); escape them for the script language
         self.add_template_filter("esc", tcl_escape if tcl else ys_escape, replace_existing=True)
@@ -718,6 +755,8 @@ class YosysSynthesisBase(YosysBase):
     `yosys_sim` only reads the design with yosys, so it is a `YosysBase` and has none of these.
     """
 
+    artifacts_description = describe_artifacts("log", **RTL_ARTIFACTS, **REPORT_ARTIFACTS)
+
     class Settings(YosysBase.Settings):
         splitnets: bool = Field(
             False, description="Run `splitnets`, splitting multi-bit nets into individual bits."
@@ -961,10 +1000,11 @@ class YosysSynthesisBase(YosysBase):
             ss.flatten = True
         if ss.abc_dff:
             append_flag(ss.abc_flags, "-dff")
-        if ss.netlist_verilog:
-            self.artifacts.netlist_verilog = ss.netlist_verilog
-        if ss.netlist_json:
-            self.artifacts.netlist_json = ss.netlist_json
+        # The netlists are the files that the template writes. They are declared outputs, or
+        # (the Verilog netlist of `yosys_fpga`) artifacts that the flow registers itself.
+        for name in ("netlist_verilog", "netlist_json"):
+            if getattr(ss, name):
+                self.netlist_files[name] = getattr(ss, name)
 
     def prepare_output_parents(self) -> None:
         """Create the parent directories of the outputs when the flow runs, not in `init()`."""

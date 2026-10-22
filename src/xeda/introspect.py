@@ -906,11 +906,11 @@ def settings_completion_info(flow: Union[str, Type[Flow]]) -> dict[str, dict[str
 
 
 def results_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
-    """Return the metrics that a flow can write to `results.json`.
+    """Return the metrics and the artifacts that a flow can write to `results.json`.
 
     Each metric is `{path, description, type, unit}`. The other fields of the record (`outcome`,
-    `runtime`, ...) are no metrics and are not listed. `artifacts` is empty until a flow
-    describes the files it keeps.
+    `runtime`, ...) are no metrics and are not listed. Each artifact is `{key, description,
+    when}`: one file of the run directory, present when the run wrote it.
     """
     cls = _resolve(flow)
     metrics = [
@@ -925,7 +925,10 @@ def results_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     return {
         "flow": cls.name,
         "metrics": metrics,
-        "artifacts": [],
+        "artifacts": [
+            {"key": key, "description": spec.description, "when": spec.when}
+            for key, spec in cls.artifacts_description.items()
+        ],
         "note": "Some metrics are only present when the relevant setting is enabled or the tool "
         "reports them. The authoritative record of a run is always the results.json in its run "
         "directory.",

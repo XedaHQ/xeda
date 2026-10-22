@@ -13,7 +13,14 @@ from .flow import (
     registered_flows,
 )
 
-from .metrics import COMMON_METRICS, MetricSpec, MetricType, describe_results
+from .metrics import (
+    COMMON_METRICS,
+    ArtifactSpec,
+    MetricSpec,
+    MetricType,
+    describe_artifacts,
+    describe_results,
+)
 from .fpga import FPGA
 from ..run_dir import RunDirectoryError
 from .io import DESIGN, In, Out
@@ -29,6 +36,7 @@ __all__ = [
     "FPGA",
     "AsicPlatformFlow",
     "AsicPlatformSettings",
+    "ArtifactSpec",
     "AsicSynthFlow",
     "Flow",
     "FlowDependencyFailure",
@@ -46,6 +54,7 @@ __all__ = [
     "RunDirectoryError",
     "SimFlow",
     "SynthFlow",
+    "describe_artifacts",
     "describe_results",
     "flowrun_hash",
     "is_unset",

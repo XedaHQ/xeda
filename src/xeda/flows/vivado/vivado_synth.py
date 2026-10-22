@@ -6,20 +6,23 @@ from abc import ABCMeta
 from collections import OrderedDict
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Union
 
 from ...dataclass import Field, XedaBaseModel, deliverable, field_validator
 from ...design import SourceType
 from ...flow import (
+    ArtifactSpec,
     Flow,
     FlowFatalError,
     FlowSettingsError,
     FpgaSynthFlow,
     MetricSpec,
     Out,
+    describe_artifacts,
     describe_results,
 )
 from ...records import MISSING_REPORT, ErrorInfo
+from .artifacts import PROJECT_REPORTS, SCRIPT_REPORTS, register_reports, report_artifacts
 from ...units import count
 from ...utils import HierDict, parse_xml, replacing_file, try_convert
 
@@ -417,6 +420,22 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
     flow), and the timing and utilization results that it reads from the reports of the routed
     design."""
 
+    #: The reports of the routed design that the flow keeps as artifacts, by file name.
+    report_names: ClassVar[tuple[str, ...]] = SCRIPT_REPORTS
+
+    artifacts_description = describe_artifacts(
+        "log",
+        xdc_exported=ArtifactSpec(
+            "The constraints of the routed design (`write_xdc`).",
+            "when the setting `write_netlist` is on",
+        ),
+        checkpoint_place=ArtifactSpec(
+            "The design checkpoint (.dcp) after placement.",
+            "when the setting `write_checkpoint` is on",
+        ),
+        **report_artifacts(SCRIPT_REPORTS),
+    )
+
     class Outputs(FpgaSynthFlow.Outputs):
         """What every Vivado implementation writes, each switched on by its own setting."""
 
@@ -574,7 +593,11 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
         artifacts, and register each one that is a declared output as that output."""
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        self.artifacts.update(paths)
+        # A declared output is no artifact. The checkpoint after placement and the exported
+        # constraints are the files that no output holds.
+        for label in (CHECKPOINT_PLACE, XDC_EXPORTED):
+            if label in paths:
+                self.artifacts[label] = paths[label]
         declare_outputs(
             self,
             {
@@ -653,30 +676,6 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
 
-        # Only this run's reports, logs and bitstream are artifacts. A previous run's files in the
-        # run directory are not (`written_by_this_run`).
-        reports_dir = self.settings.reports_dir
-        reports_root = self.run_file(reports_dir)
-        for found in reports_root.glob("**/*"):
-            report_file = reports_dir / found.relative_to(reports_root)
-            if found.is_file() and self.written_by_this_run(report_file):
-                self.artifacts[str(report_file)] = report_file
-
-        for log_file in self.run_path.glob("**/*.log"):
-            if log_file.is_file() and self.written_by_this_run(log_file):
-                log_file = log_file.relative_to(self.run_path)
-                self.artifacts[str(log_file)] = log_file
-
-        if self.settings.bitstream is not None and not self.artifacts.get(BITSTREAM):
-            if self.run_file(self.settings.bitstream).exists():
-                if self.report_file(self.settings.bitstream, optional=True) is not None:
-                    self.artifacts[BITSTREAM] = self.settings.bitstream
-            else:
-                for bitstream in self.run_path.glob("**/*.bit"):
-                    if bitstream.is_file() and self.written_by_this_run(bitstream):
-                        self.artifacts[BITSTREAM] = bitstream
-                        break
-
         run_status = self.run_path / RUN_STATUS_FILE
         # In project mode, the script records the status after it waits for a run. Only this
         # run's record counts, never a previous run's.
@@ -751,6 +750,9 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
                             self.results[k] = r
             self.results["_utilization"] = utilization
         failed |= not power_report_written(self)
+        # Only this run's reports are artifacts. A previous run's files in the run directory are
+        # not (`Flow.report_file`).
+        register_reports(self, self.settings.reports_dir, self.report_names)
         return not failed
 
     def check_results(self) -> bool:
@@ -823,25 +825,35 @@ class VivadoSynth(VivadoImplementation):
     The implementation run stops after routing. With a `bitstream` requested, it goes on through
     Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures.
 
-    Each output has its own setting. The flow registers each file that it writes as an artifact
-    (the label is in parentheses). `write_checkpoint` writes
+    Each output has its own setting. The name of the declared output is in parentheses.
+    `write_checkpoint` writes
     `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and
     `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist` writes, in
     `outputs/route_design/`, the functional Verilog netlist `funcsim.v` (`netlist`) and the
     constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist` writes, in the same directory,
     the timing Verilog netlist `timesim.v` (`netlist_timing`) and the fast-corner and slow-corner
-    SDF files `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`). `bitstream` writes
+    SDF files `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf`). `bitstream` writes
     the bitstream (`bitstream`), with a .bin file of the same name beside it when the
     `write_bitstream` step writes one (`ARGS.BIN_FILE`).
 
-    Each of these files is also a declared output, recorded in the `outputs` of `results.json`
-    with its digest, except `xdc_exported`, which is a plain artifact. The output `sdf` is
-    `timesim.max.sdf`.
+    The record of the run lists each of these files in its `outputs`, with its digest, except
+    `xdc_exported`, which is an artifact.
 
     The flow fails unless each run completes the step that it was launched to. The `status`
     result records Vivado's own status of the run. With a bitstream requested, the flow also fails
     unless the bitstream exists where the flow registers it.
     """
+
+    report_names: ClassVar[tuple[str, ...]] = PROJECT_REPORTS
+
+    artifacts_description = describe_artifacts(
+        "log",
+        xdc_exported=ArtifactSpec(
+            "The constraints of the routed design (`write_xdc`).",
+            "when the setting `write_netlist` is on",
+        ),
+        **report_artifacts(PROJECT_REPORTS),
+    )
 
     results_description = describe_results(
         "fmax",
@@ -1030,7 +1042,8 @@ class VivadoSynth(VivadoImplementation):
         if BITSTREAM in outputs:
             stale.append(bitstream_bin_file(outputs[BITSTREAM]))
         self.run_directory.remove(*stale)
-        self.artifacts.update(outputs)
+        if XDC_EXPORTED in outputs:  # the other files are declared outputs
+            self.artifacts[XDC_EXPORTED] = outputs[XDC_EXPORTED]
         declare_outputs(self, {name: outputs.get(label) for name, label in OUTPUT_LABELS.items()})
 
         tcl_files += post_step_hooks(self, settings, synth_steps, impl_steps)

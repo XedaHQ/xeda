@@ -13,7 +13,7 @@ import json
 import math
 import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
@@ -651,10 +651,13 @@ def _decode(document: Mapping[str, Any], run_dir: Path, run_root: Path) -> RunRe
                 for key in ("repository", "reference", "commit", "design_file")
             }
         )
-    artifacts = {
-        key: _file_name(name, f"artifacts.{key}")
-        for key, name in _mapping(document.get("artifacts"), "artifacts").items()
-    }
+    from .flow.metrics import ARTIFACT_KEY
+
+    artifacts = {}
+    for key, name in _mapping(document.get("artifacts"), "artifacts").items():
+        if not ARTIFACT_KEY.fullmatch(key):
+            raise _Malformed(f"`artifacts.{key}` is not a valid artifact key")
+        artifacts[key] = _file_name(name, f"artifacts.{key}")
     return RunRecord(
         schema_version=RECORD_SCHEMA_VERSION,
         run_id=_text(document.get("run_id"), "run_id"),
@@ -813,21 +816,30 @@ def name_in(run_dir: Path, path: str | os.PathLike[str]) -> str | None:
 def _artifacts_of(flow: Flow) -> dict[str, str]:
     """Return the artifacts that `flow` wrote inside its run directory: key to relative name.
 
-    A key that holds one path keeps its name. A key that holds several paths (a list, or a group)
-    gets one key per path: `key[0]`, `key[1]`. A path outside the run directory is no artifact
-    of a record, and neither is a value that is no path."""
+    An artifact is one file, under a key of `ARTIFACT_KEY`. A path outside the run directory is no
+    artifact of a record. Neither is a value that is no path, or a file that is not there. A flow
+    that registers a key with several files or a directory, or a key that is not lower snake case,
+    has a bug: `ValueError`."""
     from .artifacts import iter_artifact_paths
+    from .flow.metrics import ARTIFACT_KEY
 
     artifacts: dict[str, str] = {}
     # The launcher copies `Flow.artifacts` into the results and drops what a failed run did not
     # write, so the results are the list to record.
     for key, value in (flow.results.get("artifacts") or {}).items():
+        if not ARTIFACT_KEY.fullmatch(str(key)):
+            raise ValueError(f"`{flow.name}` registers the artifact {key!r}: not a valid key")
         leaves = list(iter_artifact_paths(value))
-        grouped = isinstance(value, (list, tuple, Mapping)) or len(leaves) > 1
-        for index, leaf in enumerate(leaves):
+        if len(leaves) > 1 or isinstance(value, (list, tuple, Mapping)):
+            raise ValueError(f"`{flow.name}` registers the artifact {key!r} with several files")
+        for leaf in leaves:
             name = name_in(flow.run_path, leaf)
-            if name is not None:
-                artifacts[f"{key}[{index}]" if grouped else str(key)] = name
+            # A key is present only when its file was written. A link counts as itself.
+            located = flow.run_path / (name or "")
+            if name is not None and os.path.lexists(located):
+                if os.path.isdir(located) and not os.path.islink(located):
+                    raise ValueError(f"`{flow.name}` registers the artifact {key!r}: a directory")
+                artifacts[str(key)] = name
     return artifacts
 
 
@@ -1041,6 +1053,10 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
                 exit_status=None,
                 log=None,
             )
+    artifacts = _artifacts_of(flow)
+    if error is not None and error.log not in artifacts:
+        # The log to read is the one of the tool that failed, else the one of the main tool.
+        error = replace(error, log="log" if "log" in artifacts else None)
     runtime = results.get("runtime")
     if runtime is None:
         runtime = 0.0 if flow.init_time is None else time.monotonic() - flow.init_time
@@ -1061,7 +1077,7 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
         metrics=_plain(metrics),
         metric_info=info,
         outputs=_outputs_of(flow),
-        artifacts=_artifacts_of(flow),
+        artifacts=artifacts,
         settings=_plain(flow.settings),
         inputs=tuple(_inputs_of(flow, run_root)),
         started=started.astimezone(timezone.utc),

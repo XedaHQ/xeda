@@ -94,7 +94,7 @@ def test_a_run_whose_vivado_runs_complete_their_steps_succeeds(
     assert not [label for label in flow.artifacts if vs.RUN_STATUS_FILE in str(label)]
     if bitstream:
         # Vivado's `write_bitstream` step wrote it, the step's hook put it where it is registered
-        assert flow.artifacts[vs.BITSTREAM] == Path(bitstream)
+        assert flow.outputs.bitstream == flow.run_path / bitstream
         assert (flow.run_path / bitstream).is_file()
 
 
