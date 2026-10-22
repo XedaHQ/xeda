@@ -73,7 +73,8 @@ TRACE_FILE = "trace.json"
 #: 16: a run whose checks rejected it keeps a trace (`verdict`, `error`); reuse requires
 #: `results.json` to agree with them.
 #: 17: the `error` of a trace is an error record: a stable `code`, not the name of a class.
-TRACE_FORMAT = 17
+#: 18: metrics have lower-snake names, so a `results.json` with the earlier names is not reused.
+TRACE_FORMAT = 18
 
 #: The names that Xeda reserves at the top of a run directory, never outputs: the trace and the
 #: trace being written. The clock markers (`digest.TIME_MARKER_PREFIX` plus a random suffix) are
