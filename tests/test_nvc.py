@@ -96,8 +96,8 @@ def test_nvc_sim_py(tmp_path: Path) -> None:
         ),
         ("wait for 5 ns; z := 1 / z; std.env.finish;", "", {}, False, "fatal", 5_000_000),
         ("", "clk <= not clk after 1 ns;", {"stop_time": "10ns"}, True, "stop_time", 10_000_000),
-        ("", "clk <= not clk after 1 ns;", {"stop_time": 10}, True, "stop_time", 10_000_000),
-        ("", "clk <= not clk after 500 ps;", {"stop_time": 1.5}, True, "stop_time", 1_500_000),
+        ("", "clk <= not clk after 1 ns;", {"stop_time": "10 ns"}, True, "stop_time", 10_000_000),
+        ("", "clk <= not clk after 500 ps;", {"stop_time": "1.5 ns"}, True, "stop_time", 1_500_000),
         ("", "", {"stop_time": "10ns"}, False, "drained", 0),
         ("wait for 5 ns;", "", {"stop_time": "10ns"}, False, "drained", 5_000_000),
         ("wait for 5 ns;", "", {"stop_time": "5ns"}, False, "drained", 5_000_000),
@@ -142,7 +142,7 @@ def test_nvc_runtime_evidence(
     require_nvc_evidence()
     design = _evidence_design(tmp_path, body, clock=clock)
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        Nvc, design, {"one_shot": one_shot, "messages": messages, "timeout": 5, **settings}
+        Nvc, design, {"one_shot": one_shot, "messages": messages, "timeout": "5 s", **settings}
     )
     assert flow is not None and flow.succeeded is passes
     assert flow.results["sim.ended_by"] == ended
@@ -163,7 +163,7 @@ def test_nvc_time_limit_retains_runtime_diagnostics(tmp_path, one_shot):
     require_nvc_evidence()
     design = _evidence_design(tmp_path, 'report "BEFORE_TIMEOUT"; loop wait for 1 ns; end loop;')
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        Nvc, design, {"one_shot": one_shot, "timeout": 1}
+        Nvc, design, {"one_shot": one_shot, "timeout": "1 s"}
     )
     assert flow is not None and not flow.succeeded
     assert flow.results["error"]["code"] == "timeout"
@@ -276,7 +276,7 @@ def test_nvc_cocotb_time_limit(tmp_path, one_shot):
         "import cocotb\nfrom cocotb.triggers import Timer\n@cocotb.test()\nasync def forever(dut):\n    while True:\n        await Timer(1, unit='ns')\n",
     )
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        Nvc, design, {"timeout": 3, "one_shot": one_shot}
+        Nvc, design, {"timeout": "3 s", "one_shot": one_shot}
     )
     assert flow is not None and not flow.succeeded
     assert flow.results["error"]["code"] == "timeout"
@@ -385,7 +385,7 @@ def test_nvc_plugin_load_failure_is_a_failure(tmp_path):
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
         Nvc,
         _evidence_design(tmp_path, "std.env.finish;"),
-        {"vhpi": [tmp_path / "missing.so"], "timeout": 5},
+        {"vhpi": [tmp_path / "missing.so"], "timeout": "5 s"},
     )
     assert flow is not None and not flow.succeeded
     assert flow.results["error"]["code"] == "nonzero_exit"
@@ -419,7 +419,7 @@ def test_nvc_evidence_excludes_build_diagnostics(tmp_path, monkeypatch, one_shot
 
     monkeypatch.setattr(NvcTool, "run", run)
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        Nvc, _evidence_design(tmp_path, "std.env.finish;"), {"one_shot": one_shot, "timeout": 5}
+        Nvc, _evidence_design(tmp_path, "std.env.finish;"), {"one_shot": one_shot, "timeout": "5 s"}
     )
     assert flow is not None and not flow.succeeded
     assert invocations[-1][1]["timeout"] == 5
@@ -430,7 +430,7 @@ def test_nvc_evidence_clears_previous_files_before_runtime(tmp_path, monkeypatch
     require_nvc_evidence()
     design = _evidence_design(tmp_path, "std.env.finish;")
     runner = DefaultRunner(tmp_path / "runs", display_results=False, rebuild_all=True)
-    first = runner.run_flow(Nvc, design, {"timeout": 5})
+    first = runner.run_flow(Nvc, design, {"timeout": "5 s"})
     assert first is not None and first.succeeded
     original = NvcTool.run
 
@@ -442,7 +442,7 @@ def test_nvc_evidence_clears_previous_files_before_runtime(tmp_path, monkeypatch
         return original(tool, *args, **kwargs)
 
     monkeypatch.setattr(NvcTool, "run", no_runtime)
-    second = runner.run_flow(Nvc, design, {"timeout": 5})
+    second = runner.run_flow(Nvc, design, {"timeout": "5 s"})
     assert second is not None and not second.succeeded
 
 
@@ -470,7 +470,7 @@ def test_nvc_evidence_captures_stdout_and_preserves_user_vhpi(tmp_path, messages
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
         Nvc,
         _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;"),
-        {"vhpi": libraries, "messages": messages, "std_error": "failure", "timeout": 5},
+        {"vhpi": libraries, "messages": messages, "std_error": "failure", "timeout": "5 s"},
     )
     assert flow is not None and flow.succeeded
     assert libraries == flow.settings.vhpi == [library]
@@ -549,7 +549,7 @@ def test_nvc_evidence_records_error_below_threshold_before_native_cutoff(
             "messages": messages,
             "fail_severity": "failure",
             "stop_time": "5ns",
-            "timeout": 5,
+            "timeout": "5 s",
         },
     )
     assert flow is not None and flow.succeeded

@@ -31,7 +31,7 @@ def test_uart_stream_application(application, serial, tmp_path, capfd, monkeypat
     monkeypatch.setenv("STREAM_APP", application)
     monkeypatch.setenv("STREAM_SERIAL", str(int(serial)))
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-        Verilator, design, {"timeout": 180}
+        Verilator, design, {"timeout": "180 s"}
     )
     captured = capfd.readouterr()
     assert flow is not None and flow.succeeded, run_report(flow, captured)

@@ -353,7 +353,7 @@ def test_bsc_sim_rejects_an_unknown_simulator():
     [
         (Bsc, {"opt_undetermined_vals": False}, "requires `opt_undetermined_vals: true`"),
         (BscSim, {"unspecified_to": "X", "opt_undetermined_vals": True}, "two-valued"),
-        (BscSim, {"stop_time": 100}, "max_cycles"),
+        (BscSim, {"stop_time": "100 ns"}, "max_cycles"),
         (BscSim, {"simulator": "verilator", "max_cycles": 10}, "Bluesim simulations only"),
     ],
 )
@@ -1431,7 +1431,7 @@ def test_bsc_sim_time_limit_stops_a_testbench_that_never_finishes(tmp_path):
     )
     start = time.monotonic()
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        BscSim, design, {"timeout": 5}
+        BscSim, design, {"timeout": "5 s"}
     )
     assert flow is not None and not flow.succeeded
     assert time.monotonic() - start < 60

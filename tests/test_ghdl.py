@@ -288,8 +288,8 @@ def _evidence_design(root: Path, body: str, *, clock: str = "") -> Design:
         ),
         ("wait for 5 ns; z := 1 / z; std.env.finish;", "", {}, False, "unknown", None),
         ("", "clk <= not clk after 1 ns;", {"stop_time": "10ns"}, True, "stop_time", 10_000_000),
-        ("", "clk <= not clk after 1 ns;", {"stop_time": 10}, True, "stop_time", 10_000_000),
-        ("", "clk <= not clk after 500 ps;", {"stop_time": 1.5}, True, "stop_time", 1_500_000),
+        ("", "clk <= not clk after 1 ns;", {"stop_time": "10 ns"}, True, "stop_time", 10_000_000),
+        ("", "clk <= not clk after 500 ps;", {"stop_time": "1.5 ns"}, True, "stop_time", 1_500_000),
         ("", "", {"stop_time": "10ns"}, False, "unknown", None),
         ("wait for 5 ns;", "", {"stop_time": "10ns"}, False, "unknown", None),
         # GHDL builds have reported either 0 or the next event (15 ns); neither confirms 10 ns.
@@ -332,7 +332,7 @@ def test_ghdl_runtime_evidence(tmp_path, body, clock, settings, passes, ended, t
     require_ghdl()
     design = _evidence_design(tmp_path, body, clock=clock)
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        GhdlSim, design, {"timeout": 5, **settings}
+        GhdlSim, design, {"timeout": "5 s", **settings}
     )
     assert flow is not None
     assert flow.succeeded is passes
@@ -355,7 +355,7 @@ def test_ghdl_time_limit_retains_runtime_diagnostics(tmp_path):
     require_ghdl()
     design = _evidence_design(tmp_path, 'report "BEFORE_TIMEOUT"; loop wait for 1 ns; end loop;')
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        GhdlSim, design, {"timeout": 0.5}
+        GhdlSim, design, {"timeout": "0.5 s"}
     )
     assert flow is not None and not flow.succeeded
     saved = json.loads((flow.run_path / "results.json").read_text())
@@ -400,7 +400,7 @@ def test_ghdl_cocotb_time_limit(tmp_path):
         "    while True:\n        await Timer(1, unit='ns')\n",
     )
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        GhdlSim, design, {"timeout": 3}
+        GhdlSim, design, {"timeout": "3 s"}
     )
     assert flow is not None and not flow.succeeded
     assert flow.results["error"]["code"] == "timeout"
@@ -443,7 +443,7 @@ def test_ghdl_evidence_uses_runtime_only_and_copies_flags(tmp_path, monkeypatch)
     )
     flags = ["--assert-level=error"]
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        GhdlSim, design, {"run_flags": flags, "stop_time": 10}
+        GhdlSim, design, {"run_flags": flags, "stop_time": "10 ns"}
     )
     assert flow is not None and not flow.succeeded
     assert flags == flow.settings.run_flags == ["--assert-level=error"]
@@ -464,7 +464,7 @@ def test_ghdl_severity_maps_fatal_to_failure(tmp_path, severity):
         GhdlSim,
         design,
         {
-            "timeout": 5,
+            "timeout": "5 s",
             "fail_severity": severity,
             "run_flags": ["--assert-level=failure"],
             "asserts": "disable",
@@ -478,7 +478,7 @@ def test_ghdl_evidence_clears_previous_log_before_runtime(tmp_path, monkeypatch)
     require_ghdl()
     design = _evidence_design(tmp_path, "std.env.finish;")
     runner = DefaultRunner(tmp_path / "runs", display_results=False, rebuild_all=True)
-    first = runner.run_flow(GhdlSim, design, {"timeout": 5})
+    first = runner.run_flow(GhdlSim, design, {"timeout": "5 s"})
     assert first is not None and first.succeeded
     path = first.run_path / "sim.log"
     assert "simulation finished" in path.read_text()
@@ -491,7 +491,7 @@ def test_ghdl_evidence_clears_previous_log_before_runtime(tmp_path, monkeypatch)
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(GhdlTool, "run", no_runtime_log)
-    second = runner.run_flow(GhdlSim, design, {"timeout": 5})
+    second = runner.run_flow(GhdlSim, design, {"timeout": "5 s"})
     assert second is not None and not second.succeeded
     assert not path.exists()
 

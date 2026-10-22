@@ -247,7 +247,7 @@ def test_a_containerized_tool_never_relabels_the_users_files(monkeypatch, tmp_pa
         ("sv", 'initial begin #5; $warning("check"); $finish; end', {}, True),
         ("sv", "initial begin #5; end", {}, False),
         ("sv", "reg clk=0; always #1 clk=~clk;", {"stop_time": "10ns"}, True),
-        ("sv", "reg clk=0; always #1 clk=~clk;", {"timeout": 20}, False),
+        ("sv", "reg clk=0; always #1 clk=~clk;", {"timeout": "20 s"}, False),
         ("vhdl", "std.env.finish;", {}, True),
         ("vhdl", "wait for 5 ns; std.env.stop;", {}, True),
         ("vhdl", "assert false severity warning; std.env.finish;", {}, True),
@@ -277,7 +277,7 @@ def test_modelsim_native_runtime_contract(language, body, settings, passes, work
         language={"vhdl": {"standard": "2008"}},
     )
     flow = DefaultRunner(work_dir / "runs").run_flow(
-        Modelsim, design, {"docker": True, "timeout": 60, **settings}
+        Modelsim, design, {"docker": True, "timeout": "60 s", **settings}
     )
     assert flow is not None and flow.succeeded is passes
     if passes:

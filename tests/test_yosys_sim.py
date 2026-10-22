@@ -9,6 +9,7 @@ from xeda import Design
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.yosys.cxx_rtl import YosysSim
+from xeda.units import Time
 
 from .tool_utils import require_c_toolchain, require_yosys
 
@@ -48,7 +49,7 @@ def _driver_design(tmp_path, body="return 0;", *, rtl=None, header=True):
 
 def _run_driver(tmp_path, body="return 0;", *, settings=None, rtl=None, header=True):
     design = _driver_design(tmp_path, body, rtl=rtl, header=header)
-    options = {"timeout": 10, "cxxrtl": {"filename": "model.cpp", "header": header}}
+    options = {"timeout": "10 s", "cxxrtl": {"filename": "model.cpp", "header": header}}
     options.update(settings or {})
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
         YosysSim, design, options
@@ -82,7 +83,7 @@ def test_driver_abnormal_or_unobserved_exit_fails(tmp_path, body):
 
 def test_driver_timeout_preserves_output_and_names_limit(tmp_path):
     flow = _run_driver(
-        tmp_path, 'std::puts("driver started"); while (true) {}', settings={"timeout": 0.5}
+        tmp_path, 'std::puts("driver started"); while (true) {}', settings={"timeout": "0.5 s"}
     )
     assert not flow.succeeded
     assert flow.results["error"]["code"] == "timeout"
@@ -91,7 +92,7 @@ def test_driver_timeout_preserves_output_and_names_limit(tmp_path):
     assert not (flow.run_path / "cxxrtl_end.json").exists()
 
 
-@pytest.mark.parametrize("stop", [0, 10, "10ns"])
+@pytest.mark.parametrize("stop", ["0 ns", "10 ns", "10ns"])
 def test_driver_stop_time_is_rejected_before_compilation(tmp_path, monkeypatch, stop):
     from xeda.flow import FlowSettingsException
     from xeda.flows.yosys.common import YosysBase
@@ -107,10 +108,10 @@ def test_driver_stop_time_is_rejected_before_compilation(tmp_path, monkeypatch, 
 def test_driver_settings_keep_the_simflow_diamond(tmp_path):
     from xeda.flow import SimFlow
 
-    settings = YosysSim.Settings(timeout=2, fail_severity="failure", vcd=True)
+    settings = YosysSim.Settings(timeout="2 s", fail_severity="failure", vcd=True)
     assert isinstance(settings, SimFlow.Settings)
     assert settings.vcd == "dump.vcd"
-    assert settings.timeout == 2 and settings.fail_severity == "failure"
+    assert settings.timeout == Time("2 s") and settings.fail_severity == "failure"
 
 
 @pytest.mark.parametrize(
@@ -274,7 +275,7 @@ def test_driver_monitor_paths_use_the_execution_environment(tmp_path, monkeypatc
 
     monkeypatch.setattr(Tool, "execute", execute)
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        YosysSim, design, {"docker": True, "timeout": 4, "cxxrtl": {"filename": "model.cpp"}}
+        YosysSim, design, {"docker": True, "timeout": "4 s", "cxxrtl": {"filename": "model.cpp"}}
     )
     assert compiled and flow is not None and flow.succeeded
 
