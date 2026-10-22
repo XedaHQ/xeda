@@ -125,39 +125,53 @@ def parse_request(text: str) -> FlowRequest:
     for position, raw_part in enumerate(parts, 1):
         part = raw_part.strip()
         if not part:
-            raise FlowSettingsException(
-                f"Flow chain element {position} is empty; use FLOW[.OUTPUT][+FLOW[.OUTPUT]...]."
+            raise ChainRefusal(
+                f"Flow chain element {position} is empty; use FLOW[.OUTPUT][+FLOW[.OUTPUT]...].",
+                code="invalid_chain",
+                chain=text,
             )
         if part.count(".") > 1:
-            raise FlowSettingsException(
+            raise ChainRefusal(
                 f"Flow chain element {position} has an invalid output qualifier {part!r}; "
-                "use one exact output key after a single dot."
+                "use one exact output key after a single dot.",
+                code="invalid_chain",
+                chain=text,
             )
         flow_name, separator, output = part.partition(".")
         if separator and not output:
-            raise FlowSettingsException(
+            raise ChainRefusal(
                 f"Flow chain element {position} has an empty output qualifier; "
-                "use an exact output key after the dot."
+                "use an exact output key after the dot.",
+                code="invalid_chain",
+                chain=text,
             )
         if not flow_name:
-            raise FlowSettingsException(f"Flow chain element {position} has no flow name.")
+            raise ChainRefusal(
+                f"Flow chain element {position} has no flow name.",
+                code="invalid_chain",
+                chain=text,
+            )
         try:
             flow_class = get_flow_class(flow_name)
         except FlowNotFoundError:
             raise
         canonical = flow_class.name
         if canonical in seen:
-            raise FlowSettingsException(
+            raise ChainRefusal(
                 f"Flow `{canonical}` appears more than once; a chain is a path and each flow "
-                "may appear only once."
+                "may appear only once.",
+                code="repeated_flow",
+                chain=text,
             )
         seen.add(canonical)
         elements.append(ChainElement(flow_class, output if separator else None))
 
     if elements[-1].output is not None:
-        raise FlowSettingsException(
+        raise ChainRefusal(
             f"The last element `{elements[-1].node}` cannot select an output because it has no "
-            "following consumer."
+            "following consumer.",
+            code="invalid_chain",
+            chain=text,
         )
     return FlowRequest(tuple(elements), validate_chain(elements))
 
@@ -169,10 +183,11 @@ class _EdgeFailure(Exception):
     Another chain cannot correct a request whose output name does not exist: the message of
     that error already names the close matches."""
 
-    def __init__(self, index: int, text: str, *, advise: bool = True) -> None:
+    def __init__(self, index: int, text: str, *, code: str, advise: bool = True) -> None:
         super().__init__(text)
         self.index = index
         self.text = text
+        self.code = code
         self.advise = advise
 
 
@@ -183,10 +198,35 @@ def request_text(elements: Sequence[ChainElement]) -> str:
     )
 
 
-class _NoDirectEdge(FlowSettingsException):
+def _restore_refusal(cls: type[Exception], args: tuple[Any, ...], state: dict[str, Any]) -> Any:
+    """Rebuild a refusal that was pickled."""
+    refusal = Exception.__new__(cls)
+    Exception.__init__(refusal, *args)
+    refusal.__dict__.update(state)
+    return refusal
+
+
+class ChainRefusal(FlowSettingsException):
+    """A chain, or a link of one, that Xeda refuses.
+
+    `code` is the code of the `xeda.errors.ChainError` that the refusal becomes. `chain` is the
+    text of the chain, when the code that refuses it knows it."""
+
+    def __init__(self, message: str, *, code: str, chain: str | None = None) -> None:
+        super().__init__(message, code=code)
+        self.chain = chain
+
+    def __reduce__(self) -> tuple[Any, ...]:  # an exception crosses a process boundary by pickling
+        return (_restore_refusal, (type(self), self.args, dict(self.__dict__)))
+
+
+class _NoDirectEdge(ChainRefusal):
     """`match_required_inputs` found no input of the consumer that the producer can feed.
 
     A link that passes through other flows may still be valid."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code="no_edge")
 
 
 def _repeated(flow: type[Flow]) -> str:
@@ -203,13 +243,15 @@ def _check_chain(elements: Sequence[ChainElement]) -> tuple[ChainLink, ...]:
     pair is a direct edge when the first element feeds a required input of the second. Else it
     passes through the default producers between them, when the default graph of the second
     element reaches the first. A pair that is neither raises `_EdgeFailure`. Every other
-    refusal is a `FlowSettingsException`."""
+    refusal is a `ChainRefusal`."""
     if len(elements) <= 1:
         return ()
     seen: set[str] = set()
     for element in elements:
         if element.node in seen:
-            raise FlowSettingsException(_repeated(element.flow_class))
+            raise ChainRefusal(
+                _repeated(element.flow_class), code="repeated_flow", chain=request_text(elements)
+            )
         seen.add(element.node)
     links: list[ChainLink] = []
     passed: set[type[Flow]] = set()
@@ -217,15 +259,19 @@ def _check_chain(elements: Sequence[ChainElement]) -> tuple[ChainLink, ...]:
         consumer = elements[index + 1]
         reason = getattr(producer.flow_class, "action_reason", None)
         if reason:
-            raise FlowSettingsException(
-                f"Flow `{producer.node}` {reason.removeprefix('it ')} and can only end a chain."
+            raise ChainRefusal(
+                f"Flow `{producer.node}` {reason.removeprefix('it ')} and can only end a chain.",
+                code="action_not_last",
+                chain=request_text(elements),
             )
         link = _link(index, producer, consumer)
         for flow in link.through:
             if flow.name in seen or flow in passed:
-                raise FlowSettingsException(
+                raise ChainRefusal(
                     f"{_repeated(flow)} The link `{request_text(elements[index : index + 2])}` "
-                    f"passes through `{flow.name}`."
+                    f"passes through `{flow.name}`.",
+                    code="repeated_flow",
+                    chain=request_text(elements),
                 )
         passed.update(link.through)
         links.append(link)
@@ -281,11 +327,11 @@ def _link(index: int, producer: ChainElement, consumer: ChainElement) -> ChainLi
                 refusal = _no_conversion(producer.flow_class, consumer.flow_class)
     except _NoDirectEdge as e:
         matched, refusal = [], str(e)
-    except FlowSettingsException as e:
+    except ChainRefusal as e:
         unknown = producer.output is not None and producer.output not in declared_outputs(
             producer.flow_class
         )
-        raise _EdgeFailure(index, str(e), advise=not unknown) from None
+        raise _EdgeFailure(index, str(e), code=e.code, advise=not unknown) from None
     if matched:
         return ChainLink((), tuple((consumer.flow_class, name, made) for name, made in matched))
     graph = default_graph(consumer.flow_class)
@@ -293,11 +339,11 @@ def _link(index: int, producer: ChainElement, consumer: ChainElement) -> ChainLi
     if not through or not _binding_edges(graph, producer.flow_class):
         if not converter and _has_design_output(producer.flow_class):
             refusal = _converts_no_design(producer.flow_class)
-        raise _EdgeFailure(index, refusal)
+        raise _EdgeFailure(index, refusal, code="no_edge")
     try:
         points = binding_points(graph, producer.flow_class, producer.output)
-    except FlowSettingsException as e:
-        raise _EdgeFailure(index, str(e), advise=True) from None
+    except ChainRefusal as e:
+        raise _EdgeFailure(index, str(e), code=e.code, advise=True) from None
     return ChainLink(through, tuple((edge.consumer, edge.input, made) for edge, made in points))
 
 
@@ -422,8 +468,8 @@ def _converter_link(index: int, producer: ChainElement, consumer: ChainElement) 
         return None
     try:
         points = binding_points(graph, producer.flow_class, producer.output)
-    except FlowSettingsException as e:
-        raise _EdgeFailure(index, str(e), advise=True) from None
+    except ChainRefusal as e:
+        raise _EdgeFailure(index, str(e), code=e.code, advise=True) from None
     return ChainLink(
         graph.between(producer.flow_class),
         tuple((edge.consumer, edge.input, made) for edge, made in points),
@@ -447,10 +493,13 @@ def validate_chain(elements: Sequence[ChainElement]) -> tuple[ChainLink, ...]:
         return _check_chain(elements)
     except _EdgeFailure as failure:
         advice = suggest_chains(elements, failure.index) if failure.advise else []
+        chain = request_text(elements)
         if not advice:
-            raise FlowSettingsException(failure.text) from None
-        quoted = " or ".join(f"`{request_text(chain)}`" for chain in advice)
-        raise FlowSettingsException(f"{failure.text} Did you mean {quoted}?") from None
+            raise ChainRefusal(failure.text, code=failure.code, chain=chain) from None
+        quoted = " or ".join(f"`{request_text(suggested)}`" for suggested in advice)
+        raise ChainRefusal(
+            f"{failure.text} Did you mean {quoted}?", code=failure.code, chain=chain
+        ) from None
 
 
 def suggest_chains(elements: Sequence[ChainElement], index: int) -> list[tuple[ChainElement, ...]]:
@@ -659,8 +708,9 @@ def binding_points(
     points = _binding_edges(graph, producer)
     outputs = declared_outputs(producer)
     if points and output is not None and output not in outputs:
-        raise FlowSettingsException(
-            f"Flow `{producer.name}` has no output `{output}`.{close_names(output, list(outputs))}"
+        raise ChainRefusal(
+            f"Flow `{producer.name}` has no output `{output}`.{close_names(output, list(outputs))}",
+            code="unknown_output",
         )
     chosen: list[tuple[DefaultEdge, str]] = []
     for edge in points:
@@ -669,15 +719,17 @@ def binding_points(
         fitting, many = fitting_outputs(producer, declaration, output=output)
         made = f"`{producer.name}.{output}`" if output else f"`{producer.name}`"
         if len(fitting) > 1:
-            raise FlowSettingsException(
+            raise ChainRefusal(
                 f"Input `{where}` has ambiguous outputs from `{producer.name}`: "
-                f"{', '.join(f'`{name}`' for name in fitting)}; qualify the producer output."
+                f"{', '.join(f'`{name}`' for name in fitting)}; qualify the producer output.",
+                code="ambiguous_output",
             )
         if not fitting:
             if many:
-                raise FlowSettingsException(
+                raise ChainRefusal(
                     f"Flow `{producer.name}` output `{many[0]}` has incompatible cardinality "
-                    f"for input `{where}`, which takes one file."
+                    f"for input `{where}`, which takes one file.",
+                    code="cardinality_mismatch",
                 )
             made_types = {
                 kind
@@ -685,9 +737,10 @@ def binding_points(
                 if output in (None, name)
                 for kind in ([kinds_text(o)] if o.is_design else [t.name for t in o.types])
             }
-            raise FlowSettingsException(
+            raise ChainRefusal(
                 f"Input `{where}` takes {kinds_text(declaration)}, "
-                f"but {made} makes {'/'.join(sorted(made_types)) or 'nothing'}."
+                f"but {made} makes {'/'.join(sorted(made_types)) or 'nothing'}.",
+                code="type_mismatch",
             )
         chosen.append((edge, fitting[0]))
     return tuple(chosen)
@@ -899,8 +952,9 @@ def match_required_inputs(
     inputs = declared_inputs(consumer)
     outputs = declared_outputs(producer)
     if output is not None and output not in outputs:
-        raise FlowSettingsException(
-            f"Flow `{producer.name}` has no output `{output}`.{close_names(output, list(outputs))}"
+        raise ChainRefusal(
+            f"Flow `{producer.name}` has no output `{output}`.{close_names(output, list(outputs))}",
+            code="unknown_output",
         )
 
     matches: list[tuple[str, str]] = []
@@ -917,10 +971,11 @@ def match_required_inputs(
         )
         cardinality_mismatches += [(input_name, name) for name in many]
         if len(candidates) > 1:
-            raise FlowSettingsException(
+            raise ChainRefusal(
                 f"Flow `{consumer.name}` input `{input_name}` has ambiguous outputs from "
                 f"`{producer.name}`: {', '.join(f'`{name}`' for name in candidates)}; "
-                "qualify the producer output."
+                "qualify the producer output.",
+                code="ambiguous_output",
             )
         if candidates:
             matches.append((input_name, candidates[0]))

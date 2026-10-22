@@ -83,7 +83,7 @@ def test_bluesim_no_finish_times_out(tmp_path):
     require_bluesim_evidence()
     flow = launch_bsc(tmp_path, "", simulator="bluesim", timeout=0.2)
     assert flow is not None and not flow.succeeded
-    assert flow.results.error.type == "ProcessTimeout"
+    assert flow.results.error.code == "timeout"
 
 
 @pytest.mark.parametrize("count", [1, 2, 10])
@@ -325,7 +325,7 @@ def test_verilator_iverilog_no_finish_times_out(tmp_path, backend):
     require_bsc_backend(backend)
     flow = launch_bsc(tmp_path, "", simulator=backend, timeout=0.2)
     assert flow is not None and not flow.succeeded
-    assert flow.results.error.type == "ProcessTimeout"
+    assert flow.results.error.code == "timeout"
 
 
 @pytest.mark.parametrize("backend", ["verilator", "iverilog"])

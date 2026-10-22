@@ -718,7 +718,7 @@ def test_patching_the_failed_run_artifact_drop_intercepts_an_ordinary_failed_exe
         {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}, "write_netlist": True},
     )
     assert not flow.succeeded, "the fake tool was meant to fail"
-    assert flow.results["error"]["type"] != "ReportedFailure", "the tool was meant to exit nonzero"
+    assert flow.results["error"]["code"] != "reported_failure", "the tool was meant to exit nonzero"
     assert seen == {"_drop_unwritten_artifacts"}, (
         "a launch whose tool exited nonzero did not go through "
         "default_runner._drop_unwritten_artifacts: it is patched to intercept the launcher, and "

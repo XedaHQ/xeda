@@ -9,6 +9,7 @@ from ..board import WithFpgaBoardSettings
 from ..dataclass import Field, model_validator
 from ..design import SourceType
 from ..flow import FPGA, Flow, FlowFatalError, FpgaSynthFlow, In
+from ..records import REPORTED_FAILURE, ErrorInfo
 from ..tool import Tool
 from ..units import count, data_size
 from ..utils import ToolException
@@ -944,7 +945,9 @@ class Openfpgaloader(FpgaSynthFlow):
             return True
         message = failure.message(log_file)
         log.error("%s", message)
-        self.results["error"] = {"type": "ReportedFailure", "message": message}
+        self.results["error"] = ErrorInfo(
+            code=REPORTED_FAILURE, message=message, node=self.name, exit_status=None, log=None
+        ).as_json_value()
         return False
 
     def run(self) -> None:

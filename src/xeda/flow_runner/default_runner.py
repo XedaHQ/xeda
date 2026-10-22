@@ -74,7 +74,6 @@ from ..run_dir import (
 from ..run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from ..utils import (
     WorkingDirectory,
-    XedaException,
     backup_existing,
     dump_json,
     settings_to_dict,
@@ -97,6 +96,7 @@ from .bindings import (
 from . import launch_identity, launch_input, launch_producers, launch_report, launch_run
 from .chains import ChainElement, FlowRequest, parse_request
 from .code_digest import CodeDigests
+from .error_codes import error_info
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
 from .launch_report import (
@@ -244,11 +244,15 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 
-class DesignNotFoundError(XedaException):
+class DesignNotFoundError(ProjectFileError):
     """The design to run cannot be determined.
 
     None was given and there is no project to take one from, or the project has no designs, or
-    it has none of the given name."""
+    it has none of the given name. `code` is the code of the `xeda.errors.ProjectError` that it
+    becomes."""
+
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message, code=code)
 
 
 #: Launcher settings that Xeda refuses, with what to use instead. Giving one is an error that
@@ -1352,7 +1356,7 @@ class FlowLauncher:
                     run_directory.remove(results_json)
                     launch_run.record_identity(flow, run_path)
                     flow.results.success = False
-                    flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
+                    flow.results["error"] = error_info(e, node=flow.name).as_json_value()
                     if isinstance(e, FlowDependencyFailure) and e.producer:
                         flow.blocked_by = e.producer
                     report(flow, derived, results_json, self.settings, record=True)
@@ -1481,7 +1485,7 @@ class FlowLauncher:
                                 programs.before[name] = execution_programs.before[name]
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
                     flow.results.success = False
-                    flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
+                    flow.results["error"] = error_info(e, node=flow.name).as_json_value()
                     if flow.init_time is not None:
                         flow.results.runtime = time.monotonic() - flow.init_time
                     for k, v in flow.artifacts.items():
@@ -1706,12 +1710,14 @@ class FlowLauncher:
             raise DesignNotFoundError(
                 f"{given} there is no project file ({', '.join(PROJECT_FILE_NAMES)}) in "
                 f"{Path.cwd()} to take a design from. Give a design file (.yaml, .yml, .toml "
-                "or .json)."
+                "or .json).",
+                code="project_file_not_found",
             )
         names = xeda_project.design_names
         if not xeda_project.designs:
             raise DesignNotFoundError(
-                f'The project file "{xedaproject}" has no designs. Give a design file instead.'
+                f'The project file "{xedaproject}" has no designs. Give a design file instead.',
+                code="invalid_project",
             )
         log.info("Available designs in the project file: %s", ", ".join(names))
         selected: Design | None = None
@@ -1720,7 +1726,8 @@ class FlowLauncher:
             if selected is None:
                 raise DesignNotFoundError(
                     f"Design '{name}' is not in the project file \"{xedaproject}\". "
-                    f"Its designs are: {', '.join(names)}."
+                    f"Its designs are: {', '.join(names)}.",
+                    code="unknown_design",
                 )
         elif len(xeda_project.designs) == 1:
             selected = xeda_project.get_design(target=target)
@@ -1729,7 +1736,8 @@ class FlowLauncher:
         if selected is None:
             raise DesignNotFoundError(
                 f'No design was given or selected among those of "{xedaproject}": '
-                f"{', '.join(names)}."
+                f"{', '.join(names)}.",
+                code="design_name_required",
             )
         return selected
 

@@ -405,9 +405,9 @@ Xeda checks the output records at two points:
   containment and the content, under a verified read lease on the producer. This is true whether the
   producer ran or was reused.
 
-A failure to record an output uses ``MissingOutput`` and the normal failure identity. A failed
-hand-over check of a consumer is a ``FlowDependencyFailure``. A flow can also fail earlier with its
-own check. For example, ``nextpnr`` raises ``FlowFatalError`` and names the configuration setting
+A failure to record an output uses ``missing_output`` and the normal failure identity. A failed
+hand-over check of a consumer is a ``producer_failed``. A flow can also fail earlier with its
+own check. For example, ``nextpnr`` fails with ``reported_failure`` and names the configuration setting
 and the path of an enabled configuration that its tool did not write.
 
 ``outputs`` is bookkeeping, like ``artifacts``, and not a ``list-results`` metric. The printed
@@ -480,26 +480,32 @@ refusals before it starts a run, and they use the same document with ``UsageErro
 that declares no inputs, or a chain together with a command-line or API binding of the same input)
 is a settings error. It names the input and the place where the binding was written.
 
-The ``results.json`` of every node is a failure document too, and its ``error.type`` is more
-specific than the one of the top-level document. The top-level ``FlowFailed`` is the verdict of the
-run, and a node names the cause. A failure of a producer is never ``FlowFailed``. The
-``results.json`` of the producer names its cause, and the flows after it say
-``FlowDependencyFailure`` and quote it (``producer yosys_fpga failed: ...``). The top-level
-``error`` of a chain whose last flow was never reached says the same. A flow that raises names its
-exception class (``NonZeroExitCode``, ``FlowFatalError`` and so on). Two causes belong to a flow
+The ``results.json`` of every node is a failure document too. Its ``error`` has a stable ``code``,
+a ``message``, the ``node``, the ``exit_status`` of the tool (for ``nonzero_exit``) and a ``log``
+(the artifact to read, or ``null``). The ``code`` is lower snake case and never the name of a
+class. The top-level ``FlowFailed`` is the verdict of the run, and a node names the cause. A
+failure of a producer is never ``FlowFailed``. The ``results.json`` of the producer names its
+cause, and the flows after it say ``producer_failed`` and quote the producer, its code and its
+message (``producer yosys_fpga failed (nonzero_exit): ...``). The top-level ``error`` of a chain
+whose last flow was never reached says the same. A flow that raises has a code for the kind of
+failure: ``nonzero_exit``, ``timeout``, ``executable_not_found``, ``reported_failure`` (also for
+``FlowFatalError``), ``producer_failed`` or ``internal_error`` (a bug of Xeda). A run that was
+judged negative after its reports were read says ``rejected``. Three more causes belong to a flow
 that finished without raising. The top-level document of such a flow says ``FlowFailed``:
 
-* ``ReportedFailure``: ``"`<flow>` reported failure: its reports or checks did not pass (see the log
+* ``reported_failure``: ``"`<flow>` reported failure: its reports or checks did not pass (see the log
   and its run directory)"``. A ``parse_reports()`` or ``check_results()`` that does not raise
   reported the failure: the tool exited 0, and the reports or checks that the flow reads say
   otherwise. A flow can give a message of its own. For example, ``openfpgaloader`` says what its
   loader reported and quotes the lines.
-* ``MissingOutput``: the flow passed its own checks, but an enabled declared output is absent,
+* ``missing_report``: the reports of the flow could not be read, because a report it asked for
+  does not exist or is a previous run's, not this run's. The message names the files.
+* ``missing_output``: the flow passed its own checks, but an enabled declared output is absent,
   unreadable, outside the run directory or not written by this run (see ``outputs`` above).
 
-``nextpnr`` can catch a missing enabled output earlier. It raises ``FlowFatalError``, which names
-the configuration setting and the path that its tool did not write. This is a raised error, and not
-a ``MissingOutput``.
+``nextpnr`` can catch a missing enabled output earlier. It raises an error that names the
+configuration setting and the path that its tool did not write. This is a raised error with the code
+``reported_failure``, and not a ``missing_output``.
 
 Other documents of executional commands
 ---------------------------------------

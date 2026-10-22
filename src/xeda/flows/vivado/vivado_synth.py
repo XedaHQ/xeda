@@ -18,6 +18,7 @@ from ...flow import (
     Out,
     describe_results,
 )
+from ...records import REPORTED_FAILURE, ErrorInfo
 from ...units import count
 from ...utils import HierDict, parse_xml, replacing_file, try_convert
 
@@ -313,7 +314,9 @@ def power_report_written(flow: Any) -> bool:
     )
     log.error("%s", message)
     if not flow.results.get("error"):  # a failed tool's own error is the cause
-        flow.results["error"] = {"type": "ReportedFailure", "message": message}
+        flow.results["error"] = ErrorInfo(
+            code=REPORTED_FAILURE, message=message, node=flow.name, exit_status=None, log=None
+        ).as_json_value()
     return False
 
 

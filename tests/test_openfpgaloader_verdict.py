@@ -737,7 +737,7 @@ def test_a_load_that_reports_an_id_error_fails_although_the_loader_exits_with_0(
     results = recorded(tmp_path)
     assert results["success"] is False
     error = results["error"]
-    assert error["type"] == "ReportedFailure"  # the tool exited 0 and its report says otherwise
+    assert error["code"] == "reported_failure"  # the tool exited 0 and its report says otherwise
     assert "exited with status 0" in error["message"]
     assert "did not finish configuration" in error["message"]
     assert "ID Error        ID error" in error["message"]
@@ -776,7 +776,7 @@ def test_a_failure_the_loader_prints_on_stderr_is_in_the_log_and_decides(
     flow = program(tmp_path)
     assert not flow.succeeded
     error = recorded(tmp_path)["error"]
-    assert error["type"] == "ReportedFailure" and "FAIL" in error["message"]
+    assert error["code"] == "reported_failure" and "FAIL" in error["message"]
     log = (tmp_path / "run/top/openfpgaloader" / LOADER_LOG).read_text()
     assert log.splitlines() == [
         "Open file DONE",
@@ -803,7 +803,7 @@ def test_a_nonzero_exit_status_fails_the_run_and_keeps_its_own_error(
     else:
         assert not flow.succeeded
     results = recorded(tmp_path)
-    assert results["success"] is False and results["error"]["type"] == "NonZeroExitCode"
+    assert results["success"] is False and results["error"]["code"] == "nonzero_exit"
 
 
 def test_the_log_of_an_earlier_failure_does_not_decide_the_next_run(
@@ -834,7 +834,7 @@ def test_a_log_a_previous_run_left_is_no_evidence_about_this_one(
     flow = program(tmp_path)
     assert not flow.succeeded
     error = recorded(tmp_path)["error"]
-    assert error["type"] == "ReportedFailure"
+    assert error["code"] == "reported_failure"
     assert "left no log of this run" in error["message"] and LOADER_LOG in error["message"]
     assert "ID Error" not in error["message"] and DONE_LOW not in error["message"]
     assert log.read_bytes() == before  # xeda did not touch it
@@ -912,7 +912,7 @@ def test_a_flash_write_with_no_part_for_the_bridge_fails_and_says_how_to_give_on
     flow = program(tmp_path, flash_settings(tmp_path))
     assert not flow.succeeded
     error = recorded(tmp_path)["error"]
-    assert error["type"] == "ReportedFailure"
+    assert error["code"] == "reported_failure"
     message = error["message"]
     assert "exited with status 0" in message
     assert "Can't program SPI flash: missing device-package information" in message
@@ -989,7 +989,7 @@ def test_a_xilinx_flash_write_that_stops_before_writing_fails_although_the_loade
     flow = program(tmp_path, xilinx_flash(verify=verify))
     assert not flow.succeeded
     error = recorded(tmp_path)["error"]
-    assert error["type"] == "ReportedFailure"
+    assert error["code"] == "reported_failure"
     message = error["message"]
     assert "did not report that it wrote the flash" in message
     assert "Non Volatile" in message and str(tmp_path / "run/top/openfpgaloader") in message
@@ -1133,7 +1133,7 @@ def test_the_command_line_exits_with_1_and_the_message_in_the_json(tmp_path):
     assert proc.returncode == 1
     assert document["success"] is False and document["error"]["type"] == "FlowFailed"
     cause = document["results"]["error"]
-    assert cause["type"] == "ReportedFailure" and "ID Error        ID error" in cause["message"]
+    assert cause["code"] == "reported_failure" and "ID Error        ID error" in cause["message"]
 
 
 # ------------------------------------------------------------------------------- the whole class

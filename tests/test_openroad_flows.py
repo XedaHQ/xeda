@@ -692,7 +692,7 @@ def test_a_timing_miss_rejects_the_run_and_the_next_launch_reports_it_again(
     last = run_dir(tmp_path)
     assert (last / "trace.json").is_file(), "a rejection keeps its trace"
     persisted = json.loads((last / "results.json").read_text())
-    assert persisted["success"] is False and persisted["error"]["type"] == "ReportedFailure"
+    assert persisted["success"] is False and persisted["error"]["code"] == "rejected"
     written = (last / "openroad_final.log").stat().st_mtime_ns
     calls = (last / "fake_openroad.calls").read_text()
 

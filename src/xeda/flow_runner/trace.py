@@ -72,7 +72,8 @@ TRACE_FILE = "trace.json"
 #: files: a producer that ran again with the same outputs leaves it up to date.
 #: 16: a run whose checks rejected it keeps a trace (`verdict`, `error`); reuse requires
 #: `results.json` to agree with them.
-TRACE_FORMAT = 16
+#: 17: the `error` of a trace is an error record: a stable `code`, not the name of a class.
+TRACE_FORMAT = 17
 
 #: The names that Xeda reserves at the top of a run directory, never outputs: the trace and the
 #: trace being written. The clock markers (`digest.TIME_MARKER_PREFIX` plus a random suffix) are
@@ -300,8 +301,9 @@ class Trace(XedaBaseModel):
     #: `Flow.reject`). A launch with the same inputs and settings reports a rejection again
     #: without running.
     verdict: Literal["passed", "rejected"] = "passed"
-    #: The `error` of the results of a rejected run (its `type` and `message`); None if it passed.
-    error: Optional[Dict[str, str]] = None
+    #: The `error` of the results of a rejected run (its `code` and `message`, and the other fields
+    #: of an error record); None if it passed.
+    error: Optional[Dict[str, Any]] = None
 
 
 def run_directory_files(run_path: Path) -> list[Path]:
@@ -465,7 +467,7 @@ class Freshness:
     #: (`changed_edge`).
     equivalent: tuple[str, ...] = ()
     verdict: str = "passed"
-    error: Optional[Dict[str, str]] = None
+    error: Optional[Dict[str, Any]] = None
 
 
 def _flatten(value: Any, prefix: str = "") -> Dict[str, Any]:

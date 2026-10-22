@@ -298,7 +298,7 @@ def test_a_failed_producer_reports_its_error_and_invalidates_its_consumer(
     with pytest.raises(FlowDependencyFailure, match="maker broke.*results.json"):
         runner.launch_flow(_Taker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
-    assert recorded["success"] is False and recorded["error"]["type"] == "FlowDependencyFailure"
+    assert recorded["success"] is False and recorded["error"]["code"] == "producer_failed"
     assert not (first.run_path / "trace.json").exists()
     assert not (tmp_path / "out").exists()
 
@@ -348,7 +348,7 @@ def test_a_failed_handover_invalidates_previous_success_without_delivery(
         runner.launch_flow(_Taker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
     assert recorded["success"] is False
-    assert recorded["error"]["type"] == "FlowDependencyFailure"
+    assert recorded["error"]["code"] == "producer_failed"
     assert all(recorded[key] for key in ("design_hash", "flow_hash", "run_path", "timestamp"))
     assert not (first.run_path / "trace.json").exists()
     assert not (tmp_path / "out").exists()

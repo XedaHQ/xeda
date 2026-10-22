@@ -28,7 +28,13 @@ PROJECT_FILE_NAMES = ("xedaproject.yaml", "xedaproject.yml", "xedaproject.toml")
 
 class ProjectFileError(XedaException):
     """The error for a project file (`xedaproject.yaml`, `.yml` or `.toml`) that cannot be found,
-    opened, parsed or used."""
+    opened, parsed or used.
+
+    `code` is the code of the `xeda.errors.ProjectError` that it becomes."""
+
+    def __init__(self, message: str, *, code: str = "invalid_project") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def find_default_xedaproject(directory: str | Path = ".") -> Path | None:
@@ -41,7 +47,8 @@ def find_default_xedaproject(directory: str | Path = ".") -> Path | None:
     if len(found) > 1:
         names = ", ".join(path.name for path in found)
         raise ProjectFileError(
-            f"Multiple project files found in {directory}: {names}; keep one project file"
+            f"Multiple project files found in {directory}: {names}; keep one project file",
+            code="several_project_files",
         )
     return found[0] if found else None
 
@@ -57,7 +64,9 @@ def resolve_project_file(
     if given:
         path = Path(given)
         if not path.exists():
-            raise ProjectFileError(f'Cannot open project file "{given}": no such file')
+            raise ProjectFileError(
+                f'Cannot open project file "{given}": no such file', code="project_file_not_found"
+            )
         return path
     return find_default_xedaproject(directory)
 

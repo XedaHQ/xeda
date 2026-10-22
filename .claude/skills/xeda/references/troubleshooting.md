@@ -4,8 +4,8 @@
 
 1. `error.type` and `error.message` of the `--json` document. Usage errors (exit 2) are
    `BadParameter` and `UsageError`.
-2. `FlowFailed`: the cause is `results.error` (the same as `error` in `results_json`).
-   `FlowDependencyFailure`: open the failed producer's `results.json` (the message names it) and
+2. `FlowFailed`: the cause is `results.error` (the same as `error` in `results_json`; branch on
+   its stable `code`). `FlowDependencyFailure`: open the failed producer's `results.json` (the message names it) and
    start there. `nodes` lists every run directory; a node planned but never entered shows
    `"state": "not run"`.
    A run whose checks rejected the results is reported again, unchanged, on the next launch with
@@ -91,18 +91,20 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 - `ExecutableNotFound`: `Executable 'ghdl' was not found in PATH. flow:ghdl_sim, tool:GhdlTool`
   (`--debug` appends `, PATH:...`). Install the tool, or run it from a container with `-s dockerized=true`. `results.json`'s `tools`
   lists the executables Xeda found and their versions.
-- `NonZeroExitCode`: `Command '...' exited with code 1!` in the failed node's `results.error`. If
+- `nonzero_exit` (`timeout` for a time limit): `Command '...' exited with code 1!` in the failed node's `results.error`. If
   the error reaches the CLI itself, the message starts with `Flow <flow> failed: `. The generated
   script and the tool's log are in `run_path`.
-- `ReportedFailure`: a node's `results.json` says so when its reports or checks failed with no
-  exception and no tool exit status, for example a tool that exited 0 and wrote no netlist. The
+- `reported_failure`: a node's `results.json` says so when its reports or checks failed with no
+  exception and no tool exit status, for example a tool that exited 0 and left a negative verdict in its reports. The
   top-level document says `FlowFailed`; consumers quote the message
-  (`producer yosys_fpga failed: ...`). A rejected run (a failed cocotb test, negative hold slack in
+  (`producer yosys_fpga failed (reported_failure): ...`, with `producer_failed` as the consumer's
+  own code). A `missing_report` is the same case when the flow asked for a report that this run did
+  not write. A rejected run (a failed cocotb test, negative hold slack in
   Vivado, negative slack in Quartus) is reported again on an unchanged launch (node state
   `rejected again`); `--rebuild-all` runs it again. A tool failure, such as a Vivado setup-slack
   miss or a `nextpnr` timing miss, runs again.
-- `MissingOutput`: a declared output is absent, unreadable, outside the run directory or not
-  written by this run. `nextpnr` reports its own missing configuration as `FlowFatalError`, naming
+- `missing_output`: a declared output is absent, unreadable, outside the run directory or not
+  written by this run. `nextpnr` reports its own missing configuration as `reported_failure`, naming
   the setting and path.
 
 ### Remote runs
@@ -200,10 +202,10 @@ A Xilinx 7-series build fails before or during `nextpnr`:
 - `nextpnr: timing constraints are not met: Max frequency ... (FAIL at ...)`: relax the clock, or set
   `timing_allow_fail`.
 - `nextpnr constraint error` names the original constraint file and line.
-- A `NonZeroExitCode` of `nextpnr` ends with `nextpnr error: ...`, the first error lines of this
+- A `nonzero_exit` of `nextpnr` ends with `nextpnr error: ...`, the first error lines of this
   run's log; more are in `nextpnr.log`.
 - `openfpgaloader`: the loader can exit 0 after a failure. Xeda reads `openfpgaloader.log` and
-  fails with `ReportedFailure`, quoting the lines. An ID error means the bitstream is for another
+  fails with `reported_failure`, quoting the lines. An ID error means the bitstream is for another
   device than the one on the cable. With several boards of one kind connected, the flow chooses
   the probe when it can (it logs the choice). Otherwise name the probe with `usb_serial_num`.
   To list the serial numbers, run `openFPGALoader --scan-usb`.

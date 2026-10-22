@@ -209,8 +209,7 @@ def parse_nvc_log(flow: Flow, path: str | Path) -> SimEvidence | None:
                 SimEvent(kind=kind, time=time, location=location, message=message)
             )
             terminated_error = (
-                kind == "error"
-                and (flow.results.get("error") or {}).get("type") == "NonZeroExitCode"
+                kind == "error" and (flow.results.get("error") or {}).get("code") == "nonzero_exit"
             )
             # An error below the native threshold may have continued. It remains an event;
             # the failed invocation distinguishes an error that actually ended execution.

@@ -47,7 +47,7 @@ from ..dataclass import (
     opaque_key_fields_of,
 )
 from ..units import Quantity
-from .flow import _is_comma_separated_list, _is_optional_path, removed_message
+from .flow import _is_comma_separated_list, _is_optional_path, removed_setting_error
 
 __all__ = ["Flag", "SettingsGroup", "group_problems", "render_flags"]
 
@@ -156,7 +156,7 @@ class SettingsGroup(XedaBaseModel):
         the assigned value, and this validator changes nothing then."""
         for name, replacement in cls.removed_setting_replacements().items():
             if name in values:
-                raise ValueError(removed_message(name, replacement, values[name]))
+                raise removed_setting_error(name, replacement, values[name])
         if info.field_name is not None and info.data is None:
             return values  # an assignment
         refused: list[InitErrorDetails] = []

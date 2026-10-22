@@ -193,7 +193,8 @@ def test_a_failed_end_says_what_happened_and_what_to_do_in_the_results(
     """The message is the run's `error`, not only a log line, and names the flow."""
     flow = _Stub(stop_time)
     assert judge_evidence(flow, evidence, "error") is False
-    assert flow.results["error"]["type"] == "ReportedFailure"
+    # a judgment of results that were read is a rejection; a missing end record is no judgment
+    assert flow.results["error"]["code"] == ("reported_failure" if evidence is None else "rejected")
     message = flow.results["error"]["message"]
     assert message.startswith("`stub_sim` reported failure: ")
     for text in expected:
@@ -236,7 +237,7 @@ def test_a_missing_end_record_is_a_failure_no_rejection():
     flow = _Stub()
     assert judge_evidence(flow, None, "error") is False
     assert flow.rejection is None
-    assert flow.results["error"]["type"] == "ReportedFailure"
+    assert flow.results["error"]["code"] == "reported_failure"
 
 
 def test_a_simulation_that_ended_badly_is_a_rejection():
@@ -355,9 +356,9 @@ def test_an_event_fix_names_a_threshold_only_where_one_allows_the_event(severity
 
 def test_a_failed_end_keeps_the_error_the_run_already_has():
     flow = _Stub()
-    flow.results["error"] = {"type": "NonZeroExitCode", "message": "exit 1"}
+    flow.results["error"] = {"code": "nonzero_exit", "message": "exit 1"}
     assert judge_evidence(flow, SimEvidence(ended_by="unknown"), "error") is False
-    assert flow.results["error"] == {"type": "NonZeroExitCode", "message": "exit 1"}
+    assert flow.results["error"] == {"code": "nonzero_exit", "message": "exit 1"}
 
 
 def test_a_passing_end_records_no_error():

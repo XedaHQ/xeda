@@ -87,9 +87,10 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   `prepare_inputs()` or a constructor (`tests/test_refusals_at_planning.py`).
 - Read every report or log through `Flow.report_file(path)`, which ignores a file this run did
   not write (`tests/test_stale_reports.py`).
-- A failure after a run starts leaves `results.json` with `success: false`, `error.type` and
-  `error.message` (`tests/test_failure_results.py`). `ReportedFailure` is a node's cause;
-  `FlowFailed` is the verdict of `xeda run --json`. Only a rejection (`Flow.reject` in
+- A failure after a run starts leaves `results.json` with `success: false`, `error.code` and
+  `error.message` (`tests/test_failure_results.py`). The code is stable and never a class name
+  (`flow_runner/error_codes.py`, `tests/test_public_errors.py`); `reported_failure` is a node's
+  cause, `FlowFailed` the verdict of `xeda run --json`. Only a rejection (`Flow.reject` in
   `check_results()`; `parse_reports()` only reads, `tests/test_verdict_placement.py`) keeps
   the trace and is reported again unchanged; every other failure keeps none.
 - `Flow.always_runs()` returns a reason or `None`; every override calls `super()`. A simulation

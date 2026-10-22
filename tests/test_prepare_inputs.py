@@ -125,7 +125,7 @@ def test_cache_failure_after_success_records_preparation_cause(tmp_path, generat
     with pytest.raises(FlowFatalError, match="generator"):
         _launch_cache(tmp_path, generation)
     recorded = json.loads((first.run_path / "results.json").read_text())
-    assert recorded["success"] is False and recorded["error"]["type"] == "FlowFatalError"
+    assert recorded["success"] is False and recorded["error"]["code"] == "reported_failure"
     assert (
         "generator" in recorded["error"]["message"]
         and "nextpnr failure" not in recorded["error"]["message"]

@@ -85,7 +85,7 @@ def test_vcs_runtime_verdict(
 def test_vcs_timeout_preserves_runtime_diagnostics(tmp_path, monkeypatch, one_shot):
     flow = launch(tmp_path, monkeypatch, "timeout", one_shot, {"timeout": 2.0})
     assert not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
     assert flow.results["sim.errors"] == 1
     assert "XEDA_VCS_RUNTIME_START" in (flow.run_path / "vcs_runtime.log").read_text()
 

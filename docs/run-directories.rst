@@ -173,10 +173,10 @@ directory and the trace gives the reason for the new run: ``declared input bindi
 
 This file holds what the flow parsed out of the tool's reports. A run that fails after it has
 started still writes the file, as a failure document. This covers a failing tool and a failing
-producer. The ``success`` key is ``false``, and ``error.type`` and ``error.message`` say what
-failed. The run's identity is in the document too. A flow whose reports or checks failed without a
-tool error says ``ReportedFailure``. A consumer of a failed producer says ``FlowDependencyFailure``
-and quotes the cause. Xeda removes the previous ``results.json`` before a run starts, so an earlier
+producer. The ``success`` key is ``false``, and ``error.code`` and ``error.message`` say what
+failed. The ``code`` is a stable text, never a class name. The run's identity is in the document
+too. A flow whose reports or checks failed without a tool error says ``reported_failure``. A
+consumer of a failed producer says ``producer_failed`` and quotes the cause. Xeda removes the previous ``results.json`` before a run starts, so an earlier
 success never stands for a run that failed. Every flow reports these keys:
 
 .. list-table::
@@ -206,8 +206,8 @@ success never stands for a run that failed. Every flow reports these keys:
 A flow with declared outputs also records ``outputs``. This key holds the absolute path and the
 content digest of each enabled output (an ordered list for a list output). A consumer receives these
 checked records under a verified read lease (see :doc:`machine-readable`). A failed output check
-uses ``MissingOutput`` and the normal failure document. ``nextpnr`` checks its enabled configuration
-earlier and raises ``FlowFatalError`` if the tool did not write the file.
+uses ``missing_output`` and the normal failure document. ``nextpnr`` checks its enabled configuration
+earlier and fails with ``reported_failure`` if the tool did not write the file.
 
 Each flow also reports keys of its own. ``xeda list-results <flow>`` lists them. Keys that start
 with ``_`` are internal and may change without notice.
