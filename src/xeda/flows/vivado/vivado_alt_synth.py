@@ -445,7 +445,7 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
 
     # Only project mode has Vivado runs, so there is no run `status`.
     results_description = {
-        key: text for key, text in VivadoSynth.results_description.items() if key != "status"
+        key: spec for key, spec in VivadoSynth.results_description.items() if key != "status"
     }
 
     reads_sources = frozenset(

@@ -214,7 +214,7 @@ def test_vivado_power_reports_after_fresh_and_reused_producer_evidence(
     producers = {"timeout": 10.0, **settings}
     flow = launch(tmp_path, monkeypatch, state, producers=producers, flow_class=VivadoPower)
     assert flow.succeeded
-    assert flow.results["Total On-Chip Power (W)"] == "0.5"
+    assert flow.results["Total On-Chip Power (W)"] == 0.5
     assert not any(key.startswith("sim.") for key in flow.results)
     assert not (flow.run_path / "xsim_runtime.log").exists()
     simulation = flow.run_path.parent / "vivado_postsynth_sim"

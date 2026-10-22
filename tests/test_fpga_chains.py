@@ -19,6 +19,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cli import cli
 from xeda.design import SourceType
@@ -150,7 +151,7 @@ def test_a_chain_narrows_the_packer_s_input_to_the_family_nextpnr_selects(tmp_pa
 class _AscMaker(Flow):
     """Makes an iCE40 configuration, whatever device the packer targets."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(Flow.Outputs):
         config: Path = Out(SourceType.IceAsc, description="An iCE40 ASCII configuration.")
@@ -162,7 +163,7 @@ class _AscMaker(Flow):
 class _AscWriter(Flow):
     """Makes an iCE40 configuration and really writes it, whatever device the packer targets."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(Flow.Outputs):
         config: Path = Out(SourceType.IceAsc, description="An iCE40 ASCII configuration.")

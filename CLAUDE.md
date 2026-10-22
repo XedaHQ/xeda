@@ -137,7 +137,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   header; state the `.odb` stores has one owner (`openroad_place`); the header re-applies the rest
   (`tests/test_openroad_templates.py`).
 - Each flow needs its own docstring, a `results_description` from `describe_results(...)` (`{}`
-  if none) and `description=` on every settings field (`tests/test_documentation.py`).
+  if none), each entry a `MetricSpec` with a type, and a unit when it is a physical quantity, and
+  `description=` on every settings field (`tests/test_documentation.py`).
 - `Flow.executables` lists every program the flow may start, helpers included; `xeda remote check`
   reads it (`tests/test_flow_executables.py` scans `Tool(...)` and `.derive(...)` calls).
 - A flow that reads design sources declares `reads_sources` and iterates `sources_read()`

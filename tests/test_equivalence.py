@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.digest import content_digest
@@ -170,7 +171,7 @@ def test_an_input_that_opts_in_needs_a_type_that_has_a_normalizer():
     class _Ok(Flow):
         """Opts in on a JSON netlist."""
 
-        results_description: dict[str, str] = {}
+        results_description: dict[str, MetricSpec] = {}
 
         class Inputs(Flow.Inputs):
             netlist: Path = In(SourceType.JsonNetlist, equivalence=True, description="A netlist.")
@@ -184,7 +185,7 @@ def test_an_input_that_opts_in_needs_a_type_that_has_a_normalizer():
             class _Bad(Flow):
                 """Opts in on a type that has no normalizer."""
 
-                results_description: dict[str, str] = {}
+                results_description: dict[str, MetricSpec] = {}
 
                 class Inputs(Flow.Inputs):
                     text: Path = In(SourceType.Verilog, equivalence=True, description="Text.")

@@ -48,9 +48,7 @@ def parsed_flow(tmp_path: Path) -> Yosys:
 
 def test_every_documented_key_is_actually_reported(parsed_flow: Yosys):
     """A key in `results_description` that `parse_reports` never writes is a false promise."""
-    # `common` marks the keys the runner fills in (success, runtime, run_path, ...); everything
-    # else is what this flow's own parse_reports() promised.
-    flow_specific = [k["name"] for k in results_info(Yosys)["keys"] if not k["common"]]
+    flow_specific = [m["path"] for m in results_info(Yosys)["metrics"]]
     undelivered = sorted(k for k in flow_specific if parsed_flow.results.get(k) is None)
     assert not undelivered, (
         f"`xeda list-results yosys` advertises {undelivered}, but parse_reports() does not "

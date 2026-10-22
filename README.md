@@ -125,7 +125,7 @@ See the [remote runs](https://xeda.readthedocs.io/en/latest/remote.html) page fo
 ```bash
 xeda list-flows                   # every flow: category, what it takes and makes, what follows it
 xeda list-settings vivado_synth   # every setting of a flow, with type, default and meaning
-xeda list-results vivado_synth    # the keys that flow writes to results.json
+xeda list-results vivado_synth    # the metrics that flow writes, with types and units
 xeda design-schema                # JSON Schema of a design file
 ```
 

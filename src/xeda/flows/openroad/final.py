@@ -15,7 +15,7 @@ from xml.sax.saxutils import escape as xml_escape
 
 from ...dataclass import Field, tier
 from ...design import SourceType
-from ...flow import Flow, In, NoReplacement, Out, describe_results
+from ...flow import Flow, In, MetricSpec, NoReplacement, Out, describe_results
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import PlatformModel
 from ...tool import NonZeroExitCode, Tool
@@ -371,40 +371,82 @@ class Openroad(OpenroadStage):
         "hold_violations",
         "utilization",
         "power",
-        area="Area of the standard cells after the detailed route, without the filler cells, in "
-        "square micrometers.",
-        hold_tns="Total negative hold slack (ns) after the detailed route, from the final "
-        "parasitics (see `parasitics`).",
-        clock_skew_setup="Clock skew (ns) of the setup check after the detailed route.",
-        clock_skew_hold="Clock skew (ns) of the hold check after the detailed route.",
-        max_slew_violations="Number of max slew violations after the detailed route.",
-        max_cap_violations="Number of max capacitance violations after the detailed route.",
-        max_fanout_violations="Number of max fanout violations after the detailed route.",
-        core_area="Area of the core, in square micrometers.",
-        die_area="Area of the die, in square micrometers.",
-        power_internal="Internal power of the cells in watts, as OpenROAD estimates it.",
-        power_switching="Switching power of the nets in watts, as OpenROAD estimates it.",
-        power_leakage="Leakage power of the cells in watts, as OpenROAD estimates it.",
-        drc_errors="Number of design rule violations that the detailed route leaves.",
-        antenna_violating_nets="Number of nets with an antenna violation after the detailed route "
-        "and its repair.",
-        antenna_violating_pins="Number of pins with an antenna violation after the detailed route "
-        "and its repair.",
-        antenna_diodes="Number of diodes that the repair of the antenna violations inserted. "
-        "Absent if the platform has no diode that the router can use.",
-        wirelength="Total wire length of the detailed route, in micrometers.",
-        vias="Number of vias of the detailed route.",
-        instances="Number of standard cell instances, without the filler cells.",
-        fill_cells="Number of filler cell instances.",
-        tap_cells="Number of tap cell instances.",
-        warnings="Number of warnings that OpenROAD printed in the final report.",
-        errors="Number of errors that OpenROAD printed in the final report.",
-        parasitics="How the parasitics of the final timing, power and IR drop come about: `rcx` "
-        "(OpenRCX extracted them with the rules of the platform) or `estimate` (OpenROAD "
-        "estimated them from the route).",
-        platform="The platform that the design is routed on: `name`, the PDK `provider` and "
-        "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or user) "
-        "that gave each value of the platform model.",
+        area=MetricSpec(
+            "Area of the standard cells after the detailed route, without the filler cells, in "
+            "square micrometers.",
+            "number",
+        ),
+        hold_tns=MetricSpec(
+            "Total negative hold slack after the detailed route, from the final parasitics (see "
+            "`parasitics`).",
+            "number",
+            "ns",
+        ),
+        clock_skew_setup=MetricSpec(
+            "Clock skew of the setup check after the detailed route.", "number", "ns"
+        ),
+        clock_skew_hold=MetricSpec(
+            "Clock skew of the hold check after the detailed route.", "number", "ns"
+        ),
+        max_slew_violations=MetricSpec(
+            "Number of max slew violations after the detailed route.", "integer"
+        ),
+        max_cap_violations=MetricSpec(
+            "Number of max capacitance violations after the detailed route.", "integer"
+        ),
+        max_fanout_violations=MetricSpec(
+            "Number of max fanout violations after the detailed route.", "integer"
+        ),
+        core_area=MetricSpec("Area of the core, in square micrometers.", "number"),
+        die_area=MetricSpec("Area of the die, in square micrometers.", "number"),
+        power_internal=MetricSpec(
+            "Internal power of the cells, as OpenROAD estimates it.", "number", "W"
+        ),
+        power_switching=MetricSpec(
+            "Switching power of the nets, as OpenROAD estimates it.", "number", "W"
+        ),
+        power_leakage=MetricSpec(
+            "Leakage power of the cells, as OpenROAD estimates it.", "number", "W"
+        ),
+        drc_errors=MetricSpec(
+            "Number of design rule violations that the detailed route leaves.", "integer"
+        ),
+        antenna_violating_nets=MetricSpec(
+            "Number of nets with an antenna violation after the detailed route and its repair.",
+            "integer",
+        ),
+        antenna_violating_pins=MetricSpec(
+            "Number of pins with an antenna violation after the detailed route and its repair.",
+            "integer",
+        ),
+        antenna_diodes=MetricSpec(
+            "Number of diodes that the repair of the antenna violations inserted. Absent if the "
+            "platform has no diode that the router can use.",
+            "integer",
+        ),
+        wirelength=MetricSpec("Total wire length of the detailed route.", "number", "um"),
+        vias=MetricSpec("Number of vias of the detailed route.", "integer"),
+        instances=MetricSpec(
+            "Number of standard cell instances, without the filler cells.", "integer"
+        ),
+        fill_cells=MetricSpec("Number of filler cell instances.", "integer"),
+        tap_cells=MetricSpec("Number of tap cell instances.", "integer"),
+        warnings=MetricSpec(
+            "Number of warnings that OpenROAD printed in the final report.", "integer"
+        ),
+        errors=MetricSpec("Number of errors that OpenROAD printed in the final report.", "integer"),
+        parasitics=MetricSpec(
+            "How the parasitics of the final timing, power and IR drop come about: `rcx` "
+            "(OpenRCX extracted them with the rules of the platform) or `estimate` (OpenROAD "
+            "estimated them from the route).",
+            "text",
+        ),
+        platform=MetricSpec(
+            "The platform that the design is routed on: `name`, the PDK `provider` and "
+            "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or "
+            "user) that gave each value of the platform model.",
+            "object",
+        ),
     )
 
     #: The design sources it can take as its inputs: the database and constraints of the global

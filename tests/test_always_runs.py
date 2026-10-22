@@ -12,6 +12,7 @@ from typing import ClassVar, Optional
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cocotb import Cocotb, CocotbSettings
 from xeda.flow import Flow, registered_flows
@@ -39,7 +40,7 @@ def test_a_flow_that_always_runs_says_why_and_keeps_no_trace(tmp_path, design):
     class ToyProgrammer(Flow):
         """Pretends to program a device when asked to."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
         program: ClassVar[bool] = True
 
         def always_runs(self) -> Optional[str]:

@@ -91,6 +91,7 @@ from ..utils import (
 
 from .derived import DesignConversion
 from .source_file import without_source_file
+from .metrics import MetricSpec, describe_results
 from .io import (
     DESIGN,
     FlowInputs,
@@ -110,7 +111,6 @@ log = logging.getLogger(__name__)
 
 
 __all__ = [
-    "COMMON_RESULT_DESCRIPTIONS",
     "Flow",
     "FlowFatalError",
     "FlowSettingsError",
@@ -747,94 +747,6 @@ def flowrun_hash(flow_name: str, settings: Flow.Settings, design_name: Optional[
     return semantic_hash(identity_values(flow_name, settings, design_name))
 
 
-#: Descriptions of result keys that several flows report with the same meaning. A flow declares
-#: the subset it actually reports through `describe_results`, so `xeda list-results <flow>` never
-#: advertises a key that flow does not produce.
-COMMON_RESULT_DESCRIPTIONS: Dict[str, str] = {
-    # timing
-    "Fmax": "Maximum achievable clock frequency in MHz, derived from the constrained period and "
-    "the worst negative slack. This is the achieved result, unlike `clock_frequency`. Each tool "
-    "times a design with its own model: compare `Fmax` only between runs of the same tool.",
-    "clock_period": "Constrained clock period in nanoseconds, as given to the tool.",
-    "clock_frequency": "Constrained clock frequency in MHz. This is the constraint that was "
-    "given to the tool, not the achieved maximum (see `Fmax`).",
-    "clock_name": "Name of the clock the reported timing refers to.",
-    "clock_port": "Design port the reported clock is attached to.",
-    "wns": "Worst negative slack (ns) over all setup paths. Negative means setup timing is not "
-    "met.",
-    "whs": "Worst hold slack (ns) over all hold paths. Negative means a hold violation.",
-    "tns": "Total negative slack (ns), summed over every failing setup endpoint.",
-    "setup_wns": "Worst negative slack (ns) on setup paths.",
-    "hold_wns": "Worst negative slack (ns) on hold paths.",
-    "worst_slack": "Worst slack (ns) over all analyzed paths.",
-    "setup_violations": "Number of endpoints that fail setup timing.",
-    "hold_violations": "Number of endpoints that fail hold timing.",
-    "num_violating_paths": "Number of paths that fail setup timing.",
-    "hold_num_violating_paths": "Number of paths that fail hold timing.",
-    "minimum_period": "Minimum achievable clock period in nanoseconds.",
-    "maximum_frequency": "Maximum achievable clock frequency in MHz.",
-    "f_max": "Maximum achievable clock frequency in MHz.",
-    # FPGA resources
-    "lut": "Number of LUTs used.",
-    "LUT": "Number of LUTs used.",
-    "ff": "Number of flip-flops (registers) used.",
-    "FF": "Number of flip-flops (registers) used.",
-    "slice": "Number of slices / logic elements occupied.",
-    "dsp": "Number of DSP blocks used.",
-    "bram": "Number of block RAM primitives used.",
-    # ASIC area
-    "area": "Cell area of the synthesized design, in the technology's area unit.",
-    "design_area": "Area of the placed design, in `design_area_unit`.",
-    "design_area_unit": "Unit the reported `design_area` is expressed in.",
-    "utilization_percent": "Core area utilization, in percent.",
-    "utilization_ratio": "Core area utilization, as a ratio in 0..1.",
-    "aspect_ratio": "Core height divided by core width.",
-    "area_combinational": "Area of the combinational cells.",
-    "area_noncombinational": "Area of the sequential (state-holding) cells.",
-    "area_macro_bbox": "Area of macros and black boxes.",
-    "area_cell_total": "Total cell area, excluding net interconnect.",
-    "area_total": "Total area, including net interconnect where the tool reports it.",
-    "area_core": "Area of the core region.",
-    "utilization": "Share of the core area that the standard cells fill, as a ratio from 0 to 1.",
-    "power": "Total power of the design in watts, as the tool estimates it.",
-    "io": "Number of I/O buffers/pads used.",
-    "timing_met": "Whether every constrained clock domain met its constraint.",
-    "clock_domains": "Number of clock domains the timing analysis reported.",
-    # simulation: how it ended, from the simulator's end record (`SimFlow.simulation_evidence`)
-    "sim.evidence": "Normalized simulation end record, including measured cycles and events; "
-    "preserved even when the evidence fails the simulation verdict.",
-    "sim.ended_by": "What ended the simulation: `finish` ($finish), `stop_time` (the requested "
-    "stop time, reached), `max_cycles`, `exit` (the testbench's own driver exited), `drained` "
-    "(no event left, and no $finish), `error`, `fatal`, or `unknown`. Only `finish`, a "
-    "requested `stop_time` or `max_cycles`, and an `exit` with status 0 can pass.",
-    "sim.time": "Simulated time at the end, in `sim.time_unit`; null when the simulator did not "
-    "report it.",
-    "sim.time_unit": "The unit of `sim.time`, e.g. `1ps` (the model's time precision).",
-    "sim.errors": "Number of errors the simulation reported: $error, failed assertions, $stop "
-    "and $fatal.",
-    "sim.warnings": "Number of warnings the simulation reported.",
-}
-
-
-def describe_results(*keys: str, **extra: str) -> Dict[str, str]:
-    """Build a flow's `results_description` from the shared vocabulary plus its own keys.
-
-    Positional arguments name keys from `COMMON_RESULT_DESCRIPTIONS`; keyword arguments add or
-    override flow-specific ones.
-    """
-    described = {}
-    for key in keys:
-        try:
-            described[key] = COMMON_RESULT_DESCRIPTIONS[key]
-        except KeyError:
-            raise KeyError(
-                f"No shared description for result key {key!r}. Add it to "
-                "COMMON_RESULT_DESCRIPTIONS, or pass it as a keyword argument."
-            ) from None
-    described.update(extra)
-    return described
-
-
 def is_unset(value: Any) -> bool:
     """Return whether `value` says nothing: `None`, or an empty string or container.
 
@@ -896,9 +808,10 @@ class Flow(metaclass=ABCMeta):
     name: str  # set automatically
     aliases: List[str] = []  # list of alternative names for the flow
 
-    #: Documentation for the flow-specific keys this flow writes to `results` (and therefore to
-    #: `results.json`). Reported by `xeda list-results <flow>`. Build it with `describe_results`.
-    results_description: Dict[str, str] = {}
+    #: The metrics this flow writes to `results` (and therefore to `results.json`), each with a
+    #: description, a type and a unit. Reported by `xeda list-results <flow>`. Build it with
+    #: `describe_results`.
+    results_description: ClassVar[Dict[str, MetricSpec]] = {}
 
     #: Additive canonical aliases for results, as canonical_key -> candidate keys in preference
     #: order. After `parse_reports`, the first candidate that is present is copied to the

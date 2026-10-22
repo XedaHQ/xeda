@@ -36,6 +36,7 @@ from typing import Any, ClassVar
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.flow import Flow, FlowSettingsError, In, Out, registered_flows
@@ -122,7 +123,7 @@ def toy_flows():
     class ToyDep(Flow):
         """A producer that writes one file."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Outputs(Flow.Outputs):
             dep: Path = Out(SourceType.Data, description="The file it writes.")
@@ -134,7 +135,7 @@ def toy_flows():
     class ToyTop(Flow):
         """A flow with one producer."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             dep: Path = In(

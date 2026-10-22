@@ -19,6 +19,7 @@ import yaml
 from click.testing import CliRunner
 
 import xeda.deliver as deliver
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cli import _prompt_scrub, cli
 from xeda.console import console
@@ -39,7 +40,7 @@ DURING_RUN: List[Callable[[], object]] = []
 class _ReadsDir(Flow):
     """A producer that reads a directory and writes `a.txt`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         reads: Optional[Path] = Field(None, description="A directory it reads.")
@@ -69,7 +70,7 @@ class _ReadsDir(Flow):
 class _Delivers(Flow):
     """A producer that delivers a netlist to the location its setting names."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         reads: Optional[Path] = Field(None, description="A file it reads.")
@@ -94,7 +95,7 @@ class _Delivers(Flow):
 class _Both(Flow):
     """Reads what both producers write: two producers launched before it, in plan order."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         report: Optional[Path] = Field(

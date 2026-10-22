@@ -19,6 +19,7 @@ from typing import ClassVar, Optional
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.dataclass import Field
@@ -255,7 +256,7 @@ def test_a_flow_that_declares_a_platform_without_the_pin_is_refused_when_planned
         class _PlatformWithoutPin(Flow):
             """Declares `platform` and no pin."""
 
-            results_description: ClassVar[dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             class Settings(Flow.Settings):
                 platform: Optional[str] = Field(None, description="A platform.")

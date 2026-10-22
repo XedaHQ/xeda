@@ -13,6 +13,7 @@ from typing import ClassVar, Optional
 import pytest
 import yaml
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.dataclass import Field, field_validator, model_validator
 from xeda.flow import Flow, FlowSettingsException
@@ -24,7 +25,7 @@ pytestmark = pytest.mark.python_compat
 class _RequiredLeaf(Flow):
     """Declares nothing, and cannot run without one setting."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
     required_settings = {"foo": "some text: `-s foo=<text>`, or `foo` in `[flows.{flow}]`"}
 
     class Settings(Flow.Settings):
@@ -37,7 +38,7 @@ class _RequiredLeaf(Flow):
 class _RequiredChecked(Flow):
     """Needs a path and a label, each checked by a validator written for its type."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
     required_settings = {
         "where": "a path: `-s where=<path>`, or `where` in `[flows.{flow}]`",
         "label": "a label: `-s label=<text>`, or `label` in `[flows.{flow}]`",

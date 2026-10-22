@@ -13,6 +13,7 @@ from typing import ClassVar, Optional
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.dataclass import Field
@@ -306,7 +307,7 @@ def test_a_dockerized_consumer_reads_the_files_of_its_producer_and_its_settings(
         class Maker(Flow):
             """Writes a file."""
 
-            results_description: ClassVar[dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             class Outputs(Flow.Outputs):
                 made: Path = Out(SourceType.Data, description="The file it writes.")
@@ -322,7 +323,7 @@ def test_a_dockerized_consumer_reads_the_files_of_its_producer_and_its_settings(
         class Reader(Flow):
             """Prints the file of its producer in a container."""
 
-            results_description: ClassVar[dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             class Settings(Flow.Settings):
                 constraints: Optional[Path] = Field(None, description="A file it prints.")

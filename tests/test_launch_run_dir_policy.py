@@ -14,6 +14,7 @@ from typing import ClassVar
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.flow import Flow, In, Out, registered_flows
@@ -35,7 +36,7 @@ def toy_flows():
     class ToyDep(Flow):
         """A producer that writes one scratch file, and one file it declares."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Outputs(Flow.Outputs):
             kept: Path = Out(SourceType.Data, description="The file it declares.")
@@ -51,7 +52,7 @@ def toy_flows():
     class ToyTop(Flow):
         """A flow with one producer that writes one scratch file."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             kept: Path = In(
@@ -150,7 +151,7 @@ def test_post_cleanup_keeps_reported_artifacts_and_removes_other_files(tmp_path,
     class ArtifactFlow(Flow):
         """Write artifacts and scratch files at several depths."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             for name in (
@@ -213,7 +214,7 @@ def test_post_cleanup_keeps_a_run_directory_artifact(tmp_path, design):
     class DirectoryFlow(Flow):
         """Report the full run directory."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             (self.run_path / "whole_run.txt").write_text("keep")
@@ -245,7 +246,7 @@ def test_post_cleanup_through_run_path_alias(
     class LinkedFlow(Flow):
         """Report an internal symlink as an artifact."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             (self.run_path / "target.txt").write_text("keep")

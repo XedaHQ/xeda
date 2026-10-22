@@ -54,7 +54,7 @@ class FpgaPack(FpgaSynthFlow):
     _part_data: PartData | None = None
 
     # This flow reports only the keys that every flow reports.
-    results_description: dict = {}
+    results_description = {}
 
     class Settings(WithFpgaBoardSettings):
         packer_args: list[str] = Field(

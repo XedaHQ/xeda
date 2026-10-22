@@ -14,6 +14,7 @@ from typing import ClassVar
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.flow import Flow, In, Out, registered_flows
@@ -29,7 +30,7 @@ def toy_flows():
     class DesignDep(Flow):
         """A producer that records the design it was given."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Outputs(Flow.Outputs):
             made: Path = Out(SourceType.Data, description="A file it writes.")
@@ -45,7 +46,7 @@ def toy_flows():
     class DesignEditor(Flow):
         """A flow that edits its design before its producer runs."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             made: Path = In(

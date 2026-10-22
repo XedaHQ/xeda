@@ -25,6 +25,7 @@ from typing import Any, Callable, ClassVar
 import pytest
 from pydantic import Field
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out
@@ -58,7 +59,7 @@ def toys():
     class ToyProducer(Flow):
         """Copies the first design source, plus `suffix`, to outputs/produced.txt."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Settings(Flow.Settings):
             suffix: str = Field("", description="Appended to the copied text.")
@@ -82,7 +83,7 @@ def toys():
     class ToyConsumer(Flow):
         """Copies its producer's output to outputs/consumed.txt."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
         design_source_types = frozenset()
 
         class Settings(Flow.Settings):
@@ -468,7 +469,7 @@ def test_a_consumer_of_a_blocked_node_is_blocked(tmp_path, monkeypatch, toys):
     class ToyMiddle(Flow):
         """Passes the text of its producer on."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
         design_source_types = frozenset()
 
         class Inputs(Flow.Inputs):
@@ -490,7 +491,7 @@ def test_a_consumer_of_a_blocked_node_is_blocked(tmp_path, monkeypatch, toys):
     class ToyEnd(Flow):
         """Reads the text of the middle node."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
         design_source_types = frozenset()
 
         class Inputs(Flow.Inputs):
@@ -563,7 +564,7 @@ def test_an_input_a_producer_supplies_is_supplied_to_the_hook_that_asks(
     class ToyFallback(Flow):
         """Registers a fallback file unless its input is supplied."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
         design_source_types = frozenset()
 
         class Inputs(Flow.Inputs):

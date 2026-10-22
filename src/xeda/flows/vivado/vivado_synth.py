@@ -15,6 +15,7 @@ from ...flow import (
     FlowFatalError,
     FlowSettingsError,
     FpgaSynthFlow,
+    MetricSpec,
     Out,
     describe_results,
 )
@@ -743,7 +744,9 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
                             report_file,
                         )
                     if util is not None:
-                        r = try_convert(util, int, default=util)
+                        # A block RAM tile count can end in .5: a RAMB18 uses half a tile.
+                        kind = float if k == "bram_tile" else int
+                        r = try_convert(util, kind, default=util)
                         if r:
                             self.results[k] = r
             self.results["_utilization"] = utilization
@@ -853,18 +856,26 @@ class VivadoSynth(VivadoImplementation):
         "ff",
         "slice",
         "dsp",
-        status="Vivado's own status of the last run that the flow waited for. It is "
-        '"route_design Complete!" (or "write_bitstream Complete!" with a `bitstream`) when the '
-        "implementation run completes. A run that does not complete its step reports its own "
-        'status, for example "synth_design ERROR". The flow fails unless the run completed the '
-        "step that it was launched to.",
-        **{
-            "lut_logic": "Number of LUTs used as logic.",
-            "lut_mem": "Number of LUTs used as memory (distributed RAM or shift registers).",
-            "latch": "Number of latches inferred. Usually a design bug on FPGAs.",
-            "bram_RAMB36": "Number of RAMB36/FIFO36 block RAM primitives used.",
-            "bram_RAMB18": "Number of RAMB18 block RAM primitives used.",
-        },
+        status=MetricSpec(
+            "Vivado's own status of the last run that the flow waited for. It is "
+            '"route_design Complete!" (or "write_bitstream Complete!" with a `bitstream`) when '
+            "the implementation run completes. A run that does not complete its step reports "
+            'its own status, for example "synth_design ERROR". The flow fails unless the run '
+            "completed the step that it was launched to.",
+            "text",
+        ),
+        lut_logic=MetricSpec("Number of LUTs used as logic.", "integer"),
+        lut_mem=MetricSpec(
+            "Number of LUTs used as memory (distributed RAM or shift registers).", "integer"
+        ),
+        latch=MetricSpec("Number of latches inferred. Usually a design bug on FPGAs.", "integer"),
+        bram_RAMB36=MetricSpec("Number of RAMB36/FIFO36 block RAM primitives used.", "integer"),
+        bram_RAMB18=MetricSpec("Number of RAMB18 block RAM primitives used.", "integer"),
+        bram_tile=MetricSpec(
+            "Number of block RAM tiles used. A RAMB18 uses half a tile, so the number can end in "
+            "`.5`.",
+            "number",
+        ),
     )
 
     reads_sources = frozenset(

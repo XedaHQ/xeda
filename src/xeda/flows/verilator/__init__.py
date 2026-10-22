@@ -19,6 +19,7 @@ from ...flow import (
     SimFlow,
     describe_results,
 )
+from ...flow.metrics import COCOTB_METRICS
 from ...flow.sim import SimEvent, SimEvidence
 from ...tool import Docker, NonZeroExitCode, Tool
 from ...units import count
@@ -178,7 +179,13 @@ class Verilator(SimFlow):
     )
 
     results_description = describe_results(
-        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+        "sim.evidence",
+        "sim.ended_by",
+        "sim.time",
+        "sim.time_unit",
+        "sim.errors",
+        "sim.warnings",
+        *COCOTB_METRICS,
     )
 
     #: The exit status of this run's model, once it has returned (0) or failed.

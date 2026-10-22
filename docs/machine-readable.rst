@@ -231,29 +231,28 @@ for streaming or grepping.
 Discovering what comes back
 ===========================
 
-``xeda list-results <flow> --json`` lists the keys that the flow writes to ``results.json`` and the
-canonical aliases that Xeda adds:
+``xeda list-results <flow> --json`` lists the metrics that the flow writes to ``results.json``:
 
 .. code-block:: json
 
     {
       "flow": "vivado_synth",
-      "documented": true,
-      "keys": [
-        {"name": "Fmax", "description": "Maximum achievable clock frequency in MHz, ...",
-         "common": false, "documented": true}
+      "metrics": [
+        {"path": "Fmax", "description": "Maximum achievable clock frequency, ...",
+         "type": "number", "unit": "MHz"},
+        {"path": "lut", "description": "Number of LUTs used.", "type": "integer", "unit": null}
       ],
-      "canonical_aliases": {
-        "Fmax": ["Fmax", "f_max", "maximum_frequency"],
-        "lut": ["lut", "LUT"],
-        "ff": ["ff", "FF"]
-      },
+      "artifacts": [],
       "note": "..."
     }
 
-``documented: false`` means that the flow has not declared a ``results_description`` (a flow from a
-plugin, for example). Xeda then detects the keys from the source of the flow as a best effort. In
-that case, read an actual ``results.json``.
+``type`` is one of ``number``, ``integer``, ``boolean``, ``text``, ``text_list`` (a list of text),
+``counts`` (a table of text to integer), ``numbers`` (a table of text to number) and ``object`` (a
+JSON object that the description documents). ``unit`` is a unit text such as ``MHz``, ``ns`` or
+``W``. For ``numbers``, it is the unit of every value. A metric in the units of the platform, such
+as a cell area in the area unit of the Liberty files, has the unit ``null``, and its description
+says so. The keys that every flow reports (``success``, ``runtime``, ...) are no metrics and are not
+listed. The table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
 
 A canonical key names a quantity, not one way to measure it. ``lut`` is reported per toolchain and
 per stage. The open-source FPGA flows add ``LUT:STAGE`` (``mapped`` for ``yosys_fpga``, ``placed and

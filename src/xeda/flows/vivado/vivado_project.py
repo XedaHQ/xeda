@@ -40,7 +40,7 @@ class VivadoProject(Vivado, FpgaSynthFlow):
     """
 
     # Creating a project reports nothing beyond the keys every flow reports.
-    results_description: dict = {}
+    results_description = {}
 
     #: The project's simulation fileset holds the testbench, so the flow reads `tb`.
     design_parts = frozenset({"rtl", "tb"})

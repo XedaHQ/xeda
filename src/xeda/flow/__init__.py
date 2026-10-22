@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Any
 
 from .flow import (
-    COMMON_RESULT_DESCRIPTIONS,
     Flow,
     FlowDependencyFailure,
     FlowException,
@@ -9,12 +8,12 @@ from .flow import (
     FlowSettingsError,
     FlowSettingsException,
     NoReplacement,
-    describe_results,
     flowrun_hash,
     is_unset,
     registered_flows,
 )
 
+from .metrics import COMMON_METRICS, MetricSpec, MetricType, describe_results
 from .fpga import FPGA
 from ..run_dir import RunDirectoryError
 from .io import DESIGN, In, Out
@@ -25,7 +24,7 @@ if TYPE_CHECKING:
     from .sim import SimFlow as SimFlow
 
 __all__ = [
-    "COMMON_RESULT_DESCRIPTIONS",
+    "COMMON_METRICS",
     "DESIGN",
     "FPGA",
     "AsicPlatformFlow",
@@ -39,6 +38,8 @@ __all__ = [
     "FlowSettingsException",
     "FpgaSynthFlow",
     "In",
+    "MetricSpec",
+    "MetricType",
     "NoReplacement",
     "Out",
     "PhysicalClock",

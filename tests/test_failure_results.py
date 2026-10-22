@@ -7,6 +7,7 @@ from typing import ClassVar
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.dataclass import Field
 from xeda.design import SourceType
@@ -19,7 +20,7 @@ from .tool_utils import producers_of
 class _MayFail(Flow):
     """Writes a report, or raises in `run()` when told to."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         fail: bool = Field(False, description="Raise a FlowFatalError in run().")
@@ -42,7 +43,7 @@ class _MayFail(Flow):
 class _NeedsMayFail(Flow):
     """Reads the report `_MayFail` writes, which fails when told to."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         report: Path = In(
@@ -59,7 +60,7 @@ class _NeedsMayFail(Flow):
 class _ExitsNonZero(Flow):
     """Runs a program that exits with status 3."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     def run(self) -> None:
         from xeda.proc_utils import run_process

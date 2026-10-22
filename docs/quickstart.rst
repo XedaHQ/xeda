@@ -133,7 +133,7 @@ The command line describes itself:
     xeda list-flows                     # every flow: category, what it takes and makes, and what
                                         # can follow it in a chain
     xeda list-settings vivado_synth     # every setting of a flow, with type, default and meaning
-    xeda list-results vivado_synth      # the keys that flow writes to results.json
+    xeda list-results vivado_synth      # the metrics that flow writes, with types and units
     xeda list-boards                    # bundled FPGA board definitions
     xeda list-platforms                 # bundled ASIC platforms (PDKs) and whether they are installed
     xeda pdk list                       # the PDK files of each platform, by provider and version

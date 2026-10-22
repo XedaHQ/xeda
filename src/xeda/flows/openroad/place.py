@@ -17,7 +17,7 @@ from typing import Annotated, Dict, List, Literal, Optional
 
 from ...dataclass import Field, extras, tier
 from ...design import SourceType
-from ...flow import AsicSynthFlow, Flow, In, Out, describe_results
+from ...flow import AsicSynthFlow, Flow, In, MetricSpec, Out, describe_results
 from ...flow.asic import AsicPlatformSettings
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import CellPort, PlatformModel, Track
@@ -339,12 +339,21 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
         "Fmax",
         "utilization",
         "power",
-        area="Area of the standard cells after the placement, in square micrometers.",
-        hold_tns="Total negative hold slack (ns) after the placement, from the parasitics that "
-        "OpenROAD estimates from the placement.",
-        platform="The platform that the design is placed on: `name`, the PDK `provider` and "
-        "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or user) "
-        "that gave each value of the platform model.",
+        area=MetricSpec(
+            "Area of the standard cells after the placement, in square micrometers.", "number"
+        ),
+        hold_tns=MetricSpec(
+            "Total negative hold slack after the placement, from the parasitics that OpenROAD "
+            "estimates from the placement.",
+            "number",
+            "ns",
+        ),
+        platform=MetricSpec(
+            "The platform that the design is placed on: `name`, the PDK `provider` and "
+            "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or "
+            "user) that gave each value of the platform model.",
+            "object",
+        ),
     )
     design_parts = frozenset({"rtl"})
     design_source_types = frozenset({SourceType.Sdc, SourceType.VerilogNetlist})

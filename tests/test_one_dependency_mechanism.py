@@ -31,6 +31,7 @@ from typing import Any
 import pytest
 
 import xeda
+from xeda.flow import MetricSpec
 from xeda.design import TYPE_ONLY, SourceType
 from xeda.flow import Flow, FlowSettingsError
 from xeda.flow.io import (
@@ -738,7 +739,7 @@ def test_a_stand_in_flow_that_reads_a_producer_through_a_helper_is_found() -> No
     class _Spying(Flow):
         """Reads its producer's results through a module-level helper."""
 
-        results_description: dict[str, str] = {}
+        results_description: dict[str, MetricSpec] = {}
 
         def run(self) -> None:
             _read_results(self.producer_flow)  # type: ignore[attr-defined]
@@ -888,7 +889,7 @@ def test_a_flow_that_registers_a_dependency_is_found() -> None:
     class _Registering(Flow):
         """Registers a dependency in its init()."""
 
-        results_description: dict[str, str] = {}
+        results_description: dict[str, MetricSpec] = {}
 
         def init(self) -> None:
             self.add_dependency(Yosys, {})

@@ -16,7 +16,7 @@ from typing import ClassVar, Dict
 
 from ...dataclass import Field, tier
 from ...design import SourceType
-from ...flow import In, Out, describe_results
+from ...flow import In, MetricSpec, Out, describe_results
 from ...platforms.model import PlatformModel
 from .base import EffectiveBase, OpenroadStage, base_values, platform_time_unit
 from .cts_groups import (
@@ -82,15 +82,29 @@ class OpenroadCts(OpenroadStage):
         "Fmax",
         "utilization",
         "power",
-        area="Area of the standard cells after the clock tree and its repair, in square "
-        "micrometers.",
-        hold_tns="Total negative hold slack (ns) after the clock tree, with propagated clocks and "
-        "the parasitics that OpenROAD estimates from the placement.",
-        clock_skew_setup="Clock skew (ns) of the setup check after the clock tree.",
-        clock_skew_hold="Clock skew (ns) of the hold check after the clock tree.",
-        platform="The platform that the design is placed on: `name`, the PDK `provider` and "
-        "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or user) "
-        "that gave each value of the platform model.",
+        area=MetricSpec(
+            "Area of the standard cells after the clock tree and its repair, in square "
+            "micrometers.",
+            "number",
+        ),
+        hold_tns=MetricSpec(
+            "Total negative hold slack after the clock tree, with propagated clocks and the "
+            "parasitics that OpenROAD estimates from the placement.",
+            "number",
+            "ns",
+        ),
+        clock_skew_setup=MetricSpec(
+            "Clock skew of the setup check after the clock tree.", "number", "ns"
+        ),
+        clock_skew_hold=MetricSpec(
+            "Clock skew of the hold check after the clock tree.", "number", "ns"
+        ),
+        platform=MetricSpec(
+            "The platform that the design is placed on: `name`, the PDK `provider` and "
+            "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or "
+            "user) that gave each value of the platform model.",
+            "object",
+        ),
     )
 
     class Settings(OpenroadStage.Settings):

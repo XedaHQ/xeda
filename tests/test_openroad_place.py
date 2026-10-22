@@ -3974,7 +3974,7 @@ def test_a_metric_that_is_no_number_fails_the_reading_of_the_results(tmp_path, m
 
 
 def test_the_results_are_described():
-    from xeda.flow.flow import COMMON_RESULT_DESCRIPTIONS
+    from xeda.flow import COMMON_METRICS
 
     described = OpenroadPlace.results_description
     for key in (
@@ -3989,9 +3989,9 @@ def test_the_results_are_described():
         "hold_tns",
         "platform",
     ):
-        assert described[key], key
+        assert described[key].description, key
     for key in ("utilization", "power"):
-        assert key in COMMON_RESULT_DESCRIPTIONS
+        assert key in COMMON_METRICS
 
 
 # ------------------------------------------------------------------------------ the dry run
