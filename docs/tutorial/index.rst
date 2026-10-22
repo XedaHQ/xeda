@@ -108,7 +108,7 @@ A script can read the results from the ``--json`` document that the command writ
 
 .. code-block:: bash
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json | jq '{fmax: .results.fmax, luts: .results.lut}'
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json | jq '.nodes[-1].record.metrics | {fmax, luts: .lut}'
 
 ``xeda list-results vivado_synth`` lists every metric with its type and unit.
 

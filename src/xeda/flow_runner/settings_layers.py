@@ -554,6 +554,24 @@ def split_flow_sections(
     return sections, own
 
 
+def command_line_table(requested: str, items: Iterable[str]) -> dict[str, Any]:
+    """Return the `-s` items of a command line as a `flows` table: the settings by flow name.
+
+    An item without a flow name is a setting of the `requested` flow, the last flow of the
+    chain. Nothing is checked or canonicalized: the table says what the command line gave. Items
+    that cannot be read give an empty table."""
+    try:
+        given = settings_to_dict(list(items))
+    except Exception:  # pylint: disable=broad-except
+        return {}
+    flows = given.pop("flows", None)
+    table: dict[str, Any] = dict(flows) if isinstance(flows, Mapping) else {}
+    if given:
+        own = table.get(requested)
+        table[requested] = {**own, **given} if isinstance(own, Mapping) else given
+    return table
+
+
 def check_run_flows(
     sections: Mapping[str, Any],
     flow_cls: type[Flow],

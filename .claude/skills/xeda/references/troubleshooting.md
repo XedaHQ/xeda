@@ -2,23 +2,23 @@
 
 ## Triage order
 
-1. `error.type` and `error.message` of the `--json` document. Usage errors (exit 2) are
-   `BadParameter` and `UsageError`.
-2. `FlowFailed`: the cause is `results.error` (the same as `error` in `results_json`; branch on
-   its stable `code`). `FlowDependencyFailure`: open the failed producer's `results.json` (the message names it) and
-   start there. `nodes` lists every run directory; a node planned but never entered shows
-   `"state": "not run"`.
+1. `outcome`, `error.code` and `error.message` of the `run --json` document. A request that starts no
+   launch has `outcome: null` and exit status 2 (a usage error has the code `usage_error` and
+   `spec: null`).
+2. `error.node` names the node that decides the outcome, and its `record.error` has the same error.
+   `nodes` lists every planned node; a node that a failed producer stopped is `blocked` (its
+   `blocked_by` names the producer), and one the launch never reached is `skipped`.
    A run whose checks rejected the results is reported again, unchanged, on the next launch with
-   the same inputs and settings: its node state is `rejected again`. Examples: a failed cocotb
-   test, an end record that fails, negative hold slack in Vivado with `fail_timing`, negative slack
-   in Quartus, ISE or Diamond. The first launch gives `failed`. `--rebuild-all` runs it again. A
-   consumer of a failed, rejected or blocked producer is `blocked`. Tool failures run again at
-   every launch. They include a tool that exits with an error, a Vivado setup-slack miss with
-   `fail_timing` (the Xeda script stops the tool) and a `nextpnr` timing miss without
-   `timing_allow_fail` (nextpnr stops itself).
-3. `settings.json` in `run_path`: `flow_settings` is what you asked for, `effective_flow_settings`
+   the same inputs and settings: its node has the outcome `rejected` and the disposition `reused`.
+   Examples: a failed cocotb test, an end record that fails, negative hold slack in Vivado with
+   `fail_timing`, negative slack in Quartus, ISE or Diamond. The first launch gives the
+   disposition `ran`. `--rebuild-all` runs it again. A consumer of a failed, rejected or blocked
+   producer is `blocked`. Tool failures run again at every launch. They include a tool that exits
+   with an error, a Vivado setup-slack miss with `fail_timing` (the Xeda script stops the tool) and
+   a `nextpnr` timing miss without `timing_allow_fail` (nextpnr stops itself).
+3. `settings.json` in `run_dir`: `flow_settings` is what you asked for, `effective_flow_settings`
    is what the flow made of it.
-4. The tool log and the generated scripts in `run_path`. Add `--debug` for verbose logs and a
+4. The tool log and the generated scripts in `run_dir`. Add `--debug` for verbose logs and a
    traceback.
 
 ## Messages and fixes
@@ -89,20 +89,18 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 ### Tools
 
 - `ExecutableNotFound`: `Executable 'ghdl' was not found in PATH. flow:ghdl_sim, tool:GhdlTool`
-  (`--debug` appends `, PATH:...`). Install the tool, or run it from a container with `-s dockerized=true`. When the requested flow
-  ran in this launch (it was not reused), `results.tools` of the `--json` document lists the
-  executables Xeda found and their versions.
-- `nonzero_exit` (`timeout` for a time limit): `Command '...' exited with code 1!` in the failed node's `results.error`. If
-  the error reaches the CLI itself, the message starts with `Flow <flow> failed: `. The generated
-  script and the tool's log are in `run_path`.
+  (`--debug` appends `, PATH:...`). Install the tool, or run it from a container with `-s dockerized=true`. For a node that ran in this
+  launch, the log shows the executable that Xeda found.
+- `nonzero_exit` (`timeout` for a time limit): `Command '...' exited with code 1!` in the failed node's `record.error`. The
+  generated script and the tool's log are in its `run_dir`.
 - `reported_failure`: a node's `results.json` says so when its reports or checks failed with no
   exception and no tool exit status, for example a tool that exited 0 and left a negative verdict
-  in its reports. The top-level document says `FlowFailed`; the error of a consumer, which is
-  blocked and writes no `results.json`, quotes the message
+  in its reports. The top-level `error` is the producer's; a consumer is blocked and writes no
+  `results.json`, and its own error (`producer_failed`) quotes the message
   (`producer yosys_fpga failed (reported_failure): ...`). A `missing_report` is the same case when
   the flow asked for a report that this run did not write. A rejected run (a failed cocotb test,
   negative hold slack in Vivado, negative slack in Quartus) is reported again on an unchanged
-  launch (node state `rejected again`); `--rebuild-all` runs it again. A tool failure, such as a
+  launch (outcome `rejected`, disposition `reused`); `--rebuild-all` runs it again. A tool failure, such as a
   Vivado setup-slack miss or a `nextpnr` timing miss, runs again.
 - `storage_error`: a file or directory error of the operating system, or a path that leaves the
   run directory, ended the node.
@@ -117,12 +115,12 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 
 ### Remote runs
 
-`--remote` failures have their own types. The message names the step and the cause. Test the
+`--remote` failures have their own types, which the message starts with (`RemoteConnectionError: ...`); the code of the error is `remote_failed`, `remote_fetch_failed`, `remote_detached` or `canceled`. The message names the step and the cause. Test the
 destination with `ssh HOST true` first; `xeda remote check HOST --json` is the first diagnostic
 (connection, environment, disk, tools on the login `PATH`); add `--debug` for the commands and the
 output of the host. A login profile that prints text does no harm (up to 1 MiB before the agent).
 
-| `error.type` | Fix |
+| Start of `error.message` | Fix |
 | --- | --- |
 | `RemoteConnectionError` | OpenSSH could not connect or authenticate (connection refused, No route to host, Could not resolve hostname, Permission denied), `ssh -G` could not resolve the destination, the connection ended or closed during a step, or `ssh` is not on `PATH`. The message has the OpenSSH text and exit status. Fix the destination, the network or `~/.ssh/config`. A launch with no terminal cannot answer a prompt: it needs a key in an agent. Never handle a secret; ask the user to load a key (`ssh-add`) or to run `! ssh HOST true`. |
 | `RemoteProvisionError` | Installing Xeda on the host failed. The message starts with the code: `not-linux`, `unsupported-platform` (only x86_64 and aarch64, glibc or musl; also when the C library cannot be identified), `no-downloader` (no `curl` or `wget`), `no-sha256`, `download-failed` (check internet access, or set a proxy in the profile `env`), `checksum-mismatch` (the `uv` archive differs from its pinned SHA-256; a proxy may have changed it), `python-failed` (`uv` cannot install the Python, or the profile `python` is not an executable file), `env-failed` (the message has the output of `uv`; also when the remote root is not writable, or a package has no Linux release), `no-space` (under 50 MiB free; free space or set `root`), `lock-timeout` (remove the lock directory the message names if its process is gone), `bad-request` (report it). |
@@ -130,7 +128,7 @@ output of the host. A login profile that prints text does no harm (up to 1 MiB b
 | `RemoteIncompatible` | The host planned other flow identities than the local side did. Compare `--dry-run --json` with and without `--remote`; report a difference with no visible cause. |
 | `RemoteCanceled` | Ctrl-C, `xeda remote cancel` or a lost connection stopped the launch. If processes survived SIGKILL the message counts them and they may still run on the host. Run the command again to start over. |
 | `RemoteInterrupted` | Ctrl-C came after the launch had finished, while Xeda fetched or delivered. The results are on the host, or in the mirror if it came during `--outputs-to` (the delivered files can be incomplete): run the command again. |
-| `RemoteDetached` | A `--keep-running` launch keeps running; the document has `launch.id`. Use `xeda remote attach HOST ID` or `xeda remote cancel HOST ID` with the `--run-root` of the run (attach needs the record in `<run root>/@<host>/.launches/`). |
+| `RemoteDetached` | A `--keep-running` launch keeps running; `launch_id` of the document is its id. Use `xeda remote attach HOST ID` or `xeda remote cancel HOST ID` with the `--run-root` of the run (attach needs the record in `<run root>/@<host>/.launches/`). |
 | `RemoteFetchError` | A file did not come back whole, or a declared output is missing. Run the command again: the finished run is reused and only the fetch repeats. |
 | `RemoteConfigError` | `remotes.yaml` or one of its entries is invalid (the message names the host and field), or the `--remote` text is empty, starts with `-` or has a space, or the remote root has a character that cannot go in a command line (`"`, `\`, `$`, a backquote, `!`): set `root` in the profile to another path. |
 | `RemoteProtocolError` | The agent on the host did not start or sent data that Xeda cannot read: the stream ended before the agent marker, or more than 1 MiB of text came before it. Ordinary login text is skipped. The message has the output of the host. |

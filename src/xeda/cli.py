@@ -7,7 +7,7 @@ import os
 import sys
 from collections.abc import Iterable, Mapping, MutableMapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, NoReturn, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, NoReturn, Optional, Sequence, Tuple, Union
 
 import click
 from click.core import ParameterSource
@@ -46,7 +46,6 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .console import console
     from .deliver import Conflict
     from .design import DESIGN_NAME, target_name_problem
-    from .flow import Flow, FlowFatalError
     from .flow_runner import (
         DefaultRunner,
         XedaOptions,
@@ -55,7 +54,10 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     )
     from .flow_runner.chains import parse_request
     from .flow_runner.dse import Dse
+    from .flow_runner.error_codes import public_error
+    from .flow_runner.launch_result import launch_result
     from .flow_runner.resolver import Plan
+    from .flow_runner.settings_layers import command_line_table
     from .introspect import (
         boards_info,
         design_info,
@@ -64,15 +66,17 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         flows_info,
         json_safe,
         optimizers_info,
-        inputs_info,
         plan_info,
         request_info,
         platforms_info,
         results_info,
     )
+    from .errors import SpecError
+    from .records import ErrorInfo
     from .run_dir import RunDirectoryError
     from .run_root import RunRootError, ensure_run_root
-    from .tool import ExecutableNotFound, NonZeroExitCode
+    from .outcomes import run_document, spec_document, spec_document_of
+    from .spec import Spec
     from .utils import XedaException, removeprefix, settings_to_dict
 
     from .cli_completion import dispatch_shell_completion
@@ -537,65 +541,6 @@ Example: xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
 """
 
 
-def _node_states(flows: Iterable[Flow], plan: Optional[Plan] = None) -> List[Dict[str, Any]]:
-    """Return one `nodes` entry for each run directory that the launcher entered, in completion
-    order. `run --json` reports these entries. The `state` is one of these:
-
-    - `rejected again`: the run was rejected by its checks in an earlier launch, and Xeda
-      reported that again without running it. The `reason` is the message of the rejection.
-    - `blocked`: a producer failed, was rejected or is blocked, so the flow did not run. The
-      `reason` names that producer.
-    - `fresh`: the recorded run was reused.
-    - `ran`: the flow ran and succeeded.
-    - `failed`: the flow ran and failed. Its checks can have rejected the result on this launch.
-      A problem with what its producers handed over can also have stopped it.
-
-    A flow that always runs (`Flow.always_runs`) is never reused. A planned node that the launch
-    never entered has the state `not run`."""
-    nodes: List[Dict[str, Any]] = []
-    seen = set()
-    for f in flows:
-        run_path = os.path.abspath(f.run_path)
-        seen.add(run_path)
-        planned = next(
-            (n for n in (plan.nodes if plan else ()) if os.path.abspath(n.run_path) == run_path),
-            None,
-        )
-        if f.rejected_again:
-            state, reason = "rejected again", f.rejection or ""
-        elif f.blocked_by:
-            state, reason = "blocked", f"{f.blocked_by} did not succeed"
-        else:
-            state = "fresh" if f.reused else ("ran" if f.succeeded else "failed")
-            reason = f.stale_reason or ""
-        nodes.append(
-            {
-                "node": planned.name if planned else f.name,
-                "flow": f.name,
-                "run_path": str(f.run_path),
-                "state": state,
-                "reason": reason,
-                "deliveries": [d.as_json_value() for d in getattr(f, "deliveries", [])],
-                "inputs": inputs_info(planned) if planned else [],
-            }
-        )
-    # Planned nodes that the launch never entered: a producer failed before their turn.
-    for planned in plan.nodes if plan else ():
-        if os.path.abspath(planned.run_path) not in seen:
-            nodes.append(
-                {
-                    "node": planned.name,
-                    "flow": planned.flow_class.name,
-                    "run_path": str(planned.run_path),
-                    "state": "not run",
-                    "reason": "",
-                    "deliveries": [],
-                    "inputs": inputs_info(planned),
-                }
-            )
-    return json_safe(nodes)
-
-
 def _interactive(json_flag: bool) -> bool:
     """Return whether a question may be asked: stdin and stderr are terminals, and the output is
     not machine-readable."""
@@ -628,47 +573,6 @@ def _prompt_scrub(directories: Sequence[Path]) -> bool:
         console.print()
         return False
     return answer.lower() == "yes"
-
-
-def _run_document(
-    flow_name: str,
-    design: Any,
-    flow_obj: Optional[Flow],
-    success: bool,
-    nodes: Iterable[Flow] = (),
-    plan: Optional[Plan] = None,
-    target: str | None = None,
-    loaded: str | None = None,
-) -> Dict[str, Any]:
-    """Build the machine-readable summary that `xeda run --json` prints. `design` is what the
-    command line gave for the design, and `loaded` is the name of the design that the launcher
-    loaded."""
-    document: Dict[str, Any] = {
-        "flow": flow_name,
-        **design_info(design, loaded),
-        "target": target,
-        "success": success,
-        "results": {},
-        "run_path": None,
-    }
-    if flow_obj is not None:
-        run_path = Path(flow_obj.run_path)
-        document.update(
-            flow=flow_obj.name,
-            design=flow_obj.design.name,
-            target=flow_obj.design.target,
-            run_path=str(run_path),
-            results_json=str(run_path / "results.json"),
-            settings_json=str(run_path / "settings.json"),
-            results=json_safe(dict(flow_obj.results)),
-        )
-    if not success:
-        document["error"] = {
-            "type": "FlowFailed",
-            "message": f"Flow '{document['flow']}' did not complete successfully.",
-        }
-    document["nodes"] = _node_states(nodes, plan)
-    return document
 
 
 def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
@@ -1014,25 +918,11 @@ def run(
     # The positional DESIGN argument, then --design-file/--design, then --design-name.
     design = design_file or design_file_opt or design_name
     if not design:
-        message = (
+        raise click.UsageError(
             "No design specified. Pass a design file as the DESIGN argument, or name one with "
-            "--design-file / --design-name."
+            "--design-file / --design-name.",
+            ctx=ctx,
         )
-        log.critical("%s", message)
-        if json_flag:
-            emit_structured(
-                {
-                    "flow": flow,
-                    **design_info(None),
-                    "target": target,
-                    "success": False,
-                    "results": {},
-                    "error": {"type": "DesignNotSpecified", "message": message},
-                    "nodes": [],
-                },
-                "json",
-            )
-        sys.exit(1)
 
     if fetch_all and not remote:
         raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
@@ -1093,7 +983,7 @@ def run(
                 emit_structured(document, "json")
             if debug or (not json_flag and not isinstance(outcome.error, XedaException)):
                 raise outcome.error
-            sys.exit(1)
+            sys.exit(outcome.exit_status)
         if dry_run:
             if json_flag:
                 emit_structured(document, "json")
@@ -1104,34 +994,53 @@ def run(
                 if error.get("message"):
                     log.critical("%s", error["message"])
                 log.critical("Remote dry run of flow '%s' on '%s' failed.", flow, remote)
-            sys.exit(0 if outcome.success else 1)
+            sys.exit(outcome.exit_status)
         if not outcome.success:
             log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
         if json_flag:
             emit_structured(document, "json")
-        sys.exit(0 if outcome.success else 1)
+        sys.exit(outcome.exit_status)
 
     launcher: Optional[DefaultRunner] = None
+    table = command_line_table(flow, flow_settings)
 
-    def loaded_design() -> Optional[str]:
-        """Return the name of the design that the launcher loaded, or None if it got no further."""
-        return launcher.design_name if launcher is not None else None
-
-    def emit_failure(error_type: str, message: str, exc: Exception) -> None:
-        """Report a failed run: log the message and, with `--json`, write the failure document
-        with every node that the launcher had launched. Then raise `exc` when debugging, or exit
-        with status 1."""
-        log.critical("%s", message)
+    def not_started(error: Exception, spec: Optional[Spec] = None) -> NoReturn:
+        """Report a request that started no launch: log the error and, with `--json`, write the
+        document of a launch that did not start. Then raise `error` when debugging, or exit with
+        status 2 (the request is invalid) or 1 (any other failure)."""
+        public = public_error(error)
+        info = ErrorInfo(
+            code=public.code,
+            message=_error_message(error),
+            node=getattr(public, "node", None),
+            exit_status=None,
+            log=None,
+        )
+        log.critical("%s", info.message)
         if json_flag:
+            if spec is None:
+                spec_fields = spec_document(
+                    flow=chain,
+                    **design_info(design, launcher.design_name if launcher is not None else None),
+                    target=(launcher.target if launcher is not None else None) or target,
+                    settings=table,
+                )
+            else:
+                spec_fields = spec_document_of(spec)
             emit_structured(
-                _failure_document(
-                    flow, design, launcher, target, error_type, message, request_info(request)
+                run_document(
+                    outcome=None,
+                    error=info,
+                    launch_id=None,
+                    spec=spec_fields,
+                    roots=(),
+                    nodes=(),
                 ),
                 "json",
             )
-        if debug:
-            raise exc
-        sys.exit(1)
+        if debug or (not json_flag and not isinstance(error, XedaException)):
+            raise error
+        sys.exit(2 if isinstance(public, SpecError) else 1)
 
     if dry_run:
         try:
@@ -1153,19 +1062,13 @@ def run(
                 design_allow_extra=design_allow_extra,
                 target=target,
             )
-        except XedaException as e:
-            emit_failure(type(e).__name__, _error_message(e), e)
-            raise
         except Exception as e:
-            if not json_flag:
-                raise
-            emit_failure(type(e).__name__, _error_message(e), e)
-            raise
+            not_started(e)
         if json_flag:
             emit_structured(
                 {
                     "flow": flow,
-                    **design_info(design, loaded_design()),
+                    **design_info(design, launcher.design_name),
                     "target": plan.context.target,
                     "success": True,
                     "dry_run": True,
@@ -1194,7 +1097,7 @@ def run(
         launcher.settings.scrub_old_runs = scrub
         launcher.confirm_scrub = _prompt_scrub
         launcher.settings.debug = debug
-        f = launcher.run(
+        resolved, plan = launcher.resolve_run(
             chain,
             xedaproject=xedaproject,
             design=design or design_name,
@@ -1204,71 +1107,18 @@ def run(
             design_allow_extra=design_allow_extra,
             target=target,
         )
-        success = bool(f and f.results.success)
-        if json_flag:
-            document = _run_document(
-                flow,
-                design,
-                f,
-                success,
-                launcher.launched,
-                launcher.last_plan,
-                launcher.target,
-                launcher.design_name,
-            )
-            document["request"] = request_info(request)
-            emit_structured(document, "json")
-        sys.exit(0 if success else 1)
     except Exception as e:
-        if not json_flag and not isinstance(e, XedaException):
-            raise
-        emit_failure(*_failure_of(e, flow, debug), e)
-
-
-def _failure_of(exc: Exception, flow: str, debug: bool) -> Tuple[str, str]:
-    """Return the `error.type` and `error.message` that report why a run of `flow` failed. A
-    user error is reported by its own class name: a design file or project file that does not
-    load, an unknown flow or design, invalid settings or a failed producer."""
-    if isinstance(exc, FlowFatalError):
-        return (
-            "FlowFatalError",
-            f"Flow {flow} failed: FlowFatalException {' '.join(str(a) for a in exc.args)}",
-        )
-    if isinstance(exc, NonZeroExitCode):
-        return "NonZeroExitCode", f"Flow {flow} failed: {exc}"
-    if isinstance(exc, ExecutableNotFound):
-        return (
-            "ExecutableNotFound",
-            f"Executable '{exc.exec}' was not found in PATH. flow:{flow}, tool:{exc.tool}"
-            + (f", PATH:{exc.path}" if debug else ""),
-        )
-    return type(exc).__name__, _error_message(exc)
-
-
-def _failure_document(
-    flow_name: str,
-    design: Any,
-    launcher: Optional[DefaultRunner],
-    target: str | None,
-    error_type: str,
-    message: str,
-    request: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    """Build the document that `xeda run --json` prints when the run failed outside any flow's
-    results: the error, the request, and every node that `launcher` had launched. `design` is
-    what the command line gave, and `request` is `request_info` of the request."""
-    return {
-        "flow": flow_name,
-        **design_info(design, launcher.design_name if launcher is not None else None),
-        "target": (launcher.target if launcher is not None else None) or target,
-        "success": False,
-        "results": {},
-        "error": {"type": error_type, "message": message},
-        "request": request,
-        "nodes": (
-            _node_states(launcher.launched, launcher.last_plan) if launcher is not None else []
-        ),
-    }
+        not_started(e)
+    spec = Spec(chain, resolved.design, settings=table)
+    try:
+        result = launch_result(launcher, spec, lambda: launcher.run_resolved(resolved, plan))
+    except Exception as e:
+        not_started(e, spec)
+    if not result.passed and result.error is not None:
+        log.critical("%s", result.error.message)
+    if json_flag:
+        emit_structured(result.to_dict(), "json")
+    sys.exit(0 if result.passed else 1)
 
 
 def _print_remote_plan(document: Dict[str, Any]) -> None:

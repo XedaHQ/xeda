@@ -34,6 +34,10 @@ class LaunchRecord(XedaBaseModel):
     target: Optional[str]
     #: The elements of the request, as `xeda run --json` shows them.
     request: List[Dict[str, Any]]
+    #: What the command line gave for the settings, as a `flows` table.
+    settings: Dict[str, Any] = {}
+    #: The name and the flow of each node of the local plan, in plan order.
+    nodes: List[List[str]] = []
     #: The local run root, and the run directories of the local plan.
     local_root: str
     run_paths: List[str]

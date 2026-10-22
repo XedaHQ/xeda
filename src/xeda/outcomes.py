@@ -4,20 +4,24 @@
 node of the plan. A `Result` holds the `NodeResult` of every planned node, in plan order, and the
 verdict of the whole launch: its aggregate outcome and the error that caused it (`aggregate`).
 
+`Result.to_dict` is the document that `xeda run --json` prints, and `result_from_dict` reads such
+a document again (the remote client sends it between hosts).
+
 The module imports no flow module when it loads. `Result` and its parts are immutable and can be
 pickled.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .errors import RecordError, RunFailedError
-from .frozen import FrozenDict
+from .frozen import FrozenDict, thaw
 
 if TYPE_CHECKING:
     from .records import ErrorInfo, RunRecord
@@ -28,9 +32,18 @@ __all__ = [
     "Disposition",
     "NodeResult",
     "Outcome",
+    "RUN_DOCUMENT_VERSION",
     "Result",
     "aggregate",
+    "node_document",
+    "result_from_dict",
+    "run_document",
+    "spec_document",
+    "spec_document_of",
 ]
+
+#: The `schema_version` of the document that `xeda run --json` prints.
+RUN_DOCUMENT_VERSION = 1
 
 
 class Outcome(StrEnum):
@@ -80,7 +93,7 @@ class NodeResult:
     the producer whose outcome blocked the node. `elapsed` is the time in seconds that this launch
     spent on the node: it is 0.0 unless the node `ran`. `record` is the record of the run, or
     `None` when the node did not run or when its record could not be stored. A `skipped` node has
-    no `error`. `run_dir` is the run directory of the node."""
+    no `error`. `run_dir` is the run directory of the node, and `flow` is the name of its flow."""
 
     name: str
     outcome: Outcome
@@ -92,6 +105,7 @@ class NodeResult:
     error: ErrorInfo | None
     deliveries: tuple[DeliveryRecord, ...]
     run_dir: Path
+    flow: str
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "outcome", Outcome(self.outcome))
@@ -199,3 +213,246 @@ class Result:
                 f"the launch ended {self.outcome}{cause}", code="run_failed", result=self
             )
         return self
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the document that `xeda run --json` prints (schema 1).
+
+        It has the keys `schema_version`, `outcome`, `error`, `launch_id`, `spec`, `roots` and
+        `nodes`. The `nodes` are in plan order. The document of a node has no `error`: the error
+        of a node that ran is in its `record`, and the error that decided the launch is the
+        top-level `error`."""
+        return run_document(
+            outcome=self.outcome,
+            error=self.error,
+            launch_id=self.launch_id,
+            spec=spec_document_of(self.spec),
+            roots=self.roots,
+            nodes=[node_document(node) for node in self.nodes.values()],
+        )
+
+
+def _plain(value: Any) -> Any:
+    """Return `value` as plain JSON data: tables, lists, text, numbers, booleans and null."""
+    from .utils import json_encodable
+
+    return json.loads(json.dumps(thaw(value), default=json_encodable))
+
+
+def spec_document(
+    *,
+    flow: str,
+    design: str | None,
+    design_file: Path | str | None,
+    target: str | None,
+    settings: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return the `spec` of a run document: what the launch was asked to do."""
+    return {
+        "flow": flow,
+        "design": design,
+        "design_file": None if design_file is None else str(design_file),
+        "target": target,
+        "settings": _plain(settings),
+    }
+
+
+def spec_document_of(spec: Spec) -> dict[str, Any]:
+    """Return the `spec` of a run document for the `Spec` `spec`."""
+    design = spec.design
+    return spec_document(
+        flow=spec.flow,
+        design=design.name,
+        # Only the loader sets the file of a design: it is no field.
+        design_file=design._source_file,
+        target=design.target,
+        settings=spec.settings,
+    )
+
+
+def run_document(
+    *,
+    outcome: Outcome | None,
+    error: ErrorInfo | None,
+    launch_id: str | None,
+    spec: Mapping[str, Any] | None,
+    roots: Sequence[str],
+    nodes: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Return a run document (schema 1) from its parts.
+
+    `Result.to_dict` builds its document with this function. So does the report of a request that
+    never started a launch: it has no `outcome`, no `launch_id` and no `nodes`, and its `error`
+    says why."""
+    return {
+        "schema_version": RUN_DOCUMENT_VERSION,
+        "outcome": None if outcome is None else Outcome(outcome).value,
+        "error": None if error is None else error.as_json_value(),
+        "launch_id": launch_id,
+        "spec": None if spec is None else dict(spec),
+        "roots": list(roots),
+        "nodes": [dict(node) for node in nodes],
+    }
+
+
+def node_document(node: NodeResult) -> dict[str, Any]:
+    """Return the entry of a node in a run document."""
+    from .records import encode_record
+
+    return {
+        "name": node.name,
+        "flow": node.flow,
+        "outcome": node.outcome.value,
+        "disposition": node.disposition.value,
+        "reason": node.reason,
+        "blocked_by": node.blocked_by,
+        "elapsed": node.elapsed,
+        "run_dir": str(node.run_dir),
+        "deliveries": [
+            {"key": d.key, "destination": str(d.destination), "delivered": d.delivered}
+            for d in node.deliveries
+        ],
+        "record": None if node.record is None else encode_record(node.record),
+    }
+
+
+def _field(document: Mapping[str, Any], key: str, kinds: type | tuple[type, ...], what: str) -> Any:
+    """Return `document[key]`, or raise `ValueError` if it is missing or not of a type in `kinds`.
+    A boolean is never a number."""
+    value = document.get(key)
+    if isinstance(value, bool) and bool not in (kinds if isinstance(kinds, tuple) else (kinds,)):
+        value = None
+    if not isinstance(value, kinds):
+        raise ValueError(f"{what} has no valid `{key}`: {value!r}")
+    return value
+
+
+def _run_root_of(run_dir: Path, target: str | None) -> Path:
+    """Return the run root of the run directory `run_dir`: the layout is
+    `<run root>/<design>[/<target>]/<flow>[_<hash>]`."""
+    depth = 2 if target is None else 3
+    if len(run_dir.parents) < depth:
+        raise ValueError(f"the run directory {run_dir} is not in a run root")
+    return run_dir.parents[depth - 1]
+
+
+def _node_of(document: Any) -> NodeResult:
+    from .records import PRODUCER_FAILED, ErrorInfo, decode_record
+
+    if not isinstance(document, Mapping):
+        raise ValueError(f"a node of the document is not an object: {document!r}")
+    name = _field(document, "name", str, "a node")
+    what = f"the node `{name}`"
+    run_dir = Path(_field(document, "run_dir", str, what))
+    blocked_by = document.get("blocked_by")
+    if blocked_by is not None and not isinstance(blocked_by, str):
+        raise ValueError(f"{what} has no valid `blocked_by`: {blocked_by!r}")
+    record = None
+    if document.get("record") is not None:
+        raw = _field(document, "record", Mapping, what)
+        try:
+            record = decode_record(
+                raw, run_dir=run_dir, run_root=_run_root_of(run_dir, raw.get("target"))
+            )
+        except RecordError as problem:
+            raise ValueError(f"{what} has a bad record: {problem}") from None
+    outcome = Outcome(_field(document, "outcome", str, what))
+    error = None if record is None else record.error
+    if error is None and outcome is Outcome.BLOCKED and blocked_by is not None:
+        error = ErrorInfo(
+            code=PRODUCER_FAILED,
+            message=f"producer {blocked_by} did not pass",
+            node=name,
+            exit_status=None,
+            log=None,
+        )
+    deliveries = []
+    for item in _field(document, "deliveries", list, what):
+        if not isinstance(item, Mapping):
+            raise ValueError(f"{what} has a bad delivery: {item!r}")
+        deliveries.append(
+            DeliveryRecord(
+                key=_field(item, "key", str, "a delivery"),
+                destination=Path(_field(item, "destination", str, "a delivery")),
+                delivered=_field(item, "delivered", bool, "a delivery"),
+            )
+        )
+    return NodeResult(
+        name=name,
+        outcome=outcome,
+        disposition=Disposition(_field(document, "disposition", str, what)),
+        reason=_field(document, "reason", str, what),
+        blocked_by=blocked_by,
+        elapsed=float(_field(document, "elapsed", (int, float), what)),
+        record=record,
+        error=error,
+        deliveries=tuple(deliveries),
+        run_dir=run_dir,
+        flow=_field(document, "flow", str, what),
+    )
+
+
+def _spec_of(document: Mapping[str, Any]) -> Spec:
+    """Return the `Spec` that a `spec` of a run document stands for.
+
+    The document holds the name of the design, not the design. The `Spec` gets an empty design
+    of that name, target and file."""
+    from .design import Design
+    from .spec import Spec
+
+    design_file = document.get("design_file")
+    if design_file is not None and not isinstance(design_file, str):
+        raise ValueError(f"the spec has no valid `design_file`: {design_file!r}")
+    target = document.get("target")
+    if target is not None and not isinstance(target, str):
+        raise ValueError(f"the spec has no valid `target`: {target!r}")
+    design = Design(
+        name=_field(document, "design", str, "the spec"),
+        target=target,
+        design_root=Path(design_file).parent if design_file else Path.cwd(),
+    )
+    design._source_file = None if design_file is None else Path(design_file)
+    return Spec(
+        _field(document, "flow", str, "the spec"),
+        design,
+        settings=_field(document, "settings", Mapping, "the spec"),
+    )
+
+
+def result_from_dict(document: Mapping[str, Any]) -> Result:
+    """Return the `Result` that the run document `document` (`Result.to_dict`) describes.
+
+    A key that this version does not know is ignored. Raise `ValueError` if the document is of a
+    request that never started a launch (its `outcome` is null), has another schema version, or
+    is malformed.
+
+    The document keeps less than the `Result` holds. The `spec` of the result has an empty design
+    of the same name, target and file, and the settings of the document. A node has no `error` of
+    its own in the document: the node takes the error of its record, and a blocked node gets
+    the error `producer_failed`."""
+    from .records import ErrorInfo
+
+    if not isinstance(document, Mapping):
+        raise ValueError("a run document is an object")
+    version = document.get("schema_version")
+    if version != RUN_DOCUMENT_VERSION:
+        raise ValueError(f"the run document has the schema version {version!r}, not 1")
+    if document.get("outcome") is None:
+        raise ValueError("the document is of a request that never started a launch")
+    error = document.get("error")
+    nodes = [_node_of(item) for item in _field(document, "nodes", list, "the document")]
+    launch_id = _field(document, "launch_id", str, "the document")
+    roots = _field(document, "roots", list, "the document")
+    if not all(isinstance(root, str) for root in roots):
+        raise ValueError(f"the roots of the document are not all text: {roots!r}")
+    try:
+        parsed_error = None if error is None else ErrorInfo.from_json(error)
+    except ValueError as problem:
+        raise ValueError(f"the document has a bad error: {problem}") from None
+    return Result(
+        launch_id=launch_id,
+        spec=_spec_of(_field(document, "spec", Mapping, "the document")),
+        roots=tuple(roots),
+        outcome=Outcome(_field(document, "outcome", str, "the document")),
+        error=parsed_error,
+        nodes={node.name: node for node in nodes},
+    )

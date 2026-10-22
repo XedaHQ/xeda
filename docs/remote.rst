@@ -338,8 +338,8 @@ By default Xeda fetches, for every flow of the plan:
 
 For the flow that the request names, it also fetches the declared outputs and the artifacts. A
 flow that failed returns only the files that its run wrote, and no declared outputs. A file outside
-the run directory is in no record of a run (see :ref:`results-json`), and Xeda never reads or
-sends it: an artifact there keeps its path on the host in the results, and a warning names it.
+the run directory is in no record of a run (see :ref:`results-json`), so Xeda never reads or
+sends it.
 
 ``--fetch-all`` fetches every file of the run directories, ``trace.json`` excepted. Use it to look
 at the intermediate files of a tool.
@@ -353,10 +353,10 @@ Machine-readable output
 -----------------------
 
 With ``--json``, ``xeda run --remote`` writes one document on stdout. It is the document of a local
-run, plus the keys ``remote`` (the text of ``--remote``) and ``mirror`` (the mirror directory), and
-the paths in it name the mirror. A dry run adds ``uploaded``. The document of a failed remote step
-has ``remote`` and no ``mirror``. A launch that Xeda stopped following has the key ``launch`` with
-the ``id`` and the ``host``. :doc:`machine-readable` lists all keys. The output of
+run, and the paths in it name the mirror. ``launch_id`` is the id of the launch on the host. A
+failed remote step has the outcome ``failed`` and the error code ``remote_failed``. A launch that
+Xeda stopped following has the outcome ``detached`` and the error code ``remote_detached``. A dry run
+adds ``remote``, ``mirror`` and ``uploaded``. :doc:`machine-readable` lists all keys. The output of
 the tools goes to stderr.
 
 Dry runs
@@ -463,8 +463,8 @@ Troubleshooting
 ===============
 
 Every failure of a remote run is an error with a type. A text run shows the message. With
-``--json``, the document has ``success: false`` and ``error.type`` and ``error.message`` (see
-:doc:`machine-readable`). The messages name the step that failed and the cause. Run with ``-d`` to
+``--json``, the document has an ``outcome`` other than ``passed`` and an ``error`` with a ``code``
+and a ``message`` (see :doc:`machine-readable`). The messages name the step that failed and the cause. Run with ``-d`` to
 see the commands and the output of the host.
 
 Common problems

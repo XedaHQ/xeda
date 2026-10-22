@@ -206,10 +206,10 @@ Reading results from a script
 ``xeda run --json`` writes the whole run as one JSON document to stdout. Tool output and log
 messages go to stderr. You do not need to look for files::
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json | jq '.results.fmax'
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json | jq '.nodes[-1].record.metrics.fmax'
 
-The exit status is not zero when the flow fails. The JSON document then has an ``error`` object
-beside any parsed results. See :doc:`machine-readable`.
+The exit status is not zero when the launch does not pass. The JSON document then has an ``outcome``
+other than ``passed`` and an ``error`` object. See :doc:`machine-readable`.
 
 Rebuilding only what changed
 =============================
@@ -471,11 +471,11 @@ Xeda reports a failure again, and does not run the flow, only when all of these 
 - Nothing that the flow consumes changed since the run.
 
 Such a run keeps its trace, with the verdict ``rejected``. In ``xeda run --json``, the launch in
-which the checks reject the run gives the node the state ``failed``. The next launch, with nothing
-changed, logs that the last run with these inputs and settings was rejected, and gives the node
-the state ``rejected again``, with the message of the rejection as its ``reason``. A flow that
-reads the outputs of this run does not run either. Its state is ``blocked``, and its ``reason`` is
-"<producer> did not succeed".
+which the checks reject the run gives the node the outcome ``rejected`` and the disposition ``ran``.
+The next launch, with nothing changed, logs that the last run with these inputs and settings was
+rejected, and gives the node the outcome ``rejected`` and the disposition ``reused``, with the
+message of the rejection as its ``reason``. A flow that reads the outputs of this run does not run
+either. Its outcome is ``blocked``, and its ``blocked_by`` names the producer.
 
 These checks reject a run:
 

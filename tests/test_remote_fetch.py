@@ -656,10 +656,10 @@ def test_the_delivered_node_lists_the_deliveries_made_from_the_mirror():
 def test_the_mirror_record_of_a_failed_node_names_no_output(tmp_path):
     """The fetch brings back no output of a run that did not pass, so its mirror record names
     none: each output keeps its entry with no names."""
-    from xeda.remote.fetch import _only_fetched_artifacts
+    from xeda.remote.fetch import only_fetched_artifacts
 
     failed = record_document("failed", outputs={"netlist": ["netlist.v"]})
-    kept = _only_fetched_artifacts(failed, tmp_path)["outputs"]["netlist"]
+    kept = only_fetched_artifacts(failed, tmp_path)["outputs"]["netlist"]
     assert kept["names"] == [] and kept["digests"] == [] and kept["design"] is None
     passed = record_document("passed", outputs={"netlist": ["netlist.v"]})
-    assert _only_fetched_artifacts(passed, tmp_path) is passed
+    assert only_fetched_artifacts(passed, tmp_path) is passed

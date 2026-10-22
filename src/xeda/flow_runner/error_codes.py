@@ -44,6 +44,7 @@ from ..records import (
 )
 from ..utils import (
     ConflictingKeys,
+    EscapedName,
     ExecutableNotFound,
     NonZeroExitCode,
     XedaException,
@@ -248,6 +249,13 @@ def public_error(exc: BaseException) -> errors.XedaError:
         return _settings_error(exc)
     if isinstance(exc, ChainRefusal):
         return _chain_refusal(exc)
+    if isinstance(exc, DeliveryError) and exc.before_run:
+        return errors.SpecError(str(exc), code="delivery_refused")
+    if isinstance(exc, RunDirectoryError):
+        # Raised for a request: a run root that holds a link where Xeda would write.
+        return errors.SpecError(str(exc), code="invalid_run_root")
+    if isinstance(exc, EscapedName):
+        return errors.SettingsError(str(exc), code="invalid_value", setting=exc.name)
     if isinstance(exc, FlowSettingsException):
         return errors.SettingsError(str(exc), code=exc.code)
     if isinstance(exc, ConflictingKeys):

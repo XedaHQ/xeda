@@ -305,20 +305,56 @@ class XedaHelpGroup(ColorizedGroup):
     def _main_machine_readable(self, fmt: str, args=None, **extra):
         try:
             return super().main(args=args, **{**extra, "standalone_mode": False})
+        except click.UsageError as e:
+            if _is_run_command(e.ctx):
+                from .outcomes import run_document
+                from .records import ErrorInfo
+
+                # The document of a launch that did not start: the command line has no spec.
+                error = ErrorInfo(
+                    code="usage_error",
+                    message=e.format_message(),
+                    node=None,
+                    exit_status=None,
+                    log=None,
+                )
+                emit_structured(
+                    run_document(
+                        outcome=None,
+                        error=error,
+                        launch_id=None,
+                        spec=None,
+                        roots=(),
+                        nodes=(),
+                    ),
+                    fmt,
+                )
+                sys.exit(e.exit_code)
+            self._report_click_error(e, fmt)
         except click.ClickException as e:
-            emit_structured(
-                {
-                    "success": False,
-                    "error": {"type": type(e).__name__, "message": e.format_message()},
-                },
-                fmt,
-            )
-            sys.exit(e.exit_code)
+            self._report_click_error(e, fmt)
         except click.exceptions.Abort:
             emit_structured(
                 {"success": False, "error": {"type": "Abort", "message": "Aborted."}}, fmt
             )
             sys.exit(1)
+
+    @staticmethod
+    def _report_click_error(e: click.ClickException, fmt: str) -> NoReturn:
+        emit_structured(
+            {
+                "success": False,
+                "error": {"type": type(e).__name__, "message": e.format_message()},
+            },
+            fmt,
+        )
+        sys.exit(e.exit_code)
+
+
+def _is_run_command(ctx: Optional[click.Context]) -> bool:
+    """Return whether `ctx` is the context of `xeda run`, the command whose `--json` document is
+    the document of a launch."""
+    return ctx is not None and ctx.parent is not None and ctx.command.name == "run"
 
 
 def info_table(title: str, columns: Iterable[Tuple[str, Dict[str, Any]]]) -> Table:

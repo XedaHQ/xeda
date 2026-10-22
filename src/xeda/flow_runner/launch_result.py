@@ -201,6 +201,7 @@ def _blocked(node: PlanNode, blocker: str, message: str) -> NodeResult:
         ),
         deliveries=(),
         run_dir=node.run_path,
+        flow=node.flow_class.name,
     )
 
 
@@ -221,6 +222,7 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
             error=error_info(error, node=node.name),
             deliveries=(),
             run_dir=node.run_path,
+            flow=node.flow_class.name,
         )
     if flow.blocked_by is not None:
         return _blocked(node, flow.blocked_by, str(error))
@@ -244,6 +246,7 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
             error=record.error,
             deliveries=deliveries,
             run_dir=node.run_path,
+            flow=node.flow_class.name,
         )
     # An exception left the node after the run passed, or the run left no record: nothing vouches
     # for the node, and the exception says why.
@@ -268,6 +271,7 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
         error=cause,
         deliveries=deliveries,
         run_dir=node.run_path,
+        flow=node.flow_class.name,
     )
 
 
@@ -298,6 +302,7 @@ def _not_reached(plan: Plan, node: PlanNode, done: Mapping[str, NodeResult]) -> 
         error=None,
         deliveries=(),
         run_dir=node.run_path,
+        flow=node.flow_class.name,
     )
 
 

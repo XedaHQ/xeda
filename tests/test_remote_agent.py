@@ -1828,11 +1828,11 @@ def test_a_node_that_the_launch_did_not_run_brings_back_no_earlier_record(tmp_pa
         (tmp_path / name).mkdir()
         (tmp_path / name / "results.json").write_text(json.dumps({"outcome": "passed"}))
     document = {
-        "request": [{"node": "b"}],
+        "named": ["b"],
         "nodes": [
-            {"node": "a", "run_path": str(tmp_path / "a"), "state": "failed"},
-            {"node": "b", "run_path": str(tmp_path / "b"), "state": "blocked"},
-            {"node": "c", "run_path": str(tmp_path / "c"), "state": "not run"},
+            {"name": "a", "run_dir": str(tmp_path / "a"), "disposition": "ran"},
+            {"name": "b", "run_dir": str(tmp_path / "b"), "disposition": "not_run"},
+            {"name": "c", "run_dir": str(tmp_path / "c"), "disposition": "not_run"},
         ],
     }
     a, b, c = _launch_nodes(document)

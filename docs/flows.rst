@@ -724,11 +724,10 @@ neither node. Write the device for a flow of the chain (``flows.vivado_synth.fpg
 ``board`` for ``openfpgaloader``), or give ``-s fpga.part=<part>``. The error that a flow needs
 ``fpga`` names each section that gives it without reaching the flow.
 
-``flow``, ``results``, ``--help-settings`` and the exit status are those of the last flow.
-``--json`` adds ``request`` (the chain, element by element, each with the flows its link passes
-through in ``through``) and, for every flow of the plan, its ``node`` name and its resolved
-``inputs``. A flow that Xeda planned but never started after a failure is listed as ``"state": "not
-run"`` (see :doc:`machine-readable`). ``--outputs-to`` delivers the outputs of the last flow, and
+``--help-settings`` and the exit status are those of the last flow. ``--json`` lists every flow of
+the plan in ``nodes``, with its record and its ``outcome`` (``roots`` names the last flow). A flow
+that Xeda planned but never started after a failure is ``blocked`` or ``skipped`` (see
+:doc:`machine-readable`). ``--outputs-to`` delivers the outputs of the last flow, and
 only after the whole chain succeeded. A chain that ends at ``openfpgaloader`` has no outputs to
 deliver, so ``--outputs-to`` is refused before anything runs. The error names the setting that
 delivers the bitstream (``-s flows.vivado_synth.bitstream=$PWD/<file>``). ``--dry-run`` shows the
@@ -2221,7 +2220,7 @@ Run ``xeda list-results <flow>`` for the list.
 A metric name is lower snake case. A dot joins the parts of a group (``lut_use.logic``). A
 quantity has one name in every flow that reports it, such as ``fmax``, ``lut`` and ``ff``, so a
 script does not need to know which flow produced the file. The record holds the described metrics
-only; the results of ``xeda run --json`` hold every key the flow reported.
+only; the record of a node in ``xeda run --json`` is the same record.
 
 .. note::
    ``clock_frequency`` is not ``fmax`` on purpose. It is the frequency that was constrained, and not

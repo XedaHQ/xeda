@@ -442,18 +442,19 @@ def _launch_nodes(document: dict[str, Any]) -> list[Any]:
     """Return a `fetch.NodeResult` for each node of the launch `document`, with the record that
     this launch left in its run directory.
 
-    A node that the launch did not run (its state is `blocked` or `not run`) keeps the record of
-    an earlier run in its directory. That record is not of this launch, so the node has none, and
-    the fetch takes it as a node that did not pass."""
+    A node that the launch did not start (its disposition is `not_run`: blocked, or not reached)
+    keeps the record of an earlier run in its directory. That record is not of this launch, so the
+    node has none, and the fetch takes it as a node that did not pass."""
     from .fetch import NodeResult
 
-    named = {element.get("node") for element in document.get("request") or []}
+    # The nodes that the request names: their outputs and artifacts come back.
+    named = set(document.get("named") or [])
     written = document.get("written") or {}
     nodes = []
     for node in document["nodes"]:
-        name = node["node"]
-        run_dir = Path(node["run_path"])
-        ran = node.get("state") not in ("blocked", "not run")
+        name = node["name"]
+        run_dir = Path(node["run_dir"])
+        ran = node.get("disposition") != "not_run"
         results = _read_json(run_dir / "results.json") if ran else None
         nodes.append(
             NodeResult(

@@ -43,10 +43,11 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, BinaryIO, Deque, Dict, List, Optional, cast
+from typing import Any, BinaryIO, Deque, Dict, List, Optional, Tuple, cast
 
 from ..deliver import (
     Conflict,
+    Delivered,
     Deliveries,
     DeliveryError,
     deliverable_locations,
@@ -57,10 +58,23 @@ from ..deliver import (
 from ..design import names_a_design_file
 from ..flow_runner import DefaultRunner
 from ..flow_runner.chains import parse_request
+from ..errors import RecordError, SpecError
 from ..flow_runner.default_runner import PreparedRequest, print_results
-from ..flow_runner.outputs import declared_output_files
+from ..flow_runner.launch_report import results_of
+from ..flow_runner.settings_layers import command_line_table
 from ..flow_runner.run_lock import run_dir_lock
+from ..outcomes import (
+    Disposition,
+    NodeResult,
+    Outcome,
+    aggregate,
+    node_document,
+    result_from_dict,
+    run_document,
+    spec_document,
+)
 from ..proc_utils import tool_output_stream
+from ..records import ErrorInfo, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
 from ..xedaproject import resolve_project_file
 from .constants import HEARTBEAT, LAYOUT
@@ -71,16 +85,19 @@ from .errors import (
     RemoteConnectionError,
     RemoteDetached,
     RemoteError,
+    RemoteFetchError,
     RemoteInterrupted,
     RemoteProtocolError,
 )
 from .fetch import (
     SkippedSource,
+    check_fetched_outputs,
     deliver_fetched,
+    only_fetched_artifacts,
     publish_mirror,
     remote_read_inputs,
     rewrite_records,
-    rewrite_results,
+    translate_paths,
 )
 from .frames import (
     BEAT,
@@ -127,13 +144,22 @@ _ENDED_INSIDE = "the stream ended inside"
 class RemoteOutcome:
     """The result of `run_remote`.
 
-    `document` is what `xeda run --json` prints: the result document of the remote with `remote`
-    and `mirror` and the paths of the mirror, or a failure document. `success` tells whether the
-    flow succeeded. `error` is the exception behind a failure document, if there is one."""
+    `document` is what `xeda run --json` prints: the result document of the launch with the paths
+    of the mirror, or, for a failure of this side, the document of the launch that failed
+    (`Result.to_dict`). A dry run has its own document. `success` tells whether the launch
+    passed. `error` is the exception behind a failure document, if there is one."""
 
     document: Dict[str, Any]
     success: bool
     error: Optional[BaseException] = None
+
+    @property
+    def exit_status(self) -> int:
+        """The exit status of `xeda run`: 0 for a launch that passed, 2 for a request that
+        started no launch because it is invalid (the `outcome` of its document is null), else 1."""
+        if self.success:
+            return 0
+        return 2 if self.document.get("outcome", True) is None else 1
 
 
 # --- Names ------------------------------------------------------------------------------------
@@ -491,12 +517,21 @@ class _Run:
     debug: bool
     launcher: Optional[DefaultRunner] = None
     mirror_root: Optional[Path] = None
+    local_root: Optional[Path] = None
     request: List[Dict[str, Any]] = field(default_factory=list)
+    #: The name of the design, once it is loaded.
+    design_name: Optional[str] = None
+    #: What the command line gave for the settings, as a `flows` table.
+    settings: Dict[str, Any] = field(default_factory=dict)
+    #: The nodes of the local plan: the name, the flow and the run directory of each.
+    nodes: List[Tuple[str, str, Path]] = field(default_factory=list)
+    #: The id of the launch on the host, once it has one.
+    launch_id: Optional[str] = None
     #: What the run does after its launch finished (`_AFTER_THE_LAUNCH`), or `None` before.
     phase: Optional[str] = None
-    #: The document of a run whose delivery failed after the mirror was whole: the remote result,
-    #: the places in the mirror and the copies made. The failure document starts from it.
-    delivered: Optional[Dict[str, Any]] = None
+    #: Makes the document of the result of the remote launch, with the paths of the mirror, or
+    #: `None` before the launch ended. A failure after the launch builds its document from it.
+    localize: Optional[Callable[[], Dict[str, Any]]] = None
 
 
 @dataclass
@@ -610,6 +645,9 @@ def _plan(
         planning=dry_run,
     )
     run.target = prepared.target
+    run.design_name = prepared.design.name
+    run.local_root = local_root
+    run.nodes = [(n.name, n.flow_class.name, Path(n.run_path)) for n in prepared.plan.nodes]
     _refuse_programmers(prepared, destination_text)
     plan = prepared.plan
     node = plan.node(plan.requested)
@@ -883,6 +921,12 @@ def _launch_result(agent: _Agent, document: Dict[str, Any]) -> Dict[str, Any]:
                 else ""
             )
         )
+    if "outcome" in result and result["outcome"] is None:
+        # The launch on the host started nothing: it could not read its request, or it refused it.
+        error = result.get("error") or {}
+        raise RemoteError(
+            f"The launch on {agent.host} did not start: {error.get('message', 'no reason given')}"
+        )
     return result
 
 
@@ -978,6 +1022,8 @@ def _record_launch(
             target=run.target,
             request=run.request,
             local_root=str(local_root),
+            settings=run.settings,
+            nodes=[[name, flow] for name, flow, _path in run.nodes],
             run_paths=[str(node.run_path) for node in prepared.prepared.plan.nodes],
             remote_run_root=str(remote_run_root),
             inputs_dir=str(inputs_dir),
@@ -1023,41 +1069,54 @@ def _node_dirs(
     found: dict[str, PurePosixPath] = {}
     for node in document.get("nodes") or []:
         try:
-            name, path = node["node"], node["run_path"]
+            name, path = node["name"], node["run_dir"]
         except (KeyError, TypeError):
             raise RemoteProtocolError(f"The result has a bad node: {node!r}") from None
         found[name] = _place_below(remote_run_root, path, "a run directory")
     return found
 
 
-def _mirror_document(
-    document: Mapping[str, Any],
-    results: Optional[Dict[str, Any]],
+def _spec_fields(run: _Run) -> Dict[str, Any]:
+    """The `spec` of a document of this side: what the user asked for, not the packaged copy on
+    the remote."""
+    from ..introspect import design_info
+
+    launcher = run.launcher
+    return spec_document(
+        flow=run.chain,
+        **design_info(run.design, run.design_name or (launcher.design_name if launcher else None)),
+        target=run.target or (launcher.target if launcher is not None else None),
+        settings=run.settings,
+    )
+
+
+def _localized(
+    result: Mapping[str, Any],
+    run: _Run,
     *,
-    host: str,
     mirror_root: Path,
     remote_run_root: PurePosixPath,
+    translate: Callable[[str], Optional[str]],
 ) -> Dict[str, Any]:
-    """The result document of the remote, with the paths of the mirror."""
-    mirrored = copy.deepcopy(dict(document))
-    mirrored.pop("written", None)
-    mirrored.pop("unreadable", None)
-    mirrored["remote"] = host
-    mirrored["mirror"] = str(mirror_root)
-    for node in mirrored.get("nodes") or []:
-        node["run_path"] = str(
-            mirror_root / _place_below(remote_run_root, node["run_path"], "a run directory")
-        )
-    run_path = document.get("run_path")
-    if run_path:
-        directory = mirror_root / _place_below(remote_run_root, run_path, "the run directory")
-        mirrored["run_path"] = str(directory)
-        for key in ("results_json", "settings_json"):
-            if mirrored.get(key):
-                mirrored[key] = str(directory / PurePosixPath(document[key]).name)
-    if results is not None:
-        mirrored["results"] = results
-    return mirrored
+    """The document of the remote launch `result`, with the paths of this side.
+
+    The run directory of a node is its place in the mirror, and its record names the paths of
+    this side, as the record in the mirror does. The `spec` is the one of this side, and the
+    `launch_id` is the id of the launch on the host."""
+    document = copy.deepcopy(dict(result))
+    document.pop("written", None)
+    document.pop("unreadable", None)
+    document.pop("named", None)
+    document["launch_id"] = run.launch_id
+    document["spec"] = _spec_fields(run)
+    for node in document.get("nodes") or []:
+        directory = mirror_root / _place_below(remote_run_root, node["run_dir"], "a run directory")
+        node["run_dir"] = str(directory)
+        if node.get("record") is not None:
+            node["record"] = only_fetched_artifacts(
+                translate_paths(node["record"], translate), directory
+            )
+    return document
 
 
 def _planned_mirrors(local: "_Local", mirror_root: Path, local_root: Path) -> set[Path]:
@@ -1219,6 +1278,7 @@ def run_remote(
         host=destination_text,
         debug=log_level <= logging.DEBUG,
         request=request_info(request),
+        settings=command_line_table(request.requested.name, flow_settings),
     )
     try:
         return _run(
@@ -1248,26 +1308,104 @@ def run_remote(
         return _failed(run, error)
 
 
+def _launch_error_code(run: _Run, error: Exception) -> str:
+    """The code of the launch-level error that `error` is, for a failure of this side."""
+    if isinstance(error, RemoteDetached):
+        return "remote_detached"
+    if isinstance(error, (RemoteCanceled, RemoteInterrupted)):
+        return "canceled"
+    if run.phase == _DELIVERING:
+        return "delivery_failed"
+    if run.phase == _FETCHING or isinstance(error, RemoteFetchError):
+        return "remote_fetch_failed"
+    return "remote_failed"
+
+
+def _unreached(run: _Run, outcome: Outcome) -> Dict[str, NodeResult]:
+    """The nodes of the local plan as a launch that did not reach them leaves them: `outcome` is
+    `detached` for a launch that keeps running on the host, else `skipped`. Their run directories
+    are the places in the mirror."""
+    found: Dict[str, NodeResult] = {}
+    for name, flow, run_path in run.nodes:
+        assert run.mirror_root is not None and run.local_root is not None
+        found[name] = NodeResult(
+            name=name,
+            outcome=outcome,
+            disposition=Disposition.NOT_RUN,
+            reason=(
+                "the launch keeps running on the host"
+                if outcome is Outcome.DETACHED
+                else "the launch stopped before its turn"
+            ),
+            blocked_by=None,
+            elapsed=0.0,
+            record=None,
+            error=None,
+            deliveries=(),
+            run_dir=_mirror_of(run.mirror_root, run.local_root, run_path),
+            flow=flow,
+        )
+    return found
+
+
 def _failed(run: _Run, error: Exception) -> RemoteOutcome:
-    """The outcome of a run that raised `error`: the failure document, with the launch that keeps
-    running on the host if the error is `RemoteDetached`."""
-    from ..cli import _failure_document, _failure_of
+    """The outcome of a run that raised `error`: the document of the launch that failed.
+
+    A request that is invalid started no launch: its document has no outcome. Any other error
+    ends the launch with a launch-level error. The nodes are those of the remote result when the
+    launch had ended, else those of the local plan."""
+    from ..cli import _error_message
+    from ..flow_runner.error_codes import public_error
 
     log.debug("The remote run failed", exc_info=True)
-    error_type, message = _failure_of(error, run.flow, run.debug)
-    if run.delivered is not None:
-        document = {
-            **run.delivered,
-            "success": False,
-            "error": {"type": error_type, "message": message},
-        }
-    else:
-        document = _failure_document(
-            run.flow, run.design, run.launcher, run.target, error_type, message, run.request
+    message = _error_message(error)
+    public = public_error(error)
+    spec = _spec_fields(run)
+    if isinstance(public, SpecError) and run.phase is None:
+        info = ErrorInfo(
+            code=public.code,
+            message=message,
+            node=getattr(public, "node", None),
+            exit_status=None,
+            log=None,
         )
-    document["remote"] = run.host
-    if isinstance(error, RemoteDetached):
-        document["launch"] = {"id": error.launch_id, "host": error.host}
+        document = run_document(
+            outcome=None, error=info, launch_id=None, spec=spec, roots=(), nodes=()
+        )
+        return RemoteOutcome(document, False, error)
+    info = ErrorInfo(
+        code=_launch_error_code(run, error),
+        message=message,
+        node=None,
+        exit_status=None,
+        log=None,
+    )
+    launch_id = run.launch_id or getattr(error, "launch_id", None)
+    remote: Optional[Dict[str, Any]] = None
+    if run.localize is not None:
+        try:
+            remote = run.localize()
+        except Exception:  # pylint: disable=broad-except
+            log.debug("The result of the remote launch cannot be shown", exc_info=True)
+    if remote is not None:
+        parsed = result_from_dict(remote)
+        nodes, roots = dict(parsed.nodes), parsed.roots
+        node_documents = remote["nodes"]
+    else:
+        unreached = _unreached(
+            run, Outcome.DETACHED if isinstance(error, RemoteDetached) else Outcome.SKIPPED
+        )
+        nodes, roots = unreached, (tuple(unreached)[-1:] if unreached else ())
+        node_documents = [node_document(node) for node in unreached.values()]
+    outcome, cause = aggregate(nodes, roots, info)
+    document = run_document(
+        outcome=outcome,
+        error=cause,
+        launch_id=launch_id,
+        spec=spec,
+        roots=roots,
+        nodes=node_documents,
+    )
     return RemoteOutcome(document, False, error)
 
 
@@ -1329,6 +1467,7 @@ def _run(
     spec = dependency_spec(design.tb.python_packages)
     key = workspace_key(local_root, destination)
     launch_id = new_launch_id()
+    run.launch_id = launch_id
     local = prepared.local()
     # The mirror of a node lies below the run root like the node: no link on the way to it
     # (`@host` included) is followed, so refuse one before the host runs anything.
@@ -1376,6 +1515,7 @@ def _run(
                 )
                 try:
                     if running is not None:
+                        run.launch_id = running["id"]
                         result = _follow_running(agent, running)
                     else:
                         if keep_running:
@@ -1398,6 +1538,22 @@ def _run(
                     _discard_mirrors(local, mirror_root, local_root)
                     raise
                 run.phase = None if dry_run else _FETCHING
+                translate = _translation(
+                    remote_run_root=remote_run_root,
+                    mirror_root=mirror_root,
+                    inputs_dir=inputs_dir,
+                    files={name: str(path) for name, path in package.files.items()},
+                    generated=package.generated,
+                    design_root=design.root_path,
+                )
+                if not dry_run:
+                    run.localize = lambda: _localized(
+                        result,
+                        run,
+                        mirror_root=mirror_root,
+                        remote_run_root=remote_run_root,
+                        translate=translate,
+                    )
                 if dry_run:
                     document = _local_design(dict(result), run, design.name)
                     document["remote"] = destination_text
@@ -1415,14 +1571,7 @@ def _run(
                         mirror_root=mirror_root,
                         local_root=local_root,
                         remote_run_root=remote_run_root,
-                        translate=_translation(
-                            remote_run_root=remote_run_root,
-                            mirror_root=mirror_root,
-                            inputs_dir=inputs_dir,
-                            files={name: str(path) for name, path in package.files.items()},
-                            generated=package.generated,
-                            design_root=design.root_path,
-                        ),
+                        translate=translate,
                         fetch_all=fetch_all,
                         outputs_to=outputs_to,
                     )
@@ -1450,34 +1599,20 @@ def _run(
         ) from None
 
 
-def _delivery_failure_document(
-    result: Dict[str, Any],
-    rewritten: Dict[str, Any],
-    local: _Local,
-    run: _Run,
-    mirror_root: Path,
-    remote_run_root: PurePosixPath,
-) -> Dict[str, Any]:
-    """The document of a run whose delivery failed: the document of the remote result as for a
-    delivery that worked, with the copies made before the failure in `results` and, as a local
-    run has them, in the node that was delivered."""
-    document = _mirror_document(
-        result, rewritten, host=run.host, mirror_root=mirror_root, remote_run_root=remote_run_root
-    )
-    _deliveries_of_the_node(document, rewritten, local.requested)
-    return _local_design(document, run, local.design_name)
-
-
-def _deliveries_of_the_node(
-    document: Dict[str, Any], rewritten: Optional[Dict[str, Any]], requested: str
+def _note_deliveries(
+    document: Dict[str, Any], requested: str, delivered: Sequence[Delivered]
 ) -> None:
-    """Put the deliveries that this side made from the mirror (`rewritten["deliveries"]`) into
-    the node that was delivered, as a local run has them. The host made none of them."""
-    if rewritten is None or "deliveries" not in rewritten:
-        return
+    """Put the deliveries of the requested node into `document`, as a local launch reports them."""
     for node in document.get("nodes") or []:
-        if node.get("node") == requested:
-            node["deliveries"] = list(rewritten.get("deliveries") or [])
+        if node["name"] == requested:
+            node["deliveries"] = [
+                {
+                    "key": one.key,
+                    "destination": str(one.destination),
+                    "delivered": one.state != "skipped",
+                }
+                for one in delivered
+            ]
 
 
 def _finish(
@@ -1493,7 +1628,8 @@ def _finish(
     fetch_all: bool,
     outputs_to: Optional[Path],
 ) -> RemoteOutcome:
-    """Fetch the files of the run into the mirror, rewrite the result and deliver."""
+    """Fetch the files of the run into the mirror, rewrite the records and deliver. Return the
+    document of the launch, with the paths of the mirror."""
     host = agent.host
     # The run root is made and marked as Xeda's before the mirror goes into it.
     local.launcher.run_root  # pylint: disable=pointless-statement
@@ -1532,72 +1668,59 @@ def _finish(
                 remote_run_root=remote_run_root,
             )
             reader.drain()
-            results = result.get("results")
-            requested_dir: Optional[Path] = None
-            rewritten: Optional[Dict[str, Any]] = None
-            remote_deliverables: Any = None
-            requested_skips: list[SkippedSource] = []
-            success = bool(result.get("success"))
-            if isinstance(results, dict) and results and result.get("run_path"):
-                requested = local.requested
-                remote_run_dir = PurePosixPath(result["run_path"])
-                written = (result.get("written") or {}).get(requested)
-                mirror_dir = mirror_root / _place_below(
-                    remote_run_root, remote_run_dir, "the run directory"
-                )
-                requested_skips = [source for source in skipped if source.node == requested]
-                rewritten = rewrite_results(
-                    results,
-                    remote_run_dir,
-                    mirror_dir,
-                    written=written,
-                    skipped={source.place for source in requested_skips},
-                )
-                requested_dir = mirror_dir
-                output_paths = [str(path) for path in declared_output_files(results)]
-                remote_deliverables = (
-                    {"artifacts": results.get("artifacts") or {}, "outputs": output_paths}
-                    if output_paths and success
-                    else results.get("artifacts")
+            requested_skips = [source for source in skipped if source.node == local.requested]
+            if requested_skips:
+                log.warning(
+                    "On %s, these artifacts of %s lead out of the run directory through a symbolic "
+                    "link and were not fetched: %s",
+                    host,
+                    local.requested,
+                    ", ".join(sorted(source.place for source in requested_skips)),
                 )
             # The records of the mirror are whole before anything is delivered: a refused delivery
             # leaves them as they are.
             for directory in sorted(set(directories.values())):
                 rewrite_records(directory, local_root, translate)
+            assert run.localize is not None
+            document = run.localize()
+            record = None
+            requested = next((n for n in document["nodes"] if n["name"] == local.requested), None)
+            if requested is not None and requested.get("record") is not None:
+                # The record of the document, not the file of the mirror: a rejected run that was
+                # reused wrote nothing, so its file did not come back.
+                try:
+                    record = decode_record(
+                        requested["record"],
+                        run_dir=Path(requested["run_dir"]),
+                        run_root=local_root,
+                    )
+                except RecordError as problem:
+                    raise RemoteFetchError(f"cannot read the fetched record: {problem}") from None
+                check_fetched_outputs(record)
         except BaseException:
             # A cut in the transfer, or a failure while the records are rewritten, leaves some files
             # of this run beside the records of an earlier one. The locks are held: the discard
             # takes them again in this thread.
             _discard_mirrors(local, mirror_root, local_root, nodes)
             raise
-        if rewritten is not None and requested_dir is not None:
+        if record is not None:
             if outputs_to is not None and local.deliveries is not None:
                 run.phase = _DELIVERING
                 try:
-                    deliver_fetched(
-                        local.deliveries,
-                        rewritten,
-                        remote_deliverables,
-                        result["run_path"],
-                        requested_dir,
-                        outputs_to=outputs_to,
-                        skipped=requested_skips,
+                    delivered = deliver_fetched(
+                        local.deliveries, record, outputs_to=outputs_to, skipped=requested_skips
                     )
                 except Exception:
-                    run.delivered = _delivery_failure_document(
-                        result, rewritten, local, run, mirror_root, remote_run_root
-                    )
+                    _note_deliveries(document, local.requested, local.deliveries.delivered)
+                    run.localize = lambda: document
                     raise
+                _note_deliveries(document, local.requested, delivered)
             print_results(
-                results=rewritten,
+                results=results_of(record),
                 title=f"Results of flow:{run.flow} design:{local.design_name}",
                 skip_if_false={"artifacts", "reports"},
             )
-    document = _mirror_document(
-        result, rewritten, host=run.host, mirror_root=mirror_root, remote_run_root=remote_run_root
-    )
-    _deliveries_of_the_node(document, rewritten, local.requested)
-    return RemoteOutcome(_local_design(document, run, local.design_name), success)
+    return RemoteOutcome(document, result.get("outcome") == Outcome.PASSED.value)
 
 
 __all__ = [

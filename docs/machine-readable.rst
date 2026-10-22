@@ -95,7 +95,7 @@ output of that kind and nothing else. An input also says:
 
 - whether it is ``required`` (the flow cannot run without it);
 - whether it is ``optional`` (an optional list, which may be empty);
-- whether it compares ``equivalence`` (see ``results.outputs`` below);
+- whether it compares ``equivalence`` (see ``record.outputs`` above);
 - which ``producer`` and ``output`` are its default.
 
 An output names the setting that enables it in ``enabled_by``.
@@ -351,128 +351,141 @@ every ``flows.<flow>`` is an open table. Take the schema of those settings from
 Running a flow
 ==============
 
-``xeda run <flow> <design> --json`` writes a single JSON object to stdout. In this example,
-``nextpnr`` has the producer ``yosys_fpga``, whose recorded run was still valid. The ``textcfg``
-setting (the routed ECP5 design, as a Trellis text configuration) was given a location, so Xeda
-delivered the file there once the run finished:
+``xeda run <flow> <design> --json`` writes one JSON object to stdout. It has exactly these keys:
+
+``schema_version``
+    The integer 1.
+``outcome``
+    How the launch ended: ``passed``, ``rejected``, ``failed``, ``canceled`` or ``detached``. It is
+    ``null`` for a request that started no launch (see below).
+``error``
+    ``null`` when the launch passed. Otherwise the cause of the outcome, as ``{code, message,
+    node, exit_status, log}`` (see :ref:`error-codes`).
+``launch_id``
+    The id of the launch, or ``null`` for a request that started no launch.
+``spec``
+    What you asked for: ``{flow, design, design_file, target, settings}``. ``flow`` is the text of
+    the request, such as ``yosys_fpga+nextpnr``. ``design`` is the name of the design. ``design_file``
+    is the absolute path of the design file that you named, or ``null`` when you named none (a design
+    of a project). ``target`` is the name given with ``--target`` (see :ref:`targets`), or ``null``.
+    ``settings`` is what ``-s`` gave, as a table of settings by flow name.
+``roots``
+    The nodes that you asked for. For ``xeda run`` this is the last flow of the request.
+``nodes``
+    One entry for every node of the plan, in plan order, producers first.
+
+In this example, ``nextpnr`` has the producer ``yosys_fpga``, whose recorded run was still valid.
+The ``textcfg`` setting (the routed ECP5 design, as a Trellis text configuration) was given a
+location, so Xeda delivered the file there once the run finished:
 
 .. code-block:: json
 
     {
-      "flow": "nextpnr",
-      "design": "blinky",
-      "design_file": "/path/to/blinky.yaml",
-      "target": null,
-      "success": true,
-      "results": {"success": true, "fmax": 212.4, "lut": 45, "...": "..."},
-      "run_path": "/path/to/xeda_run/blinky/nextpnr",
-      "results_json": "/path/to/xeda_run/blinky/nextpnr/results.json",
-      "settings_json": "/path/to/xeda_run/blinky/nextpnr/settings.json",
+      "schema_version": 1,
+      "outcome": "passed",
+      "error": null,
+      "launch_id": "5d1f0c1b0d3e4f36a2f5a0c5f4f7a9c1",
+      "spec": {
+        "flow": "nextpnr",
+        "design": "blinky",
+        "design_file": "/path/to/blinky.yaml",
+        "target": null,
+        "settings": {"nextpnr": {"seed": "3"}}
+      },
+      "roots": ["nextpnr"],
       "nodes": [
-        {"node": "yosys_fpga", "flow": "yosys_fpga",
-         "run_path": "/path/to/xeda_run/blinky/yosys_fpga",
-         "state": "fresh", "reason": "", "deliveries": [], "inputs": []},
-        {"node": "nextpnr", "flow": "nextpnr", "run_path": "/path/to/xeda_run/blinky/nextpnr",
-         "state": "ran", "reason": "settings changed: seed",
+        {"name": "yosys_fpga", "flow": "yosys_fpga", "outcome": "passed",
+         "disposition": "reused", "reason": "up to date", "blocked_by": null, "elapsed": 0.0,
+         "run_dir": "/path/to/xeda_run/blinky/yosys_fpga", "deliveries": [],
+         "record": {"schema_version": 1, "outcome": "passed", "...": "..."}},
+        {"name": "nextpnr", "flow": "nextpnr", "outcome": "passed", "disposition": "ran",
+         "reason": "settings changed: seed", "blocked_by": null, "elapsed": 4.2,
+         "run_dir": "/path/to/xeda_run/blinky/nextpnr",
          "deliveries": [
-           {"setting": "textcfg", "from": "/path/to/xeda_run/blinky/nextpnr/config.txt",
-            "to": "/home/user/blinky_config.txt", "state": "delivered"}
+           {"key": "textcfg", "destination": "/home/user/blinky_config.txt", "delivered": true}
          ],
-         "inputs": [
-           {"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
-            "output": "netlist", "sources": [],
-            "references": [{"node": "yosys_fpga", "output": "netlist"}],
-            "binding_origin": null, "binding_location": null, "overridden": [], "reason": null},
-           {"name": "constraints", "origin": "none", "producer": null,
-            "output": null, "sources": [], "references": [],
-            "binding_origin": null, "binding_location": null, "overridden": [], "reason": null},
-           {"name": "sdc", "origin": "none", "producer": null,
-            "output": null, "sources": [], "references": [],
-            "binding_origin": null, "binding_location": null, "overridden": [], "reason": null}
-         ]}
-      ],
-      "request": [{"node": "nextpnr", "flow": "nextpnr", "output": null, "through": []}]
+         "record": {"schema_version": 1, "outcome": "passed",
+                    "metrics": {"fmax": 212.4, "lut": 45, "...": "..."}, "...": "..."}}
+      ]
     }
 
+The exit status follows ``outcome``: 0 for ``passed``, 1 for every other outcome, and 2 for a request
+that started no launch.
+
 ``xeda run`` also takes a chain, such as ``xeda run yosys_fpga+nextpnr+fpga_pack design.yaml``. The
-last flow of a chain is the requested flow: ``flow``, ``results``, ``run_path`` and the exit status
-are those of that flow. Each earlier flow supplies the compatible required inputs of the next flow
-or, when the link passes through flows, the inputs that it feeds in the plan of the next flow. The
-``request`` key lists the elements of the request as given, in canonical form. Each element is an
-object with ``node``, ``flow``, ``output`` and ``through``, where ``output`` is the ``FLOW.OUTPUT``
-qualifier or ``null``, and ``through`` lists the flows that the link to the next element passes
-through. A single flow gives a one-element list. Each ``nodes`` entry carries its ``node`` name and
-its resolved ``inputs``, which are empty for a flow that declares none. The plan of a dry run uses
-the same representation for the inputs (the section on planning, below, describes the fields). When
-a producer fails, the planned nodes that were never entered come after the other nodes, with
-``"state": "not run"``. A chain that is malformed (an empty element, an unknown flow or output, a
-repeated flow, a programmer before the end, or a pair with no compatible output) is a usage error.
-It gives one error document and exit status 2, with no ``request``, ``plan`` or ``nodes``. ``xeda
-dse`` refuses a chain. ``xeda run --remote`` takes one.
+last flow of a chain is the requested flow: it is the only entry of ``roots``, and the outcome is
+that of the launch for that flow. Each earlier flow supplies the compatible required inputs of the
+next flow or, when the link passes through flows, the inputs that it feeds in the plan of the next
+flow. ``nodes`` lists the producers of the request too, also the ones that the request did not name.
+``xeda dse`` refuses a chain. ``xeda run --remote`` takes one.
 
-``design`` is always the name of the design: the ``name`` in its design file, or the name you gave
-for a design of a project (``--design-name``). ``design_file`` is the absolute path of the design
-file that you named, or ``null`` when you named none (a design of a project, or no design at all). A
-failure before Xeda reads the design has no name to report for a design file. Its ``design`` is then
-``null``, and ``design_file`` still says which file it was. Every ``run`` and ``dse`` document
-carries both keys: the document of a failure, of a dry run and of a ``--remote`` run too.
+A ``nodes`` entry has these keys:
 
-``target`` is the name given with ``--target`` (see :ref:`targets`), or ``null`` without it. This
-holds for an unknown name too. Every ``run`` and ``dse`` document carries it, the document of a
-failure too, and so does the ``plan`` of a dry run.
+``name``, ``flow``
+    The name of the node in the plan and the name of its flow.
+``outcome``
+    How the node ended:
 
-``nodes`` lists every run directory that the launch touched, once each and in the order of
-completion. This includes the run directory of the requested flow and of each producer. Each entry
-has a ``state``:
+    - ``passed``: the flow ran, or Xeda reused its recorded run, and the checks passed.
+    - ``rejected``: the checks of the flow rejected the results. The metrics stay in the record.
+    - ``failed``: the flow raised an error, its tool failed, or a report or an output was missing.
+    - ``canceled``: the node was running when the launch was canceled.
+    - ``blocked``: a producer of the node did not pass, so the node did not run. ``blocked_by`` names
+      that producer.
+    - ``skipped``: the launch stopped before the turn of the node.
+    - ``detached``: a remote launch that keeps running on the host had not ended the node.
+``disposition``
+    What this launch did with the node: ``ran``, ``reused`` (the recorded run was up to date, and Xeda
+    did not run it again; only a ``passed`` or ``rejected`` run is reused), ``shared`` (a sweep
+    executed it once for several points) or ``not_run``.
+``reason``
+    Why the node ran, was reused, was blocked or was not reached. For a node that ran, this is
+    the text that the log shows as ``Running <flow>: <reason>``. For a rejected run that Xeda
+    reported again, it is the message of the rejection.
+``blocked_by``
+    The name of the producer whose outcome blocked the node, or ``null``.
+``elapsed``
+    The seconds that this launch spent on the node. It is ``0.0`` unless the node ran.
+``run_dir``
+    The run directory of the node.
+``deliveries``
+    Every output that the node copied to a location that the settings or ``--outputs-to`` named,
+    once the whole launch finished (see "Outputs where you name them" in :doc:`run-directories`).
+    Each entry is ``{key, destination, delivered}``. ``key`` is the setting (or ``--outputs-to``)
+    that asked for the delivery. ``delivered`` is false when Xeda refused the delivery or it failed,
+    when the launch did not pass, and for an artifact of ``--outputs-to`` that a symbolic link leads
+    out of the run directory, which Xeda skips (see :doc:`run-directories`). The list is ``[]`` for
+    a node with nothing to deliver. A node
+    that is up to date still lists its deliveries, because delivery depends on the outcome of the
+    node, whether or not its tool ran.
+``record``
+    The ``results.json`` of the run, as :ref:`described above <results-json>`, or ``null`` for a node
+    that did not run (``blocked``, ``skipped`` or ``detached``) or whose record could not be stored.
+    The metrics of a run are in ``record.metrics``, for example ``.nodes[-1].record.metrics.fmax``.
 
-- ``"fresh"``: the recorded run was still valid, and Xeda reused it without running it again.
-- ``"ran"``: the flow ran and succeeded.
-- ``"failed"``: the flow ran and failed. Its checks can have rejected the result on this launch.
-  A problem with what its producers handed over can also have stopped it.
-- ``"rejected again"``: the checks of the flow rejected its last run, and nothing it consumes
-  changed. Xeda reported that rejection again without running the flow. ``reason`` is the message
-  of the rejection. The launch in which the checks reject the run gives ``"failed"``.
-- ``"blocked"``: a producer of the flow failed, was rejected or is blocked, so the flow did not
-  run. ``reason`` is ``<producer> did not succeed``.
+The ``outcome`` of the document is the outcome of the cause of the launch, in this order:
 
-The ``error`` of the document depends on what stopped the launch. If the requested flow itself was
-rejected, ``error.type`` is ``FlowFailed``, on the launch that ran it and when Xeda reports the
-rejection again. If a producer stopped the requested flow, the requested flow is ``"blocked"`` and
-``error.type`` is ``FlowDependencyFailure``.
+1. A node that is ``detached`` makes the outcome ``detached``.
+2. A node that is ``canceled``, or the launch error ``canceled``, makes it ``canceled``.
+3. A launch-level error (a failed delivery, a failed fetch of a remote launch) makes it ``failed``.
+4. Otherwise each root has a cause: the root itself, or, for a blocked root, the producer that failed
+   or was rejected. The outcome is the worst of the causes, in the order ``failed``, ``rejected``,
+   ``skipped``, ``passed``.
 
-For a node that is ``"ran"`` or ``"failed"``, ``reason`` says why the flow ran: it is the text that
-the log shows as ``Running <flow>: <reason>``. It is empty for a node that is ``"fresh"``. For a
-node that is ``"rejected again"`` or ``"blocked"``, the flow did not run, and ``reason`` is the
-text described above. Runs are make-like by default
-(without ``--rebuild-all``), so a launch where everything is up to date has ``"success": true`` and
-every node ``"fresh"``. See :doc:`run-directories` for what makes a node stale. A flow that always
-runs is never ``"fresh"``. Its ``reason`` says why. ``openfpgaloader``, which programs a device, is
-one such flow, and so is a flow that is asked for a fresh random seed.
+``error`` is the error of that cause. It has ``node: null`` for a launch-level error. When a
+producer fails, the outcome is ``failed``, ``error`` is the error of the producer, and each consumer
+that the failure stopped is ``blocked``. The ``record`` of the producer holds the same error.
 
-``deliveries`` lists every output that the flow of the node copied, or skipped, to a location that
-the settings or ``--outputs-to`` named, once the whole launch finished (see "Outputs where you name them" in
-:doc:`run-directories`). Each entry has these keys:
+Runs are make-like by default (without ``--rebuild-all``), so a launch where everything is up to
+date has ``"outcome": "passed"`` and every node ``"reused"``. See :doc:`run-directories` for what makes
+a node stale. A flow that always runs is never ``"reused"``. Its ``reason`` says why.
+``openfpgaloader``, which programs a device, is one such flow, and so is a flow that is asked for a
+fresh random seed. A node that failed is not reused: the next launch runs it again.
 
-- ``setting`` is the setting (or ``--outputs-to``) that asked for the delivery.
-- ``from`` is the file in the run directory.
-- ``to`` is the place where Xeda copied the file, or moved it (see :doc:`run-directories`).
-- ``state`` is ``"delivered"`` (Xeda wrote the file at the destination, as a new copy or by a move),
-  ``"unchanged"`` (the destination already held exactly that file) or ``"skipped"`` (an artifact of
-  ``--outputs-to`` that a symbolic link leads out of the run directory: Xeda wrote nothing; see
-  :doc:`run-directories`).
-
-The list is ``[]`` for a node with nothing to deliver. A node that is up to date still lists its
-deliveries, because delivery depends on the outcome of the node, whether or not its tool ran.
-
-The records of declared outputs appear as ``results.outputs`` in the CLI document. Each enabled
-output that the flow actually produced maps its name to ``{"path": ..., "sha": ...}``. A list
-output maps to an ordered list of such records. ``path`` is absolute and lies inside the run
-directory of the producer. ``sha`` is the 32-character content digest, not a timestamp. A record
-of a type that defines one also has ``equivalence``. This is the digest of the file without what
-its type calls insignificant (for a JSON netlist, the ``src`` attributes). An input that asks for
-it compares this digest when ``sha`` differs. Disabled outputs are omitted. The ``outputs`` of
-``results.json`` hold the names, relative to the run directory, and the content digests (see
-:ref:`results-json`). The equivalence digests are in ``trace.json`` only.
+The declared outputs of a run are in ``record.outputs``. Each declared output maps its name to
+``{kind, cardinality, names, digests, design}``. ``names`` are the files of the output, relative to
+the run directory, and ``digests`` are their content digests in the same order. The equivalence digests that a
+consumer compares are in ``trace.json`` only.
 
 Xeda checks the output records at two points:
 
@@ -487,114 +500,101 @@ hand-over check of a consumer is a ``producer_failed``. A flow can also fail ear
 own check. For example, ``nextpnr`` fails with ``reported_failure`` and names the configuration setting
 and the path of an enabled configuration that its tool did not write.
 
-``outputs`` is bookkeeping, like ``artifacts``, and not a ``list-results`` metric. The printed
-result table omits it.
+A request that starts no launch
+-------------------------------
 
-On a failure, the document carries an ``error`` object beside any available results, and the exit
-status is not zero. ``nodes`` still lists every node that ran before the failure and the node that
-failed. It is ``[]`` when the error happened before any flow could run, such as a bad design file or
-an unknown setting:
+Xeda refuses an invalid request before it runs any node: a bad setting, a bad design file or
+project file, an unknown design, a malformed chain, a refused delivery, or a mistake in the command
+line. The document then has ``"outcome": null``, ``"launch_id": null``, ``"roots": []`` and
+``"nodes": []``. Its ``error`` says why, and the exit status is 2:
 
 .. code-block:: json
 
     {
-      "flow": "vivado_synth",
-      "design": "sqrt",
-      "design_file": "/path/to/sqrt.yaml",
-      "target": null,
-      "success": false,
-      "results": {},
+      "schema_version": 1,
+      "outcome": null,
       "error": {
-        "type": "FlowSettingsError",
-        "message": "FlowSettingsError: 1 error validating VivadoSynth.Settings\n   Extra inputs are not permitted: no_such_setting (extra_forbidden)"
+        "code": "unknown_setting",
+        "message": "FlowSettingsError: 1 error validating Nextpnr.Settings\n   Extra inputs are not permitted: sed (extra_forbidden)",
+        "node": "nextpnr",
+        "exit_status": null,
+        "log": null
       },
-      "request": [{"node": "vivado_synth", "flow": "vivado_synth", "output": null, "through": []}],
+      "launch_id": null,
+      "spec": {
+        "flow": "nextpnr",
+        "design": "blinky",
+        "design_file": "/path/to/blinky.yaml",
+        "target": null,
+        "settings": {"nextpnr": {"sed": "1"}}
+      },
+      "roots": [],
       "nodes": []
     }
 
-``error.type`` is a field of this top-level ``xeda run --json`` document only. It names the type of
-the failure. It is usually the class of an exception, and it is stable enough to branch on either
-way. The ``results.json`` of a node has no ``type``: its ``error`` carries a stable ``code`` (see
-the paragraph on the ``results.json`` of every node below). The types are:
+An error in the command line itself has the code ``usage_error``, and ``spec`` is ``null``, because
+Xeda could not read the command line as a request. This covers an unknown option, a design file that
+does not exist, an unknown flow, a malformed chain and the options that need each other. For
+example, ``--remote`` refuses ``--post-cleanup``, and ``--keep-running`` and ``--fetch-all`` need
+``--remote``. Click prints the same exit status 2 without ``--json``.
 
-- ``FlowSettingsError``: a bad setting.
-- ``ExecutableNotFound``: the tool is not installed.
-- ``NonZeroExitCode``: the tool failed.
-- ``DesignValidationError``: a bad design file.
-- ``DesignNotSpecified``: you named no design, and no project file provides one.
-- ``NoSuccessfulRun``: a design-space exploration found no successful candidate.
-- ``FlowDependencyFailure``: a producer that the requested flow needs failed, or Xeda could not
-  verify its completed output.
-- ``FlowFatalError`` and ``FlowException``.
-
-``FlowFailed`` is the one name that is not an exception class. It is the verdict of the run: the
-requested flow ran to its end without raising and did not succeed. The cause is in its
-``results.json`` (see below). A flow that raises is named by its exception class and never by
-``FlowFailed``.
-
-Four more types come from the isolation of run directories and deliveries:
-
-* ``RunRootError``: the run root (``--run-root`` or ``XEDA_RUN_ROOT``) cannot be used. It holds
-  files and has no marker that Xeda created, or it lies where Xeda cannot write. The message names
-  the directory and the fix: move it aside, or mark it yourself.
-* ``RunDirectoryError``: a run directory cannot be used. It would lie outside its run root, or a
-  write inside it would go through a symbolic link that Xeda does not control.
-* ``DeliveryError``: Xeda could not deliver an output that a setting or ``--outputs-to`` named. The
-  run did not write the file that the setting expected, or the destination is an input of the
-  launch, a directory, or inside a run root, or the destination changed after Xeda checked it. This
-  type is also the refusal of ``--outputs-to`` for a requested flow that writes no outputs (a
-  programmer). Xeda makes that refusal before anything runs, and the message names what delivers the
-  file that the flow reads.
-* ``OutputExistsError``: a subclass of ``DeliveryError``. The destination holds a file that is not
-  Xeda's own unchanged earlier delivery, and nobody confirmed the replacement. Run again with
-  ``--overwrite-outputs``, or answer the prompt at an interactive terminal.
-
-An error in the command line itself is a usage error. This covers an unknown flow, an unknown
-option, a design file that does not exist and a malformed chain. Xeda prints one error document with
-the class of the click error as ``error.type`` (``BadParameter``, ``NoSuchOption``, ``UsageError``)
-and exits with status 2. Such a document has no ``request`` or ``nodes``. Xeda applies several
-refusals before it starts a run, and they use the same document with ``UsageError``. For example,
-``--remote`` refuses ``--post-cleanup``, and ``--keep-running`` and ``--fetch-all`` need
-``--remote``. A binding that cannot be applied (an unknown input or producer, a binding for a flow
-that declares no inputs, or a chain together with a command-line or API binding of the same input)
-is a settings error. It names the input and the place where the binding was written.
+A binding that cannot be applied (an unknown input or producer, a binding for a flow that declares
+no inputs, or a chain together with a command-line or API binding of the same input) is a settings
+error. It names the input and the place where the binding was written.
 
 .. _error-codes:
 
-The ``results.json`` of every node that ran and did not pass is a failure document too, unless
-its record could not be stored (``storage_error``): such a node has no ``results.json``, and its
-outcome and error are only in the result of the launch. A failure document's ``outcome`` is not
-``passed`` and its ``error`` has a stable ``code``,
-a ``message``, the ``node``, the ``exit_status`` of the tool (for ``nonzero_exit``) and a ``log``
-(the artifact to read, or ``null``). The ``code`` is lower snake case and never the name of a
-class. The top-level ``FlowFailed`` is the verdict of the run, and a node names the cause. A
-failure of a producer is never ``FlowFailed``. The ``results.json`` of the producer names its
-cause. The flows after it are blocked: they do not run and write no ``results.json``. The
-top-level ``error`` of such a chain quotes the producer, its code and its message (``producer
-yosys_fpga failed (nonzero_exit): ...``). A flow that raises has a code for the kind of
-failure: ``nonzero_exit``, ``timeout``, ``executable_not_found``, ``reported_failure`` (also for
-``FlowFatalError``, and for a design, a project or a setting that Xeda refuses while it launches the
-flow), ``storage_error`` (a file or directory error of the operating system, or a path that leaves
-the run directory), ``producer_failed`` or ``internal_error`` (a bug of Xeda). A run that was
-judged negative after its reports were read says ``rejected``. Four more causes belong to a flow
-that finished without raising. The top-level document of such a flow says ``FlowFailed``:
+Error codes
+-----------
 
-* ``reported_failure``: ``"`<flow>` reported failure: its reports or checks did not pass (see the log
-  and its run directory)"``. A ``parse_reports()`` or ``check_results()`` that does not raise
-  reported the failure: the tool exited 0, and the reports or checks that the flow reads say
-  otherwise. A flow can give a message of its own. For example, ``openfpgaloader`` says what its
-  loader reported and quotes the lines.
-* ``missing_report``: the reports of the flow could not be read, because a report that the flow
-  needs does not exist or is a previous run's, not this run's. The message names the files. A
-  report that the flow reads but can do without never gives this code.
-* ``missing_output``: the flow passed its own checks, but an enabled declared output is absent,
-  unreadable, outside the run directory or not written by this run (see ``outputs`` above).
-* ``invalid_metric``: a value that the flow reported for a described metric is not finite, or not
-  of the metric's declared type. The message names the metric. The record keeps the other metrics.
+An ``error`` is ``{code, message, node, exit_status, log}``. The ``code`` is lower snake case, never
+the name of a class, and stable enough to branch on. The set of codes is open: a later release can
+add codes, so keep an unknown code as text. ``message`` is the text for a person. ``node`` names the
+node that the error belongs to, or is ``null`` for an error of the whole launch. ``exit_status`` is
+the exit status of the tool for ``nonzero_exit``. ``log`` is the artifact to read, or ``null``.
 
-``nextpnr`` can catch a missing enabled output earlier. It raises an error that names the
-configuration setting and the path that its tool did not write. This is a raised error with the code
-``reported_failure``, and not a ``missing_output``.
+The code of an error of a node, in its ``record.error`` and in the top-level ``error`` when it is
+the cause:
+
+``nonzero_exit``, ``timeout``, ``executable_not_found``
+    The tool failed, took too long, or is not installed.
+``reported_failure``
+    The flow raised an error of its own, or its reports or checks did not pass although the tool
+    exited with status 0. A flow can give a message of its own. For example, ``openfpgaloader`` says
+    what its loader reported and quotes the lines.
+``missing_report``
+    A report that the flow asked for does not exist, or is a previous run's, not this run's. The
+    message names the files.
+``missing_output``
+    The flow passed its own checks, but an enabled declared output is absent, unreadable, outside
+    the run directory or not written by this run.
+``invalid_metric``
+    A metric is not finite or not of its declared type. The other metrics stay.
+``rejected``
+    The checks of the flow judged the results negative after its reports were read.
+``producer_failed``
+    A producer failed, or Xeda could not verify its completed output. The message quotes the
+    producer, its code and its message.
+``canceled``
+    The node was running when the launch was canceled.
+``storage_error``
+    A file or directory error of the operating system, or a path that leaves the run directory,
+    ended the node. The record may be missing.
+``internal_error``
+    A bug of Xeda.
+
+The code of an error of the whole launch (``node`` is ``null``): ``generator_failed``,
+``delivery_failed`` (Xeda could not deliver an output that a setting or ``--outputs-to`` named),
+``canceled``, and, for ``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
+``remote_detached``. ``no_successful_run`` is the error of ``xeda dse``.
+
+The code of an error of a request that started no launch is the code of the setting, design,
+project, chain or run root problem. For a bad setting: ``unknown_setting``, ``required_setting``,
+``invalid_quantity``, ``invalid_value``, ``boolean_text``, ``list_text``, ``conflicting_keys``,
+``removed_setting``, ``unsupported_setting`` and others. For a chain: ``invalid_chain``,
+``repeated_flow``, ``no_edge``, ``unknown_output`` and others. Others are ``invalid_design``,
+``design_file_not_found``, ``unknown_target``, ``unknown_design``, ``invalid_project``,
+``flow_not_found``, ``invalid_run_root``, ``delivery_refused`` and ``usage_error``.
 
 Two more codes belong to the whole launch, not to a node. They are the ``error`` of the result of a
 launch (``xeda.outcomes.Result``), which has no ``node``, and every node keeps the outcome it had. ``delivery_failed``: the launch could not copy
@@ -607,26 +607,26 @@ error. Xeda only logs the clean-up failure then.
 Other documents of executional commands
 ---------------------------------------
 
-The document of ``xeda run --remote ... --json`` is the document of a run, as above, with these
-differences. It has the key ``remote``, which holds the text of ``--remote``, and the key
-``mirror``, the directory ``<run root>/@<host>`` that holds the fetched files. ``run_path``,
-``results_json``, ``settings_json`` and the ``run_path`` of each ``nodes`` entry name directories
-in the mirror, and the paths in ``results`` are paths in the mirror. ``design_file`` is your local
-design file. A failure of the remote step itself (a lost connection or an error while it makes the
-environment) gives the failure document of a run, with ``remote`` and without ``mirror``.
+The document of ``xeda run --remote ... --json`` is the document of a run, as above. The
+``run_dir`` of each node, and the paths in its record, name directories and files in the mirror, the
+directory ``<run root>/@<host>`` that holds the fetched files. ``design_file`` is your local design
+file, and ``launch_id`` is the id of the launch on the host. A failure of the remote step itself
+(a lost connection or an error while it makes the environment) gives the document of a launch with
+the outcome ``failed`` and the error code ``remote_failed``. If the launch ended and Xeda could not
+fetch or deliver its result, the code is ``remote_fetch_failed`` or ``delivery_failed``, and the
+nodes keep their records. Ctrl-C gives the outcome ``canceled`` and the code ``canceled``.
 
 The document of a launch that Xeda stopped following (``--keep-running``, then Ctrl-C or a lost
-connection) is a failure with ``error.type`` ``RemoteDetached``, and the key ``launch``, an object
-with the ``id`` of the launch and the ``host``. The launch keeps running on the host.
+connection) has the outcome ``detached``, the error code ``remote_detached`` and the id of the launch
+in ``launch_id``. Every node is ``detached``, and the launch keeps running on the host.
 
 The document of a remote dry run is the document of a local dry run with these keys: ``remote``,
 ``mirror``, and ``uploaded``, the list of input files that the dry run sent to the host. Each node
 of ``plan`` has the ``run_path`` that the run would use in the mirror, and ``remote_run_path``, the
 directory on the host.
 
-``xeda remote attach HOST [LAUNCH_ID] --json`` prints the document of the finished run, with the
-key ``launch`` (``id`` and ``host``). The other commands of ``xeda remote`` print one document
-each. A failure is ``{"success": false, "error": {"type": ..., "message": ...}}`` with exit status
+``xeda remote attach HOST [LAUNCH_ID] --json`` prints the document of the finished run. The other
+commands of ``xeda remote`` print one document each. A failure is ``{"success": false, "error": {"type": ..., "message": ...}}`` with exit status
 1.
 
 ``check``
@@ -699,10 +699,12 @@ a directory, for example). It is ``RunRootError`` for a run root that scrub cann
 Exit status
 ===========
 
-Every command exits with 0 on success and with another value on failure. ``xeda run`` fails when
-``results.success`` is false, and ``xeda dse`` fails when the exploration found no successful run. A
-failed run or exploration, and a failed ``scrub``, exit with status 1. A usage error exits with
-status 2.
+Every command exits with 0 on success and with another value on failure. ``xeda run`` exits with 0
+when the ``outcome`` is ``passed`` and with 1 for every other outcome (``rejected``, ``failed``,
+``canceled`` or ``detached``). It exits with 2 for a request that started no launch: an invalid
+setting, design, project or chain, and a mistake in the command line. ``xeda dse`` fails when the
+exploration found no successful run. A failed exploration and a failed ``scrub`` exit with status 1.
+A usage error of any other command exits with status 2.
 
 Planning a run
 ==============
@@ -945,8 +947,9 @@ Notes for coding agents
   accepted setting. An unknown setting is a hard error, not a warning.
 * Setting names are exact. Flow names are forgiving: dashes, underscores and the CamelCase class
   name all resolve, and a near miss suggests alternatives.
-* ``xeda run --json`` gives both the parsed results and the paths to the run directory, so you never
-  need to guess where the output landed.
+* ``xeda run --json`` gives both the record of each run (its metrics are in
+  ``.nodes[-1].record.metrics``) and the run directory of each node, so you never need to guess
+  where the output landed.
 * The producers of a flow run automatically. Run the flow you want, not the chain that leads to it.
   Set a producer through its own flow, for example ``-s flows.yosys_fpga.flatten=true``.
 * ``xeda run`` is make-like by default. A run with nothing changed runs nothing, and ``nodes`` says
