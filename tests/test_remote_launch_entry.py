@@ -99,6 +99,7 @@ def launch(
         [sys.executable, "-m", "xeda.remote.launch_entry", str(launch_dir)],
         cwd=tmp_path,
         env=dict(os.environ, **(env or {})),
+        stdin=subprocess.DEVNULL,  # the agent starts the entry without a terminal
         capture_output=True,
         text=True,
         timeout=600,
@@ -243,6 +244,22 @@ def test_second_launch_reuses_a_fresh_node(tmp_path, fake_fpga):
     assert second["success"] is True
     assert [node["state"] for node in second["nodes"]] == ["fresh", "fresh"]
     assert second["written"] == {}
+
+
+def test_scrub_on_the_host_removes_nothing_and_says_so(tmp_path, fake_fpga):
+    """The host has no terminal and the protocol has no question, so nobody confirms the removal
+    of the older runs: the launch succeeds, keeps them and logs that."""
+    old_design = make_inputs(tmp_path, "100 MHz")
+    _process, first = launch(tmp_path, old_design, name="first", hashed_run_dirs=True)
+    old_runs = [Path(node["run_path"]) for node in first["nodes"]]
+    assert all(run.is_dir() for run in old_runs)
+    design = make_inputs(tmp_path, "200 MHz")
+    process, second = launch(tmp_path, design, name="second", hashed_run_dirs=True, scrub=True)
+    assert process.returncode == 0, process.stderr
+    assert second["success"] is True
+    assert all(run.is_dir() for run in old_runs)
+    assert "Not removing" in process.stdout + process.stderr
+    assert "EOFError" not in process.stdout + process.stderr
 
 
 def test_dry_run_document(tmp_path, fake_fpga):

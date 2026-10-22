@@ -612,6 +612,20 @@ def _prompt_overwrite(conflicts: Sequence[Conflict]) -> bool:
         return False
 
 
+def _prompt_scrub(directories: Sequence[Path]) -> bool:
+    """Ask on the terminal (or on the input that stands for it) whether to remove the run
+    directories that scrub listed. Only the word "yes" says yes. The answer is also no when there
+    is no input to read: the input is at its end, closed or unreadable. The commands ask even when
+    stdin is no terminal, so a script can pipe "yes" to them. The question goes to stderr with
+    `--json`."""
+    try:
+        answer = console.input("Type 'yes' if you're sure you want to continue: ")
+    except (EOFError, ValueError, OSError):
+        console.print()
+        return False
+    return answer.lower() == "yes"
+
+
 def _run_document(
     flow_name: str,
     design: Any,
@@ -856,7 +870,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "--scrub",
     is_flag=True,
     help="Before running, remove the flow's other run directories for this design; asks for "
-    "confirmation.",
+    "confirmation. It cannot be used with --remote.",
 )
 @click.option(
     "--remote",
@@ -1035,6 +1049,13 @@ def run(
                     "directories are on the remote: use `xeda remote clean`",
                     ctx=ctx,
                 )
+        if scrub:
+            raise click.UsageError(
+                "`--scrub` asks you to confirm the removal of run directories, and a remote "
+                "launch cannot ask: run without --remote, or free the space on the host with "
+                "`xeda remote clean`",
+                ctx=ctx,
+            )
         from .remote import client as remote_client
 
         outcome = remote_client.run_remote(
@@ -1167,6 +1188,7 @@ def run(
         launcher.settings.post_cleanup = post_cleanup
         launcher.settings.post_cleanup_purge = post_cleanup_purge
         launcher.settings.scrub_old_runs = scrub
+        launcher.confirm_scrub = _prompt_scrub
         launcher.settings.debug = debug
         f = launcher.run(
             chain,
@@ -1649,7 +1671,13 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
     run_root = root if root is not None else Path(run_root).resolve()
 
     try:
-        result = scrub_design(flow, run_root / design_name, run_root=run_root, target=target)
+        result = scrub_design(
+            flow,
+            run_root / design_name,
+            run_root=run_root,
+            target=target,
+            confirm=_prompt_scrub,
+        )
     except RunDirectoryError as e:  # a run directory that cannot be removed
         fail(type(e).__name__, _error_message(e))
     if json_flag:

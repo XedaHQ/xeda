@@ -42,6 +42,7 @@ from xeda.run_root import ensure_run_root
 
 from .flow_registry import preserved_flow_registry
 from .io_flows import _Maker
+from .scrub_utils import ask_scrub_design, ask_scrub_runs
 
 pytestmark = [
     pytest.mark.python_compat,
@@ -272,7 +273,7 @@ def test_a_directory_named_with_a_final_newline_is_no_run_directory_and_scrub_le
     assert run_directory_problem(odd, FLOW, world.parent.resolve()) == (
         f"its name is not {FLOW} or {FLOW}_<hash>"
     )
-    result = scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+    result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert world.sibling in result.removed
     assert odd not in result.removed and (odd / "out.txt").exists()
 
@@ -423,7 +424,7 @@ def test_scrub_leaves_what_a_refused_link_leads_to_and_does_not_wait_for_its_loc
 
     def scrubbing():
         try:
-            outcome["result"] = scrub.scrub_design(
+            outcome["result"] = ask_scrub_design(
                 FLOW, world.design, run_root=world.root, target="a"
             )
         except BaseException as error:  # noqa: BLE001 - reported by the test thread, below
@@ -454,7 +455,7 @@ def test_scrub_removes_a_link_that_leads_to_a_run_directory_beside_it_and_that_d
     tmp_path, confirmations, case, hashed
 ):
     world, link = made(tmp_path, case, hashed)
-    result = scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+    result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert result.skipped == []
     assert not os.path.lexists(link) and not world.sibling.exists()
     world.intact()
@@ -471,7 +472,7 @@ def test_a_link_to_a_target_s_directory_does_not_make_scrub_remove_the_runs_in_i
     inner = world.victims["another flow's run directory"]
     link = world.design / f"{FLOW}_{HASH}"
     link.symlink_to(world.parent, target_is_directory=True)
-    result = scrub.scrub_design(FLOW, world.design, run_root=world.root)
+    result = ask_scrub_design(FLOW, world.design, run_root=world.root)
     assert link.is_symlink() and link in result.skipped
     assert (inner / "out.txt").exists() and (world.parent / "store" / "out.txt").exists()
     assert world.sibling not in result.skipped and not world.sibling.exists(), "its own"
@@ -487,7 +488,7 @@ def test_scrub_does_not_wait_for_the_run_a_link_to_a_target_s_directory_leads_to
     outcome: dict = {}
 
     def scrubbing():
-        outcome["result"] = scrub.scrub_design(FLOW, world.design, run_root=world.root, target=None)
+        outcome["result"] = ask_scrub_design(FLOW, world.design, run_root=world.root, target=None)
 
     with run_dir_lock(inner, world.root):  # a launch of yosys_fpga is running there
         thread = threading.Thread(target=scrubbing)
@@ -505,7 +506,7 @@ def test_a_link_to_another_flow_s_run_directory_in_a_target_is_not_scrubbed(
     inner = world.victims["another flow's run directory"]
     link = world.parent / f"{FLOW}_{HASH}"
     link.symlink_to(inner, target_is_directory=True)
-    result = scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+    result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert result.skipped == [link] and link.is_symlink()
     assert (inner / "out.txt").read_text() == "output\n"
 
@@ -540,7 +541,7 @@ def test_a_link_retargeted_while_scrub_waits_for_its_lock_is_refused_and_nothing
 
     monkeypatch.setattr(scrub, "run_dir_lock", retargeting)
     with pytest.raises(RunDirectoryError, match="changed while scrub waited"):
-        scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+        ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert after_the_change, "the lock of the directory the link led to was never asked for"
     assert [e for e in entries(tmp_path) if not e[0].endswith(".lock")] == [
         e for e in after_the_change[0] if not e[0].endswith(".lock")
@@ -565,7 +566,7 @@ def test_a_directory_replaced_by_a_link_to_a_directory_with_another_name_after_i
 
     monkeypatch.setattr(console, "input", ask)
     with pytest.raises(RunDirectoryError) as refused:
-        scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+        ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert str(refused.value) == (
         f"{victim} is no longer a run directory of {FLOW} in {world.parent.resolve()}: it is a "
         f"link to {store.resolve()}, which is not a directory {RULE} in "
@@ -619,7 +620,7 @@ def test_a_link_is_said_even_when_the_removal_is_declined_or_there_is_nothing_to
     link.symlink_to(world.design, target_is_directory=True)
     asked: list = []
     monkeypatch.setattr(console, "input", lambda *a, **k: asked.append(a) or "no")
-    result = scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+    result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert result.skipped == [link] and result.removed == [] and asked == []
     assert any(line.startswith(f"skipped {link}: ") for line in said)
 
@@ -629,7 +630,7 @@ def test_a_launch_s_scrub_says_a_link_it_skips(tmp_path, monkeypatch, said):
     link = world.link(True)
     link.symlink_to(world.victims["a directory with another name"], target_is_directory=True)
     monkeypatch.setattr(console, "input", lambda *a, **k: "yes")
-    assert scrub.scrub_runs(FLOW, world.parent, run_root=world.root) is True
+    assert ask_scrub_runs(FLOW, world.parent, run_root=world.root) is True
     assert link.is_symlink() and not world.sibling.exists()
     assert any(line.startswith(f"skipped {link}: it is a link to ") for line in said)
     world.intact()
@@ -664,7 +665,7 @@ def test_a_launch_s_scrub_removes_a_directory_and_every_link_to_it(tmp_path, con
     and then fail on a link to it, which led nowhere by then, and the launch stopped."""
     world = World(tmp_path)
     links = a_directory_with_links(world, *names)
-    assert scrub.scrub_runs(FLOW, world.parent, run_root=world.root) is True
+    assert ask_scrub_runs(FLOW, world.parent, run_root=world.root) is True
     assert not world.sibling.exists()
     assert not any(os.path.lexists(link) for link in links), "a link led nowhere"
     world.intact()
@@ -677,12 +678,12 @@ def test_scrub_leaves_no_link_that_leads_nowhere(tmp_path, confirmations, names)
     """
     world = World(tmp_path)
     links = a_directory_with_links(world, *names)
-    result = scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+    result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert result.removed == [min([world.sibling, *links])], "one name for the directory"
     assert result.skipped == []
     assert not world.sibling.exists()
     assert not any(os.path.lexists(link) for link in links)
-    again = scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+    again = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert again.removed == [] and again.skipped == []
     for hashed in (False, True):
         assert world.accepted_by_a_launch(hashed), "a launch may use the name again"
@@ -692,7 +693,7 @@ def test_scrub_leaves_no_link_that_leads_nowhere(tmp_path, confirmations, names)
 def test_scrub_names_every_name_of_a_directory_before_it_asks(tmp_path, confirmations, said):
     world = World(tmp_path)
     links = a_directory_with_links(world, FLOW, f"{FLOW}_{LAST_HASH}")
-    scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+    ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     listing = "\n".join(said)
     assert all(str(name) in listing for name in (world.sibling, *links))
     assert "1 folders removed." in said[-1]
@@ -715,7 +716,7 @@ def test_a_name_that_changed_while_scrub_waited_for_the_lock_is_refused_and_noth
 
     monkeypatch.setattr(scrub, "run_dir_lock", retargeting)
     with pytest.raises(RunDirectoryError, match="changed while scrub waited"):
-        scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+        ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert after_the_change
     live = [e for e in entries(tmp_path) if not e[0].endswith(".lock")]
     assert live == [e for e in after_the_change[0] if not e[0].endswith(".lock")]
@@ -735,7 +736,7 @@ def test_a_name_that_is_gone_when_scrub_holds_the_lock_is_no_error(
         return real_lock(path, *args, **kwargs)
 
     monkeypatch.setattr(scrub, "run_dir_lock", removing)
-    scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+    ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert not world.sibling.exists() and not any(os.path.lexists(link) for link in links)
 
 
@@ -752,7 +753,7 @@ def test_a_directory_kept_because_a_run_ended_in_it_keeps_its_links(
         return real_lock(path, *args, **kwargs)
 
     monkeypatch.setattr(scrub, "run_dir_lock", a_run_ends)
-    result = scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+    result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert result.kept == [links[0]] and result.removed == []
     assert world.sibling.exists() and all(link.is_symlink() for link in links)
 
@@ -775,7 +776,7 @@ def test_a_name_that_changed_is_refused_even_when_a_run_ended_in_the_directory(
 
     monkeypatch.setattr(scrub, "run_dir_lock", a_run_ends_and_a_name_changes)
     with pytest.raises(RunDirectoryError, match="changed while scrub waited"):
-        scrub.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+        ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert world.sibling.exists() and all(link.is_symlink() for link in links)
     world.intact()
 

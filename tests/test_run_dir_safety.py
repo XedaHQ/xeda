@@ -37,7 +37,6 @@ from typing import Any, ClassVar
 import pytest
 
 from xeda import Design
-from xeda.console import console
 from xeda.design import SourceType
 from xeda.flow import Flow, FlowSettingsError, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
@@ -507,9 +506,12 @@ def test_scrub_never_removes_what_a_link_out_of_the_run_root_leads_to(tmp_path, 
     link.symlink_to(elsewhere, target_is_directory=True)
     before = _tree(elsewhere)
     asked = []
-    monkeypatch.setattr(console, "input", lambda prompt: asked.append(prompt) or "yes")
 
-    assert not scrub_runs("vivado_synth", design_dir, run_root=run_root)
+    def confirm(directories):
+        asked.append(directories)
+        return True
+
+    assert not scrub_runs("vivado_synth", design_dir, run_root=run_root, confirm=confirm)
 
     assert not asked
     assert _tree(elsewhere) == before and link.is_symlink()
@@ -527,9 +529,8 @@ def test_scrub_removes_a_link_to_a_run_directory_beside_it_and_what_it_leads_to(
     (target / "results.json").write_text("{}\n")
     link = design_dir / "vivado_synth"
     link.symlink_to(target, target_is_directory=True)
-    monkeypatch.setattr(console, "input", lambda prompt: "yes")
 
-    assert scrub_runs("vivado_synth", design_dir, run_root=run_root)
+    assert scrub_runs("vivado_synth", design_dir, run_root=run_root, confirm=lambda _: True)
 
     assert not target.exists() and not os.path.lexists(link)
     assert design_dir.is_dir()
@@ -548,9 +549,12 @@ def test_scrub_leaves_a_link_to_another_directory_in_the_run_root_and_what_it_le
     link = design_dir / "vivado_synth"
     link.symlink_to(target, target_is_directory=True)
     asked = []
-    monkeypatch.setattr(console, "input", lambda prompt: asked.append(prompt) or "yes")
 
-    assert not scrub_runs("vivado_synth", design_dir, run_root=run_root)
+    def confirm(directories):
+        asked.append(directories)
+        return True
+
+    assert not scrub_runs("vivado_synth", design_dir, run_root=run_root, confirm=confirm)
 
     assert not asked
     assert (target / "results.json").exists() and link.is_symlink()
