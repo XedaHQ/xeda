@@ -2581,7 +2581,7 @@
      "xdc_exported": "outputs/route_design/impl.xdc"
     },
     "bram_RAMB18": 1,
-    "bram_tile": "0.5",
+    "bram_tile": 0.5,
     "clock_frequency": 450.045,
     "clock_period": 2.222,
     "design": "sim",
