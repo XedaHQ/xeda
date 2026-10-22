@@ -12,9 +12,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .utils import XedaException
+
+if TYPE_CHECKING:
+    from .outcomes import Result
 
 __all__ = [
     "XedaError",
@@ -217,7 +220,7 @@ class RemoteError(XedaError):
 class RunFailedError(XedaError):
     """A launch did not pass. `result` holds the outcome of every node."""
 
-    def __init__(self, message: str, *, code: str, result: Any) -> None:
+    def __init__(self, message: str, *, code: str, result: Result) -> None:
         super().__init__(message, code=code)
         self.result = result
 

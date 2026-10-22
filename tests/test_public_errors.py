@@ -396,12 +396,12 @@ def test_a_consumer_message_names_the_producer_code_not_a_dict(
     message = str(refused.value)
     assert "__may_fail" in message and "(reported_failure)" in message and reason in message
     assert "{" not in message and "'type'" not in message
-    document = json.loads(
-        (tmp_path / "run" / "d" / failing._NeedsMayFail.name / "results.json").read_text()
-    )
-    assert document["error"]["code"] == "producer_failed"
-    assert document["error"]["message"] == message
-    assert document["error"]["node"] == failing._NeedsMayFail.name
+    # the consumer is blocked: it writes no document, and its error carries the same message
+    consumer = runner.launched[-1]
+    assert not (consumer.run_path / "results.json").exists()
+    error = consumer.results["error"]
+    assert error["code"] == "producer_failed" and error["message"] == message
+    assert error["node"] == failing._NeedsMayFail.name
 
 
 def test_a_run_that_lacks_a_report_it_asked_for_has_the_missing_report_code(tmp_path):

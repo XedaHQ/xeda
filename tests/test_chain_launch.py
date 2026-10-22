@@ -250,9 +250,9 @@ def test_a_bound_producer_changed_in_the_acquisition_gap_is_refused(tmp_path, mo
     assert _probe(tmp_path / "run" / "d" / "__input_maker") == "free"
 
 
-def test_a_failing_bound_producer_leaves_the_consumer_a_failure_document(tmp_path):
-    """The alternate producer fails (its input file is gone): the consumer never runs, its
-    earlier success no longer stands, and nothing vouches for its directory."""
+def test_a_failing_bound_producer_blocks_the_consumer_and_leaves_its_earlier_record(tmp_path):
+    """The alternate producer fails (its input file is gone): the consumer never runs and writes
+    nothing, so its directory keeps the record and the trace of its earlier success."""
     runner = _runner(tmp_path)
     design = _bound(tmp_path)
     first = runner.run(_Taker, design)
@@ -267,9 +267,9 @@ def test_a_failing_bound_producer_leaves_the_consumer_a_failure_document(tmp_pat
     )
     with pytest.raises(FlowDependencyFailure, match="__input_maker"):
         runner.run(_Taker, broken)
-    failure = json.loads((first.run_path / "results.json").read_text())
-    assert failure["outcome"] == "failed" and "__input_maker" in failure["error"]["message"]
-    assert not (first.run_path / "trace.json").exists()
+    kept = json.loads((first.run_path / "results.json").read_text())
+    assert kept["outcome"] == "passed" and kept["run_id"] == first.run_id
+    assert (first.run_path / "trace.json").exists()
     assert [f.name for f in runner.launched[-2:]] == ["__input_maker", "__taker"]
 
 

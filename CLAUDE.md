@@ -99,7 +99,13 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   (`flow_runner/error_codes.py`, `tests/test_public_errors.py`); `reported_failure` is a node's
   cause, `FlowFailed` the verdict of `xeda run --json`. Only a rejection (`Flow.reject` in
   `check_results()`; `parse_reports()` only reads, `tests/test_verdict_placement.py`) keeps
-  the trace and is reported again unchanged; every other failure keeps none.
+  the trace and is reported again unchanged; every other failed execution keeps none. A blocked
+  node (a producer did not pass) does not execute and writes nothing in its run directory, so
+  `--clean` empties that directory only after the producers passed (`tests/test_outcomes.py`).
+- A launch ends in a `Result` (`outcomes.py`): an outcome and a disposition for every planned node,
+  and the aggregate verdict with its cause. Only `flow_runner/launch_result.py` builds it, from the
+  collector that `_launch` reports to; a node's failure is a value in it, never an exception, and
+  `KeyboardInterrupt` propagates.
 - `Flow.always_runs()` returns a reason or `None`; every override calls `super()`. A simulation
   passes only on evidence that it ended (`judge_evidence`, `tests/test_sim_evidence.py`).
 

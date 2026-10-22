@@ -888,8 +888,9 @@ def test_a_bitstream_the_packer_did_not_finish_never_reaches_the_programmer(
     assert type(error.value).__name__ == "FlowDependencyFailure"
     assert len(_calls(tmp_path, "openfpgaloader")) == 1  # the first launch's only
     assert (tmp_path / "run/top/fpga_pack/outputs/top.bit").read_bytes() == BITSTREAM
+    # the programmer was blocked: it did not run, so its directory holds its first record
     results = json.loads((tmp_path / "run/top/openfpgaloader/results.json").read_text())
-    assert results["outcome"] == "failed" and results["error"]["code"] == "producer_failed"
+    assert results["outcome"] == "passed"
 
 
 def test_a_bitstream_edited_after_packing_is_packed_again_not_programmed(tmp_path, fake_loader):

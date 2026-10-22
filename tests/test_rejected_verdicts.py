@@ -292,8 +292,7 @@ def test_a_consumer_of_a_rejected_producer_is_blocked_and_handed_nothing(
         consumer = runner.launched[-1]
         assert consumer.name == _NeedsJudged.name and consumer.blocked_by == _Judged.name
         assert consumer.inputs.out is None  # nothing was handed over
-        document = json.loads((consumer.run_path / "results.json").read_text())
-        assert document["error"]["code"] == "producer_failed"
+        assert not (consumer.run_path / "results.json").exists()  # it did not run
         assert not (consumer.run_path / "trace.json").exists()
     producers = [f for f in runner.launched if f.name == _Judged.name]
     assert not producers[0].rejected_again and producers[-1].rejected_again  # the second replayed

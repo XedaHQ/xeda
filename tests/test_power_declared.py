@@ -124,8 +124,7 @@ def test_failed_activity_prevents_power_reporter_execution(tmp_path, monkeypatch
     with pytest.raises(FlowDependencyFailure):
         runner.run("vivado_power", tmp_path / "design.yaml", flow_settings=VIVADO_SETTINGS)
     assert not (tmp_path / "run/sim/vivado_power/vivado_power.tcl").exists()
-    result = json.loads((tmp_path / "run/sim/vivado_power/results.json").read_text())
-    assert result["outcome"] == "failed"
+    assert not (tmp_path / "run/sim/vivado_power/results.json").exists()  # blocked: it did not run
 
 
 def test_power_takes_functional_activity_when_its_input_is_bound_to_the_saif(tmp_path):

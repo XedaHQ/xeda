@@ -474,8 +474,8 @@ def test_a_launch_with_a_missing_store_stops_at_the_first_node(tmp_path):
         )
     maker = json.loads((tmp_path / "run" / "d" / "__asic_maker" / "results.json").read_text())
     assert maker["outcome"] == "failed" and maker["error"]["code"] == "reported_failure"
-    taker = tmp_path / "run" / "d" / "__asic_taker"
-    assert json.loads((taker / "results.json").read_text())["outcome"] == "failed"
+    taker = tmp_path / "run" / "d" / "__asic_taker"  # blocked: it did not run, so it wrote nothing
+    assert not (taker / "results.json").exists()
     assert not (taker / "trace.json").exists()
 
 

@@ -187,13 +187,13 @@ def test_vivado_timeout_is_applied_to_combined_process(tmp_path, monkeypatch):
 @pytest.mark.parametrize("state", ["silent", "error", "fatal"])
 def test_vivado_power_activity_failure_prevents_power_report(tmp_path, monkeypatch, state):
     """The verdict is made where the simulation runs; a failed producer is never handed
-    over, so power's reporter never starts."""
+    over, so power does not run and writes nothing."""
     from xeda.flow import FlowDependencyFailure
 
     with pytest.raises(FlowDependencyFailure):
         launch(tmp_path, monkeypatch, state, flow_class=VivadoPower)
     run_path = tmp_path / "run" / "sim" / "vivado_power"
-    assert json.loads((run_path / "results.json").read_text())["error"]["code"] == "producer_failed"
+    assert not (run_path / "results.json").exists()
     assert not (run_path / "vivado_power.tcl").exists()
 
 

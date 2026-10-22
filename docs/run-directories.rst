@@ -175,14 +175,18 @@ This file is the record of the run: one JSON object with a ``schema_version``. I
 flow parsed out of the tool's reports (``metrics``), the ``outcome`` of the run, and what the run
 used and wrote. :ref:`results-json` lists every field.
 
-A run that fails after it has started still writes the file. This covers a failing tool and a
-failing producer. Its ``outcome`` is ``failed``, and ``error.code`` and ``error.message`` say what
-failed. The ``code`` is a stable text, never a class name. A flow whose reports or checks failed
-without a tool error and without a rejection says ``reported_failure``. A consumer of a failed
-producer says ``producer_failed`` and quotes the cause. A flow that rejected its results has the
+A run that fails after it has started still writes the file. This covers a failing tool. Its
+``outcome`` is ``failed``, and ``error.code`` and ``error.message`` say what failed. The ``code``
+is a stable text, never a class name. A flow whose reports or checks failed without a tool error
+and without a rejection says ``reported_failure``. A flow that rejected its results has the
 ``outcome`` ``rejected``, and its error code is ``rejected`` too. Only a ``passed`` and a
 ``rejected`` run are reused. Xeda removes the previous ``results.json`` before a run starts, so an
 earlier success never stands for a run that failed.
+
+A consumer of a producer that did not pass does not run. It is blocked, and it writes nothing: its
+run directory keeps its last ``results.json`` and trace. ``--clean`` empties the run directory of
+a flow only when the flow is about to run, so it does not remove them either. The error of the
+launch quotes the producer, its code and its message.
 
 A file that an older Xeda wrote has no ``schema_version``. Xeda treats such a directory as a run
 that never finished, and runs the flow again.

@@ -283,9 +283,7 @@ def test_planning_refuses_generator_and_git_loading_before_any_effect(tmp_path, 
         assert not (tmp_path / "xeda_run").exists()
 
 
-def test_a_failed_producer_reports_its_error_and_invalidates_its_consumer(
-    tmp_path, design, monkeypatch
-):
+def test_a_failed_producer_reports_its_error_and_blocks_its_consumer(tmp_path, design, monkeypatch):
     first = _runner(tmp_path).launch_flow(_Taker, design, {})
 
     def fail(self):
@@ -298,8 +296,8 @@ def test_a_failed_producer_reports_its_error_and_invalidates_its_consumer(
     with pytest.raises(FlowDependencyFailure, match="maker broke.*results.json"):
         runner.launch_flow(_Taker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
-    assert recorded["outcome"] == "failed" and recorded["error"]["code"] == "producer_failed"
-    assert not (first.run_path / "trace.json").exists()
+    assert recorded["outcome"] == "passed" and recorded["run_id"] == first.run_id
+    assert (first.run_path / "trace.json").exists()  # a blocked consumer writes nothing
     assert not (tmp_path / "out").exists()
 
 

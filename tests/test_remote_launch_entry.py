@@ -215,7 +215,9 @@ def test_failed_node_records_only_what_this_run_wrote(tmp_path, fake_fpga):
     assert set(second["written"]) == {"yosys_fpga", "nextpnr"}
 
 
-def test_blocked_consumer_records_what_the_failed_producer_run_rewrote(tmp_path, fake_fpga):
+def test_a_blocked_consumer_writes_nothing_while_the_failed_producer_run_rewrites(
+    tmp_path, fake_fpga
+):
     design = make_inputs(tmp_path)
     _process, first = launch(tmp_path, design, name="first")
     run_dir = Path(first["run_path"])
@@ -230,10 +232,10 @@ def test_blocked_consumer_records_what_the_failed_producer_run_rewrote(tmp_path,
     assert second["success"] is False
     states = {node["flow"]: node["state"] for node in second["nodes"]}
     assert states["nextpnr"] == "blocked"
-    # The launch replaced the results of the consumer, so they are in the record. The reports
-    # of the first run are not.
-    assert json.loads((run_dir / "results.json").read_text())["outcome"] == "failed"
-    assert second["written"]["nextpnr"] == ["results.json"]
+    # The consumer did not run: its record is the first run's, and the launch wrote no file of it.
+    assert json.loads((run_dir / "results.json").read_text())["outcome"] == "passed"
+    assert second["written"]["nextpnr"] == []
+    assert "results.json" in second["written"]["yosys_fpga"]
 
 
 def test_second_launch_reuses_a_fresh_node(tmp_path, fake_fpga):

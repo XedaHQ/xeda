@@ -51,8 +51,12 @@ from ..utils import (
 from ..xedaproject import ProjectFileError
 from .chains import ChainRefusal
 
+#: The code of a launch-level error: the outputs of a launch were not delivered.
+DELIVERY_FAILED = "delivery_failed"
+
 __all__ = [
     "CANCELED",
+    "DELIVERY_FAILED",
     "EXECUTABLE_NOT_FOUND",
     "INTERNAL_ERROR",
     "INVALID_METRIC",
