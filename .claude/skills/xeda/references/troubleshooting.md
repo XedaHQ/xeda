@@ -96,13 +96,14 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
   the error reaches the CLI itself, the message starts with `Flow <flow> failed: `. The generated
   script and the tool's log are in `run_path`.
 - `reported_failure`: a node's `results.json` says so when its reports or checks failed with no
-  exception and no tool exit status, for example a tool that exited 0 and left a negative verdict in its reports. The
-  top-level document says `FlowFailed`; the error of a consumer, which is blocked and writes no
-  `results.json`, quotes the message (`producer yosys_fpga failed (reported_failure): ...`). A `missing_report` is the same case when the flow asked for a report that this run did
-  not write. A rejected run (a failed cocotb test, negative hold slack in
-  Vivado, negative slack in Quartus) is reported again on an unchanged launch (node state
-  `rejected again`); `--rebuild-all` runs it again. A tool failure, such as a Vivado setup-slack
-  miss or a `nextpnr` timing miss, runs again.
+  exception and no tool exit status, for example a tool that exited 0 and left a negative verdict
+  in its reports. The top-level document says `FlowFailed`; the error of a consumer, which is
+  blocked and writes no `results.json`, quotes the message
+  (`producer yosys_fpga failed (reported_failure): ...`). A `missing_report` is the same case when
+  the flow asked for a report that this run did not write. A rejected run (a failed cocotb test,
+  negative hold slack in Vivado, negative slack in Quartus) is reported again on an unchanged
+  launch (node state `rejected again`); `--rebuild-all` runs it again. A tool failure, such as a
+  Vivado setup-slack miss or a `nextpnr` timing miss, runs again.
 - `storage_error`: a file or directory error of the operating system, or a path that leaves the
   run directory, ended the node.
 - `missing_output`: a declared output is absent, unreadable, outside the run directory or not

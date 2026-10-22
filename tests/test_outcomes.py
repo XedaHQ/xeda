@@ -8,7 +8,9 @@ record and trace.
 from __future__ import annotations
 
 import dataclasses
+import os
 import pickle
+import time
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -20,12 +22,14 @@ from xeda.dataclass import Field, deliverable
 from xeda.design import SourceType
 from xeda.errors import RecordError, RunFailedError
 from xeda.flow import Flow, FlowSettingsError, In, MetricSpec, Out, registered_flows
-from xeda.flow_runner import DefaultRunner, launch_report
+from xeda.deliver import DeliveryError
+from xeda.flow_runner import DefaultRunner, launch_identity, launch_report
+from xeda.flow_runner import default_runner as default_runner_module
 from xeda.flow_runner.launch_result import launch_result
 from xeda.frozen import thaw
 from xeda.outcomes import DeliveryRecord, Disposition, NodeResult, Outcome, Result, aggregate
 from xeda.records import ErrorInfo, decode_record, read_record
-from xeda.run_dir import RunDirectory
+from xeda.run_dir import RunDirectory, RunDirectoryError
 from xeda.spec import Spec
 from xeda.utils import ExecutableNotFound, replacing_file
 
@@ -92,6 +96,33 @@ def _flows() -> dict[str, Any]:
         def run(self) -> None:
             pass
 
+    class _Slow(Flow):
+        """Takes a while to write a note, which another flow reads."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        class Outputs(Flow.Outputs):
+            note: Path = Out(SourceType.Data, description="The note it writes.")
+
+        def run(self) -> None:
+            time.sleep(0.4)
+            note = self.run_path / "note.txt"
+            self.run_directory.writable(note).write_text("note\n")
+            self.outputs.note = note
+
+    class _AfterSlow(Flow):
+        """Reads the note of `_Slow`, and does nothing else."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        class Inputs(Flow.Inputs):
+            note: Path = In(
+                SourceType.Data, producer=_Slow.name, output="note", description="The note."
+            )
+
+        def run(self) -> None:
+            pass
+
     class _Interrupts(Flow):
         """Is interrupted by the user while it runs."""
 
@@ -133,7 +164,16 @@ def _flows() -> dict[str, Any]:
 
     return {
         cls.__name__: cls
-        for cls in (_Rejects, _Quiet, _NeedsBoth, _Interrupts, _Missing, _Deliverer)
+        for cls in (
+            _Rejects,
+            _Quiet,
+            _NeedsBoth,
+            _Slow,
+            _AfterSlow,
+            _Interrupts,
+            _Missing,
+            _Deliverer,
+        )
     }
 
 
@@ -165,11 +205,24 @@ def _launch(
 ) -> Result:
     """Launch `flow` on `runner` and return what the launch did."""
     spec = Spec(flow.name, design, settings=sections or {})
-    return launch_result(
+    result = launch_result(
         runner,
         spec,
         lambda: runner.run_flow(flow, design, settings or {}, all_flows_settings=sections),
     )
+    _skipped_means_never_attempted(runner, result)
+    return result
+
+
+def _skipped_means_never_attempted(runner: DefaultRunner, result: Result) -> None:
+    """Check, for every launch of these tests, that a node is `skipped` only if the launch never
+    acted on it: it reported no end for it, and built no flow in its run directory."""
+    attempted = set(runner.collector.ended)
+    built = {os.path.abspath(f.run_path) for f in runner.launched[runner._launched_before :]}
+    for node in result.nodes.values():
+        if node.outcome is Outcome.SKIPPED:
+            assert node.name not in attempted, f"`{node.name}` was attempted and is skipped"
+            assert os.path.abspath(node.run_dir) not in built, f"`{node.name}` has a flow"
 
 
 @pytest.mark.usefixtures("flows")
@@ -353,6 +406,8 @@ def test_values_are_deeply_frozen_and_picklable(tmp_path):
         "nextpnr": {"seed": 7, "clocks": {"main_clock": {"period": "10 ns"}}, "list": [1, [2]]}
     }
     spec = Spec("nextpnr", design, settings=settings)
+    design.rtl.top = "changed"  # a caller's later change of the design does not reach the spec
+    assert spec.design.rtl.top == "top"
     settings["nextpnr"]["seed"] = 8
     settings["nextpnr"]["list"].append(3)
     assert spec.settings["nextpnr"]["seed"] == 7
@@ -628,3 +683,67 @@ def test_a_failed_clean_up_never_replaces_the_error_of_a_root_that_did_not_pass(
     assert node.outcome == "failed" and node.error is not None
     assert node.error.code == "reported_failure"
     assert result.outcome == "failed" and result.error == node.error
+
+
+def _refuse_identity_of(monkeypatch, name, failure):
+    """Make the identity stage fail for the node `name`, before it has a flow."""
+    real = launch_identity.run_identity
+
+    def refuse(self, flow_class, flow_name, *args, **kwargs):
+        if flow_name == name:
+            raise failure
+        return real(self, flow_class, flow_name, *args, **kwargs)
+
+    monkeypatch.setattr(launch_identity, "run_identity", refuse)
+
+
+@pytest.mark.parametrize("failing", ["producer", "root"])
+@pytest.mark.usefixtures("flows")
+def test_a_node_that_fails_before_it_has_a_flow_is_failed_not_skipped(
+    tmp_path, monkeypatch, failing
+):
+    name = MAY_FAIL if failing == "producer" else _NeedsMayFail.name
+    _refuse_identity_of(monkeypatch, name, RunDirectoryError("refused for the test"))
+    result = _launch(_runner(tmp_path), _NeedsMayFail, _design(tmp_path))
+    node = result.nodes[name]
+    assert (node.outcome, node.record) == ("failed", None)
+    assert node.error is not None and node.error.code == "storage_error"
+    assert node.error.node == name and "refused for the test" in node.error.message
+    assert result.outcome == "failed" and result.error == node.error
+    if failing == "producer":
+        consumer = result.nodes[_NeedsMayFail.name]
+        assert (consumer.outcome, consumer.blocked_by) == ("blocked", MAY_FAIL)
+
+
+@pytest.mark.usefixtures("flows")
+def test_a_failure_while_a_producer_ends_is_the_failure_of_the_producer(tmp_path, monkeypatch):
+    """The hand-over token of a producer that passed cannot be made: the producer did not end
+    well, and its consumer is blocked by it."""
+
+    def refuse(*args, **kwargs):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(default_runner_module.CompletedRun, "capture", refuse)
+    result = _launch(_runner(tmp_path), _NeedsMayFail, _design(tmp_path))
+    producer = result.nodes[MAY_FAIL]
+    assert (producer.outcome, producer.record) == ("failed", None)
+    assert producer.error is not None and producer.error.code == "storage_error"
+    consumer = result.nodes[_NeedsMayFail.name]
+    assert (consumer.outcome, consumer.blocked_by) == ("blocked", MAY_FAIL)
+    assert result.outcome == "failed" and result.error == producer.error
+
+
+@pytest.mark.usefixtures("flows")
+def test_a_refusal_before_the_run_is_raised_not_reported(tmp_path, monkeypatch):
+    refusal = DeliveryError("refused for the test", before_run=True)
+    _refuse_identity_of(monkeypatch, MAY_FAIL, refusal)
+    with pytest.raises(DeliveryError) as raised:
+        _launch(_runner(tmp_path), _NeedsMayFail, _design(tmp_path))
+    assert raised.value is refusal
+
+
+def test_the_time_of_a_node_is_that_of_its_own_execution(tmp_path, flows):
+    result = _launch(_runner(tmp_path), flows["_AfterSlow"], _design(tmp_path))
+    slow, after = result.nodes[flows["_Slow"].name], result.nodes[flows["_AfterSlow"].name]
+    assert slow.elapsed >= 0.4
+    assert 0.0 < after.elapsed < 0.2, "the consumer's time includes its producer's"

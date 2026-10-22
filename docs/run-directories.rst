@@ -173,15 +173,15 @@ directory and the trace gives the reason for the new run: ``declared input bindi
 
 This file is the record of the run: one JSON object with a ``schema_version``. It holds what the
 flow parsed out of the tool's reports (``metrics``), the ``outcome`` of the run, and what the run
-used and wrote. :ref:`results-json` lists every field.
+used and wrote. :ref:`results-json` lists every field. Xeda removes the previous ``results.json``
+before a run executes, so an earlier success never stands for a run that executed and failed.
 
 A run that fails after it has started still writes the file. This covers a failing tool. Its
 ``outcome`` is ``failed``, and ``error.code`` and ``error.message`` say what failed. The ``code``
 is a stable text, never a class name. A flow whose reports or checks failed without a tool error
 and without a rejection says ``reported_failure``. A flow that rejected its results has the
 ``outcome`` ``rejected``, and its error code is ``rejected`` too. Only a ``passed`` and a
-``rejected`` run are reused. Xeda removes the previous ``results.json`` before a run starts, so an
-earlier success never stands for a run that failed.
+``rejected`` run are reused.
 
 A consumer of a producer that did not pass does not run. It is blocked, and it writes nothing: its
 run directory keeps its last ``results.json`` and trace. ``--clean`` empties the run directory of
@@ -398,7 +398,8 @@ later checks do not read it again.
 ------------
 
 ``--clean`` empties the run directory of each flow before the flow runs, and runs every flow. It is
-"make clean, then make". Xeda refuses several other names, and the message says what to use:
+"make clean, then make". A flow that does not get to run is not emptied: if a producer does not
+pass, or the preparation of the flow itself fails, the run directory keeps its old files. Xeda refuses several other names, and the message says what to use:
 ``--no-incremental``, the per-flow ``clean`` setting, Verilator's ``clean_before_run`` and the
 launcher setting ``cleanup_before_run``. GHDL's ``clean`` is refused too. Its message names
 ``--clean`` and ``clean_before_analyze``, which runs ``ghdl remove`` before the analysis.

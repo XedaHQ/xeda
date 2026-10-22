@@ -13,11 +13,11 @@ import os
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
-from ..deliver import Delivered, Delivery
+from ..deliver import Delivered, Delivery, DeliveryError
 from ..flow import Flow
 from ..outcomes import DeliveryRecord, Disposition, NodeResult, Outcome, Result, aggregate
 from ..records import INTERNAL_ERROR, PRODUCER_FAILED, ErrorInfo
@@ -37,10 +37,10 @@ _STOPS_CONSUMERS = frozenset(
 
 @dataclass(frozen=True)
 class _Ended:
-    """A node that the launch started: its flow, the exception that ended it (if any), and the
-    seconds the launch spent on it."""
+    """A node that the launch attempted: its flow, the exception that ended it (if any), and the
+    seconds the launch spent on it. The flow is `None` for a node that failed before it had one."""
 
-    flow: Flow
+    flow: Flow | None
     error: BaseException | None
     elapsed: float
 
@@ -56,6 +56,10 @@ class LaunchCollector:
         #: The plan of the launch, once the launcher has resolved it.
         self.plan: Plan | None = None
         self.ended: dict[str, _Ended] = {}
+        #: The nodes whose launch has begun and not yet closed, the innermost last.
+        self._attempts: list[PlanNode] = []
+        #: When each node finished its producers and began its own execution.
+        self._own_start: dict[str, float] = {}
         #: The failures of the end of the launch, each as its stage (`delivery`, `clean-up`) and the
         #: exception.
         self.finish_failures: list[tuple[str, Exception]] = []
@@ -68,10 +72,44 @@ class LaunchCollector:
         """Note the plan that the launch follows."""
         self.plan = plan
 
+    def attempt_begun(self, node: PlanNode) -> None:
+        """Note that the launch begins to act on `node`: from here, the node reports its end,
+        whatever raises."""
+        self._attempts.append(node)
+
+    def producers_done(self, node: PlanNode) -> None:
+        """Note that `node` has its producers and begins its own execution."""
+        self._own_start[node.name] = time.monotonic()
+
+    def depth(self) -> int:
+        """Return how many nodes have begun and not closed, to hand to `attempt_closed`."""
+        return len(self._attempts)
+
+    def attempt_closed(self, depth: int, error: BaseException | None) -> None:
+        """Close the attempt that began after `depth` attempts, and note how it ended.
+
+        A node that raised and has no end yet failed before it had a flow. A node whose end has
+        another error than `error` failed again while it ended: `error` is what left it. A
+        refusal made before the run (`DeliveryError.before_run`) is no failure of a node, and an
+        interrupt is no outcome: neither is noted."""
+        node = self._attempts[depth] if len(self._attempts) > depth else None
+        del self._attempts[depth:]
+        if node is None or not isinstance(error, Exception):
+            return
+        if isinstance(error, DeliveryError) and error.before_run:
+            return
+        end = self.ended.get(node.name)
+        if end is None:
+            self.ended[node.name] = _Ended(None, error, 0.0)
+        elif end.error is not error:
+            self.ended[node.name] = replace(end, error=error)
+
     def node_ended(self, node: PlanNode, flow: Flow, error: BaseException | None) -> None:
         """Note that the launch started `node` as `flow`, and how it ended: `error` is the
-        exception that left the node, or `None`."""
-        elapsed = 0.0 if flow.init_time is None else time.monotonic() - flow.init_time
+        exception that left the node, or `None`. The time of the node is that of its own
+        execution, after its producers."""
+        started = self._own_start.get(node.name)
+        elapsed = 0.0 if started is None else time.monotonic() - started
         self.ended[node.name] = _Ended(flow, error, elapsed)
 
     def deliveries_noted(
@@ -153,6 +191,21 @@ def _blocked(node: PlanNode, blocker: str, message: str) -> NodeResult:
 def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> NodeResult:
     """Return the result of a node that the launch started."""
     flow, error = end.flow, end.error
+    if flow is None:
+        # The node failed before it had a flow: nothing of it ran, and the exception says why.
+        assert error is not None
+        return NodeResult(
+            name=node.name,
+            outcome=Outcome.FAILED,
+            disposition=Disposition.RAN,
+            reason="",
+            blocked_by=None,
+            elapsed=0.0,
+            record=None,
+            error=error_info(error, node=node.name),
+            deliveries=(),
+            run_dir=node.run_path,
+        )
     if flow.blocked_by is not None:
         return _blocked(node, flow.blocked_by, str(error))
     deliveries = collector.deliveries_of(flow)

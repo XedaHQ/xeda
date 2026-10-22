@@ -922,6 +922,7 @@ class FlowLauncher:
             self._pending_deliveries = []
             self.collector = LaunchCollector()
         self._launch_depth += 1
+        attempts = self.collector.depth()
         try:
             flow = self._launch(
                 flow_class,
@@ -935,7 +936,9 @@ class FlowLauncher:
             )
             if plan is not None:
                 self._planned_completed[(id(plan), plan_node or NodeKey(flow.name))] = flow
-        except BaseException:
+            self.collector.attempt_closed(attempts, None)
+        except BaseException as raised:
+            self.collector.attempt_closed(attempts, raised)
             self._launch_depth -= 1
             if top_level:
                 # A launch that failed delivers nothing. The failures of its clean-ups are
@@ -1195,6 +1198,8 @@ class FlowLauncher:
         # A deliverable given as a location becomes its conventional name here, before the
         # identity; the tools write that, and a delivery copies it to the location.
         deliveries = split_deliveries(input_settings, design.name)
+        # From here the launch acts on the node, and the node reports its end whatever raises.
+        self.collector.attempt_begun(node)
         design_hash, flowrun_hash, run_path, settings_hash = launch_identity.run_identity(
             self, flow_class, flow_name, design, input_settings, node
         )
@@ -1337,6 +1342,7 @@ class FlowLauncher:
                     flow.producer_run_ids = {
                         str(producer.run_path): str(producer.run_id) for producer in producers
                     }
+                    self.collector.producers_done(node)
                     if policy.clean:
                         # Only now: a flow that a failed producer blocks does not run, so it
                         # keeps what its run directory holds, its record included.
@@ -1582,6 +1588,10 @@ class FlowLauncher:
                 failure = raised
                 raise
             finally:
+                if not untouched:
+                    # Before anything below that can raise: the node reports its end once.
+                    self.launched.append(flow)
+                    self.collector.node_ended(node, flow, failure)
                 if flow.succeeded and producer_launch:
                     # Only producers need a hand-over token. A requested run may succeed with
                     # unknown output evidence, whose trace correctly requires another run.
@@ -1597,9 +1607,6 @@ class FlowLauncher:
                         recorded.outputs_recorded_ns if recorded else None,
                     )
                     self._completed_runs[run_path.resolve()] = (flow, token)
-                if not untouched:
-                    self.launched.append(flow)
-                    self.collector.node_ended(node, flow, failure)
         return flow
 
     def _defer_delivery(self, flow: Flow, delivery: Deliveries, outputs_to: Optional[Path]) -> None:

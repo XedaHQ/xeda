@@ -20,9 +20,11 @@ class Spec:
     """What to launch.
 
     `flow` is a flow name or the text of a chain. `settings` is the contents of a `flows` table:
-    the settings of the flows by flow name. The constructor copies it and freezes it at every
-    depth, so a later change of the table that the caller passed never reaches the spec, and
-    nothing can assign into the spec."""
+    the settings of the flows by flow name. The constructor copies the design (a deep copy) and
+    copies the settings and freezes them at every depth. So a later change of the design or of
+    the table that the caller passed never reaches the spec, and nothing can assign into the
+    spec. Two specs are equal when their flow, design and settings are equal, and a spec can be
+    pickled. A spec is not hashable."""
 
     flow: str
     design: Design
@@ -30,4 +32,5 @@ class Spec:
     settings: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "design", self.design.model_copy(deep=True))
         object.__setattr__(self, "settings", freeze(self.settings))
