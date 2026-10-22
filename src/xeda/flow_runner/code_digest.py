@@ -255,11 +255,14 @@ def flow_code_digest(flow_class: Type[Flow], snapshots: Snapshots | None = None)
     classes of one tree then see the same files."""
     snapshots = {} if snapshots is None else snapshots
     pairs: list[tuple[str, str]] = []
+    roots: set[Path] = set()
     for cls in plugin_classes(flow_class):
         root = _code_root(cls)
         if root not in snapshots:
             snapshots[root] = content_pairs(_named_files(cls), _content_digest)
-        pairs += snapshots[root]
+        if root not in roots:  # classes of one tree count the tree once
+            roots.add(root)
+            pairs += snapshots[root]
     return digest_pairs(pairs) if pairs else ""
 
 

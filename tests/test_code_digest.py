@@ -18,7 +18,12 @@ import pytest
 from xeda import Design
 from xeda.flow import Flow, FlowFatalError
 from xeda.flow_runner import DefaultRunner, code_digest
-from xeda.flow_runner.code_digest import CodeDigests, flow_code_digest, xeda_code_digest
+from xeda.flow_runner.code_digest import (
+    CodeDigests,
+    _named_files,
+    flow_code_digest,
+    xeda_code_digest,
+)
 
 from .flow_registry import preserved_flow_registry
 
@@ -541,3 +546,23 @@ def test_all_the_flows_of_a_tree_get_one_snapshot_of_it_in_a_launch(plugin):
     assert digests.flow(second) == first
     assert digests.flow(plugin.flow_class) == first
     assert CodeDigests().flow(second) != first
+
+
+def test_a_class_in_the_tree_of_its_base_adds_nothing_to_the_flow_code_digest(plugin):
+    """The tree of a package counts once, whatever number of the classes of the MRO are in it."""
+    _write(
+        plugin.directory / "more.py",
+        """
+        from .flows import PackagedToy
+
+
+        class SecondToy(PackagedToy):
+            '''A flow of the same package.'''
+        """,
+    )
+    second = importlib.import_module(f"{plugin.package}.more").SecondToy
+    assert flow_code_digest(second) != ""
+    # the files of the package are the same; `more.py` is one of them
+    names = [name for name, _ in _named_files(plugin.flow_class)]
+    assert f"{plugin.package}/more.py" in names
+    assert flow_code_digest(second) == flow_code_digest(plugin.flow_class)

@@ -293,9 +293,11 @@ def content_pairs(
 
 
 def digest_pairs(pairs: Iterable[tuple[str, str]]) -> str:
-    """Return a digest of the `(name, content digest)` pairs, whatever their order."""
+    """Return a digest of the `(name, content digest)` pairs, whatever their order.
+
+    A pair that occurs twice counts twice."""
     h = hashlib.sha3_256()
-    for name, sha in sorted(set(pairs)):
+    for name, sha in sorted(pairs):
         h.update(name.encode() + b"\0")
         h.update(sha.encode())
     return h.hexdigest()[:32]
