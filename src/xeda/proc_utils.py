@@ -606,7 +606,11 @@ def run_process(
         raise ValueError(f"timeout must be a positive number of seconds, not {timeout!r}")
     if tee is not None and stdout is not None:
         raise ValueError("`tee` copies the output while showing it: not with `stdout` given")
-    note_program(str(executable))
+    # A relative path runs from `cwd`, where the process starts: note the program found there.
+    program = str(executable)
+    if cwd is not None and not os.path.isabs(program) and os.sep in program:
+        program = os.path.normpath(os.path.join(os.fspath(cwd), program))
+    note_program(program)
     if args is None:
         args = []
     args = [str(a) for a in args]
