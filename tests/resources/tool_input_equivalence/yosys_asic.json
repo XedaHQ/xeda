@@ -515,70 +515,65 @@
     "<WORK>/pdks/tiny/tiny.lib": "c00545cc7a6b04e52e9af47f4da8569f2b54523964038531585e441dcee1a342"
    },
    "results": {
-    "_utilization": {
-     "area": 376.5,
-     "num_cells": 251,
-     "num_cells_by_type": {
-      "fake_cell": 251
-     }
-    },
-    "area": 376.5,
     "artifacts": {
      "netlist_json": "netlist.json",
      "netlist_verilog": "netlist.v",
-     "timing_report": null,
      "utilization_report": "reports/utilization.json"
     },
-    "cell_types": {
-     "fake_cell": 251
-    },
-    "cells": 251,
-    "design": "counter",
-    "flow": "yosys",
-    "outputs": {
-     "netlist": {
-      "path": "<RUN>/counter/yosys/netlist.v",
-      "sha": "4bec069c79a7fdc988e8d2f0d9c66759"
+    "error": null,
+    "metrics": {
+     "area": 376.5,
+     "cell_types": {
+      "fake_cell": 251
+     },
+     "cells": 251,
+     "platform": {
+      "corner": "typical",
+      "name": "tiny",
+      "provider": "directory",
+      "sources": {
+       "abc_driver_cell": "user",
+       "abc_load_in_ff": "user",
+       "antenna_cell": "derived",
+       "capacitance_unit": "derived",
+       "corner": "user",
+       "diode_usable": "derived",
+       "dont_use_cells": "derived",
+       "files.adder_map": "user",
+       "files.cell_lef": "user",
+       "files.clkgate_map": "user",
+       "files.latch_map": "user",
+       "files.liberty": "user",
+       "files.tech_lef": "user",
+       "min_buffer": "user",
+       "name": "user",
+       "site": "derived",
+       "supply.ground_pin": "derived",
+       "supply.power_pin": "derived",
+       "supply.voltage": "derived",
+       "tie_high": "derived",
+       "tie_low": "derived",
+       "time_unit": "derived",
+       "tracks.m1": "derived",
+       "tracks.m2": "derived",
+       "tracks.m3": "derived"
+      },
+      "version": "unpinned"
      }
     },
-    "platform": {
-     "corner": "typical",
-     "name": "tiny",
-     "provider": "directory",
-     "sources": {
-      "abc_driver_cell": "user",
-      "abc_load_in_ff": "user",
-      "antenna_cell": "derived",
-      "capacitance_unit": "derived",
-      "corner": "user",
-      "diode_usable": "derived",
-      "dont_use_cells": "derived",
-      "files.adder_map": "user",
-      "files.cell_lef": "user",
-      "files.clkgate_map": "user",
-      "files.latch_map": "user",
-      "files.liberty": "user",
-      "files.tech_lef": "user",
-      "min_buffer": "user",
-      "name": "user",
-      "site": "derived",
-      "supply.ground_pin": "derived",
-      "supply.power_pin": "derived",
-      "supply.voltage": "derived",
-      "tie_high": "derived",
-      "tie_low": "derived",
-      "time_unit": "derived",
-      "tracks.m1": "derived",
-      "tracks.m2": "derived",
-      "tracks.m3": "derived"
+    "outcome": "passed",
+    "outputs": {
+     "netlist": {
+      "kind": "VerilogNetlist",
+      "names": [
+       "netlist.v"
+      ]
      },
-     "version": "unpinned"
-    },
-    "run_path": "<RUN>/counter/yosys",
-    "success": true,
-    "tools": [
-     "yosys"
-    ]
+     "netlist_generic": {
+      "kind": "GenericVerilogNetlist",
+      "names": []
+     }
+    }
    },
    "scripts": {
     "<RUN>/counter/yosys/yosys_synth.ys": "logger -notime\nread_liberty -overwrite -setattr liberty_cell -lib <WORK>/pdks/tiny/tiny.lib\n\nlog -stdout ** Reading <DESIGN>/top.v **\nread_verilog -defer -noautowire -sv   <DESIGN>/top.v\n\n\nread_verilog -defer <WORK>/pdks/tiny/cells_clkgate.v\nhierarchy -check -top top \ncheck -initdrv\nproc\nflatten\n\n\nsynth -flatten -run :fine\nsynth -top top -run fine: -noabc\nchformal -remove\ndelete t:$print\nrename -wire\nopt -purge\nextract_fa\ntechmap -map <WORK>/pdks/tiny/cells_adders.v\ntechmap\nopt -fast -purge\ndfflegalize -cell $_DLATCH_P_ x -cell $_DLATCH_N_ x t:$_DLATCH_*\ntechmap -map <WORK>/pdks/tiny/cells_latch.v\ndfflibmap -liberty <WORK>/pdks/tiny/tiny.lib -dont_use INV_X4 -dont_use NAND2_X4\nopt\nsetundef -zero\nabc -script +&get,-n;&st;&dch;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;buffer,-c;topo;stime,-c;upsize,-c;dnsize,-c -liberty <WORK>/pdks/tiny/tiny.lib -dont_use INV_X4 -dont_use NAND2_X4 -constr abc.constr\nsplitnets\nopt_clean -purge\nhilomap -singleton -hicell TIEHI_SMALL Z -locell TIELO_X1 Z\ninsbuf -buf BUF_X1 A Z\ncheck -assert -mapped\ntee -o final_check.log check  -assert \n\nlog -stdout Writing stat to reports/utilization.json\ntee -q -o reports/utilization.json stat  -json    -liberty <WORK>/pdks/tiny/tiny.lib  \nsetattr -unset src =*\nsetattr -mod -unset src =*\nlog -stdout Writing netlist netlist.json\nwrite_json netlist.json\nlog -stdout Writing netlist netlist.v\nwrite_verilog -nodec -nohex -noexpr -noattr netlist.v\n\n\nlog -stdout ***** Synthesis Completed *****"
