@@ -333,7 +333,8 @@ What comes back
 By default Xeda fetches, for every flow of the plan:
 
 * ``results.json`` and ``settings.json``,
-* the ``*.log`` files at the top of the run directory, and
+* the ``*.log`` files at the top of the run directory and in ``logs/`` (the output of each tool),
+  and
 * everything below ``reports/``.
 
 For the flow that the request names, it also fetches the declared outputs and the artifacts. A

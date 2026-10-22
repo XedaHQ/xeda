@@ -193,7 +193,14 @@ def test_remote_run_matches_a_local_run(tmp_path, remote_host):
     assert document["spec"]["design"] == "top" and document["spec"]["design_file"] == str(design)
     directory = mirror / "top" / "nextpnr"
     assert _last(document)["run_dir"] == str(directory)
-    for name in ("results.json", "settings.json", "nextpnr.log", "config.txt", "report.json"):
+    for name in (
+        "results.json",
+        "settings.json",
+        "nextpnr.log",
+        "config.txt",
+        "report.json",
+        "logs/nextpnr-ecp5.log",  # the output of the tool, kept in the run directory
+    ):
         assert (directory / name).is_file(), name
     assert not list(mirror.rglob("trace.json")), "the mirror holds no trace"
     assert record["artifacts"]["textcfg"] == "config.txt"
@@ -295,6 +302,8 @@ def test_failed_run_mirror_has_no_stale_outputs(tmp_path, remote_host):
     assert saved["outcome"] == "failed"
     assert not (mirror_dir / "config.txt").exists()
     assert not (mirror_dir / "report.json").exists()
+    # the output of the tool that failed is what the run wrote, so it comes back
+    assert (mirror_dir / "logs" / "nextpnr-ecp5.log").is_file()
     assert "textcfg" not in _last(document)["record"]["artifacts"]
     assert _last(document)["record"]["outputs"]["config"]["names"] == []
 

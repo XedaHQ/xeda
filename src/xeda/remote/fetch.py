@@ -219,9 +219,9 @@ def select_fetch(run_root: Path, nodes: Sequence[NodeResult], *, fetch_all: bool
     and then the place in it. The values are the files on the remote.
 
     Of every node, these come back: `results.json`, `settings.json`, the `*.log` files at the top
-    of the run directory, and everything below `reports/`. Of a node that the request names, the
-    files that its record lists (its outputs and artifacts) come back too. With `fetch_all`, the
-    whole run directory comes back. `trace.json` never does.
+    of the run directory and in `logs/`, and everything below `reports/`. Of a node that the request
+    names, the files that its record lists (its outputs and artifacts) come back too. With
+    `fetch_all`, the whole run directory comes back. `trace.json` never does.
 
     A named file of a node that passed may be a symbolic link, or lie through one, that a tool
     left. If it leads to a regular file in the run directory, that file comes back under the
@@ -254,6 +254,11 @@ def select_fetch(run_root: Path, nodes: Sequence[NodeResult], *, fetch_all: bool
                     )
             except OSError:
                 pass
+            places += [
+                place
+                for place in _files_below(run_dir, "logs")
+                if place.endswith(".log") and place.count("/") == 1
+            ]
             places += _files_below(run_dir, "reports")
         for place in places:
             inside[place] = Path(run_dir, place)
