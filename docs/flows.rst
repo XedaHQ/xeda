@@ -14,7 +14,7 @@ Discovering flows and their settings
     xeda list-flows                     # name, aliases, category, description, dependencies,
                                         # declared inputs/outputs, what can follow it in a chain
     xeda list-settings <flow>           # every setting: name, type, default, meaning
-    xeda list-results <flow>            # every key the flow writes to results.json
+    xeda list-results <flow>            # every metric the flow writes, with its type and unit
 
 ``list-flows`` reports a ``category`` that comes from the base class of the flow:
 
