@@ -171,7 +171,9 @@ def replacing_file(
 
 
 @contextmanager
-def live_log(path: Union[str, os.PathLike], encoding: str = "utf-8") -> Iterator[IO[str]]:
+def live_log(
+    path: Union[str, os.PathLike], encoding: str = "utf-8", append: bool = False
+) -> Iterator[IO[str]]:
     """Open the log of a tool at its own name from the start and flush it line by line, so that
     `tail -F` shows a long run as it goes.
 
@@ -186,8 +188,18 @@ def live_log(path: Union[str, os.PathLike], encoding: str = "utf-8") -> Iterator
     through. That includes a symbolic link, or a hard link whose inode a file outside the run
     directory may share, which a tool may have left there. A log that cannot be made raises here,
     so a caller that makes it before it starts the tool starts nothing. The caller has located
-    `path` in the run directory (`RunDirectory.writable`)."""
+    `path` in the run directory (`RunDirectory.writable`).
+
+    With `append`, a later tool of the same run adds to the log that an earlier one made. Xeda
+    opens the file without following a link, and uses it only if it is a regular file with one
+    name. Otherwise, or when there is no such file, the log is a new file as above."""
     target = Path(path)
+    if append:
+        fd = _open_for_append(target)
+        if fd is not None:
+            with os.fdopen(fd, "a", encoding=encoding, buffering=1) as f:
+                yield f
+            return
     fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
     try:
         os.chmod(temporary, _CREATE_MODE)
@@ -198,6 +210,20 @@ def live_log(path: Union[str, os.PathLike], encoding: str = "utf-8") -> Iterator
         raise
     with os.fdopen(fd, "w", encoding=encoding, buffering=1) as f:
         yield f
+
+
+def _open_for_append(target: Path) -> int | None:
+    """Return a descriptor of the file `target` opened for appending, or None if `target` is not a
+    regular file with one name. A symbolic link at `target` is never followed."""
+    try:
+        fd = os.open(target, os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return None
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        os.close(fd)
+        return None
+    return fd
 
 
 #: The largest byte count one `copy_file_range` or `sendfile` call is asked for (the kernel

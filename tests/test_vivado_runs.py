@@ -109,6 +109,7 @@ def test_a_run_whose_vivado_runs_complete_their_steps_succeeds(
     ],
     ids=["synthesis", "placement", "routing", "write_bitstream"],
 )
+@pytest.mark.usefixtures("tool_output_on_terminal")
 def test_a_vivado_run_that_does_not_complete_its_step_fails_the_flow(
     tmp_path, monkeypatch, capfd, step, run, bitstream
 ) -> None:
@@ -131,6 +132,7 @@ def test_a_vivado_run_that_does_not_complete_its_step_fails_the_flow(
 
 @needs_tclsh
 @pytest.mark.parametrize("fail_timing", [True, False], ids=["fail_timing", "no_fail_timing"])
+@pytest.mark.usefixtures("tool_output_on_terminal")
 def test_a_route_hook_that_fails_on_timing_fails_the_flow(
     tmp_path, monkeypatch, capfd, fail_timing
 ) -> None:

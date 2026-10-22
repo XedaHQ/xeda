@@ -39,6 +39,7 @@ from .test_proc_utils import (
     _tree,
     _wait_until,
 )
+from .tool_utils import terminal_output
 
 pytestmark = [
     pytest.mark.python_compat,
@@ -108,10 +109,10 @@ class Terminal:
 
 
 @pytest.fixture
-def terminal(monkeypatch):
+def terminal():
     shown = Terminal()
-    monkeypatch.setattr(proc_utils, "_tool_output", shown.stream)
-    yield shown
+    with terminal_output(shown.stream):
+        yield shown
     shown.close()
 
 
@@ -129,6 +130,12 @@ class GoneTerminal:
 
     def flush(self) -> None:
         pass
+
+
+@pytest.fixture
+def gone_terminal():
+    with terminal_output(GoneTerminal()):
+        yield
 
 
 def child(code: str) -> list[str]:
@@ -212,11 +219,10 @@ def test_a_tool_past_its_time_limit_is_stopped_as_before(terminal, tmp_path):
     assert time.monotonic() - started < 30
 
 
-def test_a_terminal_that_fails_leaves_the_log_what_the_tool_had_written(monkeypatch, tmp_path):
+def test_a_terminal_that_fails_leaves_the_log_what_the_tool_had_written(gone_terminal, tmp_path):
     """The log is written before the terminal, as the lines of a pipe are: a terminal that is gone
     (a closed ssh session) raises, the tool is stopped, and the log has what came before."""
 
-    monkeypatch.setattr(proc_utils, "_tool_output", GoneTerminal())
     log = tmp_path / "tool.log"
     code = "import time; print('first', flush=True); time.sleep(60)"
     started = time.monotonic()
@@ -227,13 +233,12 @@ def test_a_terminal_that_fails_leaves_the_log_what_the_tool_had_written(monkeypa
 
 
 def test_a_terminal_that_fails_leaves_the_log_the_line_the_tool_had_not_ended(
-    monkeypatch, tmp_path
+    gone_terminal, tmp_path
 ):
     """The tool wrote `first` and has not ended the line, and the terminal fails on that text. The
     log has `first`, as it has the last line when the output ends. The tool writes no line end
     until it is stopped, so the terminal gets `first` alone in its first write."""
 
-    monkeypatch.setattr(proc_utils, "_tool_output", GoneTerminal())
     log = tmp_path / "tool.log"
     code = "import sys, time; sys.stdout.write('first'); sys.stdout.flush(); time.sleep(60)"
     started = time.monotonic()
@@ -244,12 +249,11 @@ def test_a_terminal_that_fails_leaves_the_log_the_line_the_tool_had_not_ended(
 
 
 def test_a_terminal_that_fails_leaves_the_log_a_character_the_tool_had_not_ended(
-    monkeypatch, tmp_path
+    gone_terminal, tmp_path
 ):
     """The tool wrote `first` and the first byte of a character of two bytes. The terminal fails
     on that text. The log has what it has when the output ends there: `first` and a replacement
     character for the cut character."""
-    monkeypatch.setattr(proc_utils, "_tool_output", GoneTerminal())
     log = tmp_path / "tool.log"
     code = (
         "import sys, time\n"

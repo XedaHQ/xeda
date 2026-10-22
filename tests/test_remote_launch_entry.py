@@ -223,7 +223,13 @@ def test_failed_node_records_only_what_this_run_wrote(tmp_path, fake_fpga):
     # The outputs of the first run that this run did not write are not in the record.
     assert {"config.txt", "report.json", "nextpnr.log"} <= outputs
     assert not written & {"config.txt", "report.json", "nextpnr.log"}
-    assert written <= {"env.sh", "fake_fpga.calls.jsonl", "results.json", "settings.json"}
+    assert written <= {
+        "env.sh",
+        "fake_fpga.calls.jsonl",
+        "logs/nextpnr-ecp5.log",
+        "results.json",
+        "settings.json",
+    }
     assert set(second["written"]) == {"yosys_fpga", "nextpnr"}
 
 

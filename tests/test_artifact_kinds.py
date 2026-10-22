@@ -311,6 +311,7 @@ def test_a_run_without_a_library_records_the_generic_netlist(tmp_path, setting):
     assert netlist.is_file()
 
 
+@pytest.mark.usefixtures("tool_output_on_terminal")
 def test_a_run_with_a_library_records_the_mapped_netlist(tmp_path):
     from .tiny_platform import TINY_RESIDUE, tiny_store
 

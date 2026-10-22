@@ -27,6 +27,7 @@ from ...utils import (
     semantic_hash,
     settings_to_dict,
 )
+from ... import log_context
 from ..chains import FlowRequest, parse_request
 from ..default_runner import (
     FlowLauncher,
@@ -34,7 +35,6 @@ from ..default_runner import (
     get_flow_class,
     print_results,
     remove_file_logger,
-    with_debug_logging,
 )
 from ..scrub import run_directory_names
 from ..settings_layers import merge_layers
@@ -325,7 +325,7 @@ class Dse(FlowLauncher):
         _refuse_openroad(self.optimizer, flow)
         super()._refuse_unaccepted_request(flow, flow_settings, flow_overrides, xedaproject)
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def run_flow(
         self,
         flow_class: Union[str, Type[Flow]],

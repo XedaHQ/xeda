@@ -12,9 +12,9 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from typing import IO, Any, Optional, Sequence, Union
+from typing import Any, Optional, Sequence
 
-from ..proc_utils import _stream_has_fileno, tool_output_redirect
+from ..proc_utils import child_stdout
 from .constants import CONTROL_PERSIST, SERVER_ALIVE
 from .errors import RemoteConfigError, RemoteConnectionError
 
@@ -48,18 +48,6 @@ class Destination:
     def label(self) -> str:
         """A name of the host that is safe in a file name."""
         return re.sub(r"[^A-Za-z0-9._@-]", "_", self.text)
-
-
-def _inheritable_stdout() -> Union[IO[str], int, None]:
-    """What a child process gets as its standard output: the redirect of the tool output, or
-    `None` (our own) when nothing is redirected. A redirect that has no file descriptor (the
-    capture of a test runner) cannot be given to a child, and the child must not write on our
-    own standard output instead, since a redirect exists to keep that stream clean (`--json`).
-    It gets the null device."""
-    stream = tool_output_redirect()
-    if stream is None:
-        return None
-    return stream if _stream_has_fileno(stream) else subprocess.DEVNULL
 
 
 def _ssh_program() -> str:
@@ -220,7 +208,7 @@ class SshSession:
         # the background process keeps the pipe open, and then nothing sees the end of the data.
         # (OpenSSH asks for passwords and passphrases on the terminal itself.)
         with tempfile.TemporaryFile() as messages:
-            status = subprocess.call(command, stderr=messages, stdout=_inheritable_stdout())
+            status = subprocess.call(command, stderr=messages, stdout=child_stdout())
             messages.seek(0)
             text = messages.read()
         if status != 0:

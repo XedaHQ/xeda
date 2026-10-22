@@ -441,21 +441,26 @@ def exit_status(document: Mapping[str, Any]) -> int:
     return 2 if outcome is None else 1
 
 
+def write_stderr(message: str) -> None:
+    """Write a line to the standard error of this process. The process is an entry point of the
+    remote host, and its parent reads its standard error: this is the one place where the remote
+    code writes to a stream outside the protocol."""
+    sys.stderr.write(message + "\n")
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Run the launch in the directory that `argv` names and return the exit status. The first
     action is to take the locks from the socket that `argv` names."""
     arguments = list(sys.argv[1:] if argv is None else argv)
     if len(arguments) != 2 or not arguments[1].isdecimal():
-        print(
-            "usage: python -m xeda.remote.launch_entry <launch dir> <hand-over fd>", file=sys.stderr
-        )
+        write_stderr("usage: python -m xeda.remote.launch_entry <launch dir> <hand-over fd>")
         return 2
     launch_dir = Path(arguments[0])
     try:
         take_locks(int(arguments[1]))  # nothing closes the descriptors: they end with the process
     except RemoteError as e:
         message = str(e)
-        print(message, file=sys.stderr)
+        write_stderr(message)
         write_result(launch_dir, early_failure(message))
         return 1
     try:
@@ -465,10 +470,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except Exception as e:  # pylint: disable=broad-except
         # Nothing is known of the request, so the document has no flow and no design.
         message = f"{REQUEST_FILE} is not a launch request: {type(e).__name__}: {e}"
-        print(message, file=sys.stderr)
+        write_stderr(message)
         write_result(launch_dir, early_failure(message))
         return 1
-    document, raised = execute(request)
+    # The output of the tools goes to the standard streams of this process, which the agent sends
+    # to the client; the client decides whether it reaches a terminal.
+    from ..proc_utils import TOOL_OUTPUT
+
+    token = TOOL_OUTPUT.set("terminal")
+    try:
+        document, raised = execute(request)
+    finally:
+        TOOL_OUTPUT.reset(token)
     write_result(launch_dir, document)
     if raised is not None:
         raise raised

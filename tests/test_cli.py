@@ -70,7 +70,7 @@ def test_machine_readable_mode_does_not_leak_between_invocations():
     assert first.exit_code == 0, first.output
 
     assert console_target() is None, "the rich console is still redirected"
-    assert proc_utils.tool_output_redirect() is None, "tool output is still redirected"
+    assert proc_utils.TOOL_OUTPUT.get() == "log", "tool output is still on the terminal"
 
     second = runner.invoke(cli, ["list-flows"])
     assert second.exit_code == 0

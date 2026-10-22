@@ -12,7 +12,8 @@ the oracle for that, in five parts, each with a deliberate offender that it must
 2. the finished flows share no mutable object with that state (`state_snapshot.shared_objects`):
    sharing is how a write into a flow's settings becomes a write into a table;
 3. the process is as it was: working directory, environment, `sys.path`, logging levels and
-   handlers, warning filters;
+   handlers (the `xeda` logger's included), warning filters, and nothing written to the standard
+   output or error, by Python or by a child process;
 4. the settings mapping and the `Design` the caller gave are as they were;
 5. no flow class holds a model instance (a `Tool`) as a class attribute: a tool finds its flow when
    it is made, so one made with the class never sees the flow it runs for.
@@ -27,6 +28,7 @@ show the process oracle sees what it is meant to see, and part 5.
 import copy
 import logging
 import os
+import subprocess
 import sys
 import uuid
 import warnings
@@ -267,6 +269,19 @@ PROCESS_OFFENDERS = {
     "new logger that is disabled": (
         lambda mp: _disabled(fresh_logger("disabled")),
         "oracle.fresh.disabled",
+    ),
+    "handler on the xeda logger": (
+        lambda mp: logging.getLogger("xeda").addHandler(logging.NullHandler()),
+        "logger 'xeda'",
+    ),
+    "print": (lambda mp: print("a launch must not print"), "wrote to the standard output"),
+    "print to the standard error": (
+        lambda mp: print("a launch must not print", file=sys.stderr),
+        "wrote to the standard error",
+    ),
+    "child process that inherits the standard output": (
+        lambda mp: subprocess.run([sys.executable, "-c", "print('a child must not print')"]),
+        "wrote to the standard output",
     ),
     "sys.path": (lambda mp: sys.path.append("/nowhere/at/all"), "sys.path"),
     "warning filter": (lambda mp: warnings.simplefilter("ignore", DeprecationWarning), "warning"),

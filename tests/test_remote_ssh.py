@@ -17,6 +17,7 @@ from xeda.remote import ssh
 from xeda.remote.ssh import Destination, SshSession, resolve_destination, sh_command
 
 from .remote_fixtures import fake_ssh, ssh_calls
+from .tool_utils import terminal_output
 
 pytestmark = pytest.mark.python_compat
 #: The fixture, imported for the tests below that name it as an argument (pytest finds it in
@@ -357,17 +358,19 @@ def test_killing_the_ssh_client_gives_the_remote_command_end_of_file(fake_ssh):
         _wait_for_line(fifo, b"eof")
 
 
-def test_a_redirect_without_a_file_descriptor_gives_the_child_the_null_device(monkeypatch):
+def test_a_redirect_without_a_file_descriptor_gives_the_child_the_null_device():
     """A stream with no `fileno` (the capture of a test runner) cannot go to a child. The child
-    must not fall back to our own standard output: the redirect keeps that stream clean."""
+    must not fall back to our own standard output: the redirect keeps that stream clean. In log
+    mode a child never gets the standard output."""
     import io
     import sys
 
     from xeda import proc_utils
 
-    monkeypatch.setattr(proc_utils, "_tool_output", None)
-    assert ssh._inheritable_stdout() is None
-    monkeypatch.setattr(proc_utils, "_tool_output", io.StringIO())
-    assert ssh._inheritable_stdout() == subprocess.DEVNULL
-    monkeypatch.setattr(proc_utils, "_tool_output", sys.__stderr__)
-    assert ssh._inheritable_stdout() is sys.__stderr__
+    assert proc_utils.child_stdout() == subprocess.DEVNULL
+    with terminal_output():
+        assert proc_utils.child_stdout() is None
+    with terminal_output(io.StringIO()):
+        assert proc_utils.child_stdout() == subprocess.DEVNULL
+    with terminal_output(sys.__stderr__):
+        assert proc_utils.child_stdout() is sys.__stderr__

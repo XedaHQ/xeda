@@ -217,6 +217,7 @@ def test_a_model_compiled_in_parallel_uses_its_precompiled_header_with_the_hooks
     assert [event["kind"] for event in flow.results["sim.evidence"]["events"]] == ["error"]
 
 
+@pytest.mark.usefixtures("tool_output_on_terminal")
 def test_a_delay_verilator_ignores_is_warned_about_not_failed(tmp_path, capfd):
     """Without `timing`, Verilator ignores a delay: the testbench's `#100; $finish` ends at time
     0. The warnings say so, in the build's output: `STMTDLY` for a delay on a statement (xeda used

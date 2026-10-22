@@ -63,7 +63,7 @@ from .dataclass import (
 )
 from .digest import content_digest
 from .generation import judging_generation
-from .proc_utils import tool_output_redirect
+from .proc_utils import run_child
 from .run_dir import DIR_NAME_HASH_LEN, RunDirectory, run_directory_name
 from .utils import (
     ConflictingKeys,
@@ -1409,17 +1409,15 @@ class Generator(XedaBaseModel):
             # Pass it separately to preserve argv[0] and symlink-alias behavior for wrappers.
             executable = str(self.execution_executable_path(root, cmd))
         log.info("Running command: '%s'", " ".join(cmd))
-        if stdout is None:
-            # A generator's subprocess inherits the stdout of Xeda, which would corrupt a
-            # `--json` document. `tool_output_redirect()` is None unless output has been
-            # redirected, so normal runs keep inheriting.
-            stdout = tool_output_redirect()
         # Check the status here, not in `subprocess.run`, so that a failing generator raises
         # `NonZeroExitCode`, like the other two spellings of a generator, and not a raw
         # `CalledProcessError`.
         wanted = self.check if check is None else check
-        p = subprocess.run(
+        # The output of the generator goes where tool output goes (`run_child`): it does not
+        # corrupt a `--json` document and does not reach the standard streams of a library caller.
+        p = run_child(
             cmd,
+            source=cmd[0] if cmd else "generator",
             cwd=self.working_directory(root),
             executable=executable,
             check=False,
@@ -2972,13 +2970,9 @@ class Design(XedaBaseModel):
                     if _planning_load.get():
                         raise ValueError("Cannot plan a design that needs a generator")
                     log.info("Running generator command: %s", generator)
-                    exit_code = subprocess.call(
-                        generator,
-                        shell=True,
-                        cwd=design_root,
-                        env=env,
-                        stdout=tool_output_redirect(),
-                    )
+                    exit_code = run_child(
+                        generator, source="generator", shell=True, cwd=design_root, env=env
+                    ).returncode
                     if exit_code != 0:
                         log.error("Generator '%s' failed with exit code %d", generator, exit_code)
                         raise NonZeroExitCode(generator, exit_code)
@@ -3045,13 +3039,7 @@ class Design(XedaBaseModel):
                     if _planning_load.get():
                         raise ValueError("Cannot plan a design that needs a generator")
                     args = generator
-                    subprocess.run(
-                        args,
-                        check=True,
-                        cwd=design_root,
-                        env=env,
-                        stdout=tool_output_redirect(),
-                    )
+                    run_child(args, source="generator", check=True, cwd=design_root, env=env)
                 # Whatever the design declares as a source must exist now. Expand it again and do
                 # not reuse the result of the skip check above, because the generator is what a
                 # pattern was waiting for. A source written as `path` skips the check of the

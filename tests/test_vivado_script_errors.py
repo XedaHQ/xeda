@@ -90,6 +90,7 @@ FPGA = {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}}
         ("vivado_sim", {}, "xvhdl"),
     ],
 )
+@pytest.mark.usefixtures("tool_output_on_terminal")
 def test_a_read_error_fails_the_script_with_its_own_message(
     flow, settings, failing, tmp_path, monkeypatch, capfd
 ) -> None:

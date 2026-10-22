@@ -144,21 +144,23 @@ def wants_machine_readable(argv: Sequence[str]) -> bool:
 
 @contextmanager
 def _restoring_output_streams() -> Iterator[None]:
-    """Undo any output redirection that this invocation applied, however the invocation ends.
+    """Show tool output on the terminal for one invocation, and undo any output redirection that
+    the invocation applied, however it ends.
 
-    `machine_readable_mode()` points the rich console and tool output at `sys.stderr`, and both
-    are module-global. Without the restore, a `--json` command leaves every later command in the
-    same process writing to a stream that belonged to it. This happens under
-    `click.testing.CliRunner` and when the CLI is driven as a library. A one-shot `xeda` process
-    is not affected.
+    The command line is the client that prints, so it sets `proc_utils.TOOL_OUTPUT` to
+    `"terminal"`. `machine_readable_mode()` points the rich console, and with it the terminal
+    stream of tool output, at `sys.stderr`, and the console is module-global. Without the
+    restore, a `--json` command leaves every later command in the same process writing to a
+    stream that belonged to it. This happens under `click.testing.CliRunner` and when the CLI is
+    driven as a library. A one-shot `xeda` process is not affected.
     """
     console_previous = console_target()
-    tool_previous = proc_utils.tool_output_redirect()
+    token = proc_utils.TOOL_OUTPUT.set("terminal")
     try:
         yield
     finally:
         restore_console(console_previous)
-        proc_utils.set_tool_output(tool_previous)
+        proc_utils.TOOL_OUTPUT.reset(token)
 
 
 class _DeclaredEnvvarsContext(ColorizedContext):
@@ -433,12 +435,12 @@ def emit_structured(data: Any, fmt: str, records: Optional[Sequence[Any]] = None
 def machine_readable_mode() -> None:
     """Give stdout exclusively to the machine-readable result.
 
-    Rich output (tables, prompts, the logo) and the stdout of every tool move to stderr. Child
-    processes that would otherwise inherit stdout are redirected too. Logging already goes to
-    stderr.
+    Rich output (tables, prompts, the logo) and the stdout of every tool move to stderr: the
+    terminal stream of tool output is the one of the console (`proc_utils.tool_output_stream`).
+    Child processes that would otherwise inherit stdout are redirected too. Logging already goes
+    to stderr.
     """
     redirect_console(sys.stderr)
-    proc_utils.set_tool_output(sys.stderr)
 
 
 def _fmt_default(value: Any, required: bool) -> str:

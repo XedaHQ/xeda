@@ -254,9 +254,11 @@ def test_unknown_flow_name_suggests_close_matches():
 GENERATOR_SCRIPT = """
 import json, sys
 from xeda import proc_utils
+from xeda.cli_utils import machine_readable_mode
 from xeda.design import Generator
 
-proc_utils.set_tool_output(sys.stderr)          # what `--json` mode does
+machine_readable_mode()                         # what `--json` mode does
+proc_utils.TOOL_OUTPUT.set("terminal")          # and the command line shows tool output
 gen = Generator(executable=sys.executable)
 gen.run_cmd([sys.executable, "-c", "print('GENERATOR OUTPUT')"])
 json.dump({"success": True}, sys.stdout)
@@ -280,9 +282,11 @@ def test_generator_subprocess_output_does_not_corrupt_stdout(tmp_path):
 RAW_GENERATOR_SCRIPT = """
 import json, sys
 from xeda import proc_utils
+from xeda.cli_utils import machine_readable_mode
 from xeda.design import Design
 
-proc_utils.set_tool_output(sys.stderr)
+machine_readable_mode()
+proc_utils.TOOL_OUTPUT.set("terminal")
 Design.process_generation({
     "design_root": ".",
     "rtl": {
@@ -445,8 +449,10 @@ def test_generator_object_output_never_corrupts_the_json_document(tmp_path):
 _HIGHLIGHT_HARNESS = """
 import sys, colorama
 from xeda import proc_utils
+from xeda.cli_utils import machine_readable_mode
 
-proc_utils.set_tool_output(sys.stderr)          # what machine_readable_mode() does
+machine_readable_mode()                         # what `--json` mode does
+proc_utils.TOOL_OUTPUT.set("terminal")          # and the command line shows tool output
 sys.stdout.write('{"document": "begin", ')
 sys.stdout.flush()
 proc_utils.run_process(

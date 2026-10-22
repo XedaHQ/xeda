@@ -349,8 +349,9 @@ Xeda creates and marks the run root (`.xeda-run-root`, `.gitignore`, `CACHEDIR.T
 of yours in it. A directory you name with `--run-root` that holds files and has no marker is
 refused (`RunRootError`); the default `./xeda_run` is adopted.
 
-Each run directory has the tool scripts and logs, `reports/`, `outputs/` and `checkpoints/` when
-the flow writes them, and:
+Each run directory has the tool scripts and logs, `logs/<program>.log` (the output and error
+output of every program the flow started; a Python caller sees them there and not on its streams),
+`reports/`, `outputs/` and `checkpoints/` when the flow writes them, and:
 
 | File | Content |
 | --- | --- |

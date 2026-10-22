@@ -18,6 +18,8 @@ from .tool_utils import (
     run_report,
 )
 
+pytestmark = pytest.mark.usefixtures("tool_output_on_terminal")
+
 DESIGN_FILE = Path(__file__).parent.parent / "examples" / "bluespec" / "ascon" / "ascon.yaml"
 CONFIGURATIONS = (
     pytest.param(False, 2, id="ascon128-unroll2"),

@@ -1,9 +1,15 @@
 """Xeda's public package API."""
 
+import logging
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
+from .log_context import TaggingNullHandler
 from .version import __version__
+
+# The library writes no log output of its own. The application decides where records go. This
+# handler writes nothing: it tags the records of a launch (`log_context.py`).
+logging.getLogger(__name__).addHandler(TaggingNullHandler())
 
 _LAZY_EXPORTS = {
     "FPGA": (".flow", "FPGA"),

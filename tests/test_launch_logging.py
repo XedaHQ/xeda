@@ -1,8 +1,9 @@
-"""A launcher's debug mode is the launch's: it never changes the logging of the process.
+"""A launch never changes the logging of the process.
 
 An application that embeds xeda owns its logging. A `DefaultRunner(debug=True)` used to set the
 root logger to DEBUG for good, so every library of the process logged at DEBUG from then on, and
-a later launcher without `debug` did not put it back.
+a later launcher without `debug` did not put it back. Later it set the level of the `xeda` logger
+for the length of a launch. The level is the application's to set, and the command line sets it.
 """
 
 import logging
@@ -73,20 +74,16 @@ def _launch_recording(tmp_path, monkeypatch, debug: bool, fail: bool = False) ->
     return seen
 
 
-def test_a_debug_launch_logs_at_debug_for_xeda_alone(tmp_path, monkeypatch) -> None:
-    seen = _launch_recording(tmp_path, monkeypatch, debug=True)
-    assert seen == {"xeda": True, "other": False}
-
-
-def test_a_launch_without_debug_leaves_xeda_at_the_level_of_the_process(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("debug", [True, False], ids=["debug", "plain"])
+def test_a_launch_leaves_the_level_of_the_process_whether_or_not_it_is_debug(
+    tmp_path, monkeypatch, debug
 ) -> None:
-    seen = _launch_recording(tmp_path, monkeypatch, debug=False)
+    seen = _launch_recording(tmp_path, monkeypatch, debug=debug)
     assert seen == {"xeda": False, "other": False}
 
 
 @pytest.mark.parametrize("fail", [False, True], ids=["finished", "raised"])
-def test_the_levels_are_put_back_after_a_debug_launch(tmp_path, monkeypatch, fail) -> None:
+def test_the_levels_are_the_same_after_a_debug_launch(tmp_path, monkeypatch, fail) -> None:
     before = levels()
     _launch_recording(tmp_path, monkeypatch, debug=True, fail=fail)
     assert levels() == before
@@ -128,36 +125,9 @@ def test_a_debug_launch_leaves_a_level_the_application_sets_meanwhile(
     assert logging.getLogger("xeda").level == logging.ERROR
 
 
-@pytest.mark.parametrize(
-    "order",
-    [("a", "b", "a", "b"), ("a", "b", "b", "a")],
-    ids=["first-in-first-out", "nested"],
-)
-@pytest.mark.parametrize("second_debug", [True, False], ids=["both-debug", "second-plain"])
-def test_overlapping_launches_put_the_level_back_when_the_last_debug_one_ends(
-    order, second_debug
+def test_a_direct_search_launch_leaves_the_level_alone_when_asked_for_debug(
+    tmp_path, monkeypatch
 ) -> None:
-    """Two launchers of one process (threads) enter and leave in any order. The level is
-    DEBUG while a debug launch is on, and the process's own after the last one."""
-    from xeda.flow_runner.default_runner import xeda_debug_logging
-
-    package = logging.getLogger("xeda")
-    scopes = {"a": xeda_debug_logging(True), "b": xeda_debug_logging(second_debug)}
-    entered: set = set()
-    for name in order:
-        if name in entered:
-            scopes[name].__exit__(None, None, None)
-            entered.discard(name)
-            debug_on = "a" in entered or ("b" in entered and second_debug)
-            assert (package.level == logging.DEBUG) == debug_on
-        else:
-            scopes[name].__enter__()
-            entered.add(name)
-            assert package.level == logging.DEBUG
-    assert package.level == logging.NOTSET
-
-
-def test_a_direct_search_launch_logs_at_debug_when_asked(tmp_path, monkeypatch) -> None:
     """`Dse.run_flow` is a way in too: a caller may use it without `run`."""
     from xeda.flow_runner import Dse
     from xeda.flow_runner.dse.fmax import FmaxOptimizer
@@ -188,7 +158,7 @@ def test_a_direct_search_launch_logs_at_debug_when_asked(tmp_path, monkeypatch) 
         design,
         flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": "5 ns"}},
     )
-    assert seen == [True]
+    assert seen == [False]
     assert logging.getLogger("xeda").level == logging.NOTSET
 
 

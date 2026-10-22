@@ -57,8 +57,6 @@ NAMES_BEFORE_THE_SPLIT = (
     "RunDirPolicy",
     "ScrubResult",
     "XedaOptions",
-    "_DEBUG_LOGGING",
-    "_DebugLogging",
     "_Listed",
     "_Method",
     "_REMOVED_LAUNCHER_SETTINGS",
@@ -99,8 +97,6 @@ NAMES_BEFORE_THE_SPLIT = (
     "run_directory_names",
     "scrub_design",
     "scrub_runs",
-    "with_debug_logging",
-    "xeda_debug_logging",
 )
 
 

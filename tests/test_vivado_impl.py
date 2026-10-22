@@ -679,6 +679,7 @@ def test_a_second_launch_runs_nothing_and_an_edited_constraint_file_runs_vivado_
 
 
 @needs_tclsh
+@pytest.mark.usefixtures("tool_output_on_terminal")
 def test_a_netlist_vivado_cannot_read_fails_the_script_with_its_own_message(
     tmp_path, toolchain, monkeypatch, capfd
 ) -> None:

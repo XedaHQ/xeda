@@ -371,6 +371,7 @@ def test_invalid_init_driver_fails_before_cxxrtl(tmp_path, check_assert):
     assert not (flow.run_path / "sim.cpp").exists()
 
 
+@pytest.mark.usefixtures("tool_output_on_terminal")
 def test_simulation_top_and_hdl_testbench_source_are_used(tmp_path, capfd):
     require_yosys()
     require_c_toolchain()

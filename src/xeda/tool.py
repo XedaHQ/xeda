@@ -16,6 +16,7 @@ from .dataclass import Field, PrivateAttr, XedaBaseModel, field_validator
 from .flow import Flow
 from .proc_utils import (
     DOCKER_IMAGE_PREFIX,
+    TOOL_OUTPUT,
     ProcessTimeout,
     note_program,
     run_process,
@@ -111,6 +112,8 @@ class Docker(XedaBaseModel):
         timeout: float | None = None,
         tee: Path | None = None,
         cwd: Path | None = None,
+        log_to: Path | None = None,
+        log_append: bool = False,
     ) -> Union[str, None]:
         """Run the tool in a Docker container.
 
@@ -154,7 +157,7 @@ class Docker(XedaBaseModel):
         if self.privileged:
             docker_args.append("--privileged")
         mounts[str(cwd)] = str(cwd)
-        if not stdout and tool_output_stream().isatty():
+        if not stdout and TOOL_OUTPUT.get() == "terminal" and tool_output_stream().isatty():
             docker_args += ["--tty", "--interactive"]
         if self.platform:
             docker_args += ["--platform", self.platform]
@@ -215,12 +218,25 @@ class Docker(XedaBaseModel):
                 tee=tee,
                 cwd=cwd,
                 on_stop=kill_container,
+                log_to=log_to,
+                log_append=log_append,
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
             raise ExecutableNotFound(
                 e.filename, self.__class__.__qualname__, path, *e.args
             ) from None
+
+
+#: The suffixes that a program name can have, and that its log does not keep.
+_PROGRAM_SUFFIXES = (".exe", ".bat", ".cmd", ".sh", ".py")
+
+
+def log_stem(executable: str) -> str:
+    """Return the name of the log of a program: its file name without a suffix such as `.exe`."""
+    name = Path(executable).name
+    suffix = Path(name).suffix
+    return name[: -len(suffix)] if suffix.lower() in _PROGRAM_SUFFIXES else name
 
 
 def fake_cpu_info(file=".xeda_cpuinfo", ncores=4):
@@ -628,6 +644,23 @@ class Tool(XedaBaseModel):
                 added.append(directory)
         return [*design, *added]
 
+    def _tool_log(self, executable: str) -> Tuple[Path | None, bool]:
+        """Return the path of the log of this run of `executable`, and whether it adds to the
+        log that an earlier run of the same program made in this run directory.
+
+        Every program that a flow starts writes its output and its error output to
+        `logs/<program>.log` in the run directory, whatever `TOOL_OUTPUT` says. A tool outside a
+        flow has no run directory and no log."""
+        directory = self._run_directory
+        if directory is None:
+            return None, False
+        path = directory.writable(Path("logs") / f"{log_stem(executable)}.log")
+        path.parent.mkdir(exist_ok=True)
+        started = directory.tool_logs
+        append = path in started
+        started.add(path)
+        return path, append
+
     def execute(
         self,
         executable: str,
@@ -653,6 +686,7 @@ class Tool(XedaBaseModel):
         stdout = _placed(directory, stdout)
         if tee is not None:
             tee = directory / tee
+        log_to, log_append = (None, False) if stdout is True else self._tool_log(executable)
         args = tuple(list(self.default_args) + list(args))
         if self.console_colors:
             highlight_rules = highlight_rules or self.highlight_rules
@@ -675,6 +709,8 @@ class Tool(XedaBaseModel):
                 timeout=timeout,
                 tee=tee,
                 cwd=container_directory,
+                log_to=log_to,
+                log_append=log_append,
             )
         if env is not None:
             env = {**os.environ, **env}
@@ -692,6 +728,8 @@ class Tool(XedaBaseModel):
                 timeout=timeout,
                 tee=tee,
                 terminal=self.pseudo_terminal and self.console_colors,
+                log_to=log_to,
+                log_append=log_append,
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")

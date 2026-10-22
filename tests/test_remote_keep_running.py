@@ -17,6 +17,7 @@ import os
 import queue
 import subprocess
 import sys
+import contextvars
 import threading
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
@@ -239,7 +240,9 @@ def cleanup(remote_host: RemoteHost, leftovers: _Processes) -> Iterator[_Process
 
 def _run_in_thread(function: Callable[[], Any]) -> tuple[threading.Thread, "queue.Queue[Any]"]:
     outcome: "queue.Queue[Any]" = queue.Queue()
-    thread = threading.Thread(target=lambda: outcome.put(function()), daemon=True)
+    # A thread starts with an empty context: the call runs in a copy of this one (tool output).
+    run = contextvars.copy_context().run
+    thread = threading.Thread(target=run, args=(lambda: outcome.put(function()),), daemon=True)
     thread.start()
     return thread, outcome
 
@@ -692,6 +695,7 @@ def test_cancel_stops_a_process_that_was_seen_while_the_launch_ran(tmp_path, lef
 # --- Attach -------------------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("tool_output_on_terminal")
 def test_attach_replays_the_log_waits_and_fetches(
     tmp_path, remote_host, monkeypatch, cleanup, capsys
 ):

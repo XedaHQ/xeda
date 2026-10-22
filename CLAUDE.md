@@ -248,9 +248,13 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   `tests/fake_tools/fake_tool.py` plus a `fake_tools` entry. No test starts a real
   `openFPGALoader` (`programmer_guard`). The fake `ssh`, `uv` and `curl` are in
   `tests/fake_tools/remote/`, on a `PATH` only through the remote fixtures.
-- `--json` puts exactly one JSON document on stdout; tool output goes to stderr, so a process
-  started outside `run_process` must honor `proc_utils.tool_output_redirect()`. Every failure,
-  usage errors too, emits an `error`. `xeda run` prints `Result.to_dict()` (`outcome`, `error`,
+- Tool output reaches a stream only through `proc_utils.TOOL_OUTPUT` (`"log"` by default; the CLI
+  sets `"terminal"`); the library prints nothing and adds no handler or level to the `xeda` logger
+  (`tests/test_quiet_library.py`). Every tool process writes `logs/<program>.log` in its run
+  directory; a child outside `run_process` (a generator) goes through `proc_utils.run_child`.
+- `--json` puts exactly one JSON document on stdout; tool output goes to stderr (the console
+  target, `machine_readable_mode()`), so a process started outside `run_process` must use
+  `proc_utils.child_stdout()`. Every failure, usage errors too, emits an `error`. `xeda run` prints `Result.to_dict()` (`outcome`, `error`,
   `nodes`); a request that starts no launch has `outcome: null` and exits 2, and a usage error
   also has `spec: null`. The other commands print `{"success": false, "error": ...}`
   (`tests/test_cli_json_contract.py`).

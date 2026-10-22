@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, List, NamedTuple, Optional, Sequence, Tuple
@@ -29,6 +30,7 @@ import pytest
 
 __all__ = [
     "HANG_GUARD",
+    "terminal_output",
     "OPENROAD_COMMANDS",
     "fake_calls",
     "fake_returns",
@@ -1514,3 +1516,23 @@ def run_outputs_state(*run_dirs: Path) -> dict[Path, tuple[Any, ...]]:
                 content = hashlib.sha256(entry.read_bytes()).hexdigest()
                 state[entry] = ("file", status.st_size, status.st_mtime_ns, status.st_ino, content)
     return state
+
+
+@contextmanager
+def terminal_output(stream: Any = None) -> Iterator[None]:
+    """Show the output of tools on a terminal, as the command line does, while the block runs.
+
+    Tool output goes to the standard output, or to `stream` when given (the command line moves it
+    to the standard error under `--json`). The mode and the stream are put back after the block."""
+    from xeda.console import console_target, redirect_console, restore_console
+    from xeda.proc_utils import TOOL_OUTPUT
+
+    previous = console_target()
+    token = TOOL_OUTPUT.set("terminal")
+    if stream is not None:
+        redirect_console(stream)
+    try:
+        yield
+    finally:
+        restore_console(previous)
+        TOOL_OUTPUT.reset(token)

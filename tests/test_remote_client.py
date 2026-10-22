@@ -450,6 +450,7 @@ def test_a_login_shell_that_prints_does_not_break_the_run(tmp_path, remote_host,
     _succeeded(_request(tmp_path, _design(tmp_path)))
 
 
+@pytest.mark.usefixtures("tool_output_on_terminal")
 def test_provisioning_and_the_log_are_reported(tmp_path, remote_host, capsys, caplog):
     caplog.set_level("INFO", logger="xeda.remote.client")
     _succeeded(_request(tmp_path, _design(tmp_path)))

@@ -17,13 +17,13 @@ import os
 import re
 import subprocess
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
 from rich.console import Console
 
 from xeda.flow import MetricSpec
-from xeda import proc_utils
 from xeda.flow import Flow
 from xeda.flows.openfpgaloader import (
     FAILURE_ENDINGS,
@@ -849,7 +849,8 @@ def test_the_verdict_is_the_same_when_the_loader_runs_in_a_terminal(
     """In a terminal the loader has a terminal of its own (`OpenfpgaloaderTool.pseudo_terminal`):
     its log has the same lines but for the blank ones, so the verdict is the same."""
     terminal = Terminal()
-    monkeypatch.setattr(proc_utils, "_tool_output", terminal.stream)
+    stack = ExitStack()
+    stack.enter_context(tool_utils.terminal_output(terminal.stream))
     monkeypatch.setattr("xeda.tool.console", Console(force_terminal=True, color_system="standard"))
     printing(monkeypatch, stdout=owner_log(name))
     try:
@@ -857,6 +858,7 @@ def test_the_verdict_is_the_same_when_the_loader_runs_in_a_terminal(
         log = (tmp_path / "run/top/openfpgaloader" / LOADER_LOG).read_text()
         shown = terminal.shown()
     finally:
+        stack.close()
         terminal.close()
     assert flow.succeeded is (name == "arty-configured.txt")
     (call,) = [
@@ -1078,7 +1080,8 @@ def test_a_xilinx_flash_write_is_judged_the_same_when_the_loader_runs_in_a_termi
     """In a terminal the loader writes colors and redraws its bars with `\\r`; the log keeps the
     text, one line for each redraw, so the verdict reads the same lines."""
     terminal = Terminal()
-    monkeypatch.setattr(proc_utils, "_tool_output", terminal.stream)
+    stack = ExitStack()
+    stack.enter_context(tool_utils.terminal_output(terminal.stream))
     monkeypatch.setattr("xeda.tool.console", Console(force_terminal=True, color_system="standard"))
     printing(monkeypatch, stdout=stdout)
     try:
@@ -1086,6 +1089,7 @@ def test_a_xilinx_flash_write_is_judged_the_same_when_the_loader_runs_in_a_termi
         log = (tmp_path / "run/top/openfpgaloader" / LOADER_LOG).read_text()
         shown = terminal.shown()
     finally:
+        stack.close()
         terminal.close()
     assert flow.succeeded is passes
     (call,) = _calls(tmp_path, "openfpgaloader")

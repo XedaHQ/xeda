@@ -35,6 +35,29 @@ from xeda import utils as xeda_utils
 from xeda.proc_utils import run_process
 from xeda.utils import NonZeroExitCode, live_log
 
+from .tool_utils import terminal_output
+
+
+class InterruptedOutput:
+    """The standard output when the user presses Ctrl-C while a line is being shown."""
+
+    def isatty(self) -> bool:
+        return False
+
+    def write(self, text: str) -> int:
+        raise KeyboardInterrupt
+
+    def flush(self) -> None:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def terminal_mode():
+    """These tests are about what a person sees: the output of a tool is on the terminal."""
+    with terminal_output():
+        yield
+
+
 # a rule shaped like the real ones in the vivado/vcs/dc flows
 HIGHLIGHT = {r"^(ERROR:)(.+)$": "<<" + r"\g<0>"}
 
@@ -49,7 +72,8 @@ def _probe_script(tmp_path: Path) -> Path:
     fake_tool = f"import sys; sys.stdout.write({TOOL_OUTPUT!r})"
     script.write_text(
         "import sys\n"
-        "from xeda.proc_utils import run_process\n"
+        "from xeda.proc_utils import TOOL_OUTPUT, run_process\n"
+        "TOOL_OUTPUT.set('terminal')\n"
         f"run_process(sys.executable, ['-c', {fake_tool!r}], highlight_rules={HIGHLIGHT!r})\n"
     )
     return script
@@ -347,21 +371,20 @@ def test_docker_run_overrides_mount_the_design_read_only(docker_cls, monkeypatch
     assert f"--volume={design}:{design}:ro" in commands[0]
 
 
-def test_tool_output_redirect_is_none_by_default():
+def test_tool_output_goes_to_the_terminal_only_in_terminal_mode():
     from xeda import proc_utils
 
     assert proc_utils.tool_output_redirect() is None
-    try:
-        proc_utils.set_tool_output(sys.stderr)
+    assert proc_utils.tool_output_stream() is sys.stdout
+    with terminal_output(sys.stderr):
         assert proc_utils.tool_output_redirect() is sys.stderr
         assert proc_utils.tool_output_stream() is sys.stderr
-    finally:
-        proc_utils.set_tool_output(None)
     assert proc_utils.tool_output_stream() is sys.stdout
+    assert proc_utils.TOOL_OUTPUT.get() == "terminal"  # the mode of the fixture, put back
 
 
 def test_run_process_pipes_output_when_the_redirect_has_no_file_descriptor():
-    """`set_tool_output` may point at a stream that exists only at the Python level -- an
+    """The terminal stream may be one that exists only at the Python level -- an
     `io.StringIO`, `click.testing.CliRunner`'s captured streams, an embedding program's own
     redirected stdio -- and cannot be handed to `Popen(stdout=...)` as a file descriptor.
     `run_process` used to hand it over anyway, which raised `io.UnsupportedOperation: fileno`
@@ -369,15 +392,9 @@ def test_run_process_pipes_output_when_the_redirect_has_no_file_descriptor():
     fall back to piping and copying, exactly as the highlighting path already does."""
     import io
 
-    from xeda import proc_utils
-
-    previous = proc_utils.tool_output_redirect()
     buffer = io.StringIO()
-    proc_utils.set_tool_output(buffer)
-    try:
+    with terminal_output(buffer):
         run_process(sys.executable, ["-c", "print('hi')"])
-    finally:
-        proc_utils.set_tool_output(previous)
 
     assert "hi" in buffer.getvalue()
 
@@ -843,10 +860,7 @@ def test_an_interrupt_stops_the_whole_process_tree(tmp_path, inherited):
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
 def test_an_interrupt_while_copying_output_stops_the_process(monkeypatch):
-    def interrupted(*args, **kwargs):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr("builtins.print", interrupted)
+    monkeypatch.setattr(sys, "stdout", InterruptedOutput())
     with pytest.raises(KeyboardInterrupt), _stopped_within():
         run_process(
             sys.executable,
@@ -1577,10 +1591,7 @@ def test_a_failing_stop_hook_does_not_replace_an_interrupt(monkeypatch):
     def broken():
         raise RuntimeError("docker is gone")
 
-    def interrupted(*args, **kwargs):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr("builtins.print", interrupted)
+    monkeypatch.setattr(sys, "stdout", InterruptedOutput())
     with pytest.raises(KeyboardInterrupt), _stopped_within():
         run_process(
             sys.executable,
@@ -1605,10 +1616,7 @@ def test_the_stop_hook_runs_on_the_calling_thread_after_a_timeout():
 def test_the_stop_hook_runs_on_the_calling_thread_after_an_interrupt(monkeypatch):
     seen = []
 
-    def interrupted(*args, **kwargs):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr("builtins.print", interrupted)
+    monkeypatch.setattr(sys, "stdout", InterruptedOutput())
     with pytest.raises(KeyboardInterrupt), _stopped_within():
         run_process(
             sys.executable,
