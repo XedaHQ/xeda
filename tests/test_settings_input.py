@@ -200,14 +200,6 @@ def test_a_code_advertises_every_accepted_input_type():
     assert types == {"string", "integer", "number"}
 
 
-def test_a_union_keeps_the_type_it_was_given():
-    """`stop_time` takes a number or text with a unit; neither is turned into the other."""
-    from xeda.flow.sim import SimFlow
-
-    assert SimFlow.Settings(stop_time=5).stop_time == 5
-    assert SimFlow.Settings(stop_time="5us").stop_time == "5us"
-
-
 def test_vivado_run_properties_take_text_numbers_and_booleans():
     """A run property's type says what Vivado accepts, and each kind is rendered for Tcl."""
     from xeda.flows.vivado.vivado_synth import VivadoSynth, tcl_property_value

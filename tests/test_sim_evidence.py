@@ -15,6 +15,7 @@ import pytest
 from xeda.design import SourceType
 from xeda.flow import Flow, registered_flows
 from xeda.flow.metrics import COMMON_METRICS
+from xeda.units import Time
 from xeda.flow.sim import (
     SimEvent,
     SimEvidence,
@@ -90,7 +91,8 @@ class _Stub:
     def __init__(self, stop_time=None):
         self.results = {}
         self.rejection = None
-        self.settings = type("S", (), {"stop_time": stop_time, "max_cycles": None})()
+        stop = None if stop_time is None else Time(stop_time)
+        self.settings = type("S", (), {"stop_time": stop, "max_cycles": None})()
 
 
 @pytest.mark.parametrize(
@@ -159,9 +161,9 @@ FINISH_ADVICE = ("std.env.finish", "$finish", "stop_time")
     ("evidence", "stop_time", "expected"),
     [
         (SimEvidence(ended_by="unknown"), None, ("event queue", *FINISH_ADVICE)),
-        (SimEvidence(ended_by="unknown"), "10ns", ("event queue", "10ns", *FINISH_ADVICE)),
+        (SimEvidence(ended_by="unknown"), "10ns", ("event queue", "10 ns", *FINISH_ADVICE)),
         (SimEvidence(ended_by="drained", time=20), None, ("ran empty", *FINISH_ADVICE)),
-        (SimEvidence(ended_by="drained", time=0), "15ns", ("before the requested", "15ns")),
+        (SimEvidence(ended_by="drained", time=0), "15ns", ("before the requested", "15 ns")),
         (SimEvidence(ended_by="fatal", time=5), None, ("fatal error",)),
         (
             SimEvidence(
@@ -304,7 +306,7 @@ ENDINGS = [
         SimEvidence(ended_by="stop_time", time=5, time_unit="1ns"),
         "10ns",
         None,
-        "other than the requested stop_time 10ns",
+        "other than the requested stop_time 10 ns",
     ),
     (SimEvidence(ended_by="max_cycles", cycles=3), None, None, "nobody asked for"),
     (SimEvidence(ended_by="max_cycles", cycles=3), None, 10, "it observed 3 cycles"),
@@ -799,10 +801,10 @@ def test_simulation_controls_are_inherited_unchanged(flow_name):
             if parent is not SimFlow.Settings
         )
         assert getattr(settings, name) == default
-    settings.timeout = 2.5
+    settings.timeout = Time("2.5 s")
     settings.fail_severity = "warning"
     restored = cls.Settings.model_validate_json(settings.model_dump_json())
-    assert restored.timeout == 2.5 and restored.fail_severity == "warning"
+    assert restored.timeout == Time("2.5 s") and restored.fail_severity == "warning"
     assert restored.model_dump() == settings.model_dump()
 
 
@@ -823,7 +825,7 @@ def test_positive_runtime_then_silent_rerun_cannot_reuse_evidence(case, tmp_path
 
     work = tmp_path / "case"
     # This checks forwarding, not expiration; allow the combined fake tool to start under load.
-    settings = {"timeout": 30.0}
+    settings = {"timeout": "30 s"}
     with monkeypatch.context() as patch:
         positive = launch_case(case, work, patch, positive=True, settings_overrides=settings)
     assert positive.succeeded, f"{case.name} did not produce positive evidence"
@@ -845,7 +847,7 @@ def test_alternate_runtime_modes_receive_timeout(family, settings, tmp_path, mon
         tmp_path / "case",
         monkeypatch,
         positive=True,
-        settings_overrides={"timeout": 30.0, **settings},
+        settings_overrides={"timeout": "30 s", **settings},
     )
     assert positive.succeeded
 

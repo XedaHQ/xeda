@@ -947,7 +947,7 @@ design file can carry the settings of several flows:
         platform: nangate45
         clock.period: 10 ns
       ghdl_sim:
-        stop_time: 100us
+        stop_time: 100 us
 
 ``xeda list-settings <flow>`` lists what a flow accepts. Xeda rejects an unknown setting of a
 flow, so a typo is an error and not silently ignored.

@@ -10,7 +10,7 @@ from pathlib import Path
 from collections.abc import Mapping
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
-from ...dataclass import SecondSpelling, Field, deliverable, field_validator, waveform
+from ...dataclass import SecondSpelling, Field, deliverable, waveform
 from ...design import Design, Source, SourceType, Tuple012, VhdlSettings, language_of
 from ...flow import (
     Flow,
@@ -27,7 +27,6 @@ from ...flow.metrics import COCOTB_METRICS
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import parse_ghdl_log
 from ...tool import Docker, Tool
-from ...units import convert_unit
 from ...utils import LOCATION_FORMS, SDF, common_root, replacing_file, setting_flag
 
 log = logging.getLogger(__name__)
@@ -583,14 +582,6 @@ class GhdlSim(Ghdl, SimFlow):
         )
         # TODO workdir?
 
-        @field_validator("stop_time", mode="before")
-        @classmethod
-        def validate_stop_time(cls, value):
-            if value is not None:
-                if convert_unit(value, "fs", from_unit="ns") < 0:
-                    raise ValueError("stop_time must be nonnegative")
-            return value
-
         def runtime_flags(self) -> list[str]:
             """Return `run_flags` with the `--assert-level` that `fail_severity` selects."""
             threshold = "failure" if self.fail_severity == "fatal" else self.fail_severity
@@ -788,7 +779,7 @@ class GhdlSim(Ghdl, SimFlow):
             )
 
         if ss.stop_time is not None:
-            stop_fs = round(convert_unit(ss.stop_time, "fs", from_unit="ns"))
+            stop_fs = round(ss.stop_time.to("fs"))
             run_flags.append(f"--stop-time={stop_fs}fs")
         run_flags += setting_flag(ss.stop_delta, name="stop_delta")
 
@@ -809,7 +800,7 @@ class GhdlSim(Ghdl, SimFlow):
             *sim_tops,
             *run_flags,
             env=self.cocotb.env(design) if self.cocotb else {},
-            timeout=ss.timeout,
+            timeout=ss.timeout_in_seconds(),
             tee=self._sim_log,
             merge_stderr=not self.cocotb,
         )

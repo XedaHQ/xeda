@@ -600,6 +600,30 @@ def _write_yaml(tmp_path: Path, flows: dict) -> Path:
     return path
 
 
+def test_the_default_delays_are_written_into_the_clock_constraints_in_nanoseconds(
+    tmp_path, toolchain
+) -> None:
+    """A delay is a time with a unit. The constraint file gets it as a number of nanoseconds, the
+    unit of Vivado."""
+    settings = {
+        **SETTINGS,
+        "default_max_input_delay": "2 ns",
+        "default_min_input_delay": "500 ps",
+        "default_max_output_delay": "1.5 ns",
+        "default_min_output_delay": "0.0005 us",
+    }
+    flow = _runner(tmp_path).run_flow(VivadoImpl, _edif_design(tmp_path / "d"), settings)
+    assert flow is not None and flow.succeeded
+    lines = (flow.run_path / "clock.xdc").read_text().splitlines()
+    assert [line.split(" [")[0].split(" -clock ")[0] for line in lines[1:]] == [
+        "set_input_delay -max",
+        "set_input_delay -min",
+        "set_output_delay -max",
+        "set_output_delay -min",
+    ]
+    assert [line.split(" [")[0].split()[-1] for line in lines[1:]] == ["2.0", "0.5", "1.5", "0.5"]
+
+
 def test_constraints_are_read_clock_first_then_the_designs_then_the_settings(
     tmp_path, toolchain
 ) -> None:

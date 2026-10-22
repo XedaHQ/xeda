@@ -6,9 +6,9 @@ quantity type of `xeda.units`, and the user writes its unit. Every other number 
 rule like this holds only while a test finds the next setting that breaks it. The sweep below walks
 every settings model, recursively, and fails on a number that is neither.
 
-A setting that a later change still converts is in `NOT_MIGRATED_YET`, and a map of tool
-options whose values the flow hands to the tool in the tool's own words is in `PASS_THROUGH`. The
-sweep keeps both tables true: an entry names an existing field, and a field that gains a unit or a
+A setting of the design-space search, which keeps plain numbers, is in `NOT_MIGRATED_YET`. A map
+of tool options whose values the flow hands to the tool in the tool's own words is in
+`PASS_THROUGH`. The sweep keeps both tables true: an entry names an existing field, and a field that gains a unit or a
 marker has to leave `NOT_MIGRATED_YET`. The first table may only shrink.
 """
 
@@ -76,34 +76,12 @@ from .test_cli_json_contract import json_stdout, run_xeda
 pytestmark = pytest.mark.python_compat
 
 FMAX = "FmaxOptimizer.Settings"
-DC_UNCHANGED = "dc is not changed in this branch"
-SEARCH_UNCHANGED = "the design-space search is not changed in this branch"
+SEARCH_UNCHANGED = "the design-space search (`xeda dse`) is internal and keeps plain numbers"
 
-#: Settings that a later change converts to quantities or marks: the physical ones, and every
-#: number of dc and of the design-space search, which this branch does not change. A field leaves
-#: this table when it becomes a quantity or gets a marker; the table never grows. Every entry says
-#: why the setting is here.
+#: Settings that are neither a quantity nor marked: every number of the design-space search, which
+#: `xeda dse` keeps internal. A field leaves this table when it becomes a quantity or gets a
+#: marker; the table never grows. Every entry says why the setting is here.
 NOT_MIGRATED_YET: dict[FieldKey, str] = {
-    # simulation
-    ("SimFlow.Settings", "stop_time"): "a time in nanoseconds, or text with a unit",
-    ("SimFlow.Settings", "timeout"): "a time in seconds",
-    ("VivadoSim.Settings", "prerun_time"): "a time, as text with a unit",
-    ("Vcs.Settings", "time_unit"): "a time, as text such as 1ns",
-    ("Vcs.Settings", "time_resolution"): "a time, as text such as 1ps",
-    ("Vcs.Settings", "lic_wait"): "a waiting time, in the unit of the tool",
-    # Vivado and nextpnr timing
-    ("VivadoImplementation.Settings", "default_max_input_delay"): "a time in nanoseconds",
-    ("VivadoImplementation.Settings", "default_max_output_delay"): "a time in nanoseconds",
-    ("VivadoImplementation.Settings", "default_min_input_delay"): "a time in nanoseconds",
-    ("VivadoImplementation.Settings", "default_min_output_delay"): "a time in nanoseconds",
-    ("Nextpnr.Settings", "hold_detour_max"): "a time in nanoseconds",
-    # programming
-    ("Openfpgaloader.Settings", "freq"): "a frequency in hertz",
-    # dc and the design-space search are not changed in this branch
-    ("Dc.Settings", "default_max_input_delay"): DC_UNCHANGED,
-    ("Dc.Settings", "default_max_output_delay"): DC_UNCHANGED,
-    ("Dc.Settings", "max_routing_layer"): DC_UNCHANGED,
-    ("Dc.Settings", "min_routing_layer"): DC_UNCHANGED,
     ("Dse.Settings", "max_failed_iters"): SEARCH_UNCHANGED,
     ("Dse.Settings", "max_failed_iters_with_best"): SEARCH_UNCHANGED,
     ("Dse.Settings", "max_runtime_minutes"): SEARCH_UNCHANGED,

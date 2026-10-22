@@ -33,7 +33,7 @@ from .artifacts import (
     run_log_artifacts,
     run_log_key,
 )
-from ...units import count
+from ...units import Time, count
 from ...utils import HierDict, parse_xml, replacing_file, try_convert
 
 #: A Vivado run property value: text, a number or a boolean (`MAX_BRAM 0`, `... IS_ENABLED true`).
@@ -514,17 +514,21 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             description="The number of timing paths to write to the critical path reports.",
             json_schema_extra=count(),
         )  # pyright: ignore
-        default_max_input_delay: Optional[float] = Field(
-            None, description="Default max delay to set on all non-clock input ports."
+        default_max_input_delay: Optional[Time] = Field(
+            None,
+            description="Default max delay to set on all non-clock input ports, a time with a unit, such as `2 ns`.",
         )
-        default_min_input_delay: Optional[float] = Field(
-            None, description="Default min delay to set on all non-clock input ports."
+        default_min_input_delay: Optional[Time] = Field(
+            None,
+            description="Default min delay to set on all non-clock input ports, a time with a unit, such as `2 ns`.",
         )
-        default_max_output_delay: Optional[float] = Field(
-            None, description="Default max delay to set on all output ports."
+        default_max_output_delay: Optional[Time] = Field(
+            None,
+            description="Default max delay to set on all output ports, a time with a unit, such as `2 ns`.",
         )
-        default_min_output_delay: Optional[float] = Field(
-            None, description="Default min delay to set on all output ports."
+        default_min_output_delay: Optional[Time] = Field(
+            None,
+            description="Default min delay to set on all output ports, a time with a unit, such as `2 ns`.",
         )
         suppress_msgs: List[str] = Field(
             [

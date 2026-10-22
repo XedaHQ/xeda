@@ -367,6 +367,9 @@ In a design file, a quantity is plain text:
       nextpnr:
         clock.freq: 400 MHz
 
+A time limit is a quantity too. On a simulation flow, ``timeout: 2 min`` limits the wall-clock
+time of each tool run, and ``stop_time: 100 us`` stops the simulation at a simulated time.
+
 In a TOML or a JSON file, write a quantity as a string: ``period = "2.5 ns"``. On the command line,
 write the number and the unit without a space. The shell then passes one word, and the item needs
 no quotes: ``-s clock.period=2.5ns``. With a space, quote the whole item:
@@ -475,49 +478,12 @@ A setting that holds a plain number takes no unit. These settings hold plain num
   library". Only the Liberty file of the library knows the unit, for example ``ns`` or ``ps`` for a
   time. Xeda passes the number to the tool as it is.
 
-Settings that do not take units yet
+Settings of the design-space search
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The settings in this table hold a time, a frequency or another measurement, but they do not take
-a quantity. Each keeps its current form. A setting that takes a number refuses text with a unit.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 40 24 36
-
-   * - Setting
-     - Flows
-     - Current form
-   * - ``stop_time``
-     - simulation flows
-     - a number of nanoseconds, or text with a unit, such as ``100us``
-   * - ``timeout``
-     - simulation flows
-     - a number of seconds
-   * - ``prerun_time``
-     - Vivado simulation flows
-     - text with a unit, such as ``10ns``
-   * - ``time_unit``, ``time_resolution``
-     - ``vcs``
-     - text such as ``1ns`` and ``1ps``
-   * - ``lic_wait``
-     - ``vcs``
-     - a whole number
-   * - ``default_max_input_delay``, ``default_min_input_delay``, ``default_max_output_delay``,
-       ``default_min_output_delay``
-     - Vivado synthesis and implementation flows
-     - a number of nanoseconds
-   * - ``hold_detour_max``
-     - ``nextpnr``
-     - a number of nanoseconds
-   * - ``freq``
-     - ``openfpgaloader``
-     - a whole number of hertz
-
-The ``dc`` flow keeps the form of its own numbers, such as ``default_max_input_delay``. Its clock
-settings need a unit, as in every other flow. ``xeda dse`` keeps the form of its options and
-optimizer settings: the frequency bounds (``--init-freq-low`` and ``--init-freq-high``),
-``resolution``, ``delta``, ``max_runtime_minutes`` and ``timeout`` are plain numbers.
+``xeda dse`` keeps plain numbers for its options and optimizer settings: the frequency bounds
+(``--init-freq-low`` and ``--init-freq-high``), ``resolution``, ``delta``, ``max_runtime_minutes``
+and ``timeout``.
 
 .. _settings-groups:
 

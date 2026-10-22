@@ -83,7 +83,7 @@ def test_vcs_runtime_verdict(
 
 @pytest.mark.parametrize("one_shot", [False, True])
 def test_vcs_timeout_preserves_runtime_diagnostics(tmp_path, monkeypatch, one_shot):
-    flow = launch(tmp_path, monkeypatch, "timeout", one_shot, {"timeout": 2.0})
+    flow = launch(tmp_path, monkeypatch, "timeout", one_shot, {"timeout": "2 s"})
     assert not flow.succeeded
     assert flow.results["error"]["code"] == "timeout"
     assert flow.results["sim.errors"] == 1
@@ -229,9 +229,9 @@ def test_vcs_linked_runtime_log_does_not_overwrite_outside_data(tmp_path, monkey
     assert outside.read_text() == "keep me"
 
 
-@pytest.mark.parametrize("stop_time", ["0ns", "0", "10", 10, 10.0, "1e1ns", "0.01us"])
-def test_vcs_absolute_limit_validation_and_numeric_units(tmp_path, monkeypatch, stop_time):
-    if stop_time in ("0ns", "0"):
+@pytest.mark.parametrize("stop_time", ["0 ns", "10 ns", "1e1ns", "0.01 us"])
+def test_vcs_absolute_limit_validation_and_units(tmp_path, monkeypatch, stop_time):
+    if stop_time == "0 ns":
         with pytest.raises(FlowSettingsException, match="positive"):
             launch(tmp_path, monkeypatch, settings={"stop_time": stop_time})
     else:

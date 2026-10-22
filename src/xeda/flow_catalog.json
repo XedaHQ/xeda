@@ -724,7 +724,7 @@
       "timeout": {
         "children": false,
         "assignable": true,
-        "help": "Stop and fail each subprocess invocation that contains simulation after this many seconds of wall-clock time. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
+        "help": "Stop and fail each subprocess invocation that contains simulation after this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
       },
       "fail_severity": {
         "children": false,
@@ -745,7 +745,7 @@
       "stop_time": {
         "children": false,
         "assignable": true,
-        "help": "Stop the simulation at this simulated time. Accepts a number of nanoseconds or a string with a unit, e.g. \"100us\"."
+        "help": "Stop the simulation at this simulated time, a time with a unit, such as `100 us`."
       },
       "cocotb": {
         "children": true,
@@ -1543,12 +1543,12 @@
       "default_max_input_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default maximum delay of all non-clock input ports."
+        "help": "Default maximum delay of all non-clock input ports, a time with a unit, such as `1.5 ns`."
       },
       "default_max_output_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default maximum delay of all output ports."
+        "help": "Default maximum delay of all output ports, a time with a unit, such as `1.5 ns`."
       },
       "sdf_version": {
         "children": false,
@@ -2188,7 +2188,7 @@
       "timeout": {
         "children": false,
         "assignable": true,
-        "help": "Stop and fail each subprocess invocation that contains simulation after this many seconds of wall-clock time. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
+        "help": "Stop and fail each subprocess invocation that contains simulation after this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
       },
       "fail_severity": {
         "children": false,
@@ -2209,7 +2209,7 @@
       "stop_time": {
         "children": false,
         "assignable": true,
-        "help": "Stop the simulation at this simulated time. Accepts a number of nanoseconds or a string with a unit, e.g. \"100us\"."
+        "help": "Stop the simulation at this simulated time, a time with a unit, such as `100 us`."
       },
       "cocotb": {
         "children": true,
@@ -3089,7 +3089,7 @@
       "timeout": {
         "children": false,
         "assignable": true,
-        "help": "Stop and fail each subprocess invocation that contains simulation after this many seconds of wall-clock time. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
+        "help": "Stop and fail each subprocess invocation that contains simulation after this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
       },
       "fail_severity": {
         "children": false,
@@ -3110,7 +3110,7 @@
       "stop_time": {
         "children": false,
         "assignable": true,
-        "help": "Stop the simulation at this simulated time. Accepts a number of nanoseconds or a string with a unit, e.g. \"100us\"."
+        "help": "Stop the simulation at this simulated time, a time with a unit, such as `100 us`."
       },
       "cocotb": {
         "children": true,
@@ -3735,7 +3735,7 @@
       "hold_detour_max": {
         "children": false,
         "assignable": true,
-        "help": "Xilinx: hold deficit in ns up to which hold fixing uses a routing detour instead of a feedthrough LUT."
+        "help": "Xilinx: hold deficit, a time with a unit such as `0.5 ns`, up to which hold fixing uses a routing detour instead of a feedthrough LUT."
       },
       "placement": {
         "children": false,
@@ -3862,7 +3862,7 @@
       "timeout": {
         "children": false,
         "assignable": true,
-        "help": "Stop and fail each subprocess invocation that contains simulation after this many seconds of wall-clock time. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
+        "help": "Stop and fail each subprocess invocation that contains simulation after this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
       },
       "fail_severity": {
         "children": false,
@@ -3883,7 +3883,7 @@
       "stop_time": {
         "children": false,
         "assignable": true,
-        "help": "Stop the simulation at this simulated time. Accepts a number of nanoseconds or a string with a unit, e.g. \"100us\"."
+        "help": "Stop the simulation at this simulated time, a time with a unit, such as `100 us`."
       },
       "cocotb": {
         "children": true,
@@ -4344,7 +4344,7 @@
       "freq": {
         "children": false,
         "assignable": true,
-        "help": "JTAG clock frequency in Hz."
+        "help": "JTAG clock frequency, a frequency with a unit, such as `6 MHz`. The loader takes a whole number of hertz."
       },
       "offset": {
         "children": false,
@@ -8987,7 +8987,7 @@
       "timeout": {
         "children": false,
         "assignable": true,
-        "help": "Stop and fail each subprocess invocation that contains simulation after this many seconds of wall-clock time. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
+        "help": "Stop and fail each subprocess invocation that contains simulation after this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
       },
       "fail_severity": {
         "children": false,
@@ -9008,7 +9008,7 @@
       "stop_time": {
         "children": false,
         "assignable": true,
-        "help": "Stop the simulation at this simulated time. Accepts a number of nanoseconds or a string with a unit, e.g. \"100us\"."
+        "help": "Stop the simulation at this simulated time, a time with a unit, such as `100 us`."
       },
       "cocotb": {
         "children": true,
@@ -9131,12 +9131,12 @@
       "time_unit": {
         "children": false,
         "assignable": true,
-        "help": "Default simulation time unit, e.g. \"1ns\"."
+        "help": "Default simulation time unit (`-timescale`), a time with a unit. VCS takes 1, 10 or 100 of s, ms, us, ns, ps or fs, such as `1 ns` or `10 ps`."
       },
       "time_resolution": {
         "children": false,
         "assignable": true,
-        "help": "Default simulation time precision, e.g. \"1ps\"."
+        "help": "Default simulation time precision (`-timescale`, `-sim_res`), a time with a unit. VCS takes 1, 10 or 100 of s, ms, us, ns, ps or fs, such as `1 ps` or `100 fs`."
       },
       "sdf_file": {
         "children": false,
@@ -9221,7 +9221,7 @@
       "lic_wait": {
         "children": false,
         "assignable": true,
-        "help": "How long to wait for a license when none is available (`vhdlan -licw`, `vcs -vc_lic_wait`)."
+        "help": "How long to wait for a license when none is available (`vhdlan -licw`, `vcs -vc_lic_wait`), a time with a unit, such as `100 min`. VCS counts whole minutes."
       },
       "vlogan_flags": {
         "children": false,
@@ -9345,7 +9345,7 @@
       "timeout": {
         "children": false,
         "assignable": true,
-        "help": "Stop and fail each subprocess invocation that contains simulation after this many seconds of wall-clock time. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
+        "help": "Stop and fail each subprocess invocation that contains simulation after this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
       },
       "fail_severity": {
         "children": false,
@@ -9366,7 +9366,7 @@
       "stop_time": {
         "children": false,
         "assignable": true,
-        "help": "Stop the simulation at this simulated time. Accepts a number of nanoseconds or a string with a unit, e.g. \"100us\"."
+        "help": "Stop the simulation at this simulated time, a time with a unit, such as `100 us`."
       },
       "cocotb": {
         "children": true,
@@ -9855,22 +9855,22 @@
       "default_max_input_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default max delay to set on all non-clock input ports."
+        "help": "Default max delay to set on all non-clock input ports, a time with a unit, such as `2 ns`."
       },
       "default_min_input_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default min delay to set on all non-clock input ports."
+        "help": "Default min delay to set on all non-clock input ports, a time with a unit, such as `2 ns`."
       },
       "default_max_output_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default max delay to set on all output ports."
+        "help": "Default max delay to set on all output ports, a time with a unit, such as `2 ns`."
       },
       "default_min_output_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default min delay to set on all output ports."
+        "help": "Default min delay to set on all output ports, a time with a unit, such as `2 ns`."
       },
       "suppress_msgs": {
         "children": false,
@@ -10286,22 +10286,22 @@
       "default_max_input_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default max delay to set on all non-clock input ports."
+        "help": "Default max delay to set on all non-clock input ports, a time with a unit, such as `2 ns`."
       },
       "default_min_input_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default min delay to set on all non-clock input ports."
+        "help": "Default min delay to set on all non-clock input ports, a time with a unit, such as `2 ns`."
       },
       "default_max_output_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default max delay to set on all output ports."
+        "help": "Default max delay to set on all output ports, a time with a unit, such as `2 ns`."
       },
       "default_min_output_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default min delay to set on all output ports."
+        "help": "Default min delay to set on all output ports, a time with a unit, such as `2 ns`."
       },
       "suppress_msgs": {
         "children": false,
@@ -10575,7 +10575,7 @@
       "timeout": {
         "children": false,
         "assignable": true,
-        "help": "Stop and fail each subprocess invocation that contains simulation after this many seconds of wall-clock time. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
+        "help": "Stop and fail each subprocess invocation that contains simulation after this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
       },
       "fail_severity": {
         "children": false,
@@ -10596,7 +10596,7 @@
       "stop_time": {
         "children": false,
         "assignable": true,
-        "help": "Stop the simulation at this simulated time. Accepts a number of nanoseconds or a string with a unit, e.g. \"100us\"."
+        "help": "Stop the simulation at this simulated time, a time with a unit, such as `100 us`."
       },
       "cocotb": {
         "children": true,
@@ -10728,7 +10728,7 @@
       "prerun_time": {
         "children": false,
         "assignable": true,
-        "help": "Run the simulation for this long before the SAIF file is opened, for example \"10ns\". The activity of this time, such as an initial reset sequence, is not in the SAIF file, and its duration does not include it. The VCD (`vcd`) is not affected: it records from the start of the simulation."
+        "help": "Run the simulation for this long before the SAIF file is opened, a time with a unit, such as `10 ns`. The activity of this time, such as an initial reset sequence, is not in the SAIF file, and its duration does not include it. The VCD (`vcd`) is not affected: it records from the start of the simulation."
       },
       "work_lib": {
         "children": false,
@@ -11269,22 +11269,22 @@
       "default_max_input_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default max delay to set on all non-clock input ports."
+        "help": "Default max delay to set on all non-clock input ports, a time with a unit, such as `2 ns`."
       },
       "default_min_input_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default min delay to set on all non-clock input ports."
+        "help": "Default min delay to set on all non-clock input ports, a time with a unit, such as `2 ns`."
       },
       "default_max_output_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default max delay to set on all output ports."
+        "help": "Default max delay to set on all output ports, a time with a unit, such as `2 ns`."
       },
       "default_min_output_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default min delay to set on all output ports."
+        "help": "Default min delay to set on all output ports, a time with a unit, such as `2 ns`."
       },
       "suppress_msgs": {
         "children": false,
@@ -11524,7 +11524,7 @@
       "timeout": {
         "children": false,
         "assignable": true,
-        "help": "Stop and fail each subprocess invocation that contains simulation after this many seconds of wall-clock time. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
+        "help": "Stop and fail each subprocess invocation that contains simulation after this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
       },
       "fail_severity": {
         "children": false,
@@ -11545,7 +11545,7 @@
       "stop_time": {
         "children": false,
         "assignable": true,
-        "help": "Stop the simulation at this simulated time. Accepts a number of nanoseconds or a string with a unit, e.g. \"100us\"."
+        "help": "Stop the simulation at this simulated time, a time with a unit, such as `100 us`."
       },
       "cocotb": {
         "children": true,
@@ -11677,7 +11677,7 @@
       "prerun_time": {
         "children": false,
         "assignable": true,
-        "help": "Run the simulation for this long before the SAIF file is opened, for example \"10ns\". The activity of this time, such as an initial reset sequence, is not in the SAIF file, and its duration does not include it. The VCD (`vcd`) is not affected: it records from the start of the simulation."
+        "help": "Run the simulation for this long before the SAIF file is opened, a time with a unit, such as `10 ns`. The activity of this time, such as an initial reset sequence, is not in the SAIF file, and its duration does not include it. The VCD (`vcd`) is not affected: it records from the start of the simulation."
       },
       "work_lib": {
         "children": false,
@@ -11949,22 +11949,22 @@
       "default_max_input_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default max delay to set on all non-clock input ports."
+        "help": "Default max delay to set on all non-clock input ports, a time with a unit, such as `2 ns`."
       },
       "default_min_input_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default min delay to set on all non-clock input ports."
+        "help": "Default min delay to set on all non-clock input ports, a time with a unit, such as `2 ns`."
       },
       "default_max_output_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default max delay to set on all output ports."
+        "help": "Default max delay to set on all output ports, a time with a unit, such as `2 ns`."
       },
       "default_min_output_delay": {
         "children": false,
         "assignable": true,
-        "help": "Default min delay to set on all output ports."
+        "help": "Default min delay to set on all output ports, a time with a unit, such as `2 ns`."
       },
       "suppress_msgs": {
         "children": false,
@@ -14706,7 +14706,7 @@
       "timeout": {
         "children": false,
         "assignable": true,
-        "help": "Stop and fail each subprocess invocation that contains simulation after this many seconds of wall-clock time. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
+        "help": "Stop and fail each subprocess invocation that contains simulation after this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
       },
       "fail_severity": {
         "children": false,
@@ -14727,7 +14727,7 @@
       "stop_time": {
         "children": false,
         "assignable": true,
-        "help": "Stop the simulation at this simulated time. Accepts a number of nanoseconds or a string with a unit, e.g. \"100us\"."
+        "help": "Stop the simulation at this simulated time, a time with a unit, such as `100 us`."
       },
       "cocotb": {
         "children": true,

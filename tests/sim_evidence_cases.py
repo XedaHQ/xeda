@@ -20,6 +20,7 @@ from xeda.design import Source
 from xeda.flow_runner import DefaultRunner, get_flow_class
 from xeda.proc_utils import run_process
 from xeda.tool import Tool
+from xeda.units import Time
 
 from .design_edits import with_updates
 from .settings_samples import minimal_settings
@@ -351,7 +352,9 @@ def launch_case(
     assert all(p.read_text() == "runtime executed" for p in markers)
     assert flow is not None
     assert runtime_options, f"{case.name} has no observed runtime invocation"
-    assert all(options.get("timeout") == settings.get("timeout") for options in runtime_options)
+    given = settings.get("timeout")
+    seconds = None if given is None else Time(given).to("s")
+    assert all(options.get("timeout") == seconds for options in runtime_options)
     return flow
 
 

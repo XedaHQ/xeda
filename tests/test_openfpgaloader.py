@@ -378,7 +378,7 @@ def test_flash_and_verify_are_openfpgaloader_s_own_flags(tmp_path, fake_loader):
         "cable": "ft2232",
         "write_flash": True,
         "verify": True,
-        "freq": 6000000,
+        "freq": "6 MHz",
         "extra_args": ["--scan-usb"],
     }
     flow = _program(tmp_path, _prebuilt(tmp_path), settings)
@@ -408,7 +408,7 @@ ALL_LOADER_SETTINGS = {
     "cable": "ft2232",
     "write_flash": True,
     "verify": True,
-    "freq": 6000000,
+    "freq": "6 MHz",
     "offset": 4096,
     "cable_index": 1,
     "usb_serial_num": "FT123456",

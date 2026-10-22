@@ -1,11 +1,10 @@
 """Physical quantities in settings: clock periods, frequencies, delays.
 
-This paragraph describes the helpers (`convert_unit` and the others) that the settings without a
-quantity type use (`NOT_MIGRATED_YET` in `tests/test_physical_quantities.py` lists them). They read a number, optionally followed by one unit: `5.5`, `"5.5ns"`,
-`"200 MHz"`, `"1e3 kHz"`. That is the whole grammar. Text never reaches the expression evaluator
-of pint. The evaluator would accept anything it can compute as a clock (`"5 ns * 2"`, `"5..5ns"`,
-`"(100)mHz"`), and malformed text would escape as a traceback instead of a field error. Xeda
-asks pint only to convert a number from one known unit to another.
+The helpers (`convert_unit` and the others) read a number, optionally followed by one unit: `5.5`,
+`"5.5ns"`, `"200 MHz"`, `"1e3 kHz"`. That is the whole grammar. Text never reaches the expression
+evaluator of pint. The evaluator would accept anything it can compute as a clock (`"5 ns * 2"`,
+`"5..5ns"`, `"(100)mHz"`), and malformed text would escape as a traceback instead of a field
+error. Xeda asks pint only to convert a number from one known unit to another.
 
 The setting types of flows are the classes `Time`, `Frequency`, `Capacitance`, `Length`, `Voltage`,
 `Resistance` and `Power`. A value of such a type is a number with a unit, written as text

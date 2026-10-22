@@ -164,12 +164,11 @@ case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
 - Other numbers stay plain: counts, ratios and fractions, percentages (the name ends in
   `_percent`), sizes of data (the description names the unit) and values "in the units of the
   library" (passed to the tool unconverted).
-- These keep their current form and are not quantities: `stop_time` (ns, or text such as `100us`),
-  `timeout` (s), `prerun_time` (text such as `10ns`), `time_unit`, `time_resolution` and
-  `lic_wait` of `vcs`, the Vivado `default_{max,min}_{input,output}_delay` (ns), `hold_detour_max`
-  of `nextpnr` (ns), `freq` of `openfpgaloader` (Hz), and the numbers of `dc` and `xeda dse`. A
-  unit on one that takes a plain number fails with a type error ("unable to parse string as a
-  number" or "... as an integer").
+- Times, frequencies and delays of every flow take a unit, among them `timeout` (`2 min`),
+  `stop_time` (`100 us`), `prerun_time`, `time_unit`, `time_resolution` and `lic_wait` of `vcs`,
+  the Vivado and `dc` `default_{max,min}_{input,output}_delay`, `hold_detour_max` of `nextpnr` and
+  `freq` of `openfpgaloader` (`6 MHz`). A bare number is refused (`invalid_quantity`). Only the
+  numbers of `xeda dse` stay plain.
 
 ## Source files
 
@@ -278,7 +277,7 @@ flows:
     platform: nangate45
     clock.period: 10 ns
   ghdl_sim:
-    stop_time: 100us
+    stop_time: 100 us
 ```
 
 `xeda list-settings <flow> --json` lists the settings. An unknown key is an error. A section

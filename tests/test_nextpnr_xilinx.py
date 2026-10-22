@@ -147,7 +147,7 @@ def test_xilinx_options_are_passed_to_the_backend(tmp_path, monkeypatch, prefix)
         prefix,
         delay_matrix="off",
         hold_fix=3,
-        hold_detour_max=0.5,
+        hold_detour_max="0.5 ns",
         placement="where.json",
         write="routed.json",
         sdf="d.sdf",

@@ -98,9 +98,9 @@ PROBES: List[Any] = [
 ]
 
 
-#: Every field that holds a quantity, as `(flow class, path)`. A quantity is nested in a group
-#: (`abc.delay_target`) or in a clock (`clocks.<key>.period`), never at the top of a flow's
-#: settings, so the sweeps that give a probe to each top-level setting do not reach it.
+#: Every field that holds a quantity, as `(flow class, path)`. A quantity sits in a group
+#: (`abc.delay_target`), in a clock (`clocks.<key>.period`) or at the top of a flow's settings
+#: (`timeout`).
 QUANTITY_FIELDS: List[Tuple[Type[Flow], FieldPath]] = [
     (cls, path) for cls, _ in flow_classes() for path in quantity_paths(cls.Settings)
 ]

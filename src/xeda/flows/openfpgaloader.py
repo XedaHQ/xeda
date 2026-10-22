@@ -3,7 +3,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, List, Literal, Optional, Tuple, Union
+from typing import Annotated, Any, ClassVar, List, Literal, Optional, Tuple, Union
 
 from ..board import WithFpgaBoardSettings
 from ..dataclass import Field, model_validator
@@ -12,13 +12,14 @@ from ..flow import (
     FPGA,
     Flow,
     FlowFatalError,
+    FlowSettingsException,
     FpgaSynthFlow,
     In,
     describe_artifacts,
 )
 from ..records import REPORTED_FAILURE, ErrorInfo
 from ..tool import Tool
-from ..units import count, data_size
+from ..units import Bounds, Frequency, count, data_size
 from ..utils import ToolException
 from .openfpgaloader_probes import (
     BITBANG_CABLES,
@@ -604,7 +605,11 @@ class Openfpgaloader(FpgaSynthFlow):
         verify: bool = Field(
             False, description="Verify the SPI flash after programming. Needs `write_flash`."
         )
-        freq: Optional[int] = Field(None, gt=0, description="JTAG clock frequency in Hz.")
+        freq: Optional[Annotated[Frequency, Bounds(gt="0 Hz")]] = Field(
+            None,
+            description="JTAG clock frequency, a frequency with a unit, such as `6 MHz`. The "
+            "loader takes a whole number of hertz.",
+        )
         offset: Optional[int] = Field(
             None, ge=0, description="Flash start address in bytes.", json_schema_extra=data_size()
         )
@@ -674,6 +679,17 @@ class Openfpgaloader(FpgaSynthFlow):
             output="bitstream",
             description="The bitstream to program: a design source or fpga_pack's.",
         )
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse a `freq` that is not a whole number of hertz: `--freq` takes an integer."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        if settings.freq is not None and not settings.freq.to("Hz").is_integer():
+            raise FlowSettingsException(
+                f"`freq` must be a whole number of hertz, got {settings.freq.to('Hz'):g} Hz: "
+                "openFPGALoader takes an integer"
+            )
 
     @classmethod
     def required_settings_for(cls, settings: Flow.Settings) -> Mapping[str, str]:
@@ -1000,7 +1016,7 @@ class Openfpgaloader(FpgaSynthFlow):
         ):
             value = getattr(ss, name)
             if value is not None:
-                args.extend([option, str(value)])
+                args.extend([option, str(int(value.to("Hz")) if name == "freq" else value)])
         # The probe whose FPGA matches the part, when the run names none.
         args.extend(self._probe_arguments(board_name))
         args.extend(ss.extra_args)

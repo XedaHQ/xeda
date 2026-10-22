@@ -819,7 +819,7 @@ class Verilator(SimFlow):
         model_log = None if self.cocotb else self.run_directory.writable(sim_dir / "sim.log")
         self._model_log = model_log
         try:
-            model.run(*model_args, env=env, timeout=ss.timeout, tee=model_log)
+            model.run(*model_args, env=env, timeout=ss.timeout_in_seconds(), tee=model_log)
         except NonZeroExitCode as e:
             self._driver_exit_code = e.exit_code
             raise

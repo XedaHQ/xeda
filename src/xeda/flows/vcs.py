@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import ClassVar, Dict, List, Literal, Optional, Union
+from typing import Annotated, ClassVar, Dict, List, Literal, Optional, Union
 
 from colorama import Fore as fg
 from colorama import Style as style
@@ -18,11 +18,26 @@ from ..flow.metrics import program_logs
 from ..flow.flow import describe_results
 from ..flow.sim import SimEvidence
 from ..tool import Tool
-from ..units import convert_unit, data_size
+from ..units import Bounds, Time, data_size
 from ..utils import replacing_file, tcl_word
 from .vcs_evidence import RUNTIME_LOG, parse_vcs_evidence, prepare_vcs_runtime
 
 log = logging.getLogger(__name__)
+
+#: The units of a VCS time scale, from the largest to the smallest.
+TIMESCALE_UNITS = ("s", "ms", "us", "ns", "ps", "fs")
+
+
+def timescale_text(value: Time) -> str:
+    """Return `value` as VCS spells a time unit or a time precision: 1, 10 or 100 of a unit
+    (`1ns`, `100ps`). Raise `ValueError` for any other time."""
+    for unit in TIMESCALE_UNITS:
+        for number in (1, 10, 100):
+            if value == Time.of(number, unit):
+                return f"{number}{unit}"
+    raise ValueError(
+        f"VCS takes 1, 10 or 100 of s, ms, us, ns, ps or fs as a time scale, got {value}"
+    )
 
 
 class Vcs(SimFlow):
@@ -163,11 +178,16 @@ class Vcs(SimFlow):
             "is set.",
         )
         full64: bool = Field(True, description="Compile and run in 64-bit mode (`-full64`).")
-        time_unit: Optional[str] = Field(
-            "1ns", description='Default simulation time unit, e.g. "1ns".'
+        time_unit: Time = Field(
+            Time("1 ns"),
+            description="Default simulation time unit (`-timescale`), a time with a unit. VCS "
+            "takes 1, 10 or 100 of s, ms, us, ns, ps or fs, such as `1 ns` or `10 ps`.",
         )
-        time_resolution: Optional[str] = Field(
-            "1ps", description='Default simulation time precision, e.g. "1ps".'
+        time_resolution: Time = Field(
+            Time("1 ps"),
+            description="Default simulation time precision (`-timescale`, `-sim_res`), a time "
+            "with a unit. VCS takes 1, 10 or 100 of s, ms, us, ns, ps or fs, such as `1 ps` or "
+            "`100 fs`.",
         )
         sdf_file: Optional[Union[str, Path]] = Field(
             None,
@@ -219,10 +239,11 @@ class Vcs(SimFlow):
             description="Initial value of registers (`+vcs+initreg`). Use `random` for random "
             "values.",
         )
-        lic_wait: Optional[int] = Field(
-            100,
+        lic_wait: Optional[Annotated[Time, Bounds(ge="0 min")]] = Field(
+            Time("100 min"),
             description="How long to wait for a license when none is available (`vhdlan -licw`, "
-            "`vcs -vc_lic_wait`).",
+            "`vcs -vc_lic_wait`), a time with a unit, such as `100 min`. VCS counts whole "
+            "minutes.",
         )
         vlogan_flags: List[str] = Field(
             ["+v2k"], description="Extra flags passed to `vlogan` when analyzing Verilog sources."
@@ -279,9 +300,21 @@ class Vcs(SimFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse an SDF file without the instance it annotates, before anything runs."""
+        """Refuse what VCS cannot take, before anything runs: an SDF file without the instance
+        it annotates, a time scale that VCS cannot spell and a license wait that is not a whole
+        number of minutes (`-licw` and `-vc_lic_wait` take an integer)."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
+        for name in ("time_unit", "time_resolution"):
+            try:
+                timescale_text(getattr(settings, name))
+            except ValueError as error:
+                raise FlowSettingsException(f"`{name}`: {error}") from None
+        if settings.lic_wait is not None and not settings.lic_wait.to("min").is_integer():
+            raise FlowSettingsException(
+                f"`lic_wait` must be a whole number of minutes, got {settings.lic_wait.to('min'):g}"
+                " min: VCS takes an integer number of minutes"
+            )
         cls.check_waveforms(settings)
         if settings.sdf_file and settings.sdf_instance is None:
             raise FlowSettingsException("`sdf_instance` is required when `sdf_file` is set")
@@ -330,7 +363,7 @@ class Vcs(SimFlow):
             )
         stop_time = None
         if ss.stop_time is not None:
-            stop_fs = int(round(convert_unit(ss.stop_time, "fs", from_unit="ns")))
+            stop_fs = int(round(ss.stop_time.to("fs")))
             if stop_fs <= 0:
                 raise FlowSettingsException(
                     "VCS `stop_time` must be positive after conversion to femtoseconds, "
@@ -377,11 +410,14 @@ class Vcs(SimFlow):
             vhdlan_args.append("-kdb")
             vcs_args.append("-kdb")
         if ss.lic_wait is not None:
-            vhdlan_args += ["-licw", str(ss.lic_wait)]
-            vcs_args += ["-vc_lic_wait", str(ss.lic_wait)]
+            minutes = str(int(ss.lic_wait.to("min")))
+            vhdlan_args += ["-licw", minutes]
+            vcs_args += ["-vc_lic_wait", minutes]
         if ss.cflags:
             vcs_args += ["-CFLAGS", " ".join(ss.cflags)]
-        vlogan_args.append(f"-timescale={ss.time_unit}/{ss.time_resolution}")
+        vlogan_args.append(
+            f"-timescale={timescale_text(ss.time_unit)}/{timescale_text(ss.time_resolution)}"
+        )
         if ss.vhdl_xlrm:
             vhdlan_args.append("-xlrm")
         if ss.functional_vital:
@@ -436,8 +472,7 @@ class Vcs(SimFlow):
             else:
                 vcs_args.append("-debug_access")
             vcs_args.append("+vcs+dumpvars")
-        if ss.time_resolution:
-            vcs_args.append(f"-sim_res={ss.time_resolution}")
+        vcs_args.append(f"-sim_res={timescale_text(ss.time_resolution)}")
 
         if ss.fsdb:
             vcs_args += [
@@ -496,7 +531,7 @@ class Vcs(SimFlow):
                 "-R",
                 *common_run_args,
                 env=env,
-                timeout=ss.timeout,
+                timeout=ss.timeout_in_seconds(),
                 tee=self.run_directory.writable(RUNTIME_LOG),
                 merge_stderr=True,
             )
@@ -507,7 +542,7 @@ class Vcs(SimFlow):
                 *simv_args,
                 *common_run_args,
                 env=env,
-                timeout=ss.timeout,
+                timeout=ss.timeout_in_seconds(),
                 tee=self.run_directory.writable(RUNTIME_LOG),
                 merge_stderr=True,
             )

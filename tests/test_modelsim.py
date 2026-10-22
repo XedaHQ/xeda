@@ -243,7 +243,7 @@ def test_modelsim_late_tcl_failure_overrides_finish(command, tmp_path, monkeypat
 @needs_tclsh
 def test_modelsim_timeout_bounds_the_runtime(tmp_path, monkeypatch):
     monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", "hang")
-    flow, _ = _run(tmp_path, monkeypatch, {"timeout": 5})
+    flow, _ = _run(tmp_path, monkeypatch, {"timeout": "5 s"})
     assert flow is not None and not flow.succeeded
     assert flow.results["error"]["code"] == "timeout"
 
@@ -308,7 +308,7 @@ def test_modelsim_excludes_compile_and_load_diagnostics(tmp_path, monkeypatch):
 @needs_tclsh
 def test_modelsim_timeout_retains_current_diagnostics(tmp_path, monkeypatch):
     monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", "hang")
-    flow, _ = _run(tmp_path, monkeypatch, {"timeout": 5})
+    flow, _ = _run(tmp_path, monkeypatch, {"timeout": "5 s"})
     assert flow is not None and not flow.succeeded
     assert "runtime waiting" in (flow.run_path / "modelsim_process.log").read_text()
     assert "runtime waiting" in (flow.run_path / "modelsim_runtime.log").read_text()

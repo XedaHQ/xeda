@@ -20,6 +20,7 @@ from ...flow import (
     describe_artifacts,
 )
 from ...tool import Tool
+from ...units import Time, count
 from ...utils import try_convert, try_convert_to_primitives
 
 log = logging.getLogger(__name__)
@@ -252,11 +253,15 @@ class Dc(AsicSynthFlow):
             description="Target library or libraries (liberty `.db` files). Required: the flow "
             "refuses to launch without one.",
         )
-        default_max_input_delay: Optional[float] = Field(
-            0.0, description="Default maximum delay of all non-clock input ports."
+        default_max_input_delay: Optional[Time] = Field(
+            Time("0 ns"),
+            description="Default maximum delay of all non-clock input ports, a time with a "
+            "unit, such as `1.5 ns`.",
         )
-        default_max_output_delay: Optional[float] = Field(
-            0.0, description="Default maximum delay of all output ports."
+        default_max_output_delay: Optional[Time] = Field(
+            Time("0 ns"),
+            description="Default maximum delay of all output ports, a time with a unit, such as "
+            "`1.5 ns`.",
         )
         sdf_version: Optional[str] = Field(
             None,
@@ -276,10 +281,12 @@ class Dc(AsicSynthFlow):
         min_routing_layer: Optional[int] = Field(
             None,
             description="Minimum routing layer to use for topographical mode.",
+            json_schema_extra=count(),
         )
         max_routing_layer: Optional[int] = Field(
             None,
             description="Maximum routing layer to use for topographical mode.",
+            json_schema_extra=count(),
         )
         max_tluplus: Optional[Path] = Field(
             None,

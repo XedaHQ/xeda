@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Tuple, Union
 from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -29,7 +29,7 @@ from ..flow import (
 )
 from ..tool import NonZeroExitCode, Tool
 from ..run_dir import RunDirectory
-from ..units import count, ratio
+from ..units import Bounds, Time, count, ratio
 from ..utils import replacing_file, setting_flag
 from .nextpnr_constraints import ClockUse, Constraints, merge_constraints, reconcile_clocks
 from .xilinx import (
@@ -613,11 +613,10 @@ class Nextpnr(FpgaSynthFlow):
             "default pass limit of the backend (8). A positive number sets the pass limit.",
             json_schema_extra=count(),
         )
-        hold_detour_max: float | None = Field(
+        hold_detour_max: Optional[Annotated[Time, Bounds(ge="0 ns")]] = Field(
             None,
-            ge=0,
-            description="Xilinx: hold deficit in ns up to which hold fixing uses a routing "
-            "detour instead of a feedthrough LUT.",
+            description="Xilinx: hold deficit, a time with a unit such as `0.5 ns`, up to which "
+            "hold fixing uses a routing detour instead of a feedthrough LUT.",
         )
         placement: Path | None = Field(
             None,
@@ -1218,7 +1217,7 @@ class Nextpnr(FpgaSynthFlow):
             elif ss.hold_fix:
                 args += ["-o", f"hold-fix={ss.hold_fix}"]
             if ss.hold_detour_max is not None:
-                args += ["-o", f"hold-detour-max={ss.hold_detour_max}"]
+                args += ["-o", f"hold-detour-max={ss.hold_detour_max.to('ns')}"]
         else:
             constraint_name = {"ecp5": "lpf", "ice40": "pcf", "nexus": "pdc"}[fpga_family]
             args = setting_flag(pin_file, name=constraint_name)

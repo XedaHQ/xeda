@@ -1820,7 +1820,7 @@ class BscSim(BscFlow, SimFlow):
             else:
                 simulation.run(
                     *sim_args,
-                    timeout=ss.timeout,
+                    timeout=ss.timeout_in_seconds(),
                     env=env,
                     tee=self.run_directory.writable("sim.log"),
                     merge_stderr=True,
@@ -1895,7 +1895,7 @@ class BscSim(BscFlow, SimFlow):
             "modelsim_runtime.log",
             "-do",
             "do " + script.name,
-            timeout=ss.timeout,
+            timeout=ss.timeout_in_seconds(),
             tee=self.run_directory.writable("modelsim_process.log"),
             merge_stderr=True,
         )
@@ -1913,7 +1913,7 @@ class BscSim(BscFlow, SimFlow):
             "-ucli",
             "-i",
             str(script),
-            timeout=ss.timeout,
+            timeout=ss.timeout_in_seconds(),
             tee=self.run_directory.writable(RUNTIME_LOG),
             merge_stderr=True,
         )
@@ -1954,7 +1954,7 @@ class BscSim(BscFlow, SimFlow):
             "stop",
             "-onerror",
             "stop",
-            timeout=ss.timeout,
+            timeout=ss.timeout_in_seconds(),
             tee=self.run_directory.writable(PROCESS_LOG),
             merge_stderr=True,
         )

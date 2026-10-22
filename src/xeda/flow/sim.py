@@ -8,7 +8,7 @@ import re
 from abc import ABCMeta
 from importlib import metadata
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Literal, Mapping, Optional, Union
+from typing import Annotated, Any, ClassVar, Dict, Literal, Mapping, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings, cocotb_variable_problem
 from ..dataclass import (
@@ -22,7 +22,7 @@ from ..dataclass import (
 )
 from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..records import REPORTED_FAILURE, ErrorInfo
-from ..units import convert_unit
+from ..units import Bounds, Time
 from ..utils import SDF
 from .flow import Flow, FlowSettingsException, registered_flows
 
@@ -220,6 +220,9 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     flow.results["sim.errors"] = sum(e.kind in ("error", "stop", "fatal") for e in evidence.events)
     flow.results["sim.warnings"] = sum(e.kind == "warning" for e in evidence.events)
     stop_time = getattr(flow.settings, "stop_time", None)
+    requested_text = (
+        None if stop_time is None else readable_time(int(round(stop_time.to("fs"))), "1fs")
+    )
     stop_reached = False
     if (
         evidence.ended_by == "stop_time"
@@ -227,9 +230,9 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
         and evidence.time is not None
         and evidence.time_unit is not None
     ):
-        # A bare number is nanoseconds (`SimFlow.Settings.stop_time`); within one tick of the
-        # record's precision, since the driver stops at the last whole tick.
-        requested = int(round(convert_unit(stop_time, "fs", from_unit="ns")))
+        # Within one tick of the record's precision, since the driver stops at the last whole
+        # tick.
+        requested = int(round(stop_time.to("fs")))
         tick = time_in_fs(1, evidence.time_unit)
         stop_reached = abs(time_in_fs(evidence.time, evidence.time_unit) - requested) < tick
     max_cycles = getattr(flow.settings, "max_cycles", None)
@@ -252,7 +255,7 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
         "exit": evidence.exit_code == 0,
     }.get(evidence.ended_by, False)
     if not ok:
-        asked = f" before the requested stop_time {stop_time}" if stop_time is not None else ""
+        asked = f" before the requested stop_time {requested_text}" if stop_time is not None else ""
         stopped = _first_event(evidence, ("stop", "error", "fatal"))
         at = (
             f" (at {readable_time(evidence.time, evidence.time_unit)})"
@@ -270,12 +273,12 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
                 fix = "set `stop_time` to that time, or remove the stop from the simulator options"
             elif evidence.time is None or evidence.time_unit is None:
                 cause = (
-                    f"the stop at the requested stop_time {stop_time} could not be confirmed, "
+                    f"the stop at the requested stop_time {requested_text} could not be confirmed, "
                     "because the end record gave no time or no time unit"
                 )
                 fix = f"{LOG_ADVICE} to see when it stopped"
             else:
-                cause = f"it stopped at a time other than the requested stop_time {stop_time}"
+                cause = f"it stopped at a time other than the requested stop_time {requested_text}"
                 fix = (
                     "set `stop_time` to a time at which the design has activity, or remove it and "
                     + FINISH_ADVICE
@@ -348,13 +351,12 @@ class SimFlow(Flow, metaclass=ABCMeta):
             **Flow.Settings.removed_settings,
             "waveform": "`vcd`",
         }
-        timeout: float | None = Field(
+        timeout: Optional[Annotated[Time, Bounds(gt="0 ns")]] = Field(
             None,
-            gt=0,
             description="Stop and fail each subprocess invocation that contains simulation after "
-            "this many seconds of wall-clock time. An invocation can combine analysis, "
-            "elaboration and simulation. The limit applies to each invocation, not to their "
-            "total. None sets no limit.",
+            "this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An "
+            "invocation can combine analysis, elaboration and simulation. The limit applies to "
+            "each invocation, not to their total. None sets no limit.",
         )
         fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
             "error",
@@ -371,15 +373,19 @@ class SimFlow(Flow, metaclass=ABCMeta):
             "that cannot write VCD refuses it, and names its own waveform settings.",
             json_schema_extra=waveform("vcd"),
         )
-        stop_time: Union[str, int, float, None] = Field(
+        stop_time: Optional[Annotated[Time, Bounds(ge="0 ns")]] = Field(
             None,
-            description="Stop the simulation at this simulated time. Accepts a number of "
-            'nanoseconds or a string with a unit, e.g. "100us".',
+            description="Stop the simulation at this simulated time, a time with a unit, such "
+            "as `100 us`.",
         )
         cocotb: CocotbSettings = Field(
             CocotbSettings(),  # type: ignore
             description="Settings for the cocotb testbench, used when `tb.cocotb` is set.",
         )
+
+        def timeout_in_seconds(self) -> float | None:
+            """Return `timeout` as the number of seconds that a tool process takes, or None."""
+            return None if self.timeout is None else self.timeout.to("s")
 
     @staticmethod
     def has_cpp_driver(design: Design) -> bool:

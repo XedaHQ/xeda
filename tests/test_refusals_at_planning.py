@@ -36,6 +36,7 @@ from .tool_utils import use_fake_tools
 from xeda.flow_runner import DefaultRunner
 from xeda.units import convert_unit
 from xeda.flows import (
+    Openfpgaloader,
     VivadoPower,
     Bsc,
     BscSim,
@@ -156,12 +157,21 @@ CASES: dict[str, Case] = {
         BscSim, "max_cycles bounds Bluesim", {"simulator": "iverilog", "max_cycles": 10}, _bsv()
     ),
     "vcs-sdf-without-instance": Case(Vcs, "`sdf_instance` is required", {"sdf_file": "x.sdf"}),
+    "openfpgaloader-fractional-hertz": Case(
+        Openfpgaloader,
+        "`freq` must be a whole number of hertz",
+        {"fpga": {"part": "LFE5U-25F-6BG381C"}, "freq": "1.5 Hz"},
+    ),
+    "vcs-time-scale": Case(Vcs, "`time_unit`: VCS takes 1, 10 or 100", {"time_unit": "2 ns"}),
+    "vcs-fractional-license-wait": Case(
+        Vcs, "`lic_wait` must be a whole number of minutes", {"lic_wait": "90 s"}
+    ),
     "vivado-sim-elab-debug-off": Case(VivadoPostsynthSim, "elab_debug: off", {"elab_debug": "off"}),
     "vivado-sim-controlled-flag": Case(
         VivadoPostsynthSim, "conflicts with xsim runtime evidence", {"sim_flags": ["-R"]}
     ),
     "vivado-sim-negative-time": Case(
-        VivadoPostsynthSim, "not a nonnegative simulation time", {"prerun_time": "-1ns"}
+        VivadoPostsynthSim, "must be at least 0 ns", {"prerun_time": "-1ns"}
     ),
     "vivado-sim-saif-without-uut": Case(VivadoSim, "set `tb.uut`", {"saif": True}),
     "vivado-postsynth-sim-saif-without-uut": Case(

@@ -250,7 +250,7 @@ class YosysSim(YosysBase, SimFlow):
                     "XEDA_CXXRTL_EVENTS": str(self._events_record),
                     "XEDA_CXXRTL_FAIL_SEVERITY": ss.fail_severity,
                 },
-                timeout=ss.timeout,
+                timeout=ss.timeout_in_seconds(),
                 tee=sim_log,
                 merge_stderr=True,
             )

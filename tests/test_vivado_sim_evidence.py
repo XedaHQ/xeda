@@ -10,6 +10,7 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoPostsynthSim, VivadoPower, VivadoSim
 from xeda.tool import Tool
+from xeda.units import Time
 
 from .bluespec_sources import COUNTER_BSV
 from .launch_utils import empty_project
@@ -183,7 +184,7 @@ def test_vivado_script_errors_override_finish(tmp_path, monkeypatch, command, qu
 
 
 def test_vivado_timeout_is_applied_to_combined_process(tmp_path, monkeypatch):
-    flow = launch(tmp_path, monkeypatch, "timeout", {"timeout": 2.0})
+    flow = launch(tmp_path, monkeypatch, "timeout", {"timeout": "2 s"})
     assert not flow.succeeded
     assert flow.results["error"]["code"] == "timeout"
 
@@ -215,7 +216,7 @@ def test_vivado_power_reports_after_fresh_and_reused_producer_evidence(
     """The simulation controls live in `flows.vivado_postsynth_sim` and the evidence
     stays on that node: power reports only its own metrics, here after the producer ran
     and again while the producer is trace-reused."""
-    producers = {"timeout": 10.0, **settings}
+    producers = {"timeout": "10 s", **settings}
     flow = launch(tmp_path, monkeypatch, state, producers=producers, flow_class=VivadoPower)
     assert flow.succeeded
     assert flow.results["power.total"] == 0.5
@@ -227,7 +228,7 @@ def test_vivado_power_reports_after_fresh_and_reused_producer_evidence(
     assert recorded["outcome"] == "passed"
     assert recorded["metrics"]["sim"]["evidence"]
     effective = json.loads((simulation / "settings.json").read_text())["effective_flow_settings"]
-    assert effective["timeout"] == 10.0
+    assert Time(effective["timeout"]) == Time("10 s")
     assert effective["fail_severity"] == settings.get("fail_severity", "error")
     if "stop_time" in settings:
         assert recorded["metrics"]["sim"]["time"] == 20_000_000
@@ -332,7 +333,7 @@ def test_vivado_power_requires_its_own_current_power_xml(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "state,settings", [("warning", {"fail_severity": "warning"}), ("timeout", {"timeout": 2.0})]
+    "state,settings", [("warning", {"fail_severity": "warning"}), ("timeout", {"timeout": "2 s"})]
 )
 def test_vivado_power_propagates_failing_simulation_controls(
     tmp_path, monkeypatch, state, settings
@@ -349,7 +350,7 @@ def test_vivado_power_propagates_failing_simulation_controls(
         assert result["error"]["code"] == "timeout"
 
 
-@pytest.mark.parametrize("quantity", ["10", "10 ns", "1e1ns", "0ns"])
+@pytest.mark.parametrize("quantity", ["10 ns", "1e1ns", "0.01 us", "0ns"])
 def test_vivado_quantities_use_the_common_unit_contract(tmp_path, monkeypatch, quantity):
     flow = launch(tmp_path, monkeypatch, "clock", {"stop_time": quantity})
     assert flow.succeeded

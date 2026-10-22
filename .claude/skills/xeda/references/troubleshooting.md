@@ -40,7 +40,7 @@
 | `` unknown unit `nanoseconds` in `10 nanoseconds`: a time takes one of fs, ps, ns, us, µs, ms, s, min, h `` | Use one of the units listed. A spelled-out name is refused. |
 | `` cannot read `fast` as a time: write one number and one unit, such as `10 ns` `` | The text is not one number and one unit (a word, `5 ns * 2`, `1_000 ns`). |
 | `must be greater than 0 ns, got -1 ns` | The value is outside the limit of the setting. |
-| `Input should be a valid number, unable to parse string as a number` | The setting still takes a plain number (`timeout` in s, `hold_detour_max` in ns; `freq` of `openfpgaloader` is an integer in Hz). Remove the unit. |
+| `Input should be a valid number, unable to parse string as a number` | The setting takes a plain number (a count, a ratio, a size of data, or a value in the units of the library). Remove the unit. |
 | a type error on a list or text setting | A setting takes its declared type only. `list-settings` shows `type` and `enum`. A list given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`); `[a, b]` is refused. |
 | `` `true` is a switch, and `bitstream` names a file `` | Give a name or location, or leave it unset. |
 
