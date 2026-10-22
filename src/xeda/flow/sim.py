@@ -22,7 +22,7 @@ from ..dataclass import (
 )
 from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..records import REPORTED_FAILURE, ErrorInfo
-from ..units import Bounds, Time
+from ..units import Bounds, Time, Unit
 from ..utils import SDF
 from .flow import Flow, FlowSettingsException, registered_flows
 
@@ -220,9 +220,7 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     flow.results["sim.errors"] = sum(e.kind in ("error", "stop", "fatal") for e in evidence.events)
     flow.results["sim.warnings"] = sum(e.kind == "warning" for e in evidence.events)
     stop_time = getattr(flow.settings, "stop_time", None)
-    requested_text = (
-        None if stop_time is None else readable_time(int(round(stop_time.to("fs"))), "1fs")
-    )
+    requested_text = None if stop_time is None else str(stop_time)
     stop_reached = False
     if (
         evidence.ended_by == "stop_time"
@@ -351,7 +349,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
             **Flow.Settings.removed_settings,
             "waveform": "`vcd`",
         }
-        timeout: Optional[Annotated[Time, Bounds(gt="0 ns")]] = Field(
+        timeout: Optional[Annotated[Time, Unit("s"), Bounds(gt="0 s")]] = Field(
             None,
             description="Stop and fail each subprocess invocation that contains simulation after "
             "this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An "
@@ -373,7 +371,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
             "that cannot write VCD refuses it, and names its own waveform settings.",
             json_schema_extra=waveform("vcd"),
         )
-        stop_time: Optional[Annotated[Time, Bounds(ge="0 ns")]] = Field(
+        stop_time: Optional[Annotated[Time, Unit("ns"), Bounds(ge="0 ns")]] = Field(
             None,
             description="Stop the simulation at this simulated time, a time with a unit, such "
             "as `100 us`.",

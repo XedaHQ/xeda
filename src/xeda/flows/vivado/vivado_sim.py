@@ -14,7 +14,7 @@ from ...flow import (
     describe_artifacts,
 )
 from ...flow.sim import SimEvidence
-from ...units import Bounds, Time, count
+from ...units import Bounds, Time, Unit, count
 from ...utils import SDF
 from ..vivado import Vivado
 from .sim_evidence import PROCESS_LOG, RUNTIME_LOG, parse_xsim_evidence
@@ -91,7 +91,7 @@ class VivadoSim(Vivado, SimFlow):
             description="Enable the debug tracing of the simulator (`ltrace` and `ptrace`). "
             "The output is very verbose and the simulation is slow.",
         )
-        prerun_time: Optional[Annotated[Time, Bounds(ge="0 ns")]] = Field(
+        prerun_time: Optional[Annotated[Time, Unit("ns"), Bounds(ge="0 ns")]] = Field(
             None,
             description="Run the simulation for this long before the SAIF file is opened, a "
             "time with a unit, such as `10 ns`. The activity of this time, such as an initial reset "

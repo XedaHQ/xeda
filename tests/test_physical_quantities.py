@@ -696,8 +696,9 @@ def test_the_json_of_settings_with_a_clock_writes_the_clock_as_text_and_reloads(
 
 
 def test_a_run_with_a_clock_prints_one_document_and_writes_the_clock_as_text(tmp_path):
-    """The document of `xeda run --json` echoes the settings as the user gave them. The record of
-    the node, with the effective settings, holds the clock as its canonical text."""
+    """The document of `xeda run --json` echoes the settings that the user gave, each quantity in
+    the unit of its field. The record of the node, with the effective settings, holds the clock as
+    its canonical text."""
     design = Path(__file__).parent / "resources" / "design0" / "design0.toml"
     proc = run_xeda(
         "run",
@@ -713,9 +714,7 @@ def test_a_run_with_a_clock_prints_one_document_and_writes_the_clock_as_text(tmp
     )
     document = json_stdout(proc)
     assert document["outcome"] == "passed", proc.stderr
-    assert document["spec"]["settings"]["quartus"]["clocks"] == {
-        "main_clock": {"period": "5500 ps"}
-    }
+    assert document["spec"]["settings"]["quartus"]["clocks"] == {"main_clock": {"period": "5.5 ns"}}
     node = document["nodes"][-1]
     settings = json.loads((Path(node["run_dir"]) / "settings.json").read_text())
     for key in ("flow_settings", "effective_flow_settings"):

@@ -687,7 +687,7 @@ class Openfpgaloader(FpgaSynthFlow):
         assert isinstance(settings, cls.Settings)
         if settings.freq is not None and not settings.freq.to("Hz").is_integer():
             raise FlowSettingsException(
-                f"`freq` must be a whole number of hertz, got {settings.freq.to('Hz'):g} Hz: "
+                f"`freq` is {settings.freq}, which is not a whole number of hertz: "
                 "openFPGALoader takes an integer"
             )
 

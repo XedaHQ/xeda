@@ -50,7 +50,7 @@ from .console import console, console_target, redirect_console, restore_console
 from .flow import Flow
 from .flow_runner import FlowNotFoundError, get_flow_class
 from .flow_runner.launch_report import results_of
-from .introspect import settings_info, type_str
+from .introspect import settings_info, type_str, unit_of
 from .outcomes import Result
 from .units import is_number_text, is_quantity_unit
 from .utils import json_encodable, with_json_keys
@@ -606,6 +606,7 @@ def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
     # name ("set_synth_proper...") cannot be typed back into `-s KEY=VALUE`.
     table.add_column("Setting", header_style="bold green", style="bold", overflow="fold")
     table.add_column("Type", overflow="fold")
+    table.add_column("Unit", overflow="fold")
     table.add_column("Default", overflow="fold")
     table.add_column("Description", overflow="fold")
     for field in fields:
@@ -617,6 +618,7 @@ def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
         table.add_row(
             name,
             escape(field.get("type", "any")),
+            escape(field.get("unit") or "-"),
             _fmt_default(field.get("default"), bool(field.get("required"))),
             escape(description),
         )
@@ -644,6 +646,7 @@ def _definitions_tables(definitions: Dict[str, Any]) -> None:
         )
         table.add_column("property", overflow="fold")
         table.add_column("type", overflow="fold")
+        table.add_column("unit", overflow="fold")
         table.add_column("description", overflow="fold")
         for prop, prop_def in properties.items():
             if prop_def.get("hidden_from_schema"):
@@ -652,6 +655,7 @@ def _definitions_tables(definitions: Dict[str, Any]) -> None:
             table.add_row(
                 escape(prop),
                 escape(type_str(prop_def, definitions)),
+                escape(unit_of(prop_def) or "-"),
                 escape(str(description).rstrip(" .")),
             )
         console.print(table)

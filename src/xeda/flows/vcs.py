@@ -18,7 +18,7 @@ from ..flow.metrics import program_logs
 from ..flow.flow import describe_results
 from ..flow.sim import SimEvidence
 from ..tool import Tool
-from ..units import Bounds, Time, data_size
+from ..units import Bounds, Time, Unit, data_size
 from ..utils import replacing_file, tcl_word
 from .vcs_evidence import RUNTIME_LOG, parse_vcs_evidence, prepare_vcs_runtime
 
@@ -36,7 +36,7 @@ def timescale_text(value: Time) -> str:
             if value == Time.of(number, unit):
                 return f"{number}{unit}"
     raise ValueError(
-        f"VCS takes 1, 10 or 100 of s, ms, us, ns, ps or fs as a time scale, got {value}"
+        f"{value} is no time scale of VCS: it takes 1, 10 or 100 of s, ms, us, ns, ps or fs"
     )
 
 
@@ -178,12 +178,12 @@ class Vcs(SimFlow):
             "is set.",
         )
         full64: bool = Field(True, description="Compile and run in 64-bit mode (`-full64`).")
-        time_unit: Time = Field(
+        time_unit: Annotated[Time, Unit("ns")] = Field(
             Time("1 ns"),
             description="Default simulation time unit (`-timescale`), a time with a unit. VCS "
             "takes 1, 10 or 100 of s, ms, us, ns, ps or fs, such as `1 ns` or `10 ps`.",
         )
-        time_resolution: Time = Field(
+        time_resolution: Annotated[Time, Unit("ns")] = Field(
             Time("1 ps"),
             description="Default simulation time precision (`-timescale`, `-sim_res`), a time "
             "with a unit. VCS takes 1, 10 or 100 of s, ms, us, ns, ps or fs, such as `1 ps` or "
@@ -239,7 +239,7 @@ class Vcs(SimFlow):
             description="Initial value of registers (`+vcs+initreg`). Use `random` for random "
             "values.",
         )
-        lic_wait: Optional[Annotated[Time, Bounds(ge="0 min")]] = Field(
+        lic_wait: Optional[Annotated[Time, Unit("s"), Bounds(ge="0 s")]] = Field(
             Time("100 min"),
             description="How long to wait for a license when none is available (`vhdlan -licw`, "
             "`vcs -vc_lic_wait`), a time with a unit, such as `100 min`. VCS counts whole "
@@ -312,8 +312,8 @@ class Vcs(SimFlow):
                 raise FlowSettingsException(f"`{name}`: {error}") from None
         if settings.lic_wait is not None and not settings.lic_wait.to("min").is_integer():
             raise FlowSettingsException(
-                f"`lic_wait` must be a whole number of minutes, got {settings.lic_wait.to('min'):g}"
-                " min: VCS takes an integer number of minutes"
+                f"`lic_wait` is {settings.lic_wait}, which is not a whole number of minutes: "
+                "VCS takes an integer number of minutes"
             )
         cls.check_waveforms(settings)
         if settings.sdf_file and settings.sdf_instance is None:

@@ -159,12 +159,12 @@ CASES: dict[str, Case] = {
     "vcs-sdf-without-instance": Case(Vcs, "`sdf_instance` is required", {"sdf_file": "x.sdf"}),
     "openfpgaloader-fractional-hertz": Case(
         Openfpgaloader,
-        "`freq` must be a whole number of hertz",
+        "`freq` is 0.0000015 MHz, which is not a whole number of hertz",
         {"fpga": {"part": "LFE5U-25F-6BG381C"}, "freq": "1.5 Hz"},
     ),
-    "vcs-time-scale": Case(Vcs, "`time_unit`: VCS takes 1, 10 or 100", {"time_unit": "2 ns"}),
+    "vcs-time-scale": Case(Vcs, "`time_unit`: 2 ns is no time scale of VCS", {"time_unit": "2 ns"}),
     "vcs-fractional-license-wait": Case(
-        Vcs, "`lic_wait` must be a whole number of minutes", {"lic_wait": "90 s"}
+        Vcs, "`lic_wait` is 90 s, which is not a whole number of minutes", {"lic_wait": "90 s"}
     ),
     "vivado-sim-elab-debug-off": Case(VivadoPostsynthSim, "elab_debug: off", {"elab_debug": "off"}),
     "vivado-sim-controlled-flag": Case(

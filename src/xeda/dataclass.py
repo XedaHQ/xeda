@@ -46,6 +46,7 @@ from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, PydanticUndefined
 
 from .frozen import FrozenModel, thaw
+from .units import QuantityJsonSchema
 
 __all__ = [
     "AliasChoices",
@@ -1248,6 +1249,13 @@ class XedaBaseModel(BaseModel):
         if problems:
             raise ValidationError.from_exception_data(cls.__name__, problems)
         return values
+
+    @classmethod
+    def model_json_schema(cls, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Return the JSON Schema of the model, with the default of a quantity written in the
+        unit of its field."""
+        kwargs.setdefault("schema_generator", QuantityJsonSchema)
+        return super().model_json_schema(*args, **kwargs)
 
     @classmethod
     def as_mapping(cls, value: Any) -> Any:

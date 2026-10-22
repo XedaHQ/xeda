@@ -29,7 +29,7 @@ from ..flow import (
 )
 from ..tool import NonZeroExitCode, Tool
 from ..run_dir import RunDirectory
-from ..units import Bounds, Time, count, ratio
+from ..units import Bounds, Time, Unit, count, ratio
 from ..utils import replacing_file, setting_flag
 from .nextpnr_constraints import ClockUse, Constraints, merge_constraints, reconcile_clocks
 from .xilinx import (
@@ -613,7 +613,7 @@ class Nextpnr(FpgaSynthFlow):
             "default pass limit of the backend (8). A positive number sets the pass limit.",
             json_schema_extra=count(),
         )
-        hold_detour_max: Optional[Annotated[Time, Bounds(ge="0 ns")]] = Field(
+        hold_detour_max: Optional[Annotated[Time, Unit("ns"), Bounds(ge="0 ns")]] = Field(
             None,
             description="Xilinx: hold deficit, a time with a unit such as `0.5 ns`, up to which "
             "hold fixing uses a routing detour instead of a feedthrough LUT.",

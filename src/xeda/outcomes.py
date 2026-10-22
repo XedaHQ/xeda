@@ -239,6 +239,23 @@ def _plain(value: Any) -> Any:
     return json.loads(json.dumps(thaw(value), default=json_encodable))
 
 
+def _in_field_units(settings: Any) -> Any:
+    """Return `settings`, the settings of the flows by flow name, with each quantity written in
+    the unit of its field. The keys stay as given. A name that is no flow keeps its settings."""
+    from .flow_runner import get_flow_class
+    from .introspect import settings_in_field_units
+
+    if not isinstance(settings, dict):
+        return settings
+    result = {}
+    for name, section in settings.items():
+        try:
+            result[name] = settings_in_field_units(get_flow_class(name), section)
+        except Exception:  # pylint: disable=broad-exception-caught
+            result[name] = section
+    return result
+
+
 def spec_document(
     *,
     flow: str,
@@ -253,7 +270,7 @@ def spec_document(
         "design": design,
         "design_file": None if design_file is None else os.path.abspath(design_file),
         "target": target,
-        "settings": _plain(settings),
+        "settings": _in_field_units(_plain(settings)),
     }
 
 

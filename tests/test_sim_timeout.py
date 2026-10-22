@@ -230,7 +230,7 @@ def test_the_time_scale_of_vcs_is_one_ten_or_a_hundred_of_a_unit(value, text):
 @pytest.mark.parametrize(
     "settings,message",
     [
-        ({"time_unit": "2 ns"}, "VCS takes 1, 10 or 100"),
+        ({"time_unit": "2 ns"}, "it takes 1, 10 or 100"),
         ({"time_resolution": "1 ns 5"}, "cannot read"),
         ({"lic_wait": "90 s"}, "whole number of minutes"),
         ({"time_unit": "1"}, "needs a unit"),
