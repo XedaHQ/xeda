@@ -995,7 +995,10 @@ def test_every_required_metric_has_a_result_of_xeda() -> None:
 
 def test_the_results_of_a_node_are_read_from_its_run_directory(tmp_path: Path) -> None:
     run = tmp_path / "xeda_run" / "d" / "yosys"
-    write(run / "results.json", json.dumps({"area": 506.9, "cells": 357, "runtime": 1.5}))
+    write(
+        run / "results.json",
+        json.dumps({"metrics": {"area": 506.9, "cells": 357}, "runtime": 1.5}),
+    )
     document = {
         "nodes": [
             {"node": "yosys", "flow": "yosys", "run_path": str(run)},

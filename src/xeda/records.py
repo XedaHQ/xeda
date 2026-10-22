@@ -624,7 +624,7 @@ def _decode(document: Mapping[str, Any], run_dir: Path, run_root: Path) -> RunRe
     if (
         isinstance(runtime, bool)
         or not isinstance(runtime, (int, float))
-        or not math.isfinite(runtime)
+        or (isinstance(runtime, float) and not math.isfinite(runtime))
     ):
         raise _Malformed("`runtime` is not a finite number")
     dependencies = []

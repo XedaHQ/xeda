@@ -310,7 +310,7 @@ sets `platform` and `clock.period`, and `bsc` converts the design first.
 (`{code, message, node, exit_status, log}` or null), `metrics` nested by dotted path (`sim.ended_by`)
 with `metric_info` (description, type, unit) for each, `outputs` and `artifacts` (names relative to
 the run directory), `settings`, `configuration`, `inputs`, `run_id`, `identity`, `started`,
-`finished` and `runtime`. It holds no absolute path. Which metrics a flow writes:
+`finished` and `runtime`. It names no file of the run by an absolute path. Which metrics a flow writes:
 `xeda list-results <flow> --json`. Every metric name is lower snake case, with dots between the
 parts of a group (`fmax`, `lut`, `ff`, `lut_use.logic`); a quantity has one name in every flow. A
 file without `schema_version` was written by an older Xeda: a launch runs that flow again.

@@ -34,7 +34,8 @@ with a full traceback instead of reporting a failure. Both help in a bug report:
 Also include:
 
 * the output of ``xeda --version``
-* the EDA tool and its version (``results.tools`` of ``xeda run --json`` lists the versions that Xeda detected)
+* the EDA tool and its version (``results.tools`` of ``xeda run --json`` lists the versions that
+  Xeda detected for a node that ran)
 * your operating system and Python version
 
 Rejected settings

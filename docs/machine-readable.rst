@@ -325,8 +325,8 @@ The record has these fields:
 ``dependencies``, ``inherited_variables``
     Lists, empty for now.
 
-The record holds no absolute path. The run root and the run directory follow from where the file
-is. The old keys ``success``, ``run_path``, ``design_hash``, ``flow_hash``, ``settings_hash``,
+The record names no file of the run by an absolute path. The run root and the run directory
+follow from where the file is. The old keys ``success``, ``run_path``, ``design_hash``, ``flow_hash``, ``settings_hash``,
 ``timestamp``, ``tools`` and ``design`` as a result key are gone. In Python,
 ``xeda.records.read_record(run_dir, run_root=...)`` returns the record as an immutable
 ``RunRecord``, and ``RunRecord.to_dict()`` returns the document.

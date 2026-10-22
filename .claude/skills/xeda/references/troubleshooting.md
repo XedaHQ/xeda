@@ -89,8 +89,8 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 ### Tools
 
 - `ExecutableNotFound`: `Executable 'ghdl' was not found in PATH. flow:ghdl_sim, tool:GhdlTool`
-  (`--debug` appends `, PATH:...`). Install the tool, or run it from a container with `-s dockerized=true`. `results.tools` of the `--json`
-  document lists the executables Xeda found and their versions.
+  (`--debug` appends `, PATH:...`). Install the tool, or run it from a container with `-s dockerized=true`. For a node that ran in this
+  launch, `results.tools` of the `--json` document lists the executables Xeda found and their versions.
 - `nonzero_exit` (`timeout` for a time limit): `Command '...' exited with code 1!` in the failed node's `results.error`. If
   the error reaches the CLI itself, the message starts with `Flow <flow> failed: `. The generated
   script and the tool's log are in `run_path`.

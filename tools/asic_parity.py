@@ -1078,7 +1078,11 @@ def node_results(document: Mapping[str, Any], flow: str) -> dict[str, Any]:
                 loaded = json.loads((Path(node["run_path"]) / "results.json").read_text())
             except (OSError, ValueError):
                 return {}
-            return {key: loaded[key] for key in ("area", "cells", "runtime") if key in loaded}
+            metrics = loaded.get("metrics") or {}
+            found = {key: metrics[key] for key in ("area", "cells") if key in metrics}
+            if "runtime" in loaded:
+                found["runtime"] = loaded["runtime"]
+            return found
     return {}
 
 

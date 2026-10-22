@@ -1510,14 +1510,17 @@ class FlowLauncher:
                     for k, v in flow.artifacts.items():
                         flow.results.artifacts.setdefault(k, v)
                     _drop_unwritten_artifacts(flow)
-                    report(
-                        flow,
-                        derived,
-                        results_json,
-                        self.settings,
-                        record=True,
-                        run_root=self.run_root,
-                    )
+                    try:
+                        report(
+                            flow,
+                            derived,
+                            results_json,
+                            self.settings,
+                            record=True,
+                            run_root=self.run_root,
+                        )
+                    except Exception as problem:  # noqa: BLE001 - the run's own error comes first
+                        log.error("The record of %s could not be written: %s", flow.name, problem)
                     raise
                 if self.settings.dump_settings_json:
                     # `run()` may finish resolving generated files or derived switches. Keep the
