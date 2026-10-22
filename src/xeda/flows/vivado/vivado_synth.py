@@ -674,8 +674,9 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
 
         reports_dir = self.settings.reports_dir / "route_design"
         failed = not self.parse_timing_report(reports_dir)
-        # The lack of this report fails the run only when nothing else did: after a failure it is
-        # no cause.
+        # The lack of this report fails the run only when nothing else did. After a failure the
+        # lack follows from that failure and is not its cause, so it must not take the place of
+        # the cause as `missing_report`.
         hier_util_xml = self.report_file(
             reports_dir / "hierarchical_utilization.xml", optional=failed
         )
