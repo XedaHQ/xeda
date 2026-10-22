@@ -26,7 +26,6 @@ from xeda import Design
 from xeda.digest import TIME_MARKER_PREFIX
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, Nvc
-from xeda.run_root import ensure_run_root
 
 from .tool_utils import require_ghdl, require_nvc_evidence
 
@@ -168,9 +167,7 @@ def test_two_threads_launch_on_one_design_at_once(tmp_path, alone, pair):
     _require_tools(pair)
     design_root = tmp_path / "design"
     design_file = _write_design(design_root)
-    run_root = tmp_path / "run"
-    # The run root exists before the launches start. Creating it is not what this test covers.
-    ensure_run_root(run_root)
+    run_root = tmp_path / "run"  # new: both launches create and mark it at once
     start = os.getcwd()
     barrier = threading.Barrier(2, timeout=TIMEOUT)
     outcomes: list[Any] = [None, None]
@@ -246,8 +243,7 @@ def test_two_processes_launch_on_one_design_at_once(tmp_path, alone, pair):
     _require_tools(pair)
     design_root = tmp_path / "design"
     design_file = _write_design(design_root)
-    run_root = tmp_path / "run"
-    ensure_run_root(run_root)
+    run_root = tmp_path / "run"  # new: both launches create and mark it at once
     sync = tmp_path / "sync"
     sync.mkdir()
     children = []

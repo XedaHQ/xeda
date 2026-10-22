@@ -135,6 +135,10 @@ def ensure_run_root(
             return None
         _mark(root)
         return root
+    # Another Xeda may have marked the root since the check above. It writes the marker first,
+    # so the files found here include the marker.
+    if is_run_root(root):
+        return root
     if is_default_location(root, start):
         if not create:
             return None
