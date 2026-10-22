@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Find newer versions of the tools that CI pins, and write them into the workflow files.
 
-CI pins five tools. A pin is one line of a workflow file (two lines for bsc and for the image).
+CI pins six tools. A pin is one line of a workflow file (two lines for bsc and for the image).
 bsc is pinned twice, in two files, and one release moves both pins:
 
 * the OSS CAD Suite, by the date of its build: the `version` of the
   `YosysHQ/setup-oss-cad-suite` step in `.github/workflows/ci.yml`;
+* NVC, by its release number: the `version` of the `nickg/setup-nvc` step in
+  `.github/workflows/ci.yml`;
 * the Bluespec Compiler (bsc), by its release and the SHA-256 of its tarball: `BSC_VERSION` and
   `BSC_SHA256` in `.github/workflows/ci.yml` (the Ubuntu 24.04 tarball) and in
   `.github/workflows/openroad.yml` (the Ubuntu 22.04 tarball, for the image of the OpenROAD job);
@@ -63,6 +65,10 @@ OSS_CAD_TAG = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 BSC_TAG = re.compile(r"[0-9]{4}\.[0-9]{2}(?:\.[0-9]+)?")
 # The release number of uv, as the tag of its release: no `v`, no release candidate.
 UV_TAG = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
+# The release number of NVC, as the `version` of the action writes it. The tag of the release
+# has an `r` before it.
+NVC_NUMBER = UV_TAG
+NVC_TAG = re.compile(rf"r(?P<number>{NVC_NUMBER.pattern})")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 # A tag of the ORFS image: the year, the quarter, the number of commits since the start of the
@@ -76,6 +82,10 @@ BSC_REPOSITORY = "B-Lang-org/bsc"
 #: The Ubuntu versions whose tarball a workflow installs. A release is pinned only when it has all.
 BSC_PLATFORMS = ("ubuntu-24.04", "ubuntu-22.04")
 INSTALLER_REPOSITORY = "openXC7/toolchain-installer"
+NVC_REPOSITORY = "nickg/nvc"
+#: The Ubuntu version whose package `setup-nvc` installs on the runner of the job. The action
+#: picks the package whose name ends with `ubuntu-<version>.deb`.
+NVC_PACKAGE_SUFFIX = "ubuntu-24.04.deb"
 UV_REPOSITORY = "astral-sh/uv"
 ORFS_REPOSITORY = "The-OpenROAD-Project/OpenROAD-flow-scripts"
 ORFS_IMAGE = "openroad/orfs"
@@ -110,6 +120,7 @@ class Pin:
 
 PINS = (
     Pin("oss_cad", "OSS CAD Suite", CI, "`version` of the setup-oss-cad-suite step"),
+    Pin("nvc", "NVC", CI, "`version` of the setup-nvc step"),
     Pin("bsc", "Bluespec Compiler (bsc)", CI, "`BSC_VERSION` and `BSC_SHA256`", "ubuntu-24.04"),
     Pin("installer", "openXC7 toolchain installer", OPENXC7, "`INSTALLER_REV`"),
     Pin("orfs", "ORFS image for the OpenROAD tests", ORFS, "`image` of the container"),
@@ -199,6 +210,25 @@ def write_oss_cad(text: str, version: str) -> str:
     start, end = _oss_cad_step(text)
     step = text[start:end]
     match = _single(step, _OSS_CAD_VERSION, "OSS CAD Suite", _OSS_CAD_EXAMPLE)
+    return text[:start] + _replace(step, match, version) + text[end:]
+
+
+_NVC_STEP = re.compile(r"^\s*(?:-\s+)?uses:\s*nickg/setup-nvc@\S+\s*$")
+_NVC_VERSION = re.compile(
+    rf'^\s+version:\s*"(?P<value>{NVC_NUMBER.pattern})"[ \t\r]*$', re.MULTILINE
+)
+_NVC_EXAMPLE = 'version: "1.23.0"'
+
+
+def read_nvc(text: str) -> str:
+    start, end = _action_step(text, _NVC_STEP, "setup-nvc")
+    return _single(text[start:end], _NVC_VERSION, "NVC", _NVC_EXAMPLE).group("value")
+
+
+def write_nvc(text: str, version: str) -> str:
+    start, end = _action_step(text, _NVC_STEP, "setup-nvc")
+    step = text[start:end]
+    match = _single(step, _NVC_VERSION, "NVC", _NVC_EXAMPLE)
     return text[:start] + _replace(step, match, version) + text[end:]
 
 
@@ -316,6 +346,20 @@ def newest_oss_cad(answer: Any) -> str:
 
 def _release_number(tag: str) -> tuple[int, ...]:
     return tuple(int(part) for part in tag.split("."))
+
+
+def newest_nvc(answer: Any) -> str:
+    """The number of the newest release that has the package `setup-nvc` installs on the runner."""
+    numbers = [
+        match.group("number")
+        for release in _releases(answer, "NVC")
+        if isinstance(tag := release.get("tag_name"), str)
+        and (match := NVC_TAG.fullmatch(tag))
+        and any(name.endswith(NVC_PACKAGE_SUFFIX) for name in _asset_names(release))
+    ]
+    if not numbers:
+        raise PinError(f"NVC: no release has a package that ends with {NVC_PACKAGE_SUFFIX}")
+    return max(numbers, key=_release_number)
 
 
 def uv_archive() -> str:
@@ -492,6 +536,16 @@ def find_update(
             ("compare", _compare(OSS_CAD_REPOSITORY, old, new)),
         )
         return Update(pin, old, new, links)
+    if pin.kind == "nvc":
+        old = read_nvc(text)
+        new = newest_nvc(fetch(f"/repos/{NVC_REPOSITORY}/releases?per_page=30"))
+        if _release_number(new) <= _release_number(old):
+            return None
+        links = (
+            ("release", f"{GITHUB}/{NVC_REPOSITORY}/releases/tag/r{new}"),
+            ("compare", _compare(NVC_REPOSITORY, f"r{old}", f"r{new}")),
+        )
+        return Update(pin, old, new, links)
     if pin.kind == "bsc":
         old, _ = read_bsc(text)
         tarballs = newest_bsc_tarballs(fetch(f"/repos/{BSC_REPOSITORY}/releases?per_page=30"))
@@ -554,6 +608,8 @@ def apply_update(text: str, update: Update) -> str:
     kind = update.pin.kind
     if kind == "oss_cad":
         return write_oss_cad(text, update.new)
+    if kind == "nvc":
+        return write_nvc(text, update.new)
     if kind == "bsc":
         return write_bsc(text, update.new, update.sha256)
     if kind == "installer":
