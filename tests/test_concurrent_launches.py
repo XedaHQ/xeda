@@ -65,10 +65,11 @@ FLOWS = {"ghdl_sim": GhdlSim, "nvc": Nvc}
 TIMEOUT = 120.0
 
 
-def _require_tools(pair: tuple[str, str]) -> None:
+def _require_tools(pair: tuple[str, str], alone: "_Alone") -> None:
     require_ghdl()
     if "nvc" in pair:
         require_nvc_evidence()
+    alone.prepare(pair)
 
 
 def _write_design(root: Path) -> Path:
@@ -94,14 +95,21 @@ def _summary(results: Any) -> dict[str, Any]:
 
 
 class _Alone:
-    """What a launch that has the machine to itself reports and writes, per flow name."""
+    """What a launch that has the machine to itself reports and writes, per flow name. Each flow
+    runs once, the first time a test asks for it, before that test starts its launches."""
 
     def __init__(self, design_file: Path, run_root: Path) -> None:
+        self.design_file = design_file
+        self.run_root = run_root
         self.results: dict[str, dict[str, Any]] = {}
         self.files: dict[str, list[str]] = {}
-        runner = DefaultRunner(run_root, display_results=False)
-        for name, flow_class in FLOWS.items():
-            flow = runner.run_flow(flow_class, Design.from_file(design_file), {})
+
+    def prepare(self, pair: tuple[str, str]) -> None:
+        for name in pair:
+            if name in self.results:
+                continue
+            runner = DefaultRunner(self.run_root, display_results=False)
+            flow = runner.run_flow(FLOWS[name], Design.from_file(self.design_file), {})
             assert flow is not None and flow.succeeded
             self.results[name] = _summary(flow.results)
             self.files[name] = _files(flow.run_path)
@@ -109,9 +117,7 @@ class _Alone:
 
 @pytest.fixture(scope="module")
 def alone(tmp_path_factory: pytest.TempPathFactory) -> _Alone:
-    """Run both flows once, before any concurrent launch of the module."""
-    require_ghdl()
-    require_nvc_evidence()
+    """The flows run alone, in a run root of their own."""
     base = tmp_path_factory.mktemp("alone")
     return _Alone(_write_design(base / "design"), base / "run")
 
@@ -164,7 +170,7 @@ class _WorkingDirectoryWatch:
 
 @pytest.mark.parametrize("pair", PAIRS.values(), ids=PAIRS.keys())
 def test_two_threads_launch_on_one_design_at_once(tmp_path, alone, pair):
-    _require_tools(pair)
+    _require_tools(pair, alone)
     design_root = tmp_path / "design"
     design_file = _write_design(design_root)
     run_root = tmp_path / "run"  # new: both launches create and mark it at once
@@ -240,7 +246,7 @@ Path(out).write_text(json.dumps({
 
 @pytest.mark.parametrize("pair", PAIRS.values(), ids=PAIRS.keys())
 def test_two_processes_launch_on_one_design_at_once(tmp_path, alone, pair):
-    _require_tools(pair)
+    _require_tools(pair, alone)
     design_root = tmp_path / "design"
     design_file = _write_design(design_root)
     run_root = tmp_path / "run"  # new: both launches create and mark it at once
@@ -261,22 +267,20 @@ def test_two_processes_launch_on_one_design_at_once(tmp_path, alone, pair):
             str(index),
             os.fspath(tmp_path / f"out-{index}.json"),
         ]
-        children.append(
-            subprocess.Popen(
-                argv, cwd=start, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-            )
-        )
-    outputs = []
+        # Output goes to a file: a pipe that nobody reads while the other child runs could fill
+        # and stop a child that holds the lock the other waits for.
+        with open(tmp_path / f"log-{index}.txt", "w") as log:
+            children.append(subprocess.Popen(argv, cwd=start, stdout=log, stderr=subprocess.STDOUT))
     try:
         for child in children:
-            outputs.append(child.communicate(timeout=TIMEOUT)[0])
+            child.wait(timeout=TIMEOUT)
     finally:
         for child in children:
             if child.poll() is None:
                 child.kill()
                 child.wait()
-    for child, output in zip(children, outputs):
-        assert child.returncode == 0, output
+    for index, child in enumerate(children):
+        assert child.returncode == 0, (tmp_path / f"log-{index}.txt").read_text()
 
     for index, flow_name in enumerate(pair):
         reported = json.loads((tmp_path / f"out-{index}.json").read_text())
