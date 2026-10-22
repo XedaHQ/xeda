@@ -569,7 +569,7 @@ the declared outputs under ``<run root>/@<host>/``, with the same layout as a lo
 (``<design>[/<target>]/<flow>[_<hash>]``). The mirror holds no ``trace.json``, so a local run never
 reuses it. A mirror directory is replaced by each fetch. ``--hashed-run-dirs``, ``--clean``,
 ``--rebuild-all`` and ``--dry-run`` act on the remote run directories, as they do for a local run.
-``--scrub`` removes nothing there: the remote launch cannot ask you to confirm it.
+``--scrub`` is refused: a remote launch cannot ask you to confirm it.
 ``--post-cleanup`` and ``--post-cleanup-purge`` are refused, because the run directories are not on
 your machine: ``xeda remote clean`` frees the space on the host. See :doc:`remote`.
 
@@ -597,9 +597,8 @@ Cleaning up
    * - ``--scrub``
      - Before the run, remove the other run directories of the flow for this design. Xeda asks
        for confirmation. If the launch also has to ask whether to replace a file that you named
-       for an output, it asks that first. A launch that you decline removes nothing. A launch
-       that runs on a remote host (``--remote``) cannot ask you, so it removes nothing there. It
-       logs the run directories that it did not remove.
+       for an output, it asks that first. A launch that you decline removes nothing. Xeda
+       refuses ``--scrub`` with ``--remote``, because a remote launch cannot ask you.
 
 Pruning (``--post-cleanup`` and ``--post-cleanup-purge``) removes the trace first. A pruned run is
 therefore not reused, even though its ``settings.json`` and ``results.json`` remain.

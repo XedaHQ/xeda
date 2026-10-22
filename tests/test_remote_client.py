@@ -346,6 +346,27 @@ def test_post_cleanup_options_are_refused_with_remote(tmp_path, remote_host):
         assert "xeda remote clean" in result.output
 
 
+def test_scrub_is_refused_with_remote_before_any_connection(tmp_path, remote_host):
+    """A remote launch cannot ask for the confirmation, so the plan refuses `--scrub`: no ssh
+    call is made, with the text output and with `--json` (one document on stdout)."""
+    design = _design(tmp_path)
+    text = _cli(tmp_path, design, "nextpnr", "--scrub")
+    assert text.exit_code == 2, text.output
+    assert "`--scrub`" in text.output and "xeda remote clean" in text.output
+    assert "without --remote" in text.output
+    document = CliRunner().invoke(
+        cli,
+        ["run", "nextpnr", "--design", str(design), "--remote", "somewhere", "--scrub", "--json"]
+        + ["--run-root", str(tmp_path / "local" / "xeda_run")],
+    )
+    assert document.exit_code != 0
+    result = json.loads(document.stdout)
+    assert result["success"] is False
+    assert result["error"]["type"] == "UsageError" and "--scrub" in result["error"]["message"]
+    assert not remote_host.remote.calls("ssh")
+    assert not (tmp_path / "local" / "xeda_run").exists()
+
+
 def test_fetch_all_needs_remote(tmp_path):
     design = _design(tmp_path)
     result = CliRunner().invoke(cli, ["run", "nextpnr", "--design", str(design), "--fetch-all"])

@@ -437,9 +437,10 @@ Behavior:
 - The host keeps a workspace (`v1/ws/<key>/`) per machine, resolved run root and `ssh -G` user,
   host name and port. Another `--run-root` is another workspace. Runs there are make-like: only
   changed inputs are sent, and a fresh flow is not run again. `--hashed-run-dirs`, `--clean` and
-  `--rebuild-all` act on the host. `--scrub` removes nothing there (no prompt can reach you; it
-  logs that). A command waits for the workspace lock and logs the launch that holds it.
+  `--rebuild-all` act on the host. A command waits for the workspace lock and logs the launch
+  that holds it.
 - Refused before any connection: `--post-cleanup`, `--post-cleanup-purge` (use `xeda remote clean`),
+  `--scrub` (a remote launch cannot ask for the confirmation),
   a deliverable setting that names a location (use `--outputs-to`), a chain with a programmer
   flow (`openfpgaloader`; run the part before it with `--remote`, then program locally with a
   binding to the fetched file), `--fetch-all` or `--keep-running` without `--remote`, and

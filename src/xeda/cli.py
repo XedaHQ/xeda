@@ -869,7 +869,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "--scrub",
     is_flag=True,
     help="Before running, remove the flow's other run directories for this design; asks for "
-    "confirmation. With --remote nothing can ask, so the host removes nothing.",
+    "confirmation. It cannot be used with --remote.",
 )
 @click.option(
     "--remote",
@@ -1048,6 +1048,13 @@ def run(
                     "directories are on the remote: use `xeda remote clean`",
                     ctx=ctx,
                 )
+        if scrub:
+            raise click.UsageError(
+                "`--scrub` asks you to confirm the removal of run directories, and a remote "
+                "launch cannot ask: run without --remote, or free the space on the host with "
+                "`xeda remote clean`",
+                ctx=ctx,
+            )
         from .remote import client as remote_client
 
         outcome = remote_client.run_remote(
