@@ -561,7 +561,7 @@ class Openfpgaloader(FpgaSynthFlow):
     action_reason = "it programs a device"
 
     # This flow reports only the keys that every flow reports. The empty declaration says so.
-    results_description: dict = {}
+    results_description = {}
 
     #: The loader's tool, made in `init()`.
     loader: OpenfpgaloaderTool

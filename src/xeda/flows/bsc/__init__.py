@@ -29,6 +29,7 @@ from ...flow import (
     Flow,
     FlowFatalError,
     FlowSettingsException,
+    MetricSpec,
     Out,
     SimFlow,
     describe_results,
@@ -1068,9 +1069,12 @@ class Bsc(BscFlow):
     """
 
     results_description = describe_results(
-        modules="Verilog modules of the design's hierarchy, the top first and each module "
-        "before those it instantiates: the ones bsc generated, the library modules and the "
-        "design's own Verilog modules.",
+        modules=MetricSpec(
+            "Verilog modules of the design's hierarchy, the top first and each module before "
+            "those it instantiates: the ones bsc generated, the library modules and the "
+            "design's own Verilog modules.",
+            "text_list",
+        ),
     )
 
     output_dir_setting = "verilog_out_dir"
@@ -1428,7 +1432,7 @@ class BscSim(BscFlow, SimFlow):
         "sim.time_unit",
         "sim.errors",
         "sim.warnings",
-        simulator="The simulator that ran the testbench.",
+        simulator=MetricSpec("The simulator that ran the testbench.", "text"),
     )
 
     output_dir_setting = "sim_dir"

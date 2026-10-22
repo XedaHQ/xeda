@@ -13,6 +13,7 @@ from ...flow import (
     FlowSettingsError,
     FlowSettingsException,
     FpgaSynthFlow,
+    MetricSpec,
     Out,
     describe_results,
 )
@@ -157,12 +158,22 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         "lut",
         "ff",
         **{
-            "LUT:LOGIC": "Mapped Xilinx logic LUT footprint estimate at the synthesis stage.",
-            "LUT:RAM": "Mapped distributed RAM LUT footprint estimate at the synthesis stage.",
-            "LUT:SRL": "Mapped shift-register LUT footprint estimate at the synthesis stage.",
-            "LUT:STAGE": "Stage represented by the canonical LUT resource estimate.",
-            "LUT:METHOD": "Method used to estimate the canonical LUT resource units.",
-            "FF": "Number of flip-flops (registers) used.",
+            "LUT:LOGIC": MetricSpec(
+                "Mapped Xilinx logic LUT footprint estimate at the synthesis stage.", "integer"
+            ),
+            "LUT:RAM": MetricSpec(
+                "Mapped distributed RAM LUT footprint estimate at the synthesis stage.", "integer"
+            ),
+            "LUT:SRL": MetricSpec(
+                "Mapped shift-register LUT footprint estimate at the synthesis stage.", "integer"
+            ),
+            "LUT:STAGE": MetricSpec(
+                "Stage represented by the canonical LUT resource estimate.", "text"
+            ),
+            "LUT:METHOD": MetricSpec(
+                "Method used to estimate the canonical LUT resource units.", "text"
+            ),
+            "FF": MetricSpec("Number of flip-flops (registers) used.", "integer"),
         },
     )
 

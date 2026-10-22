@@ -1,10 +1,11 @@
 """Documentation coverage of the agent-facing surface.
 
-Flows, their settings and their result keys are what a coding agent reads to decide how to drive
+Flows, their settings and their metrics are what a coding agent reads to decide how to drive
 xeda, so an undocumented field is a real gap rather than a cosmetic one. These tests pin the
 coverage that has been reached so it cannot silently regress.
 """
 
+import dataclasses
 import enum
 import json
 import re
@@ -17,7 +18,8 @@ import pytest
 
 from xeda.dataclass import Field, annotation_args, tier, tier_of
 from xeda.design import SOURCE_SUFFIXES
-from xeda.flow import Flow, describe_results
+from xeda.flow import COMMON_METRICS, Flow, MetricSpec, MetricType, describe_results
+from xeda.flow.metrics import COCOTB_METRICS, metric_unit_known
 from xeda.flow.settings_group import SettingsGroup
 from xeda.flow.sim import SimFlow
 from xeda.flow_runner import FlowNotFoundError, get_flow_class
@@ -30,7 +32,7 @@ from .flow_registry import preserved_flow_registry
 SETTINGS_WITHOUT_DESCRIPTION: Set[Tuple[str, str]] = set()
 
 #: Flows allowed to have no `results_description`. Empty on purpose -- a flow that reports
-#: nothing beyond the common keys declares `results_description = {}` explicitly.
+#: no metric declares `results_description = {}` explicitly.
 FLOWS_WITHOUT_RESULTS_DOC: Set[str] = set()
 
 FLOW_CLASSES = all_flow_classes()
@@ -185,16 +187,47 @@ def test_every_choice_setting_advertises_its_choices(flow_class):
 
 
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
-def test_every_flow_documents_its_results(flow_class):
+def test_every_flow_declares_its_results(flow_class):
     if flow_class.name in FLOWS_WITHOUT_RESULTS_DOC:
         pytest.skip("explicitly allow-listed")
-    info = results_info(flow_class)
-    assert info["documented"], (
-        f"{flow_class.name} does not declare `results_description`. Declare the keys it reports, "
-        "or `results_description = {}` if it reports none beyond the common keys."
+    assert any(
+        "results_description" in klass.__dict__ for klass in flow_class.__mro__ if klass is not Flow
+    ), (
+        f"{flow_class.name} does not declare `results_description`. Declare the metrics it "
+        "reports, or `results_description = {}` if it reports none."
     )
-    missing = [k["name"] for k in info["keys"] if not k["documented"]]
-    assert not missing, f"{flow_class.name} reports undocumented result keys: {missing}"
+
+
+@pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
+def test_every_metric_has_a_type_and_a_known_unit(flow_class):
+    for path, spec in flow_class.results_description.items():
+        assert isinstance(spec, MetricSpec), path
+        assert spec.type in get_args(MetricType), path
+        assert spec.unit is None or metric_unit_known(spec.unit), (path, spec.unit)
+        assert spec.description.strip(), path
+
+
+def test_a_frequency_metric_is_in_mhz_and_a_time_metric_in_ns():
+    assert COMMON_METRICS["clock_frequency"].unit == "MHz"
+    assert COMMON_METRICS["clock_period"].unit == "ns"
+    assert COMMON_METRICS["wns"].unit == "ns"
+
+
+@pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
+def test_a_metric_that_names_its_unit_carries_it(flow_class):
+    """A unit belongs to the descriptor: `Fmax` is in MHz, a slack is in ns, a power is in W."""
+    for path, spec in flow_class.results_description.items():
+        if path in ("Fmax", "fmax", "f_max") or path.endswith("frequency"):
+            assert (spec.type, spec.unit) == ("number", "MHz"), path
+        if path in ("wns", "whs", "tns", "worst_slack", "clock_period"):
+            assert (spec.type, spec.unit) == ("number", "ns"), path
+        if path == "power" or path.startswith("power_"):
+            assert spec.unit == "W", path
+
+
+def test_metric_unit_known_accepts_the_units_of_the_units_table_only():
+    assert all(metric_unit_known(unit) for unit in ("MHz", "ns", "W", "um", "s", "fs"))
+    assert not any(metric_unit_known(unit) for unit in ("mhz", "NS", "", "furlong", "um2"))
 
 
 def test_describe_results_rejects_unknown_keys():
@@ -204,15 +237,51 @@ def test_describe_results_rejects_unknown_keys():
 
 
 def test_describe_results_allows_flow_specific_keys():
-    described = describe_results("wns", my_own_key="Something this flow alone reports.")
-    assert described["wns"]
-    assert described["my_own_key"] == "Something this flow alone reports."
+    own = MetricSpec("Something this flow alone reports.", "text")
+    described = describe_results("wns", my_own_key=own)
+    assert described["wns"] is COMMON_METRICS["wns"]
+    assert described["my_own_key"] is own
+
+
+def test_describe_results_refuses_a_description_without_a_type():
+    with pytest.raises(TypeError, match="MetricSpec"):
+        describe_results(my_own_key="Something this flow alone reports.")  # type: ignore[arg-type]
+
+
+def test_a_metric_spec_is_frozen():
+    spec = MetricSpec("A count.", "integer")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        spec.unit = "ns"  # type: ignore[misc]
+    assert spec.unit is None
+
+
+@pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
+def test_a_cocotb_simulator_describes_the_cocotb_metrics(flow_class):
+    described = set(flow_class.results_description)
+    has_cocotb = issubclass(flow_class, SimFlow) and bool(flow_class.cocotb_sim_name)
+    assert set(COCOTB_METRICS) <= described if has_cocotb else not set(COCOTB_METRICS) & described
+
+
+@pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
+def test_results_info_lists_the_declared_metrics(flow_class):
+    info = results_info(flow_class)
+    assert set(info) == {"flow", "metrics", "artifacts", "note"}
+    assert info["artifacts"] == []
+    assert [m["path"] for m in info["metrics"]] == list(flow_class.results_description)
+    for metric in info["metrics"]:
+        spec = flow_class.results_description[metric["path"]]
+        assert metric == {
+            "path": metric["path"],
+            "description": spec.description,
+            "type": spec.type,
+            "unit": spec.unit,
+        }
 
 
 class _AliasFlow(Flow):
     """Minimal flow used to exercise result-alias behavior."""
 
-    results_description: Dict[str, str] = {}
+    results_description: ClassVar[Dict[str, MetricSpec]] = {}
 
     def run(self) -> None:  # pragma: no cover - never executed
         raise NotImplementedError
@@ -253,8 +322,7 @@ def test_clock_frequency_is_never_aliased_to_fmax():
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
 def test_result_alias_candidates_are_documented_somewhere(flow_class):
     """A flow reporting an alias candidate must also document the canonical key."""
-    info = results_info(flow_class)
-    documented: List[str] = [k["name"] for k in info["keys"]]
+    documented = list(flow_class.results_description)
     for canonical, candidates in flow_class.results_canonical_aliases.items():
         reported = [c for c in candidates if c in documented]
         if reported and canonical not in documented:
@@ -346,7 +414,7 @@ def test_every_simulator_exposes_shared_settings_and_evidence_results():
     for flow_class in simulator_flows:
         settings = {field["name"] for field in settings_info(flow_class)["fields"]}
         assert {"timeout", "fail_severity"} <= settings, flow_class.name
-        results = {item["name"] for item in results_info(flow_class)["keys"]}
+        results = {item["path"] for item in results_info(flow_class)["metrics"]}
         assert required_results <= results, (flow_class.name, required_results - results)
 
 

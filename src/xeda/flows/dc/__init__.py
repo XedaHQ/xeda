@@ -9,7 +9,14 @@ from box import Box
 
 from ...dataclass import WORKING, Field, field_validator
 from ...design import SourceType
-from ...flow import AsicSynthFlow, Flow, FlowSettingsError, NoReplacement, describe_results
+from ...flow import (
+    AsicSynthFlow,
+    Flow,
+    FlowSettingsError,
+    MetricSpec,
+    NoReplacement,
+    describe_results,
+)
 from ...tool import Tool
 from ...utils import try_convert, try_convert_to_primitives
 
@@ -72,20 +79,34 @@ class Dc(AsicSynthFlow):
         "area_cell_total",
         "area_total",
         "area_core",
-        **{
-            "area": "Area breakdown from the QoR report, as a mapping of the report's own labels "
-            "to values.",
-            "drc": "Non-zero design-rule violation counts from the QoR report, by rule.",
-            "path_groups": "Per-timing-path-group QoR figures, keyed by path group name.",
-            "num_ports": "Number of ports in the mapped design.",
-            "num_nets": "Number of nets in the mapped design.",
-            "num_cells": "Total number of cells in the mapped design.",
-            "num_cells_combinational": "Number of combinational cells in the mapped design.",
-            "num_cells_sequential": "Number of sequential cells in the mapped design.",
-            "num_cells_sequentual": "Deprecated misspelling of `num_cells_sequential`, still "
-            "reported so existing scripts keep working.",
-            "num_macro_bbox": "Number of macros / black boxes in the mapped design.",
-        },
+        area=MetricSpec(
+            "Area breakdown from the QoR report, as a mapping of the report's own labels to "
+            "values.",
+            "object",
+        ),
+        drc=MetricSpec(
+            "Non-zero design-rule violation counts from the QoR report, by rule.", "counts"
+        ),
+        path_groups=MetricSpec(
+            "Per-timing-path-group QoR figures, keyed by path group name.", "object"
+        ),
+        num_ports=MetricSpec("Number of ports in the mapped design.", "integer"),
+        num_nets=MetricSpec("Number of nets in the mapped design.", "integer"),
+        num_cells=MetricSpec("Total number of cells in the mapped design.", "integer"),
+        num_cells_combinational=MetricSpec(
+            "Number of combinational cells in the mapped design.", "integer"
+        ),
+        num_cells_sequential=MetricSpec(
+            "Number of sequential cells in the mapped design.", "integer"
+        ),
+        num_cells_sequentual=MetricSpec(
+            "Deprecated misspelling of `num_cells_sequential`, still reported so existing "
+            "scripts keep working.",
+            "integer",
+        ),
+        num_macro_bbox=MetricSpec(
+            "Number of macros / black boxes in the mapped design.", "integer"
+        ),
     )
 
     reads_sources = frozenset(

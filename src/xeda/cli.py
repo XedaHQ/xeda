@@ -247,7 +247,7 @@ def list_settings(
 
 @cli.command(
     context_settings=CONTEXT_SETTINGS,
-    short_help="List the result keys a flow reports.",
+    short_help="List the metrics a flow reports.",
 )
 @click.argument(
     "flow",
@@ -257,25 +257,29 @@ def list_settings(
 )
 @output_format_option()
 def list_results(flow, output_format: str, json_flag: bool):
-    """Show the keys FLOW_NAME writes to `results.json` in its run directory."""
+    """Show the metrics that FLOW_NAME writes to `results.json` in its run directory.
+
+    Each metric has a path, a type and a unit. A metric in the units of the platform has no unit."""
     fmt = resolve_format(output_format, json_flag)
     info = results_info(flow)
     if fmt != "table":
-        emit_structured(info, fmt, records=[{"flow": info["flow"], **k} for k in info["keys"]])
+        emit_structured(info, fmt, records=[{"flow": info["flow"], **m} for m in info["metrics"]])
         return
     table = info_table(
         f"{info['flow']} results",
         [
-            ("Key", {"header_style": "bold green", "style": "bold"}),
-            ("Scope", {}),
+            ("Path", {"header_style": "bold green", "style": "bold"}),
+            ("Type", {}),
+            ("Unit", {}),
             ("Description", {}),
         ],
     )
-    for key in info["keys"]:
+    for metric in info["metrics"]:
         table.add_row(
-            escape(key["name"]),
-            "all flows" if key["common"] else escape(info["flow"]),
-            escape(key["description"]) if key["description"] else "[dim]<undocumented>[/dim]",
+            escape(metric["path"]),
+            escape(metric["type"]),
+            escape(metric["unit"]) if metric["unit"] else "[dim]-[/dim]",
+            escape(metric["description"]),
         )
     console.print(table)
     console.print(f"[dim]{info['note']}[/dim]")

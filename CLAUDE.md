@@ -136,8 +136,9 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - OpenROAD flows: every OpenROAD process (`openroad` runs two or three) starts with the restart
   header; state the `.odb` stores has one owner (`openroad_place`); the header re-applies the rest
   (`tests/test_openroad_templates.py`).
-- Each flow needs its own docstring, a `results_description` from `describe_results(...)` (`{}`
-  if none) and `description=` on every settings field (`tests/test_documentation.py`).
+- Each flow needs its own docstring, a `results_description` from `describe_results(...)`, each
+  entry a `MetricSpec` with a type and a unit (`{}` if none) and `description=` on every settings
+  field (`tests/test_documentation.py`).
 - `Flow.executables` lists every program the flow may start, helpers included; `xeda remote check`
   reads it (`tests/test_flow_executables.py` scans `Tool(...)` and `.derive(...)` calls).
 - A flow that reads design sources declares `reads_sources` and iterates `sources_read()`

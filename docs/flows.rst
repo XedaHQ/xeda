@@ -2534,5 +2534,6 @@ models. Do not add setting names to the catalog by hand.
 The test suite enforces two things that a new flow owes its users:
 
 * a docstring of its own, which ``xeda list-flows`` shows
-* a ``description=`` on every settings field, and a ``results_description`` that describes the keys
-  the flow reports (or ``results_description = {}`` if it reports none)
+* a ``description=`` on every settings field, and a ``results_description`` that describes the metrics
+  the flow reports, each as a ``MetricSpec`` with a type and a unit (or ``results_description = {}``
+  if it reports none)

@@ -10,6 +10,7 @@ from typing import ClassVar, List, Literal, Optional, Union
 from ...dataclass import Field, XedaBaseModel, field_validator, waveform
 from ...design import DesignSource, SourceType, VhdlSettings
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
+from ...flow.metrics import COCOTB_METRICS
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import parse_nvc_log, read_sim_log
 from ...tool import Tool
@@ -51,7 +52,13 @@ class Nvc(SimFlow):
     #: NVC analyzes VHDL.
     reads_sources = frozenset({SourceType.Vhdl})
     results_description = describe_results(
-        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+        "sim.evidence",
+        "sim.ended_by",
+        "sim.time",
+        "sim.time_unit",
+        "sim.errors",
+        "sim.warnings",
+        *COCOTB_METRICS,
     )
     _sim_log: Path | None = None
     _end_record: Path | None = None

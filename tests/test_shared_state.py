@@ -35,6 +35,7 @@ from typing import List
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda.flow_runner.default_runner import FlowLauncher
 from xeda.flows import VivadoAltSynth, VivadoSynth
 from xeda.flows.vivado import vivado_alt_synth as alt
@@ -136,7 +137,9 @@ def test_the_sweep_sees_a_flow_that_writes_a_table_of_its_class(tmp_path, monkey
     table = dict(VivadoAltSynth.results_description)
     monkeypatch.setattr(VivadoAltSynth, "results_description", table)
     said = _victim(
-        tmp_path, monkeypatch, lambda flow: table.update(written_by_a_flow="a description")
+        tmp_path,
+        monkeypatch,
+        lambda flow: table.update(written_by_a_flow=MetricSpec("a description", "text")),
     )
     assert "results_description" in said and "written_by_a_flow" in said
 

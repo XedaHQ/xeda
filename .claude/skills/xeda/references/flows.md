@@ -6,7 +6,7 @@ Settings are deliberately not listed here (there are several hundred). For any f
 
 ```bash
 xeda list-settings <flow> --json     # every setting: name, type, default, meaning
-xeda list-results <flow> --json      # every result key, with its meaning
+xeda list-results <flow> --json      # every metric: path, type, unit, meaning
 ```
 
 Flows with declared file I/O chain with `+`: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` binds each flow's declared outputs to the next flow's required inputs. "can follow" and "can be followed by" below are the declared relations; `(depends on the target)` marks one the target's family decides, and `flow.output+flow` one that needs the output named. `(through a, b)` marks a relation whose link passes through the flows `a` and `b` between the two: Xeda runs them as it does for the second flow alone. A refused chain says which chain would be valid, if any. The relations are declarations only: planning can still refuse a chain that passes (related inputs). For example, `yosys_fpga+vivado_impl+vivado_power` also needs `-s flows.vivado_postsynth_sim.inputs.<input>=vivado_impl.<input>` for each of `netlist`, `netlist_timing` and `sdf`; the refusal lists the bindings to add. A flow with no declared I/O runs alone.
@@ -29,7 +29,7 @@ Simulate a VHDL design with GHDL.
 
 35 flow-specific settings (plus the common ones): `xeda list-settings ghdl_sim --json`
 
-Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`, `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`
 
 ### `modelsim`
 
@@ -49,7 +49,7 @@ Simulate VHDL with NVC, using its native diagnostics and a passive VHPI end moni
 
 34 flow-specific settings (plus the common ones): `xeda list-settings nvc --json`
 
-Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`, `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`
 
 ### `vcs`
 
@@ -69,7 +69,7 @@ Simulate a Verilog or SystemVerilog design with Verilator 5.048 or newer. Verila
 
 34 flow-specific settings (plus the common ones): `xeda list-settings verilator --json`
 
-Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`, `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`
 
 ### `vivado_postsynth_sim`
 
@@ -125,7 +125,7 @@ Required settings: `fpga`
 
 8 flow-specific settings (plus the common ones): `xeda list-settings fpga_pack --json`
 
-Reports no results beyond the keys every flow reports.
+Reports no metrics beyond the keys every flow reports.
 
 ### `ise_synth`
 
@@ -159,7 +159,7 @@ Program a bitstream onto an FPGA board with openFPGALoader. The `bitstream` inpu
 
 20 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
 
-Reports no results beyond the keys every flow reports.
+Reports no metrics beyond the keys every flow reports.
 
 ### `quartus`
 
@@ -219,7 +219,7 @@ Required settings: `fpga`
 
 30 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
 
-Reports no results beyond the keys every flow reports.
+Reports no metrics beyond the keys every flow reports.
 
 ### `vivado_synth`
 
@@ -301,7 +301,7 @@ Convert a VHDL design to Verilog with `ghdl --synth`.
 
 22 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
 
-Reports no results beyond the keys every flow reports.
+Reports no metrics beyond the keys every flow reports.
 
 ### `yosys`
 

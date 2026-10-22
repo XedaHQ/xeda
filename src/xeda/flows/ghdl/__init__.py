@@ -20,6 +20,7 @@ from ...flow import (
     SynthFlow,
     describe_results,
 )
+from ...flow.metrics import COCOTB_METRICS
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import parse_ghdl_log
 from ...tool import Docker, Tool
@@ -330,7 +331,7 @@ class GhdlSynth(Ghdl, SynthFlow):
     """Convert a VHDL design to Verilog with `ghdl --synth`."""
 
     # The flow reports no result keys beyond the common ones. The empty table says so.
-    results_description: dict = {}
+    results_description = {}
 
     requires_physical_clocks = False
 
@@ -476,7 +477,13 @@ class GhdlSim(Ghdl, SimFlow):
     cocotb_sim_name = "ghdl"
     aliases = ["ghdl"]
     results_description = describe_results(
-        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+        "sim.evidence",
+        "sim.ended_by",
+        "sim.time",
+        "sim.time_unit",
+        "sim.errors",
+        "sim.warnings",
+        *COCOTB_METRICS,
     )
     _sim_log: Path | None = None
 

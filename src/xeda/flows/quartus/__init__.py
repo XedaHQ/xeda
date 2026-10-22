@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Literal, Optional, Set
 
 from ...dataclass import Field
 from ...design import SourceType
-from ...flow import FpgaSynthFlow, describe_results, NoReplacement
+from ...flow import FpgaSynthFlow, MetricSpec, NoReplacement, describe_results
 from ...tool import Docker, Tool
 from ...types import PathLike
 from ...units import count, ratio
@@ -85,10 +85,8 @@ class Quartus(FpgaSynthFlow):
         "Fmax",
         "wns",
         "whs",
-        **{
-            "lut": "Number of combinational ALUTs / logic elements used.",
-            "ff": "Number of dedicated logic registers used.",
-        },
+        lut=MetricSpec("Number of combinational ALUTs / logic elements used.", "integer"),
+        ff=MetricSpec("Number of dedicated logic registers used.", "integer"),
     )
 
     reads_sources = frozenset(

@@ -6,7 +6,7 @@ from xml.etree import ElementTree
 
 from ...dataclass import Field, deliverable
 from ...design import SourceType
-from ...flow import FpgaSynthFlow, In, NoReplacement
+from ...flow import FpgaSynthFlow, In, MetricSpec, NoReplacement
 from . import Vivado
 
 logger = logging.getLogger(__name__)
@@ -27,15 +27,32 @@ class VivadoPower(Vivado, FpgaSynthFlow):
     # Keys are taken verbatim from the labels in Vivado's XML power report, so the exact set
     # depends on the device and design. These are the ones Vivado always emits.
     results_description = {
-        "Total On-Chip Power (W)": "Total on-chip power in watts.",
-        "Dynamic (W)": "Dynamic (switching) power in watts, driven by the SAIF activity.",
-        "Device Static (W)": "Static (leakage) power in watts.",
-        "Effective TJA (C/W)": "Effective junction-to-ambient thermal resistance.",
-        "Junction Temperature (C)": "Estimated junction temperature in degrees Celsius.",
-        "Thermal Margin (C)": "Margin between the estimated junction temperature and the limit.",
-        "Confidence Level": 'Vivado\'s confidence in the estimate, e.g. "High".',
-        "Component Power: <component>": "Per-component on-chip power in watts, one key per "
-        "component Vivado reports (Clocks, Slice Logic, Signals, Block RAM, DSP, I/O, ...).",
+        "Total On-Chip Power (W)": MetricSpec("Total on-chip power.", "number", "W"),
+        "Dynamic (W)": MetricSpec(
+            "Dynamic (switching) power, driven by the SAIF activity.", "number", "W"
+        ),
+        "Device Static (W)": MetricSpec("Static (leakage) power.", "number", "W"),
+        "Effective TJA (C/W)": MetricSpec(
+            "Effective junction-to-ambient thermal resistance, in degrees Celsius per watt.",
+            "number",
+        ),
+        "Junction Temperature (C)": MetricSpec(
+            "Estimated junction temperature in degrees Celsius.", "number"
+        ),
+        "Thermal Margin (C)": MetricSpec(
+            "Margin between the estimated junction temperature and the limit, in degrees "
+            "Celsius.",
+            "number",
+        ),
+        "Confidence Level": MetricSpec(
+            'Vivado\'s confidence in the estimate, e.g. "High".', "text"
+        ),
+        "Component Power: <component>": MetricSpec(
+            "Per-component on-chip power, one key per component Vivado reports (Clocks, Slice "
+            "Logic, Signals, Block RAM, DSP, I/O, ...).",
+            "number",
+            "W",
+        ),
     }
 
     #: Power reads the routed checkpoint and the activity file that its producers hand over. It

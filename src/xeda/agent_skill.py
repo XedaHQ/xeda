@@ -138,11 +138,11 @@ def _flow_section(flow: Dict[str, object]) -> str:
     lines += _group_lines(name, flow_specific)
 
     results = results_info(name)
-    keys = [k["name"] for k in results["keys"] if not k["common"]]
-    if keys:
-        lines += ["Reports: " + ", ".join(f"`{k}`" for k in keys), ""]
-    elif results["documented"]:
-        lines += ["Reports no results beyond the keys every flow reports.", ""]
+    paths = [m["path"] for m in results["metrics"]]
+    if paths:
+        lines += ["Reports: " + ", ".join(f"`{p}`" for p in paths), ""]
+    else:
+        lines += ["Reports no metrics beyond the keys every flow reports.", ""]
     return "\n".join(lines)
 
 
@@ -159,7 +159,7 @@ def generate_flows_reference() -> str:
         "",
         "```bash",
         "xeda list-settings <flow> --json     # every setting: name, type, default, meaning",
-        "xeda list-results <flow> --json      # every result key, with its meaning",
+        "xeda list-results <flow> --json      # every metric: path, type, unit, meaning",
         "```",
         "",
         "Flows with declared file I/O chain with `+`: `xeda run yosys_fpga+nextpnr+fpga_pack "
