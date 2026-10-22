@@ -439,12 +439,12 @@ def _write_json(path: Path, document: Any) -> None:
 
 
 def _launch_nodes(document: dict[str, Any]) -> list[Any]:
-    """Return a `fetch.NodeResult` for each node of the launch `document`, with the record that
-    this launch left in its run directory.
+    """Return a `fetch.NodeResult` for each node of the launch `document`, with the record of this
+    launch.
 
-    A node that the launch did not start (its disposition is `not_run`: blocked, or not reached)
-    keeps the record of an earlier run in its directory. That record is not of this launch, so the
-    node has none, and the fetch takes it as a node that did not pass."""
+    The record comes from the document, not from the file: a node that did not run (blocked, or
+    not reached) keeps the file of an earlier run in its directory, and it has no record in the
+    document, so the fetch takes it as a node that did not pass."""
     from .fetch import NodeResult
 
     # The nodes that the request names: their outputs and artifacts come back.
@@ -453,14 +453,12 @@ def _launch_nodes(document: dict[str, Any]) -> list[Any]:
     nodes = []
     for node in document["nodes"]:
         name = node["name"]
-        run_dir = Path(node["run_dir"])
-        ran = node.get("disposition") != "not_run"
-        results = _read_json(run_dir / "results.json") if ran else None
+        record = node.get("record")
         nodes.append(
             NodeResult(
                 name,
-                run_dir,
-                results if isinstance(results, dict) else {},
+                Path(node["run_dir"]),
+                record if isinstance(record, dict) else {},
                 name in named,
                 frozenset(written[name]) if name in written else None,
             )

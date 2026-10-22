@@ -515,7 +515,7 @@ line. The document then has ``"outcome": null``, ``"launch_id": null``, ``"roots
       "outcome": null,
       "error": {
         "code": "unknown_setting",
-        "message": "FlowSettingsError: 1 error validating Nextpnr.Settings\n   Extra inputs are not permitted: sed (extra_forbidden)",
+        "message": "sed: Extra inputs are not permitted",
         "node": "nextpnr",
         "exit_status": null,
         "log": null
@@ -532,11 +532,14 @@ line. The document then has ``"outcome": null``, ``"launch_id": null``, ``"roots
       "nodes": []
     }
 
-An error in the command line itself has the code ``usage_error``, and ``spec`` is ``null``, because
-Xeda could not read the command line as a request. This covers an unknown option, a design file that
-does not exist, an unknown flow, a malformed chain and the options that need each other. For
-example, ``--remote`` refuses ``--post-cleanup``, and ``--keep-running`` and ``--fetch-all`` need
-``--remote``. Click prints the same exit status 2 without ``--json``.
+An error in the command line itself has ``spec: null``, because Xeda could not read the command
+line as a request. A flow that does not exist has the code ``flow_not_found``, a malformed chain has
+its chain code (``invalid_chain``, ``repeated_flow``, ``no_edge`` and others), and a design file or
+project file that does not exist has ``design_file_not_found`` or ``project_file_not_found``. Any
+other mistake of the command line has the code ``usage_error``: an unknown option, no design, and
+the options that need each other. For example, ``--remote`` refuses ``--post-cleanup``, and
+``--keep-running`` and ``--fetch-all`` need ``--remote``. Click prints the same exit status 2 without
+``--json``.
 
 A binding that cannot be applied (an unknown input or producer, a binding for a flow that declares
 no inputs, or a chain together with a command-line or API binding of the same input) is a settings
@@ -549,7 +552,8 @@ Error codes
 
 An ``error`` is ``{code, message, node, exit_status, log}``. The ``code`` is lower snake case, never
 the name of a class, and stable enough to branch on. The set of codes is open: a later release can
-add codes, so keep an unknown code as text. ``message`` is the text for a person. ``node`` names the
+add codes, so keep an unknown code as text. ``message`` is the text for a person, without the name of a class in front of it (the log line has
+the name). ``node`` names the
 node that the error belongs to, or is ``null`` for an error of the whole launch. ``exit_status`` is
 the exit status of the tool for ``nonzero_exit``. ``log`` is the artifact to read, or ``null``.
 

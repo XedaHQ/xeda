@@ -2047,7 +2047,7 @@ def test_outputs_to_and_overwrite_outputs_on_the_command_line(sqrt_copy):
     document = json.loads(refused.stdout)
     assert refused.exit_code == 2 and document["outcome"] is None
     assert document["error"]["code"] == "delivery_refused"
-    assert document["error"]["message"].startswith("OutputExistsError: ")
+    assert str(edited) in document["error"]["message"]
     assert edited.read_text() == "my edit\n", "no terminal, no --overwrite-outputs: kept"
     replaced = json.loads(CliRunner().invoke(cli, [*args, "--overwrite-outputs"]).stdout)
     assert replaced["outcome"] == "passed" and edited.read_text() != "my edit\n"

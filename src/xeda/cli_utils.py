@@ -308,20 +308,12 @@ class XedaHelpGroup(ColorizedGroup):
         except click.UsageError as e:
             if _is_run_command(e.ctx):
                 from .outcomes import run_document
-                from .records import ErrorInfo
 
                 # The document of a launch that did not start: the command line has no spec.
-                error = ErrorInfo(
-                    code="usage_error",
-                    message=e.format_message(),
-                    node=None,
-                    exit_status=None,
-                    log=None,
-                )
                 emit_structured(
                     run_document(
                         outcome=None,
-                        error=error,
+                        error=_usage_error_info(e),
                         launch_id=None,
                         spec=None,
                         roots=(),
@@ -349,6 +341,39 @@ class XedaHelpGroup(ColorizedGroup):
             fmt,
         )
         sys.exit(e.exit_code)
+
+
+#: The code of a file that a path parameter of `run` names and that does not exist.
+_MISSING_FILE_CODES = {
+    "design_file": "design_file_not_found",
+    "design_file_opt": "design_file_not_found",
+    "xedaproject": "project_file_not_found",
+}
+
+
+def _usage_error_info(error: click.UsageError) -> Any:
+    """Return the `ErrorInfo` of a usage error of `run`.
+
+    A parameter that Xeda converts with its own rules (a flow name, a chain) fails with the
+    refusal of that rule, and the error has its code and message. A file that does not exist has
+    the code of the missing file. Any other usage error is click's own: `usage_error`."""
+    from .records import ErrorInfo
+
+    cause = error.__context__
+    if isinstance(cause, Exception):
+        from .flow_runner.error_codes import public_error, request_error_info
+        from .utils import XedaException
+
+        if isinstance(cause, XedaException) and public_error(cause).code != "internal_error":
+            return request_error_info(cause)
+    param = getattr(error, "param", None)
+    code = _MISSING_FILE_CODES.get(getattr(param, "name", None) or "")
+    message = error.format_message()
+    if code is not None and "does not exist" not in message:
+        code = None
+    return ErrorInfo(
+        code=code or "usage_error", message=message, node=None, exit_status=None, log=None
+    )
 
 
 def _is_run_command(ctx: Optional[click.Context]) -> bool:

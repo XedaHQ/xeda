@@ -74,7 +74,9 @@ __all__ = [
     "STORAGE_ERROR",
     "TIMEOUT",
     "error_info",
+    "plain_message",
     "public_error",
+    "request_error_info",
     "settings_codes",
 ]
 
@@ -253,11 +255,13 @@ def public_error(exc: BaseException) -> errors.XedaError:
         return errors.SpecError(str(exc), code="delivery_refused")
     if isinstance(exc, RunDirectoryError):
         # Raised for a request: a run root that holds a link where Xeda would write.
+        if exc.path is not None:
+            return errors.RunRootError(str(exc), code="invalid_run_root", path=exc.path)
         return errors.SpecError(str(exc), code="invalid_run_root")
     if isinstance(exc, EscapedName):
         return errors.SettingsError(str(exc), code="invalid_value", setting=exc.name)
     if isinstance(exc, FlowSettingsException):
-        return errors.SettingsError(str(exc), code=exc.code)
+        return errors.SettingsError(str(exc), code=exc.code, node=exc.node)
     if isinstance(exc, ConflictingKeys):
         return errors.SettingsError(str(exc), code="conflicting_keys", setting=exc.value_key)
     if isinstance(exc, DesignValidationError):
@@ -277,6 +281,29 @@ def public_error(exc: BaseException) -> errors.XedaError:
         if remote is not None:
             return remote
     return errors.XedaError(str(exc), code=INTERNAL_ERROR)
+
+
+def plain_message(exc: BaseException) -> str:
+    """Return the message of the public error for `exc`, in plain terms: without the name of a
+    class in front of it. The name stays in the log lines."""
+    public = public_error(exc)
+    text = public.message
+    for name in dict.fromkeys((type(exc).__name__, type(exc).__qualname__, type(public).__name__)):
+        text = text.removeprefix(f"{name}: ")
+    return text or type(exc).__name__
+
+
+def request_error_info(exc: BaseException, *, code: str | None = None) -> ErrorInfo:
+    """Return the error of a launch for `exc`, which left it outside any node: the code and the
+    node of the public error (`code` replaces the code) and its message in plain terms."""
+    public = public_error(exc)
+    return ErrorInfo(
+        code=code or public.code,
+        message=plain_message(exc),
+        node=getattr(public, "node", None),
+        exit_status=None,
+        log=None,
+    )
 
 
 def missing_report_info(node: str, reports: Sequence[Path], run_path: Path) -> ErrorInfo:

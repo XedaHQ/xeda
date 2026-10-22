@@ -85,7 +85,7 @@ def test_unknown_flow_reports_json_and_fails():
     proc = run_xeda("run", "no_such_flow", str(SQRT), "--json")
     document = json_stdout(proc)
     assert proc.returncode == 2
-    assert document["outcome"] is None and document["error"]["code"] == "usage_error"
+    assert document["outcome"] is None and document["error"]["code"] == "flow_not_found"
     assert "no_such_flow" in document["error"]["message"]
 
 

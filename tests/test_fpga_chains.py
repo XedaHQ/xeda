@@ -1026,7 +1026,7 @@ def test_a_chain_through_a_flow_without_declared_io_is_refused_before_any_tool_r
     design = _write_design(tmp_path)
     result, document = _xeda("run", chain, design)
     assert result.exit_code == 2 and document["outcome"] is None
-    assert document["error"]["code"] == "usage_error"
+    assert document["error"]["code"] == "no_edge"
     message = document["error"]["message"]
     assert f"Flow `{flow}` " in message and re.search(NO_EDGE, message)
     assert document["nodes"] == [] and document["spec"] is None

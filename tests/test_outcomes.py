@@ -25,7 +25,7 @@ from xeda.flow import Flow, FlowSettingsError, In, MetricSpec, Out, registered_f
 from xeda.deliver import DeliveryError
 from xeda.flow_runner import DefaultRunner, launch_identity, launch_report
 from xeda.flow_runner import default_runner as default_runner_module
-from xeda.flow_runner.launch_result import launch_result
+from xeda.flow_runner.launch_result import failed_result, launch_result
 from xeda.frozen import thaw
 from xeda.outcomes import (
     DeliveryRecord,
@@ -999,4 +999,55 @@ def test_the_documented_run_document_has_the_keys_of_the_real_one(tmp_path):
     assert list(example["nodes"][0]) == list(example["nodes"][1]) == list(actual["nodes"][0])
     assert list(example["nodes"][1]["deliveries"][0]) == list(
         {"key": 0, "destination": 0, "delivered": 0}
+    )
+
+
+@pytest.mark.usefixtures("flows")
+def test_an_interrupted_launch_keeps_the_producer_that_passed_and_cancels_the_running_node(
+    tmp_path, monkeypatch
+):
+    def interrupted(self):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(_NeedsMayFail, "run", interrupted)
+    runner, design = _runner(tmp_path), _design(tmp_path)
+    spec = Spec(_NeedsMayFail.name, design)
+    with pytest.raises(KeyboardInterrupt):
+        launch_result(runner, spec, lambda: runner.run_flow(_NeedsMayFail, design, {}))
+    error = ErrorInfo("canceled", "The launch was interrupted.", None, None, None)
+    result = failed_result(runner, spec, None, error, interrupted=True)
+    assert result.outcome is Outcome.CANCELED and result.error == error
+    producer, consumer = result.nodes.values()
+    assert (producer.outcome, producer.record is not None) == (Outcome.PASSED, True)
+    assert (consumer.outcome, consumer.record) == (Outcome.CANCELED, None)
+    assert consumer.error is not None and consumer.error.code == "canceled"
+    # without `interrupted`, the node that the interrupt left is a failure like any other
+    failed = failed_result(runner, spec, None, ErrorInfo("internal_error", "x", None, None, None))
+    assert failed.outcome is Outcome.FAILED
+    assert failed.nodes[_NeedsMayFail.name].outcome is Outcome.FAILED
+
+
+def test_a_design_file_is_not_part_of_the_equality_of_designs(tmp_path):
+    path = _write_design_file(tmp_path)
+    loaded = Design.from_file(path)
+    again = Design.from_file(path)
+    built = Design(**{**loaded.model_dump(), "design_root": loaded.design_root})
+    assert loaded._source_file == path and built._source_file is None
+    assert loaded == again == built
+    assert loaded != built.model_copy(update={"name": "other"})
+
+
+def test_the_design_file_of_a_document_is_absolute(tmp_path, monkeypatch):
+    from xeda.outcomes import spec_document
+
+    monkeypatch.chdir(tmp_path)
+    document = spec_document(
+        flow="a", design="d", design_file="sub/d.yaml", target=None, settings={}
+    )
+    assert document["design_file"] == str(tmp_path / "sub" / "d.yaml")
+    assert (
+        spec_document(flow="a", design=None, design_file=None, target=None, settings={})[
+            "design_file"
+        ]
+        is None
     )

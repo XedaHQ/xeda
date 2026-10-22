@@ -196,3 +196,39 @@ def test_the_cli_prints_the_document_of_the_result_it_got(toys, design, monkeypa
         assert result.exit_code == status
         assert document == json.loads(json.dumps(seen[-1].to_dict()))
     assert len(seen) == 2
+
+
+def test_a_bug_before_any_node_runs_is_a_failed_launch_with_every_node_skipped(
+    toys, design, monkeypatch
+):
+    """An exception that is no refusal of the request ends the launch with an error of its own
+    (`internal_error`). The planned nodes did not start: they are skipped."""
+    from xeda.flow_runner import DefaultRunner
+
+    def broken(self, request, plan):
+        raise RuntimeError("a bug")
+
+    monkeypatch.setattr(DefaultRunner, "run_resolved", broken)
+    result, document = _run("toy_node_twice", str(design))
+    assert result.exit_code == 1 and document["outcome"] == "failed"
+    assert document["error"]["code"] == "internal_error" and document["error"]["node"] is None
+    assert document["error"]["message"] == "a bug"
+    assert [(n["name"], n["outcome"]) for n in document["nodes"]] == [
+        ("toy_node_producer", "skipped"),
+        ("toy_node_twice", "skipped"),
+    ]
+    assert document["roots"] == ["toy_node_twice"]
+
+
+def test_a_bug_before_the_plan_is_a_failed_launch_with_no_node(toys, design, monkeypatch):
+    from xeda.flow_runner import DefaultRunner
+
+    def broken(self, *args, **kwargs):
+        raise RuntimeError("a bug")
+
+    monkeypatch.setattr(DefaultRunner, "resolve_run", broken)
+    result, document = _run("toy_node_twice", str(design))
+    assert result.exit_code == 1 and document["outcome"] == "failed"
+    assert document["error"]["code"] == "internal_error"
+    assert (document["roots"], document["nodes"], document["launch_id"]) == ([], [], None)
+    assert document["spec"]["design_file"] == str(design)

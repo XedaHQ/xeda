@@ -1830,9 +1830,9 @@ def test_a_node_that_the_launch_did_not_run_brings_back_no_earlier_record(tmp_pa
     document = {
         "named": ["b"],
         "nodes": [
-            {"name": "a", "run_dir": str(tmp_path / "a"), "disposition": "ran"},
-            {"name": "b", "run_dir": str(tmp_path / "b"), "disposition": "not_run"},
-            {"name": "c", "run_dir": str(tmp_path / "c"), "disposition": "not_run"},
+            {"name": "a", "run_dir": str(tmp_path / "a"), "record": {"outcome": "passed"}},
+            {"name": "b", "run_dir": str(tmp_path / "b"), "record": None},
+            {"name": "c", "run_dir": str(tmp_path / "c"), "record": None},
         ],
     }
     a, b, c = _launch_nodes(document)

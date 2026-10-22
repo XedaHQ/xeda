@@ -88,7 +88,7 @@ def test_a_design_file_that_does_not_load_has_no_name_but_the_file_is_named(worl
     status, document = _json("run", "vivado_synth", "bad.toml", *SQRT_SETTINGS)
 
     assert status == 2 and document["error"]["code"] == "invalid_design"
-    assert document["error"]["message"].startswith("DesignValidationError")
+    assert not document["error"]["message"].startswith("DesignValidationError")
     assert document["spec"]["design"] is None
     assert _is(document["spec"]["design_file"], world / "bad.toml")
 
@@ -139,7 +139,7 @@ def test_a_remote_run_reports_the_same_two_keys(world, remote_host, monkeypatch)
 
     assert status == 1 and document["outcome"] == "failed"
     assert document["error"]["code"] == "remote_failed"
-    assert document["error"]["message"].startswith("RemoteConnectionError")
+    assert "cannot connect to somewhere" in document["error"]["message"]
     assert document["spec"]["design"] == "blink"
     assert _is(document["spec"]["design_file"], world / "blink.toml")
 

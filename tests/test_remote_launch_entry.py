@@ -172,8 +172,11 @@ def test_identity_mismatch_is_refused_before_anything_runs(tmp_path, fake_fpga):
     process, result = launch(tmp_path, design, expected=expected)
     assert process.returncode == 1
     assert result["outcome"] == "failed" and result["error"]["code"] == "remote_failed"
+    assert result["error"]["message"].startswith("The remote resolved another plan")
     assert "`nextpnr`" in result["error"]["message"]
-    assert result["written"] == {} and result["nodes"] == []
+    # nothing ran: every planned node is skipped
+    assert result["written"] == {}
+    assert {node["outcome"] for node in result["nodes"]} == {"skipped"}
     assert not (tmp_path / "remote" / "xeda_run").exists()
 
 

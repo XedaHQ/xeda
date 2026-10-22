@@ -288,30 +288,6 @@ def load_packaged_design(launcher: Any, path: Path, *, rebuild: bool, dry_run: b
         return Design.from_file(path, packaged=True)
 
 
-def _skipped_nodes(plan: Any) -> List[Dict[str, Any]]:
-    """The documents of the nodes of `plan`, all skipped: a launch that did not run them."""
-    from ..outcomes import Disposition, NodeResult, Outcome, node_document
-
-    return [
-        node_document(
-            NodeResult(
-                name=node.name,
-                outcome=Outcome.SKIPPED,
-                disposition=Disposition.NOT_RUN,
-                reason="the launch stopped before its turn",
-                blocked_by=None,
-                elapsed=0.0,
-                record=None,
-                error=None,
-                deliveries=(),
-                run_dir=Path(node.run_path),
-                flow=node.flow_class.name,
-            )
-        )
-        for node in (plan.nodes if plan is not None else ())
-    ]
-
-
 def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseException]]:
     """Run the request and return the result document and the exception to raise again, if any.
 
@@ -327,8 +303,8 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     from ..flow.flow import using_path_identities
     from ..flow_runner import DefaultRunner
     from ..flow_runner.chains import parse_request
-    from ..flow_runner.error_codes import public_error
-    from ..flow_runner.launch_result import launch_result
+    from ..flow_runner.error_codes import public_error, request_error_info
+    from ..flow_runner.launch_result import failed_result, launch_result
     from ..errors import SpecError
     from ..introspect import design_info, plan_info, request_info
     from ..outcomes import Outcome, run_document, spec_document
@@ -340,7 +316,8 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     design: Optional[Path] = None
     plan: Any = None
     snapshot: Optional[RunDirectorySnapshot] = None
-    launched = False
+    loaded: Any = None
+    parsed: Any = None
     try:
         setup_logger(request.log_level, request.detailed_logs)
         parsed = parse_request(request.chain)
@@ -378,7 +355,6 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             plan = launcher.plan(request.chain, **arguments)
             check_identity({n.name: n.flowrun_hash for n in plan.nodes}, request.expected)
             snapshot = RunDirectorySnapshot(_node_directories(plan).values())
-            launched = True
             result = launch_result(
                 launcher,
                 Spec(request.chain, loaded),
@@ -399,12 +375,8 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
                 log=None,
             )
         elif isinstance(e, Exception):
-            error = ErrorInfo(
-                code="remote_failed" if isinstance(e, RemoteError) else public_error(e).code,
-                message=str(e),
-                node=None,
-                exit_status=None,
-                log=None,
+            error = request_error_info(
+                e, code="remote_failed" if isinstance(e, RemoteError) else None
             )
         else:
             error = ErrorInfo(
@@ -416,26 +388,41 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             )
         log.critical("%s", error.message)
         refused = isinstance(e, Exception) and isinstance(public_error(e), SpecError)
-        named = Path(request.design_file).stem
-        fields = spec_document(
-            flow=request.chain,
-            **design_info(design, launcher.design_name if launcher is not None else named),
-            target=None,
-            settings={},
-        )
-        document = run_document(
-            outcome=None if refused else Outcome.CANCELED if interrupted else Outcome.FAILED,
-            error=error,
-            launch_id=None,
-            spec=fields,
-            roots=[plan.nodes[-1].name] if launched else [],
-            nodes=_skipped_nodes(plan) if launched else [],
-        )
+        if launcher is not None and loaded is not None and plan is not None and not refused:
+            # Every planned node keeps what the launch did with it: a node that passed stays
+            # passed, the node that was running is canceled by an interrupt, and any other
+            # node is skipped or blocked.
+            document = failed_result(
+                launcher, Spec(request.chain, loaded), plan, error, interrupted=interrupted
+            ).to_dict()
+        else:
+            document = run_document(
+                outcome=None if refused else Outcome.CANCELED if interrupted else Outcome.FAILED,
+                error=error,
+                launch_id=None,
+                spec=spec_document(
+                    flow=request.chain,
+                    **design_info(
+                        design,
+                        (
+                            launcher.design_name
+                            if launcher is not None
+                            else Path(request.design_file).stem
+                        ),
+                    ),
+                    target=None,
+                    settings={},
+                ),
+                roots=[],
+                nodes=[],
+            )
         if not request.dry_run:
             _record_written(
                 document, snapshot, plan, launcher.launched if launcher is not None else ()
             )
-            document["named"] = []
+            document["named"] = (
+                [element["node"] for element in request_info(parsed)] if parsed is not None else []
+            )
         return document, None if isinstance(e, Exception | KeyboardInterrupt) else e
 
 

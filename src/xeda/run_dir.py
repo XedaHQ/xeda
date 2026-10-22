@@ -51,7 +51,12 @@ class RunDirectoryError(XedaException):
     """A run directory that Xeda cannot use, or a path in one that leads out of it.
 
     A run directory is unusable when it leads out of its run root or holds files of the design.
+    `path` is the directory or link that the refusal names, when it names one.
     """
+
+    def __init__(self, *args: object, path: Path | None = None) -> None:
+        super().__init__(*args)
+        self.path = path
 
 
 #: The length of the run hash in the name of a hashed run directory, `<flow>_<hash>`.
@@ -141,7 +146,7 @@ def refuse_link_on_way(
     """
     link = link_on_way(directory, run_root)
     if link is not None:
-        raise RunDirectoryError(link_refusal(link))
+        raise RunDirectoryError(link_refusal(link), path=link)
 
 
 def link_refusal(link: Path) -> str:

@@ -14,6 +14,7 @@ pickled.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -250,7 +251,7 @@ def spec_document(
     return {
         "flow": flow,
         "design": design,
-        "design_file": None if design_file is None else str(design_file),
+        "design_file": None if design_file is None else os.path.abspath(design_file),
         "target": target,
         "settings": _plain(settings),
     }

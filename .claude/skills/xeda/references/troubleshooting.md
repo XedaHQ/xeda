@@ -115,12 +115,12 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 
 ### Remote runs
 
-`--remote` failures have their own types, which the message starts with (`RemoteConnectionError: ...`); the code of the error is `remote_failed`, `remote_fetch_failed`, `remote_detached` or `canceled`. The message names the step and the cause. Test the
+`--remote` failures have their own types, which start the log line (`RemoteConnectionError: ...`); the document has the code `remote_failed`, `remote_fetch_failed`, `delivery_failed`, `remote_detached` or `canceled`, and the message without the type. The message names the step and the cause. Test the
 destination with `ssh HOST true` first; `xeda remote check HOST --json` is the first diagnostic
 (connection, environment, disk, tools on the login `PATH`); add `--debug` for the commands and the
 output of the host. A login profile that prints text does no harm (up to 1 MiB before the agent).
 
-| Start of `error.message` | Fix |
+| Type (start of the log line) | Fix |
 | --- | --- |
 | `RemoteConnectionError` | OpenSSH could not connect or authenticate (connection refused, No route to host, Could not resolve hostname, Permission denied), `ssh -G` could not resolve the destination, the connection ended or closed during a step, or `ssh` is not on `PATH`. The message has the OpenSSH text and exit status. Fix the destination, the network or `~/.ssh/config`. A launch with no terminal cannot answer a prompt: it needs a key in an agent. Never handle a secret; ask the user to load a key (`ssh-add`) or to run `! ssh HOST true`. |
 | `RemoteProvisionError` | Installing Xeda on the host failed. The message starts with the code: `not-linux`, `unsupported-platform` (only x86_64 and aarch64, glibc or musl; also when the C library cannot be identified), `no-downloader` (no `curl` or `wget`), `no-sha256`, `download-failed` (check internet access, or set a proxy in the profile `env`), `checksum-mismatch` (the `uv` archive differs from its pinned SHA-256; a proxy may have changed it), `python-failed` (`uv` cannot install the Python, or the profile `python` is not an executable file), `env-failed` (the message has the output of `uv`; also when the remote root is not writable, or a package has no Linux release), `no-space` (under 50 MiB free; free space or set `root`), `lock-timeout` (remove the lock directory the message names if its process is gone), `bad-request` (report it). |

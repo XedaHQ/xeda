@@ -229,5 +229,6 @@ def test_a_run_that_fails_at_input_creates_no_run_root(sqrt, remote):
     document = json.loads(result.stdout)
     assert result.exit_code != 0 and document["outcome"] is None
     assert document["error"]["code"] == "invalid_design", document
-    assert document["error"]["message"].startswith("DesignValidationError"), document
+    assert not document["error"]["message"].startswith("DesignValidationError"), document
+    assert "is not a design name" in document["error"]["message"], document
     assert sorted(p.name for p in sqrt.iterdir()) == before

@@ -355,8 +355,12 @@ Machine-readable output
 With ``--json``, ``xeda run --remote`` writes one document on stdout. It is the document of a local
 run, and the paths in it name the mirror. ``launch_id`` is the id of the launch on the host. A
 failed remote step has the outcome ``failed`` and the error code ``remote_failed``. A launch that
-Xeda stopped following has the outcome ``detached`` and the error code ``remote_detached``. A dry run
-adds ``remote``, ``mirror`` and ``uploaded``. :doc:`machine-readable` lists all keys. The output of
+ended on the host and could not be fetched has ``remote_fetch_failed``, and one whose outputs could
+not be delivered has ``delivery_failed``: in both, the nodes keep their records. Ctrl-C gives the
+outcome ``canceled`` and the code ``canceled``. A launch that Xeda stopped following has the outcome
+``detached`` and the error code ``remote_detached``. A request that Xeda refuses before it connects
+(a bad setting, design or chain, or a refused ``--outputs-to``) starts no launch: the outcome is
+``null`` and the exit status is 2. A dry run adds ``remote``, ``mirror`` and ``uploaded``. :doc:`machine-readable` lists all keys. The output of
 the tools goes to stderr.
 
 Dry runs

@@ -513,7 +513,7 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | --- | --- |
 | `unknown_setting`, `invalid_value`, `invalid_quantity`, `boolean_text`, `list_text`, `required_setting`, `conflicting_keys`, `removed_setting`, `unsupported_setting`, `shared_setting_conflict` (no launch; `error.node` is the flow) | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
 | `invalid_design`, `design_file_not_found`, `unknown_target`, `unknown_design`, `invalid_project` | The message names the key (`rtl.sources:`) or the file. Check the file against `xeda design-schema`. |
-| `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, malformed chain, removed option. The message suggests close matches. |
+| `flow_not_found`, `design_file_not_found`, `project_file_not_found`, `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, unknown option, removed option. The message suggests close matches. |
 | `invalid_chain`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
 | `invalid_run_root`, `delivery_refused`, `delivery_failed` | The message names the directory or setting and the fix. |
 | `nonzero_exit` | The tool exited non-zero; read its log in `run_dir` of the node `error.node`. |

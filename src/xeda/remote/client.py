@@ -40,7 +40,7 @@ import threading
 from collections import deque
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Deque, Dict, List, Optional, Tuple, cast
@@ -74,7 +74,7 @@ from ..outcomes import (
     spec_document,
 )
 from ..proc_utils import tool_output_stream
-from ..records import ErrorInfo, decode_record
+from ..records import decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
 from ..xedaproject import resolve_project_file
 from .constants import HEARTBEAT, LAYOUT
@@ -1354,32 +1354,23 @@ def _failed(run: _Run, error: Exception) -> RemoteOutcome:
     A request that is invalid started no launch: its document has no outcome. Any other error
     ends the launch with a launch-level error. The nodes are those of the remote result when the
     launch had ended, else those of the local plan."""
-    from ..cli import _error_message
-    from ..flow_runner.error_codes import public_error
+    from ..flow_runner.error_codes import public_error, request_error_info
 
     log.debug("The remote run failed", exc_info=True)
-    message = _error_message(error)
-    public = public_error(error)
-    spec = _spec_fields(run)
-    if isinstance(public, SpecError) and run.phase is None:
-        info = ErrorInfo(
-            code=public.code,
-            message=message,
-            node=getattr(public, "node", None),
-            exit_status=None,
-            log=None,
-        )
+    # An attach that failed before it read its record has no request to report.
+    spec = _spec_fields(run) if run.chain else None
+    if isinstance(public_error(error), SpecError) and run.phase is None:
         document = run_document(
-            outcome=None, error=info, launch_id=None, spec=spec, roots=(), nodes=()
+            outcome=None,
+            error=request_error_info(error),
+            launch_id=None,
+            spec=spec,
+            roots=(),
+            nodes=(),
         )
         return RemoteOutcome(document, False, error)
-    info = ErrorInfo(
-        code=_launch_error_code(run, error),
-        message=message,
-        node=None,
-        exit_status=None,
-        log=None,
-    )
+    # An error of the whole launch names no node.
+    info = replace(request_error_info(error, code=_launch_error_code(run, error)), node=None)
     launch_id = run.launch_id or getattr(error, "launch_id", None)
     remote: Optional[Dict[str, Any]] = None
     if run.localize is not None:

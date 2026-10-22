@@ -968,6 +968,7 @@ def test_the_new_commands_report_a_failure_as_one_json_document(tmp_path, remote
     assert document["error"]["message"]
     if command == "attach":  # the document of a launch
         assert document["outcome"] == "failed" and document["error"]["code"] == "remote_failed"
+        assert document["spec"] is None, "no request is known before the record is read"
     else:
         assert document["success"] is False
 

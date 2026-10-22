@@ -54,8 +54,8 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     )
     from .flow_runner.chains import parse_request
     from .flow_runner.dse import Dse
-    from .flow_runner.error_codes import public_error
-    from .flow_runner.launch_result import launch_result
+    from .flow_runner.error_codes import public_error, request_error_info
+    from .flow_runner.launch_result import failed_result, launch_result
     from .flow_runner.resolver import Plan
     from .flow_runner.settings_layers import command_line_table
     from .introspect import (
@@ -72,10 +72,9 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         results_info,
     )
     from .errors import SpecError
-    from .records import ErrorInfo
     from .run_dir import RunDirectoryError
     from .run_root import RunRootError, ensure_run_root
-    from .outcomes import run_document, spec_document, spec_document_of
+    from .outcomes import Outcome, run_document, spec_document, spec_document_of
     from .spec import Spec
     from .utils import XedaException, removeprefix, settings_to_dict
 
@@ -978,7 +977,7 @@ def run(
         )
         document = outcome.document
         if outcome.error is not None:
-            log.critical("%s", document["error"]["message"])
+            log.critical("%s", _error_message(outcome.error))
             if json_flag:
                 emit_structured(document, "json")
             if debug or (not json_flag and not isinstance(outcome.error, XedaException)):
@@ -1004,43 +1003,47 @@ def run(
     launcher: Optional[DefaultRunner] = None
     table = command_line_table(flow, flow_settings)
 
-    def not_started(error: Exception, spec: Optional[Spec] = None) -> NoReturn:
-        """Report a request that started no launch: log the error and, with `--json`, write the
-        document of a launch that did not start. Then raise `error` when debugging, or exit with
-        status 2 (the request is invalid) or 1 (any other failure)."""
+    def not_started(
+        error: Exception, spec: Optional[Spec] = None, plan: Optional[Plan] = None
+    ) -> NoReturn:
+        """Report an exception that ended the command before the launch gave an outcome.
+
+        A request that is invalid started no launch: with `--json`, its document has no
+        outcome, and the exit status is 2. Any other exception ends a launch with a failure of
+        its own: the nodes keep what they did, and the exit status is 1. The log line keeps the
+        class name of the exception. Raise `error` when debugging."""
         public = public_error(error)
-        info = ErrorInfo(
-            code=public.code,
-            message=_error_message(error),
-            node=getattr(public, "node", None),
-            exit_status=None,
-            log=None,
-        )
-        log.critical("%s", info.message)
+        info = request_error_info(error)
+        log.critical("%s", _error_message(error))
+        refused = isinstance(public, SpecError)
         if json_flag:
-            if spec is None:
-                spec_fields = spec_document(
-                    flow=chain,
-                    **design_info(design, launcher.design_name if launcher is not None else None),
-                    target=(launcher.target if launcher is not None else None) or target,
-                    settings=table,
-                )
+            if spec is not None and not refused:
+                assert launcher is not None
+                document = failed_result(launcher, spec, plan, info).to_dict()
             else:
-                spec_fields = spec_document_of(spec)
-            emit_structured(
-                run_document(
-                    outcome=None,
+                if spec is None:
+                    spec_fields = spec_document(
+                        flow=chain,
+                        **design_info(
+                            design, launcher.design_name if launcher is not None else None
+                        ),
+                        target=(launcher.target if launcher is not None else None) or target,
+                        settings=table,
+                    )
+                else:
+                    spec_fields = spec_document_of(spec)
+                document = run_document(
+                    outcome=None if refused else Outcome.FAILED,
                     error=info,
                     launch_id=None,
                     spec=spec_fields,
                     roots=(),
                     nodes=(),
-                ),
-                "json",
-            )
+                )
+            emit_structured(document, "json")
         if debug or (not json_flag and not isinstance(error, XedaException)):
             raise error
-        sys.exit(2 if isinstance(public, SpecError) else 1)
+        sys.exit(2 if refused else 1)
 
     if dry_run:
         try:
@@ -1113,7 +1116,7 @@ def run(
     try:
         result = launch_result(launcher, spec, lambda: launcher.run_resolved(resolved, plan))
     except Exception as e:
-        not_started(e, spec)
+        not_started(e, spec, plan)
     if not result.passed and result.error is not None:
         log.critical("%s", result.error.message)
     if json_flag:

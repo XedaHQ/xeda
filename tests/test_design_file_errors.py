@@ -97,6 +97,8 @@ def assert_unstarted_document(proc, code: str, *mentions: str) -> dict:
     assert error["code"] == code, error
     for mention in mentions:
         assert mention in error["message"], error["message"]
+    # the message is in plain terms: the class of the exception is for the log
+    assert not re.match(r"\w+(Error|Exception|Failure): ", error["message"]), error["message"]
     assert "Traceback" not in proc.stderr, proc.stderr
     return document
 
@@ -205,7 +207,7 @@ def test_xeda_run_reports_an_unloadable_design_file_cleanly(tmp_path, name, json
     args = ["run", "ghdl_sim", str(path)] + (["--json"] if json_flag else [])
     proc = run_xeda(*args, cwd=tmp_path)
     if json_flag:
-        document = assert_unstarted_document(proc, CLI_CODES[name], error_type, str(path), detail)
+        document = assert_unstarted_document(proc, CLI_CODES[name], str(path), detail)
         assert document["spec"]["design_file"] == str(path)
     else:
         assert_one_critical_line(proc, error_type, str(path), detail)
@@ -250,7 +252,7 @@ def test_a_design_name_the_project_lacks_is_reported_cleanly(tmp_path, json_flag
     args = ["run", "ghdl_sim", "--design-name", "nosuch"] + (["--json"] if json_flag else [])
     proc = run_xeda(*args, cwd=tmp_path)
     if json_flag:
-        assert_unstarted_document(proc, "unknown_design", "DesignNotFoundError", "nosuch", "sqrt")
+        assert_unstarted_document(proc, "unknown_design", "nosuch", "sqrt")
     else:
         assert_one_critical_line(proc, "DesignNotFoundError", "nosuch", "sqrt")
 
@@ -261,9 +263,7 @@ def test_a_design_name_without_a_project_is_reported_as_such(tmp_path, json_flag
     args = ["run", "ghdl_sim", "--design-name", "nosuch"] + (["--json"] if json_flag else [])
     proc = run_xeda(*args, cwd=tmp_path)
     if json_flag:
-        assert_unstarted_document(
-            proc, "project_file_not_found", "DesignNotFoundError", PROJECT_FILE
-        )
+        assert_unstarted_document(proc, "project_file_not_found", PROJECT_FILE)
     else:
         assert_one_critical_line(proc, "DesignNotFoundError", PROJECT_FILE)
 
@@ -279,7 +279,7 @@ def test_a_project_file_that_cannot_be_loaded_is_reported_cleanly(tmp_path, cont
     """A project file that cannot be loaded is reported cleanly."""
     (tmp_path / PROJECT_FILE).write_text(content)
     proc = run_xeda("run", "ghdl_sim", "--design-name", "sqrt", "--json", cwd=tmp_path)
-    assert_unstarted_document(proc, "invalid_project", "ProjectFileError", PROJECT_FILE, detail)
+    assert_unstarted_document(proc, "invalid_project", PROJECT_FILE, detail)
 
 
 def test_the_runner_raises_xeda_exceptions_for_user_errors(tmp_path):

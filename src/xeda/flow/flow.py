@@ -902,6 +902,7 @@ class Flow(metaclass=ABCMeta):
             raise FlowSettingsException(
                 f"{cls.name} needs " + "; and ".join(missing) + "".join(f". {n}" for n in notes),
                 code="required_setting",
+                node=cls.name,
             )
 
     @classmethod
@@ -1964,11 +1965,15 @@ class FlowSettingsException(FlowException):
     """
 
     code: str = "unsupported_setting"
+    #: The flow that refused, when the refusal knows it.
+    node: str | None = None
 
-    def __init__(self, *args: object, code: str | None = None) -> None:
+    def __init__(self, *args: object, code: str | None = None, node: str | None = None) -> None:
         super().__init__(*args)
         if code is not None:
             self.code = code
+        if node is not None:
+            self.node = node
 
 
 class NoReadableSource(FlowSettingsException):

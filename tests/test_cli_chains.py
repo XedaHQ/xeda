@@ -157,22 +157,25 @@ def test_a_dry_run_of_a_chain_shows_the_graph_that_then_runs(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "chain, message",
+    "chain, code, message",
     [
-        ("+__taker", "element 1 is empty"),
-        ("__input_maker+", "element 2 is empty"),
-        ("__input_maker++__taker", "element 2 is empty"),
-        ("__input_maker+__takr", "__takr"),
-        ("__taker+__taker", "appears more than once"),
-        ("__input_maker.nope+__taker", "no output `nope`"),
-        ("__taker+__input_maker", "takes no required input"),
+        ("+__taker", "invalid_chain", "element 1 is empty"),
+        ("__input_maker+", "invalid_chain", "element 2 is empty"),
+        ("__input_maker++__taker", "invalid_chain", "element 2 is empty"),
+        ("__input_maker+__takr", "flow_not_found", "__takr"),
+        ("__taker+__taker", "repeated_flow", "appears more than once"),
+        ("__input_maker.nope+__taker", "unknown_output", "no output `nope`"),
+        ("__taker+__input_maker", "no_edge", "takes no required input"),
     ],
 )
-def test_a_malformed_chain_is_one_json_error_document_and_plans_nothing(tmp_path, chain, message):
+def test_a_malformed_chain_is_one_json_error_document_and_plans_nothing(
+    tmp_path, chain, code, message
+):
     result, document = _json("run", chain, _design(tmp_path))
     assert result.exit_code == 2, result.output
     assert document["outcome"] is None and message in document["error"]["message"]
-    assert document["error"]["code"] == "usage_error" and document["nodes"] == []
+    assert document["error"]["code"] == code and document["nodes"] == []
+    assert document["spec"] is None, "the command line gave no request to report"
     assert not (tmp_path / "xeda_run").exists()
     text = _xeda("run", chain, _design(tmp_path))
     assert text.exit_code == 2 and message in text.output

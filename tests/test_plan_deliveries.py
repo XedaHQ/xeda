@@ -551,28 +551,22 @@ def _refusal_at_a_producers_turn(world, monkeypatch):
     return result, json.loads(result.stdout)
 
 
-def test_a_refusal_at_a_producer_s_turn_runs_nothing_after_it(world, monkeypatch):
-    """The refusal comes before the tool of the producer, so neither the producer nor the flow
-    that asked for it ran."""
-    result, document = _refusal_at_a_producers_turn(world, monkeypatch)
-    assert result.exit_code == 2 and document["outcome"] is None
-    assert document["error"]["code"] == "delivery_refused"
-    assert RUNS == [_ReadsDir.name]
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="the document of a launch that refuses at a producer's turn, after another producer "
-    "ran, says it started no launch and lists no node",
-)
-def test_a_refusal_at_a_producer_s_turn_lists_every_planned_node(world, monkeypatch):
+def test_a_refusal_at_a_producer_s_turn_fails_that_node_in_a_launch_that_started(
+    world, monkeypatch
+):
+    """The refusal comes before the tool of the producer, but another producer has run: the
+    launch started. The producer that was refused failed, and the flow that asked for it is
+    blocked."""
     result, document = _refusal_at_a_producers_turn(world, monkeypatch)
     assert result.exit_code == 1 and document["outcome"] == "failed"
+    assert RUNS == [_ReadsDir.name]
+    assert document["error"]["node"] == "__delivers"
+    assert document["error"]["code"] == "reported_failure"
     states = {node["name"]: (node["outcome"], node["disposition"]) for node in document["nodes"]}
     assert states == {
         "__reads_dir": ("passed", "ran"),
-        "__delivers": ("skipped", "not_run"),
-        "__both": ("skipped", "not_run"),
+        "__delivers": ("failed", "ran"),
+        "__both": ("blocked", "not_run"),
     }
 
 

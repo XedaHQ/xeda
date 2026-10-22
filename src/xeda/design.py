@@ -2632,6 +2632,19 @@ class Design(XedaBaseModel):
     #: field: a saved design, a hash and a comparison of settings never see it.
     _source_file: Optional[Path] = PrivateAttr(default=None)
 
+    def __eq__(self, other: object) -> bool:
+        """Two designs are equal when their fields are: the file a design was read from says
+        nothing about it."""
+        if not isinstance(other, Design):
+            return NotImplemented
+        return (
+            type(self) is type(other)
+            and self.__pydantic_extra__ == other.__pydantic_extra__
+            and all(getattr(self, name) == getattr(other, name) for name in type(self).model_fields)
+        )
+
+    __hash__ = None  # type: ignore[assignment]
+
     @field_validator("name", mode="after")
     @classmethod
     def _name_is_a_directory_name(cls, value: str) -> str:
