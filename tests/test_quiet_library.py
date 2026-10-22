@@ -395,3 +395,31 @@ def test_the_library_prints_no_table_and_calls_no_print_outside_the_command_line
             if function in ("print", "console.print", "console.input", "warnings.warn"):
                 found.append(f"{relative}:{node.lineno}: {function}")
     assert not found, found
+
+
+def test_a_failed_result_names_the_launch_of_the_records_of_the_launch_that_failed(tmp_path):
+    from xeda.flow_runner.launch_result import failed_result
+    from xeda.log_context import launch_id_of
+    from xeda.records import ErrorInfo
+
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    design = _design(tmp_path)
+    spec = Spec("chatty_flow", design)
+    raised: list[Exception] = []
+
+    def launch():
+        logging.getLogger("xeda.test_quiet_library").info("inside")
+        raise RuntimeError("a bug in the launcher")
+
+    def run():
+        try:
+            launch_result(runner, spec, launch)
+        except RuntimeError as error:
+            raised.append(error)
+
+    records = _collected(run)
+    (inside,) = [r for r in records if r.getMessage() == "inside"]
+    assert launch_id_of(raised[0]) == inside.xeda_launch_id is not None
+    error = ErrorInfo("internal_error", "a bug", None, None, None)
+    result = failed_result(runner, spec, None, error, launch_id=launch_id_of(raised[0]))
+    assert result.launch_id == inside.xeda_launch_id
