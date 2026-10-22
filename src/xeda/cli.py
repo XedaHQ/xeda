@@ -615,11 +615,12 @@ def _prompt_overwrite(conflicts: Sequence[Conflict]) -> bool:
 def _prompt_scrub(directories: Sequence[Path]) -> bool:
     """Ask on the terminal (or on the input that stands for it) whether to remove the run
     directories that scrub listed. Only the word "yes" says yes. The answer is also no when there
-    is no input to read. The commands ask even when stdin is no terminal, so a script can pipe
-    "yes" to them. The question goes to stderr with `--json`."""
+    is no input to read: the input is at its end, closed or unreadable. The commands ask even when
+    stdin is no terminal, so a script can pipe "yes" to them. The question goes to stderr with
+    `--json`."""
     try:
         answer = console.input("Type 'yes' if you're sure you want to continue: ")
-    except EOFError:
+    except (EOFError, ValueError, OSError):
         console.print()
         return False
     return answer.lower() == "yes"
