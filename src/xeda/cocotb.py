@@ -285,23 +285,25 @@ def cocotb_verdict(
 
 
 class Cocotb(CocotbSettings, Tool):
-    """The cocotb support of a `SimFlow`. It is not a stand-alone tool."""
+    """The cocotb support of a `SimFlow`. It is not a stand-alone tool.
+
+    Its queries of `cocotb-config` are probes (`probe_stdout`): they run in a scratch directory."""
 
     executable: str = "cocotb-config"
     sim_name: str
 
     @cached_property
     def prefix(self) -> Optional[str]:
-        return self.run_get_stdout("--prefix")
+        return self.probe_stdout("--prefix")
 
     @cached_property
     def share_dir(self) -> Optional[str]:
-        return self.run_get_stdout("--share")
+        return self.probe_stdout("--share")
 
     @cached_property
     def lib_dir(self) -> Optional[str]:
         if self.version_gte(1, 6):
-            return self.run_get_stdout("--lib-dir")
+            return self.probe_stdout("--lib-dir")
         else:
             if self.prefix is None:
                 return None
@@ -316,14 +318,14 @@ class Cocotb(CocotbSettings, Tool):
         return self.get_lib_name(self.sim_name)
 
     def get_lib_name(self, simulator, interface="vpi") -> Optional[str]:
-        return self.run_get_stdout("--lib_name", interface, simulator)
+        return self.probe_stdout("--lib_name", interface, simulator)
 
     def lib_path(self, interface: str = "vpi", sim_name=None) -> Optional[str]:
         so_ext = "so"  # TODO windows?
         if sim_name is None:
             sim_name = self.sim_name
         if self.version_gte(1, 6):
-            so_path = self.run_get_stdout(
+            so_path = self.probe_stdout(
                 "--lib-name-path",
                 interface,
                 sim_name,
@@ -357,7 +359,7 @@ class Cocotb(CocotbSettings, Tool):
         `cocotb-config --pygpi-entry-point` was added in cocotb 2.1; older releases reject the
         flag, which is how this tells the two apart.
         """
-        return self.run_get_stdout("--pygpi-entry-point", raise_on_error=False)
+        return self.probe_stdout("--pygpi-entry-point", raise_on_error=False)
 
     def gpi_users(self) -> Optional[str]:
         """Return the value for `GPI_USERS`, or `None` when the installed cocotb does not need it.
@@ -373,7 +375,7 @@ class Cocotb(CocotbSettings, Tool):
         entry_point = self.pygpi_entry_point
         if not entry_point:
             return None  # cocotb < 2.1: the interface library registers itself
-        libpython = os.environ.get("LIBPYTHON_LOC") or self.run_get_stdout(
+        libpython = os.environ.get("LIBPYTHON_LOC") or self.probe_stdout(
             "--libpython", raise_on_error=False
         )
         return ";".join(user for user in (libpython, entry_point) if user)

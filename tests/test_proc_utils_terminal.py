@@ -400,10 +400,10 @@ def test_a_tool_asks_for_a_terminal_if_it_declares_one_and_colors_are_wanted(
     monkeypatch.setattr("xeda.tool.run_process", record)
     tool = OpenfpgaloaderTool(console_colors=colors)
     tool.console_colors = colors
-    tool.run("--bitstream", "x.bit", tee=tmp_path / "loader.log", merge_stderr=True)
+    tool.run("--bitstream", "x.bit", tee=tmp_path / "loader.log", merge_stderr=True, cwd=tmp_path)
     assert asked["terminal"] is colors
     plain = Tool(executable="some-tool")
-    plain.run(tee=tmp_path / "plain.log")
+    plain.run(tee=tmp_path / "plain.log", cwd=tmp_path)
     assert asked["terminal"] is False
 
 

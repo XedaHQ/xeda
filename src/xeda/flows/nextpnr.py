@@ -254,7 +254,10 @@ class EcpPLL(Tool):
                 value = module + ".v"
         return value
 
-    def generate(self):
+    def generate(self, cwd: Optional[Path] = None):
+        """Run `ecppll` in `cwd` (a relative `file` is written there). Outside a flow, `cwd` must
+        be an absolute directory."""
+
         def s(f: float) -> str:
             return f"{f:0.03f}"
 
@@ -276,7 +279,7 @@ class EcpPLL(Tool):
         args += setting_flag(self.highres)
         args += setting_flag(self.standby)
         args += setting_flag(self.internal_feedback)
-        self.run(*args)
+        self.run(*args, cwd=cwd)
 
 
 class Nextpnr(FpgaSynthFlow):

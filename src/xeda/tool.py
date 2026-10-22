@@ -115,13 +115,18 @@ class Docker(XedaBaseModel):
     ) -> Union[str, None]:
         """Run the tool in a Docker container.
 
-        The container works in `cwd` (by default the current directory, read once here) and mounts
-        it writable. It sees the resolved path of that directory, as a process that changed into
-        it would. It mounts each directory of `read_only` read-only: the design's, and those of
+        The container works in `cwd`, which must be an absolute directory, and mounts it
+        writable. It sees the resolved path of that directory, as a process that changed into it
+        would, and its `PWD` is that path. It mounts each directory of `read_only` read-only: the design's, and those of
         the flow's inputs (`Tool.execute` chooses them). A mount configured in `mounts` stays as
         configured. The `docker` client starts in `cwd` too, and the files that Xeda writes for
         the container (the environment file, the CPU information) go there."""
-        cwd = Path(os.path.realpath(Path.cwd() if cwd is None else cwd))
+        if cwd is None or not os.path.isabs(cwd):
+            raise ToolException(
+                f"{executable!r} in Docker image {self.image!r} has no directory to run in: give "
+                f"an absolute `cwd=`, not {cwd!r}."
+            )
+        cwd = Path(os.path.realpath(cwd))
         stdout = _placed(cwd, stdout)
         tee = None if tee is None else cwd / tee
         note_program(f"{DOCKER_IMAGE_PREFIX}{self.image}:{self.tag or 'latest'}")
@@ -162,7 +167,7 @@ class Docker(XedaBaseModel):
             # Skip the run directory and a mount configured at the same path (writable or not).
             if mounts.get(directory, "").split(":")[0] != directory:
                 docker_args.append(f"--volume={directory}:{directory}:ro")
-        env = {**self.default_env, **(env or {})}
+        env = {**self.default_env, **(env or {}), "PWD": str(cwd)}
         if env:
             env_file = cwd / f".{self.name}_docker.env"
             with replacing_file(env_file) as f:
@@ -452,8 +457,11 @@ class Tool(XedaBaseModel):
     @cached_property
     def nproc(self) -> int:
         if self.dockerized:
+            # A query about the machine, as a version probe is (`probe_stdout`): it runs in a
+            # scratch directory and leaves nothing where the flow runs.
             try:
-                n = try_convert(self.execute("nproc", stdout=True), int)
+                with tempfile.TemporaryDirectory(prefix="xeda-probe-") as scratch:
+                    n = try_convert(self.execute("nproc", stdout=True, cwd=Path(scratch)), int)
             except Exception:  # noqa: BLE001 - Docker CPU detection has a safe fallback
                 n = None
             assert self.docker
@@ -501,8 +509,8 @@ class Tool(XedaBaseModel):
         """Return the resolved absolute path of the executable, or None if it is not found.
 
         An absolute executable must exist and be executable. A relative path (`./simv`) is
-        relative to the working directory of the tool, where it starts. Any other name is looked
-        up on `PATH`."""
+        relative to the working directory of the tool, where it starts; a tool without a flow has
+        none, and this is a `ToolException`. Any other name is looked up on `PATH`."""
         executable = self.executable
         if not os.path.isabs(executable) and os.sep in executable:
             executable = str(self.working_directory() / executable)
@@ -552,23 +560,32 @@ class Tool(XedaBaseModel):
             tee=tee,
         )
 
+    def _live_flow(self) -> Optional[Flow]:
+        """Return the flow the tool runs for, or None outside a flow or once the flow is gone."""
+        return self._flow() if self._flow is not None else None
+
     def working_directory(self) -> Path:
         """Return the absolute directory where the tool works.
 
         It is the run path of the flow that the tool belongs to, as the flow has it (it may be a
-        link into the run root, and the tool sees it so). A tool outside a flow works in the
-        current directory, read at this call."""
-        flow = self._flow() if self._flow is not None else None
-        return flow.run_path if flow is not None else Path.cwd()
+        link into the run root, and the tool sees it so). A tool without a flow, or whose flow is
+        gone, has no working directory: this is a `ToolException`, and each start of the tool
+        names an absolute directory (`cwd=`). Xeda never uses its own current directory."""
+        flow = self._live_flow()
+        if flow is None:
+            raise ToolException(
+                f"Tool {self.executable!r} runs for no flow, so it has no directory to run in: "
+                "give an absolute `cwd=`."
+            )
+        return flow.run_path
 
     def _directory(self, cwd: OptionalPath = None) -> Path:
-        """Return the absolute directory for one start of the tool: `cwd`, if given (a relative
-        one is relative to the working directory of the tool), else the working directory."""
+        """Return the absolute directory for one start of the tool: `cwd`, if it is absolute,
+        else `cwd` relative to the working directory of the tool, else the working directory."""
+        if cwd is not None and os.path.isabs(cwd):
+            return Path(cwd)
         base = self.working_directory()
-        if cwd is None:
-            return base
-        cwd = Path(cwd)
-        return cwd if cwd.is_absolute() else base / cwd
+        return base if cwd is None else base / cwd
 
     def _in_run_directory(self, path: Path) -> bool:
         """Return whether `path` lies in the run directory of the flow of this tool, by its name
@@ -577,7 +594,8 @@ class Tool(XedaBaseModel):
         if run_directory is None:
             return False
         lexical = Path(os.path.abspath(path))
-        return lexical.is_relative_to(self.working_directory()) or (
+        flow = self._live_flow()
+        return (flow is not None and lexical.is_relative_to(flow.run_path)) or (
             run_directory.named_within(lexical) is not None
         )
 
@@ -592,7 +610,7 @@ class Tool(XedaBaseModel):
         path already holds it. A read-only mount inside the run directory would make a part of it
         read-only. `cwd` is the directory the tool runs in."""
         design = [d for d in (self.design_root_, *self.source_dirs_) if d is not None]
-        flow = self._flow() if self._flow is not None else None
+        flow = self._live_flow()
         inputs = flow.input_directories() if flow is not None else []
         held = [
             cwd,
@@ -628,7 +646,7 @@ class Tool(XedaBaseModel):
         returns.
 
         The directory is `cwd` (a relative one is relative to the working directory of the tool),
-        else `working_directory()`. The process starts there, and a relative `stdout` or `tee`
+        else `working_directory()`. A tool without a flow needs an absolute `cwd`. The process starts there, and a relative `stdout` or `tee`
         file and the files that Xeda writes for the tool are relative to it too."""
         directory = self._directory(cwd)
         if not stdout and self.redirect_stdout:
@@ -738,8 +756,9 @@ class Tool(XedaBaseModel):
         *args: Any,
         redirect_to: Path,
         env: Optional[Dict[str, Any]] = None,
+        cwd: Optional[Path] = None,
     ) -> None:
-        self.run(*args, env=env, stdout=redirect_to)
+        self.run(*args, env=env, stdout=redirect_to, cwd=cwd)
 
     def derive(
         self,

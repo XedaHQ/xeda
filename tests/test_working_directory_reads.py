@@ -95,8 +95,6 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
     ("remote/packaging.py", "package_inputs.packaged_liberty"): "relative setting paths",
     ("remote/packaging.py", "package_inputs.packaged_path"): "relative setting paths",
     ("run_root.py", "ensure_run_root"): "a run root given relative to the caller",
-    ("tool.py", "Docker.run"): "a container started outside a tool",
-    ("tool.py", "Tool.working_directory"): "a tool outside a flow",
 }
 
 #: (module, function) -> why a process it starts needs no explicit working directory.

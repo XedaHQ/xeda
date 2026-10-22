@@ -211,6 +211,9 @@ UNREACHED = {
 NO_PROCESS_IN_RUN: Dict[str, str] = {
     "bsc_sim": "its Verilator link needs `VERILATOR_ROOT` from `verilator -V`, which the "
     "stand-in tool does not print: `run()` ends in a settings error before it starts a tool",
+    "verilator": "its cocotb main needs the share directory from `cocotb-config --share` (a "
+    "probe), which the stand-in tool does not print: `run()` ends in a fatal error before it "
+    "starts a tool",
 }
 
 CANARIES = sorted(
@@ -1164,7 +1167,8 @@ class ProcessRecorder:
     probes: set = field(default_factory=set)
 
     def note(self, words: List[str], raw_cwd: object, env: Any, stubbed: bool) -> None:
-        added = {k: v for k, v in (env or {}).items() if os.environ.get(k) != v}
+        # `PWD` is the directory of the process (`run_process` sets it), which a finding names.
+        added = {k: v for k, v in (env or {}).items() if k != "PWD" and os.environ.get(k) != v}
         text = " ".join([*words, *(f"{k}={v}" for k, v in added.items())])
         cwd = Path(os.path.realpath(Path.cwd() if raw_cwd is None else os.fsdecode(raw_cwd)))
         self.events.append(

@@ -17,6 +17,7 @@ the no-terminal half.
 """
 
 import contextlib
+import json
 import os
 import pty
 import select
@@ -213,8 +214,9 @@ def test_merge_stderr_captures_a_stderr_only_banner(tmp_path):
     script = tmp_path / "banner.py"
     script.write_text("import sys; print('Version tool-1.2.3', file=sys.stderr)\n")
     tool = Tool(executable=sys.executable, default_args=[str(script)], version_flag=["--version"])
-    assert not (tool.run_get_stdout("--version") or "").strip()
-    assert "Version tool-1.2.3" in (tool.run_get_stdout("--version", merge_stderr=True) or "")
+    assert not (tool.run_get_stdout("--version", cwd=tmp_path) or "").strip()
+    out = tool.run_get_stdout("--version", merge_stderr=True, cwd=tmp_path)
+    assert "Version tool-1.2.3" in (out or "")
 
 
 def test_version_detection_falls_back_to_stderr(tmp_path):
@@ -233,13 +235,11 @@ def test_merge_stderr_is_forwarded_through_the_docker_path(monkeypatch, tmp_path
         return "out"
 
     monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
-    # Docker.run writes a `.<name>_docker.env` file into the working directory before it reaches
-    # run_process, so run somewhere disposable rather than dirtying the checkout.
-    monkeypatch.chdir(tmp_path)
+    # Docker.run writes a `.<name>_docker.env` file into the directory it runs in.
     tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
-    tool.run("--version", stdout=True, merge_stderr=True)
+    tool.run("--version", stdout=True, merge_stderr=True, cwd=tmp_path)
     assert recorded.get("merge_stderr") is True
-    assert not list(Path.cwd().parent.glob("*_docker.env"))
+    assert list(tmp_path.glob("*_docker.env"))
 
 
 def test_a_docker_run_mounts_the_directory_it_runs_in_not_an_earlier_one(monkeypatch, tmp_path):
@@ -257,8 +257,7 @@ def test_a_docker_run_mounts_the_directory_it_runs_in_not_an_earlier_one(monkeyp
     tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
     for cwd in (first, second):
         cwd.mkdir()
-        monkeypatch.chdir(cwd)
-        tool.run("arg", stdout=True)
+        tool.run("arg", stdout=True, cwd=cwd)
     assert any(str(second) in arg for arg in commands[1])
     assert not any(str(first) in arg for arg in commands[1]), commands[1]
 
@@ -272,7 +271,6 @@ def test_docker_mounts_the_design_read_only_and_the_run_directory_read_write(mon
     design_root, run_dir = tmp_path / "design", tmp_path / "design" / "xeda_run" / "d" / "f"
     (design_root / "rtl").mkdir(parents=True)
     run_dir.mkdir(parents=True)
-    monkeypatch.chdir(run_dir)
     tool = Tool(
         executable="some-tool",
         docker=Docker(image="img"),
@@ -280,7 +278,7 @@ def test_docker_mounts_the_design_read_only_and_the_run_directory_read_write(mon
         design_root_=design_root,
         source_dirs_=[design_root / "rtl"],
     )
-    tool.run("arg", stdout=True)
+    tool.run("arg", stdout=True, cwd=run_dir)
     volumes = [a for a in commands[0] if a.startswith("--volume=")]
     assert f"--volume={design_root}:{design_root}:ro" in volumes
     assert f"--volume={design_root / 'rtl'}:{design_root / 'rtl'}:ro" in volumes
@@ -323,8 +321,9 @@ def test_docker_run_overrides_forward_merge_stderr(docker_cls, monkeypatch, tmp_
         return "out"
 
     monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
-    monkeypatch.chdir(tmp_path)
-    docker_cls(image="img").run("some-tool", "--version", stdout=True, merge_stderr=True)
+    docker_cls(image="img").run(
+        "some-tool", "--version", stdout=True, merge_stderr=True, cwd=tmp_path
+    )
     assert recorded.get("merge_stderr") is True, (
         f"{docker_cls.__qualname__}.run accepts merge_stderr but does not forward it to "
         "Docker.run, so callers asking for stderr silently do not get it."
@@ -342,8 +341,9 @@ def test_docker_run_overrides_mount_the_design_read_only(docker_cls, monkeypatch
     design = tmp_path / "design"
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    monkeypatch.chdir(run_dir)
-    docker_cls(image="img").run("some-tool", "--version", stdout=True, read_only=[design])
+    docker_cls(image="img").run(
+        "some-tool", "--version", stdout=True, read_only=[design], cwd=run_dir
+    )
     assert f"--volume={design}:{design}:ro" in commands[0]
 
 
@@ -438,14 +438,15 @@ def test_a_captured_process_past_its_time_limit_is_stopped(tmp_path):
 
 
 @pytest.mark.parametrize("method", ["probe_stdout", "run_get_stdout"])
-def test_a_tool_query_past_its_time_limit_is_stopped(method):
+def test_a_tool_query_past_its_time_limit_is_stopped(method, tmp_path):
     """`Tool.probe_stdout` and `Tool.run_get_stdout` hand their `timeout` down (the
     `openfpgaloader` flow asks the loader about the probes with it, and a hung USB query must
     not hang a launch)."""
     tool = Tool(executable=sys.executable, version_flag=None)
+    where = {"cwd": tmp_path} if method == "run_get_stdout" else {}
     with pytest.raises(ProcessTimeout), _stopped_within(0.5):
-        getattr(tool, method)("-c", "import time; time.sleep(60)", timeout=0.5)
-    assert getattr(tool, method)("-c", "print('ok')", timeout=30) == "ok"
+        getattr(tool, method)("-c", "import time; time.sleep(60)", timeout=0.5, **where)
+    assert getattr(tool, method)("-c", "print('ok')", timeout=30, **where) == "ok"
 
 
 def test_a_highlighted_process_past_its_time_limit_is_stopped():
@@ -1540,10 +1541,9 @@ def test_a_docker_run_names_its_container_and_stops_it_when_stopped(monkeypatch,
         return None
 
     monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
-    monkeypatch.chdir(tmp_path)
     tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
     with pytest.raises(ProcessTimeout):
-        tool.run("arg", timeout=3)
+        tool.run("arg", timeout=3, cwd=tmp_path)
     (run_args, run_kwargs), (kill_args, kill_kwargs) = calls
     name = run_args[run_args.index("--name") + 1]
     assert name.startswith("xeda-")
@@ -1654,9 +1654,8 @@ def test_the_docker_stop_hook_is_time_limited(monkeypatch, tmp_path):
         return None
 
     monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
-    monkeypatch.chdir(tmp_path)
     tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
-    tool.run("arg", timeout=3)
+    tool.run("arg", timeout=3, cwd=tmp_path)
     kill_kwargs = calls[1][1]
     assert calls[1][0][0] == "kill"
     assert kill_kwargs["timeout"] == xeda_tool.DOCKER_KILL_TIMEOUT > 0
@@ -1671,9 +1670,8 @@ def test_a_docker_stop_hook_that_times_out_is_only_logged(monkeypatch, tmp_path)
         raise ProcessTimeout(["docker", "kill"], kwargs["timeout"])
 
     monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
-    monkeypatch.chdir(tmp_path)
     tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
-    tool.run("arg", timeout=3)  # the hook's ProcessTimeout does not escape
+    tool.run("arg", timeout=3, cwd=tmp_path)  # the hook's ProcessTimeout does not escape
 
 
 @pytest.mark.parametrize("fails", [False, True])
@@ -1691,3 +1689,42 @@ def test_tee_captures_stderr_only_diagnostics(tmp_path, capsys, fails):
         run_process(sys.executable, ["-c", command], tee=transcript, merge_stderr=True)
     assert transcript.read_text() == "FINISH 5ns\nERROR bad\n"
     assert "FINISH 5ns" in capsys.readouterr().out
+
+
+# ----------------------------------------------------------------------------- PWD
+
+SHOW_DIRECTORY = "import json, os; print(json.dumps([os.environ.get('PWD'), os.getcwd()]))"
+
+
+def _directory_seen(**kwargs) -> list:
+    out = run_process(sys.executable, ["-c", SHOW_DIRECTORY], stdout=True, **kwargs)
+    assert isinstance(out, str)
+    return json.loads(out)
+
+
+def test_a_process_gets_its_directory_as_pwd_not_the_inherited_one(tmp_path, monkeypatch):
+    """A program that reads `PWD` (a shell, a build script) sees the directory it starts in."""
+    monkeypatch.setenv("PWD", "/no/such/directory")
+    pwd, cwd = _directory_seen(cwd=tmp_path)
+    assert pwd == os.path.abspath(tmp_path)
+    assert os.path.samefile(cwd, tmp_path)
+    assert os.environ["PWD"] == "/no/such/directory"
+
+
+def test_a_pwd_in_the_given_environment_is_replaced_and_the_mapping_is_kept(tmp_path):
+    env = {"PWD": "/no/such/directory", "ONE": "1"}
+    pwd, _ = _directory_seen(cwd=tmp_path, env=env)
+    assert pwd == os.path.abspath(tmp_path)
+    assert env == {"PWD": "/no/such/directory", "ONE": "1"}
+
+
+def test_the_pwd_of_a_process_keeps_the_spelling_of_a_linked_directory(tmp_path):
+    """`PWD` is the path as given, as a shell keeps it after `cd` through a link; the process
+    itself works in the directory the link leads to."""
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    pwd, cwd = _directory_seen(cwd=link)
+    assert pwd == str(link)
+    assert os.path.samefile(cwd, real)

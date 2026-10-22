@@ -133,7 +133,7 @@ def test_the_default_image_runs_vsim_on_amd64(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(xeda.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd]))
     tool = ModelsimTool(version_flag=None)
     tool.dockerized = True
-    tool.run("-batch", "-do", "do run.tcl")
+    tool.run("-batch", "-do", "do run.tcl", cwd=tmp_path)
     (command,) = ran
     assert command[command.index("--platform") + 1] == "linux/amd64"
     image = "chaseruskin/modelsim-intel:20.1.1-ubuntu-22.04"
