@@ -33,6 +33,7 @@ from .test_proc_utils import (
     TIME_LIMITS,
     _is_running,
     _kill,
+    _orphaning,
     _read_pid,
     _stopped_within,
     _tree,
@@ -443,6 +444,50 @@ def test_an_interrupt_stops_what_a_tool_with_a_terminal_started(terminal, tmp_pa
             run_process(
                 sys.executable,
                 child(_tree(started)),
+                tee=tmp_path / "tool.log",
+                terminal=True,
+            )
+        grandchild = _read_pid(started)
+        assert grandchild is not None, "the child did not run"
+        _wait_until(lambda: not _is_running(grandchild), "the child to stop")
+    except BaseException:
+        _kill(grandchild or _read_pid(started))  # a failed test leaves no sleeping process
+        raise
+
+
+def test_an_interrupt_stops_a_child_that_outlived_a_tool_with_a_terminal(
+    terminal, tmp_path, monkeypatch
+):
+    """The tool ended and its child keeps the terminal open, so Xeda still copies the output when
+    Ctrl-C comes. Xeda did not reap the tool while it watched for its end, so it still stops the
+    group of the tool."""
+    started = tmp_path / "started"
+    trigger = "interrupt now"
+
+    class Interrupting:
+        """The terminal of Xeda, which raises `KeyboardInterrupt` as it gets `trigger`."""
+
+        def isatty(self) -> bool:
+            return True
+
+        def fileno(self) -> int:
+            return terminal.stream.fileno()
+
+        def write(self, text: str) -> int:
+            if trigger in text:
+                raise KeyboardInterrupt
+            return terminal.stream.write(text)
+
+        def flush(self) -> None:
+            terminal.stream.flush()
+
+    monkeypatch.setattr(proc_utils, "_tool_output", Interrupting())
+    grandchild = None
+    try:
+        with pytest.raises(KeyboardInterrupt), _stopped_within():
+            run_process(
+                sys.executable,
+                child(_orphaning(started, announce=trigger)),
                 tee=tmp_path / "tool.log",
                 terminal=True,
             )

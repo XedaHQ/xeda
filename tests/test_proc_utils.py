@@ -1257,6 +1257,226 @@ def test_exception_cleanup_kills_a_tool_after_the_grace_period(monkeypatch, erro
         proc.stdout.close()
 
 
+def _orphaning(started: Path, announce: str | None = None) -> str:
+    """A program for a tool whose leader ends at once and leaves a child that holds the standard
+    output of the leader open. The child waits until the leader is gone, then writes its process
+    id to `started` and, with `announce`, prints that line (flushed). It then sleeps."""
+    child = (
+        f"{DEFAULT_SIGINT}"
+        "import os, pathlib, sys, time\n"
+        "while os.getppid() == int(sys.argv[1]):\n"
+        "    time.sleep(0.01)\n"
+        f"pathlib.Path({str(started)!r}).write_text(str(os.getpid()))\n"
+        + (f"print({announce!r}, flush=True)\n" if announce else "")
+        + "time.sleep(60)\n"
+    )
+    return (
+        "import os, subprocess, sys\n"
+        f"subprocess.Popen([sys.executable, '-c', {child!r}, str(os.getpid())])\n"
+    )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_an_interrupt_stops_what_a_tool_that_already_ended_left_running(tmp_path):
+    """The leader ended and nobody reaped it, so its group id is still its own. The interrupt
+    stops the child that outlived it. The leader ended by itself, so the stop hook does not run."""
+    started = tmp_path / "started"
+    proc = subprocess.Popen([sys.executable, "-c", _orphaning(started)], start_new_session=True)
+    child = None
+    stopped = []
+    try:
+        child = _wait_until(lambda: _read_pid(started), "the child to outlive the leader")
+        with pytest.raises(KeyboardInterrupt), _stopped_within():
+            with _Deadline(proc, None, group=True, on_stop=lambda: stopped.append(1)):
+                raise KeyboardInterrupt
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+        assert stopped == []
+    except BaseException:
+        _kill(child or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_an_interrupt_while_copying_output_stops_a_child_that_outlived_the_tool(
+    tmp_path, monkeypatch
+):
+    """The child of a tool that ended keeps the pipe of the tool open, so Xeda still copies lines
+    when Ctrl-C comes."""
+    import xeda.proc_utils as pu
+
+    started = tmp_path / "started"
+    trigger = "interrupt now"
+    monkeypatch.setattr(pu, "_tool_output", _InterruptingStream(trigger))
+    child = None
+    try:
+        with pytest.raises(KeyboardInterrupt), _stopped_within():
+            run_process(
+                sys.executable,
+                ["-c", _orphaning(started, announce=trigger)],
+                tee=tmp_path / "log",
+            )
+        child = _read_pid(started)
+        assert child is not None, "the child did not run"
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+
+
+#: A program that runs a tool through `run_process` with a stop hook, as a launch does, and keeps
+#: the default disposition of the stop signals. The tool ignores SIGTERM and answers SIGINT, the
+#: first signal that the stop sends it, by writing `stopping`. It then runs on, so that the stop
+#: waits for it for the length of the grace period.
+_STOPPED_TWICE = """
+import sys
+import signal
+from pathlib import Path
+import xeda.proc_utils as pu
+
+for name in ("SIGTERM", "SIGHUP"):
+    signal.signal(getattr(signal, name), signal.SIG_DFL)
+pu.PROCESS_STOP_GRACE = 2.0
+TOOL = '''
+import os, signal, sys, time
+from pathlib import Path
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+signal.signal(signal.SIGINT, lambda *args: Path(sys.argv[2]).write_text("x"))
+Path(sys.argv[1]).write_text(str(os.getpid()))
+while True:
+    time.sleep(1)
+'''
+started, stopping, hook = sys.argv[1:]
+pu.run_process(
+    sys.executable,
+    ["-c", TOOL, started, stopping],
+    on_stop=lambda: Path(hook).write_text("ran"),
+)
+"""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+@pytest.mark.parametrize("name", ["SIGTERM", "SIGHUP"])
+def test_a_second_stop_signal_never_cuts_the_stopping_short(tmp_path, name):
+    """The first stop signal starts the stop. A second one, while the tool is given its time to
+    end, neither skips the stop hook nor leaves the tool running."""
+    started, stopping, hook = (tmp_path / n for n in ("started", "stopping", "hook"))
+    launch = subprocess.Popen(
+        [sys.executable, "-c", _STOPPED_TWICE, str(started), str(stopping), str(hook)],
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    tool = None
+    try:
+        tool = _wait_until(lambda: _read_pid(started), "the tool to run")
+        launch.send_signal(getattr(signal, name))
+        _wait_until(stopping.exists, "the tool to be sent SIGINT")
+        launch.send_signal(getattr(signal, name))
+        with _stopped_within():
+            launch.wait(timeout=60)
+        assert hook.read_text() == "ran"
+        assert not _is_running(tool)
+    except BaseException:
+        _kill(tool or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+    finally:
+        if launch.poll() is None:
+            launch.kill()
+        launch.wait()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+@pytest.mark.parametrize("error", [KeyboardInterrupt, RuntimeError])
+@pytest.mark.parametrize("where", ["grace", "kill"])
+def test_a_stop_signal_during_the_stopping_is_held_until_it_is_done(monkeypatch, error, where):
+    """A stop signal comes while the tool is given its time to end (`grace`), or as the kill
+    starts (`kill`; the tool ignores SIGINT and SIGTERM). Then the hook ran, the tool is killed and
+    reaped, the handlers are the caller's again, and the signal still ends the wait: as a
+    `KeyboardInterrupt` in place of any other error."""
+    import xeda.proc_utils as pu
+
+    def caller(number, frame):
+        pass
+
+    ran = []
+    real_wait, real_stop = _Deadline._wait_unreaped, _Deadline._stop
+
+    def signaled_wait(self):
+        os.kill(os.getpid(), signal.SIGTERM)
+        real_wait(self)
+
+    def signaled_kill(self, *, force=False, interrupt=False):
+        if force:
+            os.kill(os.getpid(), signal.SIGTERM)
+        real_stop(self, force=force, interrupt=interrupt)
+
+    monkeypatch.setattr(pu, "PROCESS_STOP_GRACE", 0.2)
+    if where == "grace":
+        monkeypatch.setattr(pu._Deadline, "_wait_unreaped", signaled_wait)
+    else:
+        monkeypatch.setattr(pu._Deadline, "_stop", signaled_kill)
+    script = (
+        "import signal, time\n"
+        "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "print('ready', flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, start_new_session=True
+    )
+    previous = signal.signal(signal.SIGTERM, caller)
+    try:
+        assert proc.stdout.readline() == b"ready\n"
+        with pytest.raises(KeyboardInterrupt):
+            with _Deadline(proc, 60, group=True, on_stop=lambda: ran.append(1)):
+                raise error
+        assert ran == [1]
+        assert proc.returncode == -signal.SIGKILL
+        assert signal.getsignal(signal.SIGTERM) is caller
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        proc.stdout.close()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_a_second_ctrl_c_during_the_stopping_kills_the_tool_and_still_runs_the_hook(monkeypatch):
+    import xeda.proc_utils as pu
+
+    def second_ctrl_c(self):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(pu._Deadline, "_wait_unreaped", second_ctrl_c)
+    script = (
+        "import signal, time\n"
+        "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+        "print('ready', flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, start_new_session=True
+    )
+    ran = []
+    try:
+        assert proc.stdout.readline() == b"ready\n"
+        with pytest.raises(KeyboardInterrupt):
+            with _Deadline(proc, 60, group=True, on_stop=lambda: ran.append(1)):
+                raise KeyboardInterrupt
+        assert ran == [1]
+        assert proc.returncode == -signal.SIGKILL
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        proc.stdout.close()
+
+
 @pytest.mark.parametrize("bad", [0, -1, 0.0])
 def test_a_non_positive_time_limit_is_refused(bad):
     with pytest.raises(ValueError, match=str(bad)):
