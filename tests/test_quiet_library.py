@@ -368,7 +368,7 @@ def test_the_command_line_shows_the_results_table_and_json_does_not(tmp_path, mo
 
 def test_the_library_prints_no_table_and_calls_no_print_outside_the_command_line():
     """No module of the package but the command line writes to the console, to the standard
-    streams or to the warnings machinery. (`flow_runner/scrub.py` still asks on the console.)"""
+    streams or to the warnings machinery."""
     import ast
 
     import xeda
@@ -382,11 +382,10 @@ def test_the_library_prints_no_table_and_calls_no_print_outside_the_command_line
         "flows/openroad/data/def2stream.py",  # a script that a flow gives to a tool
         "remote/commands.py",
     }
-    allowed = {"flow_runner/scrub.py"}
     found: list[str] = []
     for path in sorted(package.rglob("*.py")):
         relative = path.relative_to(package).as_posix()
-        if relative in command_line or relative in allowed:
+        if relative in command_line:
             continue
         for node in ast.walk(ast.parse(path.read_text())):
             if not isinstance(node, ast.Call):
@@ -431,3 +430,19 @@ def test_a_failed_capture_says_the_last_lines_of_its_output() -> None:
     with pytest.raises(NonZeroExitCode) as failed:
         run_process(sys.executable, ["-c", script], stdout=True)
     assert "the reason" in str(failed.value) and "more" in str(failed.value)
+
+
+def test_scrub_says_what_it_did_on_the_logger_unless_the_command_line_listens(capfd, caplog):
+    from xeda.flow_runner import scrub
+
+    with caplog.at_level(logging.INFO, logger="xeda.flow_runner.scrub"):
+        scrub._say("1 folders removed.")
+    assert "1 folders removed." in caplog.text
+    assert capfd.readouterr() == ("", "")
+    said: list[tuple[str, str | None]] = []
+    token = scrub.SCRUB_REPORT.set(lambda message, style: said.append((message, style)))
+    try:
+        scrub._say("This will remove", "red")
+    finally:
+        scrub.SCRUB_REPORT.reset(token)
+    assert said == [("This will remove", "red")]

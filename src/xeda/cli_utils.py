@@ -52,6 +52,7 @@ from .design import Design
 from .flow import Flow
 from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
 from .flow_runner.launch_report import results_of
+from .flow_runner.scrub import SCRUB_REPORT
 from .introspect import settings_info, type_str
 from .outcomes import Result
 from .units import is_number_text, is_quantity_unit
@@ -152,6 +153,11 @@ def wants_machine_readable(argv: Sequence[str]) -> bool:
     return requested_output_format(argv) is not None
 
 
+def _print_scrub_line(message: str, style: Optional[str] = None) -> None:
+    """Print a line of what scrub did: not folded inside a path, and no part taken for markup."""
+    console.print(message, style=style, markup=False, highlight=False, soft_wrap=True)
+
+
 @contextmanager
 def _restoring_output_streams() -> Iterator[None]:
     """Show tool output on the terminal for one invocation, and undo any output redirection that
@@ -166,11 +172,13 @@ def _restoring_output_streams() -> Iterator[None]:
     """
     console_previous = console_target()
     token = proc_utils.TOOL_OUTPUT.set("terminal")
+    scrub_token = SCRUB_REPORT.set(_print_scrub_line)
     try:
         yield
     finally:
         restore_console(console_previous)
         proc_utils.TOOL_OUTPUT.reset(token)
+        SCRUB_REPORT.reset(scrub_token)
 
 
 class _DeclaredEnvvarsContext(ColorizedContext):

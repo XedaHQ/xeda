@@ -9,10 +9,10 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Iterable, Sequence
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Callable, NamedTuple, Optional
 
-from ..console import console
 from ..design import target_name_problem
 from ..run_dir import (
     OutputState,
@@ -155,8 +155,7 @@ def run_directory_names(path: Path, flow_name: str, run_root: Path) -> list[Path
 def _say_skipped(skipped: Iterable[_Skipped]) -> None:
     """Say, one line each, which links scrub did not list, and why.
 
-    The lines go to the console and, at info level, to the log, because `xeda scrub` configures
-    no logging."""
+    The lines go to the log and to the reporter of the command line (`SCRUB_REPORT`)."""
     for link, problem in skipped:
         log.info("Not scrubbing %s: %s", link, problem)
         _say(f"skipped {link}: {problem}")
@@ -308,11 +307,24 @@ def _problem_now(listed: _Listed) -> Optional[str]:
         return f"it cannot be examined ({error.strerror or error})"
 
 
-def _say(message: str) -> None:
-    """Print one line of what scrub did, as it is.
+#: Where scrub says what it did, besides the log: a function of a line and its style (or `None`).
+#: The command line sets it to print the line on the console. A caller that sets nothing gets the
+#: line as a record on the `xeda` logger at INFO, and the library prints nothing.
+SCRUB_REPORT: ContextVar[Callable[[str, str | None], None] | None] = ContextVar(
+    "xeda_scrub_report", default=None
+)
 
-    The line is not folded inside a path, and no part of it is taken for markup."""
-    console.print(message, markup=False, highlight=False, soft_wrap=True)
+
+def _say(message: str, style: str | None = None) -> None:
+    """Say one line of what scrub did, as it is.
+
+    The line goes to `SCRUB_REPORT` when the command line set one. It is not folded inside a path,
+    and no part of it is taken for markup. Without a reporter, it is a record on the logger."""
+    report = SCRUB_REPORT.get()
+    if report is None:
+        log.info("%s", message)
+    else:
+        report(message, style)
 
 
 def _remove_confirmed(
@@ -359,15 +371,13 @@ def _remove_confirmed(
             ", ".join(str(c.path) for c in candidates),
         )
         return _Removal([], [], [])
-    console.print(
-        f"[red]This will remove all of the following {len(candidates)} run directories:[/red]"
-    )
+    _say(f"This will remove all of the following {len(candidates)} run directories:", "red")
     for c in candidates:
-        console.print(c.path)
+        _say(str(c.path))
         for alias in c.aliases:
             _say(f"{alias} (another name of the same directory)")
     if not confirm([c.path for c in candidates]):
-        console.print("Not confirmed. No files or folders were removed.")
+        _say("Not confirmed. No files or folders were removed.")
         return _Removal([], [], [])
     log.warning(
         "Removing the following directories: %s",
