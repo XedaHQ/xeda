@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Type, Union
 
@@ -12,7 +13,6 @@ from .dataclass import model_with_allow_extra
 from .design import DESIGN_FILE_FORMATS, Design, DesignValidationError
 from .utils import (
     ConflictingKeys,
-    WorkingDirectory,
     XedaException,
     expand_hierarchy,
     flows_table_problems,
@@ -76,7 +76,10 @@ class XedaProject:
     # Keep the raw dict: flows are discovered dynamically.
     flows: Dict[str, dict] = {}  # = attrs.field(default={}, validator=type_validator())
     design_cls: Type[Design] = Design
-    root_path: Path = attrs.field(factory=Path.cwd)
+    #: The directory of the project file. Every relative path in the project resolves against it:
+    #: a design entry's `design_root` defaults to it, and a relative one is relative to it. A
+    #: relative `root_path` is made absolute once, here, against the working directory.
+    root_path: Path = attrs.field(kw_only=True, converter=lambda p: Path(p).absolute())
     # Applied to a design once, when it is selected (`Design.target_selected`), as for a design
     # file. The entries of `designs` stay as written.
     design_overrides: dict[str, Any] = {}
@@ -195,18 +198,17 @@ class XedaProject:
         else:
             designs = []
 
-        with WorkingDirectory(file.parent):
-            try:
-                return cls(
-                    designs=designs,
-                    flows=flows,
-                    design_cls=design_cls,
-                    root_path=file.parent.resolve(),
-                    design_overrides=dict(design_overrides),
-                )
-            except Exception as e:
-                log.error("Error processing project file: %s", file.absolute())
-                raise e from None
+        try:
+            return cls(
+                designs=designs,
+                flows=flows,
+                design_cls=design_cls,
+                root_path=file.parent.resolve(),
+                design_overrides=dict(design_overrides),
+            )
+        except Exception as e:
+            log.error("Error processing project file: %s", file.absolute())
+            raise e from None
 
     @property
     def design_names(self) -> List[str]:
@@ -242,5 +244,15 @@ class XedaProject:
         if index is None:
             return None
         data = self.design_cls.target_selected(self.designs[index], target, self.design_overrides)
-        data.setdefault("design_root", self.root_path)
+        # A relative `design_root` of an entry is relative to the project file's directory. An
+        # entry without one has that directory as its root; any value but a path is an error.
+        design_root = data.get("design_root")
+        if design_root is None:
+            data["design_root"] = self.root_path
+        elif isinstance(design_root, (str, os.PathLike)) and os.fspath(design_root):
+            data["design_root"] = self.root_path / design_root
+        else:
+            raise DesignValidationError(
+                [("design_root", f"not a path: {design_root!r}", "", "value_error")], data=data
+            )
         return self.design_cls(**data)

@@ -314,6 +314,8 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
         elements = request_info(parsed)
         inputs_dir = Path(request.inputs_dir)
         design = inputs_dir / request.design_file
+        # The one chdir of Xeda: this is the entry point of a dedicated process, so it changes the
+        # state of no other process.
         os.chdir(inputs_dir)
         launcher = DefaultRunner(
             request.run_root,

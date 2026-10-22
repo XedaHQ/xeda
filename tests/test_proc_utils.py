@@ -1549,6 +1549,8 @@ def test_a_docker_run_names_its_container_and_stops_it_when_stopped(monkeypatch,
     assert name.startswith("xeda-")
     assert kill_args == ["kill", name]
     assert kill_kwargs.get("check") is False
+    assert kill_kwargs["cwd"] == run_kwargs["cwd"]
+    assert Path(kill_kwargs["cwd"]).is_absolute()
     assert run_kwargs["timeout"] == 3
 
 
