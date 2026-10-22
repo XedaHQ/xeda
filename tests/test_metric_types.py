@@ -96,7 +96,7 @@ def test_yosys_fpga_writes_the_declared_types(tmp_path):
     check(YosysFpga, flow.results, 6, all_described=True)
     assert flow.results["latch"] == 1 and flow.results["dsp"] == 2
     assert flow.results["bram.ramb36"] == 1 and "bram.ramb18" not in flow.results
-    assert flow.results["cell_types"] == {"CARRY4": 2}
+    assert flow.results["cell_types"] == cells
 
 
 @pytest.mark.parametrize("flow_class", SIM_FLOW_CLASSES, ids=lambda cls: cls.name)

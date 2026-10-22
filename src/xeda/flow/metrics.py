@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Dict, Literal, Optional
 
-from ..units import is_quantity_unit
+from ..units import is_metric_unit
 
 __all__ = [
     "COCOTB_METRICS",
@@ -56,7 +56,7 @@ class MetricSpec:
 
 def metric_unit_known(unit: str) -> bool:
     """Return whether `unit` is a unit text of the units table of `xeda.units`."""
-    return is_quantity_unit(unit)
+    return is_metric_unit(unit)
 
 
 #: Metrics that several flows report with the same meaning. A flow declares the subset it

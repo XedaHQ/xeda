@@ -31,13 +31,13 @@ from xeda.units import (
     QuantityError,
     Power,
     Resistance,
-    Temperature,
-    TemperatureDifference,
-    ThermalResistance,
     Time,
     Voltage,
+    METRIC_ONLY_UNITS,
     count,
     data_size,
+    is_metric_unit,
+    is_quantity_unit,
     library_units,
     measure_of,
     percent,
@@ -67,9 +67,6 @@ TABLE: dict[type[Quantity], list[tuple[str, float]]] = {
     Voltage: [("mV", 2.5e-3), ("V", 2.5)],
     Resistance: [("ohm", 2.5), ("kohm", 2500.0), ("Mohm", 2.5e6)],
     Power: [("nW", 2.5e-9), ("uW", 2.5e-6), ("µW", 2.5e-6), ("mW", 2.5e-3), ("W", 2.5)],
-    Temperature: [("degC", 2.5)],
-    TemperatureDifference: [("delta_degC", 2.5), ("K", 2.5)],
-    ThermalResistance: [("K/W", 2.5)],
 }
 KINDS = {
     Time: ("time", "ns"),
@@ -79,9 +76,6 @@ KINDS = {
     Voltage: ("voltage", "V"),
     Resistance: ("resistance", "ohm"),
     Power: ("power", "W"),
-    Temperature: ("temperature", "degC"),
-    TemperatureDifference: ("temperature difference", "delta_degC"),
-    ThermalResistance: ("thermal resistance", "K/W"),
 }
 CASES = [(cls, unit, mag) for cls, rows in TABLE.items() for unit, mag in rows]
 
@@ -130,22 +124,23 @@ def test_minutes_and_hours() -> None:
     assert Time("1.5 h").to("min") == 90.0
 
 
-def test_a_temperature_and_a_temperature_difference_are_different_kinds() -> None:
-    assert Temperature("5 degC").to("degC") == 5.0
-    assert TemperatureDifference("5 delta_degC").to("K") == 5.0
-    assert TemperatureDifference("5 K") == TemperatureDifference("5 delta_degC")
-    with pytest.raises(QuantityError, match="is a temperature difference, not a temperature"):
-        Temperature("5 delta_degC")
-    with pytest.raises(QuantityError, match="is a temperature, not a temperature difference"):
-        TemperatureDifference("5 degC")
-    assert str(ThermalResistance("2.5 K/W")) == "2.5 K/W"
-    assert ThermalResistance(str(ThermalResistance("2.5 K/W"))) == ThermalResistance("2.5 K/W")
-
-
-def test_the_units_of_a_metric_do_not_change_what_a_setting_reads() -> None:
-    for text in ("5 ns/s", "5 ns_x", "5 K/W", "5 delta_degC"):
-        with pytest.raises(QuantityError):
-            Time(text)
+def test_the_units_of_metrics_change_nothing_a_setting_reads() -> None:
+    """`degC`, `delta_degC` and `K/W` are units of metrics only. Every input that a setting
+    refused before still gets the message that it got."""
+    assert not any(is_quantity_unit(unit) for unit in METRIC_ONLY_UNITS)
+    assert all(is_metric_unit(unit) for unit in METRIC_ONLY_UNITS)
+    with pytest.raises(QuantityError) as error:
+        Time("5 ns/s")
+    assert str(error.value) == (
+        "cannot read `5 ns/s` as a time: write one number and one unit, such as `10 ns`"
+    )
+    with pytest.raises(QuantityError) as error:
+        Time("5 degC")
+    assert str(error.value) == "unknown unit `degC` in `5 degC`: a time takes one of " + ", ".join(
+        Time.units
+    )
+    with pytest.raises(QuantityError, match="cannot read `5 K/W` as a power"):
+        Power("5 K/W")
 
 
 # ---- canonical text ------------------------------------------------------------------------

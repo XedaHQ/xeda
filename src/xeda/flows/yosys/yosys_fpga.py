@@ -181,9 +181,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 "Number of `RAMB36` primitives (all variants) in the netlist.", "integer"
             ),
             "cell_types": MetricSpec(
-                "Number of the carry-chain and wide-multiplexer primitives (`CARRY4`, `CARRY8`, "
-                "`MUXF7`, `MUXF8`, `MUXF9`) in the netlist, by primitive name. A primitive that "
-                "the netlist lacks has no entry.",
+                "Number of cells of each type in the synthesized netlist, by the primitive name "
+                "(`LUT6`, `CARRY4`, `FDRE`).",
                 "counts",
             ),
         },
@@ -1084,18 +1083,13 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                         **num_cells_by_type,
                     }
                     self.results["_utilization"] = design_util
-
-                def add_cell_type_if_nonzero(name: str) -> None:
-                    util = int(design_util.get(name, 0))
-                    if util:
-                        cell_types[name] = util
+                    self.results["cell_types"] = dict(num_cells_by_type)
 
                 def add_util_sum_if_nonzero(group_name: str, names: List[str]):
                     util = sum(int(design_util.get(t, 0)) for t in names)
                     if util:
                         self.results[group_name] = util
 
-                cell_types: Dict[str, int] = {}
                 assert self.settings.fpga
                 if self.settings.fpga.vendor == "xilinx":
                     lut_footprint = {"logic": 0, "ram": 0, "srl": 0}
@@ -1132,10 +1126,6 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                     add_util_sum_if_nonzero("bram.ramb18", ["RAMB18", "RAMB18E1", "RAMB18E2"])
                     add_util_sum_if_nonzero("bram.ramb36", ["RAMB36", "RAMB36E1", "RAMB36E2"])
                     add_util_sum_if_nonzero("dsp", ["DSP48E1", "DSP48E2", "DSP48E"])
-                    for res in ["CARRY4", "CARRY8", "MUXF7", "MUXF8", "MUXF9"]:
-                        add_cell_type_if_nonzero(res)
-                if cell_types:
-                    self.results["cell_types"] = cell_types
 
         return True
 

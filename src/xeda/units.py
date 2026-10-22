@@ -8,9 +8,8 @@ of pint. The evaluator would accept anything it can compute as a clock (`"5 ns *
 asks pint only to convert a number from one known unit to another.
 
 The setting types of flows are the classes `Time`, `Frequency`, `Capacitance`, `Length`, `Voltage`,
-`Resistance` and `Power`. Three more kinds, `Temperature`, `TemperatureDifference` and
-`ThermalResistance`, are the units of metrics, and no setting takes them. A value of such a type
-is a number with a unit, written as text (`10 ns`). A bare number is refused: it does not say what it measures. A quantity keeps its value
+`Resistance` and `Power`. A value of such a type is a number with a unit, written as text
+(`10 ns`). A bare number is refused: it does not say what it measures. A quantity keeps its value
 in the canonical unit of its kind, exactly as the text says it, so `10000 ps`, `0.01 us` and
 `10 ns` are one value. It has no arithmetic and no `float()`. Code that needs a number asks for
 the unit it wants: `period.to("ns")`.
@@ -48,10 +47,6 @@ _NUMBER = r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
 _UNIT = r"[^\W\d_]+"
 #: Both parts are optional here; a value requires the number, a unit specification the unit.
 _QUANTITY_RE = re.compile(rf"(?P<number>{_NUMBER})?\s*(?P<unit>{_UNIT})?")
-#: The unit names of the kinds of metrics: `delta_degC` (two words joined by `_`) and `K/W` (a
-#: ratio of two units). A value of a quantity class reads them. The helpers for settings do not.
-_COMPOUND_UNIT = rf"{_UNIT}(?:_{_UNIT})?(?:/{_UNIT})?"
-_VALUE_RE = re.compile(rf"(?P<number>{_NUMBER})?\s*(?P<unit>{_COMPOUND_UNIT})?")
 
 
 def check_unit_case(unit: str, text: str) -> None:
@@ -389,7 +384,7 @@ class Quantity:
                 f"expected a {cls.kind}, such as `{cls.example}`, not {type(value).__name__}"
             )
         text = value.strip()
-        m = _VALUE_RE.fullmatch(text)
+        m = _QUANTITY_RE.fullmatch(text)
         if m is None or m["number"] is None:
             raise QuantityError(
                 f"cannot read `{value}` as a {cls.kind}: write one number and one unit, such as "
@@ -668,46 +663,6 @@ class Power(
     __slots__ = ()
 
 
-class Temperature(
-    Quantity,
-    kind="temperature",
-    canonical_unit="degC",
-    example="85 degC",
-    factors={"degC": Fraction(1)},
-):
-    """A temperature on the Celsius scale. The canonical unit is `degC`.
-
-    A metric has this kind. A temperature difference has its own kind, `TemperatureDifference`,
-    because 5 `degC` is 278.15 K and 5 `delta_degC` is 5 K."""
-
-    __slots__ = ()
-
-
-class TemperatureDifference(
-    Quantity,
-    kind="temperature difference",
-    canonical_unit="delta_degC",
-    example="5 delta_degC",
-    factors={"delta_degC": Fraction(1), "K": Fraction(1)},
-):
-    """A difference of two temperatures. The canonical unit is `delta_degC`, and 1 `delta_degC` is
-    1 K. A metric has this kind."""
-
-    __slots__ = ()
-
-
-class ThermalResistance(
-    Quantity,
-    kind="thermal resistance",
-    canonical_unit="K/W",
-    example="2.5 K/W",
-    factors={"K/W": Fraction(1)},
-):
-    """A thermal resistance. The canonical unit is `K/W`. A metric has this kind."""
-
-    __slots__ = ()
-
-
 class Bounds:
     """Limits on a quantity, as metadata of an annotation:
 
@@ -839,6 +794,18 @@ def is_quantity_unit(text: str) -> bool:
     return text in Quantity._kind_of_unit  # pylint: disable=protected-access
 
 
+#: The units that only metrics have, which no setting takes: a temperature, a temperature
+#: difference and a thermal resistance. 5 `delta_degC` is 5 K, and 5 `degC` is 278.15 K. A
+#: quantity kind reads a unit as a number of settings and cannot hold these, so they are no kind.
+METRIC_ONLY_UNITS = ("degC", "delta_degC", "K/W")
+
+
+def is_metric_unit(text: str) -> bool:
+    """Return whether `text` is exactly a unit that a metric can have: a unit of a quantity kind
+    (`ns`, `MHz`) or one of `METRIC_ONLY_UNITS`."""
+    return is_quantity_unit(text) or text in METRIC_ONLY_UNITS
+
+
 def is_number_text(text: str) -> bool:
     """Return whether `text` is exactly one number in the grammar of a quantity (`5.5`, `1e3`)."""
     return re.fullmatch(_NUMBER, text) is not None
@@ -861,15 +828,13 @@ __all__ = [
     "Length",
     "MEASURES",
     "MEASURE_KEY",
+    "METRIC_ONLY_UNITS",
     "Power",
     "Quantity",
     "QuantityError",
     "QUANTITY_KEY",
     "Q_",
     "Resistance",
-    "Temperature",
-    "TemperatureDifference",
-    "ThermalResistance",
     "Time",
     "Voltage",
     "check_unit_case",
@@ -880,6 +845,7 @@ __all__ = [
     "data_size",
     "finalize_template_value",
     "freq_mhz_optional",
+    "is_metric_unit",
     "is_number_text",
     "is_quantity_unit",
     "library_units",
