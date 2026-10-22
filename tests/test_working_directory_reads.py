@@ -115,7 +115,6 @@ REVIEWED_PROCESS_STARTS: dict[tuple[str, str], str] = {
     ("remote/ssh.py", "SshSession.popen"): "a relative `-F` file is the caller's",
     ("remote/ssh.py", "SshSession.run"): "a relative `-F` file is the caller's",
     ("remote/ssh.py", "resolve_destination"): "a relative `-F` file is the caller's",
-    ("tool.py", "Docker.run.kill_container"): "`docker kill` names a container, not a file",
 }
 
 

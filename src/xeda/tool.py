@@ -192,6 +192,7 @@ class Docker(XedaBaseModel):
                     check=False,
                     merge_stderr=True,
                     timeout=DOCKER_KILL_TIMEOUT,
+                    cwd=cwd,
                 )
             except (OSError, ProcessTimeout) as e:
                 log.warning("Could not stop container %s: %s", container, e)
