@@ -24,6 +24,7 @@ from xeda.errors import RecordError
 from xeda.flow import Flow, MetricSpec, Out, registered_flows
 from xeda.flow.sim import SimFlow, judge_evidence
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.outputs import handed_entries
 from xeda.flow_runner.trace import previous_trace
 from xeda.frozen import FrozenDict, freeze, thaw
 from xeda.records import (
@@ -131,6 +132,20 @@ class _Lists(Flow):
         self.outputs.made = paths
 
 
+class _Netlister(Flow):
+    """Writes a JSON netlist, whose type has an equivalence digest."""
+
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+    class Outputs(Flow.Outputs):
+        netlist: Path = Out(SourceType.JsonNetlist, description="The netlist.")
+
+    def run(self) -> None:
+        path = self.run_path / "net.json"
+        path.write_text('{"modules": {"m": {"attributes": {"src": "a.v:1"}}}}\n')
+        self.outputs.netlist = path
+
+
 class _Simulator(SimFlow):
     """A simulator that leaves no end record."""
 
@@ -146,7 +161,7 @@ class _Simulator(SimFlow):
 
 # Test-only flows, launched by class: out of the registry at once, so that no sweep over every
 # registered flow collected after this module finds them.
-for _cls in (_Counts, _Lists, _Simulator):
+for _cls in (_Counts, _Lists, _Netlister, _Simulator):
     for _name in (_cls.name, _cls.__name__):
         registered_flows.pop(_name, None)
 
@@ -471,6 +486,21 @@ def test_a_list_output_and_a_bsc_design_output_have_names_and_digests(tmp_path, 
     }
     again = _runner(tmp_path).launch_flow(fake_bsc, mixed, {})
     assert again.reused and again.record == converter.record
+
+
+def test_the_equivalence_digest_of_an_output_is_in_the_trace_and_not_in_the_record(
+    tmp_path, design
+):
+    first = _runner(tmp_path).launch_flow(_Netlister, design, {})
+    assert "equivalences" not in _document(first)["outputs"]["netlist"]
+    stored = previous_trace(first.run_path, first.name).output_equivalences
+    assert list(stored) == ["net.json"] and stored["net.json"]
+    (written,) = handed_entries(first, "netlist")
+    assert written.equivalence == stored["net.json"]
+    again = _runner(tmp_path).launch_flow(_Netlister, design, {})
+    assert again.reused
+    (reused,) = handed_entries(again, "netlist")
+    assert reused == written
 
 
 def test_a_record_holds_no_absolute_path_to_a_file_of_the_run(tmp_path, design):

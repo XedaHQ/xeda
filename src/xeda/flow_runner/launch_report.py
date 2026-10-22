@@ -29,7 +29,7 @@ from ..records import RunRecord, encode_record, read_record, record_of
 from ..utils import LOCATION_FORMS, dump_json, json_encodable, with_json_keys
 from .launch_run import timestamp_text
 from .outputs import recorded_outputs
-from .trace import Freshness
+from .trace import Freshness, output_equivalences
 
 log = logging.getLogger(__name__)
 
@@ -227,7 +227,7 @@ def adoptable_document(
     )
 
 
-def results_of(record: RunRecord) -> dict[str, Any]:
+def results_of(record: RunRecord, equivalences: Mapping[str, str] | None = None) -> dict[str, Any]:
     """Return what `record` puts in `Flow.results`: its metrics, flat by their dotted paths, and
     the verdict, the error, the runtime, the artifacts (as absolute paths in the run directory) and
     the declared outputs of the run."""
@@ -241,7 +241,7 @@ def results_of(record: RunRecord) -> dict[str, Any]:
     results["artifacts"] = {
         key: str(record.run_dir / name) for key, name in record.artifacts.items()
     }
-    outputs = recorded_outputs(record)
+    outputs = recorded_outputs(record, equivalences)
     if outputs:
         results["outputs"] = outputs
     return results
@@ -267,7 +267,7 @@ def reuse_results(flow: Flow, run_root: Path, freshness: Freshness) -> bool:
         return False
     flow.record = record
     flow.timestamp = timestamp_text(record.started)
-    flow.results.update(**results_of(record))
+    flow.results.update(**results_of(record, output_equivalences(flow.run_path, flow.name)))
     flow.artifacts = Box(flow.results["artifacts"])
     flow.reused = True
     if freshness.verdict == "rejected":

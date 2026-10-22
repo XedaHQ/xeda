@@ -15,6 +15,7 @@ it checks any output, and each pass-through entry against the design it is hande
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -56,14 +57,19 @@ def declared_output_files(results: dict[str, Any]) -> list[Path]:
     ]
 
 
-def recorded_outputs(record: RunRecord) -> dict[str, Any]:
+def recorded_outputs(
+    record: RunRecord, equivalences: Mapping[str, str] | None = None
+) -> dict[str, Any]:
     """Return the outputs that `record` holds, in the form that `recorded_entries` checks.
 
     A file output is a table `{path, sha}` (a list of them for a list output) with the absolute
     path of the file in the run directory of the record, and with the `equivalence` digest where
     the type has one. A design output is the table of `_design_entries`, with the absolute path of
     each generated file. An output that the run did not write is not in the result. The stored
-    form (`RunRecord.outputs`) is read here and nowhere else."""
+    form (`RunRecord.outputs`) is read here and nowhere else.
+
+    `equivalences` are the equivalence digests of the run (`Trace.output_equivalences`), by the name
+    of the file in the run directory. The record does not hold them."""
     found: dict[str, Any] = {}
     for name, output in record.outputs.items():
         if output.design is not None:
@@ -88,10 +94,10 @@ def recorded_outputs(record: RunRecord) -> dict[str, Any]:
             }
         elif output.names:
             entries = []
-            for index, (path, digest) in enumerate(zip(output.names, output.digests)):
+            for path, digest in zip(output.names, output.digests):
                 entry: dict[str, Any] = {"path": str(record.run_dir / path), "sha": digest}
-                if output.equivalences and output.equivalences[index] is not None:
-                    entry["equivalence"] = output.equivalences[index]
+                if equivalences and path in equivalences:
+                    entry["equivalence"] = equivalences[path]
                 entries.append(entry)
             found[name] = entries if output.cardinality == "many" else entries[0]
     return found

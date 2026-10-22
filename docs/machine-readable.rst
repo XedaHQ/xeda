@@ -308,8 +308,7 @@ The record has these fields:
     ``kind`` is the name of the source type, or ``design``. ``cardinality`` is ``one``,
     ``optional`` or ``many``. ``names`` are the files the run wrote, relative to the run
     directory, and ``digests`` are their content digests, in the same order. Both are ``[]`` when
-    the run wrote none. ``design`` holds the derived design of a converter. A type that defines
-    an equivalence digest adds ``equivalences``, one entry for each file.
+    the run wrote none. ``design`` holds the derived design of a converter.
 ``artifacts``
     The files that the run wrote for a reader, by key, as names relative to the run directory. A
     key that held several files has one key for each: ``reports[0]``, ``reports[1]``. A file

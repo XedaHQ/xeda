@@ -61,6 +61,8 @@ from ..digest import (
     written_since,
 )
 from ..flow import Flow
+from ..flow.derived import recorded_files
+from ..records import name_in
 from ..flow.io import declared_inputs
 from ..dataclass import is_locator, written_role
 from ..deliver import ReadInputs
@@ -432,6 +434,19 @@ def output_files(flow: Flow) -> list[Path]:
     run_dir = flow.run_path.resolve()
     outside = [path for path in artifact_files(flow) if not path.is_relative_to(run_dir)]
     return sorted({*run_directory_files(flow.run_path), *outside})
+
+
+def _output_equivalences(flow: Flow) -> Dict[str, str]:
+    """Return the equivalence digest of each recorded output file that has one, by its name in
+    the run directory (`Trace.output_equivalences`)."""
+    found: Dict[str, str] = {}
+    for recorded in (flow.results.get("outputs") or {}).values():
+        for entry, key in recorded_files(recorded):
+            if key == "path" and entry.get("equivalence"):
+                name = name_in(flow.run_path, entry["path"])
+                if name is not None:
+                    found[name] = entry["equivalence"]
+    return found
 
 
 def run_dir_key(run_path: Path, run_root: Path) -> str:
@@ -1058,6 +1073,7 @@ def build_trace(
         outputs=outputs,
         reports=run_reports(flow),
         declared_inputs=[_consumed(record, snapshot) for record in expected.declared_inputs],
+        output_equivalences=_output_equivalences(flow),
         verdict="rejected" if rejected else "passed",
         error=ErrorInfo.from_json(flow.results["error"]).as_json_value() if rejected else None,
     )

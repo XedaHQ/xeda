@@ -82,6 +82,7 @@ from .trace import (
     OutputEntry,
     check_trace,
     locate_program,
+    output_equivalences,
 )
 from .code_digest import CodeDigests
 from .trace_inputs import expected_run
@@ -138,7 +139,9 @@ def _entries(record: RunRecord, producer: PlanNode, output: str) -> tuple[Output
     They are read as the hand-over reads them (`outputs.recorded_entries`). Otherwise return why
     not, as words for an unknown node: no record, or a record that is not valid."""
     declaration = declared_outputs(producer.flow_class).get(output)
-    recorded = recorded_outputs(record).get(output)
+    recorded = recorded_outputs(
+        record, output_equivalences(producer.run_path, producer.flow_class.name)
+    ).get(output)
     if declaration is None or recorded is None:
         return f"{producer.name} recorded no output `{output}` to hand over"
     try:

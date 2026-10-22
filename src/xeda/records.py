@@ -37,6 +37,7 @@ __all__ = [
     "collect_metrics",
     "decode_record",
     "encode_record",
+    "name_in",
     "nest_metrics",
     "read_record",
     "record_of",
@@ -167,10 +168,9 @@ class OutputRecord:
     `names` are the files the run wrote for it, relative to the run directory, and `digests` are
     their content digests, in the same order. Both are empty when the run wrote none. `design` is
     the derived design, for the kind `design` when the run wrote it, else `None`: its top, the
-    design it came from, and its sources, in order. A source is a file that the converter generated (`generated`, a name in `names`) or
-    a source of the input design that passes through (`source`, its index, and `file`).
-    `equivalences` hold, for each file, the digest of what the type of the output calls
-    equivalent (`xeda.equivalence`), or `None`; the tuple is empty if the type has none."""
+    design it came from, and its sources, in order. A source is a file that the converter
+    generated (`generated`, a name in `names`) or a source of the input design that passes through (`source`, its index, and `file`).
+    """
 
     name: str
     kind: str
@@ -178,10 +178,9 @@ class OutputRecord:
     names: tuple[str, ...]
     digests: tuple[str, ...]
     design: Mapping[str, Any] | None
-    equivalences: tuple[str | None, ...] = ()
 
     def __post_init__(self) -> None:
-        for name in ("names", "digests", "design", "equivalences"):
+        for name in ("names", "digests", "design"):
             object.__setattr__(self, name, freeze(getattr(self, name)))
 
 
@@ -386,8 +385,6 @@ def _encode_output(output: OutputRecord) -> dict[str, Any]:
         "digests": list(output.digests),
         "design": None if output.design is None else thaw(output.design),
     }
-    if any(item is not None for item in output.equivalences):
-        document["equivalences"] = list(output.equivalences)
     return document
 
 
@@ -537,16 +534,6 @@ def _decode_output(name: str, value: Any) -> OutputRecord:
     digests = _texts(item.get("digests"), f"{label}.digests")
     if len(digests) != len(names):
         raise _Malformed(f"`{label}` has {len(names)} names and {len(digests)} digests")
-    equivalences: tuple[str | None, ...] = ()
-    if item.get("equivalences") is not None:
-        equivalences = tuple(
-            _optional_text(entry, f"{label}.equivalences[]")
-            for entry in _sequence(item["equivalences"], f"{label}.equivalences")
-        )
-        if len(equivalences) != len(names):
-            raise _Malformed(
-                f"`{label}` has {len(names)} names and {len(equivalences)} equivalences"
-            )
     design = item.get("design")
     if design is not None and kind != DESIGN_KIND:
         raise _Malformed(f"`{label}.design` is there only if the kind is `{DESIGN_KIND}`")
@@ -557,7 +544,6 @@ def _decode_output(name: str, value: Any) -> OutputRecord:
         names=names,
         digests=digests,
         design=None if design is None else _decode_design(design, f"{label}.design", names),
-        equivalences=equivalences,
     )
 
 
@@ -785,7 +771,7 @@ def _plain(value: Any) -> Any:
     return json.loads(json.dumps(with_json_keys(value), default=json_encodable, allow_nan=False))
 
 
-def _name_in(run_dir: Path, path: str | os.PathLike[str]) -> str | None:
+def name_in(run_dir: Path, path: str | os.PathLike[str]) -> str | None:
     """Return the name of `path` relative to `run_dir`, in POSIX form, or None if it lies outside.
 
     The name is the place in the run directory as `path` spells it, whatever a link there leads
@@ -824,7 +810,7 @@ def _artifacts_of(flow: Flow) -> dict[str, str]:
         leaves = list(iter_artifact_paths(value))
         grouped = isinstance(value, (list, tuple, Mapping)) or len(leaves) > 1
         for index, leaf in enumerate(leaves):
-            name = _name_in(flow.run_path, leaf)
+            name = name_in(flow.run_path, leaf)
             if name is not None:
                 artifacts[f"{key}[{index}]" if grouped else str(key)] = name
     return artifacts
@@ -843,7 +829,6 @@ def _outputs_of(flow: Flow) -> dict[str, OutputRecord]:
         recorded = held.get(name)
         names: list[str] = []
         digests: list[str] = []
-        equivalences: list[str | None] = []
         design: dict[str, Any] | None = None
         if declaration.is_design:
             kind = DESIGN_KIND
@@ -851,7 +836,7 @@ def _outputs_of(flow: Flow) -> dict[str, OutputRecord]:
                 sources = []
                 for source in recorded["sources"]:
                     if "generated" in source:
-                        file = _name_in(flow.run_path, source["generated"])
+                        file = name_in(flow.run_path, source["generated"])
                         assert file is not None, f"{source['generated']} lies outside the run"
                         names.append(file)
                         digests.append(source["sha"])
@@ -871,11 +856,10 @@ def _outputs_of(flow: Flow) -> dict[str, OutputRecord]:
             for entry in (
                 [] if recorded is None else (recorded if isinstance(recorded, list) else [recorded])
             ):
-                file = _name_in(flow.run_path, entry["path"])
+                file = name_in(flow.run_path, entry["path"])
                 assert file is not None, f"{entry['path']} lies outside the run"
                 names.append(file)
                 digests.append(entry["sha"])
-                equivalences.append(entry.get("equivalence"))
         outputs[name] = OutputRecord(
             name=name,
             kind=kind,
@@ -883,7 +867,6 @@ def _outputs_of(flow: Flow) -> dict[str, OutputRecord]:
             names=tuple(names),
             digests=tuple(digests),
             design=design,
-            equivalences=tuple(equivalences) if any(e is not None for e in equivalences) else (),
         )
     return outputs
 
