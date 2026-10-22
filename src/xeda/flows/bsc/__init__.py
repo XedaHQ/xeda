@@ -1256,7 +1256,8 @@ class Bsc(BscFlow):
         for src in design_verilog:
             for module in _verilog_modules(src.file):
                 defined_in.setdefault(module, src.file)
-        library_dirs = [d for d in verilog_path if self.run_file(d) != vout_dir]
+        # A relative entry of the search path is relative to the run directory, where bsc runs.
+        library_dirs = [d for d in map(self.run_file, verilog_path) if d != vout_dir]
 
         modules: list[str] = []  # pre-order, the top first
         generated: list[Path] = []  # post-order, the top last

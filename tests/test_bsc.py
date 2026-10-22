@@ -614,6 +614,22 @@ def test_the_modules_a_design_verilog_source_instantiates_are_collected(tmp_path
     assert files == [out / "SizedFIFO.v", root / "rtl/wrap.v", out / "mkInner.v", out / "mkTop.v"]
 
 
+def test_collect_verilog_reads_a_relative_search_path_in_the_run_directory(tmp_path):
+    """A relative entry of the Verilog search path (a `-vsearch` among `extra_flags`) is relative
+    to the run directory, where bsc runs, whatever the working directory of the process."""
+    root = tmp_path / "d"
+    _write(root, {"rtl/Top.bsv": TOP_PKG})
+    design = Design(name="t", design_root=root, rtl={"sources": ["rtl/Top.bsv"], "top": "mkTop"})
+    run = tmp_path / "run"
+    out = run / "gen_rtl"
+    _write(out, {"mkTop.v": "module mkTop(); endmodule\n", "mkTop.use": "FIFO2\n"})
+    _write(run / "vlib", {"FIFO2.v": "module FIFO2(); endmodule\n"})
+    flow = _flow(Bsc, design, run)
+    collected = flow._collect_verilog("mkTop", root / "rtl/Top.bsv", out, [out, Path("vlib")])
+    assert collected.modules == ["mkTop", "FIFO2"]
+    assert (out / "FIFO2.v").read_text().endswith("module FIFO2(); endmodule\n")
+
+
 def test_collect_verilog_needs_the_top(tmp_path):
     root = tmp_path / "d"
     _write(root, {"rtl/Top.bsv": TOP_PKG})

@@ -1922,9 +1922,9 @@ class Flow(metaclass=ABCMeta):
     def run_file(self, path: Union[str, os.PathLike]) -> Path:
         """Return `path` as an absolute path: a relative one is relative to the run directory.
 
-        A tool runs in the run directory, so the flow names its files relative to it. The process
-        never changes its working directory, so Python code reads and writes such a file through
-        this method (the file helpers of `Flow` do), never through a relative path."""
+        A tool runs in the run directory, so the flow names its files relative to it. Python code
+        does not depend on the working directory of the process: it reads and writes such a file
+        through this method (the file helpers of `Flow` do), never through a relative path."""
         return self.run_path / path
 
     def written_by_this_run(self, path: Union[str, os.PathLike]) -> bool:
