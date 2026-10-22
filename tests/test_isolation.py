@@ -1709,10 +1709,7 @@ def test_the_command_line_changes_nothing_outside_the_run_root(tmp_path, monkeyp
     before = _state(world.parent, [world.root])
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ["PATH"])
     monkeypatch.chdir(world.work)
-    # the design file as an absolute path: the user's own relative argument is the one use of the
-    # working directory that a call may make, and the hook cannot tell it from a library's
-    design_file = str(world.work / "sqrt.yaml")
-    args = ["run", "vivado_synth", design_file, "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
+    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
     for extra in (["--clean"], ["--post-cleanup"], []):
         with watching(world) as violations:
             result = CliRunner().invoke(cli, [*args, *extra])
@@ -1734,10 +1731,7 @@ def test_a_targeted_run_and_its_scrub_change_nothing_outside_the_run_root(tmp_pa
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ["PATH"])
     monkeypatch.chdir(world.work)
     monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
-    # the design file as an absolute path: the user's own relative argument is the one use of the
-    # working directory that a call may make, and the hook cannot tell it from a library's
-    design_file = str(world.work / "sqrt.yaml")
-    args = ["run", "vivado_synth", design_file, "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
+    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
     for target in ("a", "b"):
         for extra in (["--clean"], ["--post-cleanup"], []):
             with watching(world) as violations:

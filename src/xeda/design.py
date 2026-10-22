@@ -3267,10 +3267,9 @@ class Design(XedaBaseModel):
             overrides = {}
         if remove_extra is None:
             remove_extra = []
-        if not isinstance(design_file, Path):
-            design_file = Path(design_file)
         # Read the working directory here, in the call that receives the file, and nowhere later.
-        absolute_file = design_file.absolute()
+        design_file = Path(design_file).absolute()
+        absolute_file = design_file
         design_dict = _read_design_file(design_file)
         if allow_extra:
             cls = model_with_allow_extra(cls)
