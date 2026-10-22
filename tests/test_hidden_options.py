@@ -90,7 +90,7 @@ def test_the_error_document_of_a_mistyped_option_suggests_no_hidden_option():
     document = json.loads(result.stdout)
 
     assert result.exit_code == 2
-    assert document["success"] is False
+    assert document["outcome"] is None and document["error"]["code"] == "usage_error"
     assert "'--run-root'" in document["error"]["message"]
     assert "--xeda-run-dir" not in document["error"]["message"]
 

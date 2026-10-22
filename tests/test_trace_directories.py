@@ -215,9 +215,10 @@ lib_paths = [["mylib", "$DESIGN_ROOT/libs"]]
         result = CliRunner().invoke(
             cli, ["run", "ghdl_sim", f"v/{name}/soc.toml", "--run-root", "run", "--json"]
         )
-        outcomes.append(result.output)
-    assert '"success": true' in outcomes[0]
-    assert '"success": false' in outcomes[1], "the second tree's library was never simulated"
+        outcomes.append(json.loads(result.stdout))
+    assert outcomes[0]["outcome"] == "passed"
+    assert outcomes[1]["outcome"] != "passed", "the second tree's library was never simulated"
+    outcomes = [json.dumps(document) for document in outcomes]
     assert "now names" in outcomes[1] and os.fspath(tmp_path) in outcomes[1]
 
 

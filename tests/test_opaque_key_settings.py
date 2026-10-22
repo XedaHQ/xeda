@@ -375,9 +375,9 @@ def test_the_command_line_refuses_the_two_spellings_with_a_name_inside_a_name(tm
         cli,
         ["run", "--dry-run", "--json", "vivado_synth", str(design), "-s", *SPELLINGS_CLI],
     )
-    assert result.exit_code != 0, result.output
+    assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
-    assert document["success"] is False
+    assert document["outcome"] is None
     assert "inside it" in document["error"]["message"], document
 
 
@@ -554,9 +554,9 @@ def test_the_command_line_reports_a_name_with_an_escaped_dot(tmp_path):
             f"set_synth_properties.{ESCAPED}=2",
         ],
     )
-    assert result.exit_code != 0, result.output
+    assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
-    assert document["success"] is False
+    assert document["outcome"] is None
     assert "backslash before a dot" in document["error"]["message"], document
 
 
@@ -870,7 +870,7 @@ def test_the_command_line_runs_vivado_with_the_property(tmp_path, monkeypatch):
         ],
     )
     assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout)["success"] is True
+    assert json.loads(result.stdout)["outcome"] == "passed"
     (run_dir,) = (tmp_path / "xeda_run").glob("d/vivado_synth")
     calls = property_calls(run_dir)
     assert [SYNTH_NAME, "0"] in calls and [IMPL_NAME, "Explore"] in calls, calls

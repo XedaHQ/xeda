@@ -17,6 +17,8 @@ import yaml
 from xeda import Design
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.launch_report import results_of
+from xeda.outcomes import result_from_dict
 from xeda.records import decode_record, encode_record, read_record
 from xeda.run_root import ensure_run_root
 
@@ -57,6 +59,26 @@ def _succeeded(outcome) -> dict:
     return outcome.document
 
 
+def _results(document: dict) -> dict:
+    """What the record of the requested node says, as a flat table: its metrics by their dotted
+    paths, `success`, the artifacts and the declared outputs with the paths of the mirror."""
+    return results_of(result_from_dict(document).record)
+
+
+def _identity(document: dict) -> str:
+    """The identity of the requested node."""
+    return document["nodes"][-1]["record"]["identity"]
+
+
+def _run_dir(document: dict) -> Path:
+    """The mirror directory of the requested node."""
+    return Path(document["nodes"][-1]["run_dir"])
+
+
+def _mirror(tmp_path: Path) -> Path:
+    return tmp_path / "local" / "xeda_run" / "@somewhere"
+
+
 def _local_hash(design: Path, flow: str, settings, tmp_path: Path) -> str:
     """The identity of the requested node in a local plan."""
     plan = DefaultRunner(tmp_path / "plan_only", display_results=False).plan(
@@ -71,9 +93,9 @@ def _local_hash(design: Path, flow: str, settings, tmp_path: Path) -> str:
 def test_a_remote_run_takes_a_target(tmp_path, remote_host):
     outcome = remote_request(tmp_path, TARGETS / "knight.yaml", "vivado_synth", target="arty")
     document = _succeeded(outcome)
-    assert document["target"] == "arty"
+    assert document["spec"]["target"] == "arty"
     mirror = tmp_path / "local" / "xeda_run" / "@somewhere"
-    assert Path(document["run_path"]) == mirror / "knight" / "arty" / "vivado_synth"
+    assert _run_dir(document) == mirror / "knight" / "arty" / "vivado_synth"
     assert (
         remote_host.workspace() / "xeda_run" / "knight" / "arty" / "vivado_synth" / "results.json"
     ).is_file()
@@ -94,10 +116,10 @@ def test_a_remote_run_without_a_target_runs_the_design(tmp_path, remote_host):
             flow_settings=["fpga.part=xc7a100tcsg324-1"],
         )
     )
-    assert document["target"] is None
+    assert document["spec"]["target"] is None
     # No overlay reached the design: neither the sources nor the defines of a target. The record
     # of the mirror names the files of this machine.
-    settings = json.loads((Path(document["run_path"]) / "settings.json").read_text())
+    settings = json.loads((_run_dir(document) / "settings.json").read_text())
     rtl = settings["design"]["rtl"]
     assert [Path(source["file"]) for source in rtl["sources"]] == [
         TARGETS / "knight.v",
@@ -126,13 +148,13 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
         remote_request(tmp_path, design, "vivado_synth", flow_settings=SQRT_SETTINGS)
     )
     assert local_trace.read_text() == "{}", "a local run's directory is not the mirror"
-    mirror = Path(document["run_path"])
+    mirror = _run_dir(document)
     assert mirror == run_root / "@somewhere" / "sqrt" / "vivado_synth"
 
     # One run, one identity: the remote hashes what this side hashed, although it unpacked
     # everything under another root.
-    results = document["results"]
-    assert results["flow_hash"] == _local_hash(design, "vivado_synth", SQRT_SETTINGS, tmp_path)
+    results = _results(document)
+    assert _identity(document) == _local_hash(design, "vivado_synth", SQRT_SETTINGS, tmp_path)
     settings = json.loads((mirror / "settings.json").read_text())
     remote_dir = remote_host.workspace() / "xeda_run" / "sqrt" / "vivado_synth"
     remote_settings = json.loads((remote_dir / "settings.json").read_text())
@@ -176,7 +198,7 @@ def test_a_flow_without_declared_io_has_the_identity_it_was_sent(tmp_path, remot
     # the fake `dc_shell` writes no timing report, so the run itself may report failure: what is
     # compared is the identity
     assert outcome.error is None, outcome.document
-    assert outcome.document["results"]["flow_hash"] == _local_hash(design, "dc", settings, tmp_path)
+    assert _identity(outcome.document) == _local_hash(design, "dc", settings, tmp_path)
 
 
 @pytest.mark.parametrize("flow_name", ["vivado_postsynth_sim", "vivado_power"])
@@ -194,12 +216,12 @@ def test_a_vivado_composite_resolves_the_same_declared_graph(tmp_path, remote_ho
         )
     )
     expected = _local_hash(root / "design.yaml", flow_name, VIVADO_SETTINGS, tmp_path)
-    assert document["results"]["flow_hash"] == expected
+    assert _identity(document) == expected
     remote = remote_host.workspace() / "xeda_run" / "sim" / flow_name
     trace = json.loads((remote / "trace.json").read_text())
     assert len(trace["declared_inputs"]) == (3 if flow_name == "vivado_postsynth_sim" else 2)
     if flow_name == "vivado_power":
-        assert "power.total" in document["results"]
+        assert "power.total" in _results(document)
 
 
 def test_the_fpga_graph_runs_on_the_remote_and_mirrors_its_bitstream(tmp_path, remote_host):
@@ -214,11 +236,11 @@ def test_the_fpga_graph_runs_on_the_remote_and_mirrors_its_bitstream(tmp_path, r
     design.write_text("name: top\nrtl:\n  sources: [top.v]\n  top: top\n")
     settings = ["fpga.part=LFE5U-25F-6BG381C"]
     document = _succeeded(remote_request(tmp_path, design, "fpga_pack", flow_settings=settings))
-    assert document["results"]["flow_hash"] == _local_hash(design, "fpga_pack", settings, tmp_path)
-    assert [node["node"] for node in document["nodes"]] == ["yosys_fpga", "nextpnr", "fpga_pack"]
-    recorded = document["results"]["outputs"]["bitstream"]
+    assert _identity(document) == _local_hash(design, "fpga_pack", settings, tmp_path)
+    assert [node["name"] for node in document["nodes"]] == ["yosys_fpga", "nextpnr", "fpga_pack"]
+    recorded = _results(document)["outputs"]["bitstream"]
     mirrored = Path(recorded["path"])
-    assert mirrored.is_relative_to(Path(document["mirror"])) and mirrored.name == "top.bit"
+    assert mirrored.is_relative_to(_mirror(tmp_path)) and mirrored.name == "top.bit"
     assert mirrored.read_bytes() == b"\x00\xffXEDA bitstream\x00"
     assert content_digest(mirrored) == recorded["sha"]
     workspace = remote_host.workspace() / "xeda_run" / "top"
@@ -248,12 +270,12 @@ def test_a_failed_remote_run_reports_its_failure(tmp_path, remote_host):
         flow_settings=[*SQRT_SETTINGS, "write_netlist=true", "write_timing_netlist=true"],
     )
     assert outcome.error is None and not outcome.success, outcome.document
-    results = outcome.document["results"]
+    results = _results(outcome.document)
     assert results["success"] is False
     for label in NETLIST_ARTIFACTS:
         assert label not in results["artifacts"], label
-    saved = json.loads((Path(outcome.document["run_path"]) / "results.json").read_text())
-    mirror = Path(outcome.document["run_path"])
+    saved = json.loads((_run_dir(outcome.document) / "results.json").read_text())
+    mirror = _run_dir(outcome.document)
     assert saved["outcome"] == "failed"
     assert {key: str(mirror / name) for key, name in saved["artifacts"].items()} == dict(
         results["artifacts"]
@@ -270,8 +292,8 @@ def test_a_failed_remote_run_does_not_fetch_an_output_it_never_wrote(tmp_path, r
         flow_settings=[*SQRT_SETTINGS, "bitstream=top.bit"],
     )
     assert outcome.error is None and not outcome.success, outcome.document
-    assert "bitstream" not in outcome.document["results"]["artifacts"]
-    mirror = Path(outcome.document["run_path"])
+    assert "bitstream" not in _results(outcome.document)["artifacts"]
+    mirror = _run_dir(outcome.document)
     assert not list(mirror.rglob("top.bit")), "a bitstream the run never wrote was fetched"
     assert "bitstream" not in json.loads((mirror / "results.json").read_text())["artifacts"]
 
@@ -291,10 +313,10 @@ def test_a_remote_that_lists_unwritten_artifacts_cannot_make_the_client_fetch_th
         tmp_path, design, "vivado_synth", flow_settings=[*SQRT_SETTINGS, "bitstream=top.bit"]
     )
     assert outcome.error is None and not outcome.success, outcome.document
-    mirror = Path(outcome.document["run_path"])
+    mirror = _run_dir(outcome.document)
     saved = json.loads((mirror / "results.json").read_text())
     assert "bitstream" not in saved["artifacts"]
-    assert "bitstream" not in outcome.document["results"]["artifacts"]
+    assert "bitstream" not in _results(outcome.document)["artifacts"]
     assert not list(mirror.rglob("top.bit")), "a bitstream the run never wrote was fetched"
     # the remote did list it: the faulty launcher kept it in its own record
     remote_results = json.loads(
@@ -342,7 +364,7 @@ def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remo
         "  parameters: {ROM: {file: rom.mem}, TRACE: {path: trace.txt}}\n"
     )
     document = _succeeded(remote_request(tmp_path, design_root / "d.yaml", "ghdl_sim"))
-    results = document["results"]
+    results = _results(document)
     assert results["sim.evidence"]["ended_by"] == "finish"
     assert results["sim.ended_by"] == "finish"
     remote_dir = remote_host.workspace() / "xeda_run" / "d" / "ghdl_sim"
@@ -372,17 +394,12 @@ def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
             tmp_path, design_root / "sqrt.yaml", "ghdl_synth", flow_settings=["verilog_output=vout"]
         )
     )
-    results = document["results"]
-    generated = results["artifacts"]["generated_verilog"]
-    assert isinstance(generated, list) and len(generated) == 1
-    assert Path(generated[0]).is_file()
-    assert Path(generated[0]).is_relative_to(Path(document["run_path"]))
-    saved = json.loads((Path(document["run_path"]) / "results.json").read_text())
-    run_path = Path(document["run_path"])
-    assert saved["artifacts"] == {
-        f"generated_verilog[{index}]": Path(path).relative_to(run_path).as_posix()
-        for index, path in enumerate(generated)
-    }
+    run_path = _run_dir(document)
+    saved = json.loads((run_path / "results.json").read_text())
+    assert document["nodes"][-1]["record"] == saved
+    listed = {key: name for key, name in saved["artifacts"].items() if "generated_verilog" in key}
+    assert list(listed) == ["generated_verilog[0]"]
+    assert (run_path / listed["generated_verilog[0]"]).is_file()
 
 
 def _mac_design(root: Path) -> Path:
@@ -418,8 +435,8 @@ def test_a_platform_file_s_remote_run_has_this_side_s_identity(tmp_path, remote_
     design = _mac_design(tmp_path / "design")
     settings = [f"platform_file={TINY_RESIDUE}", "clock.period=2ns", "pdk_root=elsewhere"]
     document = _succeeded(remote_request(tmp_path, design, "yosys", flow_settings=settings))
-    results = document["results"]
-    assert results["flow_hash"] == _local_hash(design, "yosys", settings, tmp_path)
+    results = _results(document)
+    assert _identity(document) == _local_hash(design, "yosys", settings, tmp_path)
     remote_dir = remote_host.workspace() / "xeda_run" / "mac" / "yosys"
     shipped = json.loads((remote_dir / "settings.json").read_text())["flow_settings"]
     assert shipped["pdk_root"] is None, "the place of the store on this side is not shipped"
@@ -442,8 +459,8 @@ def test_a_liberty_file_s_remote_run_has_this_side_s_identity(tmp_path, remote_h
     design = _mac_design(tmp_path / "design")
     settings = [f"platform_file={TINY_RESIDUE}", f"liberty={library}", "clock.period=2ns"]
     document = _succeeded(remote_request(tmp_path, design, "yosys", flow_settings=settings))
-    results = document["results"]
-    assert results["flow_hash"] == _local_hash(design, "yosys", settings, tmp_path)
+    results = _results(document)
+    assert _identity(document) == _local_hash(design, "yosys", settings, tmp_path)
     remote_dir = remote_host.workspace() / "xeda_run" / "mac" / "yosys"
     shipped = json.loads((remote_dir / "settings.json").read_text())
     (given,) = shipped["flow_settings"]["liberty"]
@@ -451,7 +468,7 @@ def test_a_liberty_file_s_remote_run_has_this_side_s_identity(tmp_path, remote_h
     assert "netlist_generic" not in results["outputs"]
     assert "_X1 " in Path(results["outputs"]["netlist"]["path"]).read_text()
     # the record of the mirror names the file of this side
-    mirror_settings = json.loads((Path(document["run_path"]) / "settings.json").read_text())
+    mirror_settings = json.loads((_run_dir(document) / "settings.json").read_text())
     assert mirror_settings["flow_settings"]["liberty"] == [str(library)]
 
 
@@ -490,9 +507,7 @@ def test_the_files_a_liberty_file_includes_travel_with_it(tmp_path, remote_host,
     document = _succeeded(
         remote_request(tmp_path, design_file, "openroad_place", flow_settings=settings)
     )
-    assert document["results"]["flow_hash"] == _local_hash(
-        design_file, "openroad_place", settings, tmp_path
-    )
+    assert _identity(document) == _local_hash(design_file, "openroad_place", settings, tmp_path)
     run_dir = remote_host.workspace() / "xeda_run" / "counter" / "openroad_place"
     (top,) = json.loads((run_dir / "settings.json").read_text())["flow_settings"]["liberty"]
     remote_text = Path(top).read_text()
@@ -524,9 +539,8 @@ def test_a_converted_design_is_checked_as_what_it_will_be_before_connecting(
     accepted here, and fails only when it reaches for the connection."""
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
     outcome = remote_request(tmp_path, _bluespec_design(tmp_path), "yosys")
-    assert outcome.error is not None and outcome.document["error"]["type"] == (
-        "RemoteConnectionError"
-    )
+    assert outcome.error is not None and outcome.document["error"]["code"] == "remote_failed"
+    assert "cannot connect" in outcome.document["error"]["message"]
     # a flow with no converter is still refused here, for the language
     refused = remote_request(tmp_path, _bluespec_design(tmp_path / "again"), "ghdl_sim")
     assert isinstance(refused.error, FlowSettingsException)
@@ -540,12 +554,12 @@ def test_a_remote_run_converts_a_bluespec_design_for_yosys_on_the_remote(tmp_pat
     remote_host.expose("bsc", "yosys")
     design_file = _bluespec_design(tmp_path)
     document = _succeeded(remote_request(tmp_path, design_file, "yosys"))
-    assert document["results"]["flow_hash"] == _local_hash(design_file, "yosys", [], tmp_path)
-    assert [node["node"] for node in document["nodes"]] == ["bsc", "yosys"]
+    assert _identity(document) == _local_hash(design_file, "yosys", [], tmp_path)
+    assert [node["name"] for node in document["nodes"]] == ["bsc", "yosys"]
     # bsc ran on the remote, in a directory beside the one of yosys
     parent = remote_host.workspace() / "xeda_run" / "gcd"
     assert (parent / "bsc").is_dir() and (parent / "yosys").is_dir()
-    assert Path(document["results"]["outputs"]["netlist_generic"]["path"]).read_text()
+    assert Path(_results(document)["outputs"]["netlist_generic"]["path"]).read_text()
 
 
 @pytest.mark.real_tool
@@ -553,8 +567,8 @@ def test_a_remote_bsc_returns_its_design_record_with_the_paths_of_this_side(tmp_
     require_bsc()
     remote_host.expose("bsc")
     document = _succeeded(remote_request(tmp_path, _bluespec_design(tmp_path), "bsc"))
-    mirror = Path(document["mirror"])
-    record = document["results"]["outputs"]["design"]
+    mirror = _mirror(tmp_path)
+    record = _results(document)["outputs"]["design"]
     assert record["kind"] == "design" and record["top"] == "mkGcdUnit"
     generated = [item for item in record["sources"] if "generated" in item]
     assert generated
@@ -599,7 +613,7 @@ def test_a_producers_settings_only_file_is_shipped(tmp_path, remote_host, monkey
     input_path.write_text("from settings\n")
     design = _declared_design(root, {"__input_maker": {"input_file": str(input_path)}})
     document = _succeeded(remote_request(tmp_path, design, _InputTaker.name))
-    assert document["results"]["read"] == "from settings\n"
+    assert _results(document)["read"] == "from settings\n"
     producer = remote_host.workspace() / "xeda_run" / "d" / "__input_maker"
     settings = json.loads((producer / "settings.json").read_text())
     input_file = Path(settings["flow_settings"]["input_file"])
@@ -607,7 +621,7 @@ def test_a_producers_settings_only_file_is_shipped(tmp_path, remote_host, monkey
     assert input_file.read_text() == "from settings\n"
     # the mirror's record names the file of this side
     mirror_settings = json.loads(
-        (Path(document["mirror"]) / "d" / "__input_maker" / "settings.json").read_text()
+        (_mirror(tmp_path) / "d" / "__input_maker" / "settings.json").read_text()
     )
     assert mirror_settings["flow_settings"]["input_file"] == str(input_path.resolve()) or Path(
         mirror_settings["flow_settings"]["input_file"]
@@ -632,7 +646,7 @@ def test_the_remote_runs_the_nodes_planning_names(tmp_path, remote_host, section
         _Place, Design.from_file(design), {}
     )
     document = _succeeded(remote_request(tmp_path, design, _Place.name))
-    assert document["results"]["flow_hash"] == planned.node(_Place.name).flowrun_hash
+    assert _identity(document) == planned.node(_Place.name).flowrun_hash
     producer = json.loads(
         (remote_host.workspace() / "xeda_run" / "d" / "__synth" / "settings.json").read_text()
     )
@@ -653,11 +667,11 @@ def test_a_declared_graph_has_the_same_input_origin_on_the_remote(tmp_path, remo
         _Taker, Design.from_file(design), {}
     )
     document = _succeeded(remote_request(tmp_path, design, _Taker.name))
-    assert document["results"]["read"] == ("given\n" if source else "made\n")
+    assert _results(document)["read"] == ("given\n" if source else "made\n")
     remote_path = remote_host.workspace() / "xeda_run" / "d" / _Taker.name
     trace = json.loads((remote_path / "trace.json").read_text())
     assert trace["declared_inputs"][0]["origin"] == expected.node(_Taker.name).inputs[0].origin
-    assert document["results"]["flow_hash"] == expected.node(_Taker.name).flowrun_hash
+    assert _identity(document) == expected.node(_Taker.name).flowrun_hash
 
 
 def test_declared_outputs_are_mirrored_and_delivered_without_artifact_labels(tmp_path, remote_host):
@@ -667,12 +681,12 @@ def test_declared_outputs_are_mirrored_and_delivered_without_artifact_labels(tmp
     design = _declared_design(tmp_path / "design")
     out = tmp_path / "out"
     document = _succeeded(remote_request(tmp_path, design, _Maker.name, outputs_to=out))
-    recorded = document["results"]["outputs"]["made"]
+    recorded = _results(document)["outputs"]["made"]
     mirrored = Path(recorded["path"])
-    assert mirrored.is_relative_to(Path(document["mirror"]))
+    assert mirrored.is_relative_to(_mirror(tmp_path))
     assert content_digest(mirrored) == recorded["sha"]
     assert mirrored.read_text() == (out / "made.txt").read_text() == "made\n"
-    assert not document["results"].get("artifacts")
+    assert not _results(document).get("artifacts")
     # the record of the mirror names the mirrored output
     saved = json.loads((mirrored.parent / "results.json").read_text())
     assert saved["outputs"]["made"]["names"] == [mirrored.name]
@@ -684,7 +698,7 @@ def test_a_declared_output_collision_is_refused_before_connecting(tmp_path, remo
     remote_host.load_test_flows()
     design = _declared_design(tmp_path / "design")
     first = _succeeded(remote_request(tmp_path, design, _Maker.name))
-    assert first["results"]["outputs"] and not first["results"].get("artifacts")
+    assert _results(first)["outputs"] and not _results(first).get("artifacts")
     destination = tmp_path / "out"
     destination.mkdir()
     conflict = destination / "made.txt"
@@ -715,11 +729,10 @@ def test_declared_setup_failures_return_the_failure_document(tmp_path, remote_ho
     assert not outcome.success
     document = outcome.document
     assert "broken setup" in document["error"]["message"]
-    assert document["error"]["type"] == (
-        "FlowFatalError" if stage == "init" else "FlowDependencyFailure"
-    )
-    assert document["remote"] == "somewhere" and document["design"] == "d"
-    assert Path(document["nodes"][0]["run_path"]).is_relative_to(Path(document["mirror"]))
+    assert document["outcome"] == "failed"
+    assert document["error"]["code"] == "reported_failure"
+    assert document["spec"]["design"] == "d"
+    assert Path(document["nodes"][0]["run_dir"]).is_relative_to(_mirror(tmp_path))
     assert not (tmp_path / "out").exists()
 
 
@@ -728,9 +741,9 @@ def test_a_failed_declared_run_hands_over_no_partial_output(tmp_path, remote_hos
     design = _declared_design(tmp_path / "design")
     outcome = remote_request(tmp_path, design, _PartialMaker.name, outputs_to=tmp_path / "out")
     assert not outcome.success
-    results = outcome.document["results"]
-    assert results["error"]["code"] == "missing_output"
-    assert not results.get("outputs")
+    assert outcome.document["outcome"] == "failed"
+    assert outcome.document["error"]["code"] == "missing_output"
+    assert outcome.document["nodes"][-1]["deliveries"] == []
     assert not (tmp_path / "out").exists()
 
 

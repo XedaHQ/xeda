@@ -93,7 +93,7 @@ def test_dash_s_stops_before_the_design_file(tmp_path, monkeypatch):
     )
     document = json.loads(result.stdout)
     assert result.exit_code == 0, document
-    assert document["design"] == "sqrt"
+    assert document["spec"]["design"] == "sqrt"
 
 
 def test_dash_s_keeps_a_value_that_contains_equals_signs():
@@ -119,7 +119,7 @@ def test_a_missing_design_after_dash_s_is_reported_as_missing(tmp_path, monkeypa
         cli, ["run", "vivado_synth", "-s", "fpga.part=xc7a12tcsg325-1", "missing.toml", "--json"]
     )
     document = json.loads(result.stdout)
-    assert not document["success"]
+    assert result.exit_code == 2 and document["outcome"] is None
     assert "missing.toml" in document["error"]["message"]
 
 
@@ -128,7 +128,7 @@ def test_dash_s_needs_key_value_items(tmp_path, monkeypatch):
     _fake_vivado(tmp_path, monkeypatch)
     result = CliRunner().invoke(cli, ["run", "vivado_synth", "-s", "missing.toml", "--json"])
     document = json.loads(result.stdout)
-    assert not document["success"]
+    assert result.exit_code == 2 and document["outcome"] is None
     message = document["error"]["message"]
     assert "KEY=VALUE" in message and "missing.toml" in message
 

@@ -107,7 +107,8 @@ def test_removed_power_setting_names_its_replacement_from_every_origin(tmp_path,
             command.extend(["-s", f"flows.vivado_power.{name}={value}"])
         proc = subprocess.run(command, capture_output=True, text=True, timeout=HANG_GUARD)
         document = json.loads(proc.stdout)
-        assert proc.returncode != 0 and not document["success"]
+        assert proc.returncode == 2 and document["outcome"] is None
+        assert document["error"]["code"] == "removed_setting"
         message = document["error"]["message"]
     assert "was removed" in message and replacement in message
 

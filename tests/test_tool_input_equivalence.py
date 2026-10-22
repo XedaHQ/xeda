@@ -487,7 +487,7 @@ def launch(request: Request, work: Path, monkeypatch: pytest.MonkeyPatch) -> dic
         command, cwd=design, env=dict(os.environ), capture_output=True, text=True, timeout=600
     )
     document = json.loads(proc.stdout)
-    assert proc.returncode == 0 and document["success"], proc.stderr[-3000:] or document
+    assert proc.returncode == 0 and document["outcome"] == "passed", proc.stderr[-3000:] or document
     marks = Placeholders(work)
     run_dirs = sorted(path.parent for path in run_root.rglob("settings.json"))
     record = {

@@ -481,6 +481,11 @@ def invoke(*args: str):
     return result, json.loads(result.stdout)
 
 
+def _last(document):
+    """The requested node: the last node of the plan."""
+    return document["nodes"][-1]
+
+
 def test_the_launcher_plans_the_selected_target(tmp_path):
     launcher = DefaultRunner(tmp_path / "xeda_run")
     plan = launcher.plan("vivado_synth", design=KNIGHT, target="arty")
@@ -539,14 +544,14 @@ def test_a_run_reports_the_target(tmp_path, monkeypatch):
     use_fake_tools(monkeypatch)
     result, document = invoke("run", "vivado_synth", str(KNIGHT), "--target", "arty")
     assert result.exit_code == 0, document.get("error")
-    assert document["success"] is True and document["target"] == "arty"
-    settings = json.loads(Path(document["settings_json"]).read_text())
+    assert document["outcome"] == "passed" and document["spec"]["target"] == "arty"
+    settings = json.loads((Path(_last(document)["run_dir"]) / "settings.json").read_text())
     assert settings["design"]["target"] == "arty"
 
     flat = RESOURCES / "knight_arty_flat.yaml"
     result, document = invoke("run", "vivado_synth", str(flat), "--run-root", "flat")
     assert result.exit_code == 0, document.get("error")
-    assert document["target"] is None
+    assert document["spec"]["target"] is None
 
 
 def test_design_overrides_of_the_command_line_replace_the_sources_of_a_target(
@@ -564,7 +569,7 @@ def test_design_overrides_of_the_command_line_replace_the_sources_of_a_target(
         "rtl.sources=por_sync.v",
     )
     assert result.exit_code == 0, document.get("error")
-    design = json.loads(Path(document["settings_json"]).read_text())["design"]
+    design = json.loads((Path(_last(document)["run_dir"]) / "settings.json").read_text())["design"]
     assert [Path(source).name for source in design["rtl"]["sources"]] == ["por_sync.v"]
     assert [Path(source).name for source in design["tb"]["sources"]] == ["knight_tb.v"]
 
@@ -582,10 +587,10 @@ def test_a_run_without_a_target_uses_the_design_whatever_the_number_of_targets(
     for name, design, sources in designs:
         result, document = invoke("run", "vivado_synth", str(design), "--run-root", name, *PART)
         assert result.exit_code == 0, document.get("error")
-        assert document["success"] is True and document["target"] is None
-        run_path = Path(document["run_path"])
+        assert document["outcome"] == "passed" and document["spec"]["target"] is None
+        run_path = Path(_last(document)["run_dir"])
         assert run_path == (tmp_path / name / design.stem / "vivado_synth").resolve()
-        settings = json.loads(Path(document["settings_json"]).read_text())
+        settings = json.loads((run_path / "settings.json").read_text())
         assert settings["design"]["target"] is None
         # No overlay reached the design: neither the sources nor the defines of a target.
         rtl = settings["design"]["rtl"]
@@ -603,9 +608,9 @@ def test_a_selected_target_has_its_own_run_directory(tmp_path, monkeypatch):
     use_fake_tools(monkeypatch)
     result, document = invoke("run", "vivado_synth", str(SINGLE), "--target", "arty", *PART)
     assert result.exit_code == 0, document.get("error")
-    assert document["target"] == "arty"
+    assert document["spec"]["target"] == "arty"
     expected = (tmp_path / "xeda_run" / "single" / "arty" / "vivado_synth").resolve()
-    assert Path(document["run_path"]) == expected
+    assert Path(_last(document)["run_dir"]) == expected
 
 
 def test_a_project_run_without_a_target_uses_the_design(tmp_path, monkeypatch):
@@ -631,9 +636,8 @@ def test_a_project_run_without_a_target_uses_the_design(tmp_path, monkeypatch):
 def test_an_unknown_target_is_a_document_that_names_the_targets(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result, document = invoke("run", "vivado_synth", str(KNIGHT), "--target", "nexys")
-    assert result.exit_code == 1 and document["target"] == "nexys"
-    assert document["success"] is False
-    assert document["error"]["type"] == "DesignValidationError"
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "invalid_design"
     assert "arty, ulx3s" in document["error"]["message"]
     assert not (tmp_path / "xeda_run").exists()
 
@@ -642,8 +646,8 @@ def test_a_target_for_a_design_without_targets_is_a_document(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
     path = write_design(tmp_path, BASE)
     result, document = invoke("run", "vivado_synth", str(path), "--target", "arty")
-    assert result.exit_code == 1 and document["target"] == "arty"
-    assert document["error"]["type"] == "DesignValidationError"
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "invalid_design"
     assert "no `targets`" in document["error"]["message"]
     assert not (tmp_path / "xeda_run").exists()
 

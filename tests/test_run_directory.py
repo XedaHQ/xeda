@@ -187,7 +187,7 @@ def test_a_design_named_dot_dot_deletes_nothing_beside_the_run_root(tmp_path, mo
     (tmp_path / "d.v").write_text("module d; endmodule\n")
     (tmp_path / "d.toml").write_text('name = ".."\n[rtl]\nsources = ["d.v"]\ntop = "d"\n')
     result = CliRunner().invoke(cli, ["run", "verilator", "d.toml", "--clean", "--json"])
-    assert json.loads(result.stdout)["success"] is False
+    assert result.exit_code == 2 and json.loads(result.stdout)["outcome"] is None
     assert (tmp_path / "verilator" / "keep.txt").read_text() == "mine\n"
 
 

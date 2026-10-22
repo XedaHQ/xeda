@@ -49,7 +49,7 @@ def test_the_error_document_has_the_hint_and_is_one_json_document(design):
     document = json.loads(result.stdout)
 
     assert result.exit_code == 2
-    assert document["success"] is False
+    assert document["outcome"] is None and document["error"]["code"] == "usage_error"
     assert "Write the unit without a space" in document["error"]["message"]
 
 

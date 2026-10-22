@@ -293,9 +293,9 @@ def test_a_simulation_runs_on_the_host_and_a_second_run_reuses_it(
     require_ghdl()
     use_root(tmp_path, monkeypatch, shared_token)
     first = succeeded(run(tmp_path, ADDER))
-    assert [node["state"] for node in first["nodes"]] == ["ran"]
-    assert first["results"]["sim.ended_by"] == "finish"
-    mirror = Path(first["run_path"])
+    assert [node["disposition"] for node in first["nodes"]] == ["ran"]
+    assert first["nodes"][-1]["record"]["metrics"]["sim"]["ended_by"] == "finish"
+    mirror = Path(first["nodes"][-1]["run_dir"])
     assert mirror.is_relative_to(tmp_path / "local" / "xeda_run" / f"@{HOST}")
     for name in ("results.json", "settings.json"):
         assert (mirror / name).is_file(), name
@@ -305,8 +305,11 @@ def test_a_simulation_runs_on_the_host_and_a_second_run_reuses_it(
     assert ROOT_PREFIX not in json.dumps(saved), "the records name no path of the host"
 
     second = succeeded(run(tmp_path, ADDER))
-    assert [node["state"] for node in second["nodes"]] == ["fresh"]
-    assert second["results"]["sim.time"] == first["results"]["sim.time"]
+    assert [node["disposition"] for node in second["nodes"]] == ["reused"]
+    assert (
+        second["nodes"][-1]["record"]["metrics"]["sim"]["time"]
+        == first["nodes"][-1]["record"]["metrics"]["sim"]["time"]
+    )
 
 
 # --- Cancel ---------------------------------------------------------------------------------------
@@ -343,11 +346,10 @@ def test_ctrl_c_through_openssh_stops_the_simulator_on_the_host(
         remote("kill -9 " + " ".join(str(pid) for pid in pids)) if pids else None
     assert status == 1, program.stderr
     document = json.loads(program.out.read_text())
-    assert document["success"] is False
-    assert document["error"]["type"] == "RemoteCanceled"
+    assert document["outcome"] == "canceled"
+    assert document["error"]["code"] == "canceled"
     # The cancel message went through the connection: the client did not lose it to the Ctrl-C.
     assert "canceled by Ctrl-C" in document["error"]["message"], document["error"]
-    assert document["remote"] == HOST
     assert "Canceling the launch" in program.stderr
     assert last_launch_state(shared_token) == "canceled", launch_states(shared_token)
 

@@ -100,48 +100,59 @@ def _run(*args):
 
 
 def _states(document):
-    return [(node["flow"], node["state"]) for node in document["nodes"]]
+    return [(node["flow"], node["outcome"], node["disposition"]) for node in document["nodes"]]
 
 
 def test_a_failed_launch_reports_the_nodes_that_ran(toys, design):
     """A failure document lists the nodes that ran, the dependency included."""
     result, document = _run("toy_node_failing", str(design))
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"]["type"] == "FlowFatalError"
-    assert _states(document) == [("toy_node_producer", "ran"), ("toy_node_failing", "failed")]
+    assert result.exit_code == 1 and document["outcome"] == "failed"
+    assert document["error"]["code"] == "reported_failure"
+    assert document["error"]["node"] == "toy_node_failing"
+    assert _states(document) == [
+        ("toy_node_producer", "passed", "ran"),
+        ("toy_node_failing", "failed", "ran"),
+    ]
     _, document = _run("toy_node_failing", str(design))
-    assert _states(document) == [("toy_node_producer", "fresh"), ("toy_node_failing", "failed")]
+    assert _states(document) == [
+        ("toy_node_producer", "passed", "reused"),
+        ("toy_node_failing", "failed", "ran"),
+    ]
 
 
 def test_a_producer_reached_twice_within_a_launch_is_one_node(toys, design):
-    _, document = _run("toy_node_twice", str(design))
-    assert document["success"] is True
-    assert _states(document) == [("toy_node_producer", "ran"), ("toy_node_twice", "ran")]
-    paths = [node["run_path"] for node in document["nodes"]]
+    result, document = _run("toy_node_twice", str(design))
+    assert result.exit_code == 0 and document["outcome"] == "passed"
+    assert _states(document) == [
+        ("toy_node_producer", "passed", "ran"),
+        ("toy_node_twice", "passed", "ran"),
+    ]
+    paths = [node["run_dir"] for node in document["nodes"]]
     assert len(paths) == len(set(paths))
 
 
-def test_a_rejected_flow_is_failed_and_then_rejected_again(toys, design):
+def test_a_rejected_flow_is_rejected_and_then_rejected_again(toys, design):
     """The first launch runs the flow and the checks reject it. The next one reports the same
-    rejection without running the flow. Both exit with `FlowFailed`."""
+    rejection without running the flow. Both exit with status 1."""
     args = ("toy_node_producer", str(design), "-s", "reject=true")
     result, document = _run(*args)
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"]["type"] == "FlowFailed"
-    assert _states(document) == [("toy_node_producer", "failed")]
-    message = json.loads(Path(document["nodes"][0]["run_path"], "results.json").read_text())[
-        "error"
-    ]["message"]
+    assert result.exit_code == 1 and document["outcome"] == "rejected"
+    assert document["error"]["code"] == "rejected"
+    assert _states(document) == [("toy_node_producer", "rejected", "ran")]
+    message = document["error"]["message"]
+    stored = json.loads(Path(document["nodes"][0]["run_dir"], "results.json").read_text())
+    assert stored["error"]["message"] == message
     result, document = _run(*args)
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"]["type"] == "FlowFailed"
-    assert _states(document) == [("toy_node_producer", "rejected again")]
+    assert result.exit_code == 1 and document["outcome"] == "rejected"
+    assert document["error"]["code"] == "rejected" and document["error"]["message"] == message
+    assert _states(document) == [("toy_node_producer", "rejected", "reused")]
     assert document["nodes"][0]["reason"] == message
 
 
 def test_the_consumer_of_a_rejected_flow_is_blocked(toys, design):
-    """The consumer does not run: it is `blocked` and writes nothing, and the document names a
-    dependency failure, on the first launch and when the rejection is reported again."""
+    """The consumer does not run: it is `blocked` and has no record, and the document names the
+    rejection of the producer as the cause, on the first launch and when the rejection is
+    reported again."""
     args = (
         "toy_node_producer+toy_node_twice",
         str(design),
@@ -149,16 +160,39 @@ def test_the_consumer_of_a_rejected_flow_is_blocked(toys, design):
         "flows.toy_node_producer.reject=true",
     )
     result, document = _run(*args)
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"]["type"] == "FlowDependencyFailure"
-    assert _states(document) == [("toy_node_producer", "failed"), ("toy_node_twice", "blocked")]
-    assert document["nodes"][1]["reason"] == "toy_node_producer did not succeed"
-    assert not Path(document["nodes"][1]["run_path"], "results.json").exists()
-    result, document = _run(*args)
-    assert document["error"]["type"] == "FlowDependencyFailure"
+    assert result.exit_code == 1 and document["outcome"] == "rejected"
+    assert document["error"]["code"] == "rejected"
+    assert document["error"]["node"] == "toy_node_producer"
     assert _states(document) == [
-        ("toy_node_producer", "rejected again"),
-        ("toy_node_twice", "blocked"),
+        ("toy_node_producer", "rejected", "ran"),
+        ("toy_node_twice", "blocked", "not_run"),
     ]
-    assert document["nodes"][1]["reason"] == "toy_node_producer did not succeed"
-    assert not Path(document["nodes"][1]["run_path"], "results.json").exists()
+    blocked = document["nodes"][1]
+    assert blocked["blocked_by"] == "toy_node_producer" and blocked["record"] is None
+    assert not Path(blocked["run_dir"], "results.json").exists()
+    result, document = _run(*args)
+    assert document["outcome"] == "rejected"
+    assert _states(document) == [
+        ("toy_node_producer", "rejected", "reused"),
+        ("toy_node_twice", "blocked", "not_run"),
+    ]
+    assert not Path(document["nodes"][1]["run_dir"], "results.json").exists()
+
+
+def test_the_cli_prints_the_document_of_the_result_it_got(toys, design, monkeypatch):
+    """The command prints `Result.to_dict()` of the result of the launch, and nothing else."""
+    import xeda.cli as cli_module
+
+    seen = []
+    real = cli_module.launch_result
+
+    def capture(*args, **kwargs):
+        seen.append(real(*args, **kwargs))
+        return seen[-1]
+
+    monkeypatch.setattr(cli_module, "launch_result", capture)
+    for flow, status in (("toy_node_failing", 1), ("toy_node_twice", 0)):
+        result, document = _run(flow, str(design))
+        assert result.exit_code == status
+        assert document == json.loads(json.dumps(seen[-1].to_dict()))
+    assert len(seen) == 2

@@ -22,6 +22,8 @@ from click.testing import CliRunner
 
 from xeda.cli import cli
 from xeda.flow_runner import DefaultRunner
+from xeda.outcomes import result_from_dict
+from xeda.records import read_record
 from xeda.run_dir import RunDirectoryError
 from xeda.remote import client
 from xeda.remote.client import new_launch_id, workspace_key
@@ -83,7 +85,18 @@ def _succeeded(outcome) -> dict[str, Any]:
 
 
 def _states(document: dict[str, Any]) -> dict[str, str]:
-    return {node["node"]: node["state"] for node in document["nodes"]}
+    """What the launch did with each node: `ran` or `reused`."""
+    return {node["name"]: node["disposition"] for node in document["nodes"]}
+
+
+def _mirror(tmp_path: Path) -> Path:
+    """The mirror of the fake host `somewhere` below the local run root."""
+    return tmp_path / "local" / "xeda_run" / "@somewhere"
+
+
+def _last(document: dict[str, Any]) -> dict[str, Any]:
+    """The requested node: the last node of the plan."""
+    return document["nodes"][-1]
 
 
 def _cli(tmp_path: Path, design: Path, *arguments: str):
@@ -167,27 +180,38 @@ def test_remote_run_matches_a_local_run(tmp_path, remote_host):
     )
     assert local is not None
     document = _succeeded(_request(tmp_path, design))
-    results = document["results"]
-    for key in ("success", "fmax", "wns", "timing_met", "lut", "ff", "clock_domains"):
-        assert results[key] == local.results[key], key
+    record = _last(document)["record"]
+    assert document["outcome"] == "passed"
+    for key in ("fmax", "wns", "timing_met", "lut", "ff", "clock_domains"):
+        assert record["metrics"][key] == local.results[key], key
     # the identity does not depend on the place of the run
-    for key in ("flow_hash", "settings_hash", "design_hash"):
-        assert results[key] == local.results[key], key
+    assert (
+        record["identity"] == read_record(local.run_path, run_root=tmp_path / "local_only").identity
+    )
     run_root = tmp_path / "local" / "xeda_run"
-    mirror = run_root / "@somewhere"
-    assert document["remote"] == "somewhere" and document["mirror"] == str(mirror)
-    assert document["run_path"] == str(mirror / "top" / "nextpnr")
-    assert document["design"] == "top" and document["design_file"] == str(design)
+    mirror = _mirror(tmp_path)
+    assert document["spec"]["design"] == "top" and document["spec"]["design_file"] == str(design)
     directory = mirror / "top" / "nextpnr"
+    assert _last(document)["run_dir"] == str(directory)
     for name in ("results.json", "settings.json", "nextpnr.log", "config.txt", "report.json"):
         assert (directory / name).is_file(), name
     assert not list(mirror.rglob("trace.json")), "the mirror holds no trace"
-    assert results["artifacts"]["textcfg"] == str(directory / "config.txt")
-    assert [node["run_path"] for node in document["nodes"]] == [
+    assert record["artifacts"]["textcfg"] == "config.txt"
+    assert [node["run_dir"] for node in document["nodes"]] == [
         str(mirror / "top" / "yosys_fpga"),
         str(directory),
     ]
-    assert "written" not in document and "unreadable" not in document
+    assert set(document) == {
+        "schema_version",
+        "outcome",
+        "error",
+        "launch_id",
+        "spec",
+        "roots",
+        "nodes",
+    }
+    # the record in the document is the record in the mirror
+    assert record == json.loads((directory / "results.json").read_text())
     # no local run directory: the mirror is the only place
     assert not (run_root / "top").exists()
 
@@ -195,9 +219,9 @@ def test_remote_run_matches_a_local_run(tmp_path, remote_host):
 def test_chain_and_binding_run_remotely(tmp_path, remote_host):
     design = _design(tmp_path)
     document = _succeeded(_request(tmp_path, design, chain="yosys_fpga+nextpnr"))
-    assert [e["node"] for e in document["request"]] == ["yosys_fpga", "nextpnr"]
+    assert document["roots"] == ["nextpnr"] and document["spec"]["flow"] == "yosys_fpga+nextpnr"
     assert _states(document) == {"yosys_fpga": "ran", "nextpnr": "ran"}
-    mirror = Path(document["mirror"])
+    mirror = _mirror(tmp_path)
     # the declared outputs of every node that the request names come back
     assert (mirror / "top" / "yosys_fpga" / "netlist.json").is_file()
     assert (mirror / "top" / "nextpnr" / "config.txt").is_file()
@@ -222,11 +246,11 @@ def test_second_run_reuses_and_a_source_edit_reruns(tmp_path, remote_host):
     unchanged = (inputs / "top.xeda.json").stat().st_ino
 
     second = _succeeded(_request(tmp_path, design))
-    assert _states(second) == {"yosys_fpga": "fresh", "nextpnr": "fresh"}
+    assert _states(second) == {"yosys_fpga": "reused", "nextpnr": "reused"}
     assert (inputs / "top.xeda.json").stat().st_ino == unchanged
-    assert second["results"]["fmax"] == first["results"]["fmax"]
+    assert _last(second)["record"]["metrics"]["fmax"] == _last(first)["record"]["metrics"]["fmax"]
     # the reused result still comes back
-    assert (Path(second["run_path"]) / "config.txt").is_file()
+    assert (Path(_last(second)["run_dir"]) / "config.txt").is_file()
 
     (design.parent / "top.v").write_text(
         "module top(input clk, output q); assign q = ~clk; endmodule\n"
@@ -251,7 +275,7 @@ def test_removed_source_leaves_the_inputs(tmp_path, remote_host):
 def test_failed_run_mirror_has_no_stale_outputs(tmp_path, remote_host):
     design = _design(tmp_path)
     ok = _succeeded(_request(tmp_path, design))
-    mirror_dir = Path(ok["run_path"])
+    mirror_dir = Path(_last(ok)["run_dir"])
     assert (mirror_dir / "config.txt").is_file() and (mirror_dir / "report.json").is_file()
     remote_dir = remote_host.workspace() / "xeda_run" / "top" / "nextpnr"
     assert (remote_dir / "config.txt").is_file()
@@ -264,15 +288,15 @@ def test_failed_run_mirror_has_no_stale_outputs(tmp_path, remote_host):
     outcome = _request(tmp_path, design, rebuild_all=True)
     assert outcome.error is None and not outcome.success
     document = outcome.document
-    assert document["error"]["type"] == "FlowFailed"
-    assert document["results"]["success"] is False
+    assert document["outcome"] == "failed" and document["error"]["code"] == "nonzero_exit"
+    assert _last(document)["record"]["outcome"] == "failed"
     assert (remote_dir / "config.txt").is_file(), "the remote still has the old output"
     saved = json.loads((mirror_dir / "results.json").read_text())
     assert saved["outcome"] == "failed"
     assert not (mirror_dir / "config.txt").exists()
     assert not (mirror_dir / "report.json").exists()
-    assert "textcfg" not in (document["results"].get("artifacts") or {})
-    assert document["results"].get("outputs") is None
+    assert "textcfg" not in _last(document)["record"]["artifacts"]
+    assert _last(document)["record"]["outputs"]["config"]["names"] == []
 
 
 def test_rejected_run_reports_the_rejection(tmp_path, remote_host):
@@ -280,19 +304,20 @@ def test_rejected_run_reports_the_rejection(tmp_path, remote_host):
     for _launch in range(2):
         outcome = _request(tmp_path, design)
         assert outcome.error is None and not outcome.success
-        assert outcome.document["results"]["error"]["code"] == "rejected"
-        assert "timing not met" in outcome.document["results"]["error"]["message"]
-        assert not list(Path(outcome.document["mirror"]).rglob("trace.json"))
+        assert outcome.document["outcome"] == "rejected"
+        assert outcome.document["error"]["code"] == "rejected"
+        assert "timing not met" in outcome.document["error"]["message"]
+        assert not list(_mirror(tmp_path).rglob("trace.json"))
 
 
 def test_fetch_all_brings_the_whole_run_directory(tmp_path, remote_host):
     design = _design(tmp_path)
-    plain = _succeeded(_request(tmp_path, design))
-    directory = Path(plain["mirror"]) / "top" / "yosys_fpga"
+    _succeeded(_request(tmp_path, design))
+    directory = _mirror(tmp_path) / "top" / "yosys_fpga"
     assert not (directory / "yosys_fpga_synth.ys").exists()
-    everything = _succeeded(_request(tmp_path, design, fetch_all=True))
+    _succeeded(_request(tmp_path, design, fetch_all=True))
     assert (directory / "yosys_fpga_synth.ys").is_file()
-    assert not list(Path(everything["mirror"]).rglob("trace.json"))
+    assert not list(_mirror(tmp_path).rglob("trace.json"))
 
 
 def test_outputs_to_delivers_from_the_mirror(tmp_path, remote_host):
@@ -300,13 +325,14 @@ def test_outputs_to_delivers_from_the_mirror(tmp_path, remote_host):
     out = tmp_path / "out"
     document = _succeeded(_request(tmp_path, design, outputs_to=out))
     assert (out / "config.txt").is_file()
-    delivered = {d["to"] for d in document["results"]["deliveries"]}
+    delivered = {d["destination"] for d in _last(document)["deliveries"]}
     assert str(out / "config.txt") in delivered
-    mirror_dir = Path(document["run_path"])
+    assert all(d["delivered"] for d in _last(document)["deliveries"])
+    mirror_dir = Path(_last(document)["run_dir"])
     assert (out / "config.txt").read_bytes() == (mirror_dir / "config.txt").read_bytes()
     # an earlier copy of Xeda's own is replaced
     again = _succeeded(_request(tmp_path, design, outputs_to=out))
-    assert again["results"]["deliveries"]
+    assert _last(again)["deliveries"]
 
 
 def test_outputs_to_is_checked_before_a_connection(tmp_path, remote_host):
@@ -314,7 +340,8 @@ def test_outputs_to_is_checked_before_a_connection(tmp_path, remote_host):
     run_root = tmp_path / "local" / "xeda_run"
     outcome = _request(tmp_path, design, outputs_to=run_root / "inside")
     assert outcome.error is not None and not outcome.success
-    assert outcome.document["error"]["type"] == "DeliveryError"
+    assert outcome.exit_status == 2 and outcome.document["outcome"] is None
+    assert outcome.document["error"]["code"] == "delivery_refused"
     assert not any("-M" in call for call in remote_host.remote.calls("ssh"))
 
 
@@ -332,7 +359,8 @@ def test_programmer_flow_is_refused_with_remote(tmp_path, remote_host):
     design = _design(tmp_path)
     outcome = _request(tmp_path, design, chain="nextpnr+openfpgaloader")
     assert isinstance(outcome.error, RemoteError) and not outcome.success
-    assert outcome.document["error"]["type"] == "RemoteError"
+    assert outcome.document["outcome"] == "failed"
+    assert outcome.document["error"]["code"] == "remote_failed"
     assert "programs a device" in outcome.document["error"]["message"]
     assert not any("-M" in call for call in remote_host.remote.calls("ssh"))
 
@@ -380,6 +408,7 @@ def test_windows_is_refused(tmp_path, monkeypatch, remote_host):
     monkeypatch.setattr(client, "_is_windows", lambda: True)
     outcome = _request(tmp_path, _design(tmp_path))
     assert isinstance(outcome.error, RemoteError)
+    assert outcome.document["error"]["code"] == "remote_failed"
     assert "Windows" in outcome.document["error"]["message"]
     assert not remote_host.remote.calls("ssh")
 
@@ -388,7 +417,8 @@ def test_a_connection_that_fails_names_the_step(tmp_path, remote_host, monkeypat
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
     outcome = _request(tmp_path, _design(tmp_path))
     assert isinstance(outcome.error, RemoteConnectionError)
-    assert outcome.document["error"]["type"] == "RemoteConnectionError"
+    assert outcome.document["outcome"] == "failed"
+    assert outcome.document["error"]["code"] == "remote_failed"
     assert "cannot connect to somewhere" in outcome.document["error"]["message"]
     assert "Permission denied" in outcome.document["error"]["message"]
 
@@ -398,7 +428,7 @@ def test_a_provisioning_failure_reports_its_code_in_the_json_message(tmp_path, r
     result = _cli(tmp_path, _design(tmp_path), "nextpnr", "--json")
     assert result.exit_code == 1, result.output
     error = json.loads(result.stdout)["error"]
-    assert error["type"] == "RemoteProvisionError"
+    assert error["code"] == "remote_failed"
     assert "not-linux: " in error["message"]
 
 
@@ -477,16 +507,14 @@ def test_json_document_has_nodes_remote_and_mirror_paths(tmp_path, remote_host):
     result = _cli(tmp_path, design, "yosys_fpga+nextpnr", "--json")
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)  # exactly one document on stdout
-    mirror = tmp_path / "local" / "xeda_run" / "@somewhere"
-    assert document["success"] is True and document["remote"] == "somewhere"
-    assert document["mirror"] == str(mirror)
-    assert document["flow"] == "nextpnr"
-    assert [node["node"] for node in document["nodes"]] == ["yosys_fpga", "nextpnr"]
+    mirror = _mirror(tmp_path)
+    assert document["outcome"] == "passed" and document["spec"]["flow"] == "yosys_fpga+nextpnr"
+    assert document["roots"] == ["nextpnr"]
+    assert [node["name"] for node in document["nodes"]] == ["yosys_fpga", "nextpnr"]
     for node in document["nodes"]:
-        assert Path(node["run_path"]).is_relative_to(mirror)
-        assert (Path(node["run_path"]) / "results.json").is_file()
-    assert Path(document["run_path"]).is_relative_to(mirror)
-    assert Path(document["results_json"]).is_file()
+        assert Path(node["run_dir"]).is_relative_to(mirror)
+        assert (Path(node["run_dir"]) / "results.json").is_file()
+        assert node["record"] == json.loads((Path(node["run_dir"]) / "results.json").read_text())
     assert "nextpnr-ecp5" in result.stderr, "the log of the launch is on stderr"
 
 
@@ -495,18 +523,17 @@ def test_a_failed_remote_flow_is_a_failed_run(tmp_path, remote_host):
     result = _cli(tmp_path, design, "nextpnr", "--json")
     assert result.exit_code == 1, result.output
     document = json.loads(result.stdout)
-    assert document["success"] is False and document["remote"] == "somewhere"
-    assert document["error"]["type"] == "FlowFailed"
-    assert document["results"]["error"]["code"] == "rejected"
+    assert document["outcome"] == "rejected" and document["error"]["code"] == "rejected"
+    assert _last(document)["record"]["error"] == document["error"]
 
 
 def test_an_error_before_the_connection_is_one_json_document(tmp_path, remote_host):
     design = _design(tmp_path)
     result = _cli(tmp_path, design, "nextpnr", "--json", "-s", "no_such_setting=1")
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
-    assert document["success"] is False and document["remote"] == "somewhere"
-    assert document["design"] == "top"
+    assert document["outcome"] is None and document["error"]["code"] == "unknown_setting"
+    assert document["spec"]["design"] == "top" and document["spec"]["flow"] == "nextpnr"
     assert not any("-M" in call for call in remote_host.remote.calls("ssh"))
 
 
@@ -599,9 +626,9 @@ def test_ctrl_c_cancels_and_prints_one_json_document(tmp_path, remote_host):
         program.finish()
     assert status == 1, program.stderr
     document = json.loads(program.out.read_text())
-    assert document["success"] is False
-    assert document["error"]["type"] == "RemoteCanceled"
-    assert document["remote"] == "somewhere"
+    assert document["outcome"] == "canceled" and document["error"]["code"] == "canceled"
+    assert [node["outcome"] for node in document["nodes"]] == ["skipped", "skipped"]
+    assert document["spec"]["design"] == "top"
     _assert_gone(pid)
     assert "Canceling the launch" in program.stderr
     _assert_mirror_emptied(mirror)
@@ -622,7 +649,7 @@ def test_a_second_ctrl_c_closes_the_connection(tmp_path, remote_host):
         program.finish()
     assert status == 1
     document = json.loads(program.out.read_text())
-    assert document["error"]["type"] == "RemoteCanceled"
+    assert document["outcome"] == "canceled" and document["error"]["code"] == "canceled"
     _assert_gone(pid)
     _assert_mirror_emptied(mirror)
 
@@ -651,7 +678,8 @@ def test_dropped_connection_cancels(tmp_path, remote_host, monkeypatch):
     outcome = _request(tmp_path, design)
     thread.join()
     assert isinstance(outcome.error, RemoteCanceled), outcome.document
-    assert outcome.document["error"]["type"] == "RemoteCanceled"
+    assert outcome.document["outcome"] == "canceled"
+    assert outcome.document["error"]["code"] == "canceled"
     assert "connection" in outcome.document["error"]["message"]
     _assert_gone(pids[0])
     _assert_mirror_emptied(mirror)
@@ -671,13 +699,18 @@ def test_rerun_after_late_disconnect_fetches_the_finished_result(
     outcome = _request(tmp_path, design)
     assert isinstance(outcome.error, RemoteConnectionError), outcome.document
     assert "fetching the results" in outcome.document["error"]["message"]
-    mirror = tmp_path / "local" / "xeda_run" / "@somewhere"
+    # the launch ended, so the nodes keep their records, and the fetch is what failed
+    assert outcome.document["outcome"] == "failed"
+    assert outcome.document["error"]["code"] == "remote_fetch_failed"
+    assert [node["outcome"] for node in outcome.document["nodes"]] == ["passed", "passed"]
+    assert all(node["record"] is not None for node in outcome.document["nodes"])
+    mirror = _mirror(tmp_path)
     assert not (mirror / "top" / "nextpnr" / "results.json").exists()
     assert (remote_host.workspace() / "xeda_run" / "top" / "nextpnr" / "results.json").is_file()
 
     monkeypatch.setattr(client, "_fetch", real_fetch)
     document = _succeeded(_request(tmp_path, design))
-    assert _states(document) == {"yosys_fpga": "fresh", "nextpnr": "fresh"}
+    assert _states(document) == {"yosys_fpga": "reused", "nextpnr": "reused"}
     assert (mirror / "top" / "nextpnr" / "config.txt").is_file()
 
 
@@ -694,6 +727,7 @@ def test_agent_failure_names_the_step(tmp_path, remote_host, monkeypatch):
     outcome = _request(tmp_path, _design(tmp_path))
     assert isinstance(outcome.error, RemoteError) and not outcome.success
     message = outcome.document["error"]["message"]
+    assert outcome.document["error"]["code"] == "remote_failed"
     assert "running the launch" in message and "run root" in message
 
 
@@ -760,6 +794,10 @@ def test_a_link_that_appears_while_the_host_runs_empties_nothing(
     outcome = _request(tmp_path, design)
     assert isinstance(outcome.error, RunDirectoryError), outcome.document
     assert f"{mirror} is a symbolic link" in outcome.document["error"]["message"]
+    # the launch ended on the host, so this is a failed fetch and no refusal of the request
+    assert outcome.document["outcome"] == "failed"
+    assert outcome.document["error"]["code"] == "remote_fetch_failed"
+    assert [node["outcome"] for node in outcome.document["nodes"]] == ["passed", "passed"]
     for place in (inside, outside):
         for flow in ("yosys_fpga", "nextpnr"):
             assert sorted(p.name for p in (place / flow).iterdir()) == ["KEEP"]
@@ -782,23 +820,22 @@ def _strings(value: Any):
 def test_the_records_of_the_mirror_name_the_paths_of_this_side(tmp_path, remote_host):
     design = _design(tmp_path)
     document = _succeeded(_request(tmp_path, design, chain="yosys_fpga+nextpnr"))
-    mirror = Path(document["mirror"])
+    mirror = _mirror(tmp_path)
     workspace = str(remote_host.workspace())
     for node in document["nodes"]:
-        directory = Path(node["run_path"])
+        directory = Path(node["run_dir"])
         for name in ("results.json", "settings.json"):
             text = (directory / name).read_text()
             assert workspace not in text, f"{directory / name} names a path of the remote"
             assert str(remote_host.home) not in text
         assert json.loads((directory / "results.json").read_text())["outcome"] == "passed"
-    directory = Path(document["run_path"])
+    directory = Path(_last(document)["run_dir"])
     saved = json.loads((directory / "results.json").read_text())
     # the record names its files relative to the run directory: the mirror has them where the
-    # remote had them, and the document that the run printed names them in the mirror
+    # remote had them, and the document that the run printed holds the same record
     assert saved["artifacts"]["textcfg"] == "config.txt"
     assert saved["outputs"]["config"]["names"] == ["config.txt"]
-    assert document["results"]["artifacts"]["textcfg"] == str(directory / "config.txt")
-    assert document["results"]["outputs"]["config"]["path"] == str(directory / "config.txt")
+    assert _last(document)["record"] == saved
     # the design of the settings is the local one: its sources are the files that were sent
     settings = json.loads((directory / "settings.json").read_text())
     assert settings["design"]["design_root"] == str(design.parent)
@@ -817,14 +854,15 @@ def test_the_recorded_results_and_the_next_delivery_agree(tmp_path, remote_host)
     design = _design(tmp_path)
     out = tmp_path / "out"
     first = _succeeded(_request(tmp_path, design, outputs_to=out))
-    assert first["results"]["deliveries"]
+    assert _last(first)["deliveries"]
     # the copy is Xeda's own and unchanged: the next delivery replaces it without asking
     again = _succeeded(_request(tmp_path, design, outputs_to=out))
-    assert again["results"]["deliveries"]
+    assert _last(again)["deliveries"]
     # a file of the user's at the destination is refused, before any connection
     (out / "config.txt").write_text("the user's own file\n")
     outcome = _request(tmp_path, design, outputs_to=out)
     assert outcome.error is not None and not outcome.success
+    assert outcome.document["error"]["code"] == "delivery_refused"
     assert "config.txt" in outcome.document["error"]["message"]
     assert len([call for call in remote_host.remote.calls("ssh") if "-M" in call]) == 2
     assert (out / "config.txt").read_text() == "the user's own file\n"
@@ -838,17 +876,18 @@ def test_hashed_run_dirs_give_hashed_directories_on_the_remote_and_in_the_mirror
 ):
     design = _design(tmp_path)
     document = _succeeded(_request(tmp_path, design, hashed_run_dirs=True))
-    flowrun_hash = document["results"]["flow_hash"]
+    flowrun_hash = _last(document)["record"]["identity"]
     name = f"nextpnr_{flowrun_hash[:16]}"
     remote_dir = remote_host.workspace() / "xeda_run" / "top" / name
     mirror_dir = tmp_path / "local" / "xeda_run" / "@somewhere" / "top" / name
     assert (remote_dir / "results.json").is_file()
     assert (mirror_dir / "results.json").is_file()
-    assert Path(document["run_path"]) == mirror_dir
+    assert Path(_last(document)["run_dir"]) == mirror_dir
     assert not (remote_host.workspace() / "xeda_run" / "top" / "nextpnr").exists()
     # another setting is another directory, on the remote and in the mirror
     other = _succeeded(_request(tmp_path, _design(tmp_path, freq="90 MHz"), hashed_run_dirs=True))
-    assert Path(other["run_path"]) != mirror_dir and Path(other["run_path"]).is_dir()
+    other_dir = Path(_last(other)["run_dir"])
+    assert other_dir != mirror_dir and other_dir.is_dir()
     assert mirror_dir.is_dir()
 
 
@@ -895,7 +934,7 @@ def test_a_failed_remote_dry_run_exits_with_status_1(tmp_path, remote_host, monk
 
 def test_a_dry_run_document_names_the_places_of_the_mirror(tmp_path, remote_host):
     document = _succeeded(_request(tmp_path, _design(tmp_path), dry_run=True))
-    mirror = tmp_path / "local" / "xeda_run" / "@somewhere"
+    mirror = _mirror(tmp_path)
     assert document["mirror"] == str(mirror)
     workspace = remote_host.workspace()
     for node in document["plan"]["nodes"]:
@@ -909,8 +948,8 @@ def test_a_failure_before_any_node_runs_replaces_the_mirror(tmp_path, remote_hos
     """The remote resolves another plan than this side: it runs no node and the launch fails.
     The records of an earlier run in the mirror must not stay and say that the run passed."""
     design = _design(tmp_path)
-    ok = _succeeded(_request(tmp_path, design))
-    mirror = Path(ok["mirror"])
+    _succeeded(_request(tmp_path, design))
+    mirror = _mirror(tmp_path)
     assert (
         json.loads((mirror / "top" / "nextpnr" / "results.json").read_text())["outcome"] == "passed"
     )
@@ -923,9 +962,9 @@ def test_a_failure_before_any_node_runs_replaces_the_mirror(tmp_path, remote_hos
     monkeypatch.setattr(client, "_launch", another_plan)
     outcome = _request(tmp_path, design, rebuild_all=True)
     assert not outcome.success, outcome.document
-    assert outcome.document["nodes"] == [] or all(
-        node["state"] != "ran" for node in outcome.document["nodes"]
-    )
+    assert outcome.document["outcome"] == "failed"
+    assert outcome.document["error"]["code"] == "remote_failed"
+    assert all(node["disposition"] != "ran" for node in outcome.document["nodes"])
     for name in ("yosys_fpga", "nextpnr"):
         directory = mirror / "top" / name
         assert not (directory / "results.json").exists(), name
@@ -941,7 +980,8 @@ def test_ctrl_c_while_fetching_says_that_the_launch_finished(tmp_path, remote_ho
     monkeypatch.setattr(client, "_fetch", interrupted)
     outcome = _request(tmp_path, design)
     assert isinstance(outcome.error, RemoteInterrupted), outcome.document
-    assert outcome.document["error"]["type"] == "RemoteInterrupted"
+    assert outcome.document["outcome"] == "canceled"
+    assert outcome.document["error"]["code"] == "canceled"
     message = outcome.document["error"]["message"]
     assert "while fetching the results" in message and "had finished" in message
     assert "never started" not in message
@@ -958,6 +998,7 @@ def test_ctrl_c_while_delivering_says_that_the_launch_finished(tmp_path, remote_
     outcome = _request(tmp_path, design, outputs_to=tmp_path / "out")
     assert isinstance(outcome.error, RemoteInterrupted), outcome.document
     message = outcome.document["error"]["message"]
+    assert outcome.document["error"]["code"] == "canceled"
     assert "while delivering the outputs" in message
     assert f"in the mirror {tmp_path / 'local' / 'xeda_run' / '@somewhere'}" in message
     assert "--outputs-to may be partly written" in message
@@ -1019,7 +1060,7 @@ def test_heartbeats_start_before_the_launch_message(tmp_path, remote_host, monke
 
 def test_the_run_directories_of_a_result_must_lie_below_the_remote_run_root():
     root = PurePosixPath("/ws/xeda_run")
-    assert client._node_dirs({"nodes": [{"node": "a", "run_path": "/ws/xeda_run/d/a"}]}, root) == {
+    assert client._node_dirs({"nodes": [{"name": "a", "run_dir": "/ws/xeda_run/d/a"}]}, root) == {
         "a": PurePosixPath("d/a")
     }
     for path in (
@@ -1031,17 +1072,18 @@ def test_the_run_directories_of_a_result_must_lie_below_the_remote_run_root():
         None,
     ):
         with pytest.raises(RemoteProtocolError):
-            client._node_dirs({"nodes": [{"node": "a", "run_path": path}]}, root)
+            client._node_dirs({"nodes": [{"name": "a", "run_dir": path}]}, root)
     with pytest.raises(RemoteProtocolError):
-        client._node_dirs({"nodes": [{"run_path": "/ws/xeda_run/d/a"}]}, root)
-    mirror = Path("/mirror")
-    for document in (
-        {"nodes": [{"node": "a", "run_path": "/ws/xeda_run/../x"}]},
-        {"run_path": "/ws/xeda_run/d/../../x"},
-    ):
+        client._node_dirs({"nodes": [{"run_dir": "/ws/xeda_run/d/a"}]}, root)
+    run = client._Run(chain="a", flow="a", design=None, target=None, host="h", debug=False)
+    for node in ({"run_dir": "/ws/xeda_run/../x"}, {"run_dir": "/ws/xeda_run/d/../../x"}):
         with pytest.raises(RemoteProtocolError):
-            client._mirror_document(
-                document, None, host="h", mirror_root=mirror, remote_run_root=root
+            client._localized(
+                {"nodes": [{"name": "a", "record": None, **node}]},
+                run,
+                mirror_root=Path("/mirror"),
+                remote_run_root=root,
+                translate=lambda text: None,
             )
 
 
@@ -1059,7 +1101,7 @@ def test_a_result_with_a_run_directory_outside_the_mirror_changes_nothing_there(
     def crafted(agent, request, launch_id, setup):
         result = dict(real(agent, request, launch_id, setup))
         result["nodes"] = [
-            {**node, "run_path": f"{request.run_root}/../canary"} for node in result["nodes"]
+            {**node, "run_dir": f"{request.run_root}/../canary"} for node in result["nodes"]
         ]
         return result
 
@@ -1120,3 +1162,36 @@ def test_a_cut_in_the_transfer_after_results_json_clears_the_mirror(
     outcome = _request(tmp_path, design)
     assert isinstance(outcome.error, RemoteProtocolError) and not outcome.success
     _assert_mirror_emptied(mirror)
+
+
+# --- The remote chain is a local chain on another machine ----------------------------------------
+
+
+def test_a_remote_chain_fetches_and_loads_schema_1_records(tmp_path, remote_host):
+    design = _design(tmp_path)
+    document = _succeeded(_request(tmp_path, design, chain="yosys_fpga+nextpnr"))
+    mirror = _mirror(tmp_path)
+    run_root = tmp_path / "local" / "xeda_run"
+    for node in document["nodes"]:
+        directory = Path(node["run_dir"])
+        assert directory.is_relative_to(mirror)
+        record = read_record(directory, run_root=mirror)
+        assert record.schema_version == 1 and record.outcome == "passed"
+        assert record.flow == node["name"] and record.run_dir == directory
+    # the producer of the requested node is a node of the mirror too
+    record = read_record(mirror / "top" / "nextpnr", run_root=mirror)
+    (netlist,) = [item for item in record.inputs if item.name == "netlist"]
+    assert netlist.producer == "yosys_fpga"
+    assert netlist.producer_run_dir == mirror / "top" / "yosys_fpga"
+    # the requested node's declared outputs came back whole
+    assert (mirror / "top" / "nextpnr" / "config.txt").is_file()
+    assert not run_root.joinpath("top").exists()
+
+
+def test_a_remote_document_round_trips(tmp_path, remote_host):
+    document = _succeeded(_request(tmp_path, _design(tmp_path), chain="yosys_fpga+nextpnr"))
+    result = result_from_dict(document)
+    assert result.to_dict() == document
+    assert result.passed and result.roots == ("nextpnr",)
+    assert result.record.outcome == "passed"
+    assert [node.flow for node in result.nodes.values()] == ["yosys_fpga", "nextpnr"]

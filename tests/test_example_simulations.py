@@ -149,5 +149,4 @@ def test_an_example_passes_on_each_simulator_it_is_shown_with(
     arguments = ["run", simulator, *which, "--run-root", str(tmp_path / "xeda_run"), "--json"]
     result = CliRunner().invoke(cli, arguments)
     document = json.loads(result.stdout)
-    error = (document.get("results") or {}).get("error") or document.get("error")
-    assert result.exit_code == 0 and document["success"] is True, error
+    assert result.exit_code == 0 and document["outcome"] == "passed", document["error"]

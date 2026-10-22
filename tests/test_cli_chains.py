@@ -1,4 +1,4 @@
-"""`xeda run a+b+c`: chains on the command line, the structured request and per-node inputs of
+"""`xeda run a+b+c`: chains on the command line, the nodes and the inputs of their records in
 `--json`, dry-run parity, failure documents with the nodes that did not run, and the commands
 that refuse a chain."""
 
@@ -51,38 +51,42 @@ REQUEST = [
 # -------------------------------------------------------------------------------------- running
 
 
+def _nodes(document):
+    return [(n["name"], n["flow"], n["outcome"], n["disposition"]) for n in document["nodes"]]
+
+
 @pytest.mark.parametrize("spelling", ["__input_maker+__taker", "__input_maker.made+__taker"])
 def test_a_chain_runs_its_last_flow_and_reports_every_node(tmp_path, spelling):
     design = _design(tmp_path)
     result, document = _json("run", spelling, design)
     assert result.exit_code == 0, result.output
-    assert document["success"] and document["flow"] == "__taker"
-    assert document["results"]["read"] == "bound\n"
-    assert document["request"] == [
-        {**REQUEST[0], "output": "made" if "." in spelling else None},
-        REQUEST[1],
-    ]
+    assert document["outcome"] == "passed" and document["roots"] == ["__taker"]
+    assert document["spec"]["flow"] == spelling
     nodes = document["nodes"]
-    assert [(n["node"], n["flow"], n["state"]) for n in nodes] == [
-        ("__input_maker", "__input_maker", "ran"),
-        ("__taker", "__taker", "ran"),
+    assert _nodes(document) == [
+        ("__input_maker", "__input_maker", "passed", "ran"),
+        ("__taker", "__taker", "passed", "ran"),
     ]
-    (made,) = nodes[1]["inputs"]
-    assert (made["name"], made["producer"], made["output"]) == ("made", "__input_maker", "made")
-    assert made["binding_origin"] == "chain" and nodes[0]["inputs"] == []
+    assert nodes[1]["record"]["metrics"]["read"] == "bound\n"
+    (made,) = nodes[1]["record"]["inputs"]
+    assert (made["name"], made["origin"], made["producer"], made["output"]) == (
+        "made",
+        "producer",
+        "__input_maker",
+        "made",
+    )
+    assert nodes[0]["record"]["inputs"] == []
     again, second = _json("run", spelling, design)
-    assert [n["state"] for n in second["nodes"]] == ["fresh", "fresh"]
+    assert [n["disposition"] for n in second["nodes"]] == ["reused", "reused"]
 
 
-def test_a_single_flow_keeps_its_document_and_gains_the_request(tmp_path):
+def test_a_single_flow_reports_the_producers_it_needed(tmp_path):
     result, document = _json("run", "__taker", _design(tmp_path))
     assert result.exit_code == 0, result.output
-    assert document["flow"] == "__taker" and document["results"]["read"] == "made\n"
-    assert document["request"] == [
-        {"node": "__taker", "flow": "__taker", "output": None, "through": []}
-    ]
+    assert document["roots"] == ["__taker"]
+    assert document["nodes"][-1]["record"]["metrics"]["read"] == "made\n"
     assert [n["flow"] for n in document["nodes"]] == ["__maker", "__taker"]
-    assert document["nodes"][1]["inputs"][0]["binding_origin"] is None
+    assert document["nodes"][1]["record"]["inputs"][0]["producer"] == "__maker"
 
 
 def test_dash_s_sets_the_last_flow_and_a_qualified_one_any_node_of_the_chain(tmp_path):
@@ -96,7 +100,7 @@ def test_dash_s_sets_the_last_flow_and_a_qualified_one_any_node_of_the_chain(tmp
         f"flows.__input_maker.input_file={tmp_path / 'other.txt'}",
     )
     assert result.exit_code == 0, result.output
-    assert document["results"]["read"] == "other\n"
+    assert document["nodes"][-1]["record"]["metrics"]["read"] == "other\n"
     settings = json.loads((tmp_path / "xeda_run/demo/__taker/settings.json").read_text())
     assert settings["flow_settings"]["verbose"] == 1
     bad, failure = _json(
@@ -106,7 +110,8 @@ def test_dash_s_sets_the_last_flow_and_a_qualified_one_any_node_of_the_chain(tmp
     unknown, failure = _json(
         "run", "__input_maker+__taker", _design(tmp_path), "-s", "flows.__fork.label=x"
     )
-    assert unknown.exit_code == 1 and "names no flow of this run" in failure["error"]["message"]
+    assert unknown.exit_code == 2 and "names no flow of this run" in failure["error"]["message"]
+    assert failure["outcome"] is None and failure["nodes"] == []
 
 
 def test_help_settings_of_a_chain_are_its_last_flow_s(tmp_path):
@@ -140,8 +145,11 @@ def test_a_dry_run_of_a_chain_shows_the_graph_that_then_runs(tmp_path):
     text = _xeda("run", "__input_maker+__taker", design, "--dry-run").output
     assert "made <- __input_maker.made (chain)" in text
     ran, document = _json("run", "__input_maker+__taker", design)
-    assert [(n["node"], n["run_path"], n["inputs"]) for n in document["nodes"]] == [
-        (n["name"], n["run_path"], n["inputs"]) for n in planned["plan"]["nodes"]
+    assert [(n["name"], n["run_dir"]) for n in document["nodes"]] == [
+        (n["name"], n["run_path"]) for n in planned["plan"]["nodes"]
+    ]
+    assert [[i["name"] for i in n["record"]["inputs"]] for n in document["nodes"]] == [
+        [i["name"] for i in n["inputs"]] for n in planned["plan"]["nodes"]
     ]
 
 
@@ -163,8 +171,8 @@ def test_a_dry_run_of_a_chain_shows_the_graph_that_then_runs(tmp_path):
 def test_a_malformed_chain_is_one_json_error_document_and_plans_nothing(tmp_path, chain, message):
     result, document = _json("run", chain, _design(tmp_path))
     assert result.exit_code == 2, result.output
-    assert document["success"] is False and message in document["error"]["message"]
-    assert "plan" not in document and "nodes" not in document
+    assert document["outcome"] is None and message in document["error"]["message"]
+    assert document["error"]["code"] == "usage_error" and document["nodes"] == []
     assert not (tmp_path / "xeda_run").exists()
     text = _xeda("run", chain, _design(tmp_path))
     assert text.exit_code == 2 and message in text.output
@@ -178,26 +186,27 @@ def test_a_failed_run_reports_the_nodes_that_did_not_run(tmp_path, monkeypatch):
 
     monkeypatch.setattr(_Left, "run", lambda self: None)
     result, document = _json("run", "__fork.a+__left", design)
-    assert result.exit_code == 1 and document["flow"] == "__left"
-    assert [(n["node"], n["state"]) for n in document["nodes"]] == [
-        ("__fork", "ran"),
+    assert result.exit_code == 1 and document["roots"] == ["__left"]
+    assert [(n["name"], n["outcome"]) for n in document["nodes"]] == [
+        ("__fork", "passed"),
         ("__left", "failed"),
     ]
     result, document = _json("run", "__join", design)
     assert result.exit_code == 1, result.output
-    assert document["success"] is False and document["flow"] == "__join"
-    assert document["request"][-1]["flow"] == "__join"
-    states = {n["node"]: n["state"] for n in document["nodes"]}
+    assert document["outcome"] == "failed" and document["roots"] == ["__join"]
+    assert document["error"]["node"] == "__left"
+    states = {n["name"]: n["outcome"] for n in document["nodes"]}
     assert states == {
-        "__fork": "ran",  # another demand on its optional outputs: other settings
+        "__fork": "passed",  # another demand on its optional outputs: other settings
         "__left": "failed",
         "__join": "blocked",
-        "__right": "not run",
+        "__right": "skipped",
     }
-    not_run = next(n for n in document["nodes"] if n["node"] == "__right")
-    assert not_run["run_path"].endswith("__right") and not_run["inputs"][0]["producer"] == "__fork"
+    nodes = {n["name"]: n for n in document["nodes"]}
+    assert nodes["__join"]["blocked_by"] == "__left" and nodes["__join"]["record"] is None
+    assert nodes["__right"]["run_dir"].endswith("__right") and nodes["__right"]["record"] is None
     assert not (tmp_path / "xeda_run/demo/__join/results.json").exists()
-    assert result.stdout.count('"success"') == 1, "one document"
+    assert result.stdout.count('"launch_id"') == 1, "one document"
 
 
 # ------------------------------------------------------------------------------------- refusals
@@ -565,7 +574,7 @@ def test_a_refused_chain_advertises_only_validated_requests(tmp_path):
         result.stderr
     )
     result, document = _json("run", "yosys_fpga.netlist_edif+fpga_pack", _design(tmp_path))
-    assert result.exit_code == 2 and document["success"] is False
+    assert result.exit_code == 2 and document["outcome"] is None
     assert "yosys_fpga.netlist+fpga_pack" in document["error"]["message"]
     nothing = _xeda("run", "__chain_simple_consumer+__chain_producer", _design(tmp_path))
     assert nothing.exit_code == 2 and "Did you mean" not in nothing.stderr
@@ -602,7 +611,7 @@ def test_a_pass_through_link_collides_with_a_binding_of_its_input_on_the_command
         "flows.__route_b.inputs.x=__route_a.x",
         "--dry-run",
     )
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 2, result.output
     message = document["error"]["message"]
     assert (
         "The chain position 1 (__route_a) -> 2 (__route_c), through __route_b, binds input 'x' "
@@ -620,7 +629,7 @@ def test_a_binding_that_cuts_the_graph_is_refused(tmp_path):
         "flows.__route_c.inputs.y=__maker.made",
         "--dry-run",
     )
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 2, result.output
     message = document["error"]["message"]
     assert (
         "The chain link `__route_a+__route_c` passes through `__route_b`, which the binding of "
@@ -644,7 +653,7 @@ def test_an_unknown_input_or_output_name_in_a_binding_gets_close_matches(tmp_pat
     def message(binding):
         design = _design(tmp_path, {"__taker": {"inputs": binding}})
         result, document = _json("run", "__taker", design, "--dry-run")
-        assert result.exit_code == 1 and document["success"] is False, result.output
+        assert result.exit_code == 2 and document["outcome"] is None, result.output
         return document["error"]["message"]
 
     assert "Did you mean `made`?" in message({"mde": "__maker"})
@@ -683,7 +692,7 @@ def test_a_source_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_path
     (tmp_path / "left.txt").write_text("")
     design = _fan_design(tmp_path, [{"file": "left.txt", "type": "Data"}])
     result, document = _json("run", "__fan_head+__fan_tail", design, "--dry-run")
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 2, result.output
     assert (
         "The chain link `__fan_head+__fan_tail` passes through `__fan_left`, which the source "
         "of `__fan_tail.left` takes out of the plan."
@@ -703,10 +712,26 @@ def test_a_binding_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_pat
         "flows.__fan_tail.inputs.left=__maker.made",
         "--dry-run",
     )
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 2, result.output
     message = document["error"]["message"]
     assert (
         "The chain link `__fan_head+__fan_tail` passes through `__fan_left`, which the binding "
         "of `__fan_tail.left` at "
     ) in message
     assert "flows.__fan_tail.inputs.left takes" in message and message.endswith("out of the plan.")
+
+
+def test_a_failed_chain_exits_1_with_the_cause(tmp_path, monkeypatch):
+    """The producer fails: the document and the exit status say `failed` with the error of the
+    producer, and the consumer is `blocked` by it."""
+    from .io_flows import _Left
+
+    monkeypatch.setattr(_Left, "run", lambda self: None)
+    result, document = _json("run", "__join", _design(tmp_path))
+    assert result.exit_code == 1
+    assert document["outcome"] == "failed" and document["roots"] == ["__join"]
+    assert document["error"]["node"] == "__left"
+    assert document["error"]["code"] == "missing_output"
+    nodes = {n["name"]: n for n in document["nodes"]}
+    assert nodes["__left"]["record"]["error"] == document["error"]
+    assert (nodes["__join"]["outcome"], nodes["__join"]["blocked_by"]) == ("blocked", "__left")

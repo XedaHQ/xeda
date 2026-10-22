@@ -653,7 +653,7 @@ def test_no_key_turns_a_document_into_an_error(tmp_path):
 
 
 def test_a_run_whose_results_have_unusual_keys_still_reports_them(tmp_path, monkeypatch):
-    """What an agent sees: `xeda run --json` prints the results, and `results.json` holds them,
+    """What an agent sees: `xeda run --json` prints the record, and `results.json` holds the same results,
     whatever keys a flow reports them under."""
     from typing import ClassVar
 
@@ -681,10 +681,11 @@ def test_a_run_whose_results_have_unusual_keys_still_reports_them(tmp_path, monk
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(cli, ["run", OddKeys.name, "d.toml", "--json"])
         document = json.loads(result.stdout)
-        assert document["success"] is True, document
-        assert document["results"]["timing"] == {"('clk', 'rise')": 1.5, "/run/x.v": 2}
-        recorded = json.loads((Path(document["run_path"]) / "results.json").read_text())
-        assert recorded["metrics"]["timing"] == document["results"]["timing"]
+        assert document["outcome"] == "passed", document
+        node = document["nodes"][-1]
+        assert node["record"]["metrics"]["timing"] == {"('clk', 'rise')": 1.5, "/run/x.v": 2}
+        recorded = json.loads((Path(node["run_dir"]) / "results.json").read_text())
+        assert recorded["metrics"]["timing"] == node["record"]["metrics"]["timing"]
     finally:
         for name in (OddKeys.name, OddKeys.__name__):
             registered_flows.pop(name, None)

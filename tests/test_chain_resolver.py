@@ -509,8 +509,9 @@ def test_a_dry_run_of_a_saved_binding_shows_the_graph_that_then_runs(tmp_path, m
     ran = CliRunner().invoke(cli, ["run", "__taker", str(design), "--json"])
     assert ran.exit_code == 0, ran.output
     document = json.loads(ran.stdout)
-    assert document["success"] and document["results"]["read"] == "bound\n"
-    assert [(n["flow"], n["run_path"]) for n in document["nodes"]] == [
+    assert document["outcome"] == "passed"
+    assert document["nodes"][-1]["record"]["metrics"]["read"] == "bound\n"
+    assert [(n["flow"], n["run_dir"]) for n in document["nodes"]] == [
         (n["flow"], n["run_path"]) for n in planned
     ]
 

@@ -19,7 +19,6 @@ from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union
 
 import annotated_types
@@ -27,7 +26,6 @@ import pytest
 from pydantic import BaseModel
 
 from xeda.flow import MetricSpec
-from xeda.cli import _run_document
 from xeda.dataclass import Field, XedaBaseModel
 from xeda.flow import Flow, flowrun_hash
 from xeda.flow_runner.dse import Dse, Optimizer
@@ -669,16 +667,36 @@ def test_json_safe_writes_a_quantity_in_a_plain_container_as_text():
     _assert_written_as_text(json_safe(_in_plain_containers()))
 
 
-def test_the_run_document_writes_a_quantity_in_the_results_as_text():
-    flow = SimpleNamespace(
-        name="toy",
-        run_path=Path("run"),
-        design=SimpleNamespace(name="d", target=None),
-        results=_in_plain_containers(),
-    )
-    document = _run_document("toy", None, flow, True)
-    _assert_written_as_text(document["results"])
-    _assert_written_as_text(json.loads(json.dumps(document))["results"])
+def test_the_run_document_writes_a_quantity_in_the_metrics_as_text(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    from .flow_registry import preserved_flow_registry
+
+    with preserved_flow_registry():
+
+        class Quantities(Flow):
+            """Reports quantities in plain containers."""
+
+            results_description: ClassVar[dict[str, MetricSpec]] = {
+                "plain": MetricSpec("Quantities in plain containers.", "object")
+            }
+
+            def run(self) -> None:
+                self.results["plain"] = _in_plain_containers()
+
+            def parse_reports(self) -> bool:
+                return True
+
+        (tmp_path / "top.vhd").write_text("entity top is end;\n")
+        (tmp_path / "d.toml").write_text('name = "d"\n[rtl]\nsources = ["top.vhd"]\ntop = "top"\n')
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(cli, ["run", Quantities.name, "d.toml", "--json"])
+    document = json.loads(result.stdout)
+    assert document["outcome"] == "passed", document["error"]
+    plain = document["nodes"][-1]["record"]["metrics"]["plain"]
+    _assert_written_as_text(plain)
 
 
 @pytest.mark.parametrize("cls", CLOCK_FLOWS, ids=[cls.name for cls in CLOCK_FLOWS])
@@ -697,8 +715,8 @@ def test_the_json_of_settings_with_a_clock_writes_the_clock_as_text_and_reloads(
 
 
 def test_a_run_with_a_clock_prints_one_document_and_writes_the_clock_as_text(tmp_path):
-    """The document of `xeda run --json` echoes no settings. It names `settings_json`, and that
-    file, with the effective settings, holds the clock as its canonical text."""
+    """The document of `xeda run --json` echoes the settings as the user gave them. The record of
+    the node, with the effective settings, holds the clock as its canonical text."""
     design = Path(__file__).parent / "resources" / "design0" / "design0.toml"
     proc = run_xeda(
         "run",
@@ -713,12 +731,14 @@ def test_a_run_with_a_clock_prints_one_document_and_writes_the_clock_as_text(tmp
         fake_tools=True,
     )
     document = json_stdout(proc)
-    assert document["success"] is True, proc.stderr
-    assert "clocks" not in document and "5.5 ns" not in json.dumps(document)
-    settings = json.loads(Path(document["settings_json"]).read_text())
+    assert document["outcome"] == "passed", proc.stderr
+    assert document["spec"]["settings"]["quartus"]["clock"] == {"period": "5500 ps"}
+    node = document["nodes"][-1]
+    settings = json.loads((Path(node["run_dir"]) / "settings.json").read_text())
     for key in ("flow_settings", "effective_flow_settings"):
         clock = settings[key]["clocks"]["main_clock"]
         assert (clock["period"], clock["rise"]) == ("5.5 ns", "0 ns")
     assert Quartus.Settings(**settings["flow_settings"]).clocks["main_clock"].period == Time(
         "5.5 ns"
     )
+    assert node["record"]["settings"]["clocks"]["main_clock"]["period"] == "5.5 ns"

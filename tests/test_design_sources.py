@@ -183,8 +183,8 @@ def test_xeda_run_reports_a_missing_source_as_a_design_error(root):
         cwd=root,
     )
     document = json.loads(proc.stdout)
-    assert proc.returncode == 1 and document["success"] is False
-    assert document["error"]["type"] == "DesignValidationError"
+    assert proc.returncode == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "invalid_design"
     assert "missing.vhd" in document["error"]["message"]
 
 

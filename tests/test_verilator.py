@@ -813,8 +813,8 @@ def test_xeda_run_verilator_on_a_vhdl_design_fails_with_the_refusal_not_the_tool
         cwd=SQRT_DESIGN.parent,
     )  # fmt: skip
     document = json.loads(proc.stdout)
-    assert proc.returncode != 0 and document["success"] is False
-    assert document["error"]["type"] == "FlowSettingsException"
+    assert proc.returncode == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "unsupported_setting"
     assert "cannot read the design's Vhdl source(s)" in document["error"]["message"]
     assert not run_root.exists()
 

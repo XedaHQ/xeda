@@ -184,7 +184,7 @@ def test_the_command_line_reports_the_refusal_and_runs_no_generator(tmp_path, mo
         cli, ["run", "yosys_fpga", str(generated.file), "-s", "fpga=xc7a12tcsg325-1", "--json"]
     )
     document = json.loads(result.stdout)
-    assert result.exit_code != 0 and document["success"] is False, result.output
+    assert result.exit_code == 2 and document["outcome"] is None, result.output
     assert "yosys_fpga reads none of the design's sources" in document["error"]["message"]
     assert generated.runs == 0
 

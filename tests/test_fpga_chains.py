@@ -373,7 +373,11 @@ def _xeda(*args) -> tuple:
 
 
 def _states(document: dict) -> dict[str, str]:
-    return {node["node"]: node["state"] for node in document["nodes"]}
+    """What happened to each node: `ran` or `reused` when it passed, else its outcome."""
+    return {
+        node["name"]: node["disposition"] if node["outcome"] == "passed" else node["outcome"]
+        for node in document["nodes"]
+    }
 
 
 def _calls(tmp_path: Path, design: str, flow: str) -> list[dict]:
@@ -458,17 +462,18 @@ def test_the_whole_chain_builds_and_programs_the_board_through_the_fakes(
 ):
     result, document = _xeda("run", CHAIN, _stage(tmp_path, board))
     assert result.exit_code == 0, result.output
-    assert document["success"] and document["flow"] == "openfpgaloader"
-    assert [e["flow"] for e in document["request"]] == STAGES
+    assert document["outcome"] == "passed" and document["roots"] == ["openfpgaloader"]
+    assert document["spec"]["flow"] == CHAIN
     # all four nodes are in the document, in plan order, each in its own sibling directory
     nodes = document["nodes"]
-    assert [(n["node"], n["state"]) for n in nodes] == [(name, "ran") for name in STAGES]
+    assert [(n["name"], n["flow"]) for n in nodes] == [(name, name) for name in STAGES]
+    assert _states(document) == dict.fromkeys(STAGES, "ran")
     root = tmp_path / "xeda_run" / board.design
-    assert [Path(n["run_path"]) for n in nodes] == [root / name for name in STAGES]
+    assert [Path(n["run_dir"]) for n in nodes] == [root / name for name in STAGES]
     assert nodes[3]["reason"] == "it programs a device"
-    # and the last node's results are the document's
-    assert document["results"]["flow"] == "openfpgaloader" and document["results"]["success"]
-    assert [tool["executable"] for tool in document["results"]["tools"]] == ["openFPGALoader"]
+    # and the last node's record is the programmer's, which passed
+    assert nodes[3]["record"]["flow"] == "openfpgaloader"
+    assert nodes[3]["record"]["outcome"] == "passed"
     # the stages each ran the family's tool, on the file the stage before it made
     (yosys,) = _calls(tmp_path, board.design, "yosys_fpga")
     (placer,) = _calls(tmp_path, board.design, "nextpnr")
@@ -505,14 +510,14 @@ def test_two_stages_of_a_chain_naming_one_destination_are_refused_before_any_too
         f"flows.yosys_fpga.netlist_verilog={same}",
         f"flows.nextpnr.write={same}",
     )
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"]["type"] == "DeliveryError"
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "delivery_refused"
     message = document["error"]["message"]
     assert (
         f"`flows.yosys_fpga.netlist_verilog` and `flows.nextpnr.write` both name {same}" in message
     )
     assert not same.exists() and not _every_call(tmp_path), "a tool ran before the refusal"
-    assert {node["state"] for node in document["nodes"]} == {"not run"}
+    assert document["nodes"] == []
 
 
 def _refused_before_any_tool(tmp_path, toolchain, first, second) -> dict:
@@ -527,10 +532,10 @@ def _refused_before_any_tool(tmp_path, toolchain, first, second) -> dict:
         f"flows.yosys_fpga.netlist_verilog={first}",
         f"flows.nextpnr.write={second}",
     )
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"]["type"] == "DeliveryError"
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "delivery_refused"
     assert not _every_call(tmp_path), "a tool ran before the refusal"
-    assert {node["state"] for node in document["nodes"]} == {"not run"}
+    assert document["nodes"] == []
     return document["error"]
 
 
@@ -585,13 +590,13 @@ def test_an_outputs_to_file_the_last_run_predicts_is_refused_before_any_tool_or_
         "-s",
         f"flows.yosys_fpga.netlist_verilog={out / 'config.txt'}",
     )
-    assert result.exit_code != 0 and document["success"] is False
+    assert result.exit_code == 2 and document["outcome"] is None
     error = document["error"]
-    assert error["type"] == "DeliveryError", error
+    assert error["code"] == "delivery_refused", error
     assert "`flows.yosys_fpga.netlist_verilog` and `--outputs-to` (config.txt)" in error["message"]
     assert [(call, call.read_text()) for call in _every_call(tmp_path)] == started, "a tool ran"
     assert (out / "config.txt").read_text() == "the user's file\n"
-    assert {node["state"] for node in document["nodes"]} == {"not run"}
+    assert document["nodes"] == []
 
 
 def _chipdb_generator(tmp_path: Path) -> dict:
@@ -659,13 +664,13 @@ def test_every_shorter_head_and_the_bare_action_are_one_executable_graph(
     design = _stage(tmp_path, board)
     first_result, first = _xeda("run", CHAIN, design)
     assert first_result.exit_code == 0 and _states(first) == dict.fromkeys(STAGES, "ran")
-    built = [(n["node"], n["run_path"]) for n in first["nodes"]]
+    built = [(n["name"], n["run_dir"]) for n in first["nodes"]]
     spellings = ["nextpnr+fpga_pack+openfpgaloader", "fpga_pack+openfpgaloader", "openfpgaloader"]
     for runs, spelling in enumerate(spellings, start=2):
         result, document = _xeda("run", spelling, design)
         assert result.exit_code == 0, (spelling, result.output)
-        assert [(n["node"], n["run_path"]) for n in document["nodes"]] == built, spelling
-        assert list(_states(document).values()) == ["fresh"] * 3 + ["ran"], spelling
+        assert [(n["name"], n["run_dir"]) for n in document["nodes"]] == built, spelling
+        assert list(_states(document).values()) == ["reused"] * 3 + ["ran"], spelling
         assert len(_calls(tmp_path, board.design, "openfpgaloader")) == runs
         for stage in STAGES[:3]:
             assert len(_calls(tmp_path, board.design, stage)) == 1, (spelling, stage)
@@ -697,7 +702,7 @@ def test_a_build_only_chain_run_twice_reuses_every_stage(
     design = _stage(tmp_path, board)
     build = "yosys_fpga+nextpnr+fpga_pack"
     result, first = _xeda("run", build, design)
-    assert result.exit_code == 0 and first["flow"] == "fpga_pack"
+    assert result.exit_code == 0 and first["roots"] == ["fpga_pack"]
     assert _states(first) == dict.fromkeys(STAGES[:3], "ran")
     bitstream = tmp_path / "xeda_run" / board.design / "fpga_pack" / board.bitstream
     assert bitstream.read_bytes() == BITSTREAM
@@ -707,8 +712,8 @@ def test_a_build_only_chain_run_twice_reuses_every_stage(
     if late_check:
         tool_utils.check_after_the_racy_window(monkeypatch)
     result, again = _xeda("run", build, design)
-    assert result.exit_code == 0 and _states(again) == dict.fromkeys(STAGES[:3], "fresh")
-    assert again["results"]["success"] and again["flow"] == "fpga_pack"
+    assert result.exit_code == 0 and _states(again) == dict.fromkeys(STAGES[:3], "reused")
+    assert again["outcome"] == "passed" and again["roots"] == ["fpga_pack"]
     for stage in STAGES[:3]:
         assert len(_calls(tmp_path, board.design, stage)) == 1, f"{stage} ran again"
     assert tool_utils.run_outputs_state(*run_dirs) == state
@@ -729,8 +734,8 @@ def test_a_programming_chain_run_twice_programs_again_while_the_build_stays_fres
     assert first_result.exit_code == 0 and _states(first)["openfpgaloader"] == "ran"
     _programmed(tmp_path, toolchain, board.design, bitstream)
     result, again = _xeda("run", CHAIN, design)
-    assert result.exit_code == 0 and again["success"]
-    assert list(_states(again).values()) == ["fresh", "fresh", "fresh", "ran"]
+    assert result.exit_code == 0 and again["outcome"] == "passed"
+    assert list(_states(again).values()) == ["reused", "reused", "reused", "ran"]
     assert again["nodes"][3]["reason"] == "it programs a device"
     # exactly one more call of the programmer, and it is the fake again
     calls = _calls(tmp_path, board.design, "openfpgaloader")
@@ -776,8 +781,8 @@ def test_a_configuration_of_the_wrong_family_never_reaches_the_programmer(tmp_pa
     # the same chain for an ECP5 device: refused in planning, before any tool starts
     shutil.rmtree(tmp_path / "xeda_run")
     result, refused = _xeda("run", chain, design, "-s", f"fpga={ECP5}")
-    assert result.exit_code == 1 and refused["success"] is False
-    assert refused["error"]["type"] == "FlowSettingsException"
+    assert result.exit_code == 2 and refused["outcome"] is None
+    assert refused["error"]["code"] == "unsupported_setting"
     assert "takes EcpConfig, makes IceAsc" in refused["error"]["message"]
     assert refused["nodes"] == []
     assert not (tmp_path / "xeda_run").exists() and not _every_call(tmp_path)
@@ -792,7 +797,7 @@ def test_an_upstream_output_that_was_never_written_never_reaches_the_programmer(
     result, document = _xeda(
         "run", "__asc_maker+fpga_pack+openfpgaloader", design, "-s", f"fpga={ICE40_PART}"
     )
-    assert result.exit_code == 1 and document["success"] is False
+    assert result.exit_code == 1 and document["outcome"] == "failed"
     # the failure is the producer's: each consumer is blocked by it and does not run
     assert _states(document) == {
         "__asc_maker": "failed",
@@ -804,7 +809,10 @@ def test_an_upstream_output_that_was_never_written_never_reaches_the_programmer(
     assert "did not produce its output `config`" in maker["error"]["message"]
     for consumer in ("fpga_pack", "openfpgaloader"):  # blocked: they did not run
         assert not (tmp_path / "xeda_run" / "top" / consumer / "results.json").exists()
-    assert "producer __asc_maker failed (missing_output)" in document["error"]["message"]
+    # the verdict of the launch is the producer's own failure
+    assert document["error"]["code"] == "missing_output"
+    assert document["error"]["node"] == "__asc_maker"
+    assert "did not produce its output `config`" in document["error"]["message"]
     assert not _every_call(tmp_path), "a tool started"
     _assert_never_programmed(tmp_path, "top")
 
@@ -818,7 +826,7 @@ def test_a_packer_that_makes_no_whole_bitstream_never_reaches_the_programmer(
     monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", board.packer)
     monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", mode)
     result, document = _xeda("run", CHAIN, design)
-    assert result.exit_code == 1 and document["success"] is False
+    assert result.exit_code == 1 and document["outcome"] == "failed"
     # the refusal is the packer's: everything before it ran, and the packer itself was started
     states = _states(document)
     assert [states[name] for name in STAGES[:3]] == ["ran", "ran", "failed"]
@@ -832,7 +840,7 @@ def test_a_packer_that_makes_no_whole_bitstream_never_reaches_the_programmer(
     assert not published.exists()
     # the programmer was blocked: it did not run, so it wrote no record
     assert not (tmp_path / "xeda_run" / board.design / "openfpgaloader/results.json").exists()
-    assert "producer fpga_pack failed" in document["error"]["message"]
+    assert document["error"]["node"] == "fpga_pack"
     _assert_never_programmed(tmp_path, board.design)
     # the control: the same root, the same chain, the packer well -- programs, with the fake
     monkeypatch.delenv("XEDA_FAKE_FPGA_TOOL")
@@ -841,7 +849,7 @@ def test_a_packer_that_makes_no_whole_bitstream_never_reaches_the_programmer(
     assert result.exit_code == 0, result.output
     # the control's own states: the two stages the failing run completed are reused as they
     # are, the packer that failed runs again and the programmer, never entered before, runs
-    assert _states(good) == dict(zip(STAGES, ["fresh", "fresh", "ran", "ran"]))
+    assert _states(good) == dict(zip(STAGES, ["reused", "reused", "ran", "ran"]))
     assert published.is_file() and published.read_bytes() == BITSTREAM
     _programmed(tmp_path, toolchain, board.design, published)
 
@@ -858,11 +866,11 @@ def test_an_upstream_failure_stops_the_chain_before_the_programmer(
     monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", tool)
     monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", mode)
     result, document = _xeda("run", CHAIN, design)
-    assert result.exit_code == 1 and document["success"] is False
+    assert result.exit_code == 1 and document["outcome"] == "failed"
     states = _states(document)
     downstream = STAGES[STAGES.index(stage) + 1 :]
     assert states[stage] == "failed"
-    assert all(states.get(name, "not run") == "blocked" for name in downstream)
+    assert all(states.get(name, "skipped") == "blocked" for name in downstream)
     # the failing tool was reached, and nothing after it was ever started
     assert [call["tool"] for call in _calls(tmp_path, board.design, stage)] == [tool]
     for name in downstream:
@@ -870,7 +878,7 @@ def test_an_upstream_failure_stops_the_chain_before_the_programmer(
     failed = _results(tmp_path, board.design, stage)
     assert failed["outcome"] == "failed"
     # the stage's own failure is named in its document: a tool's exit status, or the output a
-    # tool that exited with zero did not write -- and then the consumers quote it
+    # tool that exited with zero did not write -- and the launch reports it
     expected = {
         ("yosys_fpga", "fail"): "nonzero_exit",
         ("yosys_fpga", "no-output"): "missing_report",
@@ -886,10 +894,9 @@ def test_an_upstream_failure_stops_the_chain_before_the_programmer(
     }
     for name in downstream:  # blocked: they did not run, so they wrote no record
         assert not (tmp_path / "xeda_run" / board.design / name / "results.json").exists(), name
-    # the verdict of the launch quotes the stage that failed, its code and its message
-    message = document["error"]["message"]
-    assert f"producer {stage} failed ({expected})" in message
-    assert quoted[stage, mode] in message
+    # the verdict of the launch is the failed stage's own: its node, its code and its message
+    assert document["error"]["node"] == stage and document["error"]["code"] == expected
+    assert quoted[stage, mode] in document["error"]["message"]
     _assert_never_programmed(tmp_path, board.design)
 
 
@@ -905,7 +912,7 @@ def test_an_earlier_bitstream_is_never_programmed_in_place_of_a_failed_rebuild(
     monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", board.packer)
     monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", mode)
     result, document = _xeda("run", CHAIN, design, "--rebuild-all")
-    assert result.exit_code == 1 and document["success"] is False
+    assert result.exit_code == 1 and document["outcome"] == "failed"
     assert _states(document)["fpga_pack"] == "failed"
     assert len(_calls(tmp_path, board.design, "fpga_pack")) == 2  # the rebuild did start
     assert len(_calls(tmp_path, board.design, "openfpgaloader")) == 1  # the first launch's only
@@ -966,8 +973,18 @@ def test_a_prebuilt_netlist_bypasses_synthesis_until_its_producer_is_bound(
     (placer,) = _calls(tmp_path, "top", "nextpnr")
     netlist = tmp_path / "xeda_run/top/yosys_fpga/netlist.json"
     assert str(netlist) in placer["inputs"] and str(given) not in placer["inputs"]
-    (nextpnr_node,) = [n for n in document["nodes"] if n["node"] == "nextpnr"]
-    (bound,) = [i for i in nextpnr_node["inputs"] if i["name"] == "netlist"]
+    (nextpnr_node,) = [n for n in document["nodes"] if n["name"] == "nextpnr"]
+    (bound,) = [i for i in nextpnr_node["record"]["inputs"] if i["name"] == "netlist"]
+    assert (bound["origin"], bound["producer"], bound["output"]) == (
+        "producer",
+        "yosys_fpga",
+        "netlist",
+    )
+    # the plan says how the binding was made: by the chain's adjacency, or by the design file
+    planned = _xeda("run", head, design, *settings, "--dry-run")[1]["plan"]["nodes"]
+    (bound,) = [
+        i for n in planned if n["name"] == "nextpnr" for i in n["inputs"] if i["name"] == "netlist"
+    ]
     assert (bound["producer"], bound["binding_origin"]) == (
         "yosys_fpga",
         "chain" if route == "chain" else "file",
@@ -1008,10 +1025,11 @@ def test_a_chain_through_a_flow_without_declared_io_is_refused_before_any_tool_r
     monkeypatch.chdir(tmp_path)
     design = _write_design(tmp_path)
     result, document = _xeda("run", chain, design)
-    assert result.exit_code == 2 and document["success"] is False
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "usage_error"
     message = document["error"]["message"]
     assert f"Flow `{flow}` " in message and re.search(NO_EDGE, message)
-    assert not {"plan", "nodes", "request"} & set(document)
+    assert document["nodes"] == [] and document["spec"] is None
     _nothing_started(tmp_path)
     dry, refused = _xeda("run", chain, design, "--dry-run")
     assert dry.exit_code == 2 and refused["error"]["message"] == message
@@ -1075,10 +1093,10 @@ def test_a_design_binding_for_a_flow_without_a_design_input_is_refused_for_the_m
         "command line, qualified": (plain, "-s", f"flows.{flow}.inputs.design=bsc"),
     }[origin]
     result, document = _xeda("run", flow, *args)
-    assert result.exit_code == 1 and document["success"] is False
+    assert result.exit_code == 2 and document["outcome"] is None
     error = document["error"]
     # a binding refusal, not a settings refusal (`extra fields not permitted`)
-    assert error["type"] == "FlowSettingsException", error
+    assert error["code"] == "unsupported_setting", error
     message = error["message"]
     assert f"flows.{flow}.inputs.design" in message
     assert f"unknown input 'design' of '{flow}'" in message
@@ -1097,9 +1115,9 @@ def test_an_unknown_setting_is_a_settings_error_and_a_binding_is_not(tmp_path, m
     monkeypatch.chdir(tmp_path)
     plain = _write_design(tmp_path)
     result, document = _xeda("run", "vivado_project", plain, "-s", "bogus=1")
-    assert result.exit_code == 1 and document["error"]["type"] == "FlowSettingsError"
+    assert result.exit_code == 2 and document["error"]["code"] == "unknown_setting"
     result, document = _xeda("run", "nextpnr", plain, "-s", "inputs.design=bsc")
-    assert result.exit_code == 1 and document["error"]["type"] == "FlowSettingsException"
+    assert result.exit_code == 2 and document["error"]["code"] == "unsupported_setting"
     _nothing_started(tmp_path)
 
 
@@ -1278,7 +1296,7 @@ def test_the_vivado_chain_programs_the_bitstream_vivado_wrote(
 
     result, document = _xeda(*request)
     assert result.exit_code == 0, result.output
-    assert _states(document) == {"vivado_synth": "fresh", "openfpgaloader": "ran"}
+    assert _states(document) == {"vivado_synth": "reused", "openfpgaloader": "ran"}
     assert len(_programmed_with(runs / "openfpgaloader", demo, bitstream)) == 2
 
 
@@ -1319,8 +1337,8 @@ def test_outputs_to_a_programmer_is_refused_naming_the_setting_that_delivers_its
     monkeypatch.chdir(root)
     options = ["--outputs-to", "out", *(["--dry-run"] if dry_run else [])]
     result, document = _xeda("run", request_, design, *options)
-    assert result.exit_code != 0, result.output
-    assert document["error"]["type"] == "DeliveryError", document
+    assert result.exit_code == 2, result.output
+    assert document["outcome"] is None and document["error"]["code"] == "delivery_refused"
     message = document["error"]["message"]
     assert "openfpgaloader writes no outputs" in message, message
     # a bare name stays in the run directory: the message says every way to give a location

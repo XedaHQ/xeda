@@ -34,8 +34,8 @@ def test_a_second_run_reuses_by_default_and_says_so(sqrt):
     settings = ["-s", "fpga.part=xc7a12tcsg325-1"]
     _run(str(sqrt), *settings, "--json")
     result, document = _run(str(sqrt), *settings, "--json")
-    assert result.exit_code == 0 and document["success"]
-    assert [node["state"] for node in document["nodes"]] == ["fresh"]
+    assert result.exit_code == 0 and document["outcome"] == "passed"
+    assert [node["disposition"] for node in document["nodes"]] == ["reused"]
 
 
 @pytest.mark.parametrize("option", ["--rebuild-all", "--clean"])
@@ -44,7 +44,7 @@ def test_rebuild_all_and_clean_run_a_fresh_flow_again(sqrt, option):
     settings = ["-s", "fpga.part=xc7a12tcsg325-1"]
     _run(str(sqrt), *settings, "--json")
     _, document = _run(str(sqrt), *settings, option, "--json")
-    assert [node["state"] for node in document["nodes"]] == ["ran"]
+    assert [node["disposition"] for node in document["nodes"]] == ["ran"]
 
 
 def test_hashed_run_dirs_give_each_settings_variant_its_own_directory(sqrt, tmp_path):
@@ -53,12 +53,14 @@ def test_hashed_run_dirs_give_each_settings_variant_its_own_directory(sqrt, tmp_
     _, hashed = _run(str(sqrt), *settings, "--hashed-run-dirs", "--json")
     _, other = _run(str(sqrt), *settings, "clock.period=7ns", "--hashed-run-dirs", "--json")
     design_dir = (tmp_path / "xeda_run" / "sqrt").resolve()
-    assert Path(stable["run_path"]) == design_dir / "vivado_synth"
+    assert Path(stable["nodes"][0]["run_dir"]) == design_dir / "vivado_synth"
     for document in (hashed, other):
-        assert document["success"] and Path(document["run_path"]).parent == design_dir
-        assert re.fullmatch("vivado_synth_[a-z0-9]{16}", Path(document["run_path"]).name)
-    assert hashed["run_path"] != other["run_path"]
-    assert [node["state"] for node in hashed["nodes"]] == ["ran"]  # not the stable directory's
+        run_dir = Path(document["nodes"][0]["run_dir"])
+        assert document["outcome"] == "passed" and run_dir.parent == design_dir
+        assert re.fullmatch("vivado_synth_[a-z0-9]{16}", run_dir.name)
+    assert hashed["nodes"][0]["run_dir"] != other["nodes"][0]["run_dir"]
+    # not the stable directory's
+    assert [node["disposition"] for node in hashed["nodes"]] == ["ran"]
 
 
 def test_the_environment_sets_no_option(sqrt, monkeypatch):
@@ -71,9 +73,9 @@ def test_the_environment_sets_no_option(sqrt, monkeypatch):
         monkeypatch.setenv(f"XEDA_RUN_{name}", "1")  # the prefix a subcommand would derive
     result, document = _run(str(sqrt), *settings, "--json")
     assert result.exit_code == 0
-    assert [node["state"] for node in document["nodes"]] == ["fresh"]
-    assert Path(document["run_path"]).name == "vivado_synth"
-    assert Path(document["run_path"]).is_dir()
+    assert [node["disposition"] for node in document["nodes"]] == ["reused"]
+    run_dir = Path(document["nodes"][0]["run_dir"])
+    assert run_dir.name == "vivado_synth" and run_dir.is_dir()
 
 
 @pytest.mark.parametrize(
@@ -95,7 +97,8 @@ def test_the_environment_sets_no_option(sqrt, monkeypatch):
 )
 def test_removed_options_name_their_replacement(sqrt, option, replacement):
     result, document = _run(str(sqrt), option, "--json")
-    assert result.exit_code != 0 and document["success"] is False
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "usage_error"
     assert document["error"]["message"] == f"`{option}` was removed: use {replacement}"
 
 
@@ -107,11 +110,10 @@ CWD_REMOVED = (
 
 def test_cwd_was_removed_and_names_its_replacement(sqrt, tmp_path):
     result, document = _run(str(sqrt), "--cwd", "--json")
-    assert result.exit_code != 0
-    assert document == {
-        "success": False,
-        "error": {"type": "UsageError", "message": CWD_REMOVED},
-    }
+    assert result.exit_code == 2
+    assert document["outcome"] is None and document["spec"] is None
+    assert document["error"]["code"] == "usage_error"
+    assert document["error"]["message"] == CWD_REMOVED
     assert not (tmp_path / "xeda_run").exists(), "nothing ran"
 
 

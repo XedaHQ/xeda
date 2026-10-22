@@ -5,7 +5,7 @@ not read, not a table of design fields -- is a `DesignFileParseError` that names
 when the parser knows it, the (1-based) line and column. A file that parses but does not
 validate is a `DesignValidationError`, which names the file as well. Both are `XedaException`s,
 so the CLI reports them the way it reports every user error: one CRITICAL line and exit status
-1 in text mode, one JSON document under `--json`, never a traceback.
+2 in text mode (the run started no launch), one JSON document under `--json`, never a traceback.
 
 The same goes for the launcher's own user errors: naming a design the project does not have,
 or giving no design at all, used to be a `ValueError` traceback (or a `None` the CLI reported as
@@ -84,9 +84,26 @@ def assert_one_error_document(proc, error_type: str, *mentions: str) -> dict:
     return document
 
 
-def assert_one_critical_line(proc, *mentions: str) -> None:
-    """Text mode: exit status 1, the error on a CRITICAL line, no traceback."""
-    assert proc.returncode == 1, proc.stdout + proc.stderr
+def assert_unstarted_document(proc, code: str, *mentions: str) -> dict:
+    """stdout is one document of a run that started no launch, with the error `code`."""
+    assert proc.returncode == 2, proc.stderr
+    try:
+        document = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        pytest.fail(f"stdout is not one JSON document ({e}):\n{proc.stdout}\n{proc.stderr}")
+    assert document["outcome"] is None
+    assert document["nodes"] == [] and document["roots"] == []
+    error = document["error"]
+    assert error["code"] == code, error
+    for mention in mentions:
+        assert mention in error["message"], error["message"]
+    assert "Traceback" not in proc.stderr, proc.stderr
+    return document
+
+
+def assert_one_critical_line(proc, *mentions: str, returncode: int = 2) -> None:
+    """Text mode: the exit status, the error on a CRITICAL line, no traceback."""
+    assert proc.returncode == returncode, proc.stdout + proc.stderr
     assert "Traceback" not in proc.stderr, proc.stderr
     critical = [line for line in proc.stderr.splitlines() if "CRITICAL" in line]
     assert len(critical) == 1, proc.stderr
@@ -175,6 +192,8 @@ CLI_CASES = {
     "design.txt": ("x\n", "DesignFileParseError", "'.txt'"),
     "badval.toml": ('name = "bad"\n[rtl]\ntop = 5\n', "DesignValidationError", "rtl.top"),
 }
+#: the error code the `run` document gives for each case above
+CLI_CODES = dict.fromkeys(CLI_CASES, "invalid_design")
 
 
 @pytest.mark.parametrize("name", sorted(CLI_CASES))
@@ -186,7 +205,8 @@ def test_xeda_run_reports_an_unloadable_design_file_cleanly(tmp_path, name, json
     args = ["run", "ghdl_sim", str(path)] + (["--json"] if json_flag else [])
     proc = run_xeda(*args, cwd=tmp_path)
     if json_flag:
-        assert_one_error_document(proc, error_type, str(path), detail)
+        document = assert_unstarted_document(proc, CLI_CODES[name], error_type, str(path), detail)
+        assert document["spec"]["design_file"] == str(path)
     else:
         assert_one_critical_line(proc, error_type, str(path), detail)
 
@@ -230,7 +250,7 @@ def test_a_design_name_the_project_lacks_is_reported_cleanly(tmp_path, json_flag
     args = ["run", "ghdl_sim", "--design-name", "nosuch"] + (["--json"] if json_flag else [])
     proc = run_xeda(*args, cwd=tmp_path)
     if json_flag:
-        assert_one_error_document(proc, "DesignNotFoundError", "nosuch", "sqrt")
+        assert_unstarted_document(proc, "unknown_design", "DesignNotFoundError", "nosuch", "sqrt")
     else:
         assert_one_critical_line(proc, "DesignNotFoundError", "nosuch", "sqrt")
 
@@ -241,7 +261,9 @@ def test_a_design_name_without_a_project_is_reported_as_such(tmp_path, json_flag
     args = ["run", "ghdl_sim", "--design-name", "nosuch"] + (["--json"] if json_flag else [])
     proc = run_xeda(*args, cwd=tmp_path)
     if json_flag:
-        assert_one_error_document(proc, "DesignNotFoundError", PROJECT_FILE)
+        assert_unstarted_document(
+            proc, "project_file_not_found", "DesignNotFoundError", PROJECT_FILE
+        )
     else:
         assert_one_critical_line(proc, "DesignNotFoundError", PROJECT_FILE)
 
@@ -257,7 +279,7 @@ def test_a_project_file_that_cannot_be_loaded_is_reported_cleanly(tmp_path, cont
     """A project file that cannot be loaded is reported cleanly."""
     (tmp_path / PROJECT_FILE).write_text(content)
     proc = run_xeda("run", "ghdl_sim", "--design-name", "sqrt", "--json", cwd=tmp_path)
-    assert_one_error_document(proc, "ProjectFileError", PROJECT_FILE, detail)
+    assert_unstarted_document(proc, "invalid_project", "ProjectFileError", PROJECT_FILE, detail)
 
 
 def test_the_runner_raises_xeda_exceptions_for_user_errors(tmp_path):

@@ -410,7 +410,7 @@ def test_session_syncs_launches_streams_and_fetches(tmp_path, toolchain, start_a
     agent.send(launch_message(tmp_path, "launch-1", path_setup(toolchain)))
     result = agent.get("result", whole=True)
     assert result["canceled"] is False and result["exit"] == 0 and result["survivors"] == 0
-    assert result["result"]["success"] is True
+    assert result["result"]["outcome"] == "passed"
     assert any("Running" in line or "nextpnr" in line for line in agent.lines), agent.lines
     launch_dir = workspace(tmp_path) / "launches" / "launch-1"
     state = json.loads((launch_dir / "state.json").read_text())
@@ -500,7 +500,7 @@ def test_cancel_stops_the_launch_and_every_descendant(
     agent.writer.send(CANCEL)
     result = agent.get("result", whole=True)
     assert result["canceled"] is True
-    assert result["result"]["error"]["type"] == "KeyboardInterrupt" and result["exit"] == 130
+    assert result["result"]["error"]["code"] == "canceled" and result["exit"] == 130
     assert_gone(found)
     state = json.loads((workspace(tmp_path) / "launches" / "run-1" / "state.json").read_text())
     assert state["state"] == "canceled"
@@ -628,7 +628,7 @@ def test_setup_lines_and_profile_env_reach_the_launch(
     ]
     agent.send(launch_message(tmp_path, "run-1", setup))
     result = agent.get("result", whole=True)
-    assert result["result"]["success"] is True
+    assert result["result"]["outcome"] == "passed"
     assert "setup-line-ran" in agent.lines
     calls = list(workspace(tmp_path).glob("xeda_run/**/nextpnr/fake_fpga.calls.jsonl"))
     assert len(calls) == 1
@@ -679,7 +679,7 @@ def test_a_background_program_of_the_profile_does_not_keep_the_locks(
         agent.get("hello")
         agent.sync(DESIGN, "run-1")
         agent.send(launch_message(tmp_path, "run-1", setup))
-        assert agent.get("result", whole=True)["result"]["success"] is True
+        assert agent.get("result", whole=True)["result"]["outcome"] == "passed"
         agent.send({"bye": True})
         assert agent.process.wait(timeout=TIMEOUT) == 0
         assert psutil.Process(int(pid_file.read_text())).is_running()

@@ -143,8 +143,8 @@ def test_the_command_line_reports_it_as_a_document(design_dir: Path, monkeypatch
     path.write_text(yaml.safe_dump(design_data({"file": "tb.vhd", "standard": "08"})))
     result = CliRunner().invoke(cli, ["run", "ghdl_sim", str(path), "--json"])
     document = json.loads(result.stdout)
-    assert result.exit_code == 1 and document["success"] is False
-    assert document["error"]["type"] == "DesignValidationError"
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "invalid_design"
     assert "language.vhdl.standard" in document["error"]["message"]
     assert not (design_dir / "xeda_run").exists()
 

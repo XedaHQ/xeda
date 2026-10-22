@@ -297,9 +297,14 @@ def test_a_launch_that_keeps_running_survives_a_killed_session_and_finishes(
     cleanup.append(tool)
     assert isinstance(outcome.error, RemoteDetached), outcome.document
     document = outcome.document
-    assert document["success"] is False and document["error"]["type"] == "RemoteDetached"
+    assert document["outcome"] == "detached"
+    assert document["error"]["code"] == "remote_detached"
     (directory,) = _launch_dirs(remote_host)
-    assert document["launch"] == {"id": directory.name, "host": "somewhere"}
+    assert document["launch_id"] == directory.name
+    assert [(n["outcome"], n["disposition"]) for n in document["nodes"]] == [
+        ("detached", "not_run")
+    ] * len(document["nodes"])
+    assert document["roots"] == ["nextpnr"] and document["nodes"]
     message = document["error"]["message"]
     assert "xeda remote attach somewhere" in message and directory.name in message
     assert "xeda remote cancel somewhere" in message and "--run-root" in message
@@ -312,7 +317,7 @@ def test_a_launch_that_keeps_running_survives_a_killed_session_and_finishes(
 
     gate.release()
     result = _wait_for_launch(remote_host, directory)
-    assert result["success"] is True
+    assert result["outcome"] == "passed"
     assert not _lock_is_held(remote_host)
     _assert_gone(tool)
 
@@ -340,7 +345,7 @@ def test_the_agent_leaves_a_launch_that_keeps_running_and_the_child_keeps_the_lo
     (directory,) = _launch_dirs(remote_host)
     assert psutil.Process(_launch_state(directory)["pid"]).is_running()
     gate.release()
-    assert _wait_for_launch(remote_host, directory)["success"] is True
+    assert _wait_for_launch(remote_host, directory)["outcome"] == "passed"
 
 
 # --- The agent alone ---------------------------------------------------------------------------
@@ -705,7 +710,7 @@ def test_attach_replays_the_log_waits_and_fetches(
     thread.join(TIMEOUT)
     result = attached.get(timeout=TIMEOUT)
     assert result.error is None and result.success, result.document
-    assert result.document["launch"] == {"id": directory.name, "host": "somewhere"}
+    assert result.document["launch_id"] == directory.name
     assert _states(result.document)["nextpnr"] == "ran"
     assert (mirror / "nextpnr" / "config.txt").is_file()
     written = json.loads((mirror / "nextpnr" / "results.json").read_text())
@@ -726,7 +731,7 @@ def test_attach_without_an_id_says_which_launch_it_took(tmp_path, remote_host, c
     outcome = _attach(tmp_path)
 
     assert outcome.error is None and outcome.success, outcome.document
-    assert outcome.document["launch"]["id"] == directory.name
+    assert outcome.document["launch_id"] == directory.name
     messages = "\n".join(record.getMessage() for record in caplog.records)
     assert f"No launch runs on somewhere. Showing the newest launch, {directory.name}" in messages
 
@@ -789,7 +794,7 @@ def test_the_order_of_execution_decides_replacement_and_the_newest_launch(
 
     newest = _attach(tmp_path)
     assert newest.error is None and newest.success, newest.document
-    assert newest.document["launch"]["id"] == "300101000000-00000000"
+    assert newest.document["launch_id"] == "300101000000-00000000"
 
 
 # --- A second request ---------------------------------------------------------------------------
@@ -839,7 +844,7 @@ def test_a_different_request_waits_for_the_lock_of_the_launch_that_keeps_running
     assert _launch_dirs(remote_host) == [first]  # the second request has not launched
 
     gate.release()  # the first tool goes on, and the first launch ends
-    assert _wait_for_launch(remote_host, first)["success"] is True
+    assert _wait_for_launch(remote_host, first)["outcome"] == "passed"
     cleanup.append(gate.pid())  # the second launch starts its tool
     gate.release()
     thread.join(TIMEOUT)
@@ -960,7 +965,11 @@ def test_the_new_commands_report_a_failure_as_one_json_document(tmp_path, remote
     )
     assert result.exit_code == 1
     document = json.loads(result.stdout)
-    assert document["success"] is False and document["error"]["message"]
+    assert document["error"]["message"]
+    if command == "attach":  # the document of a launch
+        assert document["outcome"] == "failed" and document["error"]["code"] == "remote_failed"
+    else:
+        assert document["success"] is False
 
 
 def test_a_run_that_keeps_running_prints_the_launch_in_its_json_document(tmp_path, remote_host):
@@ -971,7 +980,7 @@ def test_a_run_that_keeps_running_prints_the_launch_in_its_json_document(tmp_pat
     )
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
-    assert document["success"] is True and document["remote"] == "somewhere"
+    assert document["outcome"] == "passed" and document["launch_id"]
     assert client  # the module under test is imported
 
 
@@ -999,6 +1008,8 @@ def test_the_launch_record_is_never_written_through_a_link(tmp_path, linked):
         design=None,
         target=None,
         request=[],
+        settings={},
+        nodes=[],
         local_root=str(run_root),
         run_paths=[],
         remote_run_root="/r/xeda_run",

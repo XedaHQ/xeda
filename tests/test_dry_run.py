@@ -175,9 +175,9 @@ def test_an_impossible_plan_is_a_failure_document(tmp_path):
     design = _design_file(tmp_path / "d", yosys_part=OTHER_PART)
     proc = run_xeda("run", "nextpnr", str(design), "--dry-run", "--json", cwd=tmp_path)
     document = json_stdout(proc)
-    assert proc.returncode == 1
-    assert document["success"] is False
-    assert document["error"]["type"] == "FlowSettingsError"
+    assert proc.returncode == 2
+    assert document["outcome"] is None
+    assert document["error"]["code"] == "shared_setting_conflict"
     assert OTHER_PART in document["error"]["message"]
     assert not (tmp_path / "xeda_run").exists()
 
@@ -205,10 +205,12 @@ def test_dry_run_leaves_existing_unmarked_roots_unchanged(tmp_path, root_kind, v
         cwd=tmp_path,
     )
     document = json_stdout(proc)
-    assert proc.returncode == (0 if valid_plan else 1), proc.stderr
-    assert document["success"] is valid_plan
-    if not valid_plan:
-        assert document["error"]["type"] == "FlowSettingsError"
+    assert proc.returncode == (0 if valid_plan else 2), proc.stderr
+    if valid_plan:
+        assert document["success"] is True
+    else:
+        assert document["outcome"] is None
+        assert document["error"]["code"] == "shared_setting_conflict"
     assert _state(tmp_path, exclude=[]) == before
 
 
@@ -261,8 +263,9 @@ def test_side_effecting_loading_is_refused_before_it_runs(tmp_path, kind):
         cwd=tmp_path,
     )
     document = json_stdout(proc)
-    assert proc.returncode == 1, proc.stderr
-    assert document["success"] is False
+    assert proc.returncode == 2, proc.stderr
+    assert document["outcome"] is None
+    assert document["error"]["code"] == "invalid_design"
     expected = "Git dependency fetch" if kind == "git" else "generator"
     assert expected in document["error"]["message"]
     assert not sentinel.exists()
@@ -279,7 +282,7 @@ def test_an_impossible_target_fails_without_probing_tools(tmp_path, monkeypatch)
     result = CliRunner().invoke(
         cli, ["run", "nextpnr", str(design), "--dry-run", "-s", "fpga.family=unknown"]
     )
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 2, result.output
     assert isinstance(result.exception, SystemExit)
     assert "unknown" in result.output
     assert not (tmp_path / "xeda_run").exists()
@@ -305,7 +308,8 @@ def test_an_escaping_run_directory_is_refused_without_writes(tmp_path):
         cwd=tmp_path,
     )
     document = json_stdout(proc)
-    assert proc.returncode == 1 and document["success"] is False
+    assert proc.returncode == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "invalid_run_root"
     assert "blink is a symbolic link" in document["error"]["message"]
     assert sorted(p.name for p in root.iterdir()) == before
     assert list(outside.iterdir()) == []
@@ -377,9 +381,12 @@ def test_a_subprocess_dry_run_never_invokes_tools_or_delivers(
         cwd=tmp_path,
     )
     document = json_stdout(proc)
-    assert proc.returncode == int(invalid_target), proc.stderr
-    assert document["success"] is (not invalid_target)
-    if invalid_target:
+    assert proc.returncode == (2 if invalid_target else 0), proc.stderr
+    if not invalid_target:
+        assert document["success"] is True
+    else:
+        assert document["outcome"] is None
+        assert document["error"]["code"] == "unsupported_setting"
         assert "unknown" in document["error"]["message"]
     assert not sentinel.exists()
     assert not (tmp_path / "xeda_run").exists()

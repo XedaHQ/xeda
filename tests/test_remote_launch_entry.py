@@ -137,18 +137,28 @@ def test_result_is_the_json_document_of_a_local_run(tmp_path, fake_fpga):
     )
     assert local.returncode == 0, local.stderr
     document = json.loads(local.stdout)
-    assert result["success"] is True and document["success"] is True
-    assert set(result) == set(document) | {"written", "unreadable"}
-    for key in ("flow", "design", "target", "request", "success"):
-        assert result[key] == document[key], key
-    assert set(result["results"]) == set(document["results"])
-    assert [{k: v for k, v in node.items() if k != "run_path"} for node in result["nodes"]] == [
-        {k: v for k, v in node.items() if k != "run_path"} for node in document["nodes"]
-    ]
-    assert [node["state"] for node in result["nodes"]] == ["ran", "ran"]
-    assert Path(result["run_path"]).is_relative_to(tmp_path / "remote" / "xeda_run")
+    assert result["outcome"] == "passed" and document["outcome"] == "passed"
+    assert set(result) == set(document) | {"written", "unreadable", "named"}
+    assert result["roots"] == document["roots"]
+    assert result["spec"]["flow"] == document["spec"]["flow"] == "nextpnr"
+    assert result["spec"]["design"] == document["spec"]["design"]
+    assert result["spec"]["target"] == document["spec"]["target"]
+
+    def shown(nodes):
+        """The nodes without what differs between two launches: the places and the time."""
+        return [
+            {k: v for k, v in node.items() if k not in ("run_dir", "record", "elapsed")}
+            for node in nodes
+        ]
+
+    assert shown(result["nodes"]) == shown(document["nodes"])
+    assert [node["disposition"] for node in result["nodes"]] == ["ran", "ran"]
+    for remote_node, local_node in zip(result["nodes"], document["nodes"]):
+        for key in ("identity", "metrics", "outputs"):
+            assert remote_node["record"][key] == local_node["record"][key], key
+        assert Path(remote_node["run_dir"]).is_relative_to(tmp_path / "remote" / "xeda_run")
     # Each node that ran lists the files it wrote, relative to its run directory.
-    assert set(result["written"]) == {node["node"] for node in result["nodes"]}
+    assert set(result["written"]) == {node["name"] for node in result["nodes"]}
     assert "results.json" in result["written"]["nextpnr"]
     assert all(
         not Path(name).is_absolute() for names in result["written"].values() for name in names
@@ -161,8 +171,7 @@ def test_identity_mismatch_is_refused_before_anything_runs(tmp_path, fake_fpga):
     expected["nextpnr"] = "0" * len(expected["nextpnr"])
     process, result = launch(tmp_path, design, expected=expected)
     assert process.returncode == 1
-    assert result["success"] is False
-    assert result["error"]["type"] == "RemoteIncompatible"
+    assert result["outcome"] == "failed" and result["error"]["code"] == "remote_failed"
     assert "`nextpnr`" in result["error"]["message"]
     assert result["written"] == {} and result["nodes"] == []
     assert not (tmp_path / "remote" / "xeda_run").exists()
@@ -174,7 +183,7 @@ def test_a_design_moved_to_the_inputs_directory_keeps_its_identity(tmp_path, fak
     moved = make_inputs(tmp_path / "other")
     process, result = launch(tmp_path, moved, expected=expected)
     assert process.returncode == 0, process.stderr
-    assert result["success"] is True
+    assert result["outcome"] == "passed"
 
 
 def test_a_node_missing_from_the_expected_plan_is_refused(tmp_path, fake_fpga):
@@ -182,7 +191,7 @@ def test_a_node_missing_from_the_expected_plan_is_refused(tmp_path, fake_fpga):
     expected = expected_hashes(tmp_path, design)
     del expected["nextpnr"]
     _process, result = launch(tmp_path, design, expected=expected)
-    assert result["error"]["type"] == "RemoteIncompatible"
+    assert result["error"]["code"] == "remote_failed"
     assert "the remote plan has the node `nextpnr`" in result["error"]["message"]
     assert not (tmp_path / "remote" / "xeda_run").exists()
 
@@ -190,8 +199,8 @@ def test_a_node_missing_from_the_expected_plan_is_refused(tmp_path, fake_fpga):
 def test_failed_node_records_only_what_this_run_wrote(tmp_path, fake_fpga):
     design = make_inputs(tmp_path)
     first_process, first = launch(tmp_path, design, name="first")
-    assert first["success"] is True, first_process.stderr
-    run_dir = Path(first["run_path"])
+    assert first["outcome"] == "passed", first_process.stderr
+    run_dir = Path(first["nodes"][-1]["run_dir"])
     outputs = {p.relative_to(run_dir).as_posix() for p in run_dir.rglob("*") if p.is_file()}
     assert len(outputs) > 3
     # Another clock makes both nodes stale. The fake `nextpnr` fails when it starts, so its run
@@ -203,8 +212,8 @@ def test_failed_node_records_only_what_this_run_wrote(tmp_path, fake_fpga):
         name="second",
         env={"XEDA_FAKE_FPGA_MODE": "fail", "XEDA_FAKE_FPGA_TOOL": "nextpnr-ecp5"},
     )
-    assert second["success"] is False
-    assert Path(second["run_path"]) == run_dir
+    assert second["outcome"] == "failed"
+    assert Path(second["nodes"][-1]["run_dir"]) == run_dir
     written = set(second["written"]["nextpnr"])
     assert "results.json" in written
     assert json.loads((run_dir / "results.json").read_text())["outcome"] == "failed"
@@ -220,7 +229,7 @@ def test_a_blocked_consumer_writes_nothing_while_the_failed_producer_run_rewrite
 ):
     design = make_inputs(tmp_path)
     _process, first = launch(tmp_path, design, name="first")
-    run_dir = Path(first["run_path"])
+    run_dir = Path(first["nodes"][-1]["run_dir"])
     assert json.loads((run_dir / "results.json").read_text())["outcome"] == "passed"
     changed = make_inputs(tmp_path, "120 MHz")
     _process, second = launch(
@@ -229,8 +238,8 @@ def test_a_blocked_consumer_writes_nothing_while_the_failed_producer_run_rewrite
         name="second",
         env={"XEDA_FAKE_FPGA_MODE": "fail", "XEDA_FAKE_FPGA_TOOL": "yosys"},
     )
-    assert second["success"] is False
-    states = {node["flow"]: node["state"] for node in second["nodes"]}
+    assert second["outcome"] == "failed"
+    states = {node["flow"]: node["outcome"] for node in second["nodes"]}
     assert states["nextpnr"] == "blocked"
     # The consumer did not run: its record is the first run's, and the launch wrote no file of it.
     assert json.loads((run_dir / "results.json").read_text())["outcome"] == "passed"
@@ -241,10 +250,10 @@ def test_a_blocked_consumer_writes_nothing_while_the_failed_producer_run_rewrite
 def test_second_launch_reuses_a_fresh_node(tmp_path, fake_fpga):
     design = make_inputs(tmp_path)
     _process, first = launch(tmp_path, design, name="first")
-    assert [node["state"] for node in first["nodes"]] == ["ran", "ran"]
+    assert [node["disposition"] for node in first["nodes"]] == ["ran", "ran"]
     _process, second = launch(tmp_path, design, name="second")
-    assert second["success"] is True
-    assert [node["state"] for node in second["nodes"]] == ["fresh", "fresh"]
+    assert second["outcome"] == "passed"
+    assert [node["disposition"] for node in second["nodes"]] == ["reused", "reused"]
     assert second["written"] == {}
 
 
@@ -284,9 +293,10 @@ def test_unexpected_exception_still_writes_a_failure_document(tmp_path, fake_fpg
         tmp_path, design, inputs_dir=str(tmp_path / "remote" / "inputs" / "nothing")
     )
     assert process.returncode == 1
-    assert result["success"] is False
-    assert result["error"]["type"] == "FileNotFoundError"
-    assert result["flow"] == "nextpnr"
+    assert result["outcome"] == "failed"
+    assert result["error"]["code"] == "internal_error"
+    assert "nothing" in result["error"]["message"]
+    assert result["spec"]["flow"] == "nextpnr"
     assert result["nodes"] == [] and result["written"] == {}
 
 
@@ -302,7 +312,7 @@ def test_a_request_file_that_is_not_a_request_gets_a_failure_document(tmp_path):
     )
     assert process.returncode == 1
     result = json.loads((launch_dir / "result.json").read_text())
-    assert result["success"] is False
+    assert result["outcome"] == "failed" and result["error"]["code"] == "remote_failed"
     assert "request.json is not a launch request" in result["error"]["message"]
 
 
@@ -409,17 +419,16 @@ def launch_raising(tmp_path: Path, exception: str) -> tuple[subprocess.Completed
 def test_an_interrupt_gives_a_failure_document_and_status_130(tmp_path):
     process, result = launch_raising(tmp_path, "KeyboardInterrupt()")
     assert process.returncode == 130, process.stderr
-    assert result["success"] is False
-    assert result["error"]["type"] == "KeyboardInterrupt"
-    assert result["flow"] == "nextpnr"
+    assert result["outcome"] == "canceled" and result["error"]["code"] == "canceled"
+    assert result["spec"]["flow"] == "nextpnr"
     assert result["written"] == {} and result["unreadable"] == {}
 
 
 def test_a_system_exit_gives_a_failure_document_and_is_raised_again(tmp_path):
     process, result = launch_raising(tmp_path, "SystemExit(3)")
     assert process.returncode == 3, process.stderr
-    assert result["success"] is False
-    assert result["error"]["type"] == "SystemExit"
+    assert result["outcome"] == "failed" and result["error"]["code"] == "internal_error"
+    assert "SystemExit" in result["error"]["message"]
     assert "written" in result and "unreadable" in result
 
 
@@ -460,7 +469,7 @@ def failed_before_anything_ran(tmp_path: Path, process: subprocess.CompletedProc
     launch_dir = tmp_path / "launch"
     assert process.returncode == 1, process.stderr
     result = json.loads((launch_dir / "result.json").read_text())
-    assert result["success"] is False and result["nodes"] == [] and result["flow"] is None
+    assert result["outcome"] == "failed" and result["nodes"] == [] and result["spec"] is None
     message = result["error"]["message"]
     assert message in process.stderr
     assert not (tmp_path / "remote" / "xeda_run").exists()  # no run

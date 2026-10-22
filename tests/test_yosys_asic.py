@@ -342,7 +342,7 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
         timeout=600,
     )
     document = json.loads(proc.stdout)
-    assert proc.returncode == 0 and document["success"], proc.stderr[-3000:]
+    assert proc.returncode == 0 and document["outcome"] == "passed", proc.stderr[-3000:]
     assert sorted(p.parent.name for p in run_root.rglob("settings.json")) == ["yosys"]
     run_dir = run_root / "mac" / "yosys"
     results = json.loads((run_dir / "results.json").read_text())
@@ -582,7 +582,7 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
         timeout=HANG_GUARD,
     )
     document = json.loads(proc.stdout)
-    assert proc.returncode == 0 and document["success"], proc.stderr[-3000:] or document
+    assert proc.returncode == 0 and document["outcome"] == "passed", proc.stderr[-3000:] or document
     producer = root / "mac" / "yosys"
     settings = json.loads((producer / "settings.json").read_text())["effective_flow_settings"]
     assert settings["abc"]["driver_cell"] == "INV_X1"

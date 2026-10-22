@@ -126,7 +126,8 @@ def test_removed_synth_reports_its_replacement_from_every_origin(tmp_path, origi
             command.extend(["-s", "flows.vivado_postsynth_sim.synth.write_checkpoint=true"])
         proc = subprocess.run(command, capture_output=True, text=True, timeout=HANG_GUARD)
         document = json.loads(proc.stdout)
-        assert proc.returncode != 0 and not document["success"]
+        assert proc.returncode == 2 and document["outcome"] is None
+        assert document["error"]["code"] == "removed_setting"
         message = document["error"]["message"]
     assert "was removed" in message and "flows.vivado_synth.write_checkpoint" in message
 

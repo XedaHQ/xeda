@@ -5,7 +5,8 @@ for a design of a project. `design_file` is the design file the request named, a
 path, and `null` when the request named none (a design of a project, or no design). A failure
 that comes before the design is loaded has no name to report for a design file: `design` is then
 `null`, and `design_file` still says which file was named. The two keys are in every document:
-success, failure, dry run and `--remote`.
+success, failure, dry run and `--remote`. A run puts them in `spec`; a dry run and `dse` keep
+them at the top level.
 """
 
 import json
@@ -59,25 +60,25 @@ def test_a_run_reports_the_design_s_name_and_the_file_it_was_read_from(world):
     status, document = _json("run", "vivado_synth", "sqrt.yaml", *SQRT_SETTINGS)
 
     assert status == 0, document
-    assert document["design"] == "sqrt"
-    assert _is(document["design_file"], world / "sqrt.yaml")
+    assert document["spec"]["design"] == "sqrt"
+    assert _is(document["spec"]["design_file"], world / "sqrt.yaml")
 
 
 def test_the_design_file_option_names_the_file_the_same_way(world):
     status, document = _json("run", "vivado_synth", "--design-file", "sqrt.yaml", *SQRT_SETTINGS)
 
     assert status == 0, document
-    assert document["design"] == "sqrt"
-    assert _is(document["design_file"], world / "sqrt.yaml")
+    assert document["spec"]["design"] == "sqrt"
+    assert _is(document["spec"]["design_file"], world / "sqrt.yaml")
 
 
 def test_a_failure_after_the_design_loaded_still_names_it(world):
     status, document = _json("run", "vivado_synth", "sqrt.yaml", "-s", "no_such_setting=1")
 
-    assert status == 1 and document["success"] is False
-    assert document["error"]["type"] == "FlowSettingsError"
-    assert document["design"] == "sqrt"
-    assert _is(document["design_file"], world / "sqrt.yaml")
+    assert status == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "unknown_setting"
+    assert document["spec"]["design"] == "sqrt"
+    assert _is(document["spec"]["design_file"], world / "sqrt.yaml")
 
 
 def test_a_design_file_that_does_not_load_has_no_name_but_the_file_is_named(world):
@@ -86,9 +87,10 @@ def test_a_design_file_that_does_not_load_has_no_name_but_the_file_is_named(worl
     )
     status, document = _json("run", "vivado_synth", "bad.toml", *SQRT_SETTINGS)
 
-    assert status == 1 and document["error"]["type"] == "DesignValidationError"
-    assert document["design"] is None
-    assert _is(document["design_file"], world / "bad.toml")
+    assert status == 2 and document["error"]["code"] == "invalid_design"
+    assert document["error"]["message"].startswith("DesignValidationError")
+    assert document["spec"]["design"] is None
+    assert _is(document["spec"]["design_file"], world / "bad.toml")
 
 
 def test_a_dry_run_reports_the_same_two_keys(world):
@@ -117,17 +119,17 @@ def test_a_design_of_a_project_that_is_not_there_is_named_as_asked(world):
     )
     status, document = _json("run", "verilator", "--design-name", "nosuch", "--dry-run")
 
-    assert status == 1 and document["success"] is False
-    assert document["design"] == "nosuch"
-    assert document["design_file"] is None
+    assert status == 2 and document["outcome"] is None
+    assert document["spec"]["design"] == "nosuch"
+    assert document["spec"]["design_file"] is None
 
 
 def test_no_design_at_all_names_neither(world):
     status, document = _json("run", "verilator")
 
-    assert status == 1
-    assert document["error"]["type"] == "DesignNotSpecified"
-    assert document["design"] is None and document["design_file"] is None
+    assert status == 2
+    assert document["error"]["code"] == "usage_error"
+    assert document["spec"] is None
 
 
 def test_a_remote_run_reports_the_same_two_keys(world, remote_host, monkeypatch):
@@ -135,10 +137,11 @@ def test_a_remote_run_reports_the_same_two_keys(world, remote_host, monkeypatch)
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
     status, document = _json("run", "verilator", "blink.toml", "--remote", "somewhere")
 
-    assert status == 1 and document["success"] is False
-    assert document["error"]["type"] == "RemoteConnectionError"
-    assert document["design"] == "blink"
-    assert _is(document["design_file"], world / "blink.toml")
+    assert status == 1 and document["outcome"] == "failed"
+    assert document["error"]["code"] == "remote_failed"
+    assert document["error"]["message"].startswith("RemoteConnectionError")
+    assert document["spec"]["design"] == "blink"
+    assert _is(document["spec"]["design_file"], world / "blink.toml")
 
 
 def test_a_remote_run_whose_design_does_not_load_has_no_name(world, monkeypatch):
@@ -147,9 +150,10 @@ def test_a_remote_run_whose_design_does_not_load_has_no_name(world, monkeypatch)
     )
     status, document = _json("run", "verilator", "bad.toml", "--remote", "somewhere")
 
-    assert status == 1 and document["success"] is False
-    assert document["design"] is None
-    assert _is(document["design_file"], world / "bad.toml")
+    assert status == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "invalid_design"
+    assert document["spec"]["design"] is None
+    assert _is(document["spec"]["design_file"], world / "bad.toml")
 
 
 def test_an_exploration_that_fails_after_loading_its_design_names_it(world):

@@ -189,12 +189,12 @@ def test_a_remote_run_marks_its_local_results_directory_and_reuses_it(tmp_path, 
         document = _succeeded(
             remote_request(tmp_path, design, "vivado_synth", flow_settings=SQRT_SETTINGS)
         )
-        mirror = Path(document["run_path"])
+        mirror = Path(document["nodes"][-1]["run_dir"])
         assert mirror == run_root / "@somewhere" / "sqrt" / "vivado_synth"
         assert is_run_root(run_root), f"run {attempt}"
         mirrors.append(mirror)
     assert mirrors[0] == mirrors[1]
-    assert [n["state"] for n in document["nodes"]] == ["fresh"]
+    assert [n["disposition"] for n in document["nodes"]] == ["reused"]
 
 
 # --- Deliveries from the mirror -----------------------------------------------------------------
@@ -210,10 +210,11 @@ def test_a_remote_run_delivers_outputs_to_but_never_onto_a_read_input(tmp_path, 
             tmp_path, design, "vivado_synth", flow_settings=SQRT_SETTINGS, outputs_to=got
         )
     )
-    assert first["results"]["deliveries"]
-    delivered = Path(first["results"]["deliveries"][0]["to"])
+    deliveries = first["nodes"][-1]["deliveries"]
+    assert deliveries and all(d["delivered"] for d in deliveries)
+    delivered = Path(deliveries[0]["destination"])
     assert delivered.is_relative_to(got) and delivered.is_file()
-    assert Path(first["run_path"]).is_relative_to(Path(first["mirror"]))
+    assert Path(first["nodes"][-1]["run_dir"]).is_relative_to(tmp_path / "local" / "xeda_run")
     kept = delivered.read_bytes()
     outcome = remote_request(
         tmp_path,
@@ -238,7 +239,7 @@ def test_a_remote_run_never_delivers_into_a_directory_a_setting_reads(tmp_path, 
             tmp_path, design, "vivado_synth", flow_settings=SQRT_SETTINGS, outputs_to=got
         )
     )
-    assert first["results"]["deliveries"]
+    assert first["nodes"][-1]["deliveries"]
     kept = {p: p.read_bytes() for p in got.rglob("*") if p.is_file()}
     assert kept
     calls = len([c for c in remote_host.remote.calls("ssh") if "-M" in c])
@@ -278,8 +279,9 @@ def test_a_remote_run_guards_the_directories_its_flow_reads_as_the_command_line_
     result = _succeeded(
         remote_request(tmp_path, design, "vivado_synth", flow_settings=overridden, outputs_to=old)
     )
-    assert result["results"]["deliveries"]
-    assert all(Path(d["to"]).is_relative_to(old) for d in result["results"]["deliveries"])
+    deliveries = result["nodes"][-1]["deliveries"]
+    assert deliveries
+    assert all(Path(d["destination"]).is_relative_to(old) for d in deliveries)
     outcome = remote_request(
         tmp_path,
         design,
@@ -297,12 +299,15 @@ def test_a_remote_run_guards_the_directories_its_flow_reads_as_the_command_line_
 
 def test_a_partial_delivery_is_reported_before_an_oserror_re_raises(tmp_path):
     """As the local launch does (`Deliveries.deliver`): an `OSError` on the second file of a
-    delivery must not lose the first from `results["deliveries"]`, the list that `--json`
+    delivery must not lose the first from `Deliveries.delivered`, the list that the document
     shows."""
     import xeda.deliver
     from xeda.deliver import Deliveries, ReadInputs
+    from xeda.records import decode_record
     from xeda.remote.fetch import deliver_fetched
     from xeda.run_root import ensure_run_root
+
+    from .record_documents import record_document
 
     root = ensure_run_root(tmp_path / "run")
     assert root is not None
@@ -319,20 +324,18 @@ def test_a_partial_delivery_is_reported_before_an_oserror_re_raises(tmp_path):
             raise OSError("disk full")
         return real_copy(self, delivery, source, destination, expected, sha, *rest)
 
-    results = {"success": True}
+    record = decode_record(
+        record_document("passed", artifacts={"a": "a.txt", "b": "b.txt"}),
+        run_dir=mirror,
+        run_root=root,
+    )
+    delivery = Deliveries(mirror, root, inputs=ReadInputs())
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(Deliveries, "_copy", copy_then_fail_second)
         with pytest.raises(OSError, match="disk full"):
-            deliver_fetched(
-                Deliveries(mirror, root, inputs=ReadInputs()),
-                results,
-                {"a": "/remote/run/a.txt", "b": "/remote/run/b.txt"},
-                "/remote/run",
-                mirror,
-                outputs_to=tmp_path / "got",
-            )
-    assert len(results["deliveries"]) == 1
-    delivered = Path(results["deliveries"][0]["to"])
+            deliver_fetched(delivery, record, outputs_to=tmp_path / "got")
+    assert len(delivery.delivered) == 1
+    delivered = delivery.delivered[0].destination
     assert delivered.is_relative_to(tmp_path / "got") and delivered.is_file()
 
 
@@ -382,7 +385,7 @@ def test_the_mirror_is_written_and_delivered_under_its_run_directory_lock(
             outputs_to=tmp_path / "got",
         )
     )
-    assert document["results"]["deliveries"]
+    assert document["nodes"][-1]["deliveries"]
     assert {what for what, _ in writes} == {"publish", "records", "deliver"}
     assert [what for what, locked in writes if not locked] == []
     assert not _locked_elsewhere(mirror), "the lock is released once the run is delivered"
@@ -406,7 +409,9 @@ def test_a_refused_delivery_leaves_the_mirror_whole_and_unlocked(
         outputs_to=tmp_path / "got",
     )
     assert isinstance(outcome.error, DeliveryError) and not outcome.success
-    assert outcome.document["error"]["type"] == "DeliveryError"
+    assert outcome.document["outcome"] == "failed"
+    assert outcome.document["error"]["code"] == "delivery_failed"
+    assert outcome.document["nodes"][-1]["record"]["outcome"] == "passed"
     # the records of the mirror were written before the delivery, and name the mirror
     saved = json.loads((mirror / "results.json").read_text())
     assert saved["outcome"] == "passed" and str(mirror) not in json.dumps(saved)
@@ -443,18 +448,15 @@ def test_a_failed_delivery_keeps_the_result_the_mirror_and_the_copies_in_the_doc
     )
     document = outcome.document
     assert isinstance(outcome.error, OSError) and not outcome.success
-    assert document["success"] is False
-    assert document["error"]["type"] == "OSError"
+    assert document["outcome"] == "failed"
+    assert document["error"]["code"] == "delivery_failed"
     assert "disk full" in document["error"]["message"]
-    assert document["remote"] == "somewhere" and document["mirror"] == str(mirror.parent.parent)
-    assert document["run_path"] == str(mirror)
-    assert document["results"]["success"] is True  # what the remote run reported
-    (delivered,) = document["results"]["deliveries"]
-    assert Path(delivered["to"]).is_relative_to(tmp_path / "got")
-    assert Path(delivered["to"]).is_file()
-    (node,) = [n for n in document["nodes"] if n["node"] == "vivado_synth"]
-    assert node["run_path"] == str(mirror)
-    assert node["deliveries"] == document["results"]["deliveries"]
+    (node,) = [n for n in document["nodes"] if n["name"] == "vivado_synth"]
+    assert node["run_dir"] == str(mirror)
+    assert node["outcome"] == "passed"  # what the remote run reported
+    (delivered,) = node["deliveries"]
+    assert Path(delivered["destination"]).is_relative_to(tmp_path / "got")
+    assert Path(delivered["destination"]).is_file() and delivered["delivered"] is True
     assert (mirror / "results.json").is_file()  # the mirror stays whole
 
 

@@ -611,3 +611,20 @@ def test_a_launch_outcome_of_the_remote_is_not_a_setup_failure():
     assert public_error(RemoteConnectionError("down")).code == "remote_unreachable"
     assert public_error(RemoteProvisionError("env-failed", "x")).code == "remote_setup_failed"
     assert public_error(RemoteCanceled("Ctrl-C")).code != "remote_setup_failed"
+
+
+def test_a_refusal_of_a_delivery_before_the_run_is_a_request_error():
+    refused = public_error(DeliveryError("--outputs-to names x, a file", before_run=True))
+    assert isinstance(refused, errors.SpecError) and refused.code == "delivery_refused"
+    # a delivery that fails after the run is no mistake of the request
+    assert public_error(DeliveryError("disk full")).code == "internal_error"
+
+
+def test_a_link_in_the_run_root_and_an_escaped_name_are_request_errors():
+    from xeda.utils import EscapedName
+
+    linked = public_error(RunDirectoryError("`d` is a symbolic link"))
+    assert isinstance(linked, errors.SpecError) and linked.code == "invalid_run_root"
+    escaped = public_error(EscapedName("A\\.B"))
+    assert isinstance(escaped, errors.SettingsError)
+    assert (escaped.code, escaped.setting) == ("invalid_value", "A\\.B")

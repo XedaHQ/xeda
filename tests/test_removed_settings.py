@@ -181,9 +181,11 @@ def test_the_command_line_reports_a_design_file_s_open_xc7_section(tmp_path):
             capture_output=True,
             text=True,
         )
-        assert proc.returncode != 0
-        error = json.loads(proc.stdout)["error"]
-        assert error["type"] == "FlowRemovedError" and REMOVED_OPEN_XC7 in error["message"]
+        assert proc.returncode == 2
+        document = json.loads(proc.stdout)
+        assert document["outcome"] is None
+        error = document["error"]
+        assert error["code"] == "flow_not_found" and REMOVED_OPEN_XC7 in error["message"]
 
 
 def test_a_section_of_a_flow_that_is_not_installed_is_still_tolerated(tmp_path):
@@ -274,9 +276,11 @@ def test_a_removed_flow_named_on_the_command_line_as_a_section_says_so(tmp_path)
             capture_output=True,
             text=True,
         )
-        assert proc.returncode != 0
-        error = json.loads(proc.stdout)["error"]
-        assert error["type"] == "FlowRemovedError" and REMOVED_OPEN_XC7 in error["message"]
+        assert proc.returncode == 2
+        document = json.loads(proc.stdout)
+        assert document["outcome"] is None
+        error = document["error"]
+        assert error["code"] == "flow_not_found" and REMOVED_OPEN_XC7 in error["message"]
 
 
 # ------------------------------------------------------------------------ `clock_period`

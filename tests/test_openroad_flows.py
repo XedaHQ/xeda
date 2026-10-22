@@ -458,8 +458,8 @@ def xeda_run(tmp_path: Path, *settings: str) -> tuple[Any, dict]:
     return result, json.loads(result.stdout)
 
 
-def states(document: dict) -> list[tuple[str, str]]:
-    return [(node["flow"], node["state"]) for node in document["nodes"]]
+def states(document: dict) -> list[tuple[str, str, str]]:
+    return [(node["flow"], node["outcome"], node["disposition"]) for node in document["nodes"]]
 
 
 # ------------------------------------------------------------------------------ the command line
@@ -570,12 +570,13 @@ def test_a_failed_stage_reruns_alone(tmp_path, monkeypatch, chain):
     with monkeypatch.context() as failing:
         failing.setenv("XEDA_FAKE_TOOL_FAIL", "clock_tree_synthesis")
         result, document = xeda_run(tmp_path, *settings)
-    assert result.exit_code != 0 and document["success"] is False
+    assert result.exit_code == 1 and document["outcome"] == "failed"
+    assert document["error"]["node"] == "openroad_cts"
     assert states(document) == [
-        ("openroad_place", "ran"),
-        ("openroad_cts", "failed"),
-        ("openroad_grt", "blocked"),
-        ("openroad", "blocked"),
+        ("openroad_place", "passed", "ran"),
+        ("openroad_cts", "failed", "ran"),
+        ("openroad_grt", "blocked", "not_run"),
+        ("openroad", "blocked", "not_run"),
     ]
     cts = run_dir(tmp_path, "openroad_cts")
     assert (cts / "openroad_cts-failed.odb").is_file()
@@ -586,12 +587,12 @@ def test_a_failed_stage_reruns_alone(tmp_path, monkeypatch, chain):
         assert not (run_dir(tmp_path, blocked) / f"{blocked}.tcl").exists()
 
     result, document = xeda_run(tmp_path, *settings)
-    assert result.exit_code == 0 and document["success"] is True, document.get("error")
+    assert result.exit_code == 0 and document["outcome"] == "passed", document.get("error")
     assert states(document) == [
-        ("openroad_place", "fresh"),
-        ("openroad_cts", "ran"),
-        ("openroad_grt", "ran"),
-        ("openroad", "ran"),
+        ("openroad_place", "passed", "reused"),
+        ("openroad_cts", "passed", "ran"),
+        ("openroad_grt", "passed", "ran"),
+        ("openroad", "passed", "ran"),
     ]
     assert not (cts / "openroad_cts-failed.odb").exists()
     assert (cts / "trace.json").is_file() and (cts / "cts.odb").is_file()
@@ -705,15 +706,17 @@ def test_a_timing_miss_rejects_the_run_and_the_next_launch_reports_it_again(
 
 def test_the_rejection_is_reported_again_by_the_command_line(tmp_path, monkeypatch, chain):
     result, document = xeda_run(tmp_path)
-    assert result.exit_code != 0 and document["error"]["type"] == "FlowFailed"
-    assert states(document)[-1] == ("openroad", "failed")
+    assert result.exit_code == 1 and document["outcome"] == "rejected"
+    assert document["error"]["code"] == "rejected"
+    assert states(document)[-1] == ("openroad", "rejected", "ran")
     result, document = xeda_run(tmp_path)
-    assert result.exit_code != 0 and document["error"]["type"] == "FlowFailed"
+    assert result.exit_code == 1 and document["outcome"] == "rejected"
+    assert document["error"]["code"] == "rejected"
     assert states(document) == [
-        ("openroad_place", "fresh"),
-        ("openroad_cts", "fresh"),
-        ("openroad_grt", "fresh"),
-        ("openroad", "rejected again"),
+        ("openroad_place", "passed", "reused"),
+        ("openroad_cts", "passed", "reused"),
+        ("openroad_grt", "passed", "reused"),
+        ("openroad", "rejected", "reused"),
     ]
     assert "timing not met" in document["nodes"][-1]["reason"]
 

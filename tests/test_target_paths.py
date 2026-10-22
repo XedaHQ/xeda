@@ -298,8 +298,8 @@ def test_a_chain_runs_every_stage_in_its_target(tmp_path, toolchain, targets, se
     assert result.exit_code == 0, result.output
     base = tmp_path / "xeda_run" / "chain_ulx3s"
     root = base / target if target else base
-    assert [Path(n["run_path"]) for n in document["nodes"]] == [root / s for s in STAGES]
-    assert document["target"] == target
+    assert [Path(n["run_dir"]) for n in document["nodes"]] == [root / s for s in STAGES]
+    assert document["spec"]["target"] == target
     entered = sorted(p.name for p in base.iterdir() if p.is_dir())
     assert entered == ([target] if target else sorted(STAGES))
 
@@ -313,8 +313,8 @@ def test_a_chain_of_two_equal_targets_builds_in_two_places_and_stays_fresh_in_ea
     def states(*selection):
         result, document = xeda("run", CHAIN, design, "--hashed-run-dirs", *selection)
         assert result.exit_code == 0, result.output
-        return {n["node"]: n["state"] for n in document["nodes"]}, [
-            Path(n["run_path"]) for n in document["nodes"]
+        return {n["name"]: n["disposition"] for n in document["nodes"]}, [
+            Path(n["run_dir"]) for n in document["nodes"]
         ]
 
     ran_a, paths_a = states("--target", "a")
@@ -324,8 +324,8 @@ def test_a_chain_of_two_equal_targets_builds_in_two_places_and_stays_fresh_in_ea
     assert {p.parent for p in paths_a} == {base / "a"} and {p.parent for p in paths_b} == {
         base / "b"
     }
-    assert set(states("--target", "a")[0].values()) == {"fresh"}
-    assert set(states("--target", "b")[0].values()) == {"fresh"}
+    assert set(states("--target", "a")[0].values()) == {"reused"}
+    assert set(states("--target", "b")[0].values()) == {"reused"}
     # the two fake toolchains ran once per stage and target, no stage twice
     calls = sorted((tmp_path / "xeda_run").rglob("fake_fpga.calls.jsonl"))
     assert len(calls) == 2 * len(STAGES) and len({c.parent for c in calls}) == len(calls)
@@ -505,10 +505,11 @@ def test_the_local_mirror_of_a_remote_run_lies_in_the_designs_target(tmp_path, r
     for target in "ab":
         outcome = remote_request(tmp_path, path, _Taker.name, target=target)
         assert outcome.error is None and outcome.success, outcome.document
-        assert outcome.document["target"] == target
-        assert Path(outcome.document["run_path"]) == mirror / "d" / target / "__taker"
+        assert outcome.document["spec"]["target"] == target
+        last = outcome.document["nodes"][-1]
+        assert Path(last["run_dir"]) == mirror / "d" / target / "__taker"
         assert (remote_host.workspace() / "xeda_run" / "d" / target / "__taker").is_dir()
-        hashes[target] = outcome.document["results"]["flow_hash"]
+        hashes[target] = last["record"]["identity"]
     assert hashes["a"] == hashes["b"], "one identity: the target is no part of it"
     assert sorted(p.name for p in (mirror / "d").iterdir() if p.is_dir()) == ["a", "b"]
 

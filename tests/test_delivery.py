@@ -1937,22 +1937,25 @@ def test_a_failed_remote_run_delivers_nothing(world):
     """`--outputs-to` delivers a remote run's fetched artifacts only when it succeeded:
     a failed run's files never replace xeda's earlier copies."""
     from xeda.deliver import Deliveries, ReadInputs
+    from xeda.records import decode_record
     from xeda.remote.fetch import deliver_fetched
+
+    from .record_documents import record_document
 
     root = ensure_run_root(world.root)
     assert root is not None
     mirror = root / "@host" / "d" / "flow_0123456789abcdef"
     mirror.mkdir(parents=True)
     (mirror / "a.txt").write_text("fetched\n")
-    for success in (False, True):
-        results = {"success": success}
-        delivery = Deliveries(mirror, root, inputs=ReadInputs())
-        artifacts = {"a": "/remote/run/a.txt"}  # as the remote reported them
-        deliver_fetched(
-            delivery, results, artifacts, "/remote/run", mirror, outputs_to=world.user / "got"
+    for outcome in ("failed", "passed"):
+        success = outcome == "passed"
+        record = decode_record(
+            record_document(outcome, artifacts={"a": "a.txt"}), run_dir=mirror, run_root=root
         )
+        delivery = Deliveries(mirror, root, inputs=ReadInputs())
+        delivered = deliver_fetched(delivery, record, outputs_to=world.user / "got")
         assert (world.user / "got" / "a.txt").exists() is success
-        assert ("deliveries" in results) is success
+        assert bool(delivered) is success
 
 
 def test_a_remote_artifact_that_a_link_leads_out_is_skipped_as_a_local_one_is(world, caplog):
@@ -1960,25 +1963,29 @@ def test_a_remote_artifact_that_a_link_leads_out_is_skipped_as_a_local_one_is(wo
     where it leads (`SkippedSource`). Its delivery is skipped with the warning of a local skip,
     and the node lists it as "skipped"; the other artifacts are delivered."""
     from xeda.deliver import Deliveries, ReadInputs
+    from xeda.records import decode_record
     from xeda.remote.fetch import SkippedSource, deliver_fetched
+
+    from .record_documents import record_document
 
     root = ensure_run_root(world.root)
     assert root is not None
     mirror = root / "@host" / "d" / "flow"
     mirror.mkdir(parents=True)
     (mirror / "a.txt").write_text("fetched\n")
-    results: dict = {"success": True}
+    record = decode_record(
+        record_document("passed", artifacts={"a": "a.txt", "log": "tool.log"}),
+        run_dir=mirror,
+        run_root=root,
+    )
     delivery = Deliveries(mirror, root, inputs=ReadInputs())
-    artifacts = {"a": "/remote/run/a.txt", "log": "/remote/run/tool.log"}
     skipped = [SkippedSource("flow", "tool.log", "/remote/run/tool.log", "/etc/secret")]
     got = world.user / "got"
     with caplog.at_level(logging.WARNING, logger="xeda.deliver"):
-        deliver_fetched(
-            delivery, results, artifacts, "/remote/run", mirror, outputs_to=got, skipped=skipped
-        )
+        delivered = deliver_fetched(delivery, record, outputs_to=got, skipped=skipped)
     assert (got / "a.txt").read_text() == "fetched\n"
     assert not os.path.lexists(got / "tool.log")
-    assert {d["to"]: d["state"] for d in results["deliveries"]} == {
+    assert {str(one.destination): one.state for one in delivered} == {
         str(got / "tool.log"): "skipped",
         str(got / "a.txt"): "delivered",
     }
@@ -2011,11 +2018,11 @@ def test_post_cleanup_purge_alone_on_the_command_line_removes_the_run_and_delive
     args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1"]
     args += ["--outputs-to", "got", "--post-cleanup-purge", "--json"]
     document = json.loads(CliRunner().invoke(cli, args).stdout)
-    assert document["success"]
+    assert document["outcome"] == "passed"
     (node,) = document["nodes"]
-    assert not Path(node["run_path"]).exists()
-    assert node["deliveries"] and all(d["state"] == "delivered" for d in node["deliveries"])
-    assert all(Path(d["to"]).is_file() for d in node["deliveries"])
+    assert not Path(node["run_dir"]).exists()
+    assert node["deliveries"] and all(d["delivered"] is True for d in node["deliveries"])
+    assert all(Path(d["destination"]).is_file() for d in node["deliveries"])
     assert moves and all(moves), "every file delivered was moved"
 
 
@@ -2032,16 +2039,18 @@ def test_outputs_to_and_overwrite_outputs_on_the_command_line(sqrt_copy):
     ]
     first = json.loads(CliRunner().invoke(cli, args).stdout)
     delivered = first["nodes"][0]["deliveries"]
-    assert first["success"] and delivered
-    assert all(Path(d["to"]).is_relative_to(sqrt_copy / "got") for d in delivered)
-    edited = Path(delivered[0]["to"])
+    assert first["outcome"] == "passed" and delivered
+    assert all(Path(d["destination"]).is_relative_to(sqrt_copy / "got") for d in delivered)
+    edited = Path(delivered[0]["destination"])
     edited.write_text("my edit\n")
     refused = CliRunner().invoke(cli, args)
     document = json.loads(refused.stdout)
-    assert refused.exit_code != 0 and document["error"]["type"] == "OutputExistsError"
+    assert refused.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "delivery_refused"
+    assert document["error"]["message"].startswith("OutputExistsError: ")
     assert edited.read_text() == "my edit\n", "no terminal, no --overwrite-outputs: kept"
     replaced = json.loads(CliRunner().invoke(cli, [*args, "--overwrite-outputs"]).stdout)
-    assert replaced["success"] and edited.read_text() != "my edit\n"
+    assert replaced["outcome"] == "passed" and edited.read_text() != "my edit\n"
 
 
 def test_the_prompt_lists_what_it_would_replace_and_defaults_to_no(monkeypatch, capsys):

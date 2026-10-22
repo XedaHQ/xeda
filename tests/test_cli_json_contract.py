@@ -59,28 +59,88 @@ def json_stdout(proc: subprocess.CompletedProcess):
 # --------------------------------------------------------------- errors always produce a document
 
 
+def unstarted(error: dict, spec=None) -> dict:
+    """The document of a launch that did not start, with the whole shape written out."""
+    return {
+        "schema_version": 1,
+        "outcome": None,
+        "error": {"node": None, "exit_status": None, "log": None, **error},
+        "launch_id": None,
+        "spec": spec,
+        "roots": [],
+        "nodes": [],
+    }
+
+
 def test_missing_design_reports_json_and_fails():
     proc = run_xeda("run", "vivado_synth", "--json")
     document = json_stdout(proc)
-    assert proc.returncode != 0
-    assert document["success"] is False
-    assert document["error"]["type"] == "DesignNotSpecified"
+    assert proc.returncode == 2
+    assert document["outcome"] is None and document["spec"] is None
+    assert document["error"]["code"] == "usage_error"
+    assert "No design specified" in document["error"]["message"]
 
 
 def test_unknown_flow_reports_json_and_fails():
     proc = run_xeda("run", "no_such_flow", str(SQRT), "--json")
     document = json_stdout(proc)
-    assert proc.returncode != 0
-    assert document["success"] is False
+    assert proc.returncode == 2
+    assert document["outcome"] is None and document["error"]["code"] == "usage_error"
     assert "no_such_flow" in document["error"]["message"]
 
 
-def test_unknown_option_reports_json_and_fails():
-    """Click handles UsageError itself; without interception stdout would be empty."""
+def test_an_unknown_option_prints_the_invalid_launch_document():
+    """Click handles UsageError itself; without interception stdout would be empty. The command
+    line is no spec, so the document has none."""
     proc = run_xeda("run", "vivado_synth", str(SQRT), "--no-such-option", "--json")
     document = json_stdout(proc)
-    assert proc.returncode != 0
-    assert document["error"]["type"] == "NoSuchOption"
+    assert proc.returncode == 2
+    assert document == unstarted(
+        {"code": "usage_error", "message": "No such option '--no-such-option'."}
+    )
+    assert list(document) == [
+        "schema_version",
+        "outcome",
+        "error",
+        "launch_id",
+        "spec",
+        "roots",
+        "nodes",
+    ]
+
+
+def test_an_invalid_setting_exits_2_with_a_null_outcome(tmp_path):
+    """A misspelled setting of a flow starts no launch. The valid spelling dry-runs."""
+    proc = run_xeda("run", "nextpnr", str(SQRT), "-s", "sed=1", "--json", cwd=tmp_path)
+    document = json_stdout(proc)
+    assert proc.returncode == 2
+    assert document["outcome"] is None and document["launch_id"] is None
+    assert (document["roots"], document["nodes"]) == ([], [])
+    assert document["error"]["code"] == "unknown_setting"
+    assert document["error"]["node"] == "nextpnr" and "sed" in document["error"]["message"]
+    assert document["spec"] == {
+        "flow": "nextpnr",
+        "design": "sqrt",
+        "design_file": str(SQRT),
+        "target": None,
+        "settings": {"nextpnr": {"sed": "1"}},
+    }
+    valid = run_xeda(
+        "run", "nextpnr", str(SQRT), "-s", "seed=1", "--dry-run", "--json", cwd=tmp_path
+    )
+    assert valid.returncode == 0, valid.stderr
+    assert json_stdout(valid)["success"] is True
+
+
+def test_the_public_error_of_an_invalid_setting_names_the_setting_and_the_right_spelling(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+    from xeda.flow_runner.error_codes import public_error
+
+    with pytest.raises(Exception) as refused:
+        DefaultRunner(tmp_path / "run").resolve_run("nextpnr", str(SQRT), flow_settings=["sed=1"])
+    error = public_error(refused.value)
+    assert (error.code, error.node, error.setting) == ("unknown_setting", "nextpnr", "sed")
+    assert error.suggestions == ("seed",)
 
 
 def test_dse_unknown_optimizer_reports_json_and_fails():
@@ -256,14 +316,16 @@ def fake_run_remote(chain, **arguments):
     assert arguments["target"] is None and arguments["xedaproject"] is None
     assert arguments["design_overrides"] == () and arguments["design_allow_extra"] is False
     assert arguments["fetch_all"] is False and arguments["dry_run"] is False
+    passed = %(passed)s
     document = {
-        "flow": "vivado_synth", "design": "sqrt", "design_file": %(design)r, "target": None,
-        "remote": "host", "success": %(success)s, "results": {"success": %(success)s},
-        "run_path": "/tmp/remote-run", "nodes": [],
+        "schema_version": 1, "outcome": "passed" if passed else "failed",
+        "error": None if passed else {"code": "remote_failed", "message": "did not complete",
+                                       "node": None, "exit_status": None, "log": None},
+        "launch_id": "abc", "roots": [], "nodes": [],
+        "spec": {"flow": "vivado_synth", "design": "sqrt", "design_file": %(design)r,
+                 "target": None, "settings": {}},
     }
-    if not %(success)s:
-        document["error"] = {"type": "FlowFailed", "message": "did not complete"}
-    return client.RemoteOutcome(document, %(success)s)
+    return client.RemoteOutcome(document, passed)
 
 client.run_remote = fake_run_remote
 from xeda.cli import cli
@@ -271,10 +333,10 @@ cli(["run", "vivado_synth", %(design)r, "--remote", "host", "--json"], standalon
 """
 
 
-@pytest.mark.parametrize("remote_success,expected_exit", [(True, 0), (False, 1)])
-def test_remote_status_comes_from_the_remote_outcome(remote_success, expected_exit, tmp_path):
+@pytest.mark.parametrize("remote_passed,expected_exit", [(True, 0), (False, 1)])
+def test_remote_status_comes_from_the_remote_outcome(remote_passed, expected_exit, tmp_path):
     """A failed remote flow is reported as a failed run, with the remote's own status."""
-    script = REMOTE_SCRIPT % dict(design=str(SQRT), success=remote_success)
+    script = REMOTE_SCRIPT % dict(design=str(SQRT), passed=remote_passed)
     proc = subprocess.run(
         [sys.executable, "-c", script],
         cwd=str(tmp_path),
@@ -284,12 +346,11 @@ def test_remote_status_comes_from_the_remote_outcome(remote_success, expected_ex
     )
     document = json_stdout(proc)
     assert proc.returncode == expected_exit
-    assert document["success"] is remote_success
-    assert document["design"] == "sqrt" and document["design_file"] == str(SQRT)
-    assert document["run_path"] == "/tmp/remote-run" and document["remote"] == "host"
-    assert document["results"]["success"] is remote_success
-    if not remote_success:
-        assert document["error"]["type"] == "FlowFailed"
+    assert document["outcome"] == ("passed" if remote_passed else "failed")
+    assert document["spec"]["design"] == "sqrt" and document["spec"]["design_file"] == str(SQRT)
+    assert (document["error"] is None) is remote_passed
+    if not remote_passed:
+        assert document["error"]["code"] == "remote_failed"
 
 
 def test_a_remote_run_puts_only_the_json_document_on_stdout(tmp_path, remote_host):
@@ -306,7 +367,16 @@ def test_a_remote_run_puts_only_the_json_document_on_stdout(tmp_path, remote_hos
     )
     assert proc.returncode == 0, proc.stderr
     document = json_stdout(proc)
-    assert document["success"] is True and document["remote"] == "somewhere"
+    assert document["outcome"] == "passed" and document["error"] is None
+    assert list(document) == [
+        "schema_version",
+        "outcome",
+        "error",
+        "launch_id",
+        "spec",
+        "roots",
+        "nodes",
+    ]
     assert "nextpnr-ecp5" in proc.stderr, "the log of the launch is tool output"
 
 
@@ -345,7 +415,7 @@ def test_generator_output_never_corrupts_the_json_document(tmp_path, generator):
     design = _noisy_generator_design(tmp_path, generator.format(python=sys.executable))
     proc = run_xeda("run", "ghdl_sim", design.name, "--json", cwd=tmp_path)
     document = json_stdout(proc)  # fails loudly if anything leaked into stdout
-    assert document["design"] == "gendes"
+    assert document["spec"]["design"] == "gendes"
     # both streams of the generator belong on stderr, where tool output goes in --json mode
     assert "generator stdout noise" in proc.stderr
     assert "generator stderr diagnostic" in proc.stderr
@@ -361,7 +431,7 @@ def test_generator_object_output_never_corrupts_the_json_document(tmp_path):
     )
     proc = run_xeda("run", "ghdl_sim", design.name, "--json", cwd=tmp_path)
     document = json_stdout(proc)
-    assert document["design"] == "gendes"
+    assert document["spec"]["design"] == "gendes"
     assert "generator stdout noise" in proc.stderr
     assert "generator stderr diagnostic" in proc.stderr
 

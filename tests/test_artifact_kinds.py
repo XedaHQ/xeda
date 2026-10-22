@@ -296,7 +296,7 @@ def run_yosys(tmp_path: Path, *settings: str) -> tuple[dict, Path]:
         timeout=600,
     )
     document = json.loads(proc.stdout)
-    assert proc.returncode == 0 and document["success"], proc.stderr[-3000:]
+    assert proc.returncode == 0 and document["outcome"] == "passed", proc.stderr[-3000:]
     run_dir = run_root / "top" / "yosys"
     return json.loads((run_dir / "results.json").read_text()), run_dir
 

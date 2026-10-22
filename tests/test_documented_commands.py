@@ -115,8 +115,11 @@ def _jq_filter(text: str) -> str | None:
     return next(word for word in after[1:] if not word.startswith("-"))
 
 
-JQ_PATH = re.compile(r"(?<![\w\]])((?:\.[A-Za-z_]\w*|\[\d*\])+)")
-JQ_STEP = re.compile(r"\.([A-Za-z_]\w*)|\[(\d*)\]")
+JQ_PATH = re.compile(r"(?<![\w\]])((?:\.[A-Za-z_]\w*|\[-?\d*\])+)")
+JQ_STEP = re.compile(r"\.([A-Za-z_]\w*)|\[(-?\d*)\]")
+#: a path to a metric of the requested node: the metric names are the dotted keys that
+#: `xeda list-results` documents, and they nest in the record
+JQ_METRIC = re.compile(r"(\.nodes\[-1\]\.record\.metrics)((?:\.[A-Za-z_]\w*)+)")
 
 
 def _missing_in(document: Any, path: str) -> str | None:
@@ -133,7 +136,9 @@ def _missing_in(document: Any, path: str) -> str | None:
                     return f"{walked} is not in the document"
                 following.append(node[key])
             elif index != "":  # "0" is an index too; only "[]" walks every element
-                if not isinstance(node, list) or len(node) <= int(index):
+                position = int(index)
+                size = len(node) if isinstance(node, list) else 0
+                if size <= position if position >= 0 else size < -position:
                     return f"{walked} is not in the document"
                 following.append(node[int(index)])
             else:
@@ -142,6 +147,19 @@ def _missing_in(document: Any, path: str) -> str | None:
                 following.extend(node)
         nodes = following
     return None
+
+
+def _jq_paths(filter_text: str) -> list[str]:
+    """The paths of a `jq` filter, each from the root of the document. After a `|`, a path starts
+    at the value of the plain path before the pipe, as in `.a.b | {c: .c}`."""
+    paths = []
+    base = ""
+    for segment in filter_text.split("|"):
+        found = JQ_PATH.findall(segment)
+        paths += [base + path if base else path for path in found]
+        if len(found) == 1 and segment.strip() == found[0]:
+            base = base + found[0]
+    return paths
 
 
 def _results_keys(flow: str) -> set[str]:
@@ -203,7 +221,7 @@ def test_a_documented_command_works_where_it_is_shown(where, text, tmp_path, mon
     if jq is None:
         return
     assert where not in UNCHECKED_PIPELINES, UNCHECKED_PIPELINES[where]
-    paths = JQ_PATH.findall(jq)
+    paths = _jq_paths(jq)
     assert paths, f"{where}: no path in the jq filter {jq!r}: say why it is not checked"
     if ran_for_real:
         document = json.loads(result.stdout)
@@ -212,10 +230,10 @@ def test_a_documented_command_works_where_it_is_shown(where, text, tmp_path, mon
         # a real run's, and the result keys it reads are documented for the flow
         document = request.getfixturevalue("run_document")
     for path in paths:
-        if not ran_for_real and path.startswith(".results."):
-            key = path.split(".")[2].split("[")[0]
+        if not ran_for_real and (metric := JQ_METRIC.fullmatch(path)):
+            key = metric[2][1:]
             assert key in _results_keys(words[1]), f"{where}: {words[1]} documents no result {key}"
-            path = ".results"
+            path = metric[1]
         assert (problem := _missing_in(document, path)) is None, f"{where}: {path}: {problem}"
 
 
@@ -227,3 +245,15 @@ def test_the_path_checker_tells_an_index_from_every_element():
     assert _missing_in(document, ".items[].wanted") == ".items[].wanted is not in the document"
     assert _missing_in({"items": [{"wanted": 1}]}, ".items[0].wanted") is None
     assert _missing_in({"items": []}, ".items[0]") == ".items[0] is not in the document"
+
+
+def test_the_path_checker_reads_the_last_element_and_the_paths_after_a_pipe():
+    document = {"nodes": [{"x": 1}, {"record": {"metrics": {"fmax": 1.0}}}]}
+    assert _missing_in(document, ".nodes[-1].record.metrics.fmax") is None
+    assert _missing_in(document, ".nodes[-1].x") == ".nodes[-1].x is not in the document"
+    assert _missing_in({"nodes": []}, ".nodes[-1]") == ".nodes[-1] is not in the document"
+    assert _jq_paths(".nodes[-1].record | {fmax: .metrics.fmax}") == [
+        ".nodes[-1].record",
+        ".nodes[-1].record.metrics.fmax",
+    ]
+    assert _jq_paths(".a, .b | .c") == [".a", ".b", ".c"]
