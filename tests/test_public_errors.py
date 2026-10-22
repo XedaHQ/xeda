@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from xeda import errors
+from xeda.deliver import DeliveryError
 from xeda.flow import (
     Flow,
     FlowDependencyFailure,
@@ -16,18 +17,25 @@ from xeda.flow import (
     FlowSettingsException,
     registered_flows,
 )
+from xeda.flow.flow import FlowException
 from xeda.flow.sim import SimFlow, judge_evidence
 from xeda.flow_runner import DefaultRunner, chains
 from xeda.flow_runner.chains import ChainRefusal, parse_request
-from xeda.flow_runner.error_codes import error_info, public_error, settings_codes
+from xeda.flow_runner.error_codes import (
+    error_info,
+    missing_report_info,
+    public_error,
+    settings_codes,
+)
 from xeda.flow_runner.launch_report import adoptable_document
 from xeda.flow_runner.resolver import check_launchable
 from xeda.flow_runner.settings_layers import FlowNotFoundError, FlowRemovedError
 from xeda.flows import Nextpnr
 from xeda.proc_utils import ProcessTimeout
 from xeda.records import ErrorInfo
+from xeda.run_dir import RunDirectoryError
 from xeda.run_root import RunRootError, ensure_run_root
-from xeda.utils import ExecutableNotFound, NonZeroExitCode
+from xeda.utils import ExecutableNotFound, NonZeroExitCode, ToolException
 
 from . import test_failure_results as failing
 from .flow_registry import preserved_flow_registry
@@ -140,11 +148,41 @@ def test_a_node_failure_has_its_code(exc, code, exit_status):
     assert info.message == str(exc)
 
 
+@pytest.mark.parametrize(
+    "exc, code",
+    [
+        (OSError("disk full"), "storage_error"),
+        (PermissionError(13, "read-only"), "storage_error"),
+        (RunDirectoryError("leads out of the run directory"), "storage_error"),
+        (FlowSettingsException("needs a setting"), "reported_failure"),
+        (FlowException("flow"), "reported_failure"),
+        (ToolException("tool too old"), "reported_failure"),
+        (DeliveryError("refused"), "reported_failure"),
+        (DeliveryError("gone", output_problem=True), "missing_output"),
+        (DeliveryError("early", before_run=True), "reported_failure"),
+    ],
+)
+def test_a_failure_the_launcher_expects_is_not_an_internal_error(exc, code):
+    assert error_info(exc, node="n").code == code
+
+
+def test_a_missing_executable_wins_over_an_operating_system_error():
+    class NotFound(ExecutableNotFound, OSError):
+        pass
+
+    assert error_info(NotFound("yosys"), node=None).code == "executable_not_found"
+
+
+def test_only_a_bug_is_an_internal_error():
+    for exc in (RuntimeError("bug"), KeyError("k"), AssertionError("a")):
+        assert error_info(exc, node=None).code == "internal_error"
+
+
 def test_no_code_is_derived_from_a_class_name():
     class ProcessTimeoutLike(RuntimeError):
         pass
 
-    for exc in (ProcessTimeoutLike("x"), KeyError("x"), OSError("x")):
+    for exc in (ProcessTimeoutLike("x"), KeyError("x"), ValueError("x")):
         assert error_info(exc, node=None).code == "internal_error"
     for exc in (NonZeroExitCode(["t"], 1), FlowFatalError("x"), ExecutableNotFound("y")):
         assert error_info(exc, node=None).code != type(exc).__name__.lower()
@@ -397,3 +435,30 @@ def test_a_refusal_of_unsupported_settings_has_the_unsupported_code(tmp_path):
     assert settings_codes(FlowSettingsError([("knob", "no", None, "value_error")], object)) == [
         "invalid_value"
     ]
+
+
+def test_a_project_error_keeps_its_code_through_pickling():
+    from xeda.flow_runner.default_runner import DesignNotFoundError
+
+    error = DesignNotFoundError("no design", code="unknown_design")
+    again = pickle.loads(pickle.dumps(error))
+    assert (type(again), again.code, str(again)) == (
+        DesignNotFoundError,
+        "unknown_design",
+        "no design",
+    )
+    assert public_error(again).code == "unknown_design"
+
+
+def test_a_report_read_twice_is_named_once():
+    run = Path("/run")
+    info = missing_report_info("n", [run / "b.rpt", run / "a.rpt", run / "b.rpt"], run)
+    assert info.code == "missing_report" and "(b.rpt, a.rpt)" in info.message
+
+
+def test_a_launch_outcome_of_the_remote_is_not_a_setup_failure():
+    from xeda.remote.errors import RemoteCanceled, RemoteConnectionError, RemoteProvisionError
+
+    assert public_error(RemoteConnectionError("down")).code == "remote_unreachable"
+    assert public_error(RemoteProvisionError("env-failed", "x")).code == "remote_setup_failed"
+    assert public_error(RemoteCanceled("Ctrl-C")).code != "remote_setup_failed"

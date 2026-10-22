@@ -21,12 +21,12 @@ from ..deliver import DeliveryError
 from ..design import DesignFileParseError, DesignValidationError
 from ..flow import (
     FlowDependencyFailure,
-    FlowFatalError,
     FlowSettingsError,
     FlowSettingsException,
 )
-from ..flow.flow import _model_at, registered_flows
+from ..flow.flow import FlowException, _model_at, registered_flows
 from ..proc_utils import ProcessTimeout
+from ..run_dir import RunDirectoryError
 from ..records import (
     CANCELED,
     EXECUTABLE_NOT_FOUND,
@@ -100,11 +100,15 @@ def error_info(exc: BaseException, *, node: str | None, log: str | None = None) 
         code = EXECUTABLE_NOT_FOUND
     elif isinstance(exc, FlowDependencyFailure):
         code = PRODUCER_FAILED
-    elif isinstance(exc, (FlowFatalError, ToolException)):
+    elif isinstance(exc, DeliveryError):
+        # A hand-over that found an output of a producer missing or changed is a problem with
+        # the declared outputs. Any other delivery refusal is the flow's own failure.
+        code = MISSING_OUTPUT if exc.output_problem else REPORTED_FAILURE
+    elif isinstance(exc, (FlowException, ToolException)):
         # The flow refused to run, or a check of its tool failed: the flow says so itself.
         code = REPORTED_FAILURE
-    elif isinstance(exc, DeliveryError):
-        code = "delivery_failed"
+    elif isinstance(exc, (OSError, RunDirectoryError)):
+        code = STORAGE_ERROR
     else:
         code = INTERNAL_ERROR
     return ErrorInfo(code=code, message=str(exc), node=node, exit_status=exit_status, log=log)
@@ -196,10 +200,22 @@ def _design_error(exc: DesignValidationError) -> errors.DesignError:
 
 
 def _remote_error(exc: Exception) -> errors.RemoteError | None:
-    """Return the public error for an exception of `xeda.remote`, or None for any other."""
-    from ..remote.errors import RemoteConnectionError, RemoteError
+    """Return the public error for a failure of the host or its setup, or None.
+
+    A canceled, detached, interrupted or incomplete remote launch is the outcome of a launch,
+    not a failure of the host, so it has no `RemoteError`."""
+    from ..remote.errors import (
+        RemoteCanceled,
+        RemoteConnectionError,
+        RemoteDetached,
+        RemoteError,
+        RemoteFetchError,
+        RemoteInterrupted,
+    )
 
     if not isinstance(exc, RemoteError):
+        return None
+    if isinstance(exc, (RemoteCanceled, RemoteDetached, RemoteInterrupted, RemoteFetchError)):
         return None
     code = "remote_unreachable" if isinstance(exc, RemoteConnectionError) else "remote_setup_failed"
     return errors.RemoteError(str(exc), code=code, host=str(getattr(exc, "host", "") or ""))
@@ -243,8 +259,10 @@ def public_error(exc: BaseException) -> errors.XedaError:
 def missing_report_info(node: str, reports: Sequence[Path], run_path: Path) -> ErrorInfo:
     """Return the error of a run whose reports were not there: the files it asked for in vain."""
     names = ", ".join(
-        str(report.relative_to(run_path)) if report.is_relative_to(run_path) else str(report)
-        for report in reports
+        dict.fromkeys(
+            str(report.relative_to(run_path)) if report.is_relative_to(run_path) else str(report)
+            for report in reports
+        )
     )
     return ErrorInfo(
         code=MISSING_REPORT,

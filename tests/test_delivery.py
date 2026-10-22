@@ -1701,7 +1701,7 @@ def test_a_producer_whose_run_wrote_no_named_output_is_a_failed_producer(world):
     DURING_RUN.append(lambda: next(world.root.rglob("outputs/d.rpt")).unlink())
     with pytest.raises(
         FlowDependencyFailure,
-        match=r"producer __deliverer failed \(delivery_failed\): .*results.json",
+        match=r"producer __deliverer failed \(missing_output\): .*results.json",
     ) as failed:
         _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v", "report": "$PWD/r.rpt"})
     cause = failed.value.__cause__

@@ -16,6 +16,7 @@ from .utils import (
     XedaException,
     expand_hierarchy,
     flows_table_problems,
+    restore_exception,
     tomllib,
 )
 from .yaml_loader import load_yaml
@@ -35,6 +36,9 @@ class ProjectFileError(XedaException):
     def __init__(self, message: str, *, code: str = "invalid_project") -> None:
         super().__init__(message)
         self.code = code
+
+    def __reduce__(self) -> tuple[Any, ...]:  # an exception crosses a process boundary by pickling
+        return (restore_exception, (type(self), self.args, dict(self.__dict__)))
 
 
 def find_default_xedaproject(directory: str | Path = ".") -> Path | None:

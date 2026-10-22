@@ -28,6 +28,7 @@ from ..design import SourceType
 from ..flow import Flow, FlowSettingsException, registered_flows
 from ..flow.derived import DesignConversion
 from ..flow.io import declared_inputs, declared_outputs, kinds_text
+from ..utils import restore_exception
 
 __all__ = [
     "ChainEdge",
@@ -198,14 +199,6 @@ def request_text(elements: Sequence[ChainElement]) -> str:
     )
 
 
-def _restore_refusal(cls: type[Exception], args: tuple[Any, ...], state: dict[str, Any]) -> Any:
-    """Rebuild a refusal that was pickled."""
-    refusal = Exception.__new__(cls)
-    Exception.__init__(refusal, *args)
-    refusal.__dict__.update(state)
-    return refusal
-
-
 class ChainRefusal(FlowSettingsException):
     """A chain, or a link of one, that Xeda refuses.
 
@@ -217,7 +210,7 @@ class ChainRefusal(FlowSettingsException):
         self.chain = chain
 
     def __reduce__(self) -> tuple[Any, ...]:  # an exception crosses a process boundary by pickling
-        return (_restore_refusal, (type(self), self.args, dict(self.__dict__)))
+        return (restore_exception, (type(self), self.args, dict(self.__dict__)))
 
 
 class _NoDirectEdge(ChainRefusal):
