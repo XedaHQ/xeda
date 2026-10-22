@@ -99,7 +99,6 @@ from .error_codes import error_info
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
 from .launch_report import (
-    print_results,
     report,
     reuse_results,
     warn_outputs_to_delivered_nothing,
@@ -184,7 +183,6 @@ MOVED_NAMES: dict[str, tuple[str, str]] = {
     "_say": ("scrub", "_say"),
     "_say_skipped": ("scrub", "_say_skipped"),
     "_target_parents": ("scrub", "_target_parents"),
-    "_artifact_rows": ("launch_report", "artifact_rows"),
     "_warn_outputs_to_delivered_nothing": ("launch_report", "warn_outputs_to_delivered_nothing"),
     "_refuse_outputs_to_a_programmer": ("launch_input", "refuse_outputs_to_a_programmer"),
     "_setting_naming": ("launch_input", "setting_naming"),
@@ -238,7 +236,6 @@ __all__ = [
     "add_file_logger",
     "remove_file_logger",
     "get_flow_class",
-    "print_results",
 ]
 
 log = logging.getLogger(__name__)
@@ -443,6 +440,7 @@ class FlowLauncher:
 
         debug: bool = False
         dump_settings_json: bool = True
+        #: Whether the command line shows the tables of a run. The library prints nothing.
         display_results: bool = True
         dump_results_json: bool = True
         #: Run every flow, even one whose trace still matches. Without it, runs are make-like.
@@ -1877,7 +1875,7 @@ class FlowLauncher:
         )
         return self.run_resolved(request, plan)
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def resolve_run(
         self,
         flow: Union[Type[Flow], str],
@@ -1923,7 +1921,7 @@ class FlowLauncher:
         self._refuse_unaccepted_plan(request, plan)
         return request, plan
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def run_resolved(self, request: _Request, plan: Plan) -> Optional[Flow]:
         """Execute the request and plan that `resolve_run` returned."""
         previous, self._request_context = self._request_context, request

@@ -9,7 +9,7 @@ from typing import Any, Iterator
 import pytest
 
 from .sharding import parse_shard, shard_of
-from .tool_utils import FAKE_TOOLS_DIR, _opted_in, terminal_output
+from .tool_utils import FAKE_TOOLS_DIR, _opted_in
 
 CHECKOUT = Path(__file__).parent.parent
 
@@ -373,5 +373,7 @@ def _the_script_format_parameter_forces_the_format(request, monkeypatch):
 def tool_output_on_terminal():
     """The output of tools goes to the standard streams, as it does for the command line. A test
     that reads what a tool printed uses this; a launch from Python writes it to the log only."""
+    from .tool_utils import terminal_output
+
     with terminal_output():
         yield

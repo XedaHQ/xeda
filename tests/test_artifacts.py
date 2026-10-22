@@ -17,7 +17,7 @@ from xeda import Design
 from xeda.artifacts import filter_artifact_paths, iter_artifact_paths, map_artifact_paths
 from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.default_runner import _artifact_rows
+from xeda.cli_utils import artifact_rows as _artifact_rows
 from xeda.run_root import ensure_run_root
 
 from .tool_utils import use_fake_tools

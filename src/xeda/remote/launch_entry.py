@@ -307,6 +307,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     from ..flow_runner.launch_result import failed_result, launch_result
     from ..errors import SpecError
     from ..introspect import design_info, plan_info, request_info
+    from ..log_context import launch_id_of
     from ..outcomes import Outcome, run_document, spec_document
     from ..records import CANCELED, ErrorInfo
     from ..spec import Spec
@@ -393,7 +394,12 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             # passed, the node that was running is canceled by an interrupt, and any other
             # node is skipped or blocked.
             document = failed_result(
-                launcher, Spec(request.chain, loaded), plan, error, interrupted=interrupted
+                launcher,
+                Spec(request.chain, loaded),
+                plan,
+                error,
+                interrupted=interrupted,
+                launch_id=launch_id_of(e),
             ).to_dict()
         else:
             document = run_document(

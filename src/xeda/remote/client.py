@@ -60,8 +60,7 @@ from ..design import names_a_design_file
 from ..flow_runner import DefaultRunner
 from ..flow_runner.chains import parse_request
 from ..errors import RecordError, SpecError
-from ..flow_runner.default_runner import PreparedRequest, print_results
-from ..flow_runner.launch_report import results_of
+from ..flow_runner.default_runner import PreparedRequest
 from ..flow_runner.settings_layers import command_line_table
 from ..flow_runner.run_lock import run_dir_lock
 from ..outcomes import (
@@ -75,7 +74,7 @@ from ..outcomes import (
     spec_document,
 )
 from ..proc_utils import TOOL_OUTPUT, tool_output_stream
-from ..records import CANCELED, ErrorInfo, decode_record
+from ..records import CANCELED, ErrorInfo, RunRecord, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
 from ..xedaproject import resolve_project_file
 from .constants import HEARTBEAT, LAYOUT
@@ -154,6 +153,8 @@ class RemoteOutcome:
     document: Dict[str, Any]
     success: bool
     error: Optional[BaseException] = None
+    #: The record of the requested node of a launch that came back, which the caller may show.
+    record: Optional[RunRecord] = None
 
     @property
     def exit_status(self) -> int:
@@ -1770,12 +1771,7 @@ def _finish(
                     run.localize = lambda: document
                     raise
                 _note_deliveries(document, local.requested, planned, delivered)
-            print_results(
-                results=results_of(record),
-                title=f"Results of flow:{run.flow} design:{local.design_name}",
-                skip_if_false={"artifacts", "reports"},
-            )
-    return RemoteOutcome(document, result.get("outcome") == Outcome.PASSED.value)
+    return RemoteOutcome(document, result.get("outcome") == Outcome.PASSED.value, None, record)
 
 
 __all__ = [

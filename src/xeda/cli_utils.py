@@ -4,12 +4,14 @@ import json
 import logging
 import sys
 from contextlib import contextmanager
+from datetime import timedelta
 from typing import (
     Any,
     Dict,
     Iterable,
     Iterator,
     List,
+    Mapping,
     NoReturn,
     Optional,
     Sequence,
@@ -30,9 +32,11 @@ from rich import box
 from rich.markup import escape
 from rich.style import Style
 from rich.table import Table
+from rich.text import Text
 from simple_term_menu import TerminalMenu
 
 from . import proc_utils
+from .artifacts import iter_artifact_paths
 from .cli_types import (
     ChainChoice as ChainChoice,
     DOCUMENT_FORMATS as DOCUMENT_FORMATS,
@@ -47,8 +51,11 @@ from .console import console, console_target, redirect_console, restore_console
 from .design import Design
 from .flow import Flow
 from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
+from .flow_runner.launch_report import results_of
 from .introspect import settings_info, type_str
+from .outcomes import Result
 from .units import is_number_text, is_quantity_unit
+from .utils import json_encodable, with_json_keys
 from .xedaproject import XedaProject
 
 __all__ = [
@@ -65,7 +72,10 @@ __all__ = [
     "info_table",
     "machine_readable_mode",
     "output_format_option",
+    "print_artifacts",
     "print_flow_settings",
+    "print_results",
+    "print_run_tables",
     "requested_output_format",
     "reraise_suggesting_visible",
     "unit_after_space_hint",
@@ -430,6 +440,130 @@ def emit_structured(data: Any, fmt: str, records: Optional[Sequence[Any]] = None
     else:
         raise click.UsageError(f"Unsupported output format: {fmt!r}")
     out.flush()
+
+
+# --- the tables of a run ----------------------------------------------------------------------
+
+
+def print_results(
+    results: Dict[str, Any],
+    title: Optional[str] = None,
+    subset: Optional[Iterable[str]] = None,
+    skip_if_false: Union[bool, Iterable[str], None] = None,
+) -> None:
+    """Print the selected results of a flow in a table."""
+    # The table shows what `results.json` holds: keys as that file writes them, so a key it can
+    # write (a tuple, a `Path`) cannot crash the table printed after the run.
+    results = with_json_keys(dict(results))
+    console.print()
+    table = Table(
+        title=title,
+        title_style=Style(frame=True, bold=True),
+        show_header=False,
+        box=box.ROUNDED,
+        show_lines=True,
+    )
+    table.add_column(style="bold", min_width=8, no_wrap=True)
+    table.add_column(justify="right", min_width=8)
+    skip_fields = [
+        "timestamp",
+        "design",
+        "design_hash",
+        "flow",
+        "flow_hash",
+        "settings_hash",
+        "tools",
+        "run_path",
+        "artifacts",
+        "outputs",
+    ]
+    for k, v in results.items():
+        skipable = skip_if_false and (isinstance(skip_if_false, bool) or k in skip_if_false)
+        if skipable and not v:
+            continue
+        if v is not None and not str(k).startswith("_"):
+            if k == "success":
+                table.add_row("Status", "[green]OK[/green]" if v else "[red]FAILED[/red]")
+                continue
+            if (subset and k not in subset) or k in skip_fields:
+                continue
+            if k == "runtime" and isinstance(v, (float, int)):
+                table.add_row(
+                    "Run time",
+                    str(timedelta(seconds=round(v))),
+                    style=Style(dim=True),
+                )
+                continue
+            if isinstance(v, (dict,)):
+                table.add_row(f"{k}:", "", style=Style(bold=True))
+                for xk, xv in v.items():
+                    if isinstance(xv, dict):
+                        xv = json.dumps(xv, indent=1, default=json_encodable)
+                    else:
+                        xv = str(xv)
+                    table.add_row(Text(f" {xk}"), str(xv))
+                continue
+            if isinstance(v, float):
+                v = f"{v:,.3f}"
+            elif isinstance(v, int):
+                v = f"{v:,}"
+            table.add_row(str(k), str(v))
+    console.print(table)
+
+
+def artifact_rows(artifacts: Mapping[str, Any]) -> list[tuple[str, str, bool]]:
+    """Flatten an artifacts mapping into the rows of the "Artifacts:" table.
+
+    Each row is `(label, path, end_section)`. The paths of a label are found with
+    `iter_artifact_paths`, so a value nested through any mix of mappings, lists and tuples is
+    flattened the same way as everywhere else that artifacts are walked. The label is shown
+    once, on the row of its first path. A label with no path leaves (`None`, `""`, an empty list
+    or dict, ...) gets no rows at all.
+    """
+    rows: list[tuple[str, str, bool]] = []
+    for label, value in artifacts.items():
+        paths = [str(path) for path in iter_artifact_paths(value)]
+        for i, path in enumerate(paths):
+            rows.append((label if i == 0 else "", path, i == len(paths) - 1))
+    return rows
+
+
+def print_artifacts(artifacts: Mapping[str, Any]) -> None:
+    """Print the "Artifacts:" table of a flow that passed."""
+    table = Table(
+        box=box.SIMPLE,
+        show_header=True,
+        show_edge=False,
+        show_footer=True,
+        collapse_padding=True,
+        pad_edge=False,
+    )
+    table.add_column("Artifacts:", justify="left", style="cyan", header_style="blue", no_wrap=False)
+    table.add_column("", justify="left", style="green", no_wrap=False)
+    for label, artifact, end_section in artifact_rows(artifacts):
+        table.add_row(label, artifact, end_section=end_section)
+    console.print("")
+    console.print(table)
+    console.print("")
+
+
+def print_run_tables(result: Result, design_name: str) -> None:
+    """Print, for each node of a launch that has a record, the artifacts it made and its results.
+
+    The command line shows these when it is not asked for a machine-readable document. A node that
+    was reused is shown as one that ran."""
+    for node in result.nodes.values():
+        record = node.record
+        if record is None:
+            continue
+        results = results_of(record)
+        if record.passed and results["artifacts"]:
+            print_artifacts(results["artifacts"])
+        print_results(
+            results,
+            title=f"Results of flow:{node.flow} design:{design_name}",
+            skip_if_false={"artifacts", "reports"},
+        )
 
 
 def machine_readable_mode() -> None:

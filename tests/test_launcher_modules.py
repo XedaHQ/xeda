@@ -37,7 +37,6 @@ STAGE_MODULES = sorted([*FLOW_RUNNER.glob("launch_*.py"), *FLOW_RUNNER.glob("scr
 #: Moved names the launcher module imports as they are (the launcher itself uses them): name in
 #: `default_runner` -> (module that defines it now, name there). The rest are `MOVED_NAMES`.
 IMPORTED: dict[str, tuple[str, str]] = {
-    "print_results": ("launch_report", "print_results"),
     "RunDirPolicy": ("launch_identity", "RunDirPolicy"),
     "run_directory_names": ("scrub", "run_directory_names"),
     "scrub_runs": ("scrub", "scrub_runs"),
@@ -66,7 +65,6 @@ NAMES_BEFORE_THE_SPLIT = (
     "_Scan",
     "_Skipped",
     "__all__",
-    "_artifact_rows",
     "_choosing_once",
     "_completion_records",
     "_distinct",
@@ -92,7 +90,6 @@ NAMES_BEFORE_THE_SPLIT = (
     "add_file_logger",
     "get_flow_class",
     "log",
-    "print_results",
     "remove_file_logger",
     "run_directory_names",
     "scrub_design",

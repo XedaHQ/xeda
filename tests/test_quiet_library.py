@@ -17,6 +17,9 @@ import pytest
 
 from xeda import DefaultRunner, Design
 from xeda.flow import Flow
+from xeda.flow_runner.launch_result import launch_result
+from xeda.outcomes import Result
+from xeda.spec import Spec
 from xeda.log_context import current_launch_id, launch_context, running_node
 from xeda.proc_utils import TOOL_OUTPUT, child_stdout, run_child, run_process
 from xeda.tool import Tool, log_stem
@@ -60,12 +63,25 @@ def _chatty_flow(times: int = 1, seen: list | None = None) -> type[Flow]:
     return ChattyFlow
 
 
-def _launch(tmp_path: Path, flow_class: type[Flow], name: str = "runs") -> Flow:
-    flow = DefaultRunner(tmp_path / name, display_results=False).run_flow(
-        flow_class, _design(tmp_path)
+class _Launched:
+    """What a launch left: its `Result`, and the run directory of its one node."""
+
+    def __init__(self, result: Result, flow_class: type[Flow]) -> None:
+        self.result = result
+        self.run_path = result.nodes[flow_class.name].run_dir
+
+    @property
+    def succeeded(self) -> bool:
+        return self.result.passed
+
+
+def _launch(tmp_path: Path, flow_class: type[Flow], name: str = "runs", **launcher) -> _Launched:
+    runner = DefaultRunner(tmp_path / name, display_results=False, **launcher)
+    design = _design(tmp_path)
+    result = launch_result(
+        runner, Spec(flow_class.name, design), lambda: runner.run_flow(flow_class, design, {})
     )
-    assert flow is not None
-    return flow
+    return _Launched(result, flow_class)
 
 
 def test_a_library_launch_writes_nothing_to_the_standard_streams(tmp_path, capfd):
@@ -91,10 +107,8 @@ def test_a_later_launch_replaces_the_log_of_an_earlier_one(tmp_path):
         first = _launch(tmp_path, flow_class)
         log_file = first.run_path / "logs" / f"{PROGRAM}.log"
         log_file.write_text("left by an earlier run\n")
-        second = DefaultRunner(tmp_path / "runs", display_results=False, rebuild_all=True).run_flow(
-            flow_class, _design(tmp_path)
-        )
-    assert second is not None and second.run_path == first.run_path
+        second = _launch(tmp_path, flow_class, rebuild_all=True)
+    assert second.run_path == first.run_path
     text = log_file.read_text()
     assert "left by an earlier run" not in text and text.count("tool says hi") == 1
 
@@ -207,16 +221,22 @@ def test_each_launch_tags_its_records_with_its_own_id_and_node(tmp_path):
         def parse_reports(self):
             return True
 
+    launched: list[_Launched] = []
+
     def launches():
         with preserved_flow_registry():
             for name in ("one", "two"):  # one thread each, one after the other
                 (tmp_path / name).mkdir()
-                thread = threading.Thread(target=_launch, args=(tmp_path / name, Tagging))
+                thread = threading.Thread(
+                    target=lambda: launched.append(_launch(tmp_path / name, Tagging))
+                )
                 thread.start()
                 thread.join()
 
     records = _collected(launches)
     assert len(ids) == 2 and ids[0] != ids[1] and None not in ids
+    # the id of a launch is the id of its `Result`
+    assert [item.result.launch_id for item in launched] == ids
     mine = [r for r in records if r.getMessage() == "running"]
     assert [r.xeda_launch_id for r in mine] == ids
     assert {r.xeda_node for r in mine} == {"tagging"}
@@ -314,3 +334,64 @@ def test_a_helper_with_no_log_says_the_end_of_its_output_when_it_fails(capfd):
     message = str(raised.value)
     assert "line 29" in message and "line 10" in message and "line 9\n" not in message
     assert capfd.readouterr() == ("", "")
+
+
+def _write_design(tmp_path: Path) -> Path:
+    design = tmp_path / "quiet.yaml"
+    design.write_text("name: quiet\nrtl:\n  sources: []\n  top: t\n")
+    return design
+
+
+def test_the_command_line_shows_the_results_table_and_json_does_not(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    monkeypatch.chdir(tmp_path)
+    design = _write_design(tmp_path)
+    with preserved_flow_registry():
+        flow_class = _chatty_flow()
+        shown = CliRunner().invoke(
+            cli, ["run", flow_class.name, str(design), "--run-root", str(tmp_path / "shown")]
+        )
+        assert shown.exit_code == 0, shown.output
+        # the narrow console of the runner wraps the title
+        assert f"Results of flow:{flow_class.name} design:quiet" in " ".join(shown.output.split())
+        assert "tool says hi" in shown.output  # the tool output, as a person sees it
+        document = CliRunner().invoke(
+            cli,
+            ["run", flow_class.name, str(design), "--run-root", str(tmp_path / "doc"), "--json"],
+        )
+        assert document.exit_code == 0, document.output
+    assert "Results of flow" not in document.stdout
+
+
+def test_the_library_prints_no_table_and_calls_no_print_outside_the_command_line():
+    """No module of the package but the command line writes to the console, to the standard
+    streams or to the warnings machinery. (`flow_runner/scrub.py` still asks on the console.)"""
+    import ast
+
+    import xeda
+
+    package = Path(xeda.__file__).parent
+    command_line = {
+        "cli.py",
+        "cli_utils.py",
+        "pdk_cli.py",
+        "cli_completion.py",
+        "flows/openroad/data/def2stream.py",  # a script that a flow gives to a tool
+        "remote/commands.py",
+    }
+    allowed = {"flow_runner/scrub.py"}
+    found: list[str] = []
+    for path in sorted(package.rglob("*.py")):
+        relative = path.relative_to(package).as_posix()
+        if relative in command_line or relative in allowed:
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Call):
+                continue
+            function = ast.unparse(node.func)
+            if function in ("print", "console.print", "console.input", "warnings.warn"):
+                found.append(f"{relative}:{node.lineno}: {function}")
+    assert not found, found

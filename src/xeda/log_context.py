@@ -31,7 +31,9 @@ __all__ = [
     "TaggingNullHandler",
     "current_launch_id",
     "launch_context",
+    "launch_id_of",
     "running_node",
+    "tag_launch_id",
 ]
 
 #: The id of the launch that runs in this context (a `uuid4` as 32 hexadecimal digits), or `None`.
@@ -61,6 +63,21 @@ def launch_context() -> Iterator[str]:
         yield launch_id
     finally:
         LAUNCH_ID.reset(token)
+
+
+def tag_launch_id(error: BaseException, launch_id: str) -> None:
+    """Note on `error`, which leaves a launch, the id of that launch (the first launch to tag it)."""
+    if not hasattr(error, "xeda_launch_id"):
+        try:
+            error.xeda_launch_id = launch_id  # type: ignore[attr-defined]
+        except AttributeError:  # an exception that takes no attribute
+            pass
+
+
+def launch_id_of(error: BaseException) -> str | None:
+    """Return the id of the launch that `error` left (`tag_launch_id`), or None."""
+    found = getattr(error, "xeda_launch_id", None)
+    return found if isinstance(found, str) else None
 
 
 @contextmanager
