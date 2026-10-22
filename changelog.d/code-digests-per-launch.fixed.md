@@ -1,4 +1,3 @@
-- Xeda now notices an edit of a template or a helper module of a flow, also in a process that lives
-  long, and a moved checkout keeps its runs fresh. A flow class without a source file, such as one
-  defined in a notebook cell, always runs. Runs of flows defined outside Xeda become stale once
-  after this update.
+- Xeda now notices an edit of a flow's template or helper module, also in a long-lived process, and
+  a moved checkout keeps its runs fresh. A flow without a source file (one defined in a notebook
+  cell) always runs, and runs of flows defined outside Xeda become stale once after this update.
