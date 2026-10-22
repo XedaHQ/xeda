@@ -171,44 +171,31 @@ directory and the trace gives the reason for the new run: ``declared input bindi
 ``results.json``
 ----------------
 
-This file holds what the flow parsed out of the tool's reports. A run that fails after it has
-started still writes the file, as a failure document. This covers a failing tool and a failing
-producer. The ``success`` key is ``false``, and ``error.code`` and ``error.message`` say what
-failed. The ``code`` is a stable text, never a class name. The run's identity is in the document
-too. A flow whose reports or checks failed without a tool error and without a rejection says
-``reported_failure``. A flow that rejected its results says ``rejected``. A consumer of a failed
-producer says ``producer_failed`` and quotes the cause. Xeda removes the previous ``results.json``
-before a run starts, so an earlier success never stands for a run that failed. Every flow reports these keys:
+This file is the record of the run: one JSON object with a ``schema_version``. It holds what the
+flow parsed out of the tool's reports (``metrics``), the ``outcome`` of the run, and what the run
+used and wrote. :ref:`results-json` lists every field. A run that fails after it has started still
+writes the file. Its ``outcome`` is ``failed``, and ``error.code`` and ``error.message`` say what
+failed. The ``code`` is a stable text, never a class name. A flow whose reports or checks failed
+without a tool error and without a rejection says ``reported_failure``. A flow that rejected its
+results says ``rejected``. A consumer of a failed producer says ``producer_failed`` and quotes the
+cause. Xeda removes the previous ``results.json`` before a run starts, so an earlier success never
+stands for a run that failed.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 22 78
+A run that fails after it has started still writes the file, as a failure document. This covers a
+failing tool and a failing producer. The ``outcome`` is ``failed``, and ``error.code`` and
+``error.message`` say what failed. The ``code`` is a stable text, never a class name. A flow whose
+reports or checks failed without a tool error says ``reported_failure``. A consumer of a failed
+producer says ``producer_failed`` and quotes the cause. A run that its checks rejected has the
+outcome ``rejected``. Only a ``passed`` and a ``rejected`` run are reused.
 
-   * - Key
-     - Meaning
-   * - ``success``
-     - Whether the flow succeeded. This decides the process exit status.
-   * - ``runtime``
-     - Wall-clock duration of the run, in fractional seconds.
-   * - ``tools``
-     - The executables invoked, with the versions Xeda detected.
-   * - ``artifacts``
-     - Files the flow produced, by name.
-   * - ``design``, ``flow``
-     - Names of what was run.
-   * - ``design_hash``, ``flow_hash``, ``settings_hash``
-     - Hashes that identify the design, the run (its settings and where its declared inputs come
-       from) and the settings alone.
-   * - ``run_path``
-     - Absolute path of this directory.
-   * - ``timestamp``
-     - When the run finished, as ``YYYY-MM-DD-HHMMSS``.
+A file that an older Xeda wrote has no ``schema_version``. Xeda treats such a directory as a run
+that never finished, and runs the flow again.
 
-A flow with declared outputs also records ``outputs``. This key holds the absolute path and the
-content digest of each enabled output (an ordered list for a list output). A consumer receives these
-checked records under a verified read lease (see :doc:`machine-readable`). A failed output check
-uses ``missing_output`` and the normal failure document. ``nextpnr`` checks its enabled configuration
-earlier and fails with ``reported_failure`` if the tool did not write the file.
+A flow with declared outputs records them in ``outputs``, with the name and the content digest of
+each file, relative to the run directory. A consumer receives these checked records under a
+verified read lease (see :doc:`machine-readable`). A failed output check uses ``missing_output``
+and the normal failure document. ``nextpnr`` checks its enabled configuration earlier and fails
+with ``reported_failure`` if the tool did not write the file.
 
 Each flow also reports keys of its own. ``xeda list-results <flow>`` lists them. Keys that start
 with ``_`` are internal and may change without notice.

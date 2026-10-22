@@ -148,8 +148,16 @@ def test_a_failed_run_reports_only_the_artifacts_that_exist(passes, tmp_path, ca
         expected["checkpoints"].append(str(missing_dcp))
         expected |= {"sdf": "never_written.sdf", "sdc": "never_written.sdc"}
     saved = json.loads((flow.run_path / "results.json").read_text())
-    assert saved["success"] == passes
-    assert saved["artifacts"] == expected
+    assert saved["outcome"] == ("passed" if passes else "failed")
+    # the record names each file relative to the run directory, and a list gets one key per file
+    named = {"netlist": "written.v", "checkpoints[0]": "outputs/written.dcp"}
+    if passes:
+        named |= {
+            "checkpoints[1]": "outputs/never_written.dcp",
+            "sdf": "never_written.sdf",
+            "sdc": "never_written.sdc",
+        }
+    assert saved["artifacts"] == named
     assert json.loads(json.dumps(flow.results.artifacts, default=str)) == expected
 
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]

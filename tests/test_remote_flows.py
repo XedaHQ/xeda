@@ -161,7 +161,7 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
             assert Path(path).is_relative_to(mirror), path
             assert Path(path).exists(), path
     saved = json.loads((mirror / "results.json").read_text())
-    assert saved["run_path"] == str(mirror)
+    assert saved["outcome"] == "passed"
     assert not (mirror / "trace.json").exists()
 
 
@@ -252,7 +252,11 @@ def test_a_failed_remote_run_reports_its_failure(tmp_path, remote_host):
     for label in NETLIST_ARTIFACTS:
         assert label not in results["artifacts"], label
     saved = json.loads((Path(outcome.document["run_path"]) / "results.json").read_text())
-    assert saved["success"] is False and saved["artifacts"] == results["artifacts"]
+    mirror = Path(outcome.document["run_path"])
+    assert saved["outcome"] == "failed"
+    assert {key: str(mirror / name) for key, name in saved["artifacts"].items()} == dict(
+        results["artifacts"]
+    )
 
 
 def test_a_failed_remote_run_does_not_fetch_an_output_it_never_wrote(tmp_path, remote_host):
@@ -342,7 +346,7 @@ def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remo
     assert results["sim.ended_by"] == "finish"
     remote_dir = remote_host.workspace() / "xeda_run" / "d" / "ghdl_sim"
     remote_results = json.loads((remote_dir / "results.json").read_text())
-    assert remote_results["sim.evidence"] == results["sim.evidence"]
+    assert remote_results["metrics"]["sim"]["evidence"] == results["sim.evidence"]
     remote_settings = json.loads((remote_dir / "settings.json").read_text())
     trace = Path(remote_settings["design"]["tb"]["parameters"]["TRACE"])
     assert trace.is_relative_to(remote_host.workspace())
@@ -373,7 +377,11 @@ def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
     assert Path(generated[0]).is_file()
     assert Path(generated[0]).is_relative_to(Path(document["run_path"]))
     saved = json.loads((Path(document["run_path"]) / "results.json").read_text())
-    assert saved["artifacts"]["generated_verilog"] == generated
+    run_path = Path(document["run_path"])
+    assert saved["artifacts"] == {
+        f"generated_verilog[{index}]": Path(path).relative_to(run_path).as_posix()
+        for index, path in enumerate(generated)
+    }
 
 
 def _mac_design(root: Path) -> Path:
@@ -666,7 +674,7 @@ def test_declared_outputs_are_mirrored_and_delivered_without_artifact_labels(tmp
     assert not document["results"].get("artifacts")
     # the record of the mirror names the mirrored output
     saved = json.loads((mirrored.parent / "results.json").read_text())
-    assert saved["outputs"]["made"]["path"] == str(mirrored)
+    assert saved["outputs"]["made"]["names"] == [mirrored.name]
 
 
 def test_a_declared_output_collision_is_refused_before_connecting(tmp_path, remote_host):

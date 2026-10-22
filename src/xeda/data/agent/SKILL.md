@@ -45,7 +45,7 @@ The exit status is 0 on success, 1 on a failed run and 2 on a usage error. The `
 | Key | Value |
 | --- | --- |
 | `flow`, `design`, `design_file`, `target` | requested flow; the design's name; the design file you named (absolute, or `null`); the selected target (or `null`) |
-| `success`, `results` | verdict; the flow's `results.json` content (keys: `xeda list-results`) |
+| `success`, `results` | verdict; the flow's results (metric keys: `xeda list-results`); the file `results_json` holds the run's record |
 | `run_path`, `results_json`, `settings_json` | the run directory and two of its files |
 | `request`, `nodes` | the flows asked for; every run directory touched, with `state` (`fresh`, `ran`, `failed`, `rejected again`, `blocked`, `not run`), `reason`, `deliveries`, `inputs` |
 | `error` | on failure only: `{type, message}`; see "When a run fails" |
@@ -305,11 +305,15 @@ sets `platform` and `clock.period`, and `bsc` converts the design first.
 
 ## Results
 
-`results.json` in the run directory is authoritative. Every flow reports `success`, `runtime`,
-`tools`, `artifacts`, `design`, `flow`, `run_path`, `timestamp`, `design_hash`, `flow_hash` and
-`settings_hash`; the rest is flow-specific (`xeda list-results <flow> --json`). Every metric
-name is lower snake case, with dots between the parts of a group (`fmax`, `lut`, `ff`,
-`lut_use.logic`); a quantity has one name in every flow.
+`results.json` in the run directory is authoritative. It is one record (`schema_version` 1):
+`outcome` (`passed`, `rejected`, `failed` or `canceled`; it replaces the old `success`), `error`
+(`{code, message, node, exit_status, log}` or null), `metrics` nested by dotted path (`sim.ended_by`)
+with `metric_info` (description, type, unit) for each, `outputs` and `artifacts` (names relative to
+the run directory), `settings`, `configuration`, `inputs`, `run_id`, `identity`, `started`,
+`finished` and `runtime`. It holds no absolute path. Which metrics a flow writes:
+`xeda list-results <flow> --json`. Every metric name is lower snake case, with dots between the
+parts of a group (`fmax`, `lut`, `ff`, `lut_use.logic`); a quantity has one name in every flow. A
+file without `schema_version` was written by an older Xeda: a launch runs that flow again.
 
 - `fmax` is the frequency achieved; `clock_frequency` is the one constrained. Compare `fmax` and
   `lut` only between runs of the same tool. See "Reading numbers" in
@@ -335,7 +339,7 @@ the flow writes them, and:
 | File | Content |
 | --- | --- |
 | `settings.json` | `flow_settings` (the merged input) and `effective_flow_settings` (what the flow made of it; read it first when a run surprises you) |
-| `results.json` | the parsed results; a failed run writes `success: false` and `error.code`/`error.message`; a run that its checks rejected keeps `trace.json`; an unchanged launch reports it again (state `rejected again`); `--rebuild-all` runs it |
+| `results.json` | the record of the run; a failed run writes `outcome: failed` and `error.code`/`error.message`; a run that its checks rejected keeps `trace.json`; an unchanged launch reports it again (state `rejected again`); `--rebuild-all` runs it |
 | `trace.json` | what the run consumed and produced; present after a run that passed or that its checks rejected; a failure that no check rejected leaves none |
 
 ## Rebuilds

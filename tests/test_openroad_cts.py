@@ -1025,8 +1025,10 @@ def test_the_clock_tree_reads_the_files_of_the_placement(tmp_path, monkeypatch):
 
 def test_a_launch_reports_the_recorded_metrics_of_the_clock_tree(tmp_path, monkeypatch):
     _, _, _, flow = launch(tmp_path, monkeypatch)
-    results = json.loads((Path(flow.run_path) / "results.json").read_text())
-    assert results["success"] is True
+    document = json.loads((Path(flow.run_path) / "results.json").read_text())
+    assert document["outcome"] == "passed"
+    # the record holds the described metrics; the rest of the results is in memory
+    results = {**flow.results, **document["metrics"]}
     assert results["worst_slack"] == pytest.approx(-0.247236)
     assert results["wns"] == pytest.approx(-0.247236)
     assert results["tns"] == pytest.approx(-10.8545)
@@ -1132,7 +1134,7 @@ def test_a_failed_cts_stage_leaves_a_failed_database_and_no_trace(tmp_path, monk
     assert (cts_dir / "openroad_cts-failed.odb").is_file()
     assert not (cts_dir / "trace.json").exists() and not (cts_dir / "cts.odb").exists()
     results = json.loads((cts_dir / "results.json").read_text())
-    assert results["success"] is False
+    assert results["outcome"] == "failed"
     assert "openroad" in results["error"]["message"] and "code 1" in results["error"]["message"]
     assert "clock_tree_synthesis" in (cts_dir / "openroad_cts.log").read_text()
     assert (place_dir / "trace.json").is_file()

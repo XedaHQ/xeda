@@ -6,9 +6,11 @@ in `results_description`, and `xeda list-results` reports them.
 
 from __future__ import annotations
 
+import math
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Dict, Literal, Optional
+from typing import Any, Callable, Dict, Literal, Optional
 
 from ..units import is_metric_unit
 
@@ -20,6 +22,8 @@ __all__ = [
     "MetricType",
     "describe_results",
     "metric_unit_known",
+    "non_finite_in",
+    "value_fits",
 ]
 
 #: The type of the value of a metric.
@@ -52,6 +56,64 @@ class MetricSpec:
     description: str
     type: MetricType
     unit: Optional[str] = None
+
+
+def _is_integer(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _table_of(is_value: Callable[[Any], bool]) -> Callable[[Any], bool]:
+    return lambda value: isinstance(value, Mapping) and all(
+        isinstance(key, str) and is_value(item) for key, item in value.items()
+    )
+
+
+_VALUE_TESTS: Dict[str, Callable[[Any], bool]] = {
+    "integer": _is_integer,
+    "number": _is_number,
+    "boolean": lambda value: isinstance(value, bool),
+    "text": lambda value: isinstance(value, str),
+    "text_list": lambda value: isinstance(value, (list, tuple))
+    and all(isinstance(item, str) for item in value),
+    "counts": _table_of(_is_integer),
+    "numbers": _table_of(_is_number),
+    "object": lambda value: isinstance(value, Mapping),
+}
+
+
+def value_fits(metric_type: str, value: Any) -> bool:
+    """Return whether `value` is a value of the metric type `metric_type`.
+
+    An `integer` is an `int` and no `bool`. A `number` is an `int` or a `float`, and no `bool`. A
+    `text_list` is a list of text, a `counts` table maps text to integers, a `numbers` table maps
+    text to numbers and an `object` is a table. The test is about the type only: whether a number
+    is finite is another question (`non_finite_in`)."""
+    return _VALUE_TESTS[metric_type](value)
+
+
+def non_finite_in(value: Any) -> Optional[str]:
+    """Return the place of the first number in `value` that is not finite, or None.
+
+    `value` may be a number, or a list or table of them at any depth. The place is `""` for the
+    value itself, and otherwise the position of the number: `[2]` for the third item of a list,
+    `.name` for the entry `name` of a table."""
+    if isinstance(value, float):
+        return None if math.isfinite(value) else ""
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            found = non_finite_in(item)
+            if found is not None:
+                return f".{key}{found}"
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            found = non_finite_in(item)
+            if found is not None:
+                return f"[{index}]{found}"
+    return None
 
 
 def metric_unit_known(unit: str) -> bool:

@@ -30,7 +30,9 @@ from xeda.flow.derived import (
     recorded_files,
 )
 from xeda.flow_runner import DefaultRunner
+from xeda.records import read_record
 from xeda.flow_runner.outputs import (
+    recorded_outputs,
     declared_output_files,
     handed_design,
     handed_entries,
@@ -277,7 +279,8 @@ def test_ran_or_reused_the_derived_design_is_the_same(tmp_path) -> None:
     design = _design(tmp_path / "d")
     flow = _launched(tmp_path, design)
     record = flow.results["outputs"]["design"]
-    reloaded = json.loads((flow.run_path / "results.json").read_text())["outputs"]["design"]
+    stored = read_record(flow.run_path, run_root=tmp_path / "run")
+    reloaded = recorded_outputs(stored)["design"]
     assert reloaded == record
 
     ran, entries = handed_design(flow, "design", design)
@@ -567,7 +570,7 @@ def test_the_generated_files_of_bsc_are_delivered_once_by_outputs_to(tmp_path, c
     design = _design(tmp_path / "d")
     flow = _bsc(design, tmp_path)
     assert flow.succeeded, run_report(flow, capfd.readouterr())
-    recorded = recorded_artifacts(flow.run_path / "results.json")
+    recorded = recorded_artifacts(flow.run_path, flow.run_path.parent.parent)
     assert set(recorded) == {"artifacts", "outputs"}
     deliveries = outputs_to_deliveries(recorded, flow.run_path, tmp_path / "out")
     names = [delivery.name for delivery in deliveries]

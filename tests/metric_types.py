@@ -1,34 +1,15 @@
 """Check that a written value has the type that its descriptor declares."""
 
-from typing import Any, Callable, Dict, Iterable, Mapping, Type
+from functools import partial
+from typing import Any, Callable, Dict, Iterable, Mapping, Type, get_args
 
 from xeda.flow import Flow, MetricSpec
+from xeda.flow.metrics import MetricType, value_fits
 
-
-def _is_integer(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def _table_of(is_value: Callable[[Any], bool]) -> Callable[[Any], bool]:
-    return lambda value: isinstance(value, dict) and all(
-        isinstance(key, str) and is_value(item) for key, item in value.items()
-    )
-
-
-#: The test of a value for each metric type.
+#: The test of a value for each metric type: `xeda.flow.metrics.value_fits`, the rule that the
+#: record codec applies.
 VALUE_TESTS: Dict[str, Callable[[Any], bool]] = {
-    "integer": _is_integer,
-    "number": _is_number,
-    "boolean": lambda value: isinstance(value, bool),
-    "text": lambda value: isinstance(value, str),
-    "text_list": lambda value: isinstance(value, list) and all(isinstance(v, str) for v in value),
-    "counts": _table_of(_is_integer),
-    "numbers": _table_of(_is_number),
-    "object": lambda value: isinstance(value, dict),
+    metric_type: partial(value_fits, metric_type) for metric_type in get_args(MetricType)
 }
 
 

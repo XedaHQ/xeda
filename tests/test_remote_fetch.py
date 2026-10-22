@@ -22,6 +22,8 @@ from xeda.remote.fetch import (
 )
 from xeda.remote.manifest import Entry, build_manifest, write_tar
 
+from .record_documents import record_document
+
 pytestmark = pytest.mark.python_compat
 
 
@@ -47,7 +49,7 @@ def _run_dir(root: Path, name: str = "d/flow") -> Path:
 
 
 def _node(run: Path, *, named=False, success=True, written=None, **results) -> NodeResult:
-    document = {"success": success, **results}
+    document = record_document("passed" if success else "failed", **results)
     return NodeResult(run.name, run, document, named, written)
 
 
@@ -66,15 +68,11 @@ def test_fetch_default_selection(tmp_path):
 
 def test_a_named_node_also_fetches_its_outputs_and_artifacts(tmp_path):
     run = _run_dir(tmp_path)
-    outside = tmp_path / "elsewhere" / "extra.bin"
-    outside.parent.mkdir()
-    outside.write_text("outside\n")
-    record = {"path": str(run / "other" / "x.v"), "sha": content_digest(run / "other" / "x.v")}
     node = _node(
         run,
         named=True,
-        artifacts={"bitstream": "out.bit", "extra": str(outside), "trace": "trace.json"},
-        outputs={"netlist": record},
+        artifacts={"bitstream": "out.bit", "trace": "trace.json"},
+        outputs={"netlist": ["other/x.v"]},
     )
     selected = select_fetch(tmp_path, [node], fetch_all=False).files
     assert set(selected) == {
@@ -86,7 +84,6 @@ def test_a_named_node_also_fetches_its_outputs_and_artifacts(tmp_path):
         "d/flow/out.bit",
         "d/flow/other/x.v",
     }
-    assert outside not in selected.values(), "a file outside the run directory never comes back"
 
 
 def test_a_node_the_request_does_not_name_returns_no_outputs(tmp_path):
@@ -123,12 +120,7 @@ def test_two_nodes_have_their_own_places(tmp_path):
 
 def test_failed_node_fetches_only_what_it_wrote(tmp_path):
     run = _run_dir(tmp_path)  # every file is here, as an earlier successful run left it
-    outside = tmp_path / "elsewhere.bin"
-    outside.write_text("stale\n")
-    results = dict(
-        artifacts={"bit": "out.bit", "stale": str(outside)},
-        outputs={"x": {"path": str(run / "other" / "x.v"), "sha": "0"}},
-    )
+    results = dict(artifacts={"bit": "out.bit", "stale": "other/x.v"}, outputs={"x": ["other/x.v"]})
     written = frozenset({"results.json", "flow.log", "out.bit", "notes.txt"})
     for fetch_all in (False, True):
         node = _node(run, named=True, success=False, written=written, **results)
@@ -151,13 +143,19 @@ def test_a_missing_file_of_a_passed_node_is_an_error_and_of_a_failed_node_is_not
     assert "d/flow/never.bit" not in select_fetch(tmp_path, [failed], fetch_all=False).files
 
 
-def test_a_declared_output_outside_the_run_directory_is_refused(tmp_path):
+@pytest.mark.parametrize("name", ["/etc/passwd", "../other.v", "a/../../b.v"])
+def test_a_record_that_names_a_file_outside_the_run_directory_is_no_record(tmp_path, name):
+    """Nothing is taken for the names of such a record, and the node counts as not passed."""
     run = _run_dir(tmp_path)
-    other = tmp_path / "other.v"
-    other.write_text("x\n")
-    node = _node(run, named=True, outputs={"x": {"path": str(other), "sha": "0"}})
-    with pytest.raises(DeliveryError, match="outside its run directory"):
-        select_fetch(tmp_path, [node], fetch_all=False).files
+    node = _node(run, named=True, outputs={"x": [name]}, artifacts={"bit": "out.bit"})
+    selected = select_fetch(tmp_path, [node], fetch_all=False).files
+    assert "d/flow/out.bit" not in selected and "d/flow/results.json" not in selected
+
+
+def test_a_node_without_a_record_comes_back_as_a_node_that_did_not_pass(tmp_path):
+    run = _run_dir(tmp_path)
+    old = NodeResult(run.name, run, {"success": True}, True, frozenset({"flow.log"}))
+    assert set(select_fetch(tmp_path, [old], fetch_all=False).files) == {"d/flow/flow.log"}
 
 
 def test_links_a_tool_left_are_not_followed(tmp_path):
@@ -241,9 +239,9 @@ def test_a_named_output_that_a_link_leads_out_of_the_run_directory_is_an_error(t
     secret = tmp_path / "secret.txt"
     secret.write_text("secret\n")
     (run / "linked.bit").symlink_to(secret)
-    record = {"path": str(run / "linked.bit"), "sha": "0"}
+    node = _node(run, named=True, outputs={"bit": ["linked.bit"]})
     with pytest.raises(RemoteFetchError, match="declared output.*outside its run directory"):
-        select_fetch(tmp_path, [_node(run, named=True, outputs={"bit": record})], fetch_all=False)
+        select_fetch(tmp_path, [node], fetch_all=False)
 
 
 def test_a_named_link_that_leads_nowhere_is_an_error(tmp_path):
@@ -307,23 +305,6 @@ def test_rewritten_results_keep_the_place_of_a_skipped_artifact(tmp_path):
     assert sorted(d.name.as_posix() for d in predicted) == ["out.bit", "tool.log"]
     with pytest.raises(RemoteFetchError, match="not in the mirror"):
         rewrite_results(results, PurePosixPath("/r/d/flow"), mirror)
-
-
-@pytest.mark.parametrize("kind", ["file", "link", "missing"])
-def test_an_artifact_outside_the_run_directory_is_never_read(tmp_path, kind):
-    run = _run_dir(tmp_path)
-    real = tmp_path / "real.bin"
-    real.write_text("x\n")
-    named = tmp_path / "elsewhere.bin"
-    if kind == "file":
-        named.write_text("outside\n")
-    elif kind == "link":
-        named.symlink_to(real)
-    selection = select_fetch(
-        tmp_path, [_node(run, named=True, artifacts={"x": str(named)})], fetch_all=False
-    )
-    assert not [p for p in selection.files.values() if not p.is_relative_to(run)]
-    assert selection.skipped == []
 
 
 def test_mirror_relative_keeps_a_place_in_the_run_directory_and_gives_the_rest_none():
@@ -418,7 +399,7 @@ def test_a_file_in_the_stream_that_was_not_asked_for_is_refused(tmp_path):
     assert not (run_root / "@host" / "d/flow/flow.log").exists()
 
 
-def test_mirror_refuses_escape(tmp_path):
+def test_mirror_refuses_a_link_out_of_it(tmp_path):
     remote_root = tmp_path / "remote"
     run = _run_dir(remote_root)
     selected = select_fetch(
@@ -546,6 +527,7 @@ def test_results_point_at_the_mirror(tmp_path, caplog):
         rewritten = rewrite_results(results, remote, mirror_dir)
     assert json.dumps(results) == original, "the argument stays as it is"
     assert rewritten["run_path"] == str(mirror_dir)
+    # a file outside the run directory does not come back: it keeps its remote path
     assert rewritten["artifacts"] == {
         "netlist": str(mirror_dir / "other/x.v"),
         "bit": [str(mirror_dir / "out.bit"), "/remote/elsewhere/e.bin"],

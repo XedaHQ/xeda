@@ -30,6 +30,8 @@ from ..flow.derived import (
     recorded_files,
 )
 from ..flow.io import OutputDeclaration, declared_outputs, output_enabled, output_required
+from ..frozen import thaw
+from ..records import RunRecord
 from ..run_dir import RunDirectory, RunDirectoryError
 from .trace import OutputEntry
 
@@ -40,6 +42,7 @@ __all__ = [
     "handed_over",
     "record_outputs",
     "recorded_entries",
+    "recorded_outputs",
     "declared_output_files",
 ]
 
@@ -51,6 +54,47 @@ def declared_output_files(results: dict[str, Any]) -> list[Path]:
         for recorded in (results.get("outputs") or {}).values()
         for entry, key in recorded_files(recorded)
     ]
+
+
+def recorded_outputs(record: RunRecord) -> dict[str, Any]:
+    """Return the outputs that `record` holds, in the form that `recorded_entries` checks.
+
+    A file output is a table `{path, sha}` (a list of them for a list output) with the absolute
+    path of the file in the run directory of the record, and with the `equivalence` digest where
+    the type has one. A design output is the table of `_design_entries`, with the absolute path of
+    each generated file. An output that the run did not write is not in the result. The stored
+    form (`RunRecord.outputs`) is read here and nowhere else."""
+    found: dict[str, Any] = {}
+    for name, output in record.outputs.items():
+        if output.design is not None:
+            digests = iter(output.digests)
+            sources = []
+            for source in thaw(output.design["sources"]):
+                if "generated" in source:
+                    sources.append(
+                        {
+                            "generated": str(record.run_dir / source["generated"]),
+                            "type": source["type"],
+                            "sha": next(digests),
+                        }
+                    )
+                else:
+                    sources.append(source)
+            found[name] = {
+                "kind": DESIGN_RECORD_KIND,
+                "top": output.design["top"],
+                "input_design": output.design["input_design"],
+                "sources": sources,
+            }
+        elif output.names:
+            entries = []
+            for index, (path, digest) in enumerate(zip(output.names, output.digests)):
+                entry: dict[str, Any] = {"path": str(record.run_dir / path), "sha": digest}
+                if output.equivalences and output.equivalences[index] is not None:
+                    entry["equivalence"] = output.equivalences[index]
+                entries.append(entry)
+            found[name] = entries if output.cardinality == "many" else entries[0]
+    return found
 
 
 def record_outputs(flow: Flow, *, record: bool = True) -> list[str]:

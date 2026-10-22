@@ -665,7 +665,9 @@ def test_a_run_whose_results_have_unusual_keys_still_reports_them(tmp_path, monk
     class OddKeys(Flow):
         """Reports timing by (clock, edge)."""
 
-        results_description: ClassVar[dict[str, MetricSpec]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {
+            "timing": MetricSpec("Timing by clock and edge.", "object")
+        }
 
         def run(self) -> None:
             self.results["timing"] = {("clk", "rise"): 1.5, Path("/run/x.v"): 2}
@@ -682,7 +684,7 @@ def test_a_run_whose_results_have_unusual_keys_still_reports_them(tmp_path, monk
         assert document["success"] is True, document
         assert document["results"]["timing"] == {"('clk', 'rise')": 1.5, "/run/x.v": 2}
         recorded = json.loads((Path(document["run_path"]) / "results.json").read_text())
-        assert recorded["timing"] == document["results"]["timing"]
+        assert recorded["metrics"]["timing"] == document["results"]["timing"]
     finally:
         for name in (OddKeys.name, OddKeys.__name__):
             registered_flows.pop(name, None)

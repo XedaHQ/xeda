@@ -43,7 +43,7 @@ A node is judged in the order the launch uses:
 9. The trace: the node is `stale` with the reason of `check_trace`. What the producers handed
    over is compared last, and only when every producer is `fresh`. Otherwise a node that
    nothing above decided is `unknown`, with the reason `depends on <producer>`.
-10. `results.json`, only when the trace is current and every producer is `fresh`. The document
+10. `results.json`, only when the trace is current and every producer is `fresh`. The record
    must agree with the verdict of the trace (`launch_report.adoptable_document`). If it does
    not, the node is `stale`. If it does, the node is `fresh` for a run that passed, and
    `rejected again` for a run that was rejected.
@@ -51,7 +51,6 @@ A node is judged in the order the launch uses:
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +59,7 @@ from typing import Literal
 
 from ..deliver import split_deliveries
 from ..design import Design
+from ..errors import RecordError
 from ..flow import (
     Flow,
     FlowDependencyFailure,
@@ -69,9 +69,10 @@ from ..flow import (
 )
 from ..flow.io import declared_inputs, declared_outputs
 from ..proc_utils import DOCKER_IMAGE_PREFIX
+from ..records import RunRecord, read_record
 from ..run_dir import RunDirectory, RunDirectoryError
 from . import launch_input
-from .outputs import recorded_entries, verified_design
+from .outputs import recorded_entries, recorded_outputs, verified_design
 from .launch_report import adoptable_document
 from .resolver import Plan, PlanNode, planned_design_of
 from .trace import (
@@ -121,24 +122,23 @@ def dry_locate(name: str) -> str | None:
     return locate_program(name)
 
 
-def _results(node: PlanNode) -> dict | None:
-    """Return the recorded results of the last run of the node, or None if they cannot be read.
+def _record(node: PlanNode, run_root: Path) -> RunRecord | None:
+    """Return the record of the last run of the node, or None if it cannot be read.
 
-    Whether a launch adopts them depends on the trace (`launch_report.adoptable_document`)."""
+    Whether a launch adopts it depends on the trace (`launch_report.adoptable_document`)."""
     try:
-        document = json.loads((node.run_path / "results.json").read_text())
-    except (OSError, ValueError):
+        return read_record(node.run_path, run_root=run_root)
+    except RecordError:
         return None
-    return document if isinstance(document, dict) else None
 
 
-def _entries(results: dict, producer: PlanNode, output: str) -> tuple[OutputEntry, ...] | str:
-    """Return the files of `output` as the recorded results hand them over.
+def _entries(record: RunRecord, producer: PlanNode, output: str) -> tuple[OutputEntry, ...] | str:
+    """Return the files of `output` as the record of the producer hands them over.
 
     They are read as the hand-over reads them (`outputs.recorded_entries`). Otherwise return why
     not, as words for an unknown node: no record, or a record that is not valid."""
     declaration = declared_outputs(producer.flow_class).get(output)
-    recorded = (results.get("outputs") or {}).get(output)
+    recorded = recorded_outputs(record).get(output)
     if declaration is None or recorded is None:
         return f"{producer.name} recorded no output `{output}` to hand over"
     try:
@@ -273,8 +273,8 @@ def _derived_design(
     converter = plan.node(reference.node)
     if states[converter.name].state != "fresh":
         return planned, (converter, reference.output), (), None
-    results = _results(converter)
-    recorded = (results or {}).get("outputs", {}).get(reference.output)
+    converted = _record(converter, run_root)
+    recorded = None if converted is None else recorded_outputs(converted).get(reference.output)
     label = f"{converter.name}'s output `{reference.output}`"
     if recorded is None:
         return (
@@ -356,11 +356,11 @@ def judge_node(
                 converter[1],
             ):
                 continue  # derived above, with the record verified
-            results = _results(producer)
+            handing = _record(producer, run_root)
             found = (
                 f"{ref.node} recorded no output `{ref.output}` to hand over"
-                if results is None
-                else _entries(results, producer, ref.output)
+                if handing is None
+                else _entries(handing, producer, ref.output)
             )
             if isinstance(found, str):
                 lacks = lacks or NodeFreshness("unknown", found)
@@ -423,7 +423,10 @@ def judge_node(
         return NodeFreshness("stale", freshness.reason)
     if waiting is not None:
         return NodeFreshness("unknown", f"depends on {waiting.name}")
-    if not adoptable_document(_results(node), freshness.verdict, freshness.error):
+    recorded_run = _record(node, run_root)
+    if recorded_run is None or not adoptable_document(
+        recorded_run, freshness.verdict, freshness.error, freshness.run_id
+    ):
         return NodeFreshness("stale", f"no completed results in {node.run_path / 'results.json'}")
     if freshness.verdict == "rejected":
         assert freshness.error is not None

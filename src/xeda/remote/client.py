@@ -678,20 +678,10 @@ def _check_outputs_to(
     )
     # The directory itself, and the files that the last fetch would deliver again.
     deliveries.check_outputs_to(outputs_to)
-    previous = recorded_artifacts(mirror_dir / "results.json")
-    recorded_run_path = _recorded_run_path(mirror_dir / "results.json")
-    if recorded_run_path is not None:
-        deliveries.check(outputs_to_deliveries(previous, recorded_run_path, outputs_to))
+    previous = recorded_artifacts(mirror_dir, local_root)
+    if previous:
+        deliveries.check(outputs_to_deliveries(previous, mirror_dir, outputs_to))
     return deliveries
-
-
-def _recorded_run_path(results_json: Path) -> Optional[Path]:
-    """The `run_path` that a fetched `results.json` names (a path on the remote), or `None`."""
-    try:
-        run_path = json.loads(results_json.read_text(encoding="utf-8")).get("run_path")
-    except (OSError, ValueError, AttributeError):
-        return None
-    return Path(run_path) if isinstance(run_path, str) and run_path else None
 
 
 # --- The steps with the connection ------------------------------------------------------------
@@ -1573,12 +1563,7 @@ def _finish(
             # The records of the mirror are whole before anything is delivered: a refused delivery
             # leaves them as they are.
             for directory in sorted(set(directories.values())):
-                rewrite_records(
-                    directory,
-                    local_root,
-                    translate,
-                    results=rewritten if directory == requested_dir else None,
-                )
+                rewrite_records(directory, local_root, translate)
         except BaseException:
             # A cut in the transfer, or a failure while the records are rewritten, leaves some files
             # of this run beside the records of an earlier one. The locks are held: the discard

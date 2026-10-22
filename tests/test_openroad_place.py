@@ -3913,8 +3913,10 @@ def test_a_launch_runs_the_commands_in_order_and_reports_the_recorded_metrics(
     commands = [call[0] for call in fake_calls(run_dir) if call[0] not in MEASURING_COMMANDS]
     assert commands == EXPECTED_COMMANDS
     assert (run_dir / "place.odb").is_file() and (run_dir / "place.sdc").is_file()
-    results = json.loads((run_dir / "results.json").read_text())
-    assert results["success"] is True
+    document = json.loads((run_dir / "results.json").read_text())
+    assert document["outcome"] == "passed"
+    # the record holds the described metrics; the rest of the results is in memory
+    results = {**flow.results, **document["metrics"]}
     assert results["worst_slack"] == pytest.approx(-0.1835)
     assert results["wns"] == pytest.approx(-0.1835)
     assert results["tns"] == pytest.approx(-7.7916)

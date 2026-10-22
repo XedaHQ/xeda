@@ -65,9 +65,10 @@ from .artifacts import iter_artifact_paths
 from .dataclass import DELIVERABLE_ROLE, written_role
 from .digest import FileRecord, content_digest, filesystem_time_ns, record_file
 from .listing import directory_files
+from .errors import RecordError
 from .flow import Flow, FlowSettingsError
-from .flow.derived import recorded_files
 from .flow.flow import WrittenLeaf, map_written_leaves, output_name, resolved_template
+from .records import read_record, stored_outputs
 from .run_root import is_run_root
 from .utils import XedaException, copy_fd, json_encodable, with_json_keys
 
@@ -444,19 +445,19 @@ def refuse_shared_destinations(
         )
 
 
-def recorded_artifacts(results_json: Path) -> Any:
-    """Return the artifact and declared-output paths of the last run, for checks before a run."""
+def recorded_artifacts(run_dir: Path, run_root: Path) -> Any:
+    """Return the artifact and declared-output paths of the last run in `run_dir`, for checks
+    before a run.
+
+    They are those of its record (`records.read_record`). The result is empty if there is no
+    record of this version: a run that an older Xeda left delivers nothing and blocks nothing."""
     try:
-        results = json.loads(results_json.read_text())
-        artifacts = results.get("artifacts") or {}
-        outputs = [
-            entry[key]
-            for recorded in (results.get("outputs") or {}).values()
-            for entry, key in recorded_files(recorded)
-        ]
-        return {"artifacts": artifacts, "outputs": outputs} if outputs else artifacts
-    except (OSError, ValueError, AttributeError):
+        record = read_record(run_dir, run_root=run_root)
+    except RecordError:
         return {}
+    outputs = [path for files in stored_outputs(record).values() for path, _digest in files]
+    artifacts = dict(record.artifacts)
+    return {"artifacts": artifacts, "outputs": outputs} if outputs else artifacts
 
 
 def _identity(path: Path, follow: bool = True) -> Optional[tuple[int, int]]:

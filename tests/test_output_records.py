@@ -43,7 +43,15 @@ def test_a_run_records_each_declared_output_with_its_digest(tmp_path, design):
     assert path == (maker.run_path / "made.txt").resolve()
     assert record["sha"] == content_digest(path)
     written = json.loads((maker.run_path / "results.json").read_text())
-    assert written["outputs"] == {"made": {"path": str(path), "sha": record["sha"]}}
+    assert written["outputs"] == {
+        "made": {
+            "kind": "Data",
+            "cardinality": "optional",
+            "names": ["made.txt"],
+            "digests": [record["sha"]],
+            "design": None,
+        }
+    }
 
 
 def test_an_enabled_output_the_run_did_not_produce_fails_the_run(tmp_path, design, monkeypatch):
@@ -312,11 +320,13 @@ def test_a_missing_output_replaces_old_success_and_keeps_failure_identity(
     again = _launch(tmp_path, design, {}, rebuild_all=True)
     assert not again.succeeded
     document = json.loads((again.run_path / "results.json").read_text())
-    assert document["success"] is False and document["outputs"] == {}
+    assert document["outcome"] == "failed"
+    assert (
+        document["outputs"]["made"]["names"] == [] and document["outputs"]["made"]["digests"] == []
+    )
     assert document["error"]["code"] == "missing_output"
     assert document["design"] == "d" and document["flow"] == first.name
-    for name in ("run_path", "timestamp", "flow_hash", "design_hash"):
-        assert document[name]
+    assert document["identity"] == again.flow_hash and document["run_id"] == again.run_id
     assert not (again.run_path / "trace.json").exists()
     with pytest.raises(FlowDependencyFailure, match="output `made`"):
         handed_over(again, "made")
@@ -353,7 +363,7 @@ def test_a_failed_rerun_cannot_retain_a_handoff_record(tmp_path, design, monkeyp
     again = _launch(tmp_path, design, {}, rebuild_all=True)
     assert not again.succeeded
     document = json.loads((again.run_path / "results.json").read_text())
-    assert document["success"] is False and "outputs" not in document
+    assert document["outcome"] == "failed" and document["outputs"]["made"]["names"] == []
     assert not (again.run_path / "trace.json").exists()
     # Even a retained record of an existing, unchanged file cannot authorize a failed producer.
     again.results["outputs"] = {"made": record}

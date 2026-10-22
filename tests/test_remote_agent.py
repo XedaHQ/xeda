@@ -420,7 +420,7 @@ def test_session_syncs_launches_streams_and_fetches(tmp_path, toolchain, start_a
     files = fetched(agent)
     assert "top/nextpnr/results.json" in files and "top/nextpnr/settings.json" in files
     assert not any(path.endswith("trace.json") for path in files)
-    assert json.loads(files["top/nextpnr/results.json"])["success"] is True
+    assert json.loads(files["top/nextpnr/results.json"])["outcome"] == "passed"
     agent.send({"bye": True})
     assert agent.process.wait(timeout=TIMEOUT) == 0
 

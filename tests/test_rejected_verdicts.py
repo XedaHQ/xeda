@@ -154,7 +154,7 @@ def test_a_rejection_is_the_error_of_the_document(tmp_path, judged_registered):
     )
     assert flow.rejection == "slack is negative"
     document = json.loads((flow.run_path / "results.json").read_text())
-    assert document["success"] is False
+    assert document["outcome"] == "rejected"
     assert document["error"] == {
         "code": "rejected",
         "message": f"`{flow.name}` reported failure: slack is negative",
@@ -162,7 +162,8 @@ def test_a_rejection_is_the_error_of_the_document(tmp_path, judged_registered):
         "exit_status": None,
         "log": None,
     }
-    assert "outputs" not in document  # a rejected run hands nothing over
+    # a rejected run hands nothing over
+    assert all(not output["names"] for output in document["outputs"].values())
 
 
 def test_a_passed_run_records_its_outputs(tmp_path, judged_registered):
@@ -223,7 +224,7 @@ def test_an_unchanged_launch_reports_the_rejection_again_without_running(
     assert again.reused and again.rejected_again and not again.succeeded
     assert again.outcome == "rejected" and again.rejection == document["error"]["message"]
     assert again.results["error"] == document["error"]
-    assert again.results["timestamp"] == document["timestamp"]  # the original run's
+    assert again.record.run_id == document["run_id"]  # the original run's
     assert again.run_id == trace["run_id"]
 
 
@@ -249,7 +250,7 @@ def test_a_rejection_is_reported_again_only_while_everything_is_unchanged(
     elif change == "edited results.json":
         path = first.run_path / "results.json"
         document = json.loads(path.read_text())
-        document["timestamp"] = "edited"
+        document["runtime"] = 12345.0
         path.write_text(json.dumps(document))
     elif change == "removed output":
         (first.run_path / "out.txt").unlink()

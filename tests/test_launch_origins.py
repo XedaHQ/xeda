@@ -148,7 +148,7 @@ def test_the_command_line_launches_the_nodes_planning_names(tmp_path, where):
     document = json.loads(result.stdout)
     assert result.exit_code == 0 and document["success"], document
     launched = [
-        (node["flow"], json.loads(Path(node["run_path"], "results.json").read_text())["flow_hash"])
+        (node["flow"], json.loads(Path(node["run_path"], "results.json").read_text())["identity"])
         for node in document["nodes"]
     ]
     assert launched == planned

@@ -301,7 +301,7 @@ def test_a_location_given_to_a_finished_run_delivers_without_running_again(tmp_p
     assert launch(bitstream=str(here)).reused
     assert _tools_started(tmp_path) == started, "no tool started again"
     results = json.loads((first.run_path / "results.json").read_text())
-    assert results["outputs"]["bitstream"]["path"] == str(kept)
+    assert results["outputs"]["bitstream"]["names"] == [kept.relative_to(first.run_path).as_posix()]
 
     # a name in the run directory is another file the run writes: another run
     named = launch(bitstream="board.bit")

@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from pprint import PrettyPrinter
 from typing import (
@@ -1054,9 +1054,7 @@ class FlowLauncher:
         own = self._deliveries_of(run_path, deliveries, requested.name)
         own.check_outputs_to(outputs_to)
         predicted = (
-            outputs_to_deliveries(
-                recorded_artifacts(run_path / "results.json"), run_path, outputs_to
-            )
+            outputs_to_deliveries(recorded_artifacts(run_path, self.run_root), run_path, outputs_to)
             if outputs_to is not None
             else []
         )
@@ -1240,7 +1238,9 @@ class FlowLauncher:
             # included) have already run.
             delivery.check_outputs_to(outputs_to)
             delivery.check(
-                outputs_to_deliveries(recorded_artifacts(results_json), run_path, outputs_to)
+                outputs_to_deliveries(
+                    recorded_artifacts(run_path, self.run_root), run_path, outputs_to
+                )
             )
             if policy.clean:
                 if self.settings.backups:
@@ -1306,6 +1306,10 @@ class FlowLauncher:
                 flow.timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
                 # The run time of the flow includes init() and the execution of its producers.
                 flow.init_time = time.monotonic()
+                # One id for this execution, whether it ends well or not: the record, the trace and
+                # the consumers of the run name it.
+                flow.run_id = uuid.uuid4().hex
+                flow.started = datetime.now(timezone.utc)
                 try:
                     if design_failure is not None:
                         raise design_failure
@@ -1324,6 +1328,9 @@ class FlowLauncher:
                         entered=self._entered,
                         design_handover=handover,
                     )
+                    flow.producer_run_ids = {
+                        str(producer.run_path): str(producer.run_id) for producer in producers
+                    }
                     # Producers have their own program records. Preparation belongs to this
                     # consumer and happens before its execution recording scope/snapshot.
                     with recording_programs() as programs:
@@ -1356,7 +1363,14 @@ class FlowLauncher:
                     flow.results["error"] = error_info(e, node=flow.name).as_json_value()
                     if isinstance(e, FlowDependencyFailure) and e.producer:
                         flow.blocked_by = e.producer
-                    report(flow, derived, results_json, self.settings, record=True)
+                    report(
+                        flow,
+                        derived,
+                        results_json,
+                        self.settings,
+                        record=True,
+                        run_root=self.run_root,
+                    )
                     raise
 
                 # Only now: what the flow consumes includes the outputs and runs of its producers.
@@ -1377,10 +1391,11 @@ class FlowLauncher:
                     freshness = check_trace(
                         run_path, expected, locate_program, refresh=not producer_launch
                     )
-                    if freshness.fresh and reuse_results(flow, results_json, freshness):
+                    if freshness.fresh and reuse_results(flow, self.run_root, freshness):
                         if freshness.refreshed is not None:
                             write_trace(run_path, freshness.refreshed)
                         flow.run_id = freshness.run_id
+                        launch_run.record_identity(flow, run_path)
                         if flow.rejected_again:
                             log.warning(
                                 "%s. Its last run with these inputs and settings was rejected: "
@@ -1404,7 +1419,14 @@ class FlowLauncher:
                                 flow.name,
                                 name,
                             )
-                        report(flow, derived, results_json, self.settings, record=False)
+                        report(
+                            flow,
+                            derived,
+                            results_json,
+                            self.settings,
+                            record=False,
+                            run_root=self.run_root,
+                        )
                         if flow.succeeded:
                             self._defer_delivery(flow, delivery, outputs_to)
                         return flow
@@ -1488,7 +1510,14 @@ class FlowLauncher:
                     for k, v in flow.artifacts.items():
                         flow.results.artifacts.setdefault(k, v)
                     _drop_unwritten_artifacts(flow)
-                    report(flow, derived, results_json, self.settings, record=True)
+                    report(
+                        flow,
+                        derived,
+                        results_json,
+                        self.settings,
+                        record=True,
+                        run_root=self.run_root,
+                    )
                     raise
                 if self.settings.dump_settings_json:
                     # `run()` may finish resolving generated files or derived switches. Keep the
@@ -1496,7 +1525,9 @@ class FlowLauncher:
                     # its effective snapshot after a completed execution without backing up that
                     # transient snapshot.
                     dump_json(all_settings, settings_json, backup=False)
-                report(flow, derived, results_json, self.settings, record=True)
+                report(
+                    flow, derived, results_json, self.settings, record=True, run_root=self.run_root
+                )
                 if (
                     expected is not None
                     and snapshot is not None
@@ -1511,13 +1542,15 @@ class FlowLauncher:
                     # trace names (a depfile). The clean-up only removes files: the trace is the
                     # last thing a run writes.
                     trace = build_trace(
-                        expected, flow, programs, snapshot, input_settings, previous
+                        expected,
+                        flow,
+                        programs,
+                        snapshot,
+                        input_settings,
+                        previous,
+                        run_id=str(flow.run_id),
                     )
                     write_trace(run_path, trace)
-                    flow.run_id = trace.run_id
-                else:
-                    # No trace records this run, so nothing can have consumed it before.
-                    flow.run_id = uuid.uuid4().hex
                 if flow.succeeded:
                     self._defer_delivery(flow, delivery, outputs_to)
                 if policy.post_cleanup:

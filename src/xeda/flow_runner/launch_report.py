@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterable, Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Protocol, Union
 
@@ -23,8 +23,11 @@ from ..artifacts import drop_unwritten_artifacts, iter_artifact_paths
 from ..console import console
 from ..deliver import deliverable_setting_names
 from ..design import Design
+from ..errors import RecordError
 from ..flow import Flow
+from ..records import RunRecord, encode_record, read_record, record_of
 from ..utils import LOCATION_FORMS, dump_json, json_encodable, with_json_keys
+from .outputs import recorded_outputs
 from .trace import Freshness
 
 log = logging.getLogger(__name__)
@@ -143,10 +146,12 @@ def report(
     settings: ReportSettings,
     *,
     record: bool,
+    run_root: Path,
 ) -> None:
-    """Show the results and, for a run that just executed (`record`), write them to `results.json`.
+    """Show the results and, for a run that just executed (`record`), record the run.
 
-    The directory of a reused run is left exactly as it was."""
+    The record of the run (`records.record_of`) is then `flow.record`, and `results.json` holds
+    it. The directory of a reused run is left exactly as it was."""
     if settings.display_results and flow.artifacts and flow.succeeded:
         table = Table(
             box=box.SIMPLE,
@@ -168,9 +173,14 @@ def report(
         console.print(table)
         console.print("")
 
-    if record and settings.dump_results_json:
-        dump_json(flow.results, results_json, backup=settings.backups)
-        log.info("Results written to %s", results_json)
+    if record:
+        assert flow.run_id is not None, f"{flow.name} has no run id"
+        flow.record = record_of(
+            flow, run_root=run_root, run_id=flow.run_id, finished=datetime.now(timezone.utc)
+        )
+        if settings.dump_results_json:
+            dump_json(encode_record(flow.record), results_json, backup=settings.backups)
+            log.info("Results written to %s", results_json)
 
     if settings.display_results:
         print_results(
@@ -180,57 +190,80 @@ def report(
         )
 
 
-def adoptable_document(document: Any, verdict: str, error: Optional[Mapping[str, Any]]) -> bool:
-    """Return whether the `results.json` document `document` agrees with the trace of its run.
+def adoptable_document(
+    record: RunRecord,
+    verdict: str,
+    error: Optional[Mapping[str, Any]],
+    run_id: Optional[str] = None,
+) -> bool:
+    """Return whether the record `record` of a run agrees with the trace of its run.
 
-    `verdict` and `error` are those of the trace (`Trace.verdict`, `Trace.error`). The document
-    agrees only in one of two cases:
+    `verdict` and `error` are those of the trace (`Trace.verdict`, `Trace.error`), and `run_id`
+    is its run. The record agrees only in one of two cases:
 
-    - The trace says `passed`, and the document is a mapping with `success` true.
-    - The trace says `rejected`, and the document is a mapping with `success` false whose
-      `error` is a mapping with the `code` and the `message` of the `error` of the trace, which
-      is a mapping with a text `code` and a text `message`.
+    - The trace says `passed`, and the outcome of the record is `passed`.
+    - The trace says `rejected`, and the outcome of the record is `rejected`, with an `error`
+      that has the `code` and the `message` of the `error` of the trace, which is a mapping with
+      a text `code` and a text `message`.
 
-    Any other combination is False: a document that is not a mapping, a `success` that is not
-    a boolean, an unknown verdict, or a trace and a document that disagree (one was edited, or
-    a later run replaced the document without writing a trace). The launch and the dry run
-    apply this one rule, so neither reuses a result that the other would refuse."""
-    if not isinstance(document, Mapping):
-        return False
-    success = document.get("success")
-    if not isinstance(success, bool):
+    Any other combination is False: an unknown verdict, or a trace and a record that disagree
+    (one was edited, or a later run replaced the record without writing a trace). When `run_id`
+    is given, the record must be the record of that run. The launch and the dry run apply this one
+    rule, so neither reuses a result that the other would refuse."""
+    if run_id is not None and record.run_id != run_id:
         return False
     if verdict == "passed":
-        return success
-    if verdict != "rejected" or success:
+        return record.outcome == "passed"
+    if verdict != "rejected" or record.outcome != "rejected":
         return False
     if not isinstance(error, Mapping):
         return False
     if not all(isinstance(error.get(key), str) for key in ("code", "message")):
         return False
-    recorded = document.get("error")
-    return isinstance(recorded, Mapping) and all(
-        recorded.get(key) == error[key] for key in ("code", "message")
+    return record.error is not None and (record.error.code, record.error.message) == (
+        error["code"],
+        error["message"],
     )
 
 
-def reuse_results(flow: Flow, results_json: Path, freshness: Freshness) -> bool:
-    """Adopt the recorded results of a run that is up to date.
+def results_of(record: RunRecord) -> dict[str, Any]:
+    """Return what `record` puts in `Flow.results`: its metrics, flat by their dotted paths, and
+    the verdict, the error, the runtime, the artifacts and the declared outputs of the run."""
+    from ..frozen import thaw
 
-    `freshness` is the result of the check of the trace. The results are adopted only if they
-    agree with its verdict (`adoptable_document`). For a rejected run, the flow then holds the
+    results: dict[str, Any] = {path: thaw(record.metric(path)) for path in record.metric_info}
+    results["success"] = record.passed
+    results["runtime"] = record.runtime
+    if record.error is not None:
+        results["error"] = record.error.as_json_value()
+    results["artifacts"] = dict(record.artifacts)
+    outputs = recorded_outputs(record)
+    if outputs:
+        results["outputs"] = outputs
+    return results
+
+
+def reuse_results(flow: Flow, run_root: Path, freshness: Freshness) -> bool:
+    """Adopt the record of a run that is up to date.
+
+    `freshness` is the result of the check of the trace. The record is adopted only if it agrees
+    with its verdict and its run (`adoptable_document`). The flow then holds it (`Flow.record`) and
+    its results are those of the record (`results_of`). For a rejected run, the flow holds the
     rejection (`Flow.rejection`) and is marked as rejected again (`Flow.rejected_again`). Its
-    results hold an error and no `outputs`, so a consumer is handed nothing.
+    record holds no output, so a consumer is handed nothing.
 
-    Return False if the results cannot be read or do not agree."""
+    Return False if the record cannot be read or does not agree. A record that an older Xeda wrote
+    is one of them: the run is stale, and the flow runs again."""
     try:
-        previous = Box(json.loads(results_json.read_text()))
-    except (OSError, ValueError):
+        record = read_record(flow.run_path, run_root=run_root)
+    except RecordError as problem:
+        log.info("%s", problem)
         return False
-    if not adoptable_document(previous, freshness.verdict, freshness.error):
+    if not adoptable_document(record, freshness.verdict, freshness.error, freshness.run_id):
         return False
-    flow.results.update(**previous)
-    flow.artifacts = previous.get("artifacts", Box())
+    flow.record = record
+    flow.results.update(**results_of(record))
+    flow.artifacts = Box(dict(record.artifacts))
     flow.reused = True
     if freshness.verdict == "rejected":
         assert freshness.error is not None

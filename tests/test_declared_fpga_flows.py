@@ -341,8 +341,8 @@ def test_missing_or_stale_configuration_fails(
     import json
 
     result = json.loads((tmp_path / "xeda_run" / "blink" / "nextpnr" / "results.json").read_text())
-    assert result["success"] is False
-    assert not result.get("outputs")
+    assert result["outcome"] == "failed"
+    assert not any(output["names"] for output in result["outputs"].values())
 
 
 def test_ecp5_out_of_context_has_no_configuration(tmp_path, monkeypatch, tools):
@@ -556,7 +556,7 @@ def test_two_unchanged_cli_processes_reuse_both_recorded_flows(tmp_path):
     record = json.loads((producer / "results.json").read_text())["outputs"]["netlist"]
     consumer = Path(documents[1]["run_path"])
     binding = json.loads((consumer / "trace.json").read_text())["declared_inputs"][0]
-    assert binding["paths"] == [record["path"]]
+    assert binding["paths"] == [str(producer / name) for name in record["names"]]
 
 
 @pytest.mark.parametrize("cli_leaf", ["fpga.part", "flows.yosys_fpga.fpga.part"])

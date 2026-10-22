@@ -169,9 +169,9 @@ def test_hashed_variants_of_one_flow_coexist_and_run_where_they_were_planned(tmp
         results = json.loads((flow.run_path / "results.json").read_text())
         trace = json.loads((flow.run_path / "trace.json").read_text())
         settings = json.loads((flow.run_path / "settings.json").read_text())
-        assert results["flow_hash"] == trace["flowrun_hash"] == node.flowrun_hash
+        assert results["identity"] == trace["flowrun_hash"] == node.flowrun_hash
         assert settings["flowrun_hash"] == flow.flow_hash == node.flowrun_hash
-        assert results["settings_hash"] == trace["settings_hash"] == node.settings_hash
+        assert trace["settings_hash"] == node.settings_hash
         (producer,) = producers_of(runner, flow)
         (record,) = trace["declared_inputs"]
         assert record["references"] == [

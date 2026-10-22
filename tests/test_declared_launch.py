@@ -142,7 +142,7 @@ def test_an_output_changed_after_its_run_recorded_it_is_never_handed_over(
     with pytest.raises(FlowDependencyFailure, match="changed before acquiring its read lease"):
         _runner(tmp_path).launch_flow(_Taker, design, {})
     results = json.loads((tmp_path / "xeda_run" / "d" / "__taker" / "results.json").read_text())
-    assert results["success"] is False
+    assert results["outcome"] == "failed"
 
 
 def test_setup_failure_invalidates_a_previous_success(tmp_path, design, monkeypatch):
@@ -155,8 +155,8 @@ def test_setup_failure_invalidates_a_previous_success(tmp_path, design, monkeypa
     with pytest.raises(FlowFatalError):
         _runner(tmp_path).launch_flow(_Taker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
-    assert recorded["success"] is False
-    for key in ("design", "flow", "design_hash", "flow_hash", "run_path", "timestamp"):
+    assert recorded["outcome"] == "failed"
+    for key in ("design", "flow", "identity", "run_id", "started", "finished"):
         assert recorded[key]
     assert not (first.run_path / "trace.json").exists()
 
@@ -298,7 +298,7 @@ def test_a_failed_producer_reports_its_error_and_invalidates_its_consumer(
     with pytest.raises(FlowDependencyFailure, match="maker broke.*results.json"):
         runner.launch_flow(_Taker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
-    assert recorded["success"] is False and recorded["error"]["code"] == "producer_failed"
+    assert recorded["outcome"] == "failed" and recorded["error"]["code"] == "producer_failed"
     assert not (first.run_path / "trace.json").exists()
     assert not (tmp_path / "out").exists()
 
@@ -347,9 +347,9 @@ def test_a_failed_handover_invalidates_previous_success_without_delivery(
     with pytest.raises(FlowDependencyFailure, match="missing|changed"):
         runner.launch_flow(_Taker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
-    assert recorded["success"] is False
+    assert recorded["outcome"] == "failed"
     assert recorded["error"]["code"] == "producer_failed"
-    assert all(recorded[key] for key in ("design_hash", "flow_hash", "run_path", "timestamp"))
+    assert all(recorded[key] for key in ("identity", "run_id", "started", "finished"))
     assert not (first.run_path / "trace.json").exists()
     assert not (tmp_path / "out").exists()
 

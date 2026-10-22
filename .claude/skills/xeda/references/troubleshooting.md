@@ -89,8 +89,8 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 ### Tools
 
 - `ExecutableNotFound`: `Executable 'ghdl' was not found in PATH. flow:ghdl_sim, tool:GhdlTool`
-  (`--debug` appends `, PATH:...`). Install the tool, or run it from a container with `-s dockerized=true`. `results.json`'s `tools`
-  lists the executables Xeda found and their versions.
+  (`--debug` appends `, PATH:...`). Install the tool, or run it from a container with `-s dockerized=true`. `results.tools` of the `--json`
+  document lists the executables Xeda found and their versions.
 - `nonzero_exit` (`timeout` for a time limit): `Command '...' exited with code 1!` in the failed node's `results.error`. If
   the error reaches the CLI itself, the message starts with `Flow <flow> failed: `. The generated
   script and the tool's log are in `run_path`.
@@ -133,9 +133,9 @@ output of the host. A login profile that prints text does no harm (up to 1 MiB b
 ## Simulation verdicts
 
 A simulation passes only on recognized evidence that it ended, never on exit status alone.
-`results.json` holds `sim.evidence` (the normalized record), `sim.ended_by`, `sim.time` (an
-integer number of femtoseconds; absent when the simulator reported no time), `sim.errors` and
-`sim.warnings`. `error.message` states the cause and the fix.
+The `metrics` of `results.json` hold `sim.evidence` (the normalized record), `sim.ended_by`,
+`sim.time` (an integer number of femtoseconds; absent when the simulator reported no time),
+`sim.errors` and `sim.warnings`. `error.message` states the cause and the fix.
 
 - A silent exit 0, a missing or malformed end record, an unknown end, or a drained event queue
   fails. A testbench that ends with `wait;` needs `std.env.finish` or `$finish`, or a `stop_time`.

@@ -883,7 +883,7 @@ def test_a_programmer_in_a_chain_fails_the_chain_with_its_message(
     assert "ID Error        ID error" in recorded(tmp_path)["error"]["message"]
     for built in ("yosys_fpga", "nextpnr", "fpga_pack"):
         built_results = json.loads((tmp_path / f"run/top/{built}/results.json").read_text())
-        assert built_results["success"] is True
+        assert built_results["outcome"] == "passed"
 
 
 #: A custom board whose name in the loader (`kc705`) has no part in the loader's own list.

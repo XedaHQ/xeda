@@ -259,8 +259,8 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     # The best run is a real run directory, holding the results it was chosen for.
     run_path = Path(best["run_path"])
     recorded_results = json.loads((run_path / "results.json").read_text())
-    assert recorded_results["success"] is True
-    assert best["results"]["fmax"] == recorded_results["fmax"]
+    assert recorded_results["outcome"] == "passed"
+    assert best["results"]["fmax"] == recorded_results["metrics"]["fmax"]
 
     # The search's own record of it is the same view the CLI printed.
     (best_file,) = (tmp_path / "xeda_run").glob("fmax_sqrt_vivado_synth_*.json")

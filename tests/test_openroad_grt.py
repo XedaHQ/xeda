@@ -1286,8 +1286,10 @@ def test_the_chain_of_the_three_flows_runs_the_same_way(tmp_path, monkeypatch):
 
 def test_a_launch_reports_the_recorded_metrics_of_the_global_route(tmp_path, monkeypatch):
     _, _, _, flow = launch(tmp_path, monkeypatch)
-    results = json.loads((Path(flow.run_path) / "results.json").read_text())
-    assert results["success"] is True
+    document = json.loads((Path(flow.run_path) / "results.json").read_text())
+    assert document["outcome"] == "passed"
+    # the record holds the described metrics; the rest of the results is in memory
+    results = {**flow.results, **document["metrics"]}
     assert results["worst_slack"] == pytest.approx(-0.247746)
     assert results["wns"] == pytest.approx(-0.247746)
     assert results["tns"] == pytest.approx(-11.083)
@@ -1416,7 +1418,7 @@ def test_a_failed_route_leaves_a_failed_database_and_no_trace(tmp_path, monkeypa
     assert (grt_dir / "openroad_grt-failed.odb").is_file()
     assert not (grt_dir / "trace.json").exists() and not (grt_dir / "grt.odb").exists()
     results = json.loads((grt_dir / "results.json").read_text())
-    assert results["success"] is False
+    assert results["outcome"] == "failed"
     assert (cts_dir / "trace.json").is_file()
     # the next launch keeps the flows before it and runs the route
     _, states = runner.plan_with_freshness(

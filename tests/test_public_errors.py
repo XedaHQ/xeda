@@ -34,13 +34,14 @@ from xeda.flow_runner.resolver import check_launchable
 from xeda.flow_runner.settings_layers import FlowNotFoundError, FlowRemovedError
 from xeda.flows import Nextpnr
 from xeda.proc_utils import ProcessTimeout
-from xeda.records import ErrorInfo
+from xeda.records import ErrorInfo, decode_record
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import RunRootError, ensure_run_root
 from xeda.utils import ConflictingKeys, ExecutableNotFound, NonZeroExitCode, ToolException
 from xeda.xedaproject import ProjectFileError
 
 from . import test_failure_results as failing
+from .record_documents import record_document
 from .flow_registry import preserved_flow_registry
 from .test_sim_evidence import _Stub
 
@@ -489,17 +490,25 @@ def test_an_absent_power_report_is_a_missing_report(tmp_path):
 
 def test_a_rejected_run_is_adopted_by_its_code_and_message():
     error = ErrorInfo("rejected", "slack", "n", None, None).as_json_value()
-    document = {"success": False, "error": dict(error)}
-    assert adoptable_document(document, "rejected", error)
+
+    def record(outcome="rejected", **changes):
+        document = record_document(
+            outcome, error={**error, **changes} if outcome != "passed" else None
+        )
+        return decode_record(document, run_dir=Path("/run/d/flow"), run_root=Path("/run"))
+
+    assert adoptable_document(record(), "rejected", error)
+    assert not adoptable_document(record(message="other"), "rejected", error)
+    assert not adoptable_document(record(code="nonzero_exit"), "rejected", error)
     assert not adoptable_document(
-        {"success": False, "error": {**error, "message": "other"}}, "rejected", error
+        record(), "rejected", {"type": "ReportedFailure", "message": "slack"}
     )
-    assert not adoptable_document(
-        {"success": False, "error": {**error, "code": "nonzero_exit"}}, "rejected", error
-    )
-    assert not adoptable_document(
-        document, "rejected", {"type": "ReportedFailure", "message": "slack"}
-    )
+    assert not adoptable_document(record("failed"), "rejected", error)
+    assert adoptable_document(record("passed"), "passed", None)
+    assert not adoptable_document(record("rejected"), "passed", None)
+    # the record is the one of the run that the trace names
+    assert adoptable_document(record(), "rejected", error, record().run_id)
+    assert not adoptable_document(record(), "rejected", error, "another run")
 
 
 def test_no_reader_of_a_node_error_looks_for_a_class_name():

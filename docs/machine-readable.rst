@@ -251,8 +251,8 @@ Discovering what comes back
 JSON object that the description documents). ``unit`` is a unit text such as ``MHz``, ``ns`` or
 ``W``. For ``numbers``, it is the unit of every value. A metric in the units of the platform, such
 as a cell area in the area unit of the Liberty files, has the unit ``null``, and its description
-says so. The keys that every flow reports (``success``, ``runtime``, ...) are no metrics and are not
-listed. The table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
+says so. The keys that every flow reports (``runtime``, ...) are no metrics and are not listed. The
+table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
 
 A temperature is in ``degC``. A temperature difference is in ``delta_degC``, and 5 ``delta_degC`` is
 5 K. A thermal resistance is in ``K/W``. The simulated time ``sim.time`` is an integer number of
@@ -265,6 +265,73 @@ and routed`` for ``nextpnr``) and ``lut_basis.method`` beside it. Counts from di
 or stages are not certified comparable, and this holds in particular for Vivado's utilization
 report. ``fmax`` works the same way. Each tool times a design with its own model, so compare
 ``fmax`` only between runs of the same tool (see :ref:`flow-results`).
+
+.. _results-json:
+
+The record of a run
+-------------------
+
+Each run leaves one record, ``results.json``, in the run directory. It is one JSON object with
+the integer ``schema_version`` 1, and every number in it is finite. A reader of a newer schema
+version, or of a file without ``schema_version`` (an older Xeda wrote it), does not guess: it
+refuses the file. A launch treats such a file as no run at all and runs the flow again.
+
+The record has these fields:
+
+``run_id``
+    The id of this execution. It is new for each execution, a failed one included. The trace of the
+    run and every consumer of its outputs name the same id.
+``xeda_version``, ``flow``, ``design``, ``target``
+    The version of Xeda that ran, the name of the flow, the name of the design, and the target (or
+    ``null``).
+``identity``
+    The identity of the run: the hash of its settings and of the origins of its inputs.
+``configuration``
+    What the flow read of the design: for each part it reads (``rtl``, ``tb``), the ``top``, the
+    ``parameters`` and the ``defines``, the ``clocks`` and ``attributes`` (``rtl``) or the ``uut``
+    and ``cocotb`` (``tb``), and ``sources`` as a list of ``{path, type}`` with paths relative to
+    the design root. ``language`` is there for ``rtl``.
+``outcome``
+    ``passed``, ``rejected``, ``failed`` or ``canceled``. It replaces the ``success`` flag of older
+    files. Only ``passed`` and ``rejected`` runs are reused.
+``error``
+    ``null`` for a passed run. Otherwise ``{code, message, node, exit_status, log}``, as
+    :ref:`described below <error-codes>`.
+``metrics``, ``metric_info``
+    The metrics that the flow describes (``xeda list-results``), nested by their dotted path:
+    ``sim.ended_by`` is the key ``ended_by`` of the object ``sim``. ``metric_info`` maps each such
+    path to its ``description``, ``type`` and ``unit``. A value that is unknown is absent. A
+    value that is not finite, or not of its declared type, is no metric: it fails the node with
+    the error code ``invalid_metric``, and the other metrics stay.
+``outputs``
+    Every declared output of the flow, by name, as ``{kind, cardinality, names, digests, design}``.
+    ``kind`` is the name of the source type, or ``design``. ``cardinality`` is ``one``,
+    ``optional`` or ``many``. ``names`` are the files the run wrote, relative to the run
+    directory, and ``digests`` are their content digests, in the same order. Both are ``[]`` when
+    the run wrote none. ``design`` holds the derived design of a converter. A type that defines
+    an equivalence digest adds ``equivalences``, one entry for each file.
+``artifacts``
+    The files that the run wrote for a reader, by key, as names relative to the run directory. A
+    key that held several files has one key for each: ``reports[0]``, ``reports[1]``. A file
+    outside the run directory is not listed.
+``settings``
+    The effective settings of the node, as ``settings.json`` writes them.
+``inputs``
+    One entry for each declared input: ``name``, ``origin`` (``source``, ``producer`` or ``none``),
+    ``producer``, ``output``, ``producer_run_id``, ``producer_run_dir`` (relative to the run root),
+    ``generation`` and the ``sources`` that the input read, each as ``{path, generated, digest,
+    dependency}``.
+``started``, ``finished``, ``runtime``
+    Two times in UTC (ISO 8601) and the duration in seconds.
+``dependencies``, ``inherited_variables``
+    Lists, empty for now.
+
+The record holds no absolute path. The run root and the run directory follow from where the file
+is. The old keys ``success``, ``run_path``, ``design_hash``, ``flow_hash``, ``settings_hash``,
+``timestamp``, ``tools`` and ``design`` as a result key are gone. In Python,
+``xeda.records.read_record(run_dir, run_root=...)`` returns the record as an immutable
+``RunRecord``, and ``RunRecord.to_dict()`` returns the document.
+
 
 Validating a design file
 ========================
@@ -394,14 +461,15 @@ the settings or ``--outputs-to`` named, once the whole launch finished (see "Out
 The list is ``[]`` for a node with nothing to deliver. A node that is up to date still lists its
 deliveries, because delivery depends on the outcome of the node, whether or not its tool ran.
 
-The records of declared outputs appear as ``results.outputs`` in the CLI document and as the
-top-level ``outputs`` key in ``results.json``. Each enabled output that the flow actually produced
-maps its name to ``{"path": ..., "sha": ...}``. A list output maps to an ordered list of such
-records. ``path`` is absolute and lies inside the run directory of the producer. ``sha`` is the
-32-character content digest, not a timestamp. A record of a type that defines one also has
-``equivalence``. This is the digest of the file without what its type calls insignificant (for a
-JSON netlist, the ``src`` attributes). An input that asks for it compares this digest when ``sha``
-differs. Disabled outputs are omitted.
+The records of declared outputs appear as ``results.outputs`` in the CLI document. Each enabled
+output that the flow actually produced maps its name to ``{"path": ..., "sha": ...}``. A list
+output maps to an ordered list of such records. ``path`` is absolute and lies inside the run
+directory of the producer. ``sha`` is the 32-character content digest, not a timestamp. A record
+of a type that defines one also has ``equivalence``. This is the digest of the file without what
+its type calls insignificant (for a JSON netlist, the ``src`` attributes). An input that asks for
+it compares this digest when ``sha`` differs. Disabled outputs are omitted. The ``outputs`` of
+``results.json`` hold the same facts with names relative to the run directory (see
+:ref:`results-json`).
 
 Xeda checks the output records at two points:
 
@@ -488,7 +556,10 @@ refusals before it starts a run, and they use the same document with ``UsageErro
 that declares no inputs, or a chain together with a command-line or API binding of the same input)
 is a settings error. It names the input and the place where the binding was written.
 
-The ``results.json`` of every node is a failure document too. Its ``error`` has a stable ``code``,
+.. _error-codes:
+
+The ``results.json`` of every node is a failure document too. Its ``outcome`` is not ``passed`` and
+its ``error`` has a stable ``code``,
 a ``message``, the ``node``, the ``exit_status`` of the tool (for ``nonzero_exit``) and a ``log``
 (the artifact to read, or ``null``). The ``code`` is lower snake case and never the name of a
 class. The top-level ``FlowFailed`` is the verdict of the run, and a node names the cause. A
@@ -834,8 +905,8 @@ To run a flow:
     design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
     runner = DefaultRunner("xeda_run")
     flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5ns"])
-    if flow and flow.results.success:
-        print(flow.results.fmax)
+    if flow and flow.record and flow.record.passed:
+        print(flow.record.metric("fmax"))
 
 To inspect a plan without constructing or running flows:
 
