@@ -103,6 +103,8 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
   Vivado, negative slack in Quartus) is reported again on an unchanged launch (node state
   `rejected again`); `--rebuild-all` runs it again. A tool failure, such as a Vivado setup-slack
   miss or a `nextpnr` timing miss, runs again.
+- `storage_error`: a file or directory error of the operating system, or a path that leaves the
+  run directory, ended the node.
 - `missing_output`: a declared output is absent, unreadable, outside the run directory or not
   written by this run. `nextpnr` reports its own missing configuration as `reported_failure`, naming
   the setting and path.

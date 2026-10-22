@@ -491,7 +491,9 @@ cause, and the flows after it say ``producer_failed`` and quote the producer, it
 message (``producer yosys_fpga failed (nonzero_exit): ...``). The top-level ``error`` of a chain
 whose last flow was never reached says the same. A flow that raises has a code for the kind of
 failure: ``nonzero_exit``, ``timeout``, ``executable_not_found``, ``reported_failure`` (also for
-``FlowFatalError``), ``producer_failed`` or ``internal_error`` (a bug of Xeda). A run that was
+``FlowFatalError``, and for a design, a project or a setting that Xeda refuses while it launches the
+flow), ``storage_error`` (a file or directory error of the operating system, or a path that leaves
+the run directory), ``producer_failed`` or ``internal_error`` (a bug of Xeda). A run that was
 judged negative after its reports were read says ``rejected``. Three more causes belong to a flow
 that finished without raising. The top-level document of such a flow says ``FlowFailed``:
 
@@ -500,8 +502,9 @@ that finished without raising. The top-level document of such a flow says ``Flow
   reported the failure: the tool exited 0, and the reports or checks that the flow reads say
   otherwise. A flow can give a message of its own. For example, ``openfpgaloader`` says what its
   loader reported and quotes the lines.
-* ``missing_report``: the reports of the flow could not be read, because a report it asked for
-  does not exist or is a previous run's, not this run's. The message names the files.
+* ``missing_report``: the reports of the flow could not be read, because a report that the flow
+  needs does not exist or is a previous run's, not this run's. The message names the files. A
+  report that the flow reads but can do without never gives this code.
 * ``missing_output``: the flow passed its own checks, but an enabled declared output is absent,
   unreadable, outside the run directory or not written by this run (see ``outputs`` above).
 

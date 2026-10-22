@@ -175,9 +175,10 @@ This file holds what the flow parsed out of the tool's reports. A run that fails
 started still writes the file, as a failure document. This covers a failing tool and a failing
 producer. The ``success`` key is ``false``, and ``error.code`` and ``error.message`` say what
 failed. The ``code`` is a stable text, never a class name. The run's identity is in the document
-too. A flow whose reports or checks failed without a tool error says ``reported_failure``. A
-consumer of a failed producer says ``producer_failed`` and quotes the cause. Xeda removes the previous ``results.json`` before a run starts, so an earlier
-success never stands for a run that failed. Every flow reports these keys:
+too. A flow whose reports or checks failed without a tool error and without a rejection says
+``reported_failure``. A flow that rejected its results says ``rejected``. A consumer of a failed
+producer says ``producer_failed`` and quotes the cause. Xeda removes the previous ``results.json``
+before a run starts, so an earlier success never stands for a run that failed. Every flow reports these keys:
 
 .. list-table::
    :header-rows: 1
