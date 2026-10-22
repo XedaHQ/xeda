@@ -1255,8 +1255,9 @@ Result keys
 
 ``ff`` counts ``SLICE_FFX`` cells, ``bram`` counts ``RAMB18E1`` plus ``RAMB36E1``, ``dsp`` counts
 ``DSP48E1`` and ``io`` counts pads. ``cell_types`` holds the number of bels used of each type,
-by the bel name that nextpnr gives (``CARRY4``, ``SLICE_LUTX``). ``device`` is the part, and ``fabric`` is the die that was routed. Every ``available``
-total in the utilization describes the fabric, so an ``xc7a35t`` (routed as an ``xc7a50t``) shows
+by the bel name that nextpnr gives (``CARRY4``, ``SLICE_LUTX``). ``device`` is the part, and
+``fabric`` is the die that was routed. Every ``available`` total in the utilization describes the
+fabric, so an ``xc7a35t`` (routed as an ``xc7a50t``) shows
 the totals of the larger die. ``clock_port`` is given only when the one reported clock domain is
 itself a port of the top module. A domain that is named for the output net of a buffer or a clock
 generator keeps its raw name alone. A run that misses its timing constraint fails with the

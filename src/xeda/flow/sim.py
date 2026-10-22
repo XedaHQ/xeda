@@ -216,7 +216,7 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
         try:
             flow.results["sim.time"] = time_in_fs(evidence.time, evidence.time_unit)
         except ValueError:
-            pass  # a unit that is no time unit: the time cannot be stated, and the verdict fails
+            pass  # a unit that is no time unit: the time cannot be stated
     flow.results["sim.errors"] = sum(e.kind in ("error", "stop", "fatal") for e in evidence.events)
     flow.results["sim.warnings"] = sum(e.kind == "warning" for e in evidence.events)
     stop_time = getattr(flow.settings, "stop_time", None)

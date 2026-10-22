@@ -330,7 +330,7 @@ def test_xsim_native_power_uses_successful_declared_activity(work_dir):
     assert not (flow.run_path / "xsim_runtime.log").exists()
     simulation = next(f for f in runner.launched if f.name == "vivado_postsynth_sim")
     assert simulation.results["sim.ended_by"] == "stop_time"
-    assert simulation.results["sim.time"] == 20000
+    assert simulation.results["sim.time"] == 20_000_000  # 20 ns in femtoseconds
     assert flow.inputs.activity == simulation.outputs.timing_saif
     from .tool_utils import launch_until_fresh
 
