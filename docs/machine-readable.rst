@@ -435,8 +435,10 @@ an unknown setting:
       "nodes": []
     }
 
-``error.type`` names the type of the failure. It is usually the class of an exception, and it is
-stable enough to branch on either way:
+``error.type`` is a field of this top-level ``xeda run --json`` document only. It names the type of
+the failure. It is usually the class of an exception, and it is stable enough to branch on either
+way. The ``results.json`` of a node has no ``type``: its ``error`` carries a stable ``code`` (see
+the paragraph on the ``results.json`` of every node below). The types are:
 
 - ``FlowSettingsError``: a bad setting.
 - ``ExecutableNotFound``: the tool is not installed.
