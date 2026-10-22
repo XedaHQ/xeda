@@ -6,6 +6,7 @@ every flow (`settings_samples.flow_classes`) leave them out; they are registered
 from pathlib import Path
 from typing import ClassVar, Optional
 
+from xeda.flow import MetricSpec
 from xeda.dataclass import LOCATOR, Field, XedaBaseModel
 from xeda.design import SourceType
 from xeda.flow import Flow, FpgaSynthFlow, In, Out
@@ -15,7 +16,7 @@ from xeda.utils import replacing_file
 class _Maker(Flow):
     """Writes `made.txt`, its declared output `made`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         text: str = Field("made\n", description="What `made.txt` holds.")
@@ -35,7 +36,7 @@ class _Maker(Flow):
 class _Taker(Flow):
     """Reads its declared input `made`: by default `_Maker`'s output."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         made: Path = In(
@@ -139,7 +140,7 @@ class _InputTaker(_Taker):
 class _Reader(Flow):
     """Reads a `Data` file the design must list: an input with no default producer."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         data: Path = In(SourceType.Data, description="The data file it reads.")
@@ -151,7 +152,7 @@ class _Reader(Flow):
 class _Synth(FpgaSynthFlow):
     """Writes a netlist, its declared output."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(FpgaSynthFlow.Settings):
         """`_Synth`'s settings: an FPGA synthesis's."""
@@ -169,7 +170,7 @@ class _Synth(FpgaSynthFlow):
 class _Place(FpgaSynthFlow):
     """Places `_Synth`'s netlist, as `nextpnr` places `yosys_fpga`'s."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(FpgaSynthFlow.Settings):
         """`_Place`'s settings: an FPGA implementation's."""
@@ -187,7 +188,7 @@ class _ChainProducer(Flow):
     """Test producer with compatible, ambiguous, optional and many outputs."""
 
     aliases = ["chain_source"]
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         first: bool = Field(False, description="Enable the first optional output.")
@@ -211,7 +212,7 @@ class _ChainProducer(Flow):
 class _ChainConsumer(Flow):
     """Test consumer whose required inputs exercise all-compatible matching."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         left: Path = In(SourceType.JsonNetlist, description="The left netlist.")
@@ -226,7 +227,7 @@ class _ChainConsumer(Flow):
 class _ChainSimpleProducer(Flow):
     """Test producer with one unambiguous output for each required input."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(Flow.Outputs):
         netlist: Path = Out(SourceType.JsonNetlist, description="The netlist.")
@@ -239,7 +240,7 @@ class _ChainSimpleProducer(Flow):
 class _ChainSimpleConsumer(Flow):
     """Two required inputs must both bind from one adjacency."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         netlist: Path = In(SourceType.JsonNetlist, description="The required netlist.")
@@ -252,7 +253,7 @@ class _ChainSimpleConsumer(Flow):
 class _ChainOptionalConsumer(Flow):
     """Only optional inputs, which adjacency must not bind automatically."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         maybe: Path | None = In(SourceType.Data, description="An optional scalar.")
@@ -265,7 +266,7 @@ class _ChainOptionalConsumer(Flow):
 class _ChainAmbiguousDefault(Flow):
     """A default edge explicitly selects one of two compatible outputs."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         netlist: Path = In(
@@ -282,7 +283,7 @@ class _ChainAmbiguousDefault(Flow):
 class _ChainAmbiguousConsumer(Flow):
     """An unqualified required input that sees both producer outputs."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         netlist: Path = In(SourceType.JsonNetlist, description="The ambiguous netlist.")
@@ -294,7 +295,7 @@ class _ChainAmbiguousConsumer(Flow):
 class _ChainUndeclared(Flow):
     """A flow without a declared graph contract."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     def run(self) -> None:
         pass
@@ -304,7 +305,7 @@ class _ChainAction(Flow):
     """An action that may only be the final chain element."""
 
     action_reason: ClassVar[str] = "performs a test action"
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         data: Path = In(SourceType.Data, description="The data consumed by this action.")
@@ -316,7 +317,7 @@ class _ChainAction(Flow):
 class _Fork(Flow):
     """Writes each of two optional netlists a consumer asks for: the demand-union producer."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         first: bool = Field(False, description="Write the `a` netlist.")
@@ -339,7 +340,7 @@ class _Fork(Flow):
 class _Branch(Flow):
     """Copies its netlist input to its data output; the base of `_Left` and `_Right`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(Flow.Outputs):
         out: Path = Out(SourceType.Data, description="What it read.")
@@ -354,7 +355,7 @@ class _Branch(Flow):
 class _Left(_Branch):
     """Reads `_Fork`'s `a` netlist."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         json_netlist: Path = In(
@@ -365,7 +366,7 @@ class _Left(_Branch):
 class _Right(_Branch):
     """Reads `_Fork`'s `b` netlist."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         json_netlist: Path = In(
@@ -376,7 +377,7 @@ class _Right(_Branch):
 class _Join(Flow):
     """Reads both branches, which both read `_Fork`: a diamond."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         left: Path = In(SourceType.Data, producer="__left", output="out", description="Left.")
@@ -391,7 +392,7 @@ class _Join(Flow):
 class _Relay(Flow):
     """Turns a data file into a netlist: with `_Left`, the two halves of a binding cycle."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         data: Path = In(SourceType.Data, description="The data it relays.")
@@ -409,7 +410,7 @@ class _Relay(Flow):
 class _RouteA(Flow):
     """The head of a three-stage default route: makes `x`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(Flow.Outputs):
         x: Path = Out(SourceType.JsonNetlist, description="The first stage's file.")
@@ -421,7 +422,7 @@ class _RouteA(Flow):
 class _RouteB(Flow):
     """The middle of the route: by default reads `_RouteA`'s `x`, makes `y`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         x: Path = In(
@@ -438,7 +439,7 @@ class _RouteB(Flow):
 class _RouteC(Flow):
     """The end of the route: by default reads `_RouteB`'s `y`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         y: Path = In(SourceType.Data, producer="__route_b", output="y", description="Stage B.")
@@ -450,7 +451,7 @@ class _RouteC(Flow):
 class _LoopA(Flow):
     """Default producers that form a cycle (each other's), over a type nothing else makes."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         i: Path = In(SourceType.Sdc, producer="__loop_b", description="From B.")
@@ -465,7 +466,7 @@ class _LoopA(Flow):
 class _LoopB(Flow):
     """The other half of the cycle."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         i: Path = In(SourceType.Sdc, producer="__loop_a", description="From A.")
@@ -481,7 +482,7 @@ class _ChainAliased(Flow):
     """A consumer with an alias, for completion."""
 
     aliases = ["sink_alias"]
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         netlist: Path = In(SourceType.JsonNetlist, description="The netlist.")
@@ -493,7 +494,7 @@ class _ChainAliased(Flow):
 class _RouteBoth(Flow):
     """Takes `_RouteA` directly and `_RouteB`, which itself reads `_RouteA`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         x: Path = In(
@@ -508,7 +509,7 @@ class _RouteBoth(Flow):
 class _DiamondHead(Flow):
     """The head of a diamond: makes a netlist `o1` and a constraints file `o2`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(Flow.Outputs):
         o1: Path = Out(SourceType.JsonNetlist, description="The netlist.")
@@ -521,7 +522,7 @@ class _DiamondHead(Flow):
 class _DiamondLeft(Flow):
     """One side of the diamond: reads the netlist of the head."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         i: Path = In(
@@ -538,7 +539,7 @@ class _DiamondLeft(Flow):
 class _DiamondRight(Flow):
     """The other side of the diamond: reads the netlist of the head."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         i: Path = In(
@@ -555,7 +556,7 @@ class _DiamondRight(Flow):
 class _DiamondTail(Flow):
     """The end of the diamond: reads both sides."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         left: Path = In(
@@ -572,7 +573,7 @@ class _DiamondTail(Flow):
 class _SkipMake(Flow):
     """The head of a route a link can skip: makes a netlist."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(Flow.Outputs):
         made: Path = Out(SourceType.JsonNetlist, description="The netlist.")
@@ -584,7 +585,7 @@ class _SkipMake(Flow):
 class _SkipSide(Flow):
     """Makes the constraints file that `_SkipMid` also reads. Its own input has no default."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         net: Path = In(SourceType.JsonNetlist, description="The netlist it reads.")
@@ -599,7 +600,7 @@ class _SkipSide(Flow):
 class _SkipMid(Flow):
     """The middle of the route: reads `_SkipMake`'s netlist and `_SkipSide`'s file, makes data."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         made: Path = In(
@@ -620,7 +621,7 @@ class _SkipEnd(Flow):
     """Reads `_SkipMid`'s data and makes a netlist, which `_SkipMid` and `_SkipSide` could take
     directly: `_SkipMake+_SkipEnd` skips `_SkipMid`, which a flow after it could name."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         mid: Path = In(
@@ -637,7 +638,7 @@ class _SkipEnd(Flow):
 class _SkipSink(Flow):
     """Reads `_SkipMid`'s data: `_SkipSide+_SkipSink` skips `_SkipMid` as `_SkipMake+_SkipEnd` does."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         mid: Path = In(
@@ -651,7 +652,7 @@ class _SkipSink(Flow):
 class _FanHead(Flow):
     """The head of a fan: makes the netlist that only `_FanBase` reads."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(Flow.Outputs):
         net: Path = Out(SourceType.JsonNetlist, description="The netlist.")
@@ -663,7 +664,7 @@ class _FanHead(Flow):
 class _FanBase(Flow):
     """Reads the netlist of `_FanHead` and makes one file for each of `_FanLeft` and `_FanRight`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         net: Path = In(
@@ -681,7 +682,7 @@ class _FanBase(Flow):
 class _FanLeft(Flow):
     """Reads the left file of `_FanBase`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         side: Path = In(
@@ -698,7 +699,7 @@ class _FanLeft(Flow):
 class _FanRight(Flow):
     """Reads the right file of `_FanBase`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         side: Path = In(
@@ -716,7 +717,7 @@ class _FanTail(Flow):
     """Reads both results. The link from `_FanHead` binds an input of `_FanBase` only, and passes
     through `_FanLeft` and `_FanRight` too."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         left: Path = In(

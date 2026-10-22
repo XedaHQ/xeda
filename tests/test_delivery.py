@@ -18,6 +18,7 @@ from click.testing import CliRunner
 
 import xeda.deliver as deliver
 import xeda.digest as digest
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cli import cli
 from xeda.dataclass import Field, deliverable
@@ -80,7 +81,7 @@ def test_declared_output_collision_is_refused_before_rebuilding(tmp_path, monkey
 class _Deliverer(Flow):
     """Writes the netlist its setting names, and reports it."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         netlist: Optional[Path] = Field(
@@ -130,7 +131,7 @@ class _Deliverer(Flow):
 class _Wrapper(Flow):
     """Reads the deliverer's netlist: the deliverer is its producer."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         reads: Optional[Path] = Field(None, description="A file it reads: an input.")

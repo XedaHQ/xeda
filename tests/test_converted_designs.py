@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 import yaml
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import LANGUAGE_TYPES, SourceType
 from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, FlowSettingsException
@@ -458,7 +459,7 @@ def consumer_flows(events: Events, written: str = "converted") -> tuple[type[Flo
     class _Reader(Flow):
         """Reads Verilog, and notes each step of its launch."""
 
-        results_description: dict[str, str] = {}
+        results_description: dict[str, MetricSpec] = {}
         reads_sources = frozenset({SourceType.Verilog, SourceType.Vhdl})
 
         @classmethod

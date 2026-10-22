@@ -21,6 +21,7 @@ from typing import ClassVar, Optional
 import pytest
 from pydantic import Field
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.flow import Flow, In, Out, registered_flows
@@ -59,7 +60,7 @@ def probes():
     class ProbeSettingFile(Flow):
         """Reads a constraints file named by a setting and copies it to an output."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Settings(Flow.Settings):
             constraints: Optional[Path] = Field(None, description="A constraints file.")
@@ -75,7 +76,7 @@ def probes():
     class ProbeSource(Flow):
         """Copies the first design source to an output."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             _copy_to_output(self, self.design.rtl.sources[0].file.read_text())
@@ -84,7 +85,7 @@ def probes():
     class ProbeDepfile(Flow):
         """Reads an include file it reports in a depfile, and copies it to an output."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             include = self.design.root_path / "inc.vh"
@@ -97,7 +98,7 @@ def probes():
     class ProbeScript(Flow):
         """Renders a script into its run directory and reports reading it, as yosys -E does."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             script = self.run_path / "script.ys"
@@ -109,7 +110,7 @@ def probes():
     class ProbeRom(Flow):
         """Copies the file a design parameter names ($readmemh data) to an output."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             _copy_to_output(self, Path(self.design.rtl.parameters["ROM"]).read_text())
@@ -117,7 +118,7 @@ def probes():
     class ProbeOutputPath(Flow):
         """Writes a netlist where a setting says, outside its run directory."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Settings(Flow.Settings):
             netlist: Optional[Path] = Field(None, description="Where the netlist goes.")
@@ -132,7 +133,7 @@ def probes():
     class ProbeProgram(Flow):
         """Starts a program, which is replaced while the run goes on."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Settings(Flow.Settings):
             program: Optional[Path] = Field(None, description="The program it starts.")
@@ -146,7 +147,7 @@ def probes():
     class ProbeToolDepfile(Flow):
         """Starts a program and reports, in its depfile, the files a setting names."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Settings(Flow.Settings):
             program: Optional[Path] = Field(None, description="The program it starts.")
@@ -166,7 +167,7 @@ def probes():
         """Writes files it does not declare besides its one artifact, as a tool leaves a netlist
         or a checkpoint its depender reads by path."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Outputs(Flow.Outputs):
             out: Path = Out(SourceType.Data, description="The one file it declares.")
@@ -182,7 +183,7 @@ def probes():
         """Copies its producer's declared file to an output. It reads nothing else of the producer's
         run directory: a flow reaches another flow's files through its declared inputs alone."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             out: Path = In(
@@ -200,7 +201,7 @@ def probes():
         """Copies its producer's declared file, after registering it as an input it prepared
         (`implicit_inputs`) and letting a test edit it before the run starts."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             out: Path = In(
@@ -558,7 +559,7 @@ def test_file_valued_abc_script_is_an_input_and_changes_make_yosys_stale(root):
     class ProbeYosys(YosysSynthesisBase):
         """A no-tool Yosys flow that exercises the real settings initializer."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self):
             _copy_to_output(self, "done\n")
@@ -744,7 +745,7 @@ def test_a_symbolic_link_in_a_run_directory_is_recorded_as_itself(root, tmp_path
     class ProbeLinks(Flow):
         """Links a file and a directory outside its run directory, and makes a FIFO."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             links = {"lib.v": outside / "lib.v", "libdir": outside, "gone": outside / "none"}
@@ -790,7 +791,7 @@ def test_a_directory_the_run_left_unlistable_is_an_unknown_output(root):
     class ProbeLocked(Flow):
         """Leaves a directory behind that it cannot list."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             locked = self.run_path / "locked"
@@ -909,7 +910,7 @@ def test_a_file_a_flow_resolves_in_init_is_an_input_before_any_reuse(
     class ProbeAbc(YosysSynthesisBase):
         """A no-tool yosys flow that copies the ABC script it would hand yosys."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self):
             _copy_to_output(self, Path(self.settings.abc_script).read_text())
@@ -982,7 +983,7 @@ def test_a_version_probe_leaves_nothing_in_the_run_directory(root, tmp_path, mon
     class ProbeVersioned(Flow):
         """Creates its tool in `init()`, as the Vivado flows do."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def init(self) -> None:
             self.tool = Tool("probed-tool")

@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
+from xeda.flow import MetricSpec
 from xeda import proc_utils
 from xeda.flow import Flow
 from xeda.flows.openfpgaloader import (
@@ -1163,7 +1164,7 @@ def test_the_oracle_sees_an_action_that_takes_the_exit_status_for_the_verdict():
         """Acts and judges nothing."""
 
         action_reason = "it flashes a thing"
-        results_description: dict = {}
+        results_description: dict[str, MetricSpec] = {}
 
         def run(self) -> None:
             pass

@@ -9,6 +9,7 @@ from typing import ClassVar
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.digest import content_digest
@@ -109,7 +110,7 @@ def test_an_output_nothing_recorded_is_never_handed_over(tmp_path, design):
 class _ManyMaker(_Maker):
     """Writes an ordered list of declared files."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(_Maker.Outputs):
         made: list[Path] = Out(SourceType.Data, description="The ordered files.")
@@ -124,7 +125,7 @@ class _ManyMaker(_Maker):
 class _RequiredMaker(_Maker):
     """Requires exactly one declared file."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(_Maker.Outputs):
         made: Path = Out(SourceType.Data, description="The required file.")
@@ -133,7 +134,7 @@ class _RequiredMaker(_Maker):
 class _OptionalMaker(_Maker):
     """May omit a declared file without a switch."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(_Maker.Outputs):
         made: Path | None = Out(SourceType.Data, description="An optional file.")

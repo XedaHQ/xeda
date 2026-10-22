@@ -12,6 +12,7 @@ from typing import ClassVar
 import pytest
 
 import xeda.tool
+from xeda.flow import MetricSpec
 from xeda import Design, digest
 from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner, trace
@@ -83,7 +84,7 @@ def test_running_in_a_container_records_the_image(monkeypatch, tmp_path):
 class _RunsTool(Flow):
     """Runs `probe-tool`, whatever PATH finds."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     def run(self) -> None:
         run_process("probe-tool", [], stdout=True)

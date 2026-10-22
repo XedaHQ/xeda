@@ -26,6 +26,7 @@ import annotated_types
 import pytest
 from pydantic import BaseModel
 
+from xeda.flow import MetricSpec
 from xeda.cli import _run_document
 from xeda.dataclass import Field, XedaBaseModel
 from xeda.flow import Flow, flowrun_hash
@@ -277,7 +278,7 @@ def toy_flow():
             class ToyFlow(Flow):
                 """A flow that exists to carry one setting."""
 
-                results_description: ClassVar[dict[str, str]] = {}
+                results_description: ClassVar[dict[str, MetricSpec]] = {}
 
                 class Settings(Flow.Settings):
                     knob: annotation = Field(  # type: ignore[valid-type]

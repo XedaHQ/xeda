@@ -10,6 +10,7 @@ from typing import ClassVar
 import pytest
 from click.testing import CliRunner
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cli import cli
 from xeda.dataclass import Field, ValidationError
@@ -303,7 +304,7 @@ def test_inherited_declarations_keep_their_order_and_cardinality():
     class _Many(_Taker):
         """Extends a scalar input with an optional list and nullable input."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(_Taker.Inputs):
             files: list[Path] = In(
@@ -328,7 +329,7 @@ def test_inherited_declarations_keep_their_order_and_cardinality():
     class _ManyOutputs(_Maker):
         """Extends an optional output with an ordered list output."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Outputs(_Maker.Outputs):
             files: list[Path] = Out((SourceType.Data, SourceType.C), description="Files.")
@@ -393,7 +394,7 @@ def test_declaration_metadata_is_json_schema_safe():
 class _Switches(Flow):
     """Outputs enabled by Boolean, text and path settings."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         flag: bool | None = Field(None, description="A nullable flag.")

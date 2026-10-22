@@ -18,6 +18,7 @@ import pytest
 from click.testing import CliRunner
 from pydantic import Field
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cli import cli
 from xeda.flow import Flow, registered_flows
@@ -32,7 +33,7 @@ class _ProbeLibraries(Flow):
     """Reads `pkg.txt` from the directory of its library `mylib`, as a simulator reads a compiled
     library, and copies it to an output."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         lib_paths: list[tuple[str, Path]] = Field(

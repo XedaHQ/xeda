@@ -22,6 +22,7 @@ from typing import ClassVar
 import pytest
 
 import xeda
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.board import WithFpgaBoardSettings
 from xeda.design import LANGUAGE_TYPES, SOURCE_SUFFIXES, SourceType
@@ -452,7 +453,7 @@ def _reads_nextpnr_and_the_netlist():
     class _ReadsNextpnrAndTheNetlist(Flow):
         """Read a configuration from nextpnr and a netlist from yosys_fpga."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
         required_settings = Nextpnr.required_settings
 
         class Settings(WithFpgaBoardSettings, Flow.Settings):

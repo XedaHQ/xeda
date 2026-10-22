@@ -1,5 +1,6 @@
 import html
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict
 from xml.etree import ElementTree
@@ -10,6 +11,9 @@ from ...flow import FpgaSynthFlow, In, MetricSpec, NoReplacement
 from . import Vivado
 
 logger = logging.getLogger(__name__)
+
+#: A label of the summary that ends in a unit: `Dynamic (W)`, `Junction Temperature (C)`.
+NUMERIC_LABEL = re.compile(r"\((?:W|C|C/W)\)$")
 
 
 class VivadoPower(Vivado, FpgaSynthFlow):
@@ -49,7 +53,8 @@ class VivadoPower(Vivado, FpgaSynthFlow):
         ),
         "Component Power: <component>": MetricSpec(
             "Per-component on-chip power, one key per component Vivado reports (Clocks, Slice "
-            "Logic, Signals, Block RAM, DSP, I/O, ...).",
+            "Logic, Signals, Block RAM, DSP, I/O, ...). A value that Vivado prints as a bound, "
+            "such as <0.001, is not reported.",
             "number",
             "W",
         ),
@@ -120,12 +125,27 @@ class VivadoPower(Vivado, FpgaSynthFlow):
         self.vivado.run("-source", script_path)
 
     def parse_power_report(self, report_xml) -> Dict[str, Any]:
+        """Return the values of the report by label.
+
+        A label that names a unit (`Dynamic (W)`, `Junction Temperature (C)`) and every component
+        power are numbers. A value that is no number, such as the bound `<0.001`, is left out.
+        Any other value stays the text of the report."""
         tree = ElementTree.parse(report_xml)
-        results = {}
+        results: Dict[str, Any] = {}
+
+        def record(key: str, value: str) -> None:
+            if not (key.startswith("Component Power: ") or NUMERIC_LABEL.search(key)):
+                results[key] = value
+                return
+            try:
+                results[key] = float(value)
+            except ValueError:
+                logger.debug("The power report gives %r for %r, which is no number.", value, key)
+
         for tablerow in tree.findall("./section[@title='Summary']/table/tablerow"):
             tablecells = tablerow.findall("tablecell")
             key, value = (html.unescape(x.attrib["contents"]).strip() for x in tablecells)
-            results[key] = value
+            record(key, value)
 
         for tablerow in tree.findall(
             "./section[@title='Summary']/section[@title='On-Chip Components']/table/tablerow"
@@ -135,7 +155,7 @@ class VivadoPower(Vivado, FpgaSynthFlow):
                 contents = [html.unescape(x.attrib["contents"]).strip() for x in tablecells]
                 key = contents[0]
                 value = contents[1]
-                results[f"Component Power: {key}"] = value
+                record(f"Component Power: {key}", value)
 
         return results
 

@@ -14,6 +14,7 @@ from typing import ClassVar
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.flow import DESIGN, Flow, FlowSettingsException, In, Out
@@ -772,7 +773,7 @@ def _switched_converter(
     class _Switched(Flow):
         """Converts Bluespec when its setting says so."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
         reads_sources = reads
 
         class Settings(Flow.Settings):
@@ -871,7 +872,7 @@ def test_a_converter_that_a_file_dependency_reaches_may_take_a_converted_design(
     class _Reader(Flow):
         """Takes a file from the converter, for the test."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             extra: Path = In(

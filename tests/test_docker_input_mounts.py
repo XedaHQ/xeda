@@ -12,6 +12,7 @@ from typing import Callable, ClassVar, List, Optional, Tuple
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.dataclass import WORKING, Field, deliverable
 from xeda.design import SourceType
@@ -29,7 +30,7 @@ CONSUMER_RUN: List[Callable[[Flow], None]] = []
 class _Producer(Flow):
     """Writes two files in its own run directory."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(Flow.Outputs):
         made: Path = Out(SourceType.Data, description="A file in `outputs`.")
@@ -49,7 +50,7 @@ class _Producer(Flow):
 class _Consumer(Flow):
     """Reads both files through a dockerized tool."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         constraints: Optional[Path] = Field(None, description="A file it reads.")
@@ -97,7 +98,7 @@ class _Consumer(Flow):
 class _Alone(Flow):
     """Declares no input."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     def init(self) -> None:
         self.tool = Tool(executable="some-tool", docker=Docker(image="img"))

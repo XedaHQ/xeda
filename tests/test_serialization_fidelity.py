@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda.dataclass import model_with_allow_extra
 from xeda.design import Design, DesignReference
 from xeda.remote.manifest import build_manifest, write_tar
@@ -664,7 +665,7 @@ def test_a_run_whose_results_have_unusual_keys_still_reports_them(tmp_path, monk
     class OddKeys(Flow):
         """Reports timing by (clock, edge)."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             self.results["timing"] = {("clk", "rise"): 1.5, Path("/run/x.v"): 2}

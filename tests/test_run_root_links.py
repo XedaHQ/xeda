@@ -21,6 +21,7 @@ from typing import ClassVar
 import pytest
 from click.testing import CliRunner
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cli import cli
 from xeda.console import console
@@ -43,7 +44,7 @@ SCRUBBED = "yosys_fpga"
 class _Probe(Flow):
     """Does nothing: what matters is where it would run."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     def run(self) -> None:
         pass

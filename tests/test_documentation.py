@@ -117,7 +117,7 @@ def group_flows():
         class DocumentedGroupFlow(Flow):
             """A flow with a group that is documented."""
 
-            results_description: ClassVar[Dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             class Settings(Flow.Settings):
                 group: _DocumentedGroup = Field(
@@ -130,7 +130,7 @@ def group_flows():
         class UndocumentedGroupFlow(Flow):
             """A flow with a group that is not documented."""
 
-            results_description: ClassVar[Dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             class Settings(Flow.Settings):
                 group: _UndocumentedGroup = Field(

@@ -14,6 +14,7 @@ from typing import ClassVar, Optional
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.dataclass import Field, deliverable
 from xeda.design import SourceType
@@ -25,7 +26,7 @@ from xeda.tool import NonZeroExitCode
 class _Judged(Flow):
     """Writes a report and an output, and judges them as its settings say."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
     #: The number of calls of `run()` since the fixture reset it.
     runs: ClassVar[int] = 0
 
@@ -79,7 +80,7 @@ class _Judged(Flow):
 class _NeedsJudged(Flow):
     """Reads the output of `_Judged`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         out: Path = In(

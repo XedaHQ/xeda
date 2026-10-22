@@ -11,6 +11,7 @@ from typing import Annotated, Any, ClassVar, Literal, Optional, Union
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda.dataclass import (
     Field,
     ValidationError,
@@ -90,7 +91,7 @@ def toy_flow():
         class ToyGroups(Flow):
             """A flow that exists to carry a group."""
 
-            results_description: ClassVar[dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             class Settings(Flow.Settings):
                 toy: _Toy = Field(default_factory=_Toy, description="The toy group.")

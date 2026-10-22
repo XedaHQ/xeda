@@ -31,6 +31,7 @@ from pathlib import Path
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import DESIGN_PARTS
 from xeda.flow import Flow, SimFlow
@@ -666,7 +667,7 @@ def _reached_in_toy_package(tmp_path, monkeypatch, name: str, templates: dict[st
         class ToyIncludes(Flow):
             """A flow that exists to own a template directory."""
 
-            results_description: dict[str, str] = {}
+            results_description: dict[str, MetricSpec] = {}
 
             def run(self) -> None:
                 pass
