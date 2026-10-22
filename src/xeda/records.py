@@ -813,32 +813,48 @@ def name_in(run_dir: Path, path: str | os.PathLike[str]) -> str | None:
     return None
 
 
+def artifact_problem(run_path: Path, key: object, value: Any) -> str | None:
+    """Return why a flow cannot register `value` as the artifact `key`, or None if it can.
+
+    An artifact is one file, under a key of `ARTIFACT_KEY`. A list, a table, a key off the grammar
+    and a directory are not one. A path outside the run directory `run_path` or a file that is not
+    there is no problem here: the record leaves it out."""
+    from .artifacts import iter_artifact_paths
+    from .flow.metrics import ARTIFACT_KEY
+
+    if not ARTIFACT_KEY.fullmatch(str(key)):
+        return "the key is not lower snake case"
+    leaves = list(iter_artifact_paths(value))
+    if len(leaves) > 1 or isinstance(value, (list, tuple, Mapping)):
+        return "it holds several files, and an artifact is one file"
+    for leaf in leaves:
+        name = name_in(run_path, leaf)
+        located = run_path / (name or "")
+        if name is not None and os.path.isdir(located) and not os.path.islink(located):
+            return "it is a directory, and an artifact is one file"
+    return None
+
+
 def _artifacts_of(flow: Flow) -> dict[str, str]:
     """Return the artifacts that `flow` wrote inside its run directory: key to relative name.
 
-    An artifact is one file, under a key of `ARTIFACT_KEY`. A path outside the run directory is no
-    artifact of a record. Neither is a value that is no path, or a file that is not there. A flow
-    that registers a key with several files or a directory, or a key that is not lower snake case,
-    has a bug: `ValueError`."""
+    A path outside the run directory is no artifact of a record. Neither is a value that is no
+    path, or a file that is not there. An artifact that `artifact_problem` finds a problem with is
+    a bug of the flow, which the launcher has dropped before it asks for the record
+    (`launch_run.drop_bad_artifacts`): `ValueError`."""
     from .artifacts import iter_artifact_paths
-    from .flow.metrics import ARTIFACT_KEY
 
     artifacts: dict[str, str] = {}
     # The launcher copies `Flow.artifacts` into the results and drops what a failed run did not
     # write, so the results are the list to record.
     for key, value in (flow.results.get("artifacts") or {}).items():
-        if not ARTIFACT_KEY.fullmatch(str(key)):
-            raise ValueError(f"`{flow.name}` registers the artifact {key!r}: not a valid key")
-        leaves = list(iter_artifact_paths(value))
-        if len(leaves) > 1 or isinstance(value, (list, tuple, Mapping)):
-            raise ValueError(f"`{flow.name}` registers the artifact {key!r} with several files")
-        for leaf in leaves:
+        problem = artifact_problem(flow.run_path, key, value)
+        if problem is not None:
+            raise ValueError(f"`{flow.name}` registers the artifact {key!r}: {problem}")
+        for leaf in iter_artifact_paths(value):
             name = name_in(flow.run_path, leaf)
             # A key is present only when its file was written. A link counts as itself.
-            located = flow.run_path / (name or "")
-            if name is not None and os.path.lexists(located):
-                if os.path.isdir(located) and not os.path.islink(located):
-                    raise ValueError(f"`{flow.name}` registers the artifact {key!r}: a directory")
+            if name is not None and os.path.lexists(flow.run_path / name):
                 artifacts[str(key)] = name
     return artifacts
 

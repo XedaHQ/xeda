@@ -7,7 +7,9 @@ from ...design import SourceType
 from ...flow import (
     Flow,
     FpgaSynthFlow,
+    describe_artifacts,
 )
+from .artifacts import ALT_SYNTH_REPORTS, report_artifacts
 from .vivado_synth import (
     VivadoImplementation,
     CHECKPOINT_SYNTH,
@@ -447,8 +449,13 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
     bitstream.
     """
 
-    report_names: ClassVar[tuple[str, ...]] = VivadoImplementation.report_names
-    artifacts_description = VivadoImplementation.artifacts_description
+    report_steps: ClassVar[dict[str, tuple[str, ...]]] = ALT_SYNTH_REPORTS
+    artifacts_description = describe_artifacts(
+        "log",
+        xdc_exported=VivadoImplementation.artifacts_description["xdc_exported"],
+        checkpoint_place=VivadoImplementation.artifacts_description["checkpoint_place"],
+        **report_artifacts(ALT_SYNTH_REPORTS),
+    )
 
     # Only project mode has Vivado runs, so there is no run `status`.
     results_description = {

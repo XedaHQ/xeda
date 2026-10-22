@@ -206,7 +206,7 @@ def test_post_cleanup_keeps_reported_artifacts_and_removes_other_files(tmp_path,
 
 
 def test_a_directory_is_no_artifact(tmp_path, design):
-    """An artifact is one file: the record refuses a directory."""
+    """An artifact is one file: a flow that registers a directory fails, and its record has none."""
 
     class DirectoryFlow(Flow):
         """Report a directory."""
@@ -222,10 +222,13 @@ def test_a_directory_is_no_artifact(tmp_path, design):
             return True
 
     try:
-        with pytest.raises(ValueError, match="a directory"):
-            DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
-                DirectoryFlow, design, {}
-            )
+        flow = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
+            DirectoryFlow, design, {}
+        )
+        assert not flow.succeeded
+        assert flow.record.error is not None and flow.record.error.code == "internal_error"
+        assert "a directory" in flow.record.error.message
+        assert "directory" not in flow.record.artifacts
     finally:
         for name in (DirectoryFlow.name, DirectoryFlow.__name__):
             registered_flows.pop(name, None)

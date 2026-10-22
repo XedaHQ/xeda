@@ -1622,8 +1622,9 @@ class Flow(metaclass=ABCMeta):
         self.settings = settings
         assert isinstance(self.settings, self.Settings)
 
-        # Artifact labels map to paths or to nested mappings, lists and tuples of paths. Relative
-        # paths are rooted at run_path. The launchers walk path leaves through `xeda.artifacts`.
+        # An artifact key maps to one path: the file, relative to run_path or absolute. A flow that
+        # registers a list, a table or a directory has a bug (`records.artifact_problem`): the
+        # launcher drops that artifact and fails the node.
         self.artifacts = Box()
         #: The artifact key of the log of each program that wrote one in this run, by the name of
         #: the program (`log_stem`).

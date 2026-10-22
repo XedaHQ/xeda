@@ -420,8 +420,8 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
     flow), and the timing and utilization results that it reads from the reports of the routed
     design."""
 
-    #: The reports of the routed design that the flow keeps as artifacts, by file name.
-    report_names: ClassVar[tuple[str, ...]] = SCRIPT_REPORTS
+    #: The reports that the flow keeps as artifacts: the file names of each step.
+    report_steps: ClassVar[dict[str, tuple[str, ...]]] = SCRIPT_REPORTS
 
     artifacts_description = describe_artifacts(
         "log",
@@ -752,7 +752,7 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
         failed |= not power_report_written(self)
         # Only this run's reports are artifacts. A previous run's files in the run directory are
         # not (`Flow.report_file`).
-        register_reports(self, self.settings.reports_dir, self.report_names)
+        register_reports(self, self.settings.reports_dir, self.report_steps)
         return not failed
 
     def check_results(self) -> bool:
@@ -844,7 +844,7 @@ class VivadoSynth(VivadoImplementation):
     unless the bitstream exists where the flow registers it.
     """
 
-    report_names: ClassVar[tuple[str, ...]] = PROJECT_REPORTS
+    report_steps: ClassVar[dict[str, tuple[str, ...]]] = PROJECT_REPORTS
 
     artifacts_description = describe_artifacts(
         "log",

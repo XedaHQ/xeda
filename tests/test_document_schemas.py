@@ -590,7 +590,7 @@ def test_an_artifact_is_one_name_in_the_run_directory(tmp_path, design):
     [("reports", ["a.rpt", "b.rpt"]), ("group", {"a": "a.rpt"}), ("Report-1", "a.rpt")],
     ids=["a list", "a group", "a key off the grammar"],
 )
-def test_the_record_refuses_an_artifact_that_is_not_one_file_under_a_valid_key(
+def test_a_flow_with_an_artifact_that_is_not_one_file_under_a_valid_key_fails_with_a_record(
     tmp_path, design, key, value
 ):
     class Writes(Flow):
@@ -603,8 +603,15 @@ def test_the_record_refuses_an_artifact_that_is_not_one_file_under_a_valid_key(
             (self.run_path / "b.rpt").write_text("b")
             self.artifacts[key] = value
 
-    with pytest.raises(Exception, match="registers the artifact"):
-        _runner(tmp_path).launch_flow(Writes, design, {})
+    flow = _runner(tmp_path).launch_flow(Writes, design, {})
+
+    # a bug of the flow: the node fails, the artifact is dropped, and the record is written
+    assert not flow.succeeded
+    record = read_record(flow.run_path, run_root=flow.record.run_root)
+    assert record.outcome.value == "failed" and record.error is not None
+    assert record.error.code == "internal_error" and record.error.node == flow.name
+    assert f"`{flow.name}` registers the artifact {key!r}" in record.error.message
+    assert key not in record.artifacts
 
 
 def test_a_record_with_an_artifact_key_off_the_grammar_is_malformed(tmp_path, design):

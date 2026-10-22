@@ -19,10 +19,12 @@ from ..flow import Flow
 from ..flow.flow import WrittenLeaf, map_written_leaves
 from ..proc_utils import ProcessTimeout
 from ..records import (
+    INTERNAL_ERROR,
     INVALID_METRIC,
     MISSING_OUTPUT,
     REPORTED_FAILURE,
     ErrorInfo,
+    artifact_problem,
     collect_metrics,
 )
 from ..run_dir import RunDirectory, RunDirectoryError
@@ -93,6 +95,23 @@ def record_identity(flow: Flow, run_path: Path) -> None:
     flow.results["settings_hash"] = flow.settings_hash
     flow.results["run_path"] = run_path.absolute()
     flow.results.timestamp = flow.timestamp
+
+
+def drop_bad_artifacts(flow: Flow) -> list[str]:
+    """Drop the artifacts of `flow` that a record cannot hold, and return a line for each.
+
+    A flow registers an artifact as one file under a key of the grammar (`artifact_problem`). One
+    that registers a list, a table, a directory or a bad key has a bug. The flow loses that
+    artifact, so that the record of its run can be written."""
+    held = {**flow.artifacts, **{k: v for k, v in flow.results.artifacts.items() if v}}
+    found = []
+    for key, value in held.items():
+        problem = artifact_problem(flow.run_path, key, value)
+        if problem is not None:
+            found.append(f"`{flow.name}` registers the artifact {key!r}: {problem}")
+            flow.artifacts.pop(key, None)
+            flow.results.artifacts.pop(key, None)
+    return found
 
 
 def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
@@ -167,6 +186,20 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
         flow.results["error"] = ErrorInfo(
             code=INVALID_METRIC,
             message="; ".join(str(bad) for bad in invalid),
+            node=flow.name,
+            exit_status=None,
+            log=None,
+        ).as_json_value()
+    # A bad artifact is a bug of the flow. The node fails (unless it failed already, and that
+    # error stays the cause), and the record is written without the artifact.
+    bad = drop_bad_artifacts(flow)
+    for line in bad:
+        log.error("%s", line)
+    if bad and flow.outcome != "failed":
+        flow.outcome = "failed"
+        flow.results["error"] = ErrorInfo(
+            code=INTERNAL_ERROR,
+            message="; ".join(bad),
             node=flow.name,
             exit_status=None,
             log=None,

@@ -289,9 +289,10 @@ Artifact keys
 - ``simulation_log`` is the output of the simulation program that the run built (``bsc_sim``,
   ``verilator``, ``vcs``, ``yosys_sim``).
 - ``waveform`` is a waveform that the simulation wrote.
-- A report has the lower snake case of its file name as key, with the extension: the Vivado flows
-  keep the reports of the last step, ``route_design``, as ``timing_summary_rpt``,
-  ``utilization_xml`` and so on.
+- A report has the lower snake case of its step and its file name as key, with the extension. The
+  Vivado flows keep every report they write: ``route_design_timing_summary_rpt`` is the file
+  ``reports/route_design/timing_summary.rpt``, and ``place_design_utilization_xml`` is
+  ``reports/place_design/utilization.xml``.
 
 A tool can keep a log of its own, such as the file that ``--log`` gives to nextpnr. That file is a
 working file and no artifact: ``log`` already holds the output of the tool.

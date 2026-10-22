@@ -82,9 +82,11 @@ PLATFORMS = Path(xeda.__file__).parent / "platforms"
 #: compared. A tuple of keys names each key whole.
 #: Settings that went from every flow, or from a nested flow's settings.
 _REMOVED_EVERYWHERE = {
-    "nodes/*/results/artifacts": "an artifact is one file under a documented key (`log`, a "
-    "report of the last step, ...), and a declared output is none; the files that the tools "
-    "are handed stay compared under `files` and `outputs`",
+    "nodes/*/results/artifacts": "the artifacts of the golden have the keys of the time before "
+    "documented artifacts: a declared output (`netlist`, `sdf_max`, `saif`, ...), a report under "
+    "the path of its file, `sim.runs/runme.log`. Those keys are gone or renamed, and each node "
+    "has a `log`. The files that the tools are handed stay "
+    "compared under `files`, and the declared outputs under `outputs`",
     **{
         f"nodes/*/effective_flow_settings/{key}": "no flow read this setting: it is removed"
         for key in ("timeout_seconds", "no_console")

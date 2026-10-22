@@ -108,8 +108,8 @@ with `-s`, for example `-s flows.yosys.clock.period=3ns` for the ASIC chain.
 
 ## Generated Verilog interface
 
-Xeda's `Bsc` flow includes `bsv_defines.v` in `artifacts.verilog`; this file defines
-`BSV_POSITIVE_RESET`. Keep it in the Verilog file set. The generated `mkAscon` top has `CLK` and
+Xeda's `Bsc` flow puts `bsv_defines.v` first among the Verilog files of its `design` output.
+This file defines `BSV_POSITIVE_RESET`. Keep it in the Verilog file set. The generated `mkAscon` top has `CLK` and
 `RST_N` ports. Despite its name, `RST_N` is an active-high synchronous reset in this build.
 
 Bluespec maps the `Put` and `Get` methods to ready/enable signals:

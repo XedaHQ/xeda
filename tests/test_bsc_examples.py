@@ -119,7 +119,7 @@ def test_bsc_collects_every_verilog_file_of_the_top(design_file, generated, tmp_
 
 @pytest.mark.parametrize("design_file", EXAMPLES, ids=lambda p: p.stem)
 def test_the_generated_verilog_synthesizes(design_file, generated, tmp_path_factory, tmp_path):
-    """A downstream flow takes `artifacts.verilog` as its sources as it is."""
+    """A downstream flow takes the Verilog files that `bsc` collected as its sources as they are."""
     flow = _generate(design_file, generated, tmp_path_factory)
     assert flow.succeeded
     require_yosys()

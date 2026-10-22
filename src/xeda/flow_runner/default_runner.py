@@ -1498,6 +1498,7 @@ class FlowLauncher:
                     for k, v in flow.artifacts.items():
                         flow.results.artifacts.setdefault(k, v)
                     _drop_unwritten_artifacts(flow)
+                    launch_run.drop_bad_artifacts(flow)  # the error of the exception stays
                     try:
                         report(
                             flow,

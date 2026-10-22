@@ -215,7 +215,7 @@ Required settings: `fpga`
 
 Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
-Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `timing_summary_rpt`, `timing_rpt`, `utilization_rpt`, `utilization_xml`, `hierarchical_utilization_xml`, `hierarchical_utilization_json`, `critpath_report_csv`, `critpath_by_delay_report_csv`, `clock_utilization_rpt`, `power_rpt`, `drc_rpt`, `methodology_rpt`, `qor_suggestions_rpt`, `power_xml`
+Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `post_synth_timing_summary_rpt`, `post_synth_hierarchical_utilization_rpt`, `post_synth_power_optimization_rpt`, `post_place_timing_summary_rpt`, `post_place_hierarchical_utilization_rpt`, `post_place_post_place_power_optimization_rpt`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_hierarchical_utilization_json`, `route_design_critpath_report_csv`, `route_design_critpath_by_delay_report_csv`, `route_design_clock_utilization_rpt`, `route_design_power_rpt`, `route_design_drc_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_power_xml`
 
 ### `vivado_impl`
 
@@ -229,7 +229,7 @@ Required settings: `fpga`
 
 Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
-Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `timing_summary_rpt`, `timing_rpt`, `utilization_rpt`, `utilization_xml`, `hierarchical_utilization_xml`, `hierarchical_utilization_json`, `critpath_report_csv`, `critpath_by_delay_report_csv`, `clock_utilization_rpt`, `power_rpt`, `drc_rpt`, `methodology_rpt`, `qor_suggestions_rpt`, `power_xml`
+Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `post_place_timing_summary_rpt`, `post_place_hierarchical_utilization_rpt`, `post_place_post_place_power_optimization_rpt`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_hierarchical_utilization_json`, `route_design_critpath_report_csv`, `route_design_critpath_by_delay_report_csv`, `route_design_clock_utilization_rpt`, `route_design_power_rpt`, `route_design_drc_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_power_xml`
 
 ### `vivado_power`
 
@@ -271,7 +271,7 @@ Required settings: `fpga`
 
 Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
-Artifacts: `log`, `xdc_exported`, `timing_summary_rpt`, `timing_rpt`, `utilization_rpt`, `utilization_xml`, `hierarchical_utilization_rpt`, `hierarchical_utilization_xml`, `hierarchical_utilization_json`, `critical_paths_csv`, `critical_paths_by_delay_csv`, `drc_rpt`, `route_status_rpt`, `datasheet_rpt`, `design_analysis_rpt`, `design_analysis_json`, `clock_utilization_rpt`, `methodology_rpt`, `qor_suggestions_rpt`, `qor_suggestions_rqs`, `power_xml`
+Artifacts: `log`, `xdc_exported`, `synth_design_timing_summary_rpt`, `synth_design_timing_rpt`, `synth_design_utilization_xml`, `synth_design_hierarchical_utilization_xml`, `synth_design_critical_paths_csv`, `synth_design_critical_paths_by_delay_csv`, `place_design_timing_summary_rpt`, `place_design_timing_rpt`, `place_design_utilization_xml`, `place_design_hierarchical_utilization_xml`, `place_design_critical_paths_csv`, `place_design_critical_paths_by_delay_csv`, `phys_opt_design_timing_summary_rpt`, `phys_opt_design_timing_rpt`, `phys_opt_design_utilization_xml`, `phys_opt_design_hierarchical_utilization_xml`, `phys_opt_design_critical_paths_csv`, `phys_opt_design_critical_paths_by_delay_csv`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_critical_paths_csv`, `route_design_critical_paths_by_delay_csv`, `route_design_hierarchical_utilization_json`, `route_design_utilization_rpt`, `route_design_hierarchical_utilization_rpt`, `route_design_drc_rpt`, `route_design_route_status_rpt`, `route_design_datasheet_rpt`, `route_design_design_analysis_rpt`, `route_design_design_analysis_json`, `route_design_clock_utilization_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_qor_suggestions_rqs`, `route_design_power_xml`
 
 ### `yosys_fpga`
 

@@ -49,6 +49,7 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Bsc, BscSim
 
+from .bsc_outputs import collected_verilog
 from .tool_utils import _opted_in, require_bluesim, require_bsc, require_iverilog, require_verilator
 
 # ---------------------------------------------------------------------------------------------
@@ -189,7 +190,7 @@ def _assert_output_contains_in_order(golden: list[str], stdout: str) -> None:
 
 
 def _elaborate_with_iverilog(top: str, files: list[str], tmp_path: Path) -> None:
-    """`bsc`'s Verilog artifacts elaborate on their own, as a downstream synthesis/sim flow
+    """`bsc`'s Verilog files elaborate on their own, as a downstream synthesis/sim flow
     would read them: `iverilog -g2005 -s <top> <files>` exits 0."""
     out = tmp_path / "elab.out"
     proc = subprocess.run(
@@ -198,7 +199,7 @@ def _elaborate_with_iverilog(top: str, files: list[str], tmp_path: Path) -> None
         text=True,
     )
     assert proc.returncode == 0, (
-        f"iverilog failed to elaborate the `bsc` artifacts for {top!r}:\n"
+        f"iverilog failed to elaborate the `bsc` files for {top!r}:\n"
         f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
     )
 
@@ -365,8 +366,8 @@ def test_bluelight_ascon_generates_elaboratable_verilog(bluelight_repo, tmp_path
     flow = _run(Bsc, design, tmp_path)
     assert flow is not None and flow.succeeded
     assert flow.results["modules"][0] == "lwc"
-    files = [Path(f) for f in flow.artifacts.verilog]
-    assert files, "the `bsc` flow produced no Verilog artifacts"
+    files = [Path(f) for f in collected_verilog(flow)]
+    assert files, "the `bsc` flow produced no Verilog files"
     for f in files:
         assert f.read_text().startswith("`define BSV_POSITIVE_RESET")
     _elaborate_with_iverilog("lwc", [str(f) for f in files], tmp_path)
@@ -438,5 +439,5 @@ def test_piccolo_core_compiles_and_elaborates(piccolo_repo, tmp_path):
     assert flow is not None and flow.succeeded
     assert "mkCore" in flow.results["modules"]
     assert len(flow.results["modules"]) >= 15
-    files = [str(f) for f in flow.artifacts.verilog]
+    files = [str(f) for f in collected_verilog(flow)]
     _elaborate_with_iverilog("mkCore", files, tmp_path)

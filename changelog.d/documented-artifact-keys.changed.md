@@ -1,2 +1,3 @@
-- Every flow documents its artifact keys in `xeda list-results`. Each artifact is one file, `log`
-  is the log of the main tool, and a declared output is no longer repeated as an artifact.
+- Every artifact is now one file under a key that `xeda list-results` documents. `log` is the
+  captured output of the main tool, a VCD is `waveform`, and a declared output is no longer an
+  artifact.

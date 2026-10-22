@@ -556,8 +556,7 @@ def test_bsc_records_the_design_from_what_it_collected(tmp_path, capfd) -> None:
 
 
 def test_the_generated_files_of_bsc_are_delivered_once_by_outputs_to(tmp_path, capfd) -> None:
-    """The generated files are listed under `artifacts.verilog` and in the record of the design
-    output. `--outputs-to` copies each file of the run directory once, and none that the design
+    """The generated files are listed in the record of the design output. `--outputs-to` copies each file of the run directory once, and none that the design
     passes through from outside it."""
     require_bsc()
     design = _design(tmp_path / "d")

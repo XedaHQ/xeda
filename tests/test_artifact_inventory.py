@@ -102,6 +102,21 @@ def test_the_key_of_a_program_log_is_lower_snake_case_without_its_suffix():
     assert log_artifact_key("./simv") == "simv_log"
 
 
+@pytest.mark.parametrize(
+    "program, key",
+    [
+        ("7z", "tool_7z_log"),
+        ("++", "tool_log"),
+        ("c++", "c_log"),
+        ("_x", "x_log"),
+        ("3d.exe", "tool_3d_log"),
+    ],
+)
+def test_the_key_of_a_program_log_always_fits_the_grammar(program, key):
+    assert log_artifact_key(program) == key
+    assert ARTIFACT_KEY.fullmatch(key)
+
+
 def test_a_description_checks_its_keys_and_values():
     spec = ArtifactSpec("A thing.", "always")
     assert describe_artifacts("log", thing=spec)["thing"] is spec
@@ -420,20 +435,22 @@ def test_a_reused_run_keeps_the_artifacts_of_its_record(tmp_path, monkeypatch):
     assert "log" in again.record.artifacts
 
 
-def test_the_report_keys_of_the_vivado_flows_keep_the_extension(tmp_path, monkeypatch):
-    """`utilization.rpt` and `utilization.xml` share a stem, so a report key is the lower snake
-    case of the whole file name."""
+def test_the_report_keys_of_the_vivado_flows_hold_the_step_and_the_whole_file_name(
+    tmp_path, monkeypatch
+):
+    """Several steps write a file of the same name, and `utilization.rpt` and `utilization.xml`
+    share a stem, so a report key is the lower snake case of the step and the file name."""
     use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
 
     flow = runner.launch_flow("vivado_synth", Design.from_file(EXAMPLE), FULL["vivado_synth"])
 
-    reports = {key for key in flow.record.artifacts if key.endswith(("_rpt", "_xml", "_csv"))}
-    assert reports and all(
-        re.fullmatch(r"[a-z][a-z0-9_]*_(rpt|xml|csv|json)", key) for key in reports
-    )
-    for key in reports:
-        name = flow.record.artifacts[key]
-        assert name.startswith("reports/route_design/")
-        assert key == re.sub(r"[^a-z0-9]+", "_", Path(name).name)
+    reports = {
+        key: name for key, name in flow.record.artifacts.items() if name.startswith("reports/")
+    }
+    assert reports
+    for key, name in reports.items():
+        step = Path(name).parent.name
+        assert key == re.sub(r"[^a-z0-9]+", "_", f"{step}_{Path(name).name}"), (key, name)
+    assert "route_design_timing_summary_rpt" in reports

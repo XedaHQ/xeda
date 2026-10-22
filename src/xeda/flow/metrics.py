@@ -317,9 +317,12 @@ def log_stem(executable: str) -> str:
 
 def log_artifact_key(program: str) -> str:
     """Return the artifact key of the log of `program`: `<name>_log`, with the name in lower snake
-    case. Its file is `logs/<program>.log` (`log_stem`). The log of the main tool of a flow has the
-    key `log` instead (`Flow.main_executable`)."""
+    case. A name that does not start with a letter gets the prefix `tool_` (`7z` gives
+    `tool_7z_log`). The file is `logs/<program>.log` (`log_stem`). The log of the main tool of a
+    flow has the key `log` instead (`Flow.main_executable`)."""
     name = re.sub(r"[^a-z0-9]+", "_", log_stem(program).lower()).strip("_")
+    if not name[:1].isalpha():  # a name such as `7z`, or `++`, would break the grammar
+        name = f"tool_{name}" if name else "tool"
     return f"{name}_log"
 
 
