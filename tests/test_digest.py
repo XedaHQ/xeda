@@ -85,3 +85,12 @@ def test_the_same_metadata_on_another_inode_is_hashed(tmp_path):
     previous = _recorded(f)
     moved = previous.model_copy(update={"inode": previous.inode + 1})
     assert record_file(f, moved, trusted_before_ns=_long_after(f)).sha == content_digest(f)
+
+
+def test_a_digest_of_pairs_ignores_their_order_and_counts_a_repeated_pair():
+    from xeda.digest import digest_pairs
+
+    pairs = [("a.py", "1"), ("b.py", "2"), ("a.py", "1")]
+    assert digest_pairs(pairs) == digest_pairs(reversed(pairs))
+    assert digest_pairs(pairs) != digest_pairs(pairs[:2])
+    assert digest_pairs(pairs[:2]) == digest_pairs([("b.py", "2"), ("a.py", "1")])

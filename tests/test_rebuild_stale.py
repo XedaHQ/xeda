@@ -961,11 +961,11 @@ def test_pruning_removes_the_trace_before_anything_else(tmp_path, design, monkey
 
 
 def test_a_change_to_xeda_s_code_reruns_every_flow(tmp_path, toys, design, monkeypatch):
-    from xeda.flow_runner import trace_inputs
+    from xeda.flow_runner import code_digest
 
     _, consumer = toys
     _run(tmp_path, consumer, design)
-    monkeypatch.setattr(trace_inputs, "xeda_code_digest", lambda: "e" * 32)
+    monkeypatch.setattr(code_digest, "xeda_code_digest", lambda: "e" * 32)
     flow, ran = _run(tmp_path, consumer, design)
     assert ran == ["toy_producer", "toy_consumer"]
     assert flow.producers[0].stale_reason == "Xeda's code changed"

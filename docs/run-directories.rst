@@ -239,13 +239,13 @@ A flow is stale, and runs again, in any of these cases:
 - There is no completed previous run: none yet, or the last one failed without a rejection by its
   checks (a tool error, a crash, a kill, a missing report). A failure that no check rejected keeps
   no trace.
-- The flow always runs. It programs a device, draws a new random seed, or reads pin constraints
-  fetched from a URL (see `Flows that always run`_).
+- The flow always runs. It programs a device, draws a new random seed, reads pin constraints
+  fetched from a URL, or has a class without a source file (see `Flows that always run`_).
 - Its settings changed (the reason names which ones), or a path that a setting names now points
   elsewhere, from another start directory or for another design tree.
 - Xeda changed: its version, or any file of the installed package (code, templates, bundled data).
-  An editable install keeps one version string across edits. For a flow defined outside Xeda, its
-  own modules and templates count.
+  An editable install keeps one version string across edits.
+- The code of a flow defined outside Xeda changed (see `The code of a flow outside Xeda`_).
 - A program the flow started changed (the path, size or mtime of an executable, or the ID of a
   container image), or was replaced while the run was going on.
 - What a producer handed over changed. This means the files of the outputs that the flow takes from
@@ -303,8 +303,8 @@ The trace records:
 
 - The identity of the run: ``flowrun_hash`` (the settings and where the declared inputs come from),
   ``settings_hash`` (the settings alone) and the design hash.
-- The Xeda version, a digest of every file of the installed Xeda package, and a digest of the flow's
-  own modules when the flow is defined outside Xeda.
+- The Xeda version, a digest of every file of the installed Xeda package, and a digest of the code
+  of the flow when the flow is defined outside Xeda.
 - The programs the run started, each as a file record (below) of the resolved executable: size,
   mtime, inode change time, inode and content hash. A program that was replaced during the run is
   caught like any other input. A program whose record from the previous run still vouches for it
@@ -424,6 +424,9 @@ Some runs can never be reused. These flows always run, keep no trace and report 
 - ``openfpgaloader`` has the reason "it programs a device", which changes the outside world. The
   stages that build its bitstream (``yosys_fpga``, ``nextpnr`` and ``fpga_pack``) are ordinary
   nodes, and Xeda reuses them when nothing changed.
+- A flow whose class has no source file on disk, such as one defined in a notebook cell, has the
+  reason "its class ... has no source file on disk ..., so Xeda cannot tell whether its code
+  changed".
 - A flow that is asked for a fresh random seed has the reason "it draws a new random seed". Every
   seed is a setting with a fixed default, so equal inputs give equal outputs. The random
   initialization of Verilator is off unless ``random_init`` is set, and then it uses ``random_seed``
@@ -513,6 +516,37 @@ To run a rejected flow again, change what it consumes, or run with ``--rebuild-a
 notices a change only in what it tracks. If a file that the run reads is not tracked (see `What is
 not tracked`_), an edit of it goes unnoticed, and Xeda reports the old rejection. A data file that a
 testbench reads is the common case: declare it as a source of the design.
+
+The code of a flow outside Xeda
+-------------------------------
+
+A flow that a plugin or your own code defines is stale when its code changed. Xeda lists the files
+and checks each one at every launch, also in a process that lives long, such as a notebook, so an
+edit, an added file and a removed file count at once. The check is by the metadata of a file, as for
+the inputs of a run: Xeda reads a file again only when its size, times or inode changed, or when it
+changed just before the last check. It judges "just before" by the clock of this machine. A code
+tree on a network file system whose clock is several seconds behind this machine's can miss two
+same-size edits of one file made within one timestamp tick of that file system. A digest names
+each file relative to the root of the code, so moving the code to another place does not make the
+run stale. The runs of such a flow that an older Xeda made are stale once, because the digest is
+made in a new way. The root of the code is:
+
+- For a flow defined in a package, the top-level package: the directory with the ``__init__.py``
+  files from the module of the flow up. Every file in it counts: helper modules, templates and
+  data. Hidden files, compiled bytecode and run roots (directories with the ``.xeda-run-root``
+  marker) do not count.
+- For a flow defined in a module outside a package, the module and the modules that it imports from
+  its own directory, with the ``templates`` directory next to it. The ``import`` statements in the
+  source tell which modules (a relative import with one dot too), and so on for each module found.
+  A package of that directory counts as a whole. Other files next to the module do not count. A
+  directory without an ``__init__.py`` is no package for this rule: a module in it counts when the
+  code imports it, and the other files of the directory do not. A module that the code imports
+  with ``importlib.import_module`` is not found: put the code in a package.
+
+A flow class that has no source file on disk cannot be checked this way. An example is a class
+defined in a notebook cell or in the interactive interpreter. Such a flow always runs (see `Flows
+that always run`_), and Xeda computes no code digest for it. To reuse its runs, define the class in
+a ``.py`` file.
 
 What is not tracked
 ---------------------

@@ -27,9 +27,10 @@ be listed cannot be recorded (`PermissionError`), since what it holds is unknown
 (a FIFO, a socket, a device) is recorded by its metadata and `SPECIAL_DIGEST` plus its kind. It is
 never read, because reading it could block.
 
-A whole tree is digested by the names and content of its files (`digest_files` over
-`package_files`), with no metadata and no record to trust. This identifies the installed `xeda`
-package (`trace_inputs.xeda_code_digest`).
+A whole tree is digested by the names and content of its files (`content_pairs` and
+`digest_pairs` over `package_files`). This identifies the installed `xeda` package and the code of
+a plugin flow (`code_digest`), which keeps a record of each file in the process and reads a file
+again only when its record cannot vouch for it.
 """
 
 from __future__ import annotations
@@ -39,12 +40,13 @@ import hashlib
 import os
 import stat
 import tempfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import List, Optional
 
 from .dataclass import XedaBaseModel
 from .listing import directory_files
+from .run_root import RUN_ROOT_MARKER, is_run_root
 
 #: The timestamp granularity that the racy check assumes. 2 s covers FAT and HFS+. On file systems
 #: with nanosecond timestamps it costs one extra hash of files written just before a record.
@@ -262,27 +264,40 @@ def package_files(directory: Path) -> List[Path]:
     """Return the files that make up a Python package directory (`listing.directory_files`,
     resolved).
 
-    These are all files under it except compiled bytecode (`__pycache__`, `.pyc`) and hidden
-    files, which Python and editors create.
+    These are all files under it except compiled bytecode (`__pycache__`, `.pyc`), hidden files,
+    which Python and editors create, and the files of a run root (`run_root.is_run_root`), which
+    a launch started in the directory writes.
     """
     top = directory.resolve()
+    listed = directory_files(top, skip=frozenset({"__pycache__"}), follow_links=True)
+    run_roots = tuple(
+        p.parent for p in listed if p.name == RUN_ROOT_MARKER and is_run_root(p.parent)
+    )
     return sorted(
         p
-        for p in directory_files(top, skip=frozenset({"__pycache__"}), follow_links=True)
+        for p in listed
         if p.is_file()
         and p.suffix not in (".pyc", ".pyo")
         and not any(part.startswith(".") for part in p.relative_to(top).parts)
+        and not any(p.is_relative_to(root) for root in run_roots)
     )
 
 
-def digest_files(files: Sequence[Path], base: Path) -> str:
-    """Return a digest of the names and content of `files`.
+def content_pairs(
+    entries: Iterable[tuple[str, Path]], read: Callable[[Path], str] = content_digest
+) -> list[tuple[str, str]]:
+    """Return the `(name, content digest)` pairs of the `(name, file)` entries.
 
-    A name is relative to `base` where the file lies under it.
-    """
+    `read` gives the content digest of a file."""
+    return [(name, read(file)) for name, file in entries]
+
+
+def digest_pairs(pairs: Iterable[tuple[str, str]]) -> str:
+    """Return a digest of the `(name, content digest)` pairs, whatever their order.
+
+    A pair that occurs twice counts twice."""
     h = hashlib.sha3_256()
-    for file in files:
-        name = file.relative_to(base) if file.is_relative_to(base) else file
-        h.update(name.as_posix().encode() + b"\0")
-        h.update(content_digest(file).encode())
+    for name, sha in sorted(pairs):
+        h.update(name.encode() + b"\0")
+        h.update(sha.encode())
     return h.hexdigest()[:32]
