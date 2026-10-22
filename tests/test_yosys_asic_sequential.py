@@ -566,7 +566,7 @@ def _run_real(tmp_path: Path, script_format: str, **given: Any):
     with contextlib.suppress(FlowException), forced_script_format(script_format):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/en/yosys/results.json")
-    assert json.loads(results.read_text())["success"] is True, results.read_text()
+    assert json.loads(results.read_text())["outcome"] == "passed", results.read_text()
     assert (results.parent / f"yosys_synth.{script_format}").is_file()
     return results.parent
 
@@ -712,7 +712,7 @@ def test_real_yosys_stops_when_a_retimed_module_is_gone_by_the_retiming(tmp_path
     """The flattening dissolves `mul8`, and the assertion names it in the error."""
     _real(script_format)
     run, results = _run_mac(tmp_path, script_format, sequential={"retime_modules": ["mul8"]})
-    assert results["success"] is False
+    assert results["outcome"] == "failed"
     log = (run / "yosys.log").read_text()
     error = log.rsplit("ERROR", 1)[-1]
     assert "ERROR" in log and "mul8" in error
@@ -728,5 +728,5 @@ def test_real_yosys_retimes_a_module_that_a_cell_attribute_keeps(tmp_path, scrip
         sequential={"retime_modules": ["mul8"]},
         set_attribute={"keep_hierarchy": {"mac/m": 1}},
     )
-    assert results["success"] is True, results
+    assert results["outcome"] == "passed", results
     assert "ABC: + retime" in (run / "yosys.log").read_text()

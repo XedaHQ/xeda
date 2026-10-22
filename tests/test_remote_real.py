@@ -301,7 +301,7 @@ def test_a_simulation_runs_on_the_host_and_a_second_run_reuses_it(
         assert (mirror / name).is_file(), name
     assert not list(mirror.parent.parent.rglob("trace.json"))
     saved = json.loads((mirror / "results.json").read_text())
-    assert saved["success"] is True
+    assert saved["outcome"] == "passed"
     assert ROOT_PREFIX not in json.dumps(saved), "the records name no path of the host"
 
     second = succeeded(run(tmp_path, ADDER))

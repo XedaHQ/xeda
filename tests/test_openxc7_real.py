@@ -175,9 +175,11 @@ def test_the_arty_blinky_builds_to_a_bitstream(built, run_root):
     assert flow.inputs.config == run_root / design.name / "nextpnr/config.fasm"
     assert flow.inputs.config.stat().st_size > 1000
     routed = _results(run_root, design, "nextpnr")
-    assert routed["success"] and routed["timing_met"] is True and routed["fmax"] > 100
-    assert routed["device"] == PART and routed["fabric"] == FABRIC
-    assert (routed["ff"], routed["bram"], routed["dsp"], routed["io"]) == (25, 0, 0, 2)
+    assert routed["outcome"] == "passed"
+    metrics = routed["metrics"]
+    assert metrics["timing_met"] is True and metrics["fmax"] > 100
+    assert metrics["device"] == PART and metrics["fabric"] == FABRIC
+    assert (metrics["ff"], metrics["bram"], metrics["dsp"], metrics["io"]) == (25, 0, 0, 2)
     # a 25-bit counter: carry chains with their LUTs, counted as occupied LUT locations
     assert 25 <= routed["lut"] <= routed["cell_types"]["SLICE_LUTX"]
     assert routed["lut_basis.stage"] == "placed and routed"

@@ -705,7 +705,7 @@ def _run_real(tmp_path, script_format: str, enables: bool = False, **given: Any)
     with contextlib.suppress(FlowException), forced_script_format(script_format):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/*/yosys/results.json")
-    assert json.loads(results.read_text())["success"] is True, results.read_text()
+    assert json.loads(results.read_text())["outcome"] == "passed", results.read_text()
     assert (results.parent / f"yosys_synth.{script_format}").is_file()
     return results.parent
 
@@ -775,7 +775,7 @@ def test_real_yosys_runs_the_dress_command_of_abc_and_the_mapped_check_judges_th
     (results,) = tmp_path.glob("xeda_run/*/yosys/results.json")
     log = (results.parent / "yosys.log").read_text()
     assert "ABC: + dress " in log
-    if not json.loads(results.read_text())["success"]:
+    if json.loads(results.read_text())["outcome"] != "passed":
         assert "unmapped internal cell of type $lut" in log
         assert "problems in 'check -assert'" in log
 

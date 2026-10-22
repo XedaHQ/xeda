@@ -509,7 +509,7 @@ def _run_real(tmp_path: Path, given: dict[str, Any], script_format: str) -> None
     with contextlib.suppress(FlowException), forced_script_format(script_format):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")
-    assert json.loads(results.read_text())["success"] is True
+    assert json.loads(results.read_text())["outcome"] == "passed"
     assert (results.parent / f"yosys_synth.{script_format}").is_file()
 
 

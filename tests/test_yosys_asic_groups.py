@@ -941,7 +941,7 @@ def test_real_yosys_runs_the_yosys_strategy_with_no_script(tmp_path):
             Yosys, design, _tiny(tmp_path, abc={"strategy": "yosys"})
         )
     (results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")
-    assert json.loads(results.read_text())["success"] is True
+    assert json.loads(results.read_text())["outcome"] == "passed"
     script = (results.parent / "yosys_synth.ys").read_text()
     assert "-script" not in script
 
@@ -957,7 +957,7 @@ def test_real_yosys_takes_each_adder_architecture(tmp_path, architecture):
             _tiny(tmp_path, arithmetic={"adder_architecture": architecture, "adder_map": "none"}),
         )
     (results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")
-    assert json.loads(results.read_text())["success"] is True
+    assert json.loads(results.read_text())["outcome"] == "passed"
 
 
 def test_a_platform_with_gates_gives_both_messages_and_the_right_reason_for_the_leaf():
