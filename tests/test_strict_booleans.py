@@ -162,3 +162,19 @@ def test_a_number_is_not_a_boolean_anywhere(tmp_path, number):
         settings.dockerized = number
     with pytest.raises(DesignValidationError, match=re.escape(message)):
         _design(tmp_path, f"language: {{vhdl: {{synopsys: {number}}}}}")
+
+
+@pytest.mark.parametrize("number", [0, 1, 2, 1.0])
+def test_a_number_is_not_a_boolean_beside_text(number):
+    """A field that takes a boolean or a name (`gui: true` or `gui: dve`) takes no number."""
+    from xeda.flows import Vcs
+
+    message = f"`{number}` is a number, not a boolean: write `true` or `false`"
+    for field in ("gui", "debug_access"):
+        with pytest.raises(FlowSettingsError, match=re.escape(message)):
+            Vcs.Settings.from_input({field: number})
+    settings = Vcs.Settings.from_input({"gui": "dve", "debug_access": "+r"})
+    assert (settings.gui, settings.debug_access) == ("dve", "+r")
+    assert Vcs.Settings.from_input({"gui": True, "debug_access": False}).gui is True
+    with pytest.raises(ValidationError, match=re.escape(message)):
+        settings.gui = number

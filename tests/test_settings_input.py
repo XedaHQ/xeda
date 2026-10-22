@@ -560,7 +560,10 @@ def _values_of_another_type(kinds: "set[str]", literals: "set[object]") -> list:
     if "float" not in kinds:
         wrong.append(2.5)
     if not kinds & {"int", "float", "bool", "literal"}:
-        wrong += [True, False, 0]
+        wrong += [True, False]
+    if not kinds & {"int", "float"}:
+        # A switch takes `true` and `false` only, never the numbers 0 and 1.
+        wrong += [number for number in (0, 1, 2) if number not in literals]
     return wrong
 
 
