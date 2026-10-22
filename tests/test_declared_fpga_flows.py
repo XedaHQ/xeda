@@ -503,7 +503,6 @@ def test_nextpnr_subprocess_reads_only_the_selected_netlist(
 
 
 _CLI_STANDINS = """
-from pathlib import Path
 from xeda.flows import YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
 from xeda.cli import cli
@@ -514,9 +513,11 @@ def place(self, *args, env=None):
     for arg in map(str, args):
         name, _, value = arg.partition('=')
         if name == '--report':
-            Path(value).write_text('{"fmax": {}, "utilization": {}, "critical_paths": []}\\n')
+            (self.working_directory() / value).write_text(
+                '{"fmax": {}, "utilization": {}, "critical_paths": []}\\n'
+            )
         elif name == '--textcfg':
-            Path(value).write_text('config\\n')
+            (self.working_directory() / value).write_text('config\\n')
 YosysFpga.run = synth
 YosysFpga.parse_reports = lambda self: True
 NextpnrTool.run = place
