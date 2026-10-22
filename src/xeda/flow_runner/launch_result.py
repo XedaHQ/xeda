@@ -232,8 +232,14 @@ def _not_reached(plan: Plan, node: PlanNode, done: Mapping[str, NodeResult]) -> 
     )
 
 
-def _launch_error(collector: LaunchCollector) -> ErrorInfo | None:
-    """Return the error of the whole launch, from the failure at its end that it raised, or None."""
+def _launch_error(
+    collector: LaunchCollector, nodes: Mapping[str, NodeResult], roots: Sequence[str]
+) -> ErrorInfo | None:
+    """Return the error of the whole launch, from the failure at its end that it raised, or None.
+
+    A failed delivery is a launch error. So is a failed clean-up, when every root passed. A
+    clean-up that fails after a root did not pass never takes its place as the cause: the root's
+    own error stays, and the clean-up failure is only logged."""
     found = next(
         (item for item in collector.finish_failures if item[1] is collector.finish_raised), None
     )
@@ -244,6 +250,9 @@ def _launch_error(collector: LaunchCollector) -> ErrorInfo | None:
         return ErrorInfo(
             code=DELIVERY_FAILED, message=str(error), node=None, exit_status=None, log=None
         )
+    if any(nodes[root].outcome is not Outcome.PASSED for root in roots):
+        log.warning("The clean-up failed, after the launch did not pass: %s", error)
+        return None
     return error_info(error, node=None)
 
 
@@ -275,7 +284,7 @@ def launch_result(runner: LaunchRunner, spec: Spec, launch: Callable[[], object]
             else _not_reached(plan, node, nodes)
         )
     roots = (plan.nodes[-1].name,)
-    launch_error = _launch_error(collector)
+    launch_error = _launch_error(collector, nodes, roots)
     outcome, error = aggregate(nodes, roots, launch_error)
     return Result(
         launch_id=uuid.uuid4().hex,

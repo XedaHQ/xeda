@@ -593,3 +593,38 @@ def test_a_failure_before_any_plan_is_raised_not_reported(tmp_path):
     with pytest.raises(FlowSettingsError, match="no_such_setting"):
         _launch(runner, _MayFail, _design(tmp_path), None, {"no_such_setting": 1})
     assert not list((tmp_path / "run").glob("**/results.json"))
+
+
+@pytest.mark.parametrize(
+    "failure, code",
+    [(OSError(5, "Input/output error"), "storage_error"), (RuntimeError("bug"), "internal_error")],
+    ids=["an OSError", "another exception"],
+)
+def test_a_failed_clean_up_after_a_passed_root_is_a_failed_launch(
+    tmp_path, monkeypatch, flows, failure, code
+):
+    def refuse(self, *args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(DefaultRunner, "_clean_up", refuse)
+    result = _launch(_runner(tmp_path, post_cleanup=True), _MayFail, _design(tmp_path))
+    assert result.outcome == "failed" and not result.passed
+    assert result.error is not None and result.error.code == code
+    assert result.error.node is None and result.error.message == str(failure)
+    node = result.nodes[MAY_FAIL]
+    assert node.outcome == "passed" and node.record is not None
+
+
+def test_a_failed_clean_up_never_replaces_the_error_of_a_root_that_did_not_pass(
+    tmp_path, monkeypatch, flows
+):
+    def refuse(self, *args, **kwargs):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(DefaultRunner, "_clean_up", refuse)
+    runner = _runner(tmp_path, post_cleanup=True)
+    result = _launch(runner, _MayFail, _design(tmp_path), {MAY_FAIL: {"report_failure": True}})
+    node = result.nodes[MAY_FAIL]
+    assert node.outcome == "failed" and node.error is not None
+    assert node.error.code == "reported_failure"
+    assert result.outcome == "failed" and result.error == node.error
