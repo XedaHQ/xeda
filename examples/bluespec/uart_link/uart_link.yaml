@@ -1,0 +1,159 @@
+name: uart_link
+description: >-
+  LeanLink, a small reliable packet transport for a byte stream, with the UART PHY of the `uart`
+  example and a test endpoint, as a board demo. The link has a window of W = 8 pages of 256 bytes
+  by default. It repeats lost frames, checks each frame with a CRC-32C, and never runs a request
+  twice. The endpoint answers each request with the number of requests it ran before, then the
+  request payload. The board-agnostic top mkLeanLinkBoard has the pins of mkUartEcho. The
+  testbench is a behavioral host at the byte interface of the link: it sends the frames that the
+  Python codec of host/ makes and compares the exact bytes of each answer. Targets build the
+  Arty A7-100T, the Basys-3, the ULX3S and the STLV7325 v2, and estimate the area of the bare
+  core. The cocotb tests are in tb/cosim.yaml.
+rtl:
+  # The PHY of the uart example comes first; the package that defines `top` comes last.
+  sources:
+    - "../uart/rtl/RingFifo.bsv"
+    - "../uart/rtl/UartTypes.bsv"
+    - "../uart/rtl/BitTimer.bsv"
+    - "../uart/rtl/UartRx.bsv"
+    - "../uart/rtl/UartTx.bsv"
+    - "../uart/rtl/Uart.bsv"
+    - "rtl/LeanLink.bsv"
+    - "rtl/LeanLinkTestTop.bsv"
+    - "rtl/LeanLinkBoard.bsv"
+  top: mkLeanLinkBoard
+  clock.port: CLK
+  # Preprocessor macros (the values here are the defaults). CLK_HZ and BAUD size the PHY.
+  # LL_LOGW and LL_LOGP set the window and the pages of the link: W = 2^LL_LOGW pages of
+  # 2^LL_LOGP bytes. LL_LOGW is at most 7 and LL_LOGP is at least 4. Use `defines`, not
+  # `parameters`: mkLeanLinkBoard has no Verilog parameters.
+  defines.CLK_HZ: 100000000
+  defines.BAUD: 12000000
+  defines.LL_LOGW: 3
+  defines.LL_LOGP: 8
+tb:
+  sources:
+    - "tb/LeanLinkFrames.bsv"
+    - "tb/TbLeanLink.bsv"
+  top: mkTbLeanLink
+  # Negative test: defining the macro XEDA_INJECT_BUG makes the test endpoint count every request
+  # twice, as if the link had run it twice. The testbench must catch it (non-zero exit).
+  # defines.XEDA_INJECT_BUG: true
+flows:
+  # Vivado synthesis of the board design on its own: `xeda run vivado_synth uart_link.yaml`.
+  vivado_synth:
+    fpga.part: xc7a100tcsg324-1
+    clock.period: 10 ns
+    out_of_context: true
+# The targets with a board build for it: the pin files are in boards/ (and in ../uart_echo/boards/),
+# and the chain with `+openfpgaloader` programs it (see README.md). A pin file does not give the
+# clock period: the flow does.
+targets:
+  # `xeda run yosys_fpga uart_link.yaml --target artix7`: a resource estimate, no pins, of the
+  # Arty design.
+  artix7:
+    flows:
+      yosys_fpga:
+        fpga.part: xc7a100tcsg324-1
+        clock.period: 10 ns
+  # `xeda run yosys_fpga+nextpnr uart_link.yaml --target ecp5`: a resource and timing estimate,
+  # no pins, at the clock and the baud rate of the ULX3S.
+  ecp5:
+    rtl:
+      defines:
+        CLK_HZ: 25000000
+        BAUD: 3000000
+    flows:
+      yosys_fpga:
+        fpga.part: LFE5U-85F-6BG381C
+        clock.period: 40 ns
+      nextpnr:
+        lpf_allow_unconstrained: true
+  # The area of the bare core, without the PHY and the test endpoint: the top has the ports of the
+  # core as pins. `xeda run yosys_fpga uart_link.yaml --target core_w8` (W = 8 pages of 256 bytes)
+  # and `--target core_w1` (W = 1 page of 64 bytes).
+  core_w8:
+    rtl:
+      sources:
+        - "rtl/LeanLinkTops.bsv"
+      top: mkLeanLinkW8P256
+    flows:
+      yosys_fpga:
+        fpga.part: xc7a100tcsg324-1
+        clock.period: 10 ns
+  core_w1:
+    rtl:
+      sources:
+        - "rtl/LeanLinkTops.bsv"
+      top: mkLeanLinkW1P64
+    flows:
+      yosys_fpga:
+        fpga.part: xc7a100tcsg324-1
+        clock.period: 10 ns
+  # Arty A7-100T with Vivado: `xeda run vivado_synth uart_link.yaml --target arty`. The bitstream
+  # has a bare name, so it stays in the run directory; add `--outputs-to DIR` to copy it.
+  # Programming: `xeda run vivado_synth+openfpgaloader uart_link.yaml --target arty`.
+  arty:
+    rtl:
+      sources:
+        - "../uart_echo/boards/arty_a7_100t.xdc"
+        - "../uart_echo/boards/arty_a7_100t_sync.xdc"
+    flows:
+      vivado_synth:
+        out_of_context: false
+        bitstream: uart_link.bit
+      openfpgaloader:
+        board: arty_a7_100t
+  # Basys-3 (Artix-7 35T) with Vivado: `xeda run vivado_synth+openfpgaloader uart_link.yaml
+  # --target basys3`. The Arty file for the synchronizers applies too.
+  basys3:
+    rtl:
+      sources:
+        - "boards/basys3.xdc"
+        - "../uart_echo/boards/arty_a7_100t_sync.xdc"
+    flows:
+      vivado_synth:
+        fpga.part: xc7a35tcpg236-1
+        out_of_context: false
+        bitstream: uart_link.bit
+      openfpgaloader:
+        board: basys_3
+  # ULX3S 85F (ECP5) at 25 MHz and 3 Mbaud (put the oss-cad-suite bin directory first on PATH):
+  # `xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader uart_link.yaml --target ulx3s`
+  ulx3s:
+    rtl:
+      sources:
+        - "../uart_echo/boards/ulx3s.lpf"
+      defines:
+        CLK_HZ: 25000000
+        BAUD: 3000000
+    flows:
+      yosys_fpga:
+        fpga.part: LFE5U-85F-6BG381C
+      nextpnr:
+        board: ulx3s_85f
+        clock.freq: 25 MHz
+      openfpgaloader:
+        board: ulx3s_85f
+  # STLV7325 v2 (Kintex-7 xc7k325t) with openXC7 (put the openXC7 bin directory first on PATH):
+  # `xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader uart_link.yaml --target stlv7325`
+  # The top is the Bluespec wrapper boards/StlvLeanLink.bsv: the 200 MHz differential clock needs
+  # an IBUFDS and a BUFG. The board has no switches. The UART goes through the CH9102 bridge at
+  # 3 Mbaud.
+  stlv7325:
+    rtl:
+      sources:
+        - "boards/StlvLeanLink.bsv"
+      top: mkStlvLeanLink
+      clock.port: clk_p
+      defines:
+        CLK_HZ: 200000000
+        BAUD: 3000000
+    flows:
+      yosys_fpga:
+        fpga.part: xc7k325tffg676-2
+      nextpnr:
+        board: stlv7325_v2
+        clock.freq: 200 MHz
+      openfpgaloader:
+        board: stlv7325_v2

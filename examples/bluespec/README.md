@@ -137,3 +137,21 @@ xeda run vivado_synth examples/bluespec/uart_echo/uart_echo.yaml --target arty
 xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target ulx3s
 xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target stlv7325
 ```
+
+## uart_link: a reliable packet link over a UART
+
+[LeanLink](uart_link/README.md) is a small transport for a byte stream: frames with a CRC-32C,
+COBS framing, a window with go-back-N repeats, and sessions that make sure that a request never
+runs twice. The core is about 370 LUT on an Artix-7 (two block RAMs). The design uses the PHY of
+the `uart` example and a test endpoint, and has board targets for the Arty A7-100T, the Basys-3,
+the ULX3S and the STLV7325 v2. The testbench is a behavioral host at the byte interface of the
+link. It sends the frames that the Python codec of `host/` makes and compares the exact bytes of
+each answer. The cocotb tests in `tb/cosim.yaml` run the link against the same codec. `host/` also
+holds the host library and a script that tests a real board.
+
+```bash
+xeda run bsc_sim examples/bluespec/uart_link/uart_link.yaml
+xeda run verilator examples/bluespec/uart_link/tb/cosim.yaml
+xeda run yosys_fpga examples/bluespec/uart_link/uart_link.yaml --target core_w8
+xeda run vivado_synth examples/bluespec/uart_link/uart_link.yaml --target arty
+```
