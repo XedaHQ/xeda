@@ -62,7 +62,7 @@ The flat form (`sources`, `top`, `clock`, `clocks`, `parameters`, `generics`, `d
 | `clock` | One clock: `clock.port: clk`, or `clock: clk`. |
 | `clocks` | A list of clocks for several clocks. |
 | `attributes` | HDL attributes, `attribute -> (object -> value)`. |
-| `generator` | A command or class that writes the sources before the flow runs. |
+| `generator` | What writes the sources before the flow runs: a shell command line (`generator: "python soc.py"`, kept as `{shell: ...}`), a list of arguments (`[python3, soc.py]`, kept as `{executable: python3, args: [soc.py]}`), or a table with one of `shell`, `command`, `executable` (two of them, or `shell` with `args`, is an error) and `sources`, `generated_sources`, `always_runs`. |
 
 A generator runs again when its executable, its `sources` (a directory counts as every file in
 it) or its produced sources change. `generated_sources` names the files it writes when it writes

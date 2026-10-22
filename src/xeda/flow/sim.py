@@ -468,7 +468,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
         `tb.python_packages` in the Python environment that runs Xeda. Cocotb checks its selected
         Python when the simulator starts, since planning does not start tools."""
         super().check_design_supported(design, settings)
-        if not design.tb.cocotb:
+        if design.tb.cocotb is None:
             for package in design.tb.python_packages:
                 try:
                     metadata.version(package)
@@ -477,7 +477,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
                         f"`tb.python_packages` lists `{package}`, but it is not installed. "
                         "Install it in the Python environment that runs Xeda."
                     ) from None
-        if design.tb.cocotb and not cls.cocotb_sim_name:
+        if design.tb.cocotb is not None and not cls.cocotb_sim_name:
             # API callers may have loaded only their own simulator. Include built-ins too.
             from importlib import import_module
 
@@ -493,7 +493,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 f"{cls.name} cannot run cocotb tests; use one of: {', '.join(supported)}"
                 + (f". {cls.cocotb_advice}" if cls.cocotb_advice else "")
             )
-        if not design.tb.cocotb and not design.tb.top:
+        if design.tb.cocotb is None and not design.tb.top:
             hdl = [src for src in design.tb.sources if src.type in LANGUAGE_TYPES]
             if hdl and not cls.runs_without_testbench_top(design, settings):
                 raise FlowSettingsException(
@@ -526,7 +526,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
     @property
     def uses_cocotb(self) -> bool:
         """Whether this run is a cocotb simulation, by the simulator and the design alone."""
-        return bool(self.cocotb_sim_name and self.design.tb.cocotb)
+        return bool(self.cocotb_sim_name and self.design.tb.cocotb is not None)
 
     @property
     def cocotb(self) -> Optional[Cocotb]:

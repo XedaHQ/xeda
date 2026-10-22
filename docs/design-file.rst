@@ -510,8 +510,69 @@ Vivado's ``add_files`` refuses a name that contains ``[``, ``]`` or ``$``. ``viv
 Generated sources
 =================
 
-A design can have its sources produced before any flow runs. ``rtl.generator`` is a shell
-command, a list of arguments, or a table that configures a generator::
+A design can have its sources produced before any flow runs. ``rtl.generator`` has three forms, and
+the design keeps them all as one table:
+
+* A command line for a shell becomes ``{shell: <text>}``. Xeda runs the text through the shell
+  of the platform and expands nothing in it.
+* A list of arguments becomes ``{executable: <first item>, args: [<other items>]}``. No shell
+  reads it.
+* A table stays as it is.
+
+.. code-block:: yaml
+
+    # generator_shell.yaml
+    name: generator_shell
+    rtl:
+      sources:
+        - gen/top.v
+      top: top
+      generator: echo generating gen/top.v
+    flows:
+      yosys_fpga:
+        fpga:
+          part: LFE5U-25F-6BG381C
+
+.. code-block:: yaml
+
+    # generator_list.yaml
+    name: generator_list
+    rtl:
+      sources:
+        - gen/top.v
+      top: top
+      generator: [echo, generating, gen/top.v]
+    flows:
+      yosys_fpga:
+        fpga:
+          part: LFE5U-25F-6BG381C
+
+The table form has the most options. Its keys ``shell``, ``command`` and ``executable`` name what
+runs, and one table has only one of them. ``shell`` is a command line for a shell, ``command`` is
+a program with its arguments in one text, and ``executable`` is a program that takes its
+``args`` as a list. A table with ``shell`` and another of these keys, or with ``shell`` and
+``args``, is an error that names the keys. Every generator finds ``DESIGN_ROOT`` in its
+environment, one with ``shell`` too:
+
+.. code-block:: yaml
+
+    # generator_table.yaml
+    name: generator_table
+    rtl:
+      sources:
+        - gen/top.v
+      top: top
+      generator:
+        shell: echo generating gen/top.v
+        always_runs: true
+    flows:
+      yosys_fpga:
+        fpga:
+          part: LFE5U-25F-6BG381C
+
+A table can also say what the generator reads:
+
+.. code-block:: yaml
 
     name: generated
     rtl:
@@ -522,6 +583,9 @@ command, a list of arguments, or a table that configures a generator::
         executable: python3
         args: ["soc.py", "--build-dir", "gen"]
         sources: ["soc.py", "../litex/litex", "../migen/migen"]
+
+The designs above run ``echo`` when they load. A real generator is the program that writes the
+sources.
 
 The generator runs while Xeda loads the design. It runs again only when something that it reads
 or produced has changed. Xeda judges this by content and never by modification time.
@@ -616,9 +680,9 @@ generator:
 A design that also has any other error, such as a wrong value, is refused at once, and its
 generator does not run.
 
-A generator given as a shell command (``generator: "python soc.py"``) or as a list of arguments
-declares nothing that it reads, so it runs on every load. Write it as a table with ``sources`` to
-have it judged.
+A generator written as a command line or as a list declares nothing that it reads, so it runs on
+every load. Write it as a table with ``sources`` to have it judged. A table with ``shell`` may
+list ``sources`` too.
 
 ``--rebuild-all`` (and ``--clean``, which implies it) runs the generator whatever its record
 says, as it runs every flow of the launch, and records what that generation leaves. A ``touch``

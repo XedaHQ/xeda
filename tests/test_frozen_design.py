@@ -149,7 +149,7 @@ def test_the_models_are_built_from_the_tables(design):
         ({"generator": {"args": 3}}, "args"),
         ({"generator": {"nothing": 1}}, "nothing"),
         ({"generator": {"class": "scala"}}, "unknown generator class"),
-        ({"generator": 3}, "command text"),
+        ({"generator": 3}, "command line"),
         ({"generator": ["a", 1]}, "holds only text"),
     ],
 )
@@ -172,11 +172,6 @@ def test_an_invalid_cocotb_recipe_fails_when_the_design_loads(tmp_path):
             rtl={"sources": [], "top": "t"},
             tb={"cocotb": {"testcase": 3}},
         )
-
-
-def test_a_command_text_and_an_argument_list_stay_as_declared(tmp_path):
-    assert Rtl(sources=(), generator="make rtl").generator == "make rtl"
-    assert Rtl(sources=(), generator=["make", "rtl"]).generator == ("make", "rtl")
 
 
 def test_a_changed_design_is_a_copy(design):

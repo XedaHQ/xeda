@@ -64,7 +64,7 @@ from .dataclass import (
     validation_errors,
 )
 from .digest import content_digest
-from .frozen import Frozen, FrozenModel, freeze, thaw
+from .frozen import Frozen, FrozenDict, FrozenModel, freeze, thaw
 from .generation import judging_generation
 from .proc_utils import run_child
 from .run_dir import DIR_NAME_HASH_LEN, RunDirectory, run_directory_name
@@ -101,10 +101,12 @@ __all__ = [
     "DESIGN_PARTS",
     "Design",
     "DesignFileParseError",
+    "DesignPart",
     "Source",
     "DesignValidationError",
     "FileResource",
     "LanguageSettings",
+    "Rtl",
     "SOURCE_SUFFIXES",
     "AMBIGUOUS_SUFFIXES",
     "TYPE_ONLY",
@@ -113,7 +115,11 @@ __all__ = [
     "source_type_named",
     "source_type_of",
     "SourceType",
+    "Testbench",
     "VhdlSettings",
+    "cocotb_of",
+    "generator_of",
+    "language_of",
 ]
 
 
@@ -1290,6 +1296,11 @@ class Generator(XedaBaseModel):
         "whitespace (as `command` is).",
     )
     command: Optional[str] = None
+    shell: Optional[str] = Field(
+        None,
+        description="A command line that a shell runs, such as `python soc.py --build`. Xeda "
+        "expands nothing in it: the shell does. `shell` excludes `command` and `executable`.",
+    )
     check: bool = True
     env: Optional[Dict[str, str]] = None
     # Sweepable parameters used in the command.
@@ -1319,6 +1330,32 @@ class Generator(XedaBaseModel):
         "`rtl.sources` or hold one. Empty, every one of `rtl.sources` is judged, so editing a "
         "source the generator does not write runs it again.",
     )
+
+    #: Whether the generator may run a shell command line (`shell`).
+    takes_shell: ClassVar[bool] = True
+
+    @model_validator(mode="after")
+    def _shell_excludes_the_other_command_keys(self):
+        """A table has one way to say what runs: `shell`, or `command`, or `executable`."""
+        if self.shell is None:
+            return self
+        if not self.takes_shell:
+            raise ValueError(f"a {type(self).__name__} runs its own command: `shell` is not valid")
+        named = [
+            key
+            for key, value in (("command", self.command), ("executable", self.executable))
+            if value is not None
+        ]
+        if named:
+            raise ValueError(
+                f"`shell` and `{'` and `'.join(named)}` exclude each other: "
+                "a generator runs one command line"
+            )
+        if self.args:
+            raise ValueError(
+                "`shell` and `args` exclude each other: write the arguments in `shell`"
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -1401,7 +1438,11 @@ class Generator(XedaBaseModel):
         return sources
 
     def execution_command(self, design_root: Optional[Path] = None) -> List[str]:
-        """Return the argv that this generator runs, for execution and the freshness identity."""
+        """Return the argv that this generator runs, for execution and the freshness identity.
+
+        A `shell` generator runs through `sh -c`, which is how its text reaches a shell."""
+        if self.shell:
+            return ["sh", "-c", self.shell]
         if self.command:
             return self.command.split()
         elif not self.executable:
@@ -1457,7 +1498,21 @@ class Generator(XedaBaseModel):
         )
 
     def run(self):
+        if self.shell:
+            return self.run_shell()
         self.run_cmd(self.execution_command())
+
+    def run_shell(self):
+        """Run the `shell` text through the shell of the platform, in the working directory and
+        the environment of the generator."""
+        assert self.shell
+        log.info("Running shell command: %s", self.shell)
+        done = run_child(
+            self.shell, source="generator", shell=True, cwd=self.cwd, env=self.env, check=False
+        )
+        if self.check and done.returncode:
+            raise NonZeroExitCode(self.shell, done.returncode)
+        return done
 
     def run_cmd(self, cmd, check=None, stdout=None, stderr=None):
         cmd = list(cmd)
@@ -1504,6 +1559,8 @@ class Generator(XedaBaseModel):
 
     def command_text(self, design_root: Optional[Path] = None) -> str:
         """Return what this generator runs, for a message, or its kind if that is not known yet."""
+        if self.shell:
+            return self.shell
         try:
             return shlex.join(self.execution_command(design_root))
         except ValueError:
@@ -1511,6 +1568,8 @@ class Generator(XedaBaseModel):
 
 
 class ChiselGenerator(Generator):
+    takes_shell: ClassVar[bool] = False
+
     main: Optional[str] = None
     project: Optional[str] = None
     build_system: str = "mill"
@@ -1572,12 +1631,11 @@ class ChiselGenerator(Generator):
 
 
 def generator_model(recipe: Any, root: Optional[Path] = None) -> Generator | None:
-    """Return the generator that a table recipe stands for, or `None` for another form.
+    """Return the generator that a table recipe stands for, or `None` for no recipe.
 
     The table names its class with `class` (`chisel`); without one it is a plain `Generator`. A
     mistake in the table raises the `ValidationError` of the model, and an unknown class raises a
-    `ValueError`. A command text and a list of arguments (the other forms of a recipe) have no
-    model. The relative `sources` of the table lie below `root`."""
+    `ValueError`. The relative `sources` of the table lie below `root`."""
     if isinstance(recipe, Generator):
         return recipe
     if not isinstance(recipe, Mapping):
@@ -1593,30 +1651,41 @@ def generator_model(recipe: Any, root: Optional[Path] = None) -> Generator | Non
         return model(**table)
 
 
-def _generator_recipe(value: Any, root: Optional[Path] = None) -> Any:
-    """Return the recipe of `rtl.generator` as the design states it, frozen.
+def _generator_recipe(value: Any, root: Optional[Path] = None) -> Optional[FrozenDict]:
+    """Return the recipe of `rtl.generator` as a read-only table, or `None` for no generator.
 
-    It is a command text, a list of arguments, or a table. A `Generator` is read as the table
-    that makes it again. A table is checked here (`generator_model`, with its sources below
-    `root`), so a mistake in it fails when the design loads, though the table is what the design
-    keeps."""
+    A design file writes the recipe in one of three forms, and the design keeps one:
+
+    - a command line for a shell, ``"python soc.py"``, is ``{shell: "python soc.py"}``;
+    - a list of arguments, ``[python3, soc.py]``, is ``{executable: python3, args: [soc.py]}``;
+    - a table stays as it is. A `Generator` is read as the table that makes it again.
+
+    An empty command line or list stands for no generator. A table is checked here
+    (`generator_model`, with its sources below `root`), so a mistake in it fails when the design
+    loads, though the table is what the design keeps."""
     if isinstance(value, Generator):
         table = value.model_dump(by_alias=True, exclude_none=True)
         if isinstance(value, ChiselGenerator):
             table["class"] = "chisel"
         value = table
-    if value is None or isinstance(value, str):
-        return value
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return FrozenDict({"shell": value}) if value else None
     if isinstance(value, (list, tuple)):
         if not all(isinstance(argument, str) for argument in value):
             raise ValueError(f"a generator given as a list holds only text, got {value!r:.80}")
-        return tuple(value)
+        if not value:
+            return None
+        return FrozenDict({"executable": value[0], "args": tuple(value[1:])})
     if isinstance(value, Mapping):
+        if not value:
+            return None
         recipe = freeze(value)
         generator_model(recipe, root)
         return recipe
     raise ValueError(
-        f"a generator is a command text, a list of arguments or a table, not {value!r:.80}"
+        f"a generator is a command line, a list of arguments or a table, not {value!r:.80}"
     )
 
 
@@ -1643,11 +1712,10 @@ class Rtl(DesignPart):
         None,
         description="The RTL top module (a Verilog module or a VHDL entity).",
     )
-    #: The recipe of the generator as the design states it: a command text, a list of arguments,
-    #: or a table. `generator_of(rtl)` gives the validated `Generator` of a table.
-    generator: Annotated[
-        Union[Mapping[str, Any], str, Tuple[str, ...], None], _GeneratorRecipe()
-    ] = None
+    #: The recipe of the generator as a table. A design file may write a command line or a list
+    #: of arguments too, and the design keeps the table that stands for it
+    #: (`_generator_recipe`). `generator_of(rtl, root=...)` gives the validated `Generator`.
+    generator: Annotated[Optional[Mapping[str, Any]], _GeneratorRecipe()] = None
     attributes: Annotated[Mapping[str, Mapping[str, Any]], Frozen()] = Field(
         dict(),
         description="""
@@ -1941,6 +2009,8 @@ class Testbench(DesignPart):
     @field_validator("cocotb", mode="before")
     @classmethod
     def _auto_set_cocotb(cls, value, info):
+        if (info.context or {}).get("merged"):
+            return value  # the design again, with its dependencies: nothing is derived again
         values = info.data if isinstance(info.data, dict) else {}
         form = CocotbTestbench.as_mapping(value)
         if form is WHOLE:
@@ -1963,11 +2033,11 @@ class Testbench(DesignPart):
 
 
 def generator_of(rtl: Rtl, *, root: Path) -> Generator | None:
-    """Return the generator that the recipe `rtl.generator` stands for, validated.
+    """Return the generator that the recipe `rtl.generator` stands for, validated, or `None` when
+    there is no recipe.
 
-    A recipe that is a table gives a new `Generator`. A command text and a list of arguments give
-    `None`: they have no model. The relative `sources` of the model lie below `root`, the root of
-    the design that holds `rtl`."""
+    The result is a new `Generator`. Its relative `sources` lie below `root`, the root of the
+    design that holds `rtl`."""
     return generator_model(rtl.generator, root)
 
 
@@ -3091,9 +3161,9 @@ class Design(XedaBaseModel):
         rtl = data.get("rtl", {})
         assert isinstance(rtl, dict), f"rtl must be a dictionary, but found {type(rtl)}"
         # The recipe stays in `rtl`: the design keeps what it declared.
-        generator = rtl.get("generator")
-        if generator and not isinstance(generator, (Mapping, Generator)):
-            _generator_recipe(generator)  # a malformed recipe is refused before anything runs
+        # Every form of a recipe is a table; a malformed one is refused before anything runs.
+        recipe = _generator_recipe(rtl.get("generator"), design_root)
+        generator = generator_model(recipe, design_root)
         deferring = _deferred_load.get()
 
         def defer(what: str) -> None:
@@ -3102,7 +3172,7 @@ class Design(XedaBaseModel):
             deferring.defer(what)
             rtl["sources"] = _declared_sources(rtl.get("sources", []), deferring)
 
-        if generator:
+        if generator is not None:
             if _planning_load.get():
                 generator_lease: AbstractContextManager[None] = nullcontext()
             else:
@@ -3114,78 +3184,53 @@ class Design(XedaBaseModel):
                 # own paths. This replaces whatever the shell exports, which is another
                 # directory's.
                 env = {**os.environ, "DESIGN_ROOT": str(design_root)}
-                if isinstance(generator, str):
-                    if deferring is not None:
-                        return defer(f"generator command `{generator}`")
-                    if _planning_load.get():
-                        raise ValueError("Cannot plan a design that needs a generator")
-                    log.info("Running generator command: %s", generator)
-                    run_child(
-                        generator,
-                        source="generator",
-                        shell=True,
-                        check=True,
-                        cwd=design_root,
-                        env=env,
-                    )
-                elif isinstance(generator, (Mapping, Generator)):
-                    # A new model: the run adds the working directory and the environment to
-                    # it, and the recipe in `rtl` stays as the design declared it.
-                    generator_for_run = generator_model(generator, design_root)
-                    assert generator_for_run is not None
-                    generator = generator_for_run
 
-                    # Judge it before the defaults below complete it: its identity is the
-                    # configuration that the design states, never the environment of this shell.
-                    def generated() -> Optional[List[Path]]:
-                        declared = generator.generated_sources or rtl.get("sources", [])
-                        return _source_paths_as_given(declared, design_root)
+                # The model is new: the run adds the working directory and the environment to
+                # it, and the recipe in `rtl` stays as the design declared it. Judge it before
+                # the defaults below complete it: its identity is the configuration that the
+                # design states, never the environment of this shell.
+                def generated() -> Optional[List[Path]]:
+                    declared = generator.generated_sources or rtl.get("sources", [])
+                    return _source_paths_as_given(declared, design_root)
 
-                    planning = _planning_load.get()
-                    context = load_context.get()
-                    design_name = data.get("name")
-                    description = generator.describe(
-                        design_name if isinstance(design_name, str) else None, design_root
-                    )
-                    with judging_generation(
-                        generator,
-                        design_root,
-                        generated,
-                        description=description,
-                        run_root=context.run_root if context else None,
-                        planning=planning,
-                        read_only=deferring is not None,
-                        rebuild_all=bool(context and context.rebuild_all),
-                    ) as generation:
-                        if generation.reason is None:
-                            log.info(
-                                "Not running %s: its generated sources are what its "
-                                "last generation left",
-                                description,
-                            )
+                planning = _planning_load.get()
+                context = load_context.get()
+                design_name = data.get("name")
+                description = generator.describe(
+                    design_name if isinstance(design_name, str) else None, design_root
+                )
+                with judging_generation(
+                    generator,
+                    design_root,
+                    generated,
+                    description=description,
+                    run_root=context.run_root if context else None,
+                    planning=planning,
+                    read_only=deferring is not None,
+                    rebuild_all=bool(context and context.rebuild_all),
+                ) as generation:
+                    if generation.reason is None:
+                        log.info(
+                            "Not running %s: its generated sources are what its "
+                            "last generation left",
+                            description,
+                        )
+                    else:
+                        if deferring is not None:
+                            return defer(description)
+                        if planning:
+                            raise ValueError("Cannot plan a design that needs a generator")
+                        if generator.cwd is None:
+                            generator.cwd = str(design_root)
+                        if generator.env is None:
+                            generator.env = dict(env)
                         else:
-                            if deferring is not None:
-                                return defer(description)
-                            if planning:
-                                raise ValueError("Cannot plan a design that needs a generator")
-                            if generator.cwd is None:
-                                generator.cwd = str(design_root)
-                            if generator.env is None:
-                                generator.env = dict(env)
-                            else:
-                                # An `env` the design states is the generator's whole
-                                # environment, and a `DESIGN_ROOT` in it is the design's own word.
-                                generator.env.setdefault("DESIGN_ROOT", str(design_root))
-                            log.info("Running %s: %s", description, generation.reason)
-                            generator.run()
-                            generation.produced()
-                else:
-                    if deferring is not None:
-                        return defer(f"generator `{_describe_generator(generator)}`")
-                    if _planning_load.get():
-                        raise ValueError("Cannot plan a design that needs a generator")
-                    args = generator
-                    run_child(args, source="generator", check=True, cwd=design_root, env=env)
+                            # An `env` the design states is the generator's whole
+                            # environment, and a `DESIGN_ROOT` in it is the design's own word.
+                            generator.env.setdefault("DESIGN_ROOT", str(design_root))
+                        log.info("Running %s: %s", description, generation.reason)
+                        generator.run()
+                        generation.produced()
                 # Whatever the design declares as a source must exist now. Expand it again and do
                 # not reuse the result of the skip check above, because the generator is what a
                 # pattern was waiting for. A source written as `path` skips the check of the
@@ -3199,11 +3244,7 @@ class Design(XedaBaseModel):
                         f"{'sources' if len(missing) > 1 else 'the source'} the design declares: "
                         + ", ".join(missing)
                     )
-                if (
-                    isinstance(generator, Generator)
-                    and generator.generated_sources
-                    and produced is not None
-                ):
+                if generator.generated_sources and produced is not None:
                     # Check here, where the tree is complete: a pattern of `rtl.sources` that the
                     # generator is still to fill matches nothing before the generator has run.
                     declared = [os.path.normpath(src) for src in produced]
@@ -3289,11 +3330,20 @@ class Design(XedaBaseModel):
             if self.dependencies:
                 merged = self._merged_with_dependencies(invalid)
                 try:
-                    super().__init__(**{**data, **merged})
+                    self._validate({**data, **merged}, merged=True)
                 except ValidationError as e:
                     raise DesignValidationError(
                         _design_errors(e.errors()), data=data, design_root=design_root
                     ) from e
+
+    def _validate(self, data: dict[str, Any], *, merged: bool = False) -> None:
+        """Validate `data` into this design.
+
+        `merged` says that `data` is the design again, with its dependencies merged in: what the
+        first validation derived (the cocotb settings of a testbench) stays as it was."""
+        self.__pydantic_validator__.validate_python(
+            data, self_instance=self, context={"merged": merged}
+        )
 
     def _merged_with_dependencies(
         self, invalid: Callable[..., DesignValidationError]
