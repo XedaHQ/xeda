@@ -62,6 +62,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .flow_runner.launch_result import failed_result, launch_result
     from .records import CANCELED, ErrorInfo
     from .flow_runner.resolver import Plan
+    from .flow_runner.scrub import ScrubCandidate, ScrubResult
     from .log_context import launch_id_of
     from .flow_runner.settings_layers import command_line_table
     from .introspect import (
@@ -566,23 +567,56 @@ def _prompt_overwrite(conflicts: Sequence[Conflict]) -> bool:
         return False
 
 
-def _prompt_scrub(directories: Sequence[Path]) -> bool:
-    """Ask on the terminal (or on the input that stands for it) whether to remove the run
-    directories that scrub listed. Only the word "yes" says yes. The answer is also no when there
-    is no input to read: the input is at its end, closed or unreadable. The commands ask even when
-    stdin is no terminal, so a script can pipe "yes" to them. The question goes to stderr with
-    `--json`."""
+def _prompt_scrub(candidates: Sequence[ScrubCandidate]) -> bool:
+    """Show the run directories that scrub listed and ask on the terminal (or on the input that
+    stands for it) whether to remove them. Only the word "yes" says yes. The answer is also no
+    when there is no input to read: the input is at its end, closed or unreadable. The commands
+    ask even when stdin is no terminal, so a script can pipe "yes" to them. The listing and the
+    question go to stderr with `--json`."""
     console.print(
-        f"[red]This will remove all of the following {len(directories)} run directories:[/red]"
+        f"[red]This will remove all of the following {len(candidates)} run directories:[/red]"
     )
-    for directory in directories:
-        console.print(directory)
+    for candidate in candidates:
+        console.print(candidate.path)
+        for alias in candidate.aliases:
+            _say_scrub(f"{alias} (another name of the same directory)")
     try:
         answer = console.input("Type 'yes' if you're sure you want to continue: ")
     except (EOFError, ValueError, OSError):
         console.print()
+        _say_scrub("Not confirmed. No files or folders were removed.")
         return False
-    return answer.lower() == "yes"
+    if answer.lower() != "yes":
+        _say_scrub("Not confirmed. No files or folders were removed.")
+        return False
+    return True
+
+
+def _say_scrub(message: str) -> None:
+    """Print one line of what scrub did, as it is: not folded inside a path, and no part of it
+    taken for markup."""
+    console.print(message, markup=False, highlight=False, soft_wrap=True)
+
+
+def _print_scrub_result(result: ScrubResult) -> None:
+    """Say what a scrub did: the links it skipped, the directories that were gone or kept, and
+    how many it removed."""
+    for link, reason in result.reasons.items():
+        _say_scrub(f"skipped {link}: {reason}")
+    for gone in result.gone:
+        _say_scrub(f"{gone} is gone already")
+    for kept in result.kept:
+        _say_scrub(
+            f"kept {kept}: its run records changed after the listing "
+            "(a run finished or refreshed there)"
+        )
+    if result.removed or result.kept or result.gone:
+        summary = f"{len(result.removed)} folders removed"
+        if result.kept:
+            summary += f", {len(result.kept)} kept"
+        if result.gone:
+            summary += f", {len(result.gone)} gone already"
+        _say_scrub(summary + ".")
 
 
 def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
@@ -1144,6 +1178,7 @@ def run(
         launcher.settings.post_cleanup_purge = post_cleanup_purge
         launcher.settings.scrub_old_runs = scrub
         launcher.confirm_scrub = _prompt_scrub
+        launcher.scrub_done = _print_scrub_result
         launcher.settings.debug = debug
         resolved, plan = launcher.resolve_run(
             chain,
@@ -1564,8 +1599,6 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
     flow beside it, and says so."""
     if json_flag:
         machine_readable_mode()
-    # Scrub says what it did as records on the logger: the command line shows them.
-    setup_logger(logging.WARNING if (ctx.obj or XedaOptions()).quiet else logging.INFO, False)
 
     def fail(error_type: str, message: str) -> NoReturn:
         if json_flag:
@@ -1603,6 +1636,7 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
         )
     except RunDirectoryError as e:  # a run directory that cannot be removed
         fail(type(e).__name__, _error_message(e))
+    _print_scrub_result(result)
     if json_flag:
         emit_structured(
             {

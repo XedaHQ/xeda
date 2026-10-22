@@ -79,24 +79,12 @@ def confirmations(monkeypatch):
 
 @pytest.fixture
 def said(monkeypatch):
-    """What scrub says: each `console.print` of the command, and each record that scrub logs, as
-    one line, in order."""
+    """What scrub says: each `console.print`, as one line."""
     lines: list[str] = []
     monkeypatch.setattr(
         console, "print", lambda *args, **kwargs: lines.append(" ".join(map(str, args)))
     )
-
-    class Collect(logging.Handler):
-        def emit(self, record: logging.LogRecord) -> None:
-            lines.append(record.getMessage())
-
-    logger = logging.getLogger("xeda.flow_runner.scrub")
-    handler, level = Collect(logging.INFO), logger.level
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
-    yield lines
-    logger.removeHandler(handler)
-    logger.setLevel(level)
+    return lines
 
 
 def run_dir(path: Path) -> Path:

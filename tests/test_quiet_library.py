@@ -432,10 +432,24 @@ def test_a_failed_capture_says_the_last_lines_of_its_output() -> None:
     assert "the reason" in str(failed.value) and "more" in str(failed.value)
 
 
-def test_scrub_says_what_it_did_on_the_logger(capfd, caplog):
-    from xeda.flow_runner import scrub
+def test_scrub_prints_nothing_and_hands_its_listing_and_result_to_the_caller(tmp_path, capfd):
+    from xeda.flow_runner.scrub import scrub_design
+    from xeda.run_root import ensure_run_root
 
-    with caplog.at_level(logging.INFO, logger="xeda.flow_runner.scrub"):
-        scrub._say("1 folders removed.")
-    assert "1 folders removed." in caplog.text
+    run_root = ensure_run_root(tmp_path / "xeda_run")
+    design_dir = run_root / "d"
+    run_dir = design_dir / "chatty_flow"
+    run_dir.mkdir(parents=True)
+    for name in ("settings.json", "results.json"):
+        (run_dir / name).write_text("{}\n")
+    (design_dir / "chatty_flow_other").symlink_to(run_dir, target_is_directory=True)
+    asked = []
+    result = scrub_design(
+        "chatty_flow",
+        design_dir,
+        run_root=run_root,
+        confirm=lambda candidates: asked.append(list(candidates)) or True,
+    )
     assert capfd.readouterr() == ("", "")
+    assert [candidate.path for candidate in asked[0]] == [run_dir]
+    assert result.removed == [run_dir] and not run_dir.exists()

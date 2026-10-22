@@ -119,7 +119,7 @@ from .plan_freshness import (
     NodeFreshness,
     judge_plan,
 )
-from .scrub import ScrubConfirmation, run_directory_names, scrub_runs
+from .scrub import ScrubConfirmation, ScrubDone, run_directory_names, scrub_runs
 from .run_lock import CompletedRun, run_dir_lock
 from .settings_layers import (
     API_ORIGIN,
@@ -180,8 +180,6 @@ MOVED_NAMES: dict[str, tuple[str, str]] = {
     "_refuse_a_change": ("scrub", "_refuse_a_change"),
     "_remove_confirmed": ("scrub", "_remove_confirmed"),
     "_run_directories_in": ("scrub", "_run_directories_in"),
-    "_say": ("scrub", "_say"),
-    "_say_skipped": ("scrub", "_say_skipped"),
     "_target_parents": ("scrub", "_target_parents"),
     "_warn_outputs_to_delivered_nothing": ("launch_report", "warn_outputs_to_delivered_nothing"),
     "_refuse_outputs_to_a_programmer": ("launch_input", "refuse_outputs_to_a_programmer"),
@@ -515,6 +513,8 @@ class FlowLauncher:
         #: Asked whether to remove the older runs of `scrub_old_runs` (`xeda.flow_runner.scrub`).
         #: None: nothing is removed, and the launch logs that.
         self.confirm_scrub: Optional[ScrubConfirmation] = None
+        #: Told what that scrub did, when it ends (`xeda.flow_runner.scrub.ScrubDone`).
+        self.scrub_done: Optional[ScrubDone] = None
         #: The design and project file `run()` was given: never an output's destination.
         self._launch_inputs: List[Path] = []
         #: Every file the flows of the current launch read (`xeda.deliver.ReadInputs`).
@@ -1191,6 +1191,7 @@ class FlowLauncher:
                 [run_path],
                 run_root=self.run_root,
                 confirm=self.confirm_scrub,
+                on_result=self.scrub_done,
             )
         with run_dir_lock(run_path, self.run_root), ExitStack() as read_leases:
             run_path.mkdir(parents=True, exist_ok=True)

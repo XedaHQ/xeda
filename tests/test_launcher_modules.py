@@ -82,8 +82,6 @@ NAMES_BEFORE_THE_SPLIT = (
     "_registered_flow_class",
     "_remove_confirmed",
     "_run_directories_in",
-    "_say",
-    "_say_skipped",
     "_setting_naming",
     "_target_parents",
     "_warn_outputs_to_delivered_nothing",
