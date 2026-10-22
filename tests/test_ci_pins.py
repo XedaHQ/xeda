@@ -55,6 +55,8 @@ NEW_ORFS_TAG = "26Q4-145-g08ddc64f8"
 NEW_ORFS_DIGEST = "cd" * 32
 OLD_UV = "0.12.23"
 NEW_UV = "0.13.1"
+OLD_NVC = "1.22.1"
+NEW_NVC = "1.23.0"
 
 CI_TEXT = f"""\
 jobs:
@@ -69,7 +71,7 @@ jobs:
           github-token: ${{{{ secrets.GITHUB_TOKEN }}}}
       - uses: nickg/setup-nvc@v1
         with:
-          version: latest
+          version: "{OLD_NVC}"
       - name: Install Bluespec Compiler (bsc)
         env:
           BSC_VERSION: "2026.07.1"
@@ -165,6 +167,18 @@ AMD64_IMAGE = {
 }
 
 
+def nvc_release(number: Any, ubuntu: str = "24.04", **flags: bool) -> dict[str, Any]:
+    """An NVC release: its tag has an `r`, and `setup-nvc` installs the package of the runner's
+    Ubuntu version."""
+    return release(
+        f"r{number}",
+        f"nvc-{number}.msi",
+        f"nvc-{number}.tar.gz",
+        f"nvc_{number}-1_amd64_ubuntu-{ubuntu}.deb",
+        **flags,
+    )
+
+
 def uv_release(tag: Any, linux: bool = True, **flags: bool) -> dict[str, Any]:
     """A uv release: its Linux archive is what `setup-uv` downloads."""
     names = ["uv-aarch64-apple-darwin.tar.gz"]
@@ -199,8 +213,14 @@ class Upstream:
         comparison="ahead",
         orfs_tags=None,
         uv_releases=None,
+        nvc_releases=None,
     ):
         self.answers = {
+            f"/repos/{pins.NVC_REPOSITORY}/releases?per_page=30": (
+                nvc_releases
+                if nvc_releases is not None
+                else [nvc_release(NEW_NVC), nvc_release("1.22.2"), nvc_release(OLD_NVC)]
+            ),
             f"/repos/{pins.UV_REPOSITORY}/releases?per_page=30": (
                 uv_releases
                 if uv_releases is not None
@@ -247,6 +267,7 @@ def current_upstream() -> Upstream:
         OLD_COMMIT,
         orfs_tags=orfs_answer(orfs_tag(OLD_ORFS_TAG, OLD_ORFS_DIGEST)),
         uv_releases=[uv_release(OLD_UV)],
+        nvc_releases=[nvc_release(OLD_NVC)],
     )
 
 
@@ -272,6 +293,9 @@ def test_the_workflow_files_of_the_repository_hold_pins_the_script_reads(pin_):
     text = path.read_text(encoding="utf-8")
     if pin_.kind == "oss_cad":
         assert pins.OSS_CAD_TAG.fullmatch(pins.read_oss_cad(text))
+    elif pin_.kind == "nvc":
+        # a number, never `latest`: the step installs what it names, and nothing else
+        assert pins.NVC_NUMBER.fullmatch(pins.read_nvc(text))
     elif pin_.kind == "bsc":
         version, sha256 = pins.read_bsc(text)
         assert pins.BSC_TAG.fullmatch(version) and pins.SHA256.fullmatch(sha256)
@@ -312,6 +336,7 @@ def test_both_bsc_pins_of_the_repository_name_the_same_release():
 
 def test_each_pin_is_read():
     assert pins.read_oss_cad(CI_TEXT) == "2026-09-15"
+    assert pins.read_nvc(CI_TEXT) == OLD_NVC
     assert pins.read_bsc(CI_TEXT) == ("2026.07.1", OLD_SHA256)
     assert pins.read_installer(OPENXC7_TEXT) == OLD_COMMIT
     assert pins.read_orfs_image(ORFS_TEXT) == (OLD_ORFS_TAG, OLD_ORFS_DIGEST)
@@ -331,9 +356,40 @@ def test_the_oss_cad_pin_is_the_version_of_its_own_step_and_no_other():
     assert pins.read_oss_cad(CI_TEXT + later_step) == "2026-09-15"
 
 
+def test_the_nvc_pin_is_the_version_of_its_own_step_and_no_other():
+    """The `version` of another step, before or after the NVC step, is not the pin."""
+    own = f'          version: "{OLD_NVC}"\n'
+    later_step = (
+        '      - uses: some/other-action@v1\n        with:\n          version: "2030.1.1"\n'
+    )
+    with pytest.raises(pins.PinError, match="version"):
+        pins.read_nvc(CI_TEXT.replace(own, "") + later_step)
+    assert pins.read_nvc(CI_TEXT + later_step) == OLD_NVC
+    assert pins.write_nvc(CI_TEXT + later_step, NEW_NVC).count('"2030.1.1"') == 1
+
+
 @pytest.mark.parametrize(
     "text, reader, message",
     [
+        pytest.param(CI_TEXT.replace("setup-nvc", "setup-ghdl"), "nvc", "step", id="nvc step"),
+        pytest.param(CI_TEXT.replace(f'"{OLD_NVC}"', "latest"), "nvc", "version", id="nvc latest"),
+        pytest.param(
+            CI_TEXT.replace(f'"{OLD_NVC}"', '"latest"'), "nvc", "version", id="nvc quoted latest"
+        ),
+        pytest.param(
+            CI_TEXT.replace(f'"{OLD_NVC}"', OLD_NVC), "nvc", "version", id="nvc no quotes"
+        ),
+        pytest.param(
+            CI_TEXT.replace(f'"{OLD_NVC}"', f'"r{OLD_NVC}"'), "nvc", "version", id="nvc r prefix"
+        ),
+        pytest.param(CI_TEXT.replace(f'"{OLD_NVC}"', '"1.22"'), "nvc", "version", id="nvc two"),
+        pytest.param(
+            CI_TEXT.replace(f'          version: "{OLD_NVC}"\n', ""),
+            "nvc",
+            "version",
+            id="no nvc version",
+        ),
+        pytest.param(CI_TEXT + CI_TEXT, "nvc", "step", id="nvc step twice"),
         pytest.param(CI_TEXT.replace("setup-oss-cad-suite", "setup-oss"), "oss", "step", id="step"),
         pytest.param(
             CI_TEXT.replace('"2026-09-15"', "2026-09-15"), "oss", "version", id="no quotes"
@@ -421,6 +477,7 @@ def test_the_oss_cad_pin_is_the_version_of_its_own_step_and_no_other():
 def test_a_pin_in_another_format_is_an_error_not_a_guess(text, reader, message):
     read = {
         "oss": pins.read_oss_cad,
+        "nvc": pins.read_nvc,
         "bsc": pins.read_bsc,
         "installer": pins.read_installer,
         "orfs": pins.read_orfs_image,
@@ -435,6 +492,9 @@ def test_a_pin_in_another_format_is_an_error_not_a_guess(text, reader, message):
 
 def test_replacing_a_pin_changes_that_line_and_no_other():
     assert pins.write_oss_cad(CI_TEXT, "2026-10-07").replace("2026-10-07", "2026-09-15") == CI_TEXT
+    rewritten = pins.write_nvc(CI_TEXT, NEW_NVC)
+    assert pins.read_nvc(rewritten) == NEW_NVC
+    assert rewritten.replace(NEW_NVC, OLD_NVC) == CI_TEXT
     rewritten = pins.write_bsc(CI_TEXT, "2026.10", NEW_SHA256)
     assert pins.read_bsc(rewritten) == ("2026.10", NEW_SHA256)
     assert rewritten.replace("2026.10", "2026.07.1").replace(NEW_SHA256, OLD_SHA256) == CI_TEXT
@@ -500,6 +560,42 @@ def test_a_tag_written_with_other_digits_is_no_release_tag():
 def test_no_usable_oss_cad_release_is_an_error(answer):
     with pytest.raises(pins.PinError):
         pins.newest_oss_cad(answer)
+
+
+def test_the_newest_nvc_release_has_the_package_the_action_installs():
+    answer = [
+        nvc_release("1.12.9"),
+        nvc_release("1.23.2", ubuntu="22.04"),  # no package for the Ubuntu of the runner
+        nvc_release("1.23.3", draft=True),
+        nvc_release("1.23.4", prerelease=True),
+        release("1.23.5", "nvc_1.23.5-1_amd64_ubuntu-24.04.deb"),  # a tag without the `r`
+        release("r1.23.6rc1", "nvc_1.23.6rc1-1_amd64_ubuntu-24.04.deb"),  # not a release number
+        nvc_release("1.22.1"),
+        nvc_release("1.12.10"),
+    ]
+    assert pins.newest_nvc(answer) == "1.22.1"
+
+
+def test_nvc_releases_are_ordered_as_numbers_not_as_text():
+    assert pins.newest_nvc(
+        [nvc_release("1.9.0"), nvc_release("1.12.2"), nvc_release("1.12.10")]
+    ) == ("1.12.10")
+    assert pins.newest_nvc([nvc_release("2.0.0"), nvc_release("1.99.99")]) == "2.0.0"
+
+
+def test_an_nvc_tag_written_with_other_digits_is_no_release_tag():
+    other = "r1.2.3".translate(ARABIC_INDIC)
+    assert pins.newest_nvc([nvc_release("1.22.1"), nvc_release(other[1:])]) == "1.22.1"
+    assert not pins.NVC_TAG.fullmatch(other)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [[], {"message": "rate limit"}, "text", [1], [release("r1.23.0")], [nvc_release("1.2")]],
+)
+def test_no_usable_nvc_release_is_an_error(answer):
+    with pytest.raises(pins.PinError):
+        pins.newest_nvc(answer)
 
 
 def test_the_newest_bsc_release_has_the_tarball_of_each_ubuntu_version():
@@ -714,6 +810,7 @@ def test_nothing_is_updated_when_upstream_is_where_the_pins_are():
     upstream = current_upstream()
     for kind, text in (
         ("oss_cad", CI_TEXT),
+        ("nvc", CI_TEXT),
         ("bsc", CI_TEXT),
         ("installer", OPENXC7_TEXT),
         ("orfs", ORFS_TEXT),
@@ -741,6 +838,23 @@ def test_a_newer_oss_cad_build_is_an_update_with_its_links():
         "compare": "https://github.com/YosysHQ/oss-cad-suite-build/compare/2026-09-15...2026-10-07",
     }
     assert pins.apply_update(CI_TEXT, update) == pins.write_oss_cad(CI_TEXT, "2026-10-07")
+
+
+def test_a_newer_nvc_is_an_update_with_its_links():
+    upstream = newer_upstream()
+    update = pins.find_update(pin("nvc"), CI_TEXT, upstream.fetch, upstream.digest)
+    assert (update.old, update.new) == (OLD_NVC, NEW_NVC)
+    assert dict(update.links) == {
+        "release": f"https://github.com/nickg/nvc/releases/tag/r{NEW_NVC}",
+        "compare": f"https://github.com/nickg/nvc/compare/r{OLD_NVC}...r{NEW_NVC}",
+    }
+    assert pins.apply_update(CI_TEXT, update) == pins.write_nvc(CI_TEXT, NEW_NVC)
+
+
+def test_nvc_never_moves_back_and_a_pin_at_the_newest_is_not_an_update():
+    for releases in ([nvc_release("1.22.0"), nvc_release("1.9.0")], [nvc_release(OLD_NVC)]):
+        upstream = newer_upstream(nvc_releases=releases)
+        assert pins.find_update(pin("nvc"), CI_TEXT, upstream.fetch, upstream.digest) is None
 
 
 def test_a_newer_bsc_is_hashed_from_the_address_ci_downloads():
@@ -937,7 +1051,7 @@ def test_a_run_leaves_a_bsc_without_a_published_digest_and_goes_on_with_the_othe
         log=log.append,
         warn=warnings.append,
     )
-    assert [u.pin.kind for u in updates] == ["oss_cad", "installer", "orfs", "uv"]
+    assert [u.pin.kind for u in updates] == ["oss_cad", "nvc", "installer", "orfs", "uv"]
     assert pins.read_bsc((tmp_path / pins.CI).read_text()) == ("2026.07.1", OLD_SHA256)
     assert pins.read_bsc((tmp_path / pins.ORFS).read_text()) == ("2026.07.1", OLD_UBUNTU_22_SHA256)
     assert warnings == [
@@ -1130,7 +1244,15 @@ def test_a_dry_run_finds_every_update_and_writes_nothing(tmp_path):
     upstream = newer_upstream()
     log: list[str] = []
     updates = pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=True, log=log.append)
-    assert [u.pin.kind for u in updates] == ["oss_cad", "bsc", "installer", "orfs", "uv", "bsc"]
+    assert [u.pin.kind for u in updates] == [
+        "oss_cad",
+        "nvc",
+        "bsc",
+        "installer",
+        "orfs",
+        "uv",
+        "bsc",
+    ]
     assert contents(tmp_path) == before
     assert any("2026-09-15 -> 2026-10-07" in line for line in log)
     assert any(NEW_SHA256 in line for line in log)
@@ -1142,7 +1264,7 @@ def test_a_run_writes_the_pins_and_only_the_pins(tmp_path):
     pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=False, log=lambda line: None)
     after = contents(tmp_path)
     assert after[str(pins.CI)] == pins.write_bsc(
-        pins.write_oss_cad(CI_TEXT, "2026-10-07"), "2026.10", NEW_SHA256
+        pins.write_nvc(pins.write_oss_cad(CI_TEXT, "2026-10-07"), NEW_NVC), "2026.10", NEW_SHA256
     )
     assert after[str(pins.OPENXC7)] == OPENXC7_TEXT.replace(OLD_COMMIT, NEW_COMMIT)
     assert after[str(pins.ORFS)] == pins.write_bsc(
@@ -1166,7 +1288,7 @@ def test_a_file_that_does_not_exist_has_no_pin_to_update(tmp_path):
     log: list[str] = []
     upstream = newer_upstream()
     updates = pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=True, log=log.append)
-    assert [u.pin.kind for u in updates] == ["oss_cad", "bsc"]
+    assert [u.pin.kind for u in updates] == ["oss_cad", "nvc", "bsc"]
     assert any("openxc7.yml" in line and "does not exist" in line for line in log)
     assert any("openroad.yml" in line and "does not exist" in line for line in log)
 
@@ -1190,7 +1312,7 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
     updates = [
         pins.find_update(p, text, upstream.fetch, upstream.digest)
         for p, text in zip(
-            pins.PINS, (CI_TEXT, CI_TEXT, OPENXC7_TEXT, ORFS_TEXT, ORFS_TEXT, ORFS_TEXT)
+            pins.PINS, (CI_TEXT, CI_TEXT, CI_TEXT, OPENXC7_TEXT, ORFS_TEXT, ORFS_TEXT, ORFS_TEXT)
         )
     ]
     title, body = pins.pull_request_text(updates)
@@ -1198,6 +1320,7 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
     assert title == pins.TITLE and message.startswith(f"{pins.TITLE}\n\n")
     for line in (
         "OSS CAD Suite: 2026-09-15 -> 2026-10-07",
+        f"NVC: {OLD_NVC} -> {NEW_NVC}",
         "Bluespec Compiler (bsc): 2026.07.1 -> 2026.10",
         "Bluespec Compiler (bsc) for the OpenROAD tests: 2026.07.1 -> 2026.10",
         "openXC7 toolchain installer: efe9e07 -> 1234567",
@@ -1209,6 +1332,7 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
     assert "`efe9e07` | `1234567`" in body
     for url in (
         "https://github.com/YosysHQ/oss-cad-suite-build/releases/tag/2026-10-07",
+        f"https://github.com/nickg/nvc/releases/tag/r{NEW_NVC}",
         "https://github.com/B-Lang-org/bsc/releases/tag/2026.10",
         f"https://github.com/openXC7/toolchain-installer/compare/{OLD_COMMIT}...{NEW_COMMIT}",
         f"https://hub.docker.com/r/openroad/orfs/tags?name={NEW_ORFS_TAG}",
@@ -1243,6 +1367,7 @@ def test_the_text_names_only_the_tools_that_changed():
         installer_sha=OLD_COMMIT,
         orfs_tags=orfs_answer(orfs_tag(OLD_ORFS_TAG, OLD_ORFS_DIGEST)),
         uv_releases=[uv_release(OLD_UV)],
+        nvc_releases=[nvc_release(OLD_NVC)],
     )
     update = pins.find_update(pin("oss_cad"), CI_TEXT, upstream.fetch, upstream.digest)
     _, body = pins.pull_request_text([update])

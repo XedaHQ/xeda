@@ -55,7 +55,7 @@ jobs:
       - uses: nickg/setup-nvc@v1
         if: matrix.python-version == env.FULL_PYTHON
         with:
-          version: latest
+          version: "1.23.0"
       # Bluespec Compiler (bsc): the bsc/bsc_sim flows require bsc >= 2026.07.1, installed here
       # from the official release tarball, checked against a pinned sha256, so the version is
       # pinned the same way as the OSS CAD Suite above. The extracted bin/ scripts locate the
