@@ -199,7 +199,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   trace's record rule (`digest.record_file`), with names relative to the code root
   (`tests/test_code_digest.py`); a flow class without a source file
   always runs, through `Flow.always_runs`, and gets no digest.
-- Never `os.chdir`; start every process with `cwd=` (`tests/test_working_directory_reads.py`).
+- Add no `os.chdir` and start every process with `cwd=`; the reviewed exceptions are listed in
+  `tests/test_working_directory_reads.py`.
 - Every write in a run directory goes through `RunDirectory` (`xeda/run_dir.py`):
   `writable(path)`, then `utils.replacing_file` / `replacing_copy`; delete with `remove`,
   `clear`, `delete`. Tool logs go through `utils.live_log` only. Never write, delete or follow
