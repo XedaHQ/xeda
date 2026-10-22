@@ -409,7 +409,7 @@ def _spec_of(document: Mapping[str, Any]) -> Spec:
     design = Design(
         name=_field(document, "design", str, "the spec"),
         target=target,
-        design_root=Path(design_file).parent if design_file else Path.cwd(),
+        design_root=Path(design_file).parent if design_file else None,
     )
     design._source_file = None if design_file is None else Path(design_file)
     return Spec(
