@@ -174,9 +174,10 @@ class _Deadline:
     do not reach it. Within the context, on the main thread, SIGTERM and SIGHUP therefore raise
     `KeyboardInterrupt` in place of their default action (the end of Xeda, with the tool left
     running). A signal that the caller ignores (`nohup`) stays ignored. The previous handlers
-    return on leaving. While the context stops the process, the two signals only get recorded, so
-    that a repeated one cannot cut the stop short or skip `on_stop`. The recorded signal then ends
-    the wait with `KeyboardInterrupt`, unless one is already on its way.
+    return on leaving. From the start of the stop to its end, `on_stop` included, the two signals
+    only get recorded, so that a repeated one cannot cut the stop short or skip `on_stop`. A
+    second Ctrl-C can still do both. The recorded signal then ends the wait with
+    `KeyboardInterrupt`, unless one is already on its way.
 
     An exception stops the group even when the leader has already ended (a child can outlive it,
     holding the output pipe that Xeda still copies), as long as nobody reaped the leader. The
@@ -217,7 +218,8 @@ class _Deadline:
             pass
 
     def _stopped(self) -> None:
-        """Run `on_stop` once, in the calling thread, after the process was reaped. Nothing
+        """Run `on_stop` once, in the calling thread, after the process was stopped and, unless a
+        second Ctrl-C cut the stop short, reaped. Nothing
         bounds it here, because it bounds itself. A `KeyboardInterrupt` or `SystemExit` from it
         propagates. Any other `Exception` is logged and never replaces the exception in
         flight."""
@@ -230,9 +232,9 @@ class _Deadline:
 
     def _expire(self) -> None:
         with self._lock:
-            # A process that ended by itself is not a timeout. While `poll` returns `None`, the
-            # process is not yet reaped, so its pid (and group) cannot be recycled.
-            if self._cancelled or self.proc.poll() is not None:
+            # A process that ended by itself is not a timeout. The answer does not reap a leader
+            # that leads a group, so a later interrupt can still signal the group.
+            if self._cancelled or self.leader_exited():
                 return
             self.expired = True
             self._stop(force=True)
@@ -266,10 +268,6 @@ class _Deadline:
         """Make the stop signals that `__enter__` took over only get recorded."""
         for number in self._previous_handlers:
             signal.signal(number, self._record_stop_signal)
-
-    def _release_stop_signals(self) -> None:
-        for number in self._previous_handlers:
-            signal.signal(number, _interrupt_like_ctrl_c)
 
     def _exited_unreaped(self) -> bool:
         """Return whether the leader has exited but is still waiting to be reaped (a zombie).
@@ -305,8 +303,7 @@ class _Deadline:
             try:
                 self._stop_and_reap(exc_type)
             finally:
-                # A repeated stop signal may interrupt a hook that blocks, as a second Ctrl-C does.
-                self._release_stop_signals()
+                # The hook runs also when a second Ctrl-C cut the wait short.
                 if stopped:
                     self._stopped()
         finally:

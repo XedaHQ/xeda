@@ -771,6 +771,7 @@ class _Finished:
 
     pid = 2**22 + 12345
     killed = False
+    returncode = 0
 
     def __init__(self):
         self.args = ["done"]
@@ -1301,6 +1302,31 @@ def test_an_interrupt_stops_what_a_tool_that_already_ended_left_running(tmp_path
 
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_the_time_limit_passing_does_not_reap_a_tool_that_already_ended(tmp_path):
+    """The watch looks at a leader that ended and a child that did not. It is no timeout, and it
+    leaves the leader for the interrupt that follows, which stops the child."""
+    started = tmp_path / "started"
+    proc = subprocess.Popen([sys.executable, "-c", _orphaning(started)], start_new_session=True)
+    child = None
+    try:
+        child = _wait_until(lambda: _read_pid(started), "the child to outlive the leader")
+        with pytest.raises(KeyboardInterrupt), _stopped_within():
+            with _Deadline(proc, 0.05, group=True) as deadline:
+                assert deadline._timer is not None
+                deadline._timer.join()  # the time limit has passed
+                assert not deadline.expired
+                raise KeyboardInterrupt
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
 def test_an_interrupt_while_copying_output_stops_a_child_that_outlived_the_tool(
     tmp_path, monkeypatch
 ):
@@ -1340,6 +1366,17 @@ import xeda.proc_utils as pu
 for name in ("SIGTERM", "SIGHUP"):
     signal.signal(getattr(signal, name), signal.SIG_DFL)
 pu.PROCESS_STOP_GRACE = 2.0
+armed = Path(sys.argv[4])
+real_enter = pu._Deadline.__enter__
+
+
+def enter(self):
+    result = real_enter(self)
+    armed.write_text("x")  # the stop signals are handled from here
+    return result
+
+
+pu._Deadline.__enter__ = enter
 TOOL = '''
 import os, signal, sys, time
 from pathlib import Path
@@ -1349,7 +1386,7 @@ Path(sys.argv[1]).write_text(str(os.getpid()))
 while True:
     time.sleep(1)
 '''
-started, stopping, hook = sys.argv[1:]
+started, stopping, hook = sys.argv[1:4]
 pu.run_process(
     sys.executable,
     ["-c", TOOL, started, stopping],
@@ -1363,15 +1400,18 @@ pu.run_process(
 def test_a_second_stop_signal_never_cuts_the_stopping_short(tmp_path, name):
     """The first stop signal starts the stop. A second one, while the tool is given its time to
     end, neither skips the stop hook nor leaves the tool running."""
-    started, stopping, hook = (tmp_path / n for n in ("started", "stopping", "hook"))
+    started, stopping, hook, armed = (
+        tmp_path / n for n in ("started", "stopping", "hook", "armed")
+    )
     launch = subprocess.Popen(
-        [sys.executable, "-c", _STOPPED_TWICE, str(started), str(stopping), str(hook)],
+        [sys.executable, "-c", _STOPPED_TWICE, str(started), str(stopping), str(hook), str(armed)],
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
     tool = None
     try:
         tool = _wait_until(lambda: _read_pid(started), "the tool to run")
+        _wait_until(armed.exists, "Xeda to handle the stop signals")
         launch.send_signal(getattr(signal, name))
         _wait_until(stopping.exists, "the tool to be sent SIGINT")
         launch.send_signal(getattr(signal, name))
