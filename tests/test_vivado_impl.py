@@ -32,6 +32,7 @@ from xeda.flow.flow import NoReadableSource
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoSynth, YosysFpga
 
+from .design_edits import with_updates
 from .test_chain_documentation import FLOWS_RST, _blocks, _stage
 from .test_edif import _peak_memory, _write_large_netlist
 from .test_edif import netlist as edif_netlist
@@ -946,7 +947,7 @@ def test_a_verilog_netlist_is_no_input(tmp_path) -> None:
     design = _design(
         root, sources=("blinky.v", "pins.xdc", {"file": "net.v", "type": "VerilogNetlist"})
     )
-    design.flow = {"vivado_impl": SETTINGS}
+    design = with_updates(design, flow={"vivado_impl": SETTINGS})
     plan = _plan(tmp_path, "vivado_impl", design)
     assert [node.name for node in plan.nodes] == ["yosys_fpga", "vivado_impl"]
     for node in plan.nodes:

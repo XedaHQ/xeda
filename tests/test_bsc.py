@@ -39,6 +39,7 @@ from xeda.run_dir import RunDirectory
 from xeda.utils import NonZeroExitCode
 
 from .bsc_outputs import collected_verilog
+from .design_edits import with_updates
 from .tool_utils import (
     require_bluesim,
     require_bsc,
@@ -1042,8 +1043,7 @@ def test_a_macro_change_is_compiled(tmp_path):
     design = _accum_design(tmp_path / "d")
     run_paths = set()  # xeda reuses a flow's run directory, whatever the design's hash
     for step in (1, 5):
-        design.rtl.defines = {"STEP": step}
-        flow = _run(Bsc, design, tmp_path / "run")
+        flow = _run(Bsc, with_updates(design, rtl={"defines": {"STEP": step}}), tmp_path / "run")
         assert flow is not None and flow.succeeded
         run_paths.add(flow.run_path)
         top = next(Path(f) for f in collected_verilog(flow) if f.endswith("mkTop.v"))
@@ -1059,7 +1059,7 @@ def test_a_testbench_change_is_simulated(tmp_path, capfd):
     flow = _run(BscSim, design, tmp_path / "run")
     assert flow is not None and flow.succeeded
     assert "PASS" in capfd.readouterr().out
-    design.tb.defines = {"XEDA_INJECT_BUG": True}
+    design = with_updates(design, tb={"defines": {"XEDA_INJECT_BUG": True}})
     second = _run(BscSim, design, tmp_path / "run")
     assert second is not None and second.run_path == flow.run_path
     assert not second.succeeded
@@ -1110,14 +1110,13 @@ def test_bsc_sim_passes_and_fails(simulator, tmp_path, capfd):
     assert Path(flow.artifacts.executable).is_file()
     assert (flow.run_path / "waves" / "pass.vcd").is_file()
     # the testbench's macros reach every package it is compiled with, the RTL's too
-    design.rtl.defines = {"STEP": 2}
-    design.tb.defines = {"STEP": 3}
-    flow = _run(BscSim, design, tmp_path / "step", simulator=simulator)
+    stepped = with_updates(design, rtl={"defines": {"STEP": 2}}, tb={"defines": {"STEP": 3}})
+    flow = _run(BscSim, stepped, tmp_path / "step", simulator=simulator)
     assert flow is not None and flow.succeeded
     # a testbench that finds a mismatch fails the run -- and its waveform, the one most wanted,
     # is recorded all the same
-    design.tb.defines = {"XEDA_INJECT_BUG": True}
-    flow = _run(BscSim, design, tmp_path / "fail", simulator=simulator, vcd="fail.vcd")
+    buggy = with_updates(stepped, tb={"defines": {"XEDA_INJECT_BUG": True}})
+    flow = _run(BscSim, buggy, tmp_path / "fail", simulator=simulator, vcd="fail.vcd")
     assert flow is not None and not flow.succeeded
     assert flow.results["simulator"] == simulator
     assert (

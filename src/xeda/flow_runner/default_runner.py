@@ -35,6 +35,7 @@ import yaml
 
 from ..artifacts import iter_artifact_paths
 from ..dataclass import XedaBaseModel, model_validator
+from ..frozen import thaw
 from ..deliver import (
     OUTPUTS_TO,
     Conflict,
@@ -639,7 +640,7 @@ class FlowLauncher:
         layers: list[BindingLayer] = []
         clean_origins = []
         if direct:
-            clean, bindings = split_bindings(deepcopy(design.flow), location=design_label)
+            clean, bindings = split_bindings(thaw(design.flow), location=design_label)
             clean_origins.append((design_label, clean))
             layers.append(bindings)
         layers.extend(binding_layers)
@@ -2351,7 +2352,7 @@ class FlowLauncher:
         host_label, host_table = host_layer if host_layer is not None else ("", {})
         host_sections, host_bindings = split_bindings(host_table, location=host_label)
         project_sections, project_bindings = split_bindings(flows_settings, location=project_label)
-        design_sections, design_bindings = split_bindings(design.flow, location=design_label)
+        design_sections, design_bindings = split_bindings(thaw(design.flow), location=design_label)
         # The `-s flows.<node>.key` items of the command line are the third origin. They may only
         # name a flow of this run, and `-s key` is a leaf of the requested flow.
         cli_sections, cli_own = split_flow_sections(

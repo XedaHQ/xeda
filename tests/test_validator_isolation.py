@@ -115,27 +115,29 @@ def test_nested_rtl_parameter_normalization_does_not_mutate_input(tmp_path, monk
     payload = {"sources": [], "parameters": {"rom": {"file": "abc.mem"}}}
     before = copy.deepcopy(payload)
 
-    from xeda.design import RtlSettings
+    from xeda.design import Rtl
 
-    RtlSettings(**payload)
+    Rtl(**payload)
     assert payload == before
 
 
-def test_rtl_parameter_assignment_does_not_mutate_input(tmp_path, monkeypatch):
-    """Rtl parameter assignment does not mutate input."""
+def test_rtl_parameters_given_to_a_constructor_are_not_the_ones_it_holds(tmp_path, monkeypatch):
+    """The parameters of an `Rtl` are a copy of what was given: the input is not changed, and a
+    later change of it does not reach the `Rtl`."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "abc.mem").write_text("00\n")  # a `file` parameter must exist
-    from xeda.design import RtlSettings
+    from xeda.design import Rtl
 
-    rtl = RtlSettings(sources=[])
     parameters = {"rom": {"file": "abc.mem"}}
     before = copy.deepcopy(parameters)
 
-    rtl.parameters = parameters
+    rtl = Rtl(sources=[], parameters=parameters)
 
     assert parameters == before
     assert rtl.parameters is not parameters
     assert rtl.parameters["rom"].endswith("abc.mem")
+    parameters["other"] = 1
+    assert "other" not in rtl.parameters
 
 
 def test_clock_shorthand_normalization_does_not_mutate_input():

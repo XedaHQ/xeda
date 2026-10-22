@@ -19,6 +19,7 @@ from xeda.flow import Flow, FlowSettingsException, FpgaSynthFlow
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
 
+from .design_edits import with_updates
 from .settings_samples import flow_classes
 
 pytestmark = pytest.mark.python_compat
@@ -117,7 +118,7 @@ def test_a_device_given_only_for_the_synthesis_dependency_is_enough(design, tmp_
 
     monkeypatch.setenv("PATH", "")
     monkeypatch.chdir(tmp_path)
-    design.flow = {"yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}}}
+    design = with_updates(design, flow={"yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}}})
     with pytest.raises(Exception) as raised:
         DefaultRunner(tmp_path / "xeda_run", display_results=False).run(
             Nextpnr, design, flow_overrides={"clock": {"period": "10 ns"}}

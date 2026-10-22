@@ -45,6 +45,7 @@ async def test_sqrt_corners(dut: HierarchyObject, debug=False):
     for rad in testcases:
         await tb.verify(rad)
 
+
 @cocotb.test
 async def test_sqrt(dut: HierarchyObject, num_tests: int = NUM_TV, debug=DEBUG):
     tb = SqrtTb(dut, debug=debug)

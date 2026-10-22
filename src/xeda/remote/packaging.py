@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict
 
 from ..dataclass import AtomicName, BaseModel, is_locator, opaque_key_fields_of, written_role
-from ..design import Design, DesignSource, DVSettings, FileResource
+from ..design import Design, Source, DesignPart, FileResource
 from ..flow import FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
 from ..flow.flow import map_keyed_path_leaves
@@ -24,6 +24,7 @@ from ..flow_runner.bindings import INPUTS_KEY, BindingLayer, written_bindings
 from ..flow_runner.chains import FlowRequest
 from ..flow_runner.default_runner import _get_flow_class_if_known
 from ..listing import VCS_METADATA, directory_files
+from ..frozen import thaw
 from ..utils import json_encodable, location_free, location_roots
 
 
@@ -133,7 +134,7 @@ def package_inputs(
         another file."""
         return places.setdefault(relative, local.resolve()) == local.resolve()
 
-    def packaged_sources(sources: Iterable[DesignSource]) -> list[Dict[str, Any]]:
+    def packaged_sources(sources: Iterable[Source]) -> list[Dict[str, Any]]:
         """Return the sources as the remote has to see them.
 
         A source under the design root keeps its own place relative to the root, as it has
@@ -153,7 +154,7 @@ def package_inputs(
             packaged.append(spec)
         return packaged
 
-    def packaged_parameters(dv: DVSettings) -> Dict[str, Any]:
+    def packaged_parameters(dv: DesignPart) -> Dict[str, Any]:
         """Return the parameters as the remote has to see them.
 
         A parameter is text to the tool, but text that names a path on this machine names
@@ -171,7 +172,7 @@ def package_inputs(
         """
         parameters: Dict[str, Any] = {}
         for name, value in dv.parameters.items():
-            parameters[name] = value
+            parameters[name] = thaw(value)
             if not (isinstance(value, str) and os.path.isabs(value)):
                 continue
             path = Path(value)
@@ -185,20 +186,20 @@ def package_inputs(
         return parameters
 
     rtl["sources"] = packaged_sources(design.rtl.sources)
-    rtl["defines"] = design.rtl.defines
-    rtl["attributes"] = design.rtl.attributes
+    rtl["defines"] = thaw(design.rtl.defines)
+    rtl["attributes"] = thaw(design.rtl.attributes)
     rtl["parameters"] = packaged_parameters(design.rtl)
     rtl["top"] = design.rtl.top
-    rtl["clocks"] = [clk.model_dump() for clk in design.rtl.clocks]
+    rtl["clocks"] = [dict(clk) for clk in design.rtl.clocks]
     tb["sources"] = packaged_sources(design.tb.sources)
     tb["top"] = design.tb.top
-    tb["cocotb"] = design.tb.cocotb.model_dump() if design.tb.cocotb is not None else None
+    tb["cocotb"] = thaw(design.tb.cocotb)
     if design.tb.uut:
         tb["uut"] = design.tb.uut
     if design.tb.parameters:
         tb["parameters"] = packaged_parameters(design.tb)
     if design.tb.defines:
-        tb["defines"] = design.tb.defines
+        tb["defines"] = thaw(design.tb.defines)
     if design.tb.python_packages:
         tb["python_packages"] = list(design.tb.python_packages)
     new_design["rtl"] = rtl

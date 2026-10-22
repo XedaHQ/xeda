@@ -1009,14 +1009,14 @@ def _configuration_of(flow: Flow) -> dict[str, Any]:
         entry: dict[str, Any] = {
             "top": settings.top,
             "parameters": design._parameters_fingerprint(settings),  # pylint: disable=W0212
-            "defines": dict(settings.defines),
+            "defines": thaw(settings.defines),
         }
         if part == "rtl":
-            entry["clocks"] = [clock.model_dump() for clock in settings.clocks]
+            entry["clocks"] = thaw(settings.clocks)
             entry["attributes"] = settings.attributes
         else:
             entry["uut"] = settings.uut
-            entry["cocotb"] = None if settings.cocotb is None else settings.cocotb.model_dump()
+            entry["cocotb"] = thaw(settings.cocotb)
         entry["sources"] = [
             {
                 "path": (
@@ -1031,7 +1031,7 @@ def _configuration_of(flow: Flow) -> dict[str, Any]:
         ]
         configuration[part] = entry
     if "rtl" in flow.design_parts:
-        configuration["language"] = design.language.model_dump()
+        configuration["language"] = thaw(design.language)
     return cast(dict[str, Any], _plain(configuration))
 
 

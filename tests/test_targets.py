@@ -20,6 +20,7 @@ from xeda import Design
 from xeda.cli import cli
 from xeda.design import DESIGN_PARTS, DesignValidationError
 from xeda.flow import FlowSettingsError
+from xeda.frozen import thaw
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.settings_layers import merge_flow_sections, registered_flow
 from xeda.flows import VivadoSynth
@@ -122,7 +123,7 @@ def test_sources_are_appended_and_other_lists_replace(tmp_path):
     design = Design.from_file(write_design(tmp_path, data), target="t")
     assert [s.file.name for s in design.rtl.sources] == ["knight.v", "por_sync.v", "arty.xdc"]
     assert [s.file.name for s in design.tb.sources] == ["knight_tb.v", "ulx3s.lpf"]
-    assert design.authors == ["C <c@example.com>"]
+    assert design.authors == ("C <c@example.com>",)
     assert design.rtl.top == "knight" and design.tb.top == ("knight_tb",)
 
 
@@ -132,7 +133,7 @@ def test_mappings_merge_key_by_key_at_every_depth():
     assert design.rtl.defines == {"CLK_HZ": 25000000}
     assert design.flow["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
     assert design.flow["vivado_synth"] == {"clock": {"period": "10 ns"}}
-    assert design.rtl.clock is not None and design.rtl.clock.port == "CLK"
+    assert design.rtl.clocks[0]["port"] == "CLK"
 
 
 def test_a_target_meets_the_design_s_other_spelling_of_a_key(tmp_path):
@@ -153,7 +154,7 @@ def test_a_target_meets_the_design_s_other_spelling_of_a_key(tmp_path):
 def test_dotted_keys_in_a_target_are_expanded(tmp_path):
     data = {**BASE, "targets": {"t": {"clock.port": "CLK", "flows.nextpnr.seed": 5}}}
     design = Design.from_file(write_design(tmp_path, data), target="t")
-    assert design.rtl.clock is not None and design.rtl.clock.port == "CLK"
+    assert design.rtl.clocks[0]["port"] == "CLK"
     assert design.flow == {"nextpnr": {"seed": 5}}
 
 
@@ -840,7 +841,7 @@ def test_a_target_constrains_a_flow_s_clock_through_its_flow_section(tmp_path):
     periods = {}
     for target in ("fast", "slow"):
         design = Design.from_file(path, target=target)
-        settings = VivadoSynth.Settings(**design.flow["vivado_synth"])
+        settings = VivadoSynth.Settings(**thaw(design.flow["vivado_synth"]))
         flow = VivadoSynth(settings, design, tmp_path / target)
         clock = flow.settings.clocks["main_clock"]
         periods[target] = clock.period.to("ns")

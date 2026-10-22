@@ -25,9 +25,11 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
+from xeda.design import Source
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Bsc, BscSim, Verilator
 
+from .design_edits import with_updates
 from .tool_utils import (
     HANG_GUARD,
     require_bluesim,
@@ -125,7 +127,9 @@ def test_the_bench_compares_exact_bytes(tmp_path, capfd):
     mutated = tmp_path / "LeanLinkFrames.bsv"
     mutated.write_text(text[: match.start(1)] + flipped + text[match.end(1) :], encoding="utf-8")
     design = Design.from_file(DESIGN)
-    design.tb.sources = [mutated, EXAMPLE / "tb" / "TbLeanLink.bsv"]
+    design = with_updates(
+        design, tb={"sources": [Source(mutated), Source(EXAMPLE / "tb" / "TbLeanLink.bsv")]}
+    )
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
         BscSim, design, {"simulator": "bluesim"}
     )
@@ -144,7 +148,7 @@ def test_the_link_refuses_sizes_it_cannot_build(define, value, message, tmp_path
     a window above 128 does not fit the sequence fields (bsc rejects its types)."""
     require_bsc()
     design = Design.from_file(DESIGN)
-    design.rtl.defines[define] = value
+    design = with_updates(design, rtl={"defines": {**design.rtl.defines, define: value}})
     flow = DefaultRunner(tmp_path, display_results=False).run_flow(Bsc, design)
     captured = capfd.readouterr()
     assert flow is not None and not flow.succeeded, run_report(flow, captured)

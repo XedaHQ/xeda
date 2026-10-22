@@ -33,6 +33,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.chains import converter_edges
 from xeda.flows import Nextpnr
 
+from .design_edits import with_updates
 from .flow_registry import preserved_flow_registry
 from .settings_samples import flow_classes, minimal_settings
 from .test_design_parts import _mro, reachable_templates
@@ -491,7 +492,7 @@ def test_a_producer_that_another_input_binds_is_not_said_to_leave_the_plan(
     monkeypatch.chdir(tmp_path)
     taker = _reads_nextpnr_and_the_netlist()
     design = _edif_only(tmp_path / "design")
-    design.flow[taker.name] = {"inputs": {"netlist": "yosys_fpga.netlist"}}
+    design = with_updates(design, flow={taker.name: {"inputs": {"netlist": "yosys_fpga.netlist"}}})
     with pytest.raises(FlowSettingsException) as raised:
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
             taker, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}

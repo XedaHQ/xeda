@@ -16,6 +16,7 @@ import pytest
 
 import xeda
 from xeda import Design
+from xeda.design import Source
 from xeda.flow import flowrun_hash
 from xeda.flow_runner.bindings import node_identity
 from xeda.flow_runner import DefaultRunner
@@ -23,6 +24,7 @@ from xeda.flow_runner.trace import read_trace
 from xeda.flows import VivadoSynth
 from xeda.utils import dump_json
 
+from .design_edits import with_updates
 from .tiny_platform import TINY_RESIDUE
 
 TESTS_DIR = Path(__file__).parent.absolute()
@@ -524,38 +526,38 @@ def test_a_file_the_design_and_its_dependency_both_list_is_compiled_once(tmp_pat
 
 
 @pytest.mark.parametrize(
-    "path, value",
-    [
-        ("tb.top", ("tb",)),
-        ("tb.sources", ["tb.vhd"]),
-        ("language.vhdl.standard", "08"),
-        ("language.vhdl.synopsys", True),
-    ],
+    "name",
+    ["tb.top", "tb.sources", "language.vhdl.standard", "language.vhdl.synopsys"],
 )
-def test_an_assignment_inside_a_nested_model_is_recorded(tmp_path, monkeypatch, path, value):
-    """`design.tb.top = ...` is ordinary use of a design, and whatever it assigns is the design's
-    own: a record of it has to hold it. pydantic marks a field set only when it is assigned on its
-    own model, so on a design that gave no `tb` (or no `language`) the assignment set a field of
-    the default testbench, the design's `tb` stayed unset, and the record -- which leaves out what
-    is unset -- dropped it."""
+def test_a_change_inside_a_nested_value_is_recorded(tmp_path, monkeypatch, name):
+    """A changed copy of a design (`model_copy(update=...)`) is the design, and a record of it has
+    to hold the change. pydantic marks a field set when `model_copy` updates it, and the record
+    leaves out what is unset, so a change in a default testbench or a default language must be
+    marked as set on the design that holds it."""
     (tmp_path / "top.vhd").write_text("-- top\n")
     (tmp_path / "tb.vhd").write_text("-- tb\n")
     monkeypatch.chdir(tmp_path)
     design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.vhd"], "top": "top"})
-    *parents, name = path.split(".")
-    owner = design
-    for parent in parents:
-        owner = getattr(owner, parent)
-    setattr(owner, name, value)
-    assigned = design.model_dump(mode="json")
+    language = {"vhdl": {"standard": "08", "synopsys": True}, "verilog": {"standard": None}}
+    changed = {
+        "tb.top": lambda: with_updates(design, tb={"top": ("tb",)}),
+        "tb.sources": lambda: with_updates(design, tb={"sources": [Source(tmp_path / "tb.vhd")]}),
+        "language.vhdl.standard": lambda: with_updates(
+            design, language={**language, "vhdl": {"standard": "08", "synopsys": False}}
+        ),
+        "language.vhdl.synopsys": lambda: with_updates(design, language=language),
+    }[name]()
+    assigned = changed.model_dump(mode="json")
+    assert assigned != design.model_dump(mode="json")
+    fields_set = set(changed.model_fields_set)
 
     recorded = tmp_path / "settings.json"
-    dump_json({"design": design}, recorded)
+    dump_json({"design": changed}, recorded)
     reloaded = Design(**json.loads(recorded.read_text())["design"])
 
     assert reloaded.model_dump(mode="json") == assigned
-    assert (reloaded.rtl_hash, reloaded.tb_hash) == (design.rtl_hash, design.tb_hash)
-    assert design.model_fields_set == {"name", "design_root", "rtl"}, "a dump changes nothing"
+    assert (reloaded.rtl_hash, reloaded.tb_hash) == (changed.rtl_hash, changed.tb_hash)
+    assert changed.model_fields_set == fields_set, "a dump changes nothing"
 
 
 def _design_with_a_rom(root: Path, **parameters) -> Design:
@@ -578,11 +580,12 @@ def test_a_parameter_is_counted_by_its_one_value(tmp_path):
     design = _design_with_a_rom(tmp_path / "d", ROM={"file": "rom.mem"}, W=8)
     before = design.rtl_hash
 
-    design.rtl.parameters = design.rtl.parameters
-    assert design.rtl_hash == before, "assigning a value to itself changes nothing"
+    same = with_updates(design, rtl={"parameters": design.rtl.parameters})
+    assert same.rtl_hash == before, "giving the parameters again changes nothing"
 
-    design.rtl.generics = {**design.rtl.generics, "W": 16}
-    assert design.rtl_fingerprint["parameters"]["ROM"] == "$DESIGN_ROOT/rom.mem"
+    other = with_updates(design, rtl={"parameters": {**design.rtl.generics, "W": 16}})
+    assert other.rtl_hash != before
+    assert other.rtl_fingerprint["parameters"]["ROM"] == "$DESIGN_ROOT/rom.mem"
 
     recorded = tmp_path / "settings.json"
     dump_json({"design": _design_with_a_rom(tmp_path / "d", ROM={"file": "rom.mem"})}, recorded)

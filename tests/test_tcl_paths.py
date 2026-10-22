@@ -27,6 +27,7 @@ from xeda.flows import dc
 from xeda.flows.openroad.base import EffectiveBase
 from xeda.flow_runner import DefaultRunner
 
+from .design_edits import with_updates
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, fake_returns, use_fake_tools
 
 FLOWS_DIR = Path(__file__).parent.parent / "src" / "xeda" / "flows"
@@ -617,7 +618,7 @@ def test_a_valid_design_name_reaches_the_tool_whole(tmp_path, monkeypatch):
     canary.write_text("the user's own file\n")
     monkeypatch.setenv("XEDA_CANARY", str(canary))
     design = _design(tmp_path / "design")
-    design.name = "my-design_1"
+    design = with_updates(design, name="my-design_1")
     run_dir = tmp_path / "run"
     try:
         DefaultRunner(run_dir).run_flow(

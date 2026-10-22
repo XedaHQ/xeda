@@ -575,5 +575,4 @@ def test_a_source_not_yet_written_can_be_validated_again(tmp_path):
     )
     assert [src.file.name for src in design.rtl.sources] == ["top.vhd", "later.v"]
 
-    design.rtl.sources = list(design.rtl.sources)
     assert Design(**design.model_dump()).rtl.sources[1].file == tmp_path.resolve() / "gen/later.v"

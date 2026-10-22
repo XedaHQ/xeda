@@ -76,8 +76,10 @@ User-facing rules: `docs/run-directories.rst`.
 results) -> `run()`, `parse_reports()`, `check_results()` -> `results.json` -> `trace.json`, last
 and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 
-- Never modify the input settings or the design; the flow gets copies
-  (`tests/test_flow_design_isolation.py`). A launch leaves no process-wide state
+- Never modify the input settings; the flow gets copies (`tests/test_flow_design_isolation.py`).
+  A design is immutable (`Design`, its parts, `Source`, and every table and list in it): build a
+  changed one with `model_copy(update=...)` and call `invalidate_cached_properties()`
+  (`tests/test_frozen_design.py`). A launch leaves no process-wide state
   (`tests/test_isolation.py` sweeps it, `tests/test_shared_state.py` has its offenders).
 - `init()` runs even for a fresh flow: no dependency, no input read, no file written. A file it
   or `prepare_inputs()` registers in `Flow.implicit_inputs` needs a `locate_prepared_inputs()`

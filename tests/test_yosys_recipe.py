@@ -25,6 +25,7 @@ from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import YosysFpga
 
+from .design_edits import with_updates
 from . import tool_utils
 
 #: one FPGA per `synth_command` target, so the mode is checked on every pass it can run
@@ -808,7 +809,7 @@ def test_a_design_whose_own_attributes_reach_setattr_is_refused_too(tmp_path, to
     planning check cannot see: with no `hierarchy` before the pass, `setattr` would match no
     module and yosys would drop the attributes with a warning."""
     design = _design(tmp_path)
-    design.rtl.attributes = {"keep": {"top": "true"}}
+    design = with_updates(design, rtl={"attributes": {"keep": {"top": "true"}}})
     settings = {
         "fpga": PARTS["xilinx"],
         "clock": {"period": "5 ns"},
@@ -922,7 +923,7 @@ def test_a_designs_parameters_still_reach_yosys_under_the_mode(tmp_path, toolcha
     worse failure than one extra command.
     """
     design = _design(tmp_path)
-    design.rtl.parameters = {"W": 8}
+    design = with_updates(design, rtl={"parameters": {"W": 8}})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     flow = runner.run(
         YosysFpga,

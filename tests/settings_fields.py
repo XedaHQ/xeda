@@ -151,7 +151,7 @@ REQUIRED_VALUES: dict[FieldKey, Any] = {
     ("SteinerAlpha", "alpha"): 0.5,
     ("Clock", "port"): "clk",
     ("DesignReference", "uri"): "design.yaml",
-    ("DVSettings", "sources"): [],
+    ("DesignPart", "sources"): [],
     ("GlobalConnect", "net"): "VDD",
     ("GlobalConnect", "pin_pattern"): "VDD",
     ("HiLoMap", "hi"): ("TIEHI", "Z"),

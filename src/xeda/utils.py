@@ -41,6 +41,7 @@ from xml.etree import ElementTree
 from varname import argname  # type: ignore
 
 from .dataclass import AtomicName, BaseModel, XedaBaseModel
+from .frozen import FrozenDict, thaw
 from .units import Quantity
 
 __all__ = [
@@ -461,7 +462,7 @@ def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
     in order, most specific first, and the first one that holds the path under any spelling of
     either names it. A place reached through a symbolic link therefore counts as the same place
     however it is spelled."""
-    if isinstance(value, dict):
+    if isinstance(value, (dict, FrozenDict)):
         return {key: location_free(item, roots) for key, item in value.items()}
     if isinstance(value, (list, tuple, set, frozenset)):
         return rebuild_like(value, [location_free(item, roots) for item in value])
@@ -485,12 +486,12 @@ def json_encodable(obj: Any) -> Any:
 
     A pydantic model goes through pydantic (`mode="json"`), so every serializer that its fields
     declare runs, and what lands in `settings.json` is what the model would validate back.
-    Reading `__dict__` would record a `DesignSource` as its raw instance state, private
+    Reading `__dict__` would record a `Source` as its raw instance state, private
     attributes included, which nothing can load. It would also skip the `Path`, enum and
     `FileResource` conversions that the models define.
 
     Any object that is not a model says how it is written by defining `as_json_value()`
-    (`FileResource`, `DesignSource`, `FlowOutcome`). An `Enum` is written as its value, as
+    (`FileResource`, `Source`, `FlowOutcome`). An `Enum` is written as its value, as
     pydantic writes one in JSON mode. A set or frozenset is written as a list.
 
     Nothing is written by reading its `__dict__`. The attributes of an object are not a
@@ -506,6 +507,8 @@ def json_encodable(obj: Any) -> Any:
         return with_json_keys(obj.model_dump(mode="json"))
     if isinstance(obj, Enum):
         return with_json_keys(obj.value)
+    if isinstance(obj, FrozenDict):
+        return with_json_keys(thaw(obj))
     if isinstance(obj, (set, frozenset)):
         return list(obj)  # as `json` itself writes a tuple; `str()` would write `{...}` text
     as_json_value = getattr(obj, "as_json_value", None)
@@ -538,6 +541,8 @@ def with_json_keys(value: Any) -> Any:
     printed document still agrees with the file. A key whose JSON text another key of the same
     mapping already has is qualified with its type, so neither value is dropped.
     """
+    if isinstance(value, FrozenDict):
+        value = thaw(value)
     if isinstance(value, dict):
         converted: Dict[str, Any] = {}
         for key, item in value.items():
@@ -1432,7 +1437,7 @@ def semantic_hash(data: Any) -> str:
             # An enum member's `__dict__` carries `__objclass__`, the enum class, whose own
             # `__dict__` lists every member, so descending into it never terminates. Hash the
             # member as it is written out instead. `SourceType` reaches here through
-            # `DesignSource.type` whenever a design is hashed directly.
+            # `Source.type` whenever a design is hashed directly.
             return str(data)
         if isinstance(data, type):
             return f"{data.__module__}.{data.__qualname__}"

@@ -698,13 +698,13 @@ def _names(error: Exception, name: str, alias: "str | None") -> bool:
 @pytest.mark.parametrize("given", [{}, {"a": 1}, 5, 2.5, True, {"a"}], ids=repr)
 def test_a_testbench_top_of_another_type_is_refused_not_dropped(given):
     """`tb.top: 5` used to become no top module at all."""
-    from xeda.design import TbSettings
+    from xeda.design import Testbench
 
     with pytest.raises(ValidationError, match="top"):
-        TbSettings(top=given)
-    assert TbSettings(top=None).top == TbSettings(top="").top == TbSettings(top=[]).top == ()
-    assert TbSettings(top="t").top == ("t",)
-    assert TbSettings(top=["a", "b"]).top == ("a", "b")
+        Testbench(top=given)
+    assert Testbench(top=None).top == Testbench(top="").top == Testbench(top=[]).top == ()
+    assert Testbench(top="t").top == ("t",)
+    assert Testbench(top=["a", "b"]).top == ("a", "b")
 
 
 def test_no_validator_of_a_setting_turns_what_it_cannot_read_into_a_default():

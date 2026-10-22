@@ -22,6 +22,8 @@ from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
 from xeda.flows import Modelsim, Vcs
 from xeda.run_root import ensure_run_root
 
+from .design_edits import with_updates
+
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 
 SIM_FLOW_NAMES = sorted(
@@ -55,11 +57,12 @@ def _readable_by(flow_class, design: Design, cocotb: bool = True) -> Design:
             rtl={"sources": ["sqrt_unit.v"], "top": "sqrt"},
             tb={"sources": [str(src.file) for src in design.tb.sources], "cocotb": True},
         )
-    readable.tb.cocotb = cocotb
-    if not cocotb:
-        # a testbench with sources but no cocotb needs a top to simulate (bsc_sim, for one)
-        readable.tb.top = ["sqrt_tb"]
-    return readable
+    if cocotb:
+        return with_updates(
+            readable, tb={"cocotb": {"module": None, "toplevel": None, "testcase": ()}}
+        )
+    # a testbench with sources but no cocotb needs a top to simulate (bsc_sim, for one)
+    return with_updates(readable, tb={"cocotb": None, "top": ("sqrt_tb",)})
 
 
 def _minimal_required_settings(settings_model):

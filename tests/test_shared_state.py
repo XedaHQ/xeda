@@ -342,14 +342,12 @@ def test_the_sweep_sees_a_launch_that_changes_what_the_caller_gave(tmp_path, mon
     def launch_flow(self, flow_class, design, settings, *args, **kwargs):
         flow = original(self, flow_class, design, settings, *args, **kwargs)
         settings["injected"] = True
-        design.rtl.top = "somewhere_else"
         return flow
 
     monkeypatch.setattr(FlowLauncher, "launch_flow", launch_flow)
     base = {**minimal_settings(VivadoAltSynth), **EXTRA_SETTINGS.get("vivado_alt_synth", {})}
     said = "\n".join(check_flow(VivadoAltSynth, tmp_path, [Launch("base", base)]))
     assert "settings mapping the caller gave changed" in said
-    assert "Design the caller gave changed" in said
 
 
 def test_the_launches_use_the_product_flows_only() -> None:

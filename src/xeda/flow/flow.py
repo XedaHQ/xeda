@@ -66,7 +66,7 @@ from ..dataclass import (
     waveform_value,
     written_role,
 )
-from ..design import LANGUAGE_TYPES, Design, DesignSource, SourceType
+from ..design import LANGUAGE_TYPES, Design, Source, SourceType
 from ..records import REJECTED, ErrorInfo, RunRecord
 from ..run_dir import OutputSnapshot, RunDirectory, record_output_state, resolved_inside
 from ..units import count, finalize_template_value, to_filter
@@ -1059,7 +1059,7 @@ class Flow(metaclass=ABCMeta):
             )
 
     @classmethod
-    def _testbench_hint(cls, unread: list[DesignSource], by_part: dict[str, Any]) -> str:
+    def _testbench_hint(cls, unread: list[Source], by_part: dict[str, Any]) -> str:
         """Return `; simulate a <language> testbench with <flows>` for a simulator that is given a
         testbench in a language it cannot read, when other simulators read that language; else "".
 
@@ -1581,9 +1581,6 @@ class Flow(metaclass=ABCMeta):
             if design.get("design_root") is None:
                 design["design_root"] = run_path
             design = Design(**design)
-        else:
-            # The flow's own copy, as a launched flow gets: some flows edit their design.
-            design = design.model_copy(deep=True) if isinstance(design, Design) else design
         assert isinstance(design, Design), "design is not a Design object"
 
         self.design: Design = design
@@ -1783,7 +1780,7 @@ class Flow(metaclass=ABCMeta):
                 log=None,
             ).as_json_value()
 
-    def sources_read(self, rtl: bool = True, tb: bool = False) -> list[DesignSource]:
+    def sources_read(self, rtl: bool = True, tb: bool = False) -> list[Source]:
         """Return the sources of the design that this flow reads (`reads_sources`), in design order.
 
         These are the sources that its code and scripts hand to the tool. `rtl` and `tb` select

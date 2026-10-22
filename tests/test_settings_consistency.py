@@ -14,10 +14,12 @@ from pathlib import Path
 import pytest
 
 from xeda.dataclass import ValidationError
-from xeda.design import Design, RtlSettings
+from xeda.design import Design, Rtl
 from xeda.flow.synth import PhysicalClock
 from xeda.flows.yosys.yosys_fpga import YosysFpga
 from xeda.units import Frequency, Time
+
+from .design_edits import with_updates
 
 pytestmark = pytest.mark.python_compat
 
@@ -118,72 +120,30 @@ def test_a_directly_edited_clock_is_not_reverted_by_an_unrelated_assignment():
     assert settings.main_clock.period == Time("7 ns")
 
 
-def test_rtl_clock_list_is_not_replaced_by_an_unrelated_assignment():
-    rtl = RtlSettings(sources=[], clocks=[{"name": "clk", "port": "clk_i"}])
-    clocks = rtl.clocks
-    clock = rtl.clock
+def test_rtl_clock_is_stored_once_as_a_clock_table():
+    rtl = Rtl(sources=[], clock="clk_i")
 
-    rtl.top = "top"
-
-    assert rtl.clocks is clocks
-    assert rtl.clock is clock
-
-
-def test_rtl_clock_is_stored_once_and_the_shorthand_is_derived():
-    rtl = RtlSettings(sources=[], clock="clk_i")
-
-    assert rtl.clock is rtl.clocks[0]
-    assert rtl.clock.port == "clk_i"
+    assert [dict(clock) for clock in rtl.clocks] == [{"port": "clk_i", "name": "clk_i"}]
+    assert not hasattr(rtl, "clock")
     assert set(rtl.model_dump()).isdisjoint({"clock", "clock_port"})
-
-    rtl.clocks = [{"name": "replacement", "port": "clk_r"}]
-    assert rtl.clock is rtl.clocks[0]
-    assert rtl.clock.port == "clk_r"
+    with pytest.raises(ValidationError, match="frozen"):
+        rtl.clocks = ({"name": "replacement", "port": "clk_r"},)  # type: ignore[misc]
 
 
 @pytest.mark.parametrize("value", ["clk", "", None, {"port": "clk"}])
 def test_rtl_clock_port_was_removed(value):
     with pytest.raises(ValidationError, match="`clock_port` was removed: use `clock: <port>`"):
-        RtlSettings(sources=[], clock_port=value)
+        Rtl(sources=[], clock_port=value)
 
 
 def test_rtl_clock_spellings_in_one_input_are_rejected():
     with pytest.raises(ValidationError, match="Specify only one"):
-        RtlSettings(sources=[], clock={"port": "a"}, clocks=[{"port": "b"}])
+        Rtl(sources=[], clock={"port": "a"}, clocks=[{"port": "b"}])
 
 
 def test_rtl_clock_port_was_removed_also_beside_the_other_spellings():
     with pytest.raises(ValidationError, match="`clock_port` was removed"):
-        RtlSettings(sources=[], clock={"port": "a"}, clock_port="b")
-
-
-def test_rtl_single_clock_accessor_uses_the_first_clock():
-    rtl = RtlSettings(
-        sources=[],
-        clocks=[{"name": "a", "port": "clk_a"}, {"name": "b", "port": "clk_b"}],
-    )
-
-    assert rtl.clock is not None
-    assert rtl.clock.port == "clk_a"
-
-    rtl.clock = "x"
-    assert len(rtl.clocks) == 1
-    assert rtl.clocks[0].port == "x"
-
-
-@pytest.mark.parametrize(
-    ("value", "port"),
-    [({"name": "replacement", "port": "clk_a"}, "clk_a"), ("clk_b", "clk_b")],
-)
-def test_assigning_rtl_clock_shorthand_updates_the_clock_list(value, port):
-    rtl = RtlSettings(sources=[], clocks=[{"name": "old", "port": "old_clk"}])
-
-    rtl.clock = value
-
-    assert rtl.clock is not None
-    assert rtl.clock.port == port
-    assert len(rtl.clocks) == 1
-    assert rtl.clocks[0].port == port
+        Rtl(sources=[], clock={"port": "a"}, clock_port="b")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -192,7 +152,7 @@ def test_assigning_rtl_clock_shorthand_updates_the_clock_list(value, port):
 
 
 def test_generics_is_the_same_setting_stored_once_as_parameters():
-    rtl = RtlSettings(sources=[], generics={"WIDTH": 8})
+    rtl = Rtl(sources=[], generics={"WIDTH": 8})
 
     assert rtl.parameters == rtl.generics == {"WIDTH": 8}
     assert "generics" not in rtl.model_dump(), "one setting, one stored value"
@@ -200,14 +160,14 @@ def test_generics_is_the_same_setting_stored_once_as_parameters():
 
 def test_giving_both_names_at_once_is_an_error_not_a_silent_choice():
     with pytest.raises(ValidationError):
-        RtlSettings(sources=[], generics={"WIDTH": 8}, parameters={"WIDTH": 16})
+        Rtl(sources=[], generics={"WIDTH": 8}, parameters={"WIDTH": 16})
 
 
 def test_the_design_schema_accepts_both_names():
     from xeda.introspect import design_schema
 
     schema = design_schema()
-    for section in ("RtlSettings", "TbSettings"):
+    for section in ("Rtl", "Testbench"):
         properties = schema["$defs"][section]["properties"]
         assert {"parameters", "generics"} <= set(properties), section
     assert {"parameters", "generics"} <= set(schema["properties"]), "flat design form"
@@ -255,35 +215,19 @@ def test_design_construction_does_not_modify_nested_input(tmp_path):
     assert data == before
 
 
-@pytest.mark.parametrize("spelling", ["generics", "parameters"])
-def test_assigning_either_spelling_updates_both(spelling):
-    from xeda.design import RtlSettings
-
-    rtl = RtlSettings(sources=[], parameters={"WIDTH": 8})
-
-    setattr(rtl, spelling, {"WIDTH": 16})
-    assert (rtl.generics, rtl.parameters) == ({"WIDTH": 16}, {"WIDTH": 16})
-
-    setattr(rtl, spelling, {})
-    assert (rtl.generics, rtl.parameters) == ({}, {})
-
-
-def test_copying_generics_between_rtl_and_tb_reaches_the_parameters_spelling():
-    """What `GhdlSim` and `Nvc` do for a cocotb testbench.
-
-    `nvc` builds its `-g` elaboration flags from `tb.parameters`, while both flows assign
-    `tb.generics`, so leaving the sibling stale dropped every generic from the elaboration.
-    """
+def test_generics_is_a_read_only_name_of_the_parameters():
+    """`generics` is the VHDL name of `parameters`: one setting, stored once, that nothing
+    assigns."""
     design = Design.from_file(
         Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
     )
-    design.rtl.parameters = {"G_IN_WIDTH": 32}
-    design.tb.parameters = {"G_IN_WIDTH": 8}  # the testbench's own, about to be superseded
+    changed = with_updates(design, tb={"parameters": {"G_IN_WIDTH": 8}})
 
-    design.tb.generics = design.rtl.generics
-
-    assert design.tb.generics == {"G_IN_WIDTH": 32}
-    assert design.tb.parameters == {"G_IN_WIDTH": 32}
+    assert changed.tb.generics is changed.tb.parameters
+    assert changed.tb.generics == {"G_IN_WIDTH": 8}
+    for spelling in ("generics", "parameters"):
+        with pytest.raises(ValidationError, match="frozen"):
+            setattr(changed.tb, spelling, {"G_IN_WIDTH": 32})
 
 
 # ---------------------------------------------------------------------------------------------

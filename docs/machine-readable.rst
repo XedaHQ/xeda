@@ -985,6 +985,9 @@ To run a flow:
     if flow and flow.record and flow.record.passed:
         print(flow.record.metric("fmax"))
 
+A ``Design`` and every value in it is read-only. An assignment raises an error, and a list or
+table in a design cannot change.
+
 To inspect a plan without constructing or running flows:
 
 .. code-block:: python

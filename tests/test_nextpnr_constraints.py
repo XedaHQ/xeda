@@ -11,6 +11,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nextpnr
 from xeda.flows.nextpnr import NextpnrTool
 
+from .design_edits import with_updates
 from .test_nextpnr import write_nextpnr_config
 
 
@@ -266,9 +267,7 @@ def test_settings_clock_ignores_comment_clocks_and_port_only_design_warns(
     flow.run()
     assert "--freq=25.0" in calls[0]
     untimed, calls = make_flow(tmp_path, monkeypatch)
-    from xeda.design import Clock
-
-    untimed.design.rtl.clocks = [Clock(port="clk")]
+    untimed.design = with_updates(untimed.design, rtl={"clocks": [{"port": "clk", "name": "clk"}]})
     untimed.prepare_inputs()
     untimed.run()
     assert "12 MHz" in caplog.text

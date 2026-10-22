@@ -45,6 +45,8 @@ from pydantic import model_validator as _pydantic_model_validator
 from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, PydanticUndefined
 
+from .frozen import FrozenModel
+
 __all__ = [
     "AliasChoices",
     "Code",
@@ -317,6 +319,21 @@ Code = Annotated[
 ]
 
 
+def field_type(info: FieldInfo) -> Any:
+    """Return the type of a field with its annotations, for the functions below that read a field
+    for the model it holds (`annotation_kind`, `nested_model`).
+
+    pydantic moves the metadata of a field's outermost `Annotated` into `FieldInfo.metadata`, so
+    `info.annotation` alone does not say that the field holds a `FrozenModel`."""
+    return Annotated[(info.annotation, *info.metadata)] if info.metadata else info.annotation
+
+
+def _field_type_named(model: Any, name: Optional[str]) -> Any:
+    """Return `field_type` of the field `name` of a model class, or None."""
+    info = getattr(model, "model_fields", {}).get(name) if name else None
+    return field_type(info) if info is not None else None
+
+
 def annotation_args(annotation: Any) -> Tuple[Any, ...]:
     """Return the members of a Union or Optional annotation, or the annotation itself."""
     if get_origin(annotation) in (Union, UnionType):
@@ -427,8 +444,8 @@ def opaque_key_declaration_problems(model: Type[BaseModel]) -> List[str]:
         info = model.model_fields.get(name)
         if (
             info is None
-            or annotation_kind(info.annotation)[0] != "dict"
-            or table_entries(info.annotation) is not None
+            or annotation_kind(field_type(info))[0] != "dict"
+            or table_entries(field_type(info)) is not None
         ):
             problems.append(
                 f"`{name}` is in `opaque_key_fields`, so it must be a setting that holds a "
@@ -450,7 +467,7 @@ def opaque_key_paths(model: Type[BaseModel]) -> Tuple[str, ...]:
             if name in opaque:
                 paths.append(path)
                 continue
-            child = nested_model(info.annotation)
+            child = nested_model(field_type(info))
             if child is not None and child not in ancestors:
                 walk(child, path + ".", (*ancestors, child))
 
@@ -579,7 +596,12 @@ def annotation_kind(annotation: Any) -> Tuple[str, Optional[Type["XedaBaseModel"
     while True:
         origin = get_origin(annotation)
         if origin is Annotated:
-            annotation = get_args(annotation)[0]
+            arguments = get_args(annotation)
+            for metadata in arguments[1:]:
+                if isinstance(metadata, FrozenModel):
+                    # The field holds the table of a model, which validates what is written.
+                    return "model", metadata.model, optional  # type: ignore[return-value]
+            annotation = arguments[0]
             continue
         if origin in (Union, UnionType):
             members = [a for a in get_args(annotation) if a is not type(None)]
@@ -644,7 +666,7 @@ def canonical_tree(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[st
     """Return `values` with `canonical_names` applied at every level of nested models."""
     tree = canonical_names(values, model)
     for key, value in tree.items():
-        child = nested_model(field_annotation(model, input_names(model).get(key)))
+        child = nested_model(_field_type_named(model, input_names(model).get(key)))
         if child is not None and isinstance(value, Mapping):
             tree[key] = canonical_tree(child, value)
     return tree
@@ -692,7 +714,7 @@ def mapping_form(owner: Type[BaseModel], field: Optional[str], value: Any) -> An
     if not field or field not in getattr(owner, "model_fields", {}):
         return None
     return annotation_form(
-        owner.model_fields[field].annotation, value, field_shorthands_of(owner).get(field)
+        field_type(owner.model_fields[field]), value, field_shorthands_of(owner).get(field)
     )
 
 
@@ -705,7 +727,7 @@ def expand_forms(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str,
     for key, value in values.items():
         field = names.get(key)
         form = mapping_form(model, field, value)
-        child = nested_model(field_annotation(model, field))
+        child = nested_model(_field_type_named(model, field))
         if isinstance(form, Mapping):
             expanded[key] = expand_forms(child, form) if child is not None else dict(form)
         else:
@@ -719,7 +741,7 @@ def is_mistake(owner: Type[BaseModel], field: str, value: Any) -> bool:
     and not `None` for an optional field. A field that takes values other than a table is never
     judged."""
     return annotation_mistake(
-        owner.model_fields[field].annotation, value, mapping_form(owner, field, value)
+        field_type(owner.model_fields[field]), value, mapping_form(owner, field, value)
     )
 
 
@@ -741,7 +763,7 @@ def shape_problems(
         if is_mistake(model, field, value):
             problems.append(((key,), value))
             continue
-        annotation = model.model_fields[field].annotation
+        annotation = field_type(model.model_fields[field])
         child = nested_model(annotation)
         form = mapping_form(model, field, value)
         if child is not None and isinstance(form, Mapping):

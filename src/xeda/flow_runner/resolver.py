@@ -23,7 +23,7 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from ..board import WithFpgaBoardSettings
-from ..dataclass import BaseModel, expand_forms, nested_model
+from ..dataclass import BaseModel, expand_forms, field_type, nested_model
 from ..design import DESIGN_PARTS, LANGUAGE_TYPES, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
@@ -423,7 +423,7 @@ def _clock_inputs(
             result[prefix] = {"clock": deepcopy(raw)}
     for key, value in values.items():
         info = model.model_fields.get(key)
-        child = nested_model(info.annotation) if info else None
+        child = nested_model(field_type(info)) if info else None
         if child and isinstance(value, dict):
             result.update(_clock_inputs(value, child, (*prefix, key)))
     return result

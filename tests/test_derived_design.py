@@ -17,7 +17,7 @@ import pytest
 
 from xeda import Design
 from xeda.deliver import outputs_to_deliveries, recorded_artifacts
-from xeda.design import DesignSource, SourceType
+from xeda.design import Source, SourceType
 from xeda.flow import FlowDependencyFailure, FlowSettingsException
 from xeda.flow.derived import (
     DerivedSources,
@@ -41,6 +41,7 @@ from xeda.flow_runner.outputs import (
 )
 from xeda.flows import Bsc, BscSim
 
+from .design_edits import with_updates
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
 from .test_bsc import ADDER_PKG, TB_PKG, TOP_PKG, _write
@@ -97,8 +98,8 @@ def _summary(design: Design) -> list[tuple[str, str]]:
 def test_a_conversion_names_what_it_converts_and_what_it_writes() -> None:
     conversion = DesignConversion(BLUESPEC, VERILOG)
     assert conversion.written_type is SourceType.Verilog
-    assert conversion.passes_through(DesignSource({"path": "a.v"}, SourceType.Verilog))
-    assert not conversion.passes_through(DesignSource({"path": "a.bsv"}, SourceType.Bluespec))
+    assert conversion.passes_through(Source({"path": "a.v"}, SourceType.Verilog))
+    assert not conversion.passes_through(Source({"path": "a.bsv"}, SourceType.Bluespec))
 
 
 @pytest.mark.parametrize(
@@ -489,10 +490,7 @@ def test_the_input_design_of_a_record_is_provenance_and_nothing_compares_it(tmp_
     otherwise refuse its own record forever."""
     design = _design(tmp_path / "d")
     flow = _launched(tmp_path, design)
-    other = design.model_copy(deep=True)
-    other.rtl.defines["STEP"] = "3"
-    other.rtl.invalidate_cached_properties()
-    other.invalidate_cached_properties()
+    other = with_updates(design, rtl={"defines": {**design.rtl.defines, "STEP": "3"}})
     assert flow.results["outputs"]["design"]["input_design"] == design.parts_hash({"rtl", "tb"})
     derived, _entries = handed_design(flow, "design", other)
     assert derived.rtl.defines == {"STEP": "3"}
@@ -550,7 +548,7 @@ def test_bsc_records_the_design_from_what_it_collected(tmp_path, capfd) -> None:
     derived, entries = handed_design(flow, "design", design)
     assert [src.type for src in derived.rtl.sources].count(SourceType.Bluespec) == 0
     assert len(entries) == len([1 for kind, _ in shape if kind == "G"])
-    assert derived.rtl.sources[-5:-2] == [design.rtl.sources[i] for i in (0, 3, 4)]
+    assert derived.rtl.sources[-5:-2] == tuple(design.rtl.sources[i] for i in (0, 3, 4))
     assert derived.rtl.top == "mkTop" and derived.rtl.parameters == {}
     assert derived.tb.sources == design.tb.sources
 
@@ -663,7 +661,9 @@ REFUSAL = (
 @pytest.mark.parametrize("part", ["defines", "parameters"])
 def test_a_design_that_defines_the_reset_macro_is_refused(flow_class, part, tmp_path) -> None:
     design = _design(tmp_path / "d", vhdl=False)
-    getattr(design.rtl, part)["BSV_POSITIVE_RESET"] = None
+    design = with_updates(
+        design, rtl={part: {**getattr(design.rtl, part), "BSV_POSITIVE_RESET": None}}
+    )
     with pytest.raises(FlowSettingsException, match=REFUSAL):
         flow_class.check_design_supported(design, flow_class.Settings(positive_reset=True))
 
@@ -671,7 +671,9 @@ def test_a_design_that_defines_the_reset_macro_is_refused(flow_class, part, tmp_
 @pytest.mark.parametrize("part", ["defines", "parameters"])
 def test_bsc_sim_refuses_the_macro_of_the_testbench_and_bsc_does_not(part, tmp_path) -> None:
     design = _design(tmp_path / "d", vhdl=False)
-    getattr(design.tb, part)["BSV_POSITIVE_RESET"] = None
+    design = with_updates(
+        design, tb={part: {**getattr(design.tb, part), "BSV_POSITIVE_RESET": None}}
+    )
     with pytest.raises(FlowSettingsException, match=REFUSAL):
         BscSim.check_design_supported(design, BscSim.Settings(positive_reset=True))
     Bsc.check_design_supported(design, Bsc.Settings())
@@ -681,7 +683,9 @@ def test_bsc_sim_takes_the_reset_macro_while_positive_reset_is_off_as_it_is_by_d
     tmp_path,
 ) -> None:
     design = _design(tmp_path / "d", vhdl=False)
-    design.rtl.defines["BSV_POSITIVE_RESET"] = None
+    design = with_updates(
+        design, rtl={"defines": {**design.rtl.defines, "BSV_POSITIVE_RESET": None}}
+    )
     BscSim.check_design_supported(design, BscSim.Settings())
 
 
@@ -690,14 +694,18 @@ def test_the_reset_macro_is_the_designs_to_define_without_positive_reset(
     flow_class, tmp_path
 ) -> None:
     design = _design(tmp_path / "d", vhdl=False)
-    design.rtl.defines["BSV_POSITIVE_RESET"] = None
+    design = with_updates(
+        design, rtl={"defines": {**design.rtl.defines, "BSV_POSITIVE_RESET": None}}
+    )
     flow_class.check_design_supported(design, flow_class.Settings(positive_reset=False))
     flow_class.check_design_supported(design)  # no settings: nothing to compare with
 
 
 def test_the_planning_of_bsc_refuses_the_reset_macro(tmp_path) -> None:
     design = _design(tmp_path / "d")
-    design.rtl.defines["BSV_POSITIVE_RESET"] = None
+    design = with_updates(
+        design, rtl={"defines": {**design.rtl.defines, "BSV_POSITIVE_RESET": None}}
+    )
     with pytest.raises(FlowSettingsException, match=REFUSAL):
         DefaultRunner(tmp_path / "run", display_results=False).plan("bsc", design)
     planned = DefaultRunner(tmp_path / "run", display_results=False).plan(

@@ -41,6 +41,7 @@ from .dataclass import (
     PydanticUndefined,
     field_annotation,
     field_shorthands_of,
+    field_type,
     input_names,
     opaque_key_fields_of,
     single_item_fields_of,
@@ -959,9 +960,9 @@ _EXTRA_INPUT_FORMS: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
         "parameters": [_PARAMETER_LIST],
         "generics": [_PARAMETER_LIST],
     },
-    "RtlSettings": {"parameters": [_PARAMETER_LIST], "generics": [_PARAMETER_LIST]},
+    "Rtl": {"parameters": [_PARAMETER_LIST], "generics": [_PARAMETER_LIST]},
     # `tb.top` accepts a bare module name, and `tb.cocotb` accepts `true`
-    "TbSettings": {
+    "Testbench": {
         "top": [{"type": "string"}],
         "cocotb": [{"type": "boolean"}],
         "parameters": [_PARAMETER_LIST],
@@ -983,7 +984,7 @@ def _add_flat_form(schema: Dict[str, Any]) -> None:
     """Describe the flat top-level form: `sources` at the root in place of `rtl.sources`, for
     example."""
     definitions = schema.get("$defs", {})
-    rtl_properties = definitions.get("RtlSettings", {}).get("properties", {})
+    rtl_properties = definitions.get("Rtl", {}).get("properties", {})
     root = schema.setdefault("properties", {})
     for name in FLAT_RTL_KEYS:
         if name in rtl_properties and name not in root:
@@ -1024,7 +1025,7 @@ def _add_targets(schema: dict[str, Any]) -> None:
     definitions = schema.setdefault("$defs", {})
     # In an overlay `rtl` and `tb` are partial: the design supplies what a target leaves out.
     partial = {}
-    for name in ("RtlSettings", "TbSettings"):
+    for name in ("Rtl", "Testbench"):
         if name in definitions:
             partial[f"#/$defs/{name}"] = f"#/$defs/{name}Overlay"
             definitions[f"{name}Overlay"] = {
@@ -1049,7 +1050,7 @@ def _add_targets(schema: dict[str, Any]) -> None:
         return node
 
     clock_refs = {**partial, "#/$defs/Clock": "#/$defs/ClockOverlay"}
-    rtl_overlay = definitions.get("RtlSettingsOverlay", {}).get("properties", {})
+    rtl_overlay = definitions.get("RtlOverlay", {}).get("properties", {})
     if "clock" in rtl_overlay:
         rtl_overlay["clock"] = overlaid(rtl_overlay["clock"], clock_refs)
     properties: dict[str, Any] = {
@@ -1080,7 +1081,7 @@ def _open_property_sets(node: Any) -> None:
     expanded the file.
     """
     if isinstance(node, dict):
-        if node.get("title") == "DesignSource":
+        if node.get("title") == "Source":
             return  # a source table is closed: no dotted-key shorthand applies inside it
         if node.get("additionalProperties") is False:
             node.pop("additionalProperties")
@@ -1141,9 +1142,11 @@ def _models_reachable_from(model: type[BaseModel]) -> list[type[BaseModel]]:
             if annotation not in found:
                 found.append(annotation)
                 for info in annotation.model_fields.values():
-                    visit(info.annotation)
+                    visit(field_type(info))
         for arg in get_args(annotation):
             visit(arg)
+        for model in getattr(annotation, "models", ()):
+            visit(model)
 
     visit(model)
     return found
@@ -1159,9 +1162,9 @@ _CLOCK_ITEM_FORMS: List[Dict[str, Any]] = [
 
 
 def _accept_clock_forms(schema: Dict[str, Any]) -> None:
-    """Accept every form of a clock in the items of `clocks`, as `RtlSettings.clock_tables`
+    """Accept every form of a clock in the items of `clocks`, as `Rtl.clock_tables`
     reads them."""
-    properties = schema.get("$defs", {}).get("RtlSettings", {}).get("properties", {})
+    properties = schema.get("$defs", {}).get("Rtl", {}).get("properties", {})
     clocks = properties.get("clocks")
     if clocks and "items" in clocks:
         clocks["items"] = _widen(clocks["items"], _CLOCK_ITEM_FORMS)

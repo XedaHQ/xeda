@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import ClassVar, List, Literal, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, field_validator, waveform
-from ...design import DesignSource, SourceType, VhdlSettings
+from ...design import Source, SourceType, VhdlSettings, language_of
 from ...flow import (
     Flow,
     FlowSettingsException,
@@ -311,7 +311,7 @@ class Nvc(SimFlow):
             cf.append(f"--stderr={ss.std_error}")
 
         # NVC's default standard is VHDL-2008.
-        standard = self.design.language.vhdl.standard
+        standard = language_of(self.design).vhdl.standard
         if standard:
             standard = {"93": "1993", "00": "2000", "02": "2002", "08": "2008", "19": "2019"}.get(
                 standard, standard
@@ -513,7 +513,7 @@ class Nvc(SimFlow):
 
         vhpi = self.resolve_paths_to_design_or_cwd(ss.vhpi)
         # TODO factor out cocotb handling
-        if self.design.tb.cocotb and self.cocotb:
+        if self.design.tb.cocotb is not None and self.cocotb:
             vpi_path = self.cocotb.lib_path(interface="vhpi")
             assert vpi_path, "cocotb VHPI library for NVC was not found"
             vhpi.append(Path(vpi_path))
@@ -559,7 +559,7 @@ class Nvc(SimFlow):
     def gen_makefile(self, units: List[str]) -> None:
         self.nvc.run("--make", *units)
 
-    def check_syntax(self, sources: List[DesignSource], vhdl: VhdlSettings) -> None:
+    def check_syntax(self, sources: List[Source], vhdl: VhdlSettings) -> None:
         self.nvc.run("--syntax", *sources)
 
     def run(self) -> None:

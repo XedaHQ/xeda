@@ -7,10 +7,11 @@ import re
 from abc import ABCMeta
 from functools import cached_property
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, deliverable, field_validator, waveform
-from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
+from ...design import Design, Source, SourceType, Tuple012, VhdlSettings, language_of
 from ...flow import (
     Flow,
     FlowException,
@@ -192,7 +193,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
             return cf
 
         @staticmethod
-        def generics_flags(generics: Optional[Dict[str, Any]]) -> List[str]:
+        def generics_flags(generics: Optional[Mapping[str, Any]]) -> List[str]:
             if not generics:
                 return []
 
@@ -286,7 +287,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
 
     def analyze(
         self,
-        sources: List[DesignSource],
+        sources: List[Source],
         top: Union[str, Tuple012, None],
         vhdl: VhdlSettings,
         find_top: bool = True,
@@ -406,7 +407,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         # sources sharing a base name (`rtl/a/fifo.vhd`, `rtl/b/fifo.vhd` are "both compiled to
         # 'fifo.o'").
         top = self.analyze(
-            self.sources_read(), design.rtl.top, design.language.vhdl, find_top=not per_source
+            self.sources_read(), design.rtl.top, language_of(design).vhdl, find_top=not per_source
         )
         if per_source:
             # Decide every output name before synthesizing anything. A collision then fails the
@@ -438,7 +439,7 @@ class GhdlSynth(Ghdl, SynthFlow):
             self.ghdl.run("synth", *flags, *top, stdout=ss.verilog_output)
             declared.verilog = [self.run_path / ss.verilog_output]
 
-    def _per_source_outputs(self, output_dir: Path) -> dict[Path, DesignSource]:
+    def _per_source_outputs(self, output_dir: Path) -> dict[Path, Source]:
         """Return the Verilog file that each VHDL source is converted to, in source order.
 
         Each file is named after the path of its source (`Design.source_artifact_name`), because
@@ -447,7 +448,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         since one output would silently replace the other.
         """
         design = self.design
-        outputs: dict[Path, DesignSource] = {}
+        outputs: dict[Path, Source] = {}
         for src in self.sources_read():
             out_file = output_dir / design.source_artifact_name(src, ".v")
             other = outputs.get(out_file)
@@ -464,7 +465,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         assert ss is not None and isinstance(
             ss, GhdlSynth.Settings
         ), "GHDL settings must be set at this point"
-        flags = ss.get_flags(design.language.vhdl, "elaborate")
+        flags = ss.get_flags(language_of(design).vhdl, "elaborate")
         flags += setting_flag(ss.vendor_library, name="vendor_library")
         flags += setting_flag(ss.no_formal, name="no_formal")
         flags += setting_flag(ss.no_assert_cover, name="no_assert_cover")
@@ -633,7 +634,7 @@ class GhdlSim(Ghdl, SimFlow):
 
     def elaborate(
         self,
-        sources: List[DesignSource],
+        sources: List[Source],
         top: Union[str, Tuple012, None],
         vhdl: VhdlSettings,
     ) -> Tuple012:
@@ -700,7 +701,7 @@ class GhdlSim(Ghdl, SimFlow):
         assert design.tb
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        cf = ss.common_flags(design.language.vhdl)
+        cf = ss.common_flags(language_of(design).vhdl)
         run_flags = ss.runtime_flags()
         sdf_root = ss.sdf.root if ss.sdf.root else design.tb.uut
         for delay_type, sdf_file in ss.sdf.delay_items():
@@ -766,7 +767,7 @@ class GhdlSim(Ghdl, SimFlow):
         tb_generics = design.tb.generics
         tb_top = design.tb.top
         # TODO factor out cocotb handling
-        if design.tb.cocotb and self.cocotb:
+        if design.tb.cocotb is not None and self.cocotb:
             vpi_path = self.cocotb.lib_path()
             assert vpi_path, "cocotb VPI library for GHDL was not found"
             vpi.append(vpi_path)
@@ -795,9 +796,9 @@ class GhdlSim(Ghdl, SimFlow):
 
         run_flags.extend(ss.generics_flags(tb_generics))
 
-        tb_top = self.elaborate(self.sources_read(tb=True), tb_top, design.language.vhdl)
+        tb_top = self.elaborate(self.sources_read(tb=True), tb_top, language_of(design).vhdl)
         # like `design.sim_tops`, but with the top unit that `elaborate` found
-        sim_tops = (design.rtl.top,) if design.tb.cocotb and design.rtl.top else tb_top
+        sim_tops = (design.rtl.top,) if design.tb.cocotb is not None and design.rtl.top else tb_top
         runtime = self.ghdl
         if not self.cocotb:
             self._sim_log = self.run_directory.writable("sim.log")

@@ -13,6 +13,7 @@ from xeda.design import SourceType
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Bsc
 
+from .design_edits import with_updates
 from .tool_utils import require_bsc, run_report
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "bluespec"
@@ -83,10 +84,11 @@ def test_every_bluespec_configuration_compiles_without_warnings(
     design = _design(path, target, overrides)
     if design.tb.top:
         assert len(design.tb.top) == 1, f"Expected one testbench top for {path}:{target}"
-        design.rtl.top = design.tb.top[0]
-        design.rtl.sources.extend(design.tb.sources)
-        design.tb.top = ()
-        design.tb.sources = []
+        design = with_updates(
+            design,
+            rtl={"top": design.tb.top[0], "sources": (*design.rtl.sources, *design.tb.sources)},
+            tb={"top": (), "sources": ()},
+        )
 
     settings = {"promote_warnings": ["ALL"], "suppress_warnings": []}
     flow = DefaultRunner(tmp_path, display_results=False).run_flow(Bsc, design, settings)

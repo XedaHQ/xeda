@@ -225,7 +225,7 @@ def test_list_results_table_has_a_column_for_the_type_and_one_for_the_unit():
 def test_design_schema_is_a_usable_json_schema():
     schema = json.loads(run_xeda("design-schema").stdout)
     assert "name" in schema["properties"]
-    sources = schema["$defs"]["RtlSettings"]["properties"]["sources"]
+    sources = schema["$defs"]["Rtl"]["properties"]["sources"]
     as_list, as_one = sources["anyOf"]  # a list, or one source in place of it
     assert as_list["items"]["anyOf"][0]["type"] == "string"
     assert as_one == as_list["items"]

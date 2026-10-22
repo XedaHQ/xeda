@@ -18,6 +18,7 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoProject, VivadoSim, VivadoSynth, YosysFpga
 
+from .design_edits import with_updates
 from .tool_utils import (
     checkout_work_dir,
     require_bsc,
@@ -318,10 +319,13 @@ def test_xsim_native_power_uses_successful_declared_activity(work_dir):
         rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clock": "clk"},
         tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
     )
-    design.flow = {
-        "vivado_synth": {"fpga": PART, "clock": {"period": "10 ns"}, "ncpus": 2},
-        "vivado_postsynth_sim": {"timeout": 240.0, "prerun_time": "10ns", "stop_time": "20ns"},
-    }
+    design = with_updates(
+        design,
+        flow={
+            "vivado_synth": {"fpga": PART, "clock": {"period": "10 ns"}, "ncpus": 2},
+            "vivado_postsynth_sim": {"timeout": 240.0, "prerun_time": "10ns", "stop_time": "20ns"},
+        },
+    )
     runner = DefaultRunner(work_dir / "run")
     launch = lambda: runner.run_flow(VivadoPower, design, {})
     flow = launch()

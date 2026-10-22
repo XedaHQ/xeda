@@ -575,4 +575,7 @@ if flow and flow.results.success:
     print(flow.results.fmax)
 ```
 
+A `Design` and everything in it is read-only (assigning raises an error). Change a copy with
+`design.model_copy(update=...)`, then call `invalidate_cached_properties()` on it.
+
 `xeda.introspect` returns the data the CLI's `--json` renders.

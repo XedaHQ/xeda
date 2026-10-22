@@ -40,6 +40,7 @@ from ..dataclass import (
     appended_fields_of,
     atomic_keys,
     canonical_names,
+    field_type,
     fold_dotted_keys,
     input_names,
     is_mistake,
@@ -158,8 +159,8 @@ def _has_clock_inputs(settings_cls: type[XedaBaseModel]) -> bool:
     """Return whether this settings model has the clock contract of `SynthFlow`.
 
     `clocks` is a table of named clocks, and `clock` and `main_clock` are properties of it.
-    (`RtlSettings` of the design has `clocks` and `clock` too, but as a list of ports, merged by
-    `RtlSettings.merge_inputs`.)"""
+    (`Rtl` of the design has `clocks` and `clock` too, but as a list of ports, merged by
+    `Rtl.merge_inputs`.)"""
     return (
         "clocks" in settings_cls.model_fields
         and isinstance(getattr(settings_cls, "clock", None), property)
@@ -279,7 +280,7 @@ def _merge_settings_layer(
     for key, value in canonical.items():
         target = input_names(settings_cls).get(key, key)
         info = settings_cls.model_fields.get(target)
-        child_cls = nested_model(info.annotation) if info is not None else None
+        child_cls = nested_model(field_type(info)) if info is not None else None
         old = merged.get(key)
         old_form = mapping_form(settings_cls, target, old)
         new_form = mapping_form(settings_cls, target, value)
@@ -334,7 +335,7 @@ def _merge_settings_layer(
                         clock_values[cname] = {**cval, "name": cname}
             merged[key] = _merge_clock_values(merged.get(key, {}), clock_values)
         elif isinstance(old_form, Mapping) and isinstance(new_form, Mapping):
-            entries = table_entries(info.annotation) if info is not None else None
+            entries = table_entries(field_type(info)) if info is not None else None
             merged[key] = (
                 _merge_entries(old_form, new_form, entries, append)
                 if entries is not None
@@ -363,7 +364,7 @@ def _with_atomic_names(
     for key, value in values.items():
         target = names.get(key, key)
         info = settings_cls.model_fields.get(target)
-        child_cls = nested_model(info.annotation) if info is not None else None
+        child_cls = nested_model(field_type(info)) if info is not None else None
         path = f"{where}{key}"
         if target in opaque:
             result[key] = _atomic_table(path, value)
@@ -460,7 +461,7 @@ def _leaves(
         if settings_cls is not None:
             target = input_names(settings_cls).get(key, key)
             info = settings_cls.model_fields.get(target)
-            child_cls = nested_model(info.annotation) if info is not None else None
+            child_cls = nested_model(field_type(info)) if info is not None else None
         if (
             settings_cls is not None
             and target in opaque_key_fields_of(settings_cls)

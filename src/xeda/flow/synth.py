@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 from abc import ABCMeta
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Dict, Optional, Union
 
 from pydantic import TypeAdapter
 
 from ..dataclass import Field, XedaBaseModel, field_validator, model_validator
-from ..design import Clock, Design
+from ..design import Design
 from ..units import Bounds, Frequency, QuantityError, Time, ratio
 from ..utils import first_key, first_value
 from .flow import Flow, FlowSettingsError
@@ -169,14 +170,14 @@ def _period_of(freq: Frequency) -> Time:
     return Time.of(1000.0 / freq.to("MHz"), "ns")
 
 
-def find_matching_clock(design_clocks: list[Clock], name: str):
+def find_matching_clock(design_clocks: Sequence[Mapping[str, str]], name: str):
     if len(design_clocks) == 1:
         return design_clocks[0]
     for clock in design_clocks:
-        if clock.name == name:
+        if clock["name"] == name:
             return clock
     for clock in design_clocks:
-        if clock.port == name:
+        if clock["port"] == name:
             return clock
     return None
 
@@ -279,22 +280,24 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             design_clock = design.rtl.clocks[0]
             assert design_clock is not None
             if not clock_name:
-                clock_name = design_clock.name
+                clock_name = design_clock["name"]
             assert clock_name is not None
             assert clock_obj is not None
             if not clock_obj.port:
-                clock_obj.port = design_clock.port
+                clock_obj.port = design_clock["port"]
             if not clock_obj.name:
                 clock_obj.name = clock_name
             clocks[clock_name] = clock_obj
         for clock_name, physical_clock in clocks.items():
             if not physical_clock.port:
-                if clock_name not in (clk.name for clk in design.rtl.clocks):
+                if clock_name not in (clk["name"] for clk in design.rtl.clocks):
                     if design.rtl.clocks:
+                        existing = ", ".join(
+                            c["name"] for c in design.rtl.clocks if c and c["name"]
+                        )
                         msg = (
                             f"Physical clock {clock_name} has no corresponding clock port in the "
-                            "design. Existing clocks: "
-                            f"{', '.join(c.name for c in design.rtl.clocks if c and c.name)}"
+                            f"design. Existing clocks: {existing}"
                         )
                     else:
                         described = f"'{clock_name}'" if clock_name else "set by `clock`"
@@ -306,7 +309,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                     raise FlowSettingsError([(None, msg, None, None)], settings_class)
                 matched_clock = find_matching_clock(design.rtl.clocks, clock_name)
                 if matched_clock:
-                    physical_clock.port = matched_clock.port
+                    physical_clock.port = matched_clock["port"]
                 clocks[clock_name] = physical_clock
 
     @classmethod
@@ -332,12 +335,12 @@ class SynthFlow(Flow, metaclass=ABCMeta):
         self.reconcile_clocks(self.settings.clocks, self.design, self.Settings)
         if self.requires_physical_clocks:
             for clock in self.design.rtl.clocks:
-                clock_name = clock.name
-                if clock.port not in (c.port for c in self.settings.clocks.values()):
+                clock_name = clock["name"]
+                if clock["port"] not in (c.port for c in self.settings.clocks.values()):
                     log.warning(
                         "No clock period or frequency was specified for clock: %s (design clock port: '%s')",
                         clock_name,
-                        clock.port,
+                        clock["port"],
                     )
 
 

@@ -14,6 +14,7 @@ from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, In
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nextpnr
 
+from .design_edits import with_updates
 from .flow_registry import preserved_flow_registry
 from .test_declared_fpga_flows import tools as tools
 
@@ -170,8 +171,10 @@ def test_mixed_configurations_select_only_the_agreed_family(tmp_path):
 
 def test_matching_source_displaces_conflicting_producer_settings(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
-    design.flow["nextpnr"] = {"fpga": FAMILIES[1][0]}
-    design.flow[_ConfigTaker.name] = {"fpga": FAMILIES[0][0]}
+    design = with_updates(
+        design,
+        flow={"nextpnr": {"fpga": FAMILIES[1][0]}, _ConfigTaker.name: {"fpga": FAMILIES[0][0]}},
+    )
     plan = DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
     assert [node.name for node in plan.nodes] == [_ConfigTaker.name]
     assert plan.nodes[0].settings.fpga.part == FAMILIES[0][0]
@@ -179,8 +182,10 @@ def test_matching_source_displaces_conflicting_producer_settings(tmp_path):
 
 def test_matching_source_displaces_a_conflicting_producer_board(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
-    design.flow[_ConfigTaker.name] = {"fpga": FAMILIES[0][0]}
-    design.flow["nextpnr"] = {"board": "arty_a7_35t"}
+    design = with_updates(
+        design,
+        flow={_ConfigTaker.name: {"fpga": FAMILIES[0][0]}, "nextpnr": {"board": "arty_a7_35t"}},
+    )
     plan = DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
     assert [node.name for node in plan.nodes] == [_ConfigTaker.name]
     assert plan.nodes[0].settings.board is None
@@ -198,15 +203,17 @@ def test_foreign_fasm_cannot_displace_ecp5_production(tmp_path):
 
 def test_displaced_target_does_not_survive_in_the_final_plan(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
-    design.flow["nextpnr"] = {"fpga": FAMILIES[0][0]}
+    design = with_updates(design, flow={"nextpnr": {"fpga": FAMILIES[0][0]}})
     with pytest.raises(FlowSettingsException, match=r"needs `fpga`"):
         DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
 
 
 def test_active_conflicting_targets_still_fail(tmp_path):
     design = _design(tmp_path, [("foreign.fasm", SourceType.Fasm)])
-    design.flow["nextpnr"] = {"fpga": FAMILIES[1][0]}
-    design.flow[_ConfigTaker.name] = {"fpga": FAMILIES[0][0]}
+    design = with_updates(
+        design,
+        flow={"nextpnr": {"fpga": FAMILIES[1][0]}, _ConfigTaker.name: {"fpga": FAMILIES[0][0]}},
+    )
     with pytest.raises(FlowSettingsError, match="disagrees"):
         DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
 
@@ -214,10 +221,10 @@ def test_active_conflicting_targets_still_fail(tmp_path):
 @pytest.mark.parametrize("owner", [_ConfigTaker.name, "nextpnr"])
 def test_database_override_and_context_aliases_agree(tmp_path, owner):
     design = _design(tmp_path)
-    design.flow[owner] = {"prjxray_db": "$DESIGN_ROOT/db"}
-    design.flow["nextpnr" if owner == _ConfigTaker.name else _ConfigTaker.name] = {
-        "prjxray_db": "db"
-    }
+    other = "nextpnr" if owner == _ConfigTaker.name else _ConfigTaker.name
+    design = with_updates(
+        design, flow={owner: {"prjxray_db": "$DESIGN_ROOT/db"}, other: {"prjxray_db": "db"}}
+    )
     plan = DefaultRunner(tmp_path / "run").plan(
         _ConfigTaker, design, flow_settings={"fpga": XILINX_PART}
     )
@@ -227,8 +234,13 @@ def test_database_override_and_context_aliases_agree(tmp_path, owner):
 
 def test_database_conflict_and_command_line_precedence(tmp_path):
     design = _design(tmp_path)
-    design.flow[_ConfigTaker.name] = {"fpga": XILINX_PART, "prjxray_db": "a"}
-    design.flow["nextpnr"] = {"prjxray_db": "b"}
+    design = with_updates(
+        design,
+        flow={
+            _ConfigTaker.name: {"fpga": XILINX_PART, "prjxray_db": "a"},
+            "nextpnr": {"prjxray_db": "b"},
+        },
+    )
     runner = DefaultRunner(tmp_path / "run")
     with pytest.raises(FlowSettingsError, match="prjxray_db.*disagrees"):
         runner.plan(_ConfigTaker, design)
@@ -245,7 +257,7 @@ def test_database_conflict_and_command_line_precedence(tmp_path):
 @pytest.mark.parametrize("owner", [_ConfigTaker.name, "nextpnr"])
 def test_one_database_override_reaches_only_endpoints_with_the_setting(tmp_path, owner):
     design = _design(tmp_path)
-    design.flow[owner] = {"prjxray_db": "db"}
+    design = with_updates(design, flow={owner: {"prjxray_db": "db"}})
     plan = DefaultRunner(tmp_path / "run").plan(
         _ConfigTaker, design, flow_settings={"fpga": XILINX_PART}
     )
@@ -257,7 +269,7 @@ def test_one_database_override_reaches_only_endpoints_with_the_setting(tmp_path,
 @pytest.mark.parametrize("owner", [_ConfigTaker.name, "nextpnr"])
 def test_board_target_propagates_before_family_selection(tmp_path, owner):
     design = _design(tmp_path)
-    design.flow[owner] = {"board": "ulx3s_85f"}
+    design = with_updates(design, flow={owner: {"board": "ulx3s_85f"}})
     plan = DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
     assert all(node.settings.fpga.family == "ecp5" for node in plan.nodes)
     assert plan.node(_ConfigTaker.name).inputs[0].origin == "producer"
@@ -266,14 +278,14 @@ def test_board_target_propagates_before_family_selection(tmp_path, owner):
 
 def test_displaced_board_target_cannot_satisfy_the_consumer(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
-    design.flow["nextpnr"] = {"board": "ulx3s_85f"}
+    design = with_updates(design, flow={"nextpnr": {"board": "ulx3s_85f"}})
     with pytest.raises(FlowSettingsException, match=r"needs `fpga`"):
         DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
 
 
 def test_displaced_producer_still_gets_syntax_validation(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
-    design.flow["nextpnr"] = {"unknown_setting": True}
+    design = with_updates(design, flow={"nextpnr": {"unknown_setting": True}})
     with pytest.raises(FlowSettingsError, match="unknown_setting"):
         DefaultRunner(tmp_path / "run").plan(
             _ConfigTaker, design, flow_settings={"fpga": FAMILIES[0][0]}

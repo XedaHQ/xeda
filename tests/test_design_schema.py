@@ -10,7 +10,8 @@ import sys
 
 import pytest
 
-from xeda.design import Design, DesignSource, DesignValidationError, SourceType
+from xeda.dataclass import ConfigDict
+from xeda.design import Design, Source, DesignValidationError, SourceType
 from xeda.introspect import JSON_SCHEMA_DIALECT, design_schema
 from xeda.xedaproject import XedaProject
 from xeda.yaml_loader import load_yaml
@@ -29,7 +30,7 @@ def test_design_schema_is_generatable():
 
 
 def test_design_source_schema_documents_the_object_form():
-    sources = Design.model_json_schema()["$defs"]["RtlSettings"]["properties"]["sources"]
+    sources = Design.model_json_schema()["$defs"]["Rtl"]["properties"]["sources"]
     item = sources["items"]
     assert item["description"]
     string_form, object_form = item["anyOf"]
@@ -80,7 +81,7 @@ def test_source_type_from_str_accepts_legacy_ordinals():
 def test_design_source_type_inferred_from_suffix(tmp_path):
     src = tmp_path / "foo.vhdl"
     src.write_text("entity foo is end;\n")
-    assert DesignSource(src).type is SourceType.Vhdl
+    assert Source(src).type is SourceType.Vhdl
 
 
 # --------------------------------------------------------------- input syntax vs. the loader
@@ -203,7 +204,7 @@ def test_generator_args_may_be_one_string_or_a_list_in_the_schema_and_the_loader
 def test_the_clock_shorthand_is_in_the_input_schema_and_the_removed_clock_port_is_not():
     """The derived `clock` alias is documented without becoming a stored model field."""
     schema = design_schema()
-    rtl = schema["$defs"]["RtlSettings"]["properties"]
+    rtl = schema["$defs"]["Rtl"]["properties"]
     root = schema["properties"]
 
     for properties in (rtl, root):
@@ -261,7 +262,7 @@ def test_source_object_may_not_name_both_a_file_and_a_path():
     """
     both = {"file": "a.v", "path": "generated/a.v"}
     with pytest.raises(ValueError, match="mutually exclusive"):
-        DesignSource(both)
+        Source(both)
     assert not validator().is_valid({"name": "d", "rtl": {"sources": [both], "top": "t"}})
 
 
@@ -289,7 +290,7 @@ def test_source_object_form_loads_and_validates(label, tmp_path):
 
     `_sources_to_files` deduplicates its input with `unique()`, which hashed every element --
     so a source given as an object failed with `unhashable type: 'dict'` before the validator
-    ever looked at it, even though `DesignSource` accepts a dict. The schema documented a form
+    ever looked at it, even though `Source` accepts a dict. The schema documented a form
     the loader could not read.
     """
     (tmp_path / "design0.sv").write_text("module design0; endmodule\n")
@@ -426,7 +427,9 @@ def list_fields():
 
     for model in _models_reachable_from(Design):
         for name, info in model.model_fields.items():
-            if typing.get_origin(info.annotation) is list or "List[" in repr(info.annotation):
+            if typing.get_origin(info.annotation) in (list, tuple) or "List[" in repr(
+                info.annotation
+            ):
                 yield model, name, {name, info.alias or name}
 
 
@@ -435,10 +438,13 @@ def loader_takes_a_bare_string(model, name) -> bool:
     than refuse it as a value that is no list."""
     from pydantic import ValidationError
 
+    # A frozen model refuses an assignment before it validates the value, so probe a copy of the
+    # model that is not frozen: its fields and validators are the same.
+    probe = type(model.__name__, (model,), {"model_config": ConfigDict(frozen=False)})
     try:
-        model.__pydantic_validator__.validate_assignment(model.model_construct(), name, "x")
+        probe.__pydantic_validator__.validate_assignment(probe.model_construct(), name, "x")
     except ValidationError as error:
-        return all(e["type"] != "list_type" for e in error.errors())
+        return all(e["type"] not in ("list_type", "tuple_type") for e in error.errors())
     return True
 
 
@@ -480,9 +486,9 @@ def test_the_sweep_sees_a_list_field_that_the_schema_describes_as_a_list_only(mo
     monkeypatch.setattr(introspect, "single_item_fields_of", lambda model: ())
     gaps = fields_that_take_a_bare_string_but_the_schema_does_not(design_schema())
     assert {
-        ("RtlSettings", "sources"),
-        ("TbSettings", "sources"),
-        ("RtlSettings", "clocks"),
+        ("Rtl", "sources"),
+        ("Testbench", "sources"),
+        ("Rtl", "clocks"),
     } <= set(gaps)
 
 
@@ -496,9 +502,9 @@ def test_every_declared_single_item_field_is_one_the_loader_takes():
         for name in single_item_fields_of(model)
     }
     assert {(m.__name__, n) for m, n in declared} >= {
-        ("RtlSettings", "sources"),
-        ("TbSettings", "sources"),
-        ("RtlSettings", "clocks"),
+        ("Rtl", "sources"),
+        ("Testbench", "sources"),
+        ("Rtl", "clocks"),
         ("Generator", "sources"),
     }
     for model, name in declared:
@@ -552,7 +558,7 @@ def test_sources_given_as_one_path_or_one_table_load_and_validate(tmp_path, sect
 )
 def test_every_form_of_clocks_the_loader_reads_is_in_the_schema(clocks, count):
     """`clocks` as one clock, a list of port names and tables, and the items that say there is
-    no clock (`null`, `""`, an empty table): `RtlSettings.clock_tables` reads all of them."""
+    no clock (`null`, `""`, an empty table): `Rtl.clock_tables` reads all of them."""
     data = {"name": "d", "rtl": {"sources": [], "top": "t", "clocks": clocks}}
     assert len(Design(**data).rtl.clocks) == count
     assert list(validator().iter_errors(data)) == []

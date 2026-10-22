@@ -229,7 +229,7 @@ def test_json_keeps_what_a_source_cannot_be_rebuilt_without(tmp_path):
     the design's identity, and turns an unchecked `{ path = ... }` source into a
     checked one, so reloading failed on a file the design never promised was there. Worse, the
     dump asked for duck-typed serialization, which skips the schema a field declares, and an
-    arbitrary type like `DesignSource` declares its serializer nowhere else: every
+    arbitrary type like `Source` declares its serializer nowhere else: every
     `model_dump_json()` of a design with sources raised `PydanticSerializationError`.
     """
     for name in ("top.vhd", "legacy.v", "old.vhd"):
@@ -596,14 +596,14 @@ def test_a_printed_mapping_has_the_keys_xeda_writes_to_a_file():
 
 
 def test_a_generator_keeps_its_own_fields_when_dumped(tmp_path):
-    """`RtlSettings.generator` may hold a `ChiselGenerator`, and v2 dumps a nested model by its
+    """`Rtl.generator` may hold a `ChiselGenerator`, and v2 dumps a nested model by its
     *annotated* type unless told otherwise (`SerializeAsAny`): its `main`, `project` and
     `build_system` were silently dropped. A `Design` runs its generator and drops it while it is
     built, so this is the one place that holds one."""
-    from xeda.design import ChiselGenerator, RtlSettings
+    from xeda.design import ChiselGenerator, Rtl
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")
-    rtl = RtlSettings(
+    rtl = Rtl(
         sources=[str(tmp_path / "top.v")],
         top="top",
         generator=ChiselGenerator(main="Top", project="core", build_system="mill"),

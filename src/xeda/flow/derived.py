@@ -27,7 +27,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..design import Design, DesignSource, SourceType
+from ..design import Design, Source, SourceType
+from ..frozen import FrozenDict
 
 __all__ = [
     "DESIGN_RECORD_KIND",
@@ -73,7 +74,7 @@ class DesignConversion:
         """The language that the planned design lists for the generated source."""
         return min(self.produces, key=lambda member: member.name)
 
-    def passes_through(self, source: DesignSource) -> bool:
+    def passes_through(self, source: Source) -> bool:
         """Return whether `source` passes through the converter unchanged."""
         return source.type not in self.transforms
 
@@ -85,7 +86,7 @@ class Generated:
     `name` is the place of the file in the output of the converter (the path within its run
     directory, in POSIX form). The identity of the derived design counts the file by this name,
     never by a path from the design root into the run directory (`generated_name` of a
-    `DesignSource`). A flow leaves it out: the record of the run sets it."""
+    `Source`). A flow leaves it out: the record of the run sets it."""
 
     path: Path
     type: SourceType
@@ -128,26 +129,35 @@ def _derived(design: Design, sources: DerivedSources, *, checked: bool) -> Desig
     (it does not exist yet). The top module comes from `sources`. The parameters and the generator
     of `rtl` are the converter's input and not the derived design's, so they are empty. Every
     other part of the design is carried."""
-    copy = design.model_copy(deep=True)
     listed = []
     for entry in sources.entries:
         if isinstance(entry, Passed):
-            if not 0 <= entry.index < len(copy.rtl.sources):
+            if not 0 <= entry.index < len(design.rtl.sources):
                 raise ValueError(
                     f"the derived design takes source {entry.index} of the design, which lists "
-                    f"{len(copy.rtl.sources)}"
+                    f"{len(design.rtl.sources)}"
                 )
-            listed.append(copy.rtl.sources[entry.index])
+            listed.append(design.rtl.sources[entry.index])
         else:
-            source = DesignSource({("file" if checked else "path"): str(entry.path)}, entry.type)
-            source.generated_name = entry.name
-            listed.append(source)
-    copy.rtl = copy.rtl.model_copy(
-        update={"sources": listed, "top": sources.top, "parameters": {}, "generator": None}
+            listed.append(
+                Source(
+                    {("file" if checked else "path"): str(entry.path)},
+                    entry.type,
+                    generated_name=entry.name,
+                )
+            )
+    rtl = design.rtl.model_copy(
+        update={
+            "sources": tuple(listed),
+            "top": sources.top,
+            "parameters": FrozenDict(),
+            "generator": None,
+        }
     )
-    copy.rtl.invalidate_cached_properties()
-    copy.invalidate_cached_properties()
-    return copy
+    rtl.invalidate_cached_properties()
+    derived = design.model_copy(update={"rtl": rtl})
+    derived.invalidate_cached_properties()
+    return derived
 
 
 def planned_design(design: Design, conversion: DesignConversion, where: Path) -> Design:

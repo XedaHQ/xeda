@@ -23,7 +23,7 @@ from typing import Any, ClassVar, Literal
 import colorama
 
 from ...dataclass import WORKING, Field, field_validator
-from ...design import Design, DesignSource, SourceType
+from ...design import Design, Source, SourceType
 from ...flow import (
     DESIGN,
     ArtifactSpec,
@@ -735,7 +735,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         """The bsc tool; constructing it checks bsc's version against `MIN_BSC_VERSION`."""
         return BscTool()
 
-    def _sources_of(self, *types: SourceType, tb: bool) -> list[DesignSource]:
+    def _sources_of(self, *types: SourceType, tb: bool) -> list[Source]:
         """Return the sources of `types` that this flow reads.
 
         The RTL sources come first, then the testbench's if `tb` is true.
@@ -759,7 +759,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
                     "`positive_reset` is true: remove the define, or set `positive_reset: false`"
                 )
 
-    def _bsc_sources(self, *, tb: bool) -> list[DesignSource]:
+    def _bsc_sources(self, *, tb: bool) -> list[Source]:
         """Return the design's Bluespec sources, RTL first, after checking their suffixes."""
         sources = self._sources_of(SourceType.Bluespec, tb=tb)
         bad = [str(src.file) for src in sources if src.file.suffix not in _BSC_SOURCE_SUFFIXES]
@@ -785,7 +785,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             macros[BSV_POSITIVE_RESET] = None
         return macros
 
-    def _check_macros(self, sources: list[DesignSource], macros: dict[str, Any]) -> None:
+    def _check_macros(self, sources: list[Source], macros: dict[str, Any]) -> None:
         """Warn when the design's macros reach none of its sources: all are BH and `cpp` is off.
 
         bsc's own preprocessor reads BSV only, so BH sources see macros only through the C
@@ -804,7 +804,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 ", ".join(bh),
             )
 
-    def _path_flags(self, backend: str, out_dir: Path, sources: list[DesignSource]) -> list[str]:
+    def _path_flags(self, backend: str, out_dir: Path, sources: list[Source]) -> list[str]:
         """Return where bsc reads and writes.
 
         The flags are `-bdir`, `-info-dir`, the output directory, `-p`, `-fdir` and, for Verilog,
@@ -1001,7 +1001,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
     def _compile(
         self,
         backend: str,
-        sources: list[DesignSource],
+        sources: list[Source],
         top: str,
         top_file: Path,
         flags: list[str],
@@ -1045,7 +1045,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             )
             raise error.with_message(f"bsc reported: {' | '.join(shown)}{more}") from error
 
-    def _top_file(self, sources: list[DesignSource], what: str) -> Path:
+    def _top_file(self, sources: list[Source], what: str) -> Path:
         """Return the file that holds the top module: the last Bluespec source."""
         if not sources:
             raise FlowSettingsException(f"{self.name}: the design has no Bluespec {what} sources")
