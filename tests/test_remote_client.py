@@ -363,6 +363,8 @@ def test_scrub_is_refused_with_remote_before_any_connection(tmp_path, remote_hos
     result = json.loads(document.stdout)
     assert result["success"] is False
     assert result["error"]["type"] == "UsageError" and "--scrub" in result["error"]["message"]
+    dry = _cli(tmp_path, design, "nextpnr", "--scrub", "--dry-run")
+    assert dry.exit_code == 2 and "`--scrub`" in dry.output
     assert not remote_host.remote.calls("ssh")
     assert not (tmp_path / "local" / "xeda_run").exists()
 
