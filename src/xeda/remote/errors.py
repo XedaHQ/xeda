@@ -7,6 +7,18 @@ class RemoteError(XedaException):
     """A remote run failed before, during or after the launch on the remote."""
 
 
+class RemoteRefused(RemoteError):
+    """The host refused the request before any node started. It is a request error that the
+    local planning did not find, for example a setting that only the host's flows reject.
+
+    `code`, `message` and `node` are those of the error in the document of the host."""
+
+    def __init__(self, code: str, message: str, node: str | None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.node = node
+
+
 class RemoteConfigError(RemoteError):
     """The host profile file or one of its entries is invalid."""
 

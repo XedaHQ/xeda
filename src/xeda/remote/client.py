@@ -74,7 +74,7 @@ from ..outcomes import (
     spec_document,
 )
 from ..proc_utils import tool_output_stream
-from ..records import decode_record
+from ..records import ErrorInfo, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
 from ..xedaproject import resolve_project_file
 from .constants import HEARTBEAT, LAYOUT
@@ -88,6 +88,7 @@ from .errors import (
     RemoteFetchError,
     RemoteInterrupted,
     RemoteProtocolError,
+    RemoteRefused,
 )
 from .fetch import (
     SkippedSource,
@@ -924,9 +925,10 @@ def _launch_result(agent: _Agent, document: Dict[str, Any]) -> Dict[str, Any]:
     if "outcome" in result and result["outcome"] is None:
         # The launch on the host started nothing: it could not read its request, or it refused it.
         error = result.get("error") or {}
-        raise RemoteError(
-            f"The launch on {agent.host} did not start: {error.get('message', 'no reason given')}"
-        )
+        message = error.get("message", "no reason given")
+        if isinstance(error.get("code"), str) and error["code"] != "remote_failed":
+            raise RemoteRefused(error["code"], message, error.get("node"))
+        raise RemoteError(f"The launch on {agent.host} did not start: {message}")
     return result
 
 
@@ -1359,6 +1361,19 @@ def _failed(run: _Run, error: Exception) -> RemoteOutcome:
     log.debug("The remote run failed", exc_info=True)
     # An attach that failed before it read its record has no request to report.
     spec = _spec_fields(run) if run.chain else None
+    if isinstance(error, RemoteRefused):
+        # The host refused the request as a local planning does: it started no launch.
+        document = run_document(
+            outcome=None,
+            error=ErrorInfo(
+                code=error.code, message=str(error), node=error.node, exit_status=None, log=None
+            ),
+            launch_id=None,
+            spec=spec,
+            roots=(),
+            nodes=(),
+        )
+        return RemoteOutcome(document, False, error)
     if isinstance(public_error(error), SpecError) and run.phase is None:
         document = run_document(
             outcome=None,

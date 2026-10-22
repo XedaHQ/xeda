@@ -1195,3 +1195,45 @@ def test_a_remote_document_round_trips(tmp_path, remote_host):
     assert result.passed and result.roots == ("nextpnr",)
     assert result.record.outcome == "passed"
     assert [node.flow for node in result.nodes.values()] == ["yosys_fpga", "nextpnr"]
+
+
+def test_a_request_that_only_the_host_refuses_starts_no_launch(tmp_path, remote_host, monkeypatch):
+    """The host's document has no outcome and the code of its refusal: the client keeps both,
+    as a local refusal does, and the command exits with status 2."""
+    refusal = {
+        "schema_version": 1,
+        "outcome": None,
+        "error": {
+            "code": "unknown_setting",
+            "message": "sed: Extra inputs are not permitted",
+            "node": "nextpnr",
+            "exit_status": None,
+            "log": None,
+        },
+        "launch_id": None,
+        "spec": None,
+        "roots": [],
+        "nodes": [],
+        "written": {},
+        "unreadable": {},
+        "named": [],
+    }
+    real = client._launch
+
+    def refused(agent, request, launch_id, setup):
+        real(agent, request.model_copy(update={"expected": {}}), launch_id, setup)
+        return client._launch_result(agent, {"result": refusal})
+
+    monkeypatch.setattr(client, "_launch", refused)
+    design = _design(tmp_path)
+    outcome = _request(tmp_path, design)
+    assert outcome.exit_status == 2 and not outcome.success
+    document = outcome.document
+    assert document["outcome"] is None and document["launch_id"] is None
+    assert document["error"]["code"] == "unknown_setting"
+    assert document["error"]["node"] == "nextpnr"
+    assert document["error"]["message"] == "sed: Extra inputs are not permitted"
+    assert document["spec"]["design"] == "top" and document["nodes"] == []
+    result = _cli(tmp_path, design, "nextpnr", "--json")
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.stdout)["error"]["code"] == "unknown_setting"
