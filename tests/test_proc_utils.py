@@ -1739,3 +1739,15 @@ def test_a_process_without_a_directory_gets_the_current_directory_as_pwd(monkeyp
     pwd, _ = _directory_seen(env=env)
     assert os.path.samefile(pwd, os.getcwd())
     assert env == {"PWD": "/no/such/directory"}
+
+
+def test_a_given_environment_reaches_the_process_exactly_with_its_pwd(tmp_path, monkeypatch):
+    """A caller's `env` replaces the environment of Xeda: nothing of `os.environ` leaks in."""
+    monkeypatch.setenv("XEDA_TEST_PARENT_ONLY", "leaked")
+    show = "import json, os; print(json.dumps(dict(os.environ)))"
+    out = run_process(sys.executable, ["-c", show], env={"ONE": "1"}, stdout=True, cwd=tmp_path)
+    assert isinstance(out, str)
+    seen = json.loads(out)
+    assert seen["ONE"] == "1"
+    assert seen["PWD"] == os.path.abspath(tmp_path)
+    assert "XEDA_TEST_PARENT_ONLY" not in seen
