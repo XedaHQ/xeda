@@ -164,10 +164,15 @@ def test_quiet_does_not_make_log_vcd_ignore_its_errors(tmp_path, monkeypatch, se
     assert call[1:] == ([flag] if flag else [])
 
 
-@pytest.mark.parametrize("command", ["xvlog", "xelab", "xsim", "run", "close_vcd", "close_saif"])
-def test_vivado_script_errors_override_finish(tmp_path, monkeypatch, command):
+@pytest.mark.parametrize("quiet", [False, True])
+@pytest.mark.parametrize(
+    "command", ["xvlog", "xelab", "xsim", "run", "log_vcd", "close_vcd", "close_saif"]
+)
+def test_vivado_script_errors_override_finish(tmp_path, monkeypatch, command, quiet):
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", command)
-    flow = launch(tmp_path, monkeypatch, "finish5", {"vcd": True, "saif": "activity.saif"})
+    flow = launch(
+        tmp_path, monkeypatch, "finish5", {"vcd": True, "saif": "activity.saif", "quiet": quiet}
+    )
     assert not flow.succeeded
     assert flow.results["error"]["type"] == "NonZeroExitCode"
 
