@@ -22,6 +22,7 @@ from .proc_utils import (
     run_process,
     tool_output_stream,
 )
+from .run_dir import RunDirectoryError
 from .utils import (
     ExecutableNotFound,
     NonZeroExitCode,
@@ -277,9 +278,10 @@ class Tool(XedaBaseModel):
     print_command: bool = True
     highlight_rules: Optional[Dict[str, str]] = None
     console_colors: bool = True
-    #: Whether the tool wants a terminal when Xeda's own output is one, for its colors and for a
-    #: progress bar that it redraws in place (`run_process(terminal=...)`). It gets one only if
-    #: colors are wanted too (`console_colors`) and it runs here, not in a container.
+    #: Whether the tool wants a terminal even though it has highlight rules, for its colors and
+    #: for a progress bar that it redraws in place (`run_process(terminal=...)`). A tool with no
+    #: highlight rules gets a terminal in any case. It gets one only if Xeda's own output is one,
+    #: colors are wanted (`console_colors`) and it runs here, not in a container.
     pseudo_terminal: ClassVar[bool] = False
     #: Why the tool needs `minimum_version`. The message about an older version shows it, so the
     #: user sees what that release lacks and not only that Xeda refuses it.
@@ -654,8 +656,23 @@ class Tool(XedaBaseModel):
         directory = self._run_directory
         if directory is None:
             return None, False
-        path = directory.writable(Path("logs") / f"{log_stem(executable)}.log")
-        path.parent.mkdir(exist_ok=True)
+        logs = directory.path / "logs"
+        if logs.is_symlink() or (logs.exists() and not logs.is_dir()):
+            log.warning(
+                "No log of %s in %s: logs is a link or no directory",
+                log_stem(executable),
+                directory.path,
+            )
+            return None, False
+        try:
+            path = directory.writable(Path("logs") / f"{log_stem(executable)}.log")
+            path.parent.mkdir(exist_ok=True)
+        except (
+            OSError,
+            RunDirectoryError,
+        ) as error:  # a tool may have left `logs` as a file or link
+            log.warning("No log of %s in %s: %s", log_stem(executable), directory.path, error)
+            return None, False
         started = directory.tool_logs
         append = path in started
         started.add(path)
@@ -727,7 +744,7 @@ class Tool(XedaBaseModel):
                 merge_stderr=merge_stderr,
                 timeout=timeout,
                 tee=tee,
-                terminal=self.pseudo_terminal and self.console_colors,
+                terminal=self.console_colors and (self.pseudo_terminal or not highlight_rules),
                 log_to=log_to,
                 log_append=log_append,
             )

@@ -407,6 +407,12 @@ def test_a_tool_asks_for_a_terminal_if_it_declares_one_and_colors_are_wanted(
     tool.run("--bitstream", "x.bit", tee=tmp_path / "loader.log", merge_stderr=True, cwd=tmp_path)
     assert asked["terminal"] is colors
     plain = Tool(executable="some-tool")
+    plain.console_colors = colors
+    plain.run(tee=tmp_path / "plain.log", merge_stderr=True, cwd=tmp_path)
+    assert asked["terminal"] is colors  # a tool with no highlight rules gets a terminal too
+    plain.run(tee=tmp_path / "plain.log", highlight_rules={"a": "b"}, cwd=tmp_path)
+    assert asked["terminal"] is False  # one with highlight rules keeps the pipe it highlights on
+    plain.console_colors = False
     plain.run(tee=tmp_path / "plain.log", cwd=tmp_path)
     assert asked["terminal"] is False
 
@@ -524,3 +530,47 @@ def test_a_time_limit_stops_what_a_tool_with_a_terminal_started(terminal, tmp_pa
     except BaseException:
         _kill(grandchild)
         raise
+
+
+# --------------------------------------------------------------------- a tool of a flow, with a log
+
+
+def test_a_tool_with_a_log_sees_a_terminal_and_the_log_has_all_its_text(terminal, tmp_path):
+    """The log of a tool (`log_to`) is not a reason to take its terminal away: the tool writes to a
+    pseudo-terminal, its error output is the same terminal, and the log gets the text without the
+    escape codes."""
+    log = tmp_path / "tool.log"
+    run_process(sys.executable, child(PROGRESS), log_to=log, terminal=True)
+    assert log_lines(log) == [
+        "stdout is a terminal: True | stderr is a terminal: True",
+        "Load SRAM: [" + "=" * 16 + "] 33%",
+        "Load SRAM: [" + "=" * 33 + "] 66%",
+        "Load SRAM: [" + "=" * 50 + "] 100%",
+        "Done",
+        "FAIL",
+    ]
+    assert "\x1b[32mDone\x1b[0m" in terminal.shown()
+
+
+def test_a_tee_log_without_merged_errors_keeps_the_pipe(terminal, tmp_path):
+    """A pseudo-terminal has one stream, so a `tee` log that leaves the error output out gets a
+    pipe: its text must not depend on whether Xeda writes to a terminal."""
+    tee, log = tmp_path / "tee.log", tmp_path / "tool.log"
+    run_process(sys.executable, child(PROGRESS), tee=tee, log_to=log, terminal=True)
+    assert "stdout is a terminal: False" in log_lines(tee)[0]
+    assert "FAIL" not in log_lines(tee) and "FAIL" in log_lines(log)
+
+
+def test_a_flow_tool_sees_a_terminal_in_a_terminal(terminal, tmp_path, monkeypatch):
+    from rich.console import Console
+
+    from xeda.run_dir import RunDirectory
+
+    monkeypatch.setattr("xeda.tool.console", Console(force_terminal=True, color_system="standard"))
+    tool = Tool(sys.executable, version_flag=None)
+    assert tool.console_colors
+    tool._run_directory = RunDirectory.unlaunched(tmp_path)
+    tool.run("-c", PROGRESS)
+    lines = log_lines(tmp_path / "logs" / f"{Path(sys.executable).name}.log")
+    assert lines[0] == "stdout is a terminal: True | stderr is a terminal: True"
+    assert lines[-1] == "FAIL"

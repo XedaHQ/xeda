@@ -7,6 +7,7 @@ which node they belong to, also when launches run at once in several threads.
 """
 
 import logging
+import subprocess
 import sys
 import threading
 import warnings
@@ -19,6 +20,7 @@ from xeda.flow import Flow
 from xeda.log_context import current_launch_id, launch_context, running_node
 from xeda.proc_utils import TOOL_OUTPUT, child_stdout, run_child, run_process
 from xeda.tool import Tool, log_stem
+from xeda.utils import NonZeroExitCode
 
 from .flow_registry import preserved_flow_registry
 
@@ -261,3 +263,54 @@ def test_a_launch_inside_a_launch_keeps_the_outer_id():
     with launch_context() as outer, launch_context() as inner:
         assert inner == outer == current_launch_id()
     assert current_launch_id() is None
+
+
+@pytest.mark.parametrize("kind", ["file", "dangling link", "link out"])
+def test_a_logs_entry_that_is_no_directory_costs_a_log_and_not_the_run(tmp_path, caplog, kind):
+    """A tool may leave `logs` as a file or a link. The run goes on without that log, and nothing
+    is written through the link."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    class Blocked(Flow):
+        """A flow whose `logs` is no directory when its tool starts."""
+
+        def run(self):
+            logs = self.run_path / "logs"
+            if kind == "file":
+                logs.write_text("not a directory\n")
+            elif kind == "dangling link":
+                logs.symlink_to(self.run_path / "nowhere")
+            else:
+                logs.symlink_to(outside)
+            Tool(sys.executable, version_flag=None).run("-c", CHATTER)
+
+        def parse_reports(self):
+            return True
+
+    with preserved_flow_registry(), caplog.at_level(logging.WARNING, logger="xeda"):
+        flow = _launch(tmp_path, Blocked)
+    assert flow.succeeded
+    assert "No log of" in caplog.text
+    assert list(outside.iterdir()) == []
+    assert (flow.run_path / "logs").is_symlink() or (flow.run_path / "logs").is_file()
+
+
+def test_a_failing_generator_leaves_its_output_in_the_log(caplog):
+    with caplog.at_level(logging.INFO, logger="xeda"):
+        with pytest.raises(subprocess.CalledProcessError):
+            run_child(
+                [sys.executable, "-c", "print('why it failed'); raise SystemExit(3)"],
+                source="generator",
+                check=True,
+            )
+    assert "generator: why it failed" in caplog.text
+
+
+def test_a_helper_with_no_log_says_the_end_of_its_output_when_it_fails(capfd):
+    code = "\n".join(["import sys"] + [f"print('line {n}')" for n in range(30)] + ["sys.exit(4)"])
+    with pytest.raises(NonZeroExitCode) as raised:
+        run_process(sys.executable, ["-c", code])
+    message = str(raised.value)
+    assert "line 29" in message and "line 10" in message and "line 9\n" not in message
+    assert capfd.readouterr() == ("", "")

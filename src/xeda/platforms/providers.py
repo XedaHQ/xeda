@@ -705,9 +705,10 @@ def _run(command: list[str], env: Optional[dict[str, str]], plan: InstallPlan) -
     try:
         run_process(command[0], command[1:], env=env)
     except NonZeroExitCode as error:
+        output = "".join(f"\n{line}" for line in error.args)
         raise PdkInstallFailed(
             f"cannot install platform '{plan.platform}': `{shlex.join(command)}` ended with "
-            f"status {error.exit_code}. Nothing is installed."
+            f"status {error.exit_code}. Nothing is installed.{output}"
         ) from None
     except OSError as error:
         raise PdkInstallFailed(

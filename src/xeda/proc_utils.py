@@ -13,6 +13,7 @@ import sys
 import termios
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -41,6 +42,9 @@ TOOL_OUTPUT: ContextVar[ToolOutput] = ContextVar("xeda_tool_output", default="lo
 #: The prefix under which a container image is recorded, beside the programs that `run_process`
 #: starts.
 DOCKER_IMAGE_PREFIX = "docker-image:"
+
+#: How many of the last lines of its output an error says for a program that has no log.
+OUTPUT_TAIL_LINES = 20
 
 #: Seconds allowed for a tool to exit gracefully after an interrupt or another exception.
 PROCESS_STOP_GRACE = 5.0
@@ -143,17 +147,22 @@ def run_child(
         )
     if kwargs.get("stderr") is None:
         kwargs["stderr"] = subprocess.STDOUT
+    check = kwargs.pop("check", False)
     done = subprocess.run(
         command,
         stdout=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
+        check=False,
         **kwargs,
     )
+    # The lines are logged before a failure is raised: they say why the child failed.
     for line in (done.stdout or "").splitlines():
         log.info("%s: %s", source, line)
     done.stdout = ""
+    if check:
+        done.check_returncode()
     return done
 
 
@@ -539,8 +548,8 @@ def _run_in_terminal(
     new_session: bool,
 ) -> None:
     """Run a child as `run_process` does, with a pseudo-terminal in place of the pipe. Stdout and,
-    with `merge_stderr`, stderr are the terminal. The time limit, the stop hook, the logs and the
-    exit status are those of the pipe."""
+    with `merge_stderr`, stderr are the terminal, so the logs hold both. The time limit, the stop
+    hook, the logs and the exit status are those of the pipe."""
     master, slave = os.openpty()
     try:
         with subprocess.Popen(
@@ -584,12 +593,20 @@ def _finish(
     deadline: _Deadline,
     check: bool,
     timeout: float | None,
+    tail: Sequence[str] = (),
 ) -> None:
-    """Raise what the end of a tool means: its time limit, or its exit status when `check`."""
+    """Raise what the end of a tool means: its time limit, or its exit status when `check`. The
+    `tail` is the last lines of the output of a tool that has no log: the error says them."""
     if deadline.expired:
         assert timeout is not None
         raise ProcessTimeout(command, timeout)
     if check and proc.returncode != 0:
+        if tail:
+            raise NonZeroExitCode(
+                command,
+                proc.returncode,
+                "The last lines of its output:\n" + "\n".join(tail),
+            )
         raise NonZeroExitCode(command, proc.returncode)
 
 
@@ -666,9 +683,28 @@ def _run_copying(
             else None
         )
         logs = _Fanout([f for f in (tee_log, tool_log) if f is not None])
-        if terminal and show and logs.files and _stdout_terminal_fd() is not None:
+        # The child gets a terminal when it asks for one. A pseudo-terminal has one stream. The
+        # error output joins it when the tool has a log (`log_to`), which holds both streams. A
+        # `tee` log with a `log_to` beside it would then get the error output that a pipe leaves
+        # out of it, unless `merge_stderr` says it should: its text must not depend on whether
+        # Xeda writes to a terminal, so that case keeps the pipe.
+        if (
+            terminal
+            and show
+            and logs.files
+            and (tee is None or log_to is None or merge_stderr)
+            and _stdout_terminal_fd() is not None
+        ):
             _run_in_terminal(
-                command, env, cwd, check, merge_stderr, timeout, logs, on_stop, new_session
+                command,
+                env,
+                cwd,
+                check,
+                merge_stderr or log_to is not None,
+                timeout,
+                logs,
+                on_stop,
+                new_session,
             )
             return
         # Compile the regex keys once, to improve performance.
@@ -684,6 +720,7 @@ def _run_copying(
             else subprocess.STDOUT if merge_stderr or not show else None
         )
         name = Path(command[0]).name
+        tail: deque[str] = deque(maxlen=OUTPUT_TAIL_LINES)
         with subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -724,10 +761,11 @@ def _run_copying(
                                 shown.write("\r")
                         elif not logs.files:
                             log.debug("%s: %s", name, line.rstrip("\r\n"))
+                            tail.append(line.rstrip("\r\n"))
                 proc.wait()
             if pump is not None:
                 pump.join(PROCESS_STOP_GRACE)
-            _finish(command, proc, deadline, check, timeout)
+            _finish(command, proc, deadline, check, timeout, tail)
 
 
 def _copy_errors(pipe: IO[str], tool_log: _LogFile | None, show: bool, name: str) -> None:

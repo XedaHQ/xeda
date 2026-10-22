@@ -120,7 +120,16 @@ A run directory of ``vivado_synth`` looks like this, for example:
 
 Every program that a flow starts writes its output and its error output to ``logs/<program>.log``,
 for example ``logs/vivado.log``. A program that the flow starts again adds to its log. The next run
-of the flow makes the logs anew. Xeda writes these logs whatever you do with the output.
+of the flow makes the logs anew. Xeda writes these logs whatever you do with the output. There are
+three exceptions:
+
+* When the flow sends the output of a program to a file of its own (for example the
+  ``redirect_stdout`` setting of the Vivado flows), that file holds the output, and
+  ``logs/<program>.log`` holds the error output only.
+* A program whose output the flow reads as a value (a version query) has no log. Its output is not
+  kept.
+* If ``logs`` is a file or a link that a tool left in the run directory, Xeda writes no log for
+  the run and warns on the ``xeda`` logger. It never writes through the link.
 
 ``xeda run`` also shows the output on the terminal. With ``--json``, it goes to the standard error
 (see :doc:`machine-readable`). A Python program that launches a flow sees no tool output on its
