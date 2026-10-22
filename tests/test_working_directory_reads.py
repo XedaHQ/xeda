@@ -59,7 +59,8 @@ REVIEWED_CHDIRS: dict[tuple[str, str], str] = {
     (
         "remote/launch_entry.py",
         "execute",
-    ): "the entry point of the process that runs a remote launch",
+    ): "the entry point of a dedicated process that runs one remote launch: it changes the state "
+    "of no other process",
 }
 
 #: (module, function) -> why it reads the working directory.
