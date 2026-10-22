@@ -319,7 +319,7 @@ def test_the_generated_design_is_a_valid_design(spec: str, tmp_path: Path) -> No
     assert design.name == f"{config.platform}_{spec.split('/')[1]}"
     assert design.rtl.top == FACTS[spec]["top"]
     (clock,) = design.rtl.clocks
-    assert clock.port == FACTS[spec]["port"]
+    assert clock["port"] == FACTS[spec]["port"]
     listed = [str(s.path) for s in design.rtl.sources]
     for word in variables["VERILOG_FILES"].split():
         assert word in listed

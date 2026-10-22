@@ -44,7 +44,7 @@ def test_text_true_and_false_are_still_a_boolean(tmp_path, value):
     # a command line has no other way to write one
     expected = value.strip('"') == "true"
     assert (
-        _design(tmp_path, f"language: {{vhdl: {{synopsys: {value}}}}}").language.vhdl.synopsys
+        _design(tmp_path, f"language: {{vhdl: {{synopsys: {value}}}}}").language["vhdl"]["synopsys"]
         is expected
     )
 

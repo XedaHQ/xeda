@@ -27,6 +27,7 @@ from xeda import Design
 from xeda.dataclass import shape_problems
 from xeda.design import DesignValidationError
 from xeda.flow import FlowSettingsError
+from xeda.frozen import thaw
 from xeda.flow_runner.settings_layers import compose_flow_settings
 from xeda.flows import GhdlSim, VivadoSynth, Yosys
 from xeda.utils import json_encodable, settings_to_dict
@@ -163,7 +164,7 @@ def test_a_target_in_another_form_gives_the_design_written_flat_by_hand(
 
 def composed(flow_class, design: Design, *layers: Any) -> dict:
     """The settings of `flow_class` that the design's `flows` section (then `layers`) give."""
-    given = compose_flow_settings(flow_class, [design.flow], *layers)
+    given = compose_flow_settings(flow_class, [thaw(design.flow)], *layers)
     settings = flow_class.Settings.from_input(given, design_root=design.root_path)
     return settings.model_dump(mode="json")
 
@@ -323,7 +324,7 @@ def test_a_clock_in_clocks_that_is_no_clock_is_refused_at_clocks(tmp_path, clock
 def test_an_empty_table_is_no_clock(tmp_path, fragment):
     """An empty table says nothing, as `null` and `""` do (the loader has always read it so)."""
     design = Design.from_file(write_design(tmp_path, overlay(BASE, fragment)))
-    assert design.rtl.clocks == [] and design.rtl.clock is None
+    assert design.rtl.clocks == ()
 
 
 @pytest.mark.parametrize("spelling", ["clock", "clocks"])
@@ -361,7 +362,7 @@ def test_a_target_s_parameters_given_as_generics_are_reported_as_written(tmp_pat
 @pytest.mark.parametrize("none", [None, ""])
 def test_an_absent_clock_is_no_clock(tmp_path, none):
     design = Design.from_file(write_design(tmp_path, overlay(BASE, rtl(clock=none))))
-    assert design.rtl.clocks == [] and design.rtl.clock is None
+    assert design.rtl.clocks == ()
 
 
 @pytest.mark.parametrize("standard", [True, False])
@@ -817,7 +818,7 @@ def test_remove_extra_removes_a_key_in_any_spelling(tmp_path, spelling, merged):
     assert removed.flow == {} and removed.authors == kept.authors
     other = "authors" if spelling == "flows" else "author"
     removed = Design.from_file(path, target=target, overrides=overrides, remove_extra=[other])
-    assert removed.authors == [] and removed.flow == kept.flow
+    assert removed.authors == () and removed.flow == kept.flow
 
 
 @pytest.mark.parametrize("spelling", ["flows", "flow"])

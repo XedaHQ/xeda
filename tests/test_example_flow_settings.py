@@ -18,6 +18,7 @@ import pytest
 from xeda.design import Design
 from xeda.flow_runner import get_flow_class
 from xeda.flow_runner.bindings import default_nodes, effective_bindings, split_bindings
+from xeda.frozen import thaw
 from xeda.utils import toml_load
 from xeda.xedaproject import XedaProject
 from xeda.yaml_loader import load_yaml
@@ -70,9 +71,9 @@ def _flow_sections(path, index, target):
         if target is None:
             yield from (project.flows or {}).items()
         design = project.get_design(index, target=target)
-        yield from ((design.flow if design else None) or {}).items()
+        yield from ((thaw(design.flow) if design else None) or {}).items()
     else:
-        yield from (Design.from_file(path, target=target).flow or {}).items()
+        yield from thaw(Design.from_file(path, target=target).flow or {}).items()
 
 
 def _cases():

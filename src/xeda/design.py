@@ -1689,6 +1689,13 @@ def _generator_recipe(value: Any, root: Optional[Path] = None) -> Optional[Froze
     )
 
 
+def _generator_form(value: Any) -> Any:
+    """Return the table that a command line or a list of arguments stands for as `rtl.generator`
+    (`field_shorthands`); an empty one stands for the empty table, which is no generator."""
+    recipe = _generator_recipe(value)
+    return {} if recipe is None else thaw(recipe)
+
+
 class _GeneratorRecipe:
     """The annotation of `Rtl.generator`: the recipe, frozen, with the schema of the three forms."""
 
@@ -1712,6 +1719,7 @@ class Rtl(DesignPart):
         None,
         description="The RTL top module (a Verilog module or a VHDL entity).",
     )
+    field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"generator": _generator_form}
     #: The recipe of the generator as a table. A design file may write a command line or a list
     #: of arguments too, and the design keeps the table that stands for it
     #: (`_generator_recipe`). `generator_of(rtl, root=...)` gives the validated `Generator`.
