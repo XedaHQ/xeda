@@ -300,6 +300,7 @@ class Tool(XedaBaseModel):
                 caller_inst = s.frame.f_locals.get("self")
                 if isinstance(caller_inst, Flow):
                     flow = caller_inst
+                    break
 
         super().__init__(**kwargs)
 

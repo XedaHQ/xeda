@@ -85,6 +85,28 @@ def test_a_derived_tool_starts_in_the_run_path_too(tmp_path, calls):
     assert kwargs["cwd"] == flow.run_path
 
 
+def test_a_tool_made_in_a_flow_method_called_by_another_flow_belongs_to_the_inner_flow(
+    tmp_path, calls, monkeypatch
+):
+    """The flow whose method makes the tool owns it, not a flow further out on the stack."""
+    outer = _flow(tmp_path, "outer")
+    inner = _flow(tmp_path, "inner")
+
+    def make_the_tool(self):
+        return _tool()
+
+    def call_the_other(self, other):
+        return other.make_the_tool()
+
+    monkeypatch.setattr(Yosys, "make_the_tool", make_the_tool, raising=False)
+    monkeypatch.setattr(Yosys, "call_the_other", call_the_other, raising=False)
+    tool = outer.call_the_other(inner)  # type: ignore[attr-defined]
+    tool.run("arg")
+    ((_, _, kwargs),) = calls
+    assert kwargs["cwd"] == inner.run_path
+    assert kwargs["cwd"] != outer.run_path
+
+
 def test_a_tool_outside_a_flow_starts_in_the_current_directory_as_an_absolute_path(calls):
     _tool().run("arg")
     ((_, _, kwargs),) = calls
