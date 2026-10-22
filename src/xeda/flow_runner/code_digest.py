@@ -122,7 +122,8 @@ def _source_file(cls: type) -> Path:
     if file is None:
         raise FlowFatalError(
             f"The flow class {class_label(cls)} has no source file on disk ({why}), so it has no "
-            "code digest."
+            "code digest. A flow that has no source file must always run: an override of "
+            "`Flow.always_runs` must call `super().always_runs()`."
         )
     return file
 
@@ -247,8 +248,8 @@ def flow_code_digest(flow_class: Type[Flow], snapshots: Snapshots | None = None)
 
     The code of a class is found as the module docstring says. The digest is "" when the xeda
     package defines all the Flow classes of the MRO: `xeda_code_digest` covers that case. It
-    raises `FlowFatalError` for a class that has no source file on disk (`Flow.always_runs` runs such a
-    flow every time, so a launch never asks for its digest).
+    raises `FlowFatalError` for a class that has no source file on disk (`Flow.always_runs` runs
+    such a flow every time, so a launch never asks for its digest).
 
     `snapshots` holds what was read of each code root before, and gets what this reads. Two
     classes of one tree then see the same files."""
