@@ -11,6 +11,8 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 PROJECT = """\
 designs:
   - name: plain
@@ -143,16 +145,15 @@ def test_a_relative_root_path_is_read_once_when_the_project_is_built(tmp_path):
     assert Path(json.loads(result.stdout)[0]).is_absolute()
 
 
-def test_a_design_root_that_is_not_a_path_is_reported_as_a_design_error(tmp_path):
-    """A malformed `design_root` of a project entry is the design's error, which names the key,
-    not a bare `TypeError`."""
-    import pytest
-
+@pytest.mark.parametrize("value", [123, False, 0, ""])
+def test_a_design_root_that_is_not_a_path_is_reported_as_a_design_error(tmp_path, value):
+    """A `design_root` of a project entry that is not a path is a design error that names the
+    key: not a bare `TypeError`, and not the project's directory in its place."""
     from xeda.design import DesignValidationError
     from xeda.xedaproject import XedaProject
 
     project = XedaProject(
-        designs=[{"name": "d", "design_root": 123, "rtl": {"sources": [], "top": "top"}}],
+        designs=[{"name": "d", "design_root": value, "rtl": {"sources": [], "top": "top"}}],
         root_path=tmp_path,
     )
     with pytest.raises(DesignValidationError, match="design_root"):

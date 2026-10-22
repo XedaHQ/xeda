@@ -244,11 +244,15 @@ class XedaProject:
         if index is None:
             return None
         data = self.design_cls.target_selected(self.designs[index], target, self.design_overrides)
-        # A relative `design_root` of an entry is relative to the project file's directory. Any
-        # other value goes to the design as it is, which reports what is wrong with it.
+        # A relative `design_root` of an entry is relative to the project file's directory. An
+        # entry without one has that directory as its root; any value but a path is an error.
         design_root = data.get("design_root")
-        if not design_root:
+        if design_root is None:
             data["design_root"] = self.root_path
-        elif isinstance(design_root, (str, os.PathLike)):
+        elif isinstance(design_root, (str, os.PathLike)) and os.fspath(design_root):
             data["design_root"] = self.root_path / design_root
+        else:
+            raise DesignValidationError(
+                [("design_root", f"not a path: {design_root!r}", "", "value_error")], data=data
+            )
         return self.design_cls(**data)
