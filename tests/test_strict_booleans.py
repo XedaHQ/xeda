@@ -178,3 +178,12 @@ def test_a_number_is_not_a_boolean_beside_text(number):
     assert Vcs.Settings.from_input({"gui": True, "debug_access": False}).gui is True
     with pytest.raises(ValidationError, match=re.escape(message)):
         settings.gui = number
+
+
+@pytest.mark.parametrize("text, expected", [("true", True), ("FALSE", False), ("dve", "dve")])
+def test_true_and_false_text_beside_a_name_is_a_boolean(text, expected):
+    """`-s gui=true` is the boolean, not the name `true` of a GUI."""
+    from xeda.flows import Vcs
+
+    settings = Vcs.Settings.from_input({"gui": text, "debug_access": text})
+    assert settings.gui == expected and settings.debug_access == expected
