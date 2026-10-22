@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Type, Union
 
@@ -76,8 +77,9 @@ class XedaProject:
     flows: Dict[str, dict] = {}  # = attrs.field(default={}, validator=type_validator())
     design_cls: Type[Design] = Design
     #: The directory of the project file. Every relative path in the project resolves against it:
-    #: a design entry's `design_root` defaults to it, and a relative one is relative to it.
-    root_path: Path = attrs.field(kw_only=True)
+    #: a design entry's `design_root` defaults to it, and a relative one is relative to it. A
+    #: relative `root_path` is made absolute once, here, against the working directory.
+    root_path: Path = attrs.field(kw_only=True, converter=lambda p: Path(p).absolute())
     # Applied to a design once, when it is selected (`Design.target_selected`), as for a design
     # file. The entries of `designs` stay as written.
     design_overrides: dict[str, Any] = {}
@@ -242,7 +244,11 @@ class XedaProject:
         if index is None:
             return None
         data = self.design_cls.target_selected(self.designs[index], target, self.design_overrides)
-        # A relative `design_root` of an entry is relative to the project file's directory.
+        # A relative `design_root` of an entry is relative to the project file's directory. Any
+        # other value goes to the design as it is, which reports what is wrong with it.
         design_root = data.get("design_root")
-        data["design_root"] = self.root_path / design_root if design_root else self.root_path
+        if not design_root:
+            data["design_root"] = self.root_path
+        elif isinstance(design_root, (str, os.PathLike)):
+            data["design_root"] = self.root_path / design_root
         return self.design_cls(**data)

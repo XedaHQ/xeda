@@ -109,3 +109,51 @@ def test_a_relative_design_root_of_an_entry_resolves_against_the_directory_of_th
     reached = _load_from_elsewhere(tmp_path, project_file)
     assert Path(reached["nested"]["design_root"]) == root / "sub"
     assert [Path(p) for p in reached["nested"]["sources"]] == [root / "sub" / "a.v"]
+
+
+def test_a_relative_root_path_is_read_once_when_the_project_is_built(tmp_path):
+    """`XedaProject(root_path=...)` reads the working directory once, when it receives a relative
+    root: a design taken later from another directory still resolves against that root."""
+    (tmp_path / "first" / "proj" / "src").mkdir(parents=True)
+    (tmp_path / "first" / "proj" / "src" / "top.v").write_text("module top; endmodule\n")
+    (tmp_path / "second").mkdir()
+    script = textwrap.dedent("""
+        import json, os, sys
+        from pathlib import Path
+        from xeda.xedaproject import XedaProject
+
+        os.chdir(sys.argv[1])  # this child process only
+        project = XedaProject(
+            designs=[{"name": "d", "rtl": {"sources": ["src/top.v"], "top": "top"}}],
+            root_path=Path("proj"),
+        )
+        os.chdir(sys.argv[2])
+        design = project.get_design("d")
+        print(json.dumps([str(project.root_path), str(design.design_root)]))
+        """)
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path / "first"), str(tmp_path / "second")],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    root = str((tmp_path / "first" / "proj").resolve())
+    assert [str(Path(p).resolve()) for p in json.loads(result.stdout)] == [root, root]
+    assert Path(json.loads(result.stdout)[0]).is_absolute()
+
+
+def test_a_design_root_that_is_not_a_path_is_reported_as_a_design_error(tmp_path):
+    """A malformed `design_root` of a project entry is the design's error, which names the key,
+    not a bare `TypeError`."""
+    import pytest
+
+    from xeda.design import DesignValidationError
+    from xeda.xedaproject import XedaProject
+
+    project = XedaProject(
+        designs=[{"name": "d", "design_root": 123, "rtl": {"sources": [], "top": "top"}}],
+        root_path=tmp_path,
+    )
+    with pytest.raises(DesignValidationError, match="design_root"):
+        project.get_design("d")
