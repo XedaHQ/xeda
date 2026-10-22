@@ -85,7 +85,7 @@ def test_driver_timeout_preserves_output_and_names_limit(tmp_path):
         tmp_path, 'std::puts("driver started"); while (true) {}', settings={"timeout": 0.5}
     )
     assert not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
     assert "0.5" in flow.results["error"]["message"]
     assert "driver started" in (flow.run_path / "cxxrtl_sim.log").read_text()
     assert not (flow.run_path / "cxxrtl_end.json").exists()

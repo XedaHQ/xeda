@@ -21,6 +21,7 @@ from ..dataclass import (
     waveform_fields,
 )
 from ..design import LANGUAGE_TYPES, Design, SourceType
+from ..records import REPORTED_FAILURE, ErrorInfo
 from ..units import convert_unit
 from ..utils import SDF
 from .flow import Flow, FlowSettingsException, registered_flows
@@ -104,11 +105,14 @@ def record_failure(flow: Any, message: str) -> None:
     the checks of the flow found, with no exception, would get the general message of the
     launcher."""
     if not flow.results.get("error"):
-        name = getattr(flow, "name", "the simulation")
-        flow.results["error"] = {
-            "type": "ReportedFailure",
-            "message": f"`{name}` reported failure: {message}",
-        }
+        node = getattr(flow, "name", None)
+        flow.results["error"] = ErrorInfo(
+            code=REPORTED_FAILURE,
+            message=f"`{node or 'the simulation'}` reported failure: {message}",
+            node=node,
+            exit_status=None,
+            log=None,
+        ).as_json_value()
 
 
 def record_rejection(flow: Any, message: str) -> None:

@@ -368,7 +368,7 @@ def test_xsim_native_timeout_stops_the_container(work_dir):
         VivadoSim, design, {"dockerized": True, "timeout": 90.0}
     )
     assert not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
     assert "XEDA_XSIM_RUNTIME_START" in (flow.run_path / "xsim_runtime.log").read_text()
 
 

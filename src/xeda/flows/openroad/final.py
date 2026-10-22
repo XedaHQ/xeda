@@ -1022,7 +1022,7 @@ class Openroad(OpenroadStage):
                 merge_stderr=True,
             )
         except NonZeroExitCode as error:
-            report = self.report_file(log_file)
+            report = self.report_file(log_file, optional=True)
             found = failure_lines(report.read_text(errors="replace")) if report else []
             message = f"{self.name}: KLayout stopped while it merged the layout"
             raise NonZeroExitCode(

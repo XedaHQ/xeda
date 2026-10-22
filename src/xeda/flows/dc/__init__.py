@@ -381,7 +381,8 @@ class Dc(AsicSynthFlow):
             r"^\s*clock\s*(?P<clock_name>\w+)\s+\(\w+ edge\)\s+(?P<clock_time>\d+\.\d+)\s+(?P<clock_period>\d+\.\d+)\s*$"
         )
         max_report_path = self.settings.reports_dir / "mapped.timing.max.rpt"
-        max_report = self.report_file(max_report_path)  # only a report that this run wrote
+        # only a report that this run wrote
+        max_report = self.report_file(max_report_path, optional=True)
         if max_report is not None:
             with open(max_report) as f:
                 for line in f.readlines():
@@ -416,7 +417,8 @@ class Dc(AsicSynthFlow):
                 max_report_path,
             )
         min_report_path = self.settings.reports_dir / "mapped.timing.min.rpt"
-        min_report = self.report_file(min_report_path)  # only a report that this run wrote
+        # only a report that this run wrote
+        min_report = self.report_file(min_report_path, optional=True)
         if min_report is not None:
             with open(min_report) as f:
                 for line in f.readlines():
@@ -473,6 +475,7 @@ class Dc(AsicSynthFlow):
             r"Aspect Ratio:\s*(?P<aspect_ratio>\d+(?:\.\d+)?)",
             r"Utilization Ratio:\s*(?P<utilization_ratio>\d+(?:\.\d+)?)",
             dotall=False,
+            optional=True,
         )
 
         reportfile_path = reports_dir / "mapped.qor.rpt"

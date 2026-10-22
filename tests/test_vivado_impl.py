@@ -473,7 +473,8 @@ def _stopped_before_vivado(run_path: Path, raised) -> str:
     assert fake_calls(run_path) == [], "Vivado was started"
     document = json.loads((run_path / "results.json").read_text())
     assert document["success"] is False
-    assert document["error"] == {"type": "FlowFatalError", "message": message}
+    assert document["error"]["code"] == "reported_failure"
+    assert document["error"]["message"] == message
     return message
 
 

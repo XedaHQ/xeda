@@ -35,7 +35,7 @@ from typing import (
 import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
-from pydantic_core import ErrorDetails, InitErrorDetails
+from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError
 
 from ..dataclass import (
     DELIVERABLE_ROLE,
@@ -66,6 +66,7 @@ from ..dataclass import (
     written_role,
 )
 from ..design import LANGUAGE_TYPES, Design, DesignSource, SourceType
+from ..records import REJECTED, ErrorInfo
 from ..run_dir import OutputSnapshot, RunDirectory, record_output_state, resolved_inside
 from ..units import count, finalize_template_value, to_filter
 from ..utils import (
@@ -860,6 +861,14 @@ def removed_message(name: str, replacement: str, value: Any) -> str:
     return f"`{name}` was removed: use {_removed_replacement(replacement, value)}"
 
 
+def removed_setting_error(name: str, replacement: str, value: Any) -> PydanticCustomError:
+    """Return the validation error that refuses the removed setting `name`: its type is
+    `removed_setting`, and its message is `removed_message`."""
+    return PydanticCustomError(
+        "removed_setting", "{message}", {"message": removed_message(name, replacement, value)}
+    )
+
+
 def _removed_replacement(replacement: str, value: Any) -> str:
     """Return the replacement text for a removed setting.
 
@@ -987,7 +996,8 @@ class Flow(metaclass=ABCMeta):
                     notes.append(unreached[name])
         if missing:
             raise FlowSettingsException(
-                f"{cls.name} needs " + "; and ".join(missing) + "".join(f". {n}" for n in notes)
+                f"{cls.name} needs " + "; and ".join(missing) + "".join(f". {n}" for n in notes),
+                code="required_setting",
             )
 
     @classmethod
@@ -1371,7 +1381,7 @@ class Flow(metaclass=ABCMeta):
             if isinstance(values, dict):
                 for name, replacement in cls.removed_setting_replacements().items():
                     if name in values:
-                        raise ValueError(removed_message(name, replacement, values[name]))
+                        raise removed_setting_error(name, replacement, values[name])
             if info.field_name is not None and info.data is None:
                 return values  # an assignment: `__setattr__` has normalized the assigned value
             roots = cls._path_roots(info.context)
@@ -1693,6 +1703,7 @@ class Flow(metaclass=ABCMeta):
         #: records those inside the run directory, which the launcher removes before the next
         #: run executes, so a previous run's report is gone whatever its mtime.
         self.reports_read: List[Path] = []
+        self.reports_missing: List[Path] = []
         #: Set by the launcher: the previous run was still up to date and its results are reused.
         self.reused: bool = False
         #: Set by `reject()`: why the checks of this run rejected its results. A rejection that
@@ -1800,10 +1811,13 @@ class Flow(metaclass=ABCMeta):
         returns False for it, and the next launch runs again."""
         self.rejection = message
         if not self.results.get("error"):
-            self.results["error"] = {
-                "type": "ReportedFailure",
-                "message": f"`{self.name}` reported failure: {message}",
-            }
+            self.results["error"] = ErrorInfo(
+                code=REJECTED,
+                message=f"`{self.name}` reported failure: {message}",
+                node=self.name,
+                exit_status=None,
+                log=None,
+            ).as_json_value()
 
     def add_canonical_result_aliases(self) -> None:
         """Copy flow-specific result keys to their canonical names, additively.
@@ -1887,6 +1901,7 @@ class Flow(metaclass=ABCMeta):
         dotall: bool = True,
         required: bool = False,
         sequential: bool = False,
+        optional: bool = False,
     ) -> bool:
         res = self.parse_regex(
             reportfile_path,
@@ -1895,6 +1910,7 @@ class Flow(metaclass=ABCMeta):
             dotall=dotall,
             required=required,
             sequential=sequential,
+            optional=optional,
         )
         if not res:
             return False
@@ -1913,14 +1929,18 @@ class Flow(metaclass=ABCMeta):
             return False
         return not self.run_started or self.wrote_output(path)
 
-    def report_file(self, path: Union[str, os.PathLike]) -> Optional[Path]:
+    def report_file(
+        self, path: Union[str, os.PathLike], *, optional: bool = False
+    ) -> Optional[Path]:
         """Return `path`, a report (or any file) that the tools write, if this run wrote it.
 
         Return None, with a warning, if the file does not exist or is not this run's
         (`written_by_this_run`: its identity and state are what they were before the run). A
         previous run's report, left in a reused run directory, is never taken for this run's.
         Every report a flow reads goes through here (`parse_regex` does). Every `path` asked for
-        is noted in `reports_read`."""
+        is noted in `reports_read`, and each one returned as None in `reports_missing`, unless
+        `optional` is true. A read is optional when the flow does not fail for the lack of the
+        file: the lack is then no cause of a failure, and the launcher never names it as one."""
         path = Path(path)
         self.reports_read.append(Path(os.path.abspath(path)))
         if not path.exists():
@@ -1929,6 +1949,8 @@ class Flow(metaclass=ABCMeta):
                 path.absolute(),
                 self.run_path,
             )
+            if not optional:
+                self.reports_missing.append(Path(os.path.abspath(path)))
             return None
         if not self.written_by_this_run(path):
             log.warning(
@@ -1937,6 +1959,8 @@ class Flow(metaclass=ABCMeta):
                 path.absolute(),
                 self.run_path,
             )
+            if not optional:
+                self.reports_missing.append(Path(os.path.abspath(path)))
             return None
         return path
 
@@ -1948,8 +1972,12 @@ class Flow(metaclass=ABCMeta):
         dotall: bool = True,
         required: bool = False,
         sequential: bool = False,
+        optional: bool = False,
     ) -> Optional[dict]:
-        report = self.report_file(reportfile_path)
+        """Return the values that the patterns find in the report, or None without a report.
+
+        `optional` is the argument of `report_file`."""
+        report = self.report_file(reportfile_path, optional=optional)
         if report is None:
             return None
         reportfile_path = report
@@ -2025,8 +2053,16 @@ class FlowDependencyFailure(FlowException):
 class FlowSettingsException(FlowException):
     """The settings of a flow failed validation.
 
-    This is a fatal error: the flow must not run.
+    This is a fatal error: the flow must not run. `code` is the stable code of the refusal
+    (`xeda.errors.SettingsError.code`). A refusal that names no code is an unsupported setting.
     """
+
+    code: str = "unsupported_setting"
+
+    def __init__(self, *args: object, code: str | None = None) -> None:
+        super().__init__(*args)
+        if code is not None:
+            self.code = code
 
 
 class NoReadableSource(FlowSettingsException):
@@ -2053,6 +2089,10 @@ class FlowSettingsError(FlowSettingsException):
         super().__init__(*args)
         self.errors = errors
         self.model = model
+        #: True for the refusal of settings that the flow cannot support
+        #: (`Flow.check_settings_supported`): its findings that name no other kind are
+        #: unsupported settings, not invalid values.
+        self.refuses_support = False
 
     def __str__(self) -> str:
         return "{}: {} error{} validating {}\n{}".format(

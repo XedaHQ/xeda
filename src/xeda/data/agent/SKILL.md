@@ -298,7 +298,7 @@ layer adjustments, `resize.opt_config`, `resize.global_sizing` and `design.dont_
 under `flows.openroad_place` only. Physical settings take units (`clock.period: 0.65 ns`,
 `floorplan.core_margin: 2 um`). `openroad` rejects a negative slack (`fail_timing`), design rule
 violations (`fail_drc`) and antenna violations left after the repair (`fail_antenna`), all on by
-default: `FlowFailed` with `ReportedFailure`, reported again without a tool run until something
+default: `FlowFailed` with `rejected`, reported again without a tool run until something
 changes. A failed stage leaves `<flow>-failed.odb` in its run directory.
 `examples/bluespec/gcd/gcd.yaml` is a working design file for nangate45: its `flows.yosys` section
 sets `platform` and `clock.period`, and `bsc` converts the design first.
@@ -335,7 +335,7 @@ the flow writes them, and:
 | File | Content |
 | --- | --- |
 | `settings.json` | `flow_settings` (the merged input) and `effective_flow_settings` (what the flow made of it; read it first when a run surprises you) |
-| `results.json` | the parsed results; a failed run writes `success: false` and `error.type`/`error.message`; a run that its checks rejected keeps `trace.json`; an unchanged launch reports it again (state `rejected again`); `--rebuild-all` runs it |
+| `results.json` | the parsed results; a failed run writes `success: false` and `error.code`/`error.message`; a run that its checks rejected keeps `trace.json`; an unchanged launch reports it again (state `rejected again`); `--rebuild-all` runs it |
 | `trace.json` | what the run consumed and produced; present after a run that passed or that its checks rejected; a failure that no check rejected leaves none |
 
 ## Rebuilds
@@ -494,8 +494,8 @@ On failure `run` writes a document with `success: false` and `error`, and exits 
 | `DesignNotSpecified` | Pass the design file as the last argument, or `--design-name` for a project. |
 | `ProjectFileError` | Keep one project file with the keys `designs` and `flows`. |
 | `ExecutableNotFound` | Install the tool, or add `-s dockerized=true`. |
-| `FlowFailed` | The requested flow ran and did not succeed. `results.error` has the cause: `NonZeroExitCode` (the tool exited non-zero; read its log in `run_path`), `ReportedFailure` (the tool exited 0 and its reports or checks say it failed), `MissingOutput` (a declared output is missing or was not written by this run). |
-| `FlowDependencyFailure` | A producer failed or its output could not be verified. Read the producer's `results.json`, named in the message. |
+| `FlowFailed` | The requested flow ran and did not succeed. `results.error` has the cause as a stable `error.code` (with `message`, `node`, `exit_status`, `log`): `nonzero_exit` (the tool exited non-zero; read its log in `run_path`), `timeout`, `executable_not_found`, `reported_failure` (the tool exited 0 and its reports or checks say it failed), `storage_error` (a file or directory error of the operating system), `missing_report` (a report the flow reads was not written by this run), `rejected` (the checks judged the results negative), `missing_output` (a declared output is missing or was not written by this run). |
+| `FlowDependencyFailure` | A producer failed or its output could not be verified (`producer_failed` in the node's `results.error`). Read the producer's `results.json`, named in the message. |
 | `RunRootError`, `RunDirectoryError`, `DeliveryError`, `OutputExistsError` | The message names the directory or setting and the fix. |
 | `NoSuccessfulRun` | `xeda dse` found no successful run. Inspect the attempted runs and adjust the search. |
 | `RemoteConnectionError`, `RemoteProvisionError`, `RemoteDependencyError`, `RemoteIncompatible`, `RemoteCanceled`, `RemoteInterrupted`, `RemoteDetached`, `RemoteFetchError`, `RemoteConfigError`, `RemoteProtocolError`, `RemoteError` | A `--remote` run failed outside the flow. The message names the step and the cause; `references/troubleshooting.md` has the fix for each type. |

@@ -50,12 +50,12 @@ from ..dataclass import (
     opaque_key_paths,
     table_entries,
 )
+from ..errors import FlowNotFoundError as PublicFlowNotFoundError
 from ..flow import Flow, FlowSettingsError, registered_flows
 from ..flow.io import declared_inputs
 from ..utils import (
     ConflictingKeys,
     EscapedName,
-    XedaException,
     as_list,
     flows_table_problems,
     hierarchical_merge,
@@ -103,15 +103,17 @@ def host_profile_origin(host: str | None) -> str:
     return f"{HOST_PROFILE_ORIGIN} of {host}" if host else HOST_PROFILE_ORIGIN
 
 
-class FlowNotFoundError(XedaException):
+class FlowNotFoundError(PublicFlowNotFoundError):
+    """The name of a flow is no flow. `suggestions` holds the close names."""
+
     def __init__(self, flow_name: str | None = None, suggestions: Iterable[str] = ()) -> None:
         self.flow_name = flow_name
-        self.suggestions = list(suggestions)
+        close = tuple(suggestions)
         msg = f"Flow '{flow_name}' was not found." if flow_name else "Flow was not found."
-        if self.suggestions:
-            msg += " Did you mean: " + ", ".join(self.suggestions) + "?"
+        if close:
+            msg += " Did you mean: " + ", ".join(close) + "?"
         msg += " Run `xeda list-flows` to see all available flows."
-        super().__init__(msg)
+        super().__init__(msg, code="flow_not_found", name=flow_name or "", suggestions=close)
 
 
 #: Flow names that Xeda refuses, by every normalized spelling (lower case, `-` as `_`) of each
@@ -127,9 +129,13 @@ class FlowRemovedError(FlowNotFoundError):
     """A flow name that Xeda refuses. The message names what to use instead."""
 
     def __init__(self, flow_name: str, replacement: str) -> None:
+        PublicFlowNotFoundError.__init__(
+            self,
+            f"`{flow_name}` was removed: use {replacement}",
+            code="flow_not_found",
+            name=flow_name,
+        )
         self.flow_name = flow_name
-        self.suggestions = []
-        XedaException.__init__(self, f"`{flow_name}` was removed: use {replacement}")
 
 
 def check_not_removed(flow_name: str) -> None:

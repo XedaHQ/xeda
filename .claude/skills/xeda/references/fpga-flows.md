@@ -14,7 +14,7 @@ Vivado. Chains and bindings: `SKILL.md`. Failures: `troubleshooting.md`.
 | `openfpgaloader` | `bitstream` (`fpga_pack`'s, or a typed `Bitstream` source) | nothing; programs the device and always runs |
 
 `nextpnr` always writes its configuration (an ECP5 `out_of_context` run has none); a missing one
-after the tool exits fails the run (`FlowFatalError`, naming the setting and path).
+after the tool exits fails the run (`reported_failure`, naming the setting and path).
 
 ## Xilinx 7-series (openXC7 1.0)
 
@@ -121,7 +121,7 @@ fits the cable. Xeda never uses `--busdev-num`, which works only with libftdi 1.
 
 The flow fails on a nonzero exit and also when
 `openfpgaloader.log` shows the device was not programmed although the loader exited 0
-(`ReportedFailure`, quoting the lines). A load that fails in another way passes: read the log.
+(`reported_failure`, quoting the lines). A load that fails in another way passes: read the log.
 
 ## `vivado_impl`: Vivado implements the yosys netlist
 

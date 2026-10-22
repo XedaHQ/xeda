@@ -242,7 +242,11 @@ def check_launchable(
         )
     flow_cls.check_required_settings(settings, unreached)
     flow_cls.check_design_supported(design, settings)
-    flow_cls.check_settings_supported(settings)
+    try:
+        flow_cls.check_settings_supported(settings)
+    except FlowSettingsError as error:
+        error.refuses_support = True
+        raise
 
 
 def planned_design_of(

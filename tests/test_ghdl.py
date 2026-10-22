@@ -358,7 +358,7 @@ def test_ghdl_time_limit_retains_runtime_diagnostics(tmp_path):
     )
     assert flow is not None and not flow.succeeded
     saved = json.loads((flow.run_path / "results.json").read_text())
-    assert saved["error"]["type"] == "ProcessTimeout"
+    assert saved["error"]["code"] == "timeout"
     assert "0.5" in saved["error"]["message"]
     assert "BEFORE_TIMEOUT" in (flow.run_path / "sim.log").read_text()
 
@@ -381,7 +381,7 @@ def test_ghdl_drained_queue_says_what_to_do_in_results_json(tmp_path):
     )
     assert flow is not None and not flow.succeeded
     error = json.loads((flow.run_path / "results.json").read_text())["error"]
-    assert error["type"] == "ReportedFailure"
+    assert error["code"] == "rejected"
     message = error["message"]
     assert message.startswith("`ghdl_sim` reported failure: ")
     assert "event queue" in message and "std.env.finish" in message and "stop_time" in message
@@ -402,7 +402,7 @@ def test_ghdl_cocotb_time_limit(tmp_path):
         GhdlSim, design, {"timeout": 3}
     )
     assert flow is not None and not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
     assert not (flow.run_path / "sim.log").exists()
 
 

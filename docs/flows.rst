@@ -1396,7 +1396,7 @@ releases and refuses it too.
 
 The run fails when the loader exits with a nonzero status. It also fails when the log shows that
 the device was not programmed, because openFPGALoader 1.1.1 exits with status 0 after several
-failures. The error of the run (``ReportedFailure``) says what happened and quotes the lines of the
+failures. The error of the run (``reported_failure``) says what happened and quotes the lines of the
 log that show it. Xeda looks for these signs:
 
 * DONE stayed low after a load into a Xilinx FPGA. The loader prints a line such as ``ir: 1

@@ -280,7 +280,7 @@ def test_rejected_run_reports_the_rejection(tmp_path, remote_host):
     for _launch in range(2):
         outcome = _request(tmp_path, design)
         assert outcome.error is None and not outcome.success
-        assert outcome.document["results"]["error"]["type"] == "ReportedFailure"
+        assert outcome.document["results"]["error"]["code"] == "rejected"
         assert "timing not met" in outcome.document["results"]["error"]["message"]
         assert not list(Path(outcome.document["mirror"]).rglob("trace.json"))
 
@@ -497,7 +497,7 @@ def test_a_failed_remote_flow_is_a_failed_run(tmp_path, remote_host):
     document = json.loads(result.stdout)
     assert document["success"] is False and document["remote"] == "somewhere"
     assert document["error"]["type"] == "FlowFailed"
-    assert document["results"]["error"]["type"] == "ReportedFailure"
+    assert document["results"]["error"]["code"] == "rejected"
 
 
 def test_an_error_before_the_connection_is_one_json_document(tmp_path, remote_host):

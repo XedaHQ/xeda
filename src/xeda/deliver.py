@@ -112,11 +112,17 @@ class DeliveryError(XedaException):
     `before_run` is true for a refusal made before any tool of the flow of the output ran
     (`Deliveries.check_outputs_to` and `check`). Nothing of that flow has changed, so the launch
     reports the refusal as its own error and not as the failure of a flow.
+
+    `output_problem` is true when the cause is an output of the run that is missing, leads
+    nowhere or changed after the run: a problem with the declared outputs of a flow.
     """
 
-    def __init__(self, *args: object, before_run: bool = False) -> None:
+    def __init__(
+        self, *args: object, before_run: bool = False, output_problem: bool = False
+    ) -> None:
         super().__init__(*args)
         self.before_run = before_run
+        self.output_problem = output_problem
 
 
 class OutputExistsError(DeliveryError):
@@ -664,12 +670,16 @@ def _check_link(delivery: Delivery, source: Path, run_dir: Path) -> None:
     target = Path(os.path.realpath(source))
     what = f"`{delivery.key}` names {delivery.destination}, but {source} is a symbolic link"
     if not target.exists():
-        raise DeliveryError(f"{what} that leads nowhere (to {os.readlink(source)}), or in a cycle")
+        raise DeliveryError(
+            f"{what} that leads nowhere (to {os.readlink(source)}), or in a cycle",
+            output_problem=True,
+        )
     root = Path(os.path.realpath(run_dir))
     if target.is_dir() and not (target == root or target.is_relative_to(root)):
         raise DeliveryError(
             f"{what} to {target}, a directory outside the run directory, which Xeda does not "
-            "copy: name the files to deliver instead"
+            "copy: name the files to deliver instead",
+            output_problem=True,
         )
 
 
@@ -1063,7 +1073,8 @@ class Deliveries:
             if not os.path.lexists(source):
                 raise DeliveryError(
                     f"`{delivery.key}` names {delivery.destination}, but the run wrote no "
-                    f"{delivery.name} in {source_root}"
+                    f"{delivery.name} in {source_root}",
+                    output_problem=True,
                 )
             _check_link(delivery, source, Path(source_root))
             if source.is_dir():
@@ -1293,7 +1304,8 @@ class Deliveries:
             if content_digest(temporary) != sha:
                 raise DeliveryError(
                     f"{source} changed after its run -- did another launch run in "
-                    f"{self.run_path} meanwhile? -- so it is not delivered to {destination}"
+                    f"{self.run_path} meanwhile? -- so it is not delivered to {destination}",
+                    output_problem=True,
                 )
             os.replace(temporary, destination)
             done = True

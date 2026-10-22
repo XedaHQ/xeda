@@ -241,7 +241,7 @@ def test_modelsim_timeout_bounds_the_runtime(tmp_path, monkeypatch):
     monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", "hang")
     flow, _ = _run(tmp_path, monkeypatch, {"timeout": 5})
     assert flow is not None and not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
 
 
 @needs_tclsh

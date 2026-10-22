@@ -78,6 +78,7 @@ __all__ = [
     "settings_to_dict",
     "flows_table_problems",
     "ConflictingKeys",
+    "restore_exception",
     "EscapedName",
     "XedaException",
     "ToolException",
@@ -1227,6 +1228,17 @@ def expand_env_vars(
 
 class XedaException(Exception):
     """The base class of all Xeda exceptions. The command line catches and reports them."""
+
+
+def restore_exception(cls: type[Exception], args: tuple[Any, ...], state: dict[str, Any]) -> Any:
+    """Rebuild an exception that was pickled, without calling its constructor.
+
+    Use it in the `__reduce__` of an exception whose constructor takes keyword-only arguments:
+    `(restore_exception, (type(self), self.args, dict(self.__dict__)))`."""
+    exception = Exception.__new__(cls)
+    Exception.__init__(exception, *args)
+    exception.__dict__.update(state)
+    return exception
 
 
 class ConflictingKeys(XedaException, ValueError):

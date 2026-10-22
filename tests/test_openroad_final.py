@@ -1909,7 +1909,7 @@ def test_a_negative_setup_slack_rejects_the_run_with_the_default_checks(tmp_path
     assert ok is False
     assert flow.rejection is not None
     assert "timing" in flow.rejection and "-0.244411" in flow.rejection
-    assert flow.results["error"]["type"] == "ReportedFailure"
+    assert flow.results["error"]["code"] == "rejected"
     assert flow.rejection in flow.results["error"]["message"]
     assert flow.results["worst_slack"] == -0.244411, "the numbers stay in the results"
 

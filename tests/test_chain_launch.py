@@ -160,7 +160,7 @@ def test_a_bound_producer_s_record_is_checked_at_hand_over(tmp_path, monkeypatch
     with pytest.raises(FlowDependencyFailure):
         runner.run(_Taker, _bound(tmp_path, "changed\n"))
     failure = json.loads((first.run_path / "results.json").read_text())
-    assert failure["success"] is False and failure["error"]["type"] == "FlowDependencyFailure"
+    assert failure["success"] is False and failure["error"]["code"] == "producer_failed"
     assert failure["flow_hash"] == first.flow_hash, "the failure keeps the run's identity"
     assert not (first.run_path / "trace.json").exists()
     assert _probe(tmp_path / "run" / "d" / "__input_maker") == "free"

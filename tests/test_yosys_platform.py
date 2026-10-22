@@ -409,7 +409,7 @@ def test_a_missing_pdk_is_refused_before_yosys_runs(fake_yosys):
     run = fake_yosys / "xeda_run" / "top" / "yosys"
     results = json.loads((run / "results.json").read_text())
     assert results["success"] is False
-    assert results["error"]["type"] == "PdkNotInstalled"
+    assert results["error"]["code"] == "reported_failure"
     assert results["error"]["message"] == message
     assert not (run / "trace.json").exists()
 

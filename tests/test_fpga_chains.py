@@ -798,10 +798,10 @@ def test_an_upstream_output_that_was_never_written_never_reaches_the_programmer(
         "openfpgaloader": "blocked",
     }
     maker = _results(tmp_path, "top", "__asc_maker")
-    assert maker["success"] is False and maker["error"]["type"] == "MissingOutput"
+    assert maker["success"] is False and maker["error"]["code"] == "missing_output"
     assert "did not produce its output `config`" in maker["error"]["message"]
     for consumer in ("fpga_pack", "openfpgaloader"):
-        assert _results(tmp_path, "top", consumer)["error"]["type"] == "FlowDependencyFailure"
+        assert _results(tmp_path, "top", consumer)["error"]["code"] == "producer_failed"
     assert not _every_call(tmp_path), "a tool started"
     _assert_never_programmed(tmp_path, "top")
 
@@ -828,7 +828,7 @@ def test_a_packer_that_makes_no_whole_bitstream_never_reaches_the_programmer(
     published = tmp_path / "xeda_run" / board.design / "fpga_pack" / board.bitstream
     assert not published.exists()
     loader = _results(tmp_path, board.design, "openfpgaloader")
-    assert loader["success"] is False and loader["error"]["type"] == "FlowDependencyFailure"
+    assert loader["success"] is False and loader["error"]["code"] == "producer_failed"
     _assert_never_programmed(tmp_path, board.design)
     # the control: the same root, the same chain, the packer well -- programs, with the fake
     monkeypatch.delenv("XEDA_FAKE_FPGA_TOOL")
@@ -868,12 +868,12 @@ def test_an_upstream_failure_stops_the_chain_before_the_programmer(
     # the stage's own failure is named in its document: a tool's exit status, or the output a
     # tool that exited with zero did not write -- and then the consumers quote it
     expected = {
-        ("yosys_fpga", "fail"): "NonZeroExitCode",
-        ("yosys_fpga", "no-output"): "ReportedFailure",
-        ("nextpnr", "fail"): "NonZeroExitCode",
-        ("nextpnr", "no-output"): "FlowFatalError",
+        ("yosys_fpga", "fail"): "nonzero_exit",
+        ("yosys_fpga", "no-output"): "missing_report",
+        ("nextpnr", "fail"): "nonzero_exit",
+        ("nextpnr", "no-output"): "reported_failure",
     }[stage, mode]
-    assert failed["error"]["type"] == expected and failed["error"]["message"]
+    assert failed["error"]["code"] == expected and failed["error"]["message"]
     quoted = {
         ("yosys_fpga", "fail"): "exited with code 1",
         ("yosys_fpga", "no-output"): "reported failure",
@@ -882,7 +882,7 @@ def test_an_upstream_failure_stops_the_chain_before_the_programmer(
     }
     for name in downstream:
         error = _results(tmp_path, board.design, name)["error"]
-        assert error["type"] == "FlowDependencyFailure", (name, error)
+        assert error["code"] == "producer_failed", (name, error)
         assert f"producer {stage} failed" in error["message"], (name, error)
         assert quoted[stage, mode] in error["message"], (name, error)
     _assert_never_programmed(tmp_path, board.design)

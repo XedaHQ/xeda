@@ -155,8 +155,11 @@ def test_a_rejection_is_the_error_of_the_document(tmp_path, judged_registered):
     document = json.loads((flow.run_path / "results.json").read_text())
     assert document["success"] is False
     assert document["error"] == {
-        "type": "ReportedFailure",
+        "code": "rejected",
         "message": f"`{flow.name}` reported failure: slack is negative",
+        "node": flow.name,
+        "exit_status": None,
+        "log": None,
     }
     assert "outputs" not in document  # a rejected run hands nothing over
 
@@ -177,7 +180,7 @@ def test_a_rejection_with_a_missing_output_keeps_the_rejection_as_its_error(
         _Judged, _design(tmp_path), {"reject": True, "skip_output": True}
     )
     document = json.loads((flow.run_path / "results.json").read_text())
-    assert document["error"]["type"] == "ReportedFailure"
+    assert document["error"]["code"] == "rejected"
     assert "slack is negative" in document["error"]["message"]
 
 
@@ -187,7 +190,7 @@ def test_a_missing_output_is_the_error_of_a_run_that_would_pass(tmp_path, judged
     )
     document = json.loads((flow.run_path / "results.json").read_text())
     assert flow.outcome == "failed"
-    assert document["error"]["type"] == "MissingOutput"
+    assert document["error"]["code"] == "missing_output"
 
 
 def test_a_raising_run_is_failed_not_rejected(tmp_path, judged_registered):
@@ -199,10 +202,10 @@ def test_a_raising_run_is_failed_not_rejected(tmp_path, judged_registered):
 
 def test_a_rejection_keeps_the_error_of_the_tool():
     flow = Flow.__new__(_Judged)
-    flow.__dict__.update(rejection=None, results={"error": {"type": "NonZeroExitCode"}})
+    flow.__dict__.update(rejection=None, results={"error": {"code": "nonzero_exit"}})
     flow.reject("slack is negative")
     assert flow.rejection == "slack is negative"
-    assert flow.results["error"] == {"type": "NonZeroExitCode"}
+    assert flow.results["error"] == {"code": "nonzero_exit"}
 
 
 def test_an_unchanged_launch_reports_the_rejection_again_without_running(
@@ -288,7 +291,7 @@ def test_a_consumer_of_a_rejected_producer_is_blocked_and_handed_nothing(
         assert consumer.name == _NeedsJudged.name and consumer.blocked_by == _Judged.name
         assert consumer.inputs.out is None  # nothing was handed over
         document = json.loads((consumer.run_path / "results.json").read_text())
-        assert document["error"]["type"] == "FlowDependencyFailure"
+        assert document["error"]["code"] == "producer_failed"
         assert not (consumer.run_path / "trace.json").exists()
     producers = [f for f in runner.launched if f.name == _Judged.name]
     assert not producers[0].rejected_again and producers[-1].rejected_again  # the second replayed

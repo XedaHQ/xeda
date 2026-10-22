@@ -192,8 +192,8 @@ def test_hashed_variants_of_one_flow_coexist_and_run_where_they_were_planned(tmp
         ]
         paths.append(flow.run_path)
     assert paths[0] != paths[1] and all(path.is_dir() for path in paths)
-    assert trace["declared_inputs"][0]["binding_origin"] == "file" and trace["format"] == 16
-    assert TRACE_FORMAT == 16
+    assert trace["declared_inputs"][0]["binding_origin"] == "file" and trace["format"] == 17
+    assert TRACE_FORMAT == 17
 
 
 def test_a_tampered_identity_fails_before_execution(tmp_path):

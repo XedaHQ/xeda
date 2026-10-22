@@ -692,7 +692,7 @@ def test_a_generated_file_that_changed_before_the_hand_over_fails_the_flow(
     assert "construct" in events and "init" not in events
     results = results_of(tmp_path, classes[1].name)
     assert results["success"] is False
-    assert results["error"]["type"] == "FlowDependencyFailure"
+    assert results["error"]["code"] == "producer_failed"
 
 
 def test_a_converter_that_fails_fails_the_flow_with_the_reason_it_was_needed(
@@ -716,7 +716,7 @@ def test_a_converter_that_fails_fails_the_flow_with_the_reason_it_was_needed(
     assert [f.name for f in the_runner.launched] == [converter.name, reader.name]
     assert the_runner.launched[-1].blocked_by == converter.name
     results = results_of(tmp_path, reader.name)
-    assert results["success"] is False and results["error"]["type"] == "FlowDependencyFailure"
+    assert results["success"] is False and results["error"]["code"] == "producer_failed"
     assert results["design_hash"] == ""
     assert classes  # both registered for the test only
 
@@ -755,7 +755,7 @@ def test_a_missing_bsc_names_why_it_was_needed(tmp_path, monkeypatch) -> None:
     with pytest.raises(FlowDependencyFailure) as raised:
         the_runner.run_flow("yosys", design)
     text = str(raised.value)
-    assert text.startswith("producer bsc failed: ")
+    assert text.startswith("producer bsc failed (executable_not_found): ")
     assert text.endswith(
         "(bsc converts the design for yosys: the design has Bluespec sources, which yosys does "
         "not read)"

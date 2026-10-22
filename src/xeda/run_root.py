@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
 
-from .utils import XedaException
+from . import errors
 from .version import __version__
 
 log = logging.getLogger(__name__)
@@ -51,8 +51,11 @@ CACHEDIR_TAG = (
 )
 
 
-class RunRootError(XedaException):
+class RunRootError(errors.RunRootError):
     """A directory named as the run root that Xeda cannot take for its own."""
+
+    def __init__(self, message: str, path: Path) -> None:
+        super().__init__(message, code="invalid_run_root", path=path)
 
 
 def is_run_root(path: Path) -> bool:
@@ -116,7 +119,8 @@ def ensure_run_root(
     start = Path.cwd() if start is None else Path(start)
     if root.exists() and not root.is_dir():
         raise RunRootError(
-            f"{root} is not a directory: the run root is the directory Xeda keeps its runs in"
+            f"{root} is not a directory: the run root is the directory Xeda keeps its runs in",
+            root,
         )
     if not root.exists():
         if not create:
@@ -146,5 +150,6 @@ def ensure_run_root(
         f"{root} holds files and is not a run root Xeda created (it has no {RUN_ROOT_MARKER}): "
         "Xeda keeps its runs in a directory of its own. Name a new or empty directory with "
         f"--run-root; if {root} holds nothing but runs of Xeda, delete them, or "
-        f"create {root / RUN_ROOT_MARKER} to hand the directory to Xeda."
+        f"create {root / RUN_ROOT_MARKER} to hand the directory to Xeda.",
+        root,
     )

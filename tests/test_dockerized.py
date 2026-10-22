@@ -282,7 +282,7 @@ def test_modelsim_native_runtime_contract(language, body, settings, passes, work
     if passes:
         assert flow.results["sim.time_unit"] == "1ps"
     if "timeout" in settings:
-        assert flow.results["error"]["type"] == "ProcessTimeout"
+        assert flow.results["error"]["code"] == "timeout"
         assert "XEDA_MODELSIM_RUNTIME_START" in (flow.run_path / "modelsim_process.log").read_text()
     elif "$stop" in body:
         assert flow.results["sim.ended_by"] == "error"

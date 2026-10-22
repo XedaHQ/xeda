@@ -728,9 +728,7 @@ def test_a_search_gets_the_same_outcomes_when_it_replays_the_rejections_of_the_f
         rejected = period < _TimingJudged.MIN_PERIOD
         assert outcome.results.success is (not rejected)
         assert outcome.results["Fmax"] == round(1000.0 / period, 4), "a rejection keeps its Fmax"
-        assert outcome.results.get("error", {}).get("type") == (
-            "ReportedFailure" if rejected else None
-        )
+        assert outcome.results.get("error", {}).get("code") == ("rejected" if rejected else None)
         assert outcome.run_path == before[period].run_path
         assert _as_json(outcome.results) == _as_json(before[period].results)
         assert outcome.settings == before[period].settings

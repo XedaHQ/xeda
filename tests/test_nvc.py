@@ -164,7 +164,7 @@ def test_nvc_time_limit_retains_runtime_diagnostics(tmp_path, one_shot):
         Nvc, design, {"one_shot": one_shot, "timeout": 1}
     )
     assert flow is not None and not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
     assert "BEFORE_TIMEOUT" in (flow.run_path / "sim.log").read_text()
 
 
@@ -277,7 +277,7 @@ def test_nvc_cocotb_time_limit(tmp_path, one_shot):
         Nvc, design, {"timeout": 3, "one_shot": one_shot}
     )
     assert flow is not None and not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
     assert not (flow.run_path / "sim.log").exists()
     assert not (flow.run_path / "nvc_end.cpp").exists()
 
@@ -386,7 +386,7 @@ def test_nvc_plugin_load_failure_is_a_failure(tmp_path):
         {"vhpi": [tmp_path / "missing.so"], "timeout": 5},
     )
     assert flow is not None and not flow.succeeded
-    assert flow.results["error"]["type"] == "NonZeroExitCode"
+    assert flow.results["error"]["code"] == "nonzero_exit"
 
 
 @pytest.mark.parametrize("one_shot", [True, False])

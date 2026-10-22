@@ -18,8 +18,10 @@ from ..deliver import DeliveryError, ReadInputs
 from ..design import Design
 from ..flow import Flow, FlowDependencyFailure
 from ..flow.io import declared_inputs, declared_outputs, selected_types
+from ..records import INTERNAL_ERROR, ErrorInfo
 from ..run_dir import RunDirectoryError
 from .bindings import NodeKey
+from .error_codes import error_info
 from .launch_run import refuse_inputs_inside
 from .outputs import handed_design, handed_entries, handed_over
 from .resolver import Plan, PlanNode
@@ -55,6 +57,23 @@ class ReadLease(Protocol):
     It gives a lease on a completed producer, held until the launch ends."""
 
     def __call__(self, producer: Flow) -> AbstractContextManager[Flow]: ...
+
+
+def recorded_error(flow: Flow) -> ErrorInfo:
+    """Return the error that the run of `flow` recorded, which a consumer quotes.
+
+    A failed run always records one. A document without a valid one is a bug of Xeda, and the
+    consumer says so."""
+    try:
+        return ErrorInfo.from_json(flow.results.get("error"))  # type: ignore[arg-type]
+    except ValueError:
+        return ErrorInfo(
+            code=INTERNAL_ERROR,
+            message=f"`{flow.name}` did not pass and recorded no valid error",
+            node=flow.name,
+            exit_status=None,
+            log=None,
+        )
 
 
 @contextmanager
@@ -136,8 +155,9 @@ def _produced(
         except Exception as error:
             if isinstance(error, DeliveryError) and error.before_run:
                 raise  # refused before the producer's tool ran: not its failure
+            cause = error_info(error, node=producer_node.name)
             raise FlowDependencyFailure(
-                f"producer {producer_node.name} failed: {error}"
+                f"producer {producer_node.name} failed ({cause.code}): {cause.message}"
                 + (
                     f"; see {producer_node.run_path / 'results.json'}"
                     if entered(producer_node.run_path)
@@ -148,8 +168,9 @@ def _produced(
             ) from error
         completed[key] = producer
     if not producer.succeeded:
+        cause = recorded_error(producer)
         raise FlowDependencyFailure(
-            f"producer {producer.name} failed: {producer.results.get('error', '')}; "
+            f"producer {producer.name} failed ({cause.code}): {cause.message}; "
             f"see {producer.run_path / 'results.json'}" + (f" ({note})" if note else ""),
             producer=producer.name,
         )

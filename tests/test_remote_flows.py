@@ -720,7 +720,7 @@ def test_a_failed_declared_run_hands_over_no_partial_output(tmp_path, remote_hos
     outcome = remote_request(tmp_path, design, _PartialMaker.name, outputs_to=tmp_path / "out")
     assert not outcome.success
     results = outcome.document["results"]
-    assert results["error"]["type"] == "MissingOutput"
+    assert results["error"]["code"] == "missing_output"
     assert not results.get("outputs")
     assert not (tmp_path / "out").exists()
 

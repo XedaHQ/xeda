@@ -419,7 +419,7 @@ def _toy_design(root: Path) -> dict[str, Any]:
 def test_a_removed_group_leaf_names_what_replaces_it(toy_flow):
     with pytest.raises(FlowSettingsError) as raised:
         toy_flow.Settings.from_input({"toy": {"old": 1}})
-    assert _messages(raised.value) == ["Value error, `old` was removed: use `toy.value`"]
+    assert _messages(raised.value) == ["`old` was removed: use `toy.value`"]
 
 
 def test_a_removed_group_leaf_given_on_the_command_line_names_what_replaces_it(toy_flow):
