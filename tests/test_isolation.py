@@ -424,9 +424,16 @@ def _relative(raw: object) -> bool:
     return isinstance(raw, (str, bytes, os.PathLike)) and not os.path.isabs(os.fsdecode(raw))
 
 
-def _by_descriptor(event: str, args: tuple) -> bool:
-    """Whether the paths of the event are relative to a directory descriptor."""
-    return any(i < len(args) and args[i] not in (None, -1) for i in _DIR_FD.get(event, ()))
+def _relative_paths(event: str, args: tuple) -> List[object]:
+    """The paths of an event that resolve against the working directory: each path is relative
+    and has no directory descriptor of its own (`_DIR_FD` pairs them in order)."""
+    descriptors = _DIR_FD.get(event, ())
+    found = []
+    for k, i in enumerate(_PATH_EVENTS[event]):
+        fd = args[descriptors[k]] if k < len(descriptors) and descriptors[k] < len(args) else None
+        if fd in (None, -1) and _relative(args[i]):
+            found.append(args[i])
+    return found
 
 
 def _relative_uses(event: str, args: tuple) -> List[str]:
@@ -446,8 +453,10 @@ def _relative_uses(event: str, args: tuple) -> List[str]:
         return [f"relative open {args[0]}"] if _relative(args[0]) and not by_descriptor else []
     if event in _READS_PATH:
         return [f"relative {event} {args[0]}"] if _relative(args[0]) else []
-    if event in _PATH_EVENTS and not _by_descriptor(event, args):
-        return [f"relative {event} {args[i]}" for i in _PATH_EVENTS[event] if _relative(args[i])]
+    if event == "os.fwalk":  # (top, topdown, onerror, follow_symlinks, dir_fd)
+        return [f"relative {event} {args[0]}"] if args[4] is None and _relative(args[0]) else []
+    if event in _PATH_EVENTS:
+        return [f"relative {event} {path}" for path in _relative_paths(event, args)]
     return []
 
 
@@ -581,6 +590,17 @@ def test_the_oracle_sees_every_use_of_the_working_directory(tmp_path):
         except FileNotFoundError:
             pass
         shutil.rmtree("a-directory-that-is-not-there", ignore_errors=True)
+        try:
+            list(os.fwalk("a-directory-that-is-not-there"))
+        except FileNotFoundError:
+            pass
+        descriptor = os.open(world.root, os.O_RDONLY)
+        try:
+            os.link("a-file-that-is-not-there", "linked", dst_dir_fd=descriptor)
+        except FileNotFoundError:
+            pass
+        finally:
+            os.close(descriptor)
         subprocess.run(quiet, cwd=None, check=True)
         subprocess.run(quiet, cwd=".", check=True)
         seen = list(violations)
@@ -596,16 +616,18 @@ def test_the_oracle_sees_every_use_of_the_working_directory(tmp_path):
             os.listdir(descriptor)
         finally:
             os.close(descriptor)
-    assert seen[:6] == [
+    assert seen[:8] == [
         f"os.chdir {here}",
         f"os.chdir {here}",
         f"os.chdir {here}",
         "relative os.listdir .",
         "relative open a-file-that-is-not-there",
         "relative shutil.rmtree a-directory-that-is-not-there",
+        "relative os.fwalk a-directory-that-is-not-there",
+        "relative os.link a-file-that-is-not-there",
     ], seen
-    assert len(seen) == 8, seen
-    assert all(text.startswith("process without an absolute cwd") for text in seen[6:]), seen
+    assert len(seen) == 10, seen
+    assert all(text.startswith("process without an absolute cwd") for text in seen[8:]), seen
     assert not violations, violations
 
 
