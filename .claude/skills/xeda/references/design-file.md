@@ -146,7 +146,7 @@ A setting whose `type` in `xeda list-settings <flow> --json` is a kind (`time`, 
 and one unit, and nothing else (`5 ns * 2` is an error). A bare number is an error. Units are
 case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
 
-| Kind | Units | `settings.json` writes |
+| Kind | Units | Unit of its kind |
 | --- | --- | --- |
 | time | `fs`, `ps`, `ns`, `us`, `µs` (micro sign, U+00B5), `ms`, `s`, `min`, `h` | `ns` |
 | frequency | `Hz`, `kHz`, `MHz`, `GHz` | `MHz` |
@@ -159,8 +159,12 @@ case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
 - Write `clock.period: 2.5 ns` in YAML, `"2.5 ns"` as a string in TOML and JSON, and
   `-s clock.period=2.5ns` on the command line (no space, so no quotes; with a space, quote the
   item).
-- `10 ns`, `10000 ps` and `0.01 us` are one value and one run identity. `settings.json` writes
-  `10 ns` for all three.
+- `10 ns`, `10000 ps` and `0.01 us` are one value and one run identity. Xeda writes a value in
+  the unit of its setting (the `unit` column of `list-settings`), as a plain decimal with no
+  exponent: a setting without a unit of its own uses the unit of its kind (the table), so all three
+  are `10 ns`. The time limits use `s` (`timeout: 2 min` is `120 s` in `settings.json`, in
+  `xeda run --json` and as the default in `list-settings`), and the simulated times and delays use
+  `ns`.
 - Other numbers stay plain: counts, ratios and fractions, percentages (the name ends in
   `_percent`), sizes of data (the description names the unit) and values "in the units of the
   library" (passed to the tool unconverted).

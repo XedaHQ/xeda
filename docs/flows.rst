@@ -329,13 +329,13 @@ Physical quantities and units
 
 A setting that holds a physical measurement takes a number and a unit, such as ``5 ns``. A number
 without a unit is an error. It means nothing: ``5`` can be 5 ns, 5 ps or 5 MHz. Xeda never guesses
-the unit. A few settings do not follow this rule yet. The last part of this section lists them.
+the unit.
 
 Each such setting has a *kind*. The kind is what the setting measures: a time, a frequency, a
 capacitance, a length, a voltage, a resistance or a power. The kind decides which units the setting takes.
 ``clock.period`` is a time, ``clock.freq`` is a frequency, and ``abc.load`` of ``yosys`` is a
 capacitance. ``xeda list-settings <flow>`` shows the kind of a setting in its type column: ``time``
-and not ``string``. The JSON output shows it too (see :ref:`machine-readable-settings`).
+and not ``string``. Its unit column shows the unit that Xeda writes the setting in. The JSON output shows it too (see :ref:`machine-readable-settings`).
 
 Writing a quantity
 ~~~~~~~~~~~~~~~~~~
@@ -379,8 +379,19 @@ Xeda reports the unit as an unexpected extra argument, with a hint.
 Kinds and units
 ~~~~~~~~~~~~~~~
 
-Each kind takes the units of its row in this table. Xeda writes a quantity into ``settings.json``
-in the unit of the last column, whatever unit you wrote: ``10000 ps`` becomes ``10 ns``.
+Each kind takes the units of its row in this table. You can write a quantity in any of them.
+Xeda writes it in the unit of its setting, whatever unit you wrote. That unit is the *unit of the
+setting*. It is in the ``unit`` column of ``xeda list-settings``, and the default of the setting
+is written in it. A setting that does not name a unit of its own uses the unit of the last column
+of the table, the unit of its kind: ``10000 ps`` becomes ``10 ns``. The time limits are written in
+seconds and the simulated times and delays in nanoseconds, so ``timeout: 2 min`` becomes
+``120 s``, and ``stop_time: 1 us`` becomes ``1000 ns``.
+
+The unit of a setting changes how Xeda writes a value, and nothing else. Two spellings of one value
+are one value, and the run identity is the same. Xeda writes the value as a plain decimal, with no
+exponent: ``0.00001 ns``. The places that show a setting use this unit: ``settings.json``, the
+document of ``xeda run --json`` (the settings that you gave, in the unit of each setting), the
+records of the runs, and the messages.
 
 .. list-table::
    :header-rows: 1
