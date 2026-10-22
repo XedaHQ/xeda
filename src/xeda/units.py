@@ -590,7 +590,9 @@ class Quantity:
     @classmethod
     def _validate(cls, value: Any) -> Self:
         if isinstance(value, cls):
-            return value
+            # A field without `Unit` writes in the unit of its kind, whatever unit this value
+            # came with. A `Unit` after this validator gives the unit of its field.
+            return value.with_unit(cls.canonical_unit)
         try:
             return cls._from_magnitude(cls._read(value))
         except QuantityError as e:

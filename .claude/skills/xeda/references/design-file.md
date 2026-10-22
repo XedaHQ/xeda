@@ -162,17 +162,17 @@ case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
 - `10 ns`, `10000 ps` and `0.01 us` are one value and one run identity. Xeda writes a value in
   the unit of its setting (the `unit` column of `list-settings`), as a plain decimal with no
   exponent: a setting without a unit of its own uses the unit of its kind (the table), so all three
-  are `10 ns`. The time limits use `s` (`timeout: 2 min` is `120 s` in `settings.json`, in
-  `xeda run --json` and as the default in `list-settings`), and the simulated times and delays use
-  `ns`.
+  are `10 ns`. The time limits use `s` (`timeout: 2 min` is `120 s` in `settings.json` and in
+  `xeda run --json`; a default shows in the unit too, as `6000 s` for `lic_wait` of `vcs`), and the
+  simulated times and delays use `ns`.
 - Other numbers stay plain: counts, ratios and fractions, percentages (the name ends in
   `_percent`), sizes of data (the description names the unit) and values "in the units of the
   library" (passed to the tool unconverted).
 - Times, frequencies and delays of every flow take a unit, among them `timeout` (`2 min`),
   `stop_time` (`100 us`), `prerun_time`, `time_unit`, `time_resolution` and `lic_wait` of `vcs`,
-  the Vivado and `dc` `default_{max,min}_{input,output}_delay`, `hold_detour_max` of `nextpnr` and
-  `freq` of `openfpgaloader` (`6 MHz`). A bare number is refused (`invalid_quantity`). Only the
-  numbers of `xeda dse` stay plain.
+  the Vivado `default_{max,min}_{input,output}_delay`, the two `max` delays of `dc`,
+  `hold_detour_max` of `nextpnr` and `freq` of `openfpgaloader` (`6 MHz`). A bare number is refused
+  (`invalid_quantity`). Only the numbers of `xeda dse` stay plain.
 
 ## Source files
 

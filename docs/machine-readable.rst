@@ -160,6 +160,7 @@ under the name that you can type as ``-s <name>=<value>``:
         {
           "name": "nthreads",
           "type": "integer",
+          "unit": null,
           "required": false,
           "default": null,
           "description": "Maximum number of threads.",

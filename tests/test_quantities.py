@@ -150,7 +150,7 @@ def test_canonical_text() -> None:
     assert str(Time("10 ns")) == "10 ns"
     assert str(Time("10.0 ns")) == "10 ns"
     assert str(Time("2.5 ns")) == "2.5 ns"
-    assert str(Time("1e-5 ns")) == "1e-05 ns"
+    assert str(Time("1e-5 ns")) == "0.00001 ns"
     assert Time("2.5 ns").as_json_value() == "2.5 ns"
     assert Time("10000 ps").as_json_value() == "10 ns"
     assert repr(Time("10 ns")) == "Time('10 ns')"
@@ -614,7 +614,7 @@ def test_the_dump_keeps_the_object_and_the_json_dump_is_the_canonical_text() -> 
     assert as_json["period"] == "10 ns"
     assert as_json["opt"] == "2.5 ns"
     assert as_json["many"] == ["1000 ns"]
-    assert as_json["named"] == {"k": "1e-05 ns"}
+    assert as_json["named"] == {"k": "0.00001 ns"}
     assert as_json["bounded"] == "1 ns"
     assert as_json["auto"] == "auto"
     assert json.loads(m.model_dump_json()) == as_json

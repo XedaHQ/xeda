@@ -9,7 +9,6 @@ stay as they were.
 import copy
 import json
 import pickle
-from pathlib import Path
 from typing import Annotated, Literal, Optional, Union
 
 import pytest
@@ -26,7 +25,6 @@ from xeda.units import (
     Bounds,
     Frequency,
     Length,
-    Quantity,
     QuantityError,
     Time,
     Unit,
@@ -36,6 +34,9 @@ from xeda.utils import dump_json, json_encodable, semantic_hash
 
 from .test_cli_json_contract import json_stdout, run_xeda
 from . import test_modelsim
+from .test_modelsim import needs_tclsh
+
+pytestmark = pytest.mark.python_compat
 
 # ------------------------------------------------------------------------------ the value
 
@@ -265,6 +266,19 @@ def test_a_validated_value_keeps_its_unit_through_copies_and_pickling():
     assert Toy(**{**shown(toy), "seconds": toy.seconds}).seconds.display_unit == "s"
 
 
+def test_a_field_without_a_unit_writes_in_the_unit_of_its_kind():
+    """A value comes with the display unit of the field it was validated by. Another field
+    does not keep it."""
+    seconds = Toy(seconds="2 min").seconds
+    assert seconds.display_unit == "s"
+    toy = Toy(plain=seconds, nanoseconds=seconds, by_name={"a": seconds})
+    assert str(toy.plain) == "120000000000 ns"
+    assert str(toy.nanoseconds) == "120000000000 ns"
+    assert str(toy.by_name["a"]) == "120000000000000 ps"
+    toy.plain = toy.seconds
+    assert toy.plain.display_unit == "ns" and toy.seconds.display_unit == "s"
+
+
 def test_two_fields_that_get_one_value_each_show_their_own_unit():
     q = Time("1 ns")
     toy = Toy(seconds=q, nanoseconds=q, plain=q, inner={"pause": q})
@@ -321,6 +335,7 @@ def test_the_unit_of_a_flow_setting_changes_no_value_and_no_identity():
     )
 
 
+@needs_tclsh
 def test_a_launch_writes_the_timeout_in_seconds(tmp_path, monkeypatch):
     flow, _ = test_modelsim._run(tmp_path, monkeypatch, {"timeout": "2 min", "stop_time": "1 us"})
     written = json.loads((flow.run_path / "settings.json").read_text())
@@ -355,6 +370,7 @@ def test_the_document_of_a_run_echoes_the_settings_it_got_in_the_unit_of_each_fi
     assert nested == {"clocks": {"main_clock": {"period": "5 ns"}, "c": {"freq": "100 MHz"}}}
 
 
+@needs_tclsh
 def test_a_command_line_launch_shows_the_unit_of_the_field(tmp_path):
     design = tmp_path / "design"
     design.mkdir()
@@ -407,4 +423,3 @@ def test_a_bound_message_shows_both_numbers_in_the_unit_of_the_field():
         GhdlSim.Settings(timeout="-1 s")
     with pytest.raises(Exception, match="must be at least 0 ns, got -1 ns"):
         GhdlSim.Settings(stop_time="-1000 ps")
-    assert issubclass(Quantity, object) and Path

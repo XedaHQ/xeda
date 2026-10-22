@@ -22,6 +22,8 @@ from .settings_samples import flow_classes, minimal_settings
 from .test_physical_quantities import NOT_MIGRATED_YET
 from .tool_utils import require_ghdl, require_nvc
 
+pytestmark = pytest.mark.python_compat
+
 SIMULATORS = [cls for cls, _ in flow_classes() if issubclass(cls, SimFlow)]
 CLOCK = "clk <= not clk after 5 ns;\n"
 
