@@ -50,6 +50,15 @@ NO_CWD_STARTS = (
         for suffix in ("", "e", "p", "pe")
     }
     | {"os.posix_spawn", "os.posix_spawnp"}
+    # Process pools: their workers start in the working directory of the caller.
+    | {
+        "pebble.ProcessPool",
+        "pebble.pool.process.ProcessPool",
+        "concurrent.futures.ProcessPoolExecutor",
+        "multiprocessing.Pool",
+        "multiprocessing.Process",
+        "multiprocessing.pool.Pool",
+    }
 )
 
 #: (module, function) -> why it changes the working directory.
@@ -92,6 +101,8 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
 
 #: (module, function) -> why a process it starts needs no explicit working directory.
 REVIEWED_PROCESS_STARTS: dict[tuple[str, str], str] = {
+    ("flow_runner/dse/dse_runner.py", "Dse.run_flow"): "a pool worker is a process of its own "
+    "that runs launches: it starts where the caller is, where the caller's relative paths point",
     ("flow_runner/trace.py", "_image_id"): "`docker image inspect` names no file",
     ("platforms/providers.py", "_check_ciel"): "`ciel --version` names no file",
     ("platforms/providers.py", "_run"): "an install command names absolute paths only",
@@ -228,6 +239,7 @@ from pathlib import Path
 from pathlib import Path as P
 from subprocess import Popen, run
 from ..proc_utils import run_process
+from pebble.pool.process import ProcessPool
 class C:
     def f(self):
         os.chdir("x")
@@ -250,6 +262,7 @@ class C:
         run_process("true", [])
         os.system("true")
         os.execvp("true", ["true"])
+        ProcessPool(max_workers=2)
     def fine(self):
         subprocess.run(["true"], cwd="/")
         run(["true"], cwd=Path("/"))
@@ -257,4 +270,4 @@ class C:
         cwd()
 """
     seen = Counter(_scan(ast.parse(source), "flow_runner/m.py"))
-    assert seen == Counter({("chdir", "C.f"): 4, ("cwd", "C.g"): 7, ("process", "C.h"): 7}), seen
+    assert seen == Counter({("chdir", "C.f"): 4, ("cwd", "C.g"): 7, ("process", "C.h"): 8}), seen
