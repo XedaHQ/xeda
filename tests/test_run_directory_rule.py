@@ -17,6 +17,7 @@ scrubbed, and scrub says so. The oracles:
 
 import contextlib
 import json
+import logging
 import os
 import sys
 import threading
@@ -76,12 +77,24 @@ def confirmations(monkeypatch):
 
 @pytest.fixture
 def said(monkeypatch):
-    """What scrub says: each `console.print`, as one line."""
+    """What scrub says: each `console.print` of the command, and each record that scrub logs, as
+    one line, in order."""
     lines: list[str] = []
     monkeypatch.setattr(
         console, "print", lambda *args, **kwargs: lines.append(" ".join(map(str, args)))
     )
-    return lines
+
+    class Collect(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            lines.append(record.getMessage())
+
+    logger = logging.getLogger("xeda.flow_runner.scrub")
+    handler, level = Collect(logging.INFO), logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    yield lines
+    logger.removeHandler(handler)
+    logger.setLevel(level)
 
 
 def run_dir(path: Path) -> Path:

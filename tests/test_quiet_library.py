@@ -432,17 +432,10 @@ def test_a_failed_capture_says_the_last_lines_of_its_output() -> None:
     assert "the reason" in str(failed.value) and "more" in str(failed.value)
 
 
-def test_scrub_says_what_it_did_on_the_logger_unless_the_command_line_listens(capfd, caplog):
+def test_scrub_says_what_it_did_on_the_logger(capfd, caplog):
     from xeda.flow_runner import scrub
 
     with caplog.at_level(logging.INFO, logger="xeda.flow_runner.scrub"):
         scrub._say("1 folders removed.")
     assert "1 folders removed." in caplog.text
     assert capfd.readouterr() == ("", "")
-    said: list[tuple[str, str | None]] = []
-    token = scrub.SCRUB_REPORT.set(lambda message, style: said.append((message, style)))
-    try:
-        scrub._say("This will remove", "red")
-    finally:
-        scrub.SCRUB_REPORT.reset(token)
-    assert said == [("This will remove", "red")]

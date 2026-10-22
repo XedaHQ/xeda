@@ -572,6 +572,11 @@ def _prompt_scrub(directories: Sequence[Path]) -> bool:
     is no input to read: the input is at its end, closed or unreadable. The commands ask even when
     stdin is no terminal, so a script can pipe "yes" to them. The question goes to stderr with
     `--json`."""
+    console.print(
+        f"[red]This will remove all of the following {len(directories)} run directories:[/red]"
+    )
+    for directory in directories:
+        console.print(directory)
     try:
         answer = console.input("Type 'yes' if you're sure you want to continue: ")
     except (EOFError, ValueError, OSError):
@@ -1559,6 +1564,8 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
     flow beside it, and says so."""
     if json_flag:
         machine_readable_mode()
+    # Scrub says what it did as records on the logger: the command line shows them.
+    setup_logger(logging.WARNING if (ctx.obj or XedaOptions()).quiet else logging.INFO, False)
 
     def fail(error_type: str, message: str) -> NoReturn:
         if json_flag:
