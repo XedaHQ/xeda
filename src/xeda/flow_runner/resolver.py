@@ -55,7 +55,6 @@ from .chains import (
     fitting_outputs,
     request_text,
 )
-from .code_digest import check_flow_code
 from .related_inputs import Node, check_related_inputs
 from .settings_layers import (
     API_ORIGIN,
@@ -235,9 +234,7 @@ def check_launchable(
 ) -> None:
     """Check final settings and sources without constructing a flow or probing tools.
 
-    `unreached` explains a missing required setting (`Flow.check_required_settings`). A flow
-    class whose code is in no file on disk is refused too (`code_digest.check_flow_code`)."""
-    check_flow_code(flow_cls)
+    `unreached` explains a missing required setting (`Flow.check_required_settings`)."""
     problems = written_path_problems(settings)
     if problems:
         raise FlowSettingsError(

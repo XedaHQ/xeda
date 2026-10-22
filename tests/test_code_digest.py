@@ -388,6 +388,9 @@ def test_an_edit_of_a_helper_of_a_module_makes_the_next_launch_stale(
 # A class without a source file on disk
 
 
+RAN: list[str] = []
+
+
 def _classes_without_a_file(monkeypatch) -> dict[str, type[Flow]]:
     """Flow classes as a notebook, the interactive interpreter and `exec` make them."""
     import linecache
@@ -397,11 +400,15 @@ def _classes_without_a_file(monkeypatch) -> dict[str, type[Flow]]:
         "class {name}(Flow):\n"
         "    '''A flow with no file.'''\n"
         "    results_description = {{}}\n"
+        "    design_source_types = frozenset()\n"
+        "    def run(self):\n"
+        "        RAN.append(self.name)\n"
     )
     classes = {}
     # A notebook cell: a module whose file name is not a file, known to `linecache`.
     cell = ModuleType("notebook_cell")
     cell.__file__ = "<ipython-input-1-0000>"
+    cell.RAN = RAN  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "notebook_cell", cell)
     monkeypatch.setitem(
         linecache.cache, cell.__file__, (1, None, ["x\n"], cell.__file__)  # type: ignore[arg-type]
@@ -410,39 +417,59 @@ def _classes_without_a_file(monkeypatch) -> dict[str, type[Flow]]:
     classes["cell"] = cell.CellToy  # type: ignore[attr-defined]
     # The interactive interpreter: `__main__` has no file.
     main = ModuleType("__main__")
+    main.RAN = RAN  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "__main__", main)
     exec(compile(source.format(name="MainToy"), "<stdin>", "exec"), main.__dict__)
     classes["main"] = main.MainToy  # type: ignore[attr-defined]
     # A class whose module is not in `sys.modules`.
-    namespace: dict = {"__name__": "module_nobody_imported"}
+    namespace: dict = {"__name__": "module_nobody_imported", "RAN": RAN}
     exec(compile(source.format(name="OrphanToy"), "<string>", "exec"), namespace)
     classes["orphan"] = namespace["OrphanToy"]
     return classes
 
 
-def test_a_flow_class_without_a_source_file_is_refused_with_its_name(monkeypatch):
+def test_a_flow_class_without_a_source_file_always_runs_and_has_no_digest(
+    tmp_path, design, monkeypatch
+):
+    """The reason names the class. A launch runs the flow every time, keeps no trace, and never
+    asks for a code digest."""
+    asked = []
+    monkeypatch.setattr(
+        code_digest, "flow_code_digest", lambda cls, snapshots=None: asked.append(cls.name) or ""
+    )
     with preserved_flow_registry():
-        classes = _classes_without_a_file(monkeypatch)
-        for kind, flow_class in classes.items():
-            with pytest.raises(FlowFatalError) as refused:
+        for kind, flow_class in _classes_without_a_file(monkeypatch).items():
+            label = f"{flow_class.__module__}.{flow_class.__qualname__}"
+            reason = flow_class(
+                flow_class.Settings(), design, tmp_path / kind, runner_cwd=tmp_path
+            ).always_runs()
+            assert reason is not None and label in reason, kind
+            assert "no source file on disk" in reason, kind
+            assert "cannot tell whether its code changed" in reason, kind
+            with pytest.raises(FlowFatalError, match="no code digest"):
                 flow_code_digest(flow_class)
-            message = str(refused.value)
-            assert f"{flow_class.__module__}.{flow_class.__qualname__}" in message, kind
-            assert "no source file on disk" in message and "module file" in message, kind
-            with pytest.raises(FlowFatalError):
-                code_digest.check_flow_code(flow_class)
+            for launch in (1, 2):
+                RAN.clear()
+                runner = DefaultRunner(tmp_path / f"run_{kind}", display_results=False)
+                flow = runner.launch_flow(flow_class, design, {})
+                assert flow.succeeded and not flow.reused, (kind, launch)
+                assert RAN == [flow.name], (kind, launch)
+                assert flow.stale_reason == reason, (kind, launch)
+                assert not (flow.run_path / "trace.json").exists(), kind
+    assert asked == []
 
 
-def test_planning_refuses_a_flow_class_without_a_source_file(tmp_path, design, monkeypatch):
-    """The refusal comes at planning, before the run directory is made."""
+def test_a_dry_run_reports_a_flow_class_without_a_source_file_as_always_running(
+    tmp_path, design, monkeypatch
+):
     with preserved_flow_registry():
-        flow_class = _classes_without_a_file(monkeypatch)["cell"]
-        runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-        with pytest.raises(FlowFatalError, match="CellToy"):
-            runner.plan(flow_class, design)
-        with pytest.raises(FlowFatalError, match="CellToy"):
+        for kind, flow_class in _classes_without_a_file(monkeypatch).items():
+            runner = DefaultRunner(tmp_path / f"run_{kind}", display_results=False)
             runner.launch_flow(flow_class, design, {})
-        assert not (tmp_path / "xeda_run").exists() or not any((tmp_path / "xeda_run").iterdir())
+            _, states = runner.plan_with_freshness(flow_class, design)
+            state = states[flow_class.name]
+            assert state.state == "stale", kind
+            assert "no source file on disk" in state.reason, kind
 
 
 # A launch keeps its digests for its length and no longer

@@ -91,6 +91,7 @@ from ..utils import (
 )
 
 from .derived import DesignConversion
+from .source_file import without_source_file
 from .io import (
     DESIGN,
     FlowInputs,
@@ -1556,7 +1557,9 @@ class Flow(metaclass=ABCMeta):
         for mp in mod_paths:
             try:  # TODO better/cleaner way
                 loaderChoices.append(PackageLoader(mp))
-            except ValueError:
+            except (ValueError, ImportError):
+                # no templates directory, or a module that cannot be imported (a class defined by
+                # `exec`, whose module is no module)
                 pass
         env = jinja2.Environment(
             loader=ChoiceLoader(loaderChoices),
@@ -1730,8 +1733,14 @@ class Flow(metaclass=ABCMeta):
         settings ask for a new random seed, or that reads something no trace can verify, returns
         a reason. The launcher then runs the flow every time, keeps no trace of it, and reports
         the reason. It still brings the producers of the flow up to date as usual. The launcher
-        asks this once the `init()` of the flow has run and its producers have completed."""
-        return None
+        asks this once the `init()` of the flow has run and its producers have completed.
+
+        This answers for a flow class that has no source file on disk (defined in a notebook cell,
+        for example): Xeda cannot tell whether its code changed, so it computes no code digest for
+        it. Every override calls this method."""
+        return without_source_file(
+            cls for cls in type(self).__mro__ if isinstance(cls, type) and issubclass(cls, Flow)
+        )
 
     @abstractmethod
     def run(self) -> None:

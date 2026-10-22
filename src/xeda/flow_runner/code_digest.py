@@ -33,12 +33,15 @@ The root of the code of a Flow class that is not part of Xeda is:
 
 An import that the source does not show (`importlib.import_module(name)`) is not found. Put such
 a module in a package.
+
+A Flow class without a source file on disk (defined in a notebook cell, in the interactive
+interpreter or by `exec`) has no digest. `Flow.always_runs` returns a reason for it, so Xeda runs
+it every time and computes no digest for it.
 """
 
 from __future__ import annotations
 
 import ast
-import inspect
 import time
 from collections.abc import Iterable
 from functools import lru_cache
@@ -47,6 +50,7 @@ from typing import Type
 
 from ..digest import FileRecord, content_pairs, digest_pairs, package_files, record_file
 from ..flow import Flow, FlowFatalError
+from ..flow.source_file import class_label, find_source_file
 
 #: The directory of the installed xeda package.
 XEDA_PACKAGE = Path(__file__).resolve().parent.parent
@@ -111,24 +115,16 @@ def xeda_code_digest() -> str:
 def _source_file(cls: type) -> Path:
     """Return the file that defines `cls`.
 
-    Raise `FlowFatalError` if there is none on disk: a class defined in a notebook cell, in the
-    interactive interpreter or with `exec`, or one that comes from an archive."""
-    name = f"{cls.__module__}.{cls.__qualname__}"
-    try:
-        source = inspect.getsourcefile(cls)
-    except (OSError, TypeError):
-        source = None
-    if source is None:
-        why = f"Python knows no file for its module {cls.__module__}"
-    elif Path(source).is_file():
-        return Path(source).resolve()
-    else:
-        why = f"{source} is not a file"
-    raise FlowFatalError(
-        f"The flow class {name} has no source file on disk ({why}), so Xeda cannot tell when its "
-        f"code changes and cannot reuse its runs safely. Define the flow class in a module file "
-        f"(.py), and import it from there."
-    )
+    A launch asks for the digest of a flow class only when `Flow.always_runs` found a source file
+    for every class of it. So this raises `FlowFatalError` only for a direct call with a class
+    that has none."""
+    file, why = find_source_file(cls)
+    if file is None:
+        raise FlowFatalError(
+            f"The flow class {class_label(cls)} has no source file on disk ({why}), so it has no "
+            "code digest."
+        )
+    return file
 
 
 def plugin_classes(flow_class: Type[Flow]) -> list[type]:
@@ -142,13 +138,6 @@ def plugin_classes(flow_class: Type[Flow]) -> list[type]:
         and issubclass(cls, Flow)
         and not _source_file(cls).is_relative_to(XEDA_PACKAGE)
     ]
-
-
-def check_flow_code(flow_class: Type[Flow]) -> None:
-    """Refuse a flow class whose code cannot be found on disk, naming the class and the reason.
-
-    This is pure. The planning calls it, so the refusal comes before any run."""
-    plugin_classes(flow_class)
 
 
 def _package_root(module_file: Path) -> Path | None:
@@ -258,7 +247,8 @@ def flow_code_digest(flow_class: Type[Flow], snapshots: Snapshots | None = None)
 
     The code of a class is found as the module docstring says. The digest is "" when the xeda
     package defines all the Flow classes of the MRO: `xeda_code_digest` covers that case. It
-    raises `FlowFatalError` if the code of a class cannot be found (`check_flow_code`).
+    raises `FlowFatalError` for a class that has no source file on disk (`Flow.always_runs` runs such a
+    flow every time, so a launch never asks for its digest).
 
     `snapshots` holds what was read of each code root before, and gets what this reads. Two
     classes of one tree then see the same files."""

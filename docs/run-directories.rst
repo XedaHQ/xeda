@@ -230,8 +230,8 @@ A flow is stale, and runs again, in any of these cases:
 - There is no completed previous run: none yet, or the last one failed without a rejection by its
   checks (a tool error, a crash, a kill, a missing report). A failure that no check rejected keeps
   no trace.
-- The flow always runs. It programs a device, draws a new random seed, or reads pin constraints
-  fetched from a URL (see `Flows that always run`_).
+- The flow always runs. It programs a device, draws a new random seed, reads pin constraints
+  fetched from a URL, or has a class without a source file (see `Flows that always run`_).
 - Its settings changed (the reason names which ones), or a path that a setting names now points
   elsewhere, from another start directory or for another design tree.
 - Xeda changed: its version, or any file of the installed package (code, templates, bundled data).
@@ -415,6 +415,9 @@ Some runs can never be reused. These flows always run, keep no trace and report 
 - ``openfpgaloader`` has the reason "it programs a device", which changes the outside world. The
   stages that build its bitstream (``yosys_fpga``, ``nextpnr`` and ``fpga_pack``) are ordinary
   nodes, and Xeda reuses them when nothing changed.
+- A flow whose class has no source file on disk, such as one defined in a notebook cell, has the
+  reason "its class ... has no source file on disk ..., so Xeda cannot tell whether its code
+  changed".
 - A flow that is asked for a fresh random seed has the reason "it draws a new random seed". Every
   seed is a setting with a fixed default, so equal inputs give equal outputs. The random
   initialization of Verilator is off unless ``random_init`` is set, and then it uses ``random_seed``
@@ -531,9 +534,10 @@ way. The root of the code is:
   code imports it, and the other files of the directory do not. A module that the code imports
   with ``importlib.import_module`` is not found: put the code in a package.
 
-A flow class must be defined in a module file. A class that has no file on disk, for example one
-defined in a notebook cell or in the interactive interpreter, cannot be launched: Xeda refuses it
-at planning, names the class and asks you to define it in a ``.py`` file.
+A flow class that has no source file on disk cannot be checked this way. An example is a class
+defined in a notebook cell or in the interactive interpreter. Such a flow always runs (see `Flows
+that always run`_), and Xeda computes no code digest for it. To reuse its runs, define the class in
+a ``.py`` file.
 
 What is not tracked
 ---------------------
