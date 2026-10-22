@@ -385,9 +385,8 @@ class GhdlSynth(Ghdl, SynthFlow):
             conventional = ss.conventional_output("verilog_output", design.name)
             assert conventional is not None  # the field is a deliverable with a conventional name
             ss.verilog_output = Path(conventional)
-        per_source = ss.verilog_output.is_dir() or (
-            not ss.verilog_output.exists() and ss.verilog_output.suffix not in {".v", ".sv"}
-        )
+        output = self.run_file(ss.verilog_output)
+        per_source = output.is_dir() or (not output.exists() and output.suffix not in {".v", ".sv"})
         # `ghdl synth` elaborates by itself, so the sources are only analyzed here: `ghdl make`
         # would also build a simulation executable, and on the LLVM/GCC backends it rejects two
         # sources sharing a base name (`rtl/a/fifo.vhd`, `rtl/b/fifo.vhd` are "both compiled to
@@ -399,7 +398,7 @@ class GhdlSynth(Ghdl, SynthFlow):
             # Decide every output name before synthesizing anything. A collision then fails the
             # run before any output is written.
             outputs = self._per_source_outputs(ss.verilog_output)
-            ss.verilog_output.mkdir(parents=True, exist_ok=True)
+            output.mkdir(parents=True, exist_ok=True)
             fixed_params = "\n".join(
                 [f"  parameter {k} = {v};" for k, v in design.rtl.generics.items()]
             )
@@ -408,18 +407,18 @@ class GhdlSynth(Ghdl, SynthFlow):
                 if not verilog:
                     raise FlowException(f"ghdl synthesis of {src.path} failed!")
                 verilog = verilog.replace(");", f");\n{fixed_params}", 1)
-                self.run_directory.writable(out_file)
-                if out_file.exists():
+                out_path = self.run_directory.writable(out_file)
+                if out_path.exists():
                     log.warning("File %s will be overwritten!", out_file)
                 else:
                     log.info("Generating verilog: %s", out_file)
-                with replacing_file(out_file) as f:
+                with replacing_file(out_path) as f:
                     f.write(verilog)
             self.artifacts.generated_verilog = list(outputs)
         else:
             if not top:
                 raise FlowException("Unable to determine the top unit")
-            ss.verilog_output.parent.mkdir(parents=True, exist_ok=True)
+            output.parent.mkdir(parents=True, exist_ok=True)
             self.run_directory.writable(ss.verilog_output)
             log.info("Generating verilog: %s", ss.verilog_output)
             self.ghdl.run("synth", *flags, *top, stdout=ss.verilog_output)
@@ -721,7 +720,7 @@ class GhdlSim(Ghdl, SimFlow):
                 log.warning("Deleted the existing wave option file %s", removed)
         run_flags += setting_flag(ss.write_wave_opt, name="write_wave_opt")
         if ss.read_wave_opt:
-            if not Path(ss.read_wave_opt).exists():  # TODO move to validation
+            if not self.run_file(ss.read_wave_opt).exists():  # TODO move to validation
                 raise FlowSettingsError(
                     [
                         (

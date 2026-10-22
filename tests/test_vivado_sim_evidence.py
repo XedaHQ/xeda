@@ -63,15 +63,16 @@ def materialize_builds(monkeypatch):
         if Path(executable).name == "vivado" and "-source" in words:
             script = Path(words[words.index("-source") + 1])
             if script.name != "vivado_sim.tcl":
-                for command in fake_calls(Path.cwd(), elements=True):
+                run_path = tool.working_directory()
+                for command in fake_calls(run_path, elements=True):
                     if command[0] in ("write_verilog", "write_sdf", "write_checkpoint"):
-                        path = Path(command[-1])
+                        path = run_path / command[-1]
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_text("module top(input a, output y); assign y=~a; endmodule\n")
                     if command[0] == "report_power" and not os.environ.get(
                         "XEDA_FAKE_POWER_NO_OUTPUT"
                     ):
-                        path = Path(command[command.index("-file") + 1])
+                        path = run_path / command[command.index("-file") + 1]
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_text(
                             '<report><section title="Summary"><table><tablerow><tablecell contents="Total On-Chip Power (W)"/><tablecell contents="0.5"/></tablerow></table></section></report>'
@@ -299,7 +300,7 @@ def test_vivado_malformed_or_contradictory_checkpoint_fails(tmp_path, monkeypatc
 
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
-        path = Path.cwd() / "xsim_runtime.log"
+        path = tool.working_directory() / "xsim_runtime.log"
         if path.is_file():
             path.write_text(
                 path.read_text().replace("XEDA_XSIM_CHECKPOINT=main|5000000 fs|1 ps", replacement)

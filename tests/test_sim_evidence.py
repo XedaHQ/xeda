@@ -469,7 +469,6 @@ def test_verilator_never_takes_a_previous_runs_end_record(tmp_path, monkeypatch)
     for age in ("this run's", "a previous run's"):
         run_dir = tmp_path / age.replace(" ", "_").replace("'", "")
         run_dir.mkdir()
-        monkeypatch.chdir(run_dir)
         flow = Verilator({}, design, run_dir)
         assert flow.has_evidence_adapter()
         record = run_dir / flow.settings.sim_dir / "xeda_end.json"
@@ -730,7 +729,6 @@ def test_cocotb_keeps_priority_over_hdl_evidence(flow_name, content, passes, tmp
     from xeda.flow_runner import get_flow_class
     from .settings_samples import minimal_settings
 
-    monkeypatch.chdir(tmp_path)
     cls = get_flow_class(flow_name)
     root = tmp_path / "design"
     design = Design(

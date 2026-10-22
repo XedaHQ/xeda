@@ -1026,7 +1026,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             verilog_libs=self.verilog_libraries_to_read(libraries),
             synth_pass_only=ss.synth_pass_only,
         )
-        log.info("Yosys script: %s", script_path.absolute())
+        log.info("Yosys script: %s", self.run_file(script_path))
         args = [self.script_flag, script_path]
         if ss.log_file:
             log.info("Logging yosys output to %s", ss.log_file)

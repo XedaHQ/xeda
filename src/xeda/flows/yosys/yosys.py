@@ -975,7 +975,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             asic=asic,
             dont_use=self.dont_use_cells(),
         )
-        log.info("Yosys script: %s", script_path.absolute())
+        log.info("Yosys script: %s", self.run_file(script_path))
         args = [self.script_flag, script_path]
         if ss.log_file:
             log.info("Logging yosys output to %s", ss.log_file)

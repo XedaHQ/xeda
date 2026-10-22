@@ -503,7 +503,7 @@ class Vcs(SimFlow):
             )
         if ss.to_vcd:
             if ss.fsdb:
-                if not ss.fsdb.exists():
+                if not self.run_file(ss.fsdb).exists():
                     log.error(f"FSDB file {ss.fsdb} does not exist")
                 else:
                     fsdb2vcd_args = [
@@ -514,7 +514,7 @@ class Vcs(SimFlow):
                         ss.fsdb, *fsdb2vcd_args, "-o", ss.fsdb.with_suffix(".vcd"), check=True
                     )
             if ss.vpd:
-                if not ss.vpd.exists():
+                if not self.run_file(ss.vpd).exists():
                     log.error(f"VPD file {ss.vpd} does not exist")
                 else:
                     vpd2vcd_args = [

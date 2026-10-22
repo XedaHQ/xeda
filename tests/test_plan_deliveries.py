@@ -59,8 +59,8 @@ class _ReadsDir(Flow):
         self.outputs.a = path
         if self.settings.copy is not None:
             copy = Path(self.settings.copy)
-            copy.parent.mkdir(parents=True, exist_ok=True)
-            copy.write_text("a\n")
+            self.run_file(copy).parent.mkdir(parents=True, exist_ok=True)
+            self.run_file(copy).write_text("a\n")
             self.artifacts["copy"] = str(copy)
         for action in DURING_RUN:
             action()
@@ -86,8 +86,8 @@ class _Delivers(Flow):
         RUNS.append(self.name)
         assert self.settings.netlist is not None
         netlist = Path(self.settings.netlist)
-        netlist.parent.mkdir(parents=True, exist_ok=True)
-        netlist.write_text("net\n")
+        self.run_file(netlist).parent.mkdir(parents=True, exist_ok=True)
+        self.run_file(netlist).write_text("net\n")
         self.outputs.b = netlist
 
 
@@ -111,8 +111,8 @@ class _Both(Flow):
         RUNS.append(self.name)
         if self.settings.report is not None:
             report = Path(self.settings.report)
-            report.parent.mkdir(parents=True, exist_ok=True)
-            report.write_text("report\n")
+            self.run_file(report).parent.mkdir(parents=True, exist_ok=True)
+            self.run_file(report).write_text("report\n")
             self.artifacts["report"] = str(report)
 
 

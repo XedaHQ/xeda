@@ -430,7 +430,14 @@ def test_ghdl_evidence_uses_runtime_only_and_copies_flags(tmp_path, monkeypatch,
         if args[0] == "run":
             assert self.redirect_stdout is None
         text = "" if args[0] == "run" else "simulation finished @5ns\n"
-        return run_process(sys.executable, ["-c", f"print({text!r})"], tee=kwargs.get("tee"))
+        here = self.working_directory()
+        tee = kwargs.get("tee")
+        return run_process(
+            sys.executable,
+            ["-c", f"print({text!r})"],
+            tee=None if tee is None else here / tee,
+            cwd=here,
+        )
 
     monkeypatch.setattr(GhdlTool, "run", run)
     monkeypatch.setattr(

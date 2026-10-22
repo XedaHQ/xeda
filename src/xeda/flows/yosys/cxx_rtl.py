@@ -146,7 +146,7 @@ class YosysSim(YosysBase, SimFlow):
         yosys = self.yosys
         cxxrtl_filename = ss.cxxrtl.filename or f"{self.design.rtl.top or self.design.name}.cpp"
         cxxrtl_cpp = Path(cxxrtl_filename)
-        cxxrtl_cpp.parent.mkdir(parents=True, exist_ok=True)
+        self.run_file(cxxrtl_cpp).parent.mkdir(parents=True, exist_ok=True)
         simulation_top = self.design.sim_tops[0] if self.design.sim_tops else self.design.rtl.top
         ghdl_top = (
             simulation_top
@@ -211,7 +211,7 @@ class YosysSim(YosysBase, SimFlow):
         cxx_args += ["-include", monitor_header, monitor]
         cxx.run(*cxx_args)
         self.artifacts["simulator"] = sim_bin_file
-        sim_bin = yosys.derive(executable=str(Path.cwd() / sim_bin_file), redirect_stdout=None)
+        sim_bin = yosys.derive(executable=str(self.run_file(sim_bin_file)), redirect_stdout=None)
         self._driver_exit_code = None
         self._end_record = Path("cxxrtl_end.json")
         self._events_record = Path("cxxrtl_events.jsonl")

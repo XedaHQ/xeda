@@ -76,7 +76,6 @@ REVIEWED_CHDIRS: dict[tuple[str, str], str] = {
 REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
     ("agent_skill.py", "default_skill_dir"): "a command's default target directory",
     ("cli.py", "run"): "the default run root of a command",
-    ("cocotb.py", "Cocotb.pycache_prefix"): "a cocotb runner outside a run directory",
     ("design.py", "design_relative_root"): "a design file or resource given outside a design load",
     (
         "flow_runner/default_runner.py",
@@ -88,7 +87,6 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
     ("flow_runner/default_runner.py", "FlowLauncher._validate_plan"): "relative setting paths",
     ("flow_runner/default_runner.py", "FlowLauncher.plan_with_freshness"): "relative setting paths",
     ("flow_runner/default_runner.py", "FlowLauncher.resolve"): "relative setting paths",
-    ("flows/yosys/cxx_rtl.py", "YosysSim.run"): "the launch still enters the run directory",
     ("remote/client.py", "_run"): "the default run root of a command",
     ("remote/packaging.py", "package_inputs"): "relative setting paths",
     ("remote/packaging.py", "package_inputs.packaged_liberty"): "relative setting paths",

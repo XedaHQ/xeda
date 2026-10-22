@@ -189,7 +189,7 @@ def test_vcs_suppressed_checkpoint_fails_the_actual_launch(tmp_path, monkeypatch
     def run(tool, *args, **kwargs):
         result = original(tool, *args, **kwargs)
         if tool.executable == "./simv" or tool.executable == "vcs" and "-R" in args:
-            path = Path("vcs_runtime.log")
+            path = tool.working_directory() / "vcs_runtime.log"
             path.write_text(path.read_text().replace("XEDA_VCS_RUNTIME_END", "SUPPRESSED"))
         return result
 
@@ -220,7 +220,7 @@ def test_vcs_linked_runtime_log_does_not_overwrite_outside_data(tmp_path, monkey
     def run(tool, *args, **kwargs):
         result = original(tool, *args, **kwargs)
         if tool.executable == "vlogan":
-            Path("vcs_runtime.log").symlink_to(outside)
+            (tool.working_directory() / "vcs_runtime.log").symlink_to(outside)
         return result
 
     monkeypatch.setattr(Tool, "run", run)

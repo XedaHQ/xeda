@@ -105,14 +105,14 @@ class _Deliverer(Flow):
         RUNS.append(self.name)
         assert self.settings.netlist is not None
         netlist = Path(self.settings.netlist)
-        netlist.parent.mkdir(parents=True, exist_ok=True)
-        netlist.write_text(self.settings.text)
+        self.run_file(netlist).parent.mkdir(parents=True, exist_ok=True)
+        self.run_file(netlist).write_text(self.settings.text)
         self.artifacts["netlist"] = str(netlist)
         self.outputs.netlist = netlist
         if self.settings.report is not None:
             report = Path(self.settings.report)
-            report.parent.mkdir(parents=True, exist_ok=True)
-            report.write_text(self.settings.text)
+            self.run_file(report).parent.mkdir(parents=True, exist_ok=True)
+            self.run_file(report).write_text(self.settings.text)
             self.artifacts["report"] = str(report)
         for action in DURING_RUN:
             action()

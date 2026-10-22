@@ -86,7 +86,7 @@ class _RunsTool(Flow):
     results_description: ClassVar[dict[str, str]] = {}
 
     def run(self) -> None:
-        run_process("probe-tool", [], stdout=True)
+        run_process("probe-tool", [], stdout=True, cwd=self.run_path)
 
 
 def test_a_program_edited_with_its_size_and_mtime_put_back_makes_the_run_stale(

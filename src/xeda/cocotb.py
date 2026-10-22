@@ -420,8 +420,7 @@ class Cocotb(CocotbSettings, Tool):
         By default Python writes a module's cache into a `__pycache__` beside it. The testbench is
         imported from the design's directory (`PYTHONPATH` in `env`; pytest's assertion rewriting
         compiles it), so without this prefix every cocotb run would write into the user's tree."""
-        run_dir = self._run_directory.path if self._run_directory is not None else Path.cwd()
-        return run_dir / "__pycache__"
+        return self.working_directory() / "__pycache__"
 
     def env(self, design: Design) -> Dict[str, Any]:
         """Return the environment a simulator needs to run the design's cocotb testbench.
@@ -500,7 +499,7 @@ class Cocotb(CocotbSettings, Tool):
 
     @cached_property
     def results(self) -> Optional[TestResults]:
-        results_xml = Path(self.results_xml)
+        results_xml = self.working_directory() / self.results_xml
         if not results_xml.exists():
             return None
         return TestResults.parse_results(results_xml)
@@ -515,7 +514,7 @@ class Cocotb(CocotbSettings, Tool):
 
         `results_file` is the results file to read. A flow passes the one its run wrote
         (`Flow.report_file`), or None if there is none. By default it is `results_xml` in the
-        current directory, whoever wrote it."""
+        working directory of the tool (the run directory of its flow), whoever wrote it."""
         flow_results["success"] = False
         try:
             if results_file == "current directory":
@@ -525,7 +524,11 @@ class Cocotb(CocotbSettings, Tool):
             else:
                 results = TestResults.parse_results(results_file)
         except (OSError, ElementTree.ParseError, UnicodeError, ValueError) as exc:
-            where = self.results_xml if results_file == "current directory" else results_file
+            where = (
+                self.working_directory() / self.results_xml
+                if results_file == "current directory"
+                else results_file
+            )
             log.error("Could not read cocotb test results from %s: %s", where, exc)
             return False
         if results is not None:

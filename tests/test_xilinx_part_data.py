@@ -28,7 +28,6 @@ PART_JSON = '{"idcode": "0x3651093"}\n'
 @pytest.fixture
 def toolchain(tmp_path, monkeypatch):
     prefix = tool_utils.use_fake_fpga_tools(monkeypatch, tmp_path / "toolchain")
-    monkeypatch.chdir(tmp_path)
     return prefix
 
 

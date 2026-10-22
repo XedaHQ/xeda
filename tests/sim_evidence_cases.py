@@ -25,6 +25,11 @@ from .tool_utils import fake_calls, use_fake_tools
 from .tool_utils import HANG_GUARD
 
 
+def _placed(directory: Path, path):
+    """Return `path`, a file of the tool, in full: a relative one is relative to `directory`."""
+    return None if path is None else directory / path
+
+
 @dataclass(frozen=True)
 class SimCase:
     flow: str
@@ -124,21 +129,21 @@ def launch_case(
     def execute(tool, executable, *args, **kwargs):
         words = [str(a) for a in args]
         name = Path(executable).name
-        cwd = Path.cwd()
+        cwd = tool.working_directory()
         calls.append((executable, words))
         if name == "vivado" and "-source" in words:
-            script = Path(words[words.index("-source") + 1])
+            script = cwd / words[words.index("-source") + 1]
             if script.name != "vivado_sim.tcl":
                 result = original(tool, executable, *args, **kwargs)
                 # The existing Tcl fake records output commands but does not materialize
                 # their netlists/checkpoints. Supply exactly what this successful build wrote.
                 for command in fake_calls(cwd, elements=True):
                     if command[0] in ("write_verilog", "write_sdf", "write_checkpoint"):
-                        target = Path(command[-1])
+                        target = cwd / command[-1]
                         target.parent.mkdir(parents=True, exist_ok=True)
                         target.write_text("module tb; endmodule\n")
                     if command[0] == "report_power":
-                        target = Path(command[command.index("-file") + 1])
+                        target = cwd / command[command.index("-file") + 1]
                         target.parent.mkdir(parents=True, exist_ok=True)
                         target.write_text(
                             '<report><section title="Summary"><table><tablerow>'
@@ -160,15 +165,16 @@ def launch_case(
             (cwd / "oracle.runtime").unlink(missing_ok=True)
         if case.backend in ("verilator", "iverilog") and (name == "mkTop" or name == "vvp"):
             if name == "vvp":
-                assert "-m" in words and Path(words[words.index("-m") + 1]).is_file()
+                assert "-m" in words and (cwd / words[words.index("-m") + 1]).is_file()
                 binary = next(w for w in words if Path(w).name == "mkTop")
                 return run_process(
                     sys.executable,
-                    [binary],
+                    [str(cwd / binary)],
                     env=kwargs.get("env"),
-                    tee=kwargs.get("tee"),
+                    tee=_placed(cwd, kwargs.get("tee")),
                     timeout=10,
                     merge_stderr=True,
+                    cwd=cwd,
                 )
             return original(tool, executable, *args, **kwargs)
         if case.flow == "vcs" and name in ("vlogan", "vhdlan", "vcs", "simv"):
@@ -181,8 +187,8 @@ def launch_case(
                 (cwd / "oracle.build").write_text("analysis/elaboration succeeded")
             return result
         if case.backend in ("vcs", "vcsi") and Path(executable).parent.name == "sim_build":
-            Path(executable).unlink(missing_ok=True)
-            Path(executable).symlink_to(FAKE.resolve())
+            (cwd / executable).unlink(missing_ok=True)
+            (cwd / executable).symlink_to(FAKE.resolve())
             monkeypatch.setenv("XEDA_FAKE_VCS_STATE", "finish5" if positive else "silent")
             return use_fake_vcs_execute(original, tool, executable, args, kwargs)
         if (case.flow == "modelsim" or case.backend in ("modelsim", "questa")) and name == "vsim":
@@ -192,9 +198,9 @@ def launch_case(
             (cwd / "oracle.runtime").write_text("runtime executed")
             return result
         if case.backend == "xsim" and name == "xsim":
-            script = Path(words[words.index("-tclbatch") + 1])
+            script = cwd / words[words.index("-tclbatch") + 1]
             (cwd / "fake_xsim.args.json").write_text(json.dumps(words))
-            log_path = Path(words[words.index("-log") + 1])
+            log_path = cwd / words[words.index("-log") + 1]
             if "+proof" in (settings_overrides or {}).get("sim_args", []):
                 assert "+proof" in words
             model = cwd / "fake_xsim_runner.tcl"
@@ -255,21 +261,22 @@ def launch_case(
             return run_process(
                 sys.executable,
                 ["-c", program],
-                tee=kwargs.get("tee"),
+                tee=_placed(cwd, kwargs.get("tee")),
                 timeout=10,
                 merge_stderr=True,
+                cwd=cwd,
             )
         (cwd / "oracle.build").write_text("analysis/elaboration succeeded\n")
         if name == "yosys-config":
             return str(work / "include")
         if name == "bsc" and "-o" in words and case.backend in ("verilator", "iverilog"):
-            target = Path(words[words.index("-o") + 1])
+            target = cwd / words[words.index("-o") + 1]
             if case.backend == "verilator":
                 from xeda.flows.verilator import HOOK_MACROS
 
                 assert all("-D" + macro in words for macro in HOOK_MACROS)
                 assert "-Xl" in words
-                assert Path(words[words.index("-Xl") + 1]).is_file()
+                assert (cwd / words[words.index("-Xl") + 1]).is_file()
             program = "#!" + sys.executable + "\nimport json, os\nfrom pathlib import Path\n"
             program += "Path('oracle.runtime').write_text('runtime executed')\n"
             if case.backend == "verilator":
@@ -295,8 +302,8 @@ def launch_case(
             if case.flow == "yosys_sim":
                 assert "cxxrtl_evidence.cpp" in words
                 assert "-include" in words and "cxxrtl_evidence.h" in words
-                assert Path("cxxrtl_evidence.cpp").is_file()
-            target = Path(words[words.index("-o") + 1])
+                assert (cwd / "cxxrtl_evidence.cpp").is_file()
+            target = cwd / words[words.index("-o") + 1]
             target.parent.mkdir(parents=True, exist_ok=True)
             # A preceding fake runtime linked this build output to its shared executable.
             # Rebuild the output itself, never overwrite the fixture through that link.
@@ -328,18 +335,20 @@ def launch_case(
 def use_fake_vcs_execute(original, tool, executable, args, kwargs):
     """Route bsc's linked VCS image through the same executable UCLI stand-in as VCSFlow."""
     fake = FAKE
-    target = Path.cwd() / (Path(executable).name + ".py")
+    cwd = tool.working_directory()
+    target = cwd / (Path(executable).name + ".py")
     if not target.exists():
         target.symlink_to(fake.resolve())
     result = run_process(
         sys.executable,
         [str(target), *args],
         env={**os.environ, **(kwargs.get("env") or {})},
-        tee=kwargs.get("tee"),
+        tee=_placed(cwd, kwargs.get("tee")),
         timeout=kwargs.get("timeout"),
         merge_stderr=kwargs.get("merge_stderr", False),
+        cwd=cwd,
     )
-    Path("oracle.runtime").write_text("runtime executed")
+    (cwd / "oracle.runtime").write_text("runtime executed")
     return result
 
 
@@ -355,16 +364,18 @@ def use_fake_vcs(monkeypatch):
         if name not in ("vlogan", "vhdlan", "vcs", "simv"):
             return original(tool, executable, *args, **kwargs)
         # argv[0] selects the tool; the fake executable lives in this run directory.
-        target = Path.cwd() / (name + ".py")
+        cwd = tool.working_directory()
+        target = cwd / (name + ".py")
         if not target.exists():
             target.symlink_to(FAKE.resolve())
         return run_process(
             sys.executable,
             [str(target), *args],
             env={**os.environ, **(kwargs.get("env") or {})},
-            tee=kwargs.get("tee"),
+            tee=_placed(cwd, kwargs.get("tee")),
             timeout=kwargs.get("timeout"),
             merge_stderr=kwargs.get("merge_stderr", False),
+            cwd=cwd,
         )
 
     monkeypatch.setattr(Tool, "execute", execute)
