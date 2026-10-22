@@ -627,7 +627,7 @@ class _TimingJudged(FpgaSynthFlow):
 
     results_description = {
         "period": MetricSpec("The period of the clock.", "number", "ns"),
-        "Fmax": MetricSpec("The frequency the period suggests.", "number", "MHz"),
+        "fmax": MetricSpec("The frequency the period suggests.", "number", "MHz"),
         "started_at": MetricSpec(
             "When the run started, in nanoseconds since the epoch.", "integer"
         ),
