@@ -8,9 +8,10 @@ mutable object with them (`state_snapshot.shared_objects`), and leave the workin
 environment, `sys.path`, the logging and the warning filters as they were. They also leave the
 settings mapping and the `Design` that the caller gave as they were.
 
-The audit hook also fails a launch that changes the working directory, resolves a relative path
-against it, or starts a process without `cwd=`. The sweeps do not change into the design's
-directory, so such a use would also read the checkout.
+The audit hook also fails a launch that changes the working directory, opens, lists or writes a
+relative path, or starts a process without an absolute `cwd=`. A relative `stat` (`exists`,
+`resolve`) raises no audit event. The sweeps do not change into the design's directory, so such a
+use reads the checkout, not the run directory, and the launch fails or reads the wrong file.
 
 What the oracle cannot see:
 - A tool outside `FAKED` is stubbed (`run_process` does nothing), so for those flows only xeda's
@@ -409,7 +410,7 @@ _DIR_FD = {
 }
 #: Modules that open a path relative to a directory descriptor (`shutil.rmtree` and `os.fwalk`
 #: walk a tree that way); the `open` event does not carry the descriptor.
-_DIR_FD_OPENERS = (shutil.__file__, os.__file__)
+_DIR_FD_OPENERS = (shutil.__file__, os.__file__, "<frozen os>")
 _IN_HOOK = threading.local()
 
 
@@ -434,7 +435,8 @@ def _relative_uses(event: str, args: tuple) -> List[str]:
     if event in ("os.chdir", "os.fchdir"):
         return [f"{event} {args[0]}"]
     if event == "subprocess.Popen":
-        return [f"process without cwd {args[1]}"] if args[2] is None else []
+        cwd = args[2]
+        return [f"process without an absolute cwd {args[1]}"] if _relative(cwd) else []
     if event == "glob.glob/2":  # (pattern, recursive, root_dir, dir_fd)
         _, _, root_dir, dir_fd = args
         by_root = dir_fd is not None or (root_dir is not None and not _relative(root_dir))
@@ -580,6 +582,7 @@ def test_the_oracle_sees_every_use_of_the_working_directory(tmp_path):
             pass
         shutil.rmtree("a-directory-that-is-not-there", ignore_errors=True)
         subprocess.run(quiet, cwd=None, check=True)
+        subprocess.run(quiet, cwd=".", check=True)
         seen = list(violations)
         violations.clear()
         # what the hook admits
@@ -601,7 +604,8 @@ def test_the_oracle_sees_every_use_of_the_working_directory(tmp_path):
         "relative open a-file-that-is-not-there",
         "relative shutil.rmtree a-directory-that-is-not-there",
     ], seen
-    assert len(seen) == 7 and seen[6].startswith("process without cwd"), seen
+    assert len(seen) == 8, seen
+    assert all(text.startswith("process without an absolute cwd") for text in seen[6:]), seen
     assert not violations, violations
 
 

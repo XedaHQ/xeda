@@ -6,8 +6,10 @@ The scan lists each place in `src/xeda` that calls `os.chdir`, reads the working
 place is reviewed below with the reason it may do so. A new place fails until it is reviewed; a
 reviewed place that is gone fails until its entry is removed, so the lists only shrink.
 
-A static scan cannot see an implicit use of the working directory (a relative `open`, `exists` or
-`resolve`); the launch sweep of `tests/test_isolation.py` catches those at run time."""
+A static scan cannot see an implicit use of the working directory. The launch sweep of
+`tests/test_isolation.py` fails a relative open, listing or write at run time. A relative `exists`
+or `resolve` raises no audit event: it shows as a launch that fails or reads the wrong file, since
+no test launches from the run directory."""
 
 from __future__ import annotations
 
