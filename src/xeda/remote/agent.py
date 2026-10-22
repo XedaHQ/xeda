@@ -362,7 +362,9 @@ def _running(process: psutil.Process) -> bool:
 
 def _group_members(pgid: int) -> list[psutil.Process]:
     """The running processes in the process group `pgid`. The launch child starts its own
-    session, so its group holds the launch and every process that did not leave the group."""
+    session, so its group holds the launch and every process that did not leave the group. A
+    tool leads a group of its own: the launch stops that group itself when it gets SIGINT or
+    SIGTERM, and the agent finds the tool as a descendant."""
     found = []
     for process in psutil.process_iter():
         try:
@@ -1174,7 +1176,8 @@ class Session:
         look()
         if child.poll() is None:
             try:
-                # As Ctrl-C at a terminal: xeda and the tools in its group all get SIGINT.
+                # As Ctrl-C at a terminal: xeda gets SIGINT, and stops its tools (each leads a
+                # group of its own) as it stops them in a local run.
                 os.killpg(pgid, signal.SIGINT)
             except OSError:
                 pass

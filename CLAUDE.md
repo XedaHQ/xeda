@@ -214,6 +214,9 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - User text reaches a script only through a filter, never raw or through `eval`: Tcl `tcl_word`,
   `tcl_quote`, `tcl_list`; yosys `read_path`, `path`, `verbatim_path` (`tests/test_tcl_paths.py`,
   `tests/test_yosys_templates.py`).
+- On POSIX, `run_process` starts every tool as the leader of its own session, so a stop (Ctrl-C,
+  SIGTERM, SIGHUP, a time limit) ends its whole group; start every tool through it
+  (`tests/test_proc_utils.py`).
 - Create a `Tool` inside a flow method (it finds its flow); query its version only with
   `Tool.probe_stdout`, which runs outside the run directory.
 - Fake tools: `tool_utils.use_fake_tools(monkeypatch)` runs Tcl scripts under `tclsh` and
