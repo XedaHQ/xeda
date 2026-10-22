@@ -248,11 +248,6 @@ def test_sim_time_unit_is_honored(tmp_path, unit, value, expected_ns):
     assert results.total_sim_time_ns == pytest.approx(expected_ns)
 
 
-if __name__ == "__main__":
-    test_cocotb_version()
-    test_cocotb_parse_xml()
-
-
 # --------------------------------------------------------------------- GPI_USERS (cocotb >= 2.1)
 
 
