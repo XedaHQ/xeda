@@ -220,13 +220,13 @@ def test_vivado_power_reports_after_fresh_and_reused_producer_evidence(
     simulation = flow.run_path.parent / "vivado_postsynth_sim"
 
     recorded = json.loads((simulation / "results.json").read_text())
-    assert recorded["success"]
-    assert recorded["sim.evidence"]
+    assert recorded["outcome"] == "passed"
+    assert recorded["metrics"]["sim"]["evidence"]
     effective = json.loads((simulation / "settings.json").read_text())["effective_flow_settings"]
     assert effective["timeout"] == 10.0
     assert effective["fail_severity"] == settings.get("fail_severity", "error")
     if "stop_time" in settings:
-        assert recorded["sim.time"] == 20_000_000
+        assert recorded["metrics"]["sim"]["time"] == 20_000_000
     before = (simulation / "fake_vivado.calls").read_text()
     # Change only the reporter's settings: it runs while its activity dependency is trace-reused.
     rerun = DefaultRunner(tmp_path / "run").run_flow(
@@ -240,8 +240,8 @@ def test_vivado_power_reports_after_fresh_and_reused_producer_evidence(
     )
     assert rerun.succeeded
     assert not any(key.startswith("sim.") for key in rerun.results)
-    assert json.loads((simulation / "results.json").read_text())["sim.evidence"] == (
-        recorded["sim.evidence"]
+    assert json.loads((simulation / "results.json").read_text())["metrics"]["sim"]["evidence"] == (
+        recorded["metrics"]["sim"]["evidence"]
     )
     assert (simulation / "fake_vivado.calls").read_text() == before
 
@@ -323,7 +323,8 @@ def test_vivado_power_requires_its_own_current_power_xml(tmp_path, monkeypatch):
     simulation = json.loads(
         (rerun.run_path.parent / "vivado_postsynth_sim" / "results.json").read_text()
     )
-    assert simulation["success"] and simulation["sim.ended_by"] == "finish"
+    assert simulation["outcome"] == "passed"
+    assert simulation["metrics"]["sim"]["ended_by"] == "finish"
 
 
 @pytest.mark.parametrize(
@@ -339,7 +340,7 @@ def test_vivado_power_propagates_failing_simulation_controls(
     simulation = tmp_path / "run" / "sim" / "vivado_postsynth_sim"
     result = json.loads((simulation / "results.json").read_text())
     if state == "warning":
-        assert result["sim.warnings"] == 1
+        assert result["metrics"]["sim"]["warnings"] == 1
     else:
         assert result["error"]["code"] == "timeout"
 

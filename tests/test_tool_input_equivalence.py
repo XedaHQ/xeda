@@ -18,8 +18,8 @@ subprocess, on the fake tools) and records, per run directory it entered:
   checkpoints, SAIF file, liberty files, the merged library, the maps and the scripts, and every
   file a script names in turn (a text file's digest is taken after the paths in it are replaced by
   placeholders, so no digest names a directory);
-* `results.json`, minus what names the run rather than what it did (hashes, run time, time stamp,
-  tool versions).
+* the record in `results.json` (`xeda.records`), minus what names the run rather than what it did:
+  its outcome and error, its metrics, the kind and the files of each output, and its artifacts.
 
 Every request is spelled with the flat `-s flows.<flow>.<key>=...` of a producer's own section,
 the one spelling the flows accept now. The hashed run-directory layout is deliberately not
@@ -61,6 +61,7 @@ from typing import Any
 import pytest
 
 import xeda
+from xeda.records import read_record
 from xeda.units import Time
 
 from .tiny_platform import TINY_RESIDUE, tiny_store
@@ -263,9 +264,6 @@ def activity_recording_delta(record: dict, name: str, *, baseline: bool = False)
     return record
 
 
-#: Fields of `results.json` that name the run rather than what it did.
-IDENTITY_AND_TIMING = {"design_hash", "flow_hash", "settings_hash", "runtime", "timestamp"}
-
 VIVADO_SETTINGS = (
     "flows.vivado_synth.fpga=xc7a12tcsg325-1",
     "flows.vivado_synth.clock.period=5ns",
@@ -418,18 +416,26 @@ def handed_files(run_dir: Path, calls: list[list[str]]) -> list[Path]:
     return list(found)
 
 
-def results_without_identity(results: dict) -> dict:
-    kept = {key: value for key, value in results.items() if key not in IDENTITY_AND_TIMING}
-    # the versions the tools reported are the fakes', and say nothing about the flow
-    kept["tools"] = [tool.get("executable") for tool in kept.get("tools", [])]
-    return kept
+def results_of_the_record(run_dir: Path) -> dict:
+    """What the record in `results.json` says of the run, without what names the run (its id, its
+    times, its identity)."""
+    document = read_record(run_dir, run_root=run_dir.parent).to_dict()
+    return {
+        "outcome": document["outcome"],
+        "error": document["error"],
+        "metrics": document["metrics"],
+        "outputs": {
+            name: {"kind": output["kind"], "names": output["names"]}
+            for name, output in document["outputs"].items()
+        },
+        "artifacts": document["artifacts"],
+    }
 
 
 def record_node(run_dir: Path, marks: Placeholders) -> dict[str, Any]:
     calls = fake_calls(run_dir)
     files = handed_files(run_dir, calls)
     settings = json.loads((run_dir / "settings.json").read_text())
-    results = json.loads((run_dir / "results.json").read_text())
     node: dict[str, Any] = {
         "effective_flow_settings": marks.value(settings["effective_flow_settings"]),
         "calls": marks.value(calls),
@@ -437,7 +443,7 @@ def record_node(run_dir: Path, marks: Placeholders) -> dict[str, Any]:
             marks.text(str(path)): file_digest(path, marks)
             for path in sorted(files, key=lambda p: marks.text(str(p)))
         },
-        "results": marks.value(results_without_identity(results)),
+        "results": marks.value(results_of_the_record(run_dir)),
     }
     # a script is read where it is not a digest: what it asks the tool for is what a reviewer
     # compares, and `black_box` shows nowhere else

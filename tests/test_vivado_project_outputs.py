@@ -11,7 +11,6 @@ hook again as its run would, in step order, each in a directory of its own, and 
 output the flow registers is written by the hook of its step, at the registered path.
 """
 
-import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -24,6 +23,8 @@ from xeda.digest import content_digest
 from xeda.flow import FPGA, FlowSettingsException
 from xeda.flow.io import declared_outputs
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.outputs import recorded_outputs
+from xeda.records import read_record
 from xeda.flows import VivadoAltSynth, VivadoSynth
 from xeda.flows.vivado import vivado_synth as vs
 from xeda.flows.vivado.vivado_postsynthsim import VivadoPostsynthSim
@@ -375,7 +376,8 @@ def test_qor_suggestions_are_written_under_the_run_directorys_reports(
 
 def _recorded_output(flow_dir: Path, name: str) -> Path:
     """The path of a declared output as the node's own `results.json` records it."""
-    return Path(json.loads((flow_dir / "results.json").read_text())["outputs"][name]["path"])
+    stored = recorded_outputs(read_record(flow_dir, run_root=flow_dir.parent))
+    return Path(stored[name]["path"])
 
 
 @needs_tclsh
@@ -502,10 +504,10 @@ def _run(flow_class, tmp_path: Path, monkeypatch, **settings):
 
 
 def _recorded_outputs(flow) -> dict:
-    """The `outputs` of the run's `results.json`, as written to disk."""
-    saved = json.loads((flow.run_path / "results.json").read_text())
-    assert saved["outputs"] == flow.results["outputs"]
-    return saved["outputs"]
+    """The outputs of the run's `results.json` that the run wrote, as written to disk."""
+    saved = recorded_outputs(read_record(flow.run_path, run_root=flow.run_path.parent))
+    assert saved == flow.results["outputs"]
+    return saved
 
 
 @pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)

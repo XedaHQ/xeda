@@ -471,7 +471,7 @@ def _stopped_before_vivado(run_path: Path, raised) -> str:
     assert "not flat" in message and "flatten" in message, message
     assert fake_calls(run_path) == [], "Vivado was started"
     document = json.loads((run_path / "results.json").read_text())
-    assert document["success"] is False
+    assert document["outcome"] == "failed"
     assert document["error"]["code"] == "reported_failure"
     assert document["error"]["message"] == message
     return message
@@ -796,10 +796,11 @@ def test_the_routed_checkpoint_and_netlists_are_written_and_recorded_when_switch
     assert recorded == ({label: path for label, (path, _) in written.items()} if enabled else {})
     document = json.loads((flow.run_path / "results.json").read_text())
     declared = {"checkpoint_route", "netlist", "netlist_timing", "sdf"}
-    assert set(document.get("outputs", {})) == (declared if enabled else set())
+    wrote = {label for label, output in document["outputs"].items() if output["names"]}
+    assert wrote == (declared if enabled else set())
     for label in declared if enabled else ():
         assert (flow.run_path / written[label][0]).is_file(), label
-        assert document["outputs"][label]["sha"], label
+        assert document["outputs"][label]["digests"][0], label
     if not enabled:
         assert not (flow.run_path / checkpoints).exists()
         assert not (flow.run_path / outputs).exists()

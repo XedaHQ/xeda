@@ -183,8 +183,7 @@ def test_the_corner_selects_the_liberty_files_of_that_corner(fake_yosys, corner)
     fast = corner in ("fast", "ff")
     assert Path(liberty).name == ("tiny_fast.lib" if fast else "tiny.lib")
     assert ("cell (FAST_X1)" in Path(liberty).read_text()) is fast
-    results = json.loads((flow.run_path / "results.json").read_text())
-    assert results["platform"]["corner"] == ("fast" if fast else "typical")
+    assert flow.results["platform"]["corner"] == ("fast" if fast else "typical")
     recorded = json.loads((flow.run_path / "trace.json").read_text())["inputs"]
     assert any(Path(path).name == "tiny_fast.lib" for path in recorded) is fast
 
@@ -365,8 +364,7 @@ def test_the_location_of_the_store_is_no_part_of_the_identity(fake_yosys):
 
 def test_results_say_which_platform_the_netlist_is_mapped_to(fake_yosys):
     flow, _ = _launch(fake_yosys)
-    results = json.loads((flow.run_path / "results.json").read_text())
-    platform = results["platform"]
+    platform = flow.results["platform"]
     assert {key: platform[key] for key in ("name", "provider", "version", "corner")} == {
         "name": "tiny",
         "provider": "directory",
@@ -383,7 +381,7 @@ def test_a_run_without_a_platform_has_no_platform_result(fake_yosys):
     flow = _runner(fake_yosys).launch_flow(
         Yosys, _design(fake_yosys / "design"), {"gates": ["AND", "NOT"], **CLOCK}
     )
-    assert "platform" not in json.loads((flow.run_path / "results.json").read_text())
+    assert "platform" not in flow.results
 
 
 # ------------------------------------------------------------------------------ a missing PDK
@@ -405,7 +403,7 @@ def test_a_missing_pdk_is_refused_before_yosys_runs(fake_yosys):
     assert _yosys_calls(fake_yosys) == []
     run = fake_yosys / "xeda_run" / "top" / "yosys"
     results = json.loads((run / "results.json").read_text())
-    assert results["success"] is False
+    assert results["outcome"] == "failed"
     assert results["error"]["code"] == "reported_failure"
     assert results["error"]["message"] == message
     assert not (run / "trace.json").exists()
@@ -505,10 +503,9 @@ def test_real_yosys_maps_a_counter_to_the_cells_of_the_platform(tmp_path):
         Yosys, _design(tmp_path / "design"), tiny_settings(store, **CLOCK)
     )
     assert flow.succeeded
-    results = json.loads((flow.run_path / "results.json").read_text())
     netlist = (flow.run_path / "netlist.v").read_text()
     cells = set(re.findall(r"^\s*(\w+)\s+\S+\s*\(", netlist, re.M)) - {"module"}
     assert cells and cells <= {"INV_X1", "NAND2_X1", "NOR2_X1", "DFF_X1", "BUF_X1"}, cells
     assert not re.search(r"^\s*\\\$_", netlist, re.M), "a generic cell is left in the netlist"
     assert not cells & {"INV_X4", "NAND2_X4"}, "a dont-use cell was used"
-    assert results["platform"]["name"] == "tiny"
+    assert flow.results["platform"]["name"] == "tiny"

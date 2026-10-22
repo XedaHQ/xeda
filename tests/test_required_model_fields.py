@@ -25,7 +25,7 @@ pytestmark = pytest.mark.python_compat
 class _RequiredLeaf(Flow):
     """Declares nothing, and cannot run without one setting."""
 
-    results_description: ClassVar[dict[str, MetricSpec]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {"foo": MetricSpec("The text.", "text")}
     required_settings = {"foo": "some text: `-s foo=<text>`, or `foo` in `[flows.{flow}]`"}
 
     class Settings(Flow.Settings):

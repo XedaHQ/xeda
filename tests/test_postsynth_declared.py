@@ -146,14 +146,14 @@ def test_results_record_exactly_the_enabled_activity_names(tmp_path, monkeypatch
     )
     captured = launch(request, tmp_path, monkeypatch)
     results = captured["nodes"]["sim/vivado_postsynth_sim"]["results"]
-    outputs = results["outputs"]
+    outputs = {name: output for name, output in results["outputs"].items() if output["names"]}
     assert set(outputs) == ({"saif"} if saif else set()) | (
         {"timing_saif"} if timing_sim else set()
     )
     for recorded in outputs.values():
         # the name asked for, else the conventional one a demand (or a timing request) gives
-        assert recorded["path"].endswith("activity.saif" if saif else "outputs/sim.saif")
-        assert len(recorded["sha"]) == 32
+        (name,) = recorded["names"]
+        assert name.endswith("activity.saif" if saif else "outputs/sim.saif")
     if timing_sim and saif:
         assert outputs["timing_saif"] == outputs["saif"]
 

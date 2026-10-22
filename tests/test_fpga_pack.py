@@ -145,7 +145,7 @@ def test_the_default_graph_synthesizes_places_and_packs(
     assert call["tool"] == packer and call["inputs"] == [str(placed / config)]
     assert flow.outputs.bitstream == flow.run_path / name
     assert flow.outputs.bitstream.read_bytes() == BITSTREAM
-    assert flow.results["outputs"]["bitstream"]["path"] == str(flow.run_path / name)
+    assert _results(flow)["outputs"]["bitstream"]["names"] == [name]
     assert flow.artifacts["bitstream"] == flow.run_path / name
     assert not list(flow.run_path.glob(".xeda-pack-*"))
     assert len(_tools(tmp_path)) == 3
@@ -377,7 +377,7 @@ def test_a_packer_that_fails_or_writes_nothing_leaves_the_earlier_bitstream(
     assert not [p for p in first.run_path.rglob("*") if p.is_file() and p.read_bytes() == PARTIAL]
     assert not list(first.run_path.glob(".xeda-pack-*"))
     results = _results(first)
-    assert results["success"] is False and "bitstream" not in results.get("outputs", {})
+    assert results["outcome"] == "failed" and not results["outputs"]["bitstream"]["names"]
     if mode == "no-output":
         assert "wrote no bitstream" in results["error"]["message"]
     assert "bitstream" not in results.get("artifacts", {})
