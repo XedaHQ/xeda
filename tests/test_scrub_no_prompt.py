@@ -183,18 +183,26 @@ COMMAND_LINE_MODULES = {
 
 def _prompts(path: Path) -> list[int]:
     """Return the lines of `path` that read an answer from the user."""
+    tree = ast.parse(path.read_text())
+    modules = {"click"}  # the names that stand for the click module
+    functions = {"input", "getpass"}  # the names that ask when called
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules |= {a.asname or a.name for a in node.names if a.name == "click"}
+        elif isinstance(node, ast.ImportFrom) and node.module == "click":
+            functions |= {a.asname or a.name for a in node.names if a.name in {"prompt", "confirm"}}
     lines = []
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         function = node.func
         asks = False
         if isinstance(function, ast.Name):
-            asks = function.id in {"input", "getpass"}
+            asks = function.id in functions
         elif isinstance(function, ast.Attribute):
             owner = function.value.id if isinstance(function.value, ast.Name) else ""
             asks = function.attr in {"input", "getpass", "ask", "readline"} or (
-                owner == "click" and function.attr in {"prompt", "confirm"}
+                owner in modules and function.attr in {"prompt", "confirm"}
             )
         if asks:
             lines.append(node.lineno)
@@ -215,6 +223,8 @@ def test_the_scan_sees_a_prompt(tmp_path):
     source = tmp_path / "ask.py"
     source.write_text(
         "import click\n"
+        "import click as c\n"
+        "from click import prompt as ask\n"
         "from xeda.console import console\n"
         "def f():\n"
         "    input('a')\n"
@@ -223,5 +233,7 @@ def test_the_scan_sees_a_prompt(tmp_path):
         "    click.prompt('d')\n"
         "    Confirm.ask('e')\n"
         "    sys.stdin.readline()\n"
+        "    ask('f')\n"
+        "    c.confirm('g')\n"
     )
-    assert _prompts(source) == [4, 5, 6, 7, 8, 9]
+    assert sorted(_prompts(source)) == [6, 7, 8, 9, 10, 11, 12, 13]
