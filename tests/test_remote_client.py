@@ -389,8 +389,8 @@ def test_scrub_is_refused_with_remote_before_any_connection(tmp_path, remote_hos
     )
     assert document.exit_code != 0
     result = json.loads(document.stdout)
-    assert result["success"] is False
-    assert result["error"]["type"] == "UsageError" and "--scrub" in result["error"]["message"]
+    assert result["outcome"] is None
+    assert result["error"]["code"] == "usage_error" and "--scrub" in result["error"]["message"]
     dry = _cli(tmp_path, design, "nextpnr", "--scrub", "--dry-run")
     assert dry.exit_code == 2 and "`--scrub`" in dry.output
     assert not remote_host.remote.calls("ssh")
