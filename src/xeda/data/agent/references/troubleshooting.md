@@ -237,9 +237,9 @@ PULLUP`.
 - `Fmax` is per tool: `nextpnr` and Vivado time the same netlist differently. Compare `Fmax`
   only between runs of one tool.
 - Prefer the canonical keys `Fmax`, `lut` and `ff`; keys that start with `_` are internal.
-- `xeda list-results <flow> --json` lists every metric with its `type` and `unit` (`null` for a
-  count, a text or a value in the platform's own units, such as a cell area). A flow can report
-  nothing beyond the common keys.
+- `xeda list-results <flow> --json` lists every metric with its `type` and `unit`. The unit is
+  `null` when the metric has no fixed physical unit: a count, a text, a ratio or a percentage, or a
+  value in the platform's own units, such as a cell area. A flow can report no metric of its own.
 - Flows that enforce timing fail on negative slack by default. Check `wns` and `whs`, and whether
   `fail_timing` (Vivado) or `timing_allow_fail` (`nextpnr`) was turned off.
 - `lut` is per toolchain and stage; `LUT:STAGE` and `LUT:METHOD` say which. For 7-series, `nextpnr`

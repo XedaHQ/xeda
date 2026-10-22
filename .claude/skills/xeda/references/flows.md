@@ -125,7 +125,7 @@ Required settings: `fpga`
 
 8 flow-specific settings (plus the common ones): `xeda list-settings fpga_pack --json`
 
-Reports no metrics beyond the keys every flow reports.
+Reports no flow-specific metrics.
 
 ### `ise_synth`
 
@@ -159,7 +159,7 @@ Program a bitstream onto an FPGA board with openFPGALoader. The `bitstream` inpu
 
 20 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
 
-Reports no metrics beyond the keys every flow reports.
+Reports no flow-specific metrics.
 
 ### `quartus`
 
@@ -183,7 +183,7 @@ Required settings: `fpga`
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
 
-Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
+Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`, `bram_tile`
 
 ### `vivado_impl`
 
@@ -195,7 +195,7 @@ Required settings: `fpga`
 
 22 flow-specific settings (plus the common ones): `xeda list-settings vivado_impl --json`
 
-Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
+Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`, `bram_tile`
 
 ### `vivado_power`
 
@@ -219,7 +219,7 @@ Required settings: `fpga`
 
 30 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
 
-Reports no metrics beyond the keys every flow reports.
+Reports no flow-specific metrics.
 
 ### `vivado_synth`
 
@@ -231,7 +231,7 @@ Required settings: `fpga`
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
 
-Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
+Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`, `bram_tile`
 
 ### `yosys_fpga`
 
@@ -301,7 +301,7 @@ Convert a VHDL design to Verilog with `ghdl --synth`.
 
 22 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
 
-Reports no metrics beyond the keys every flow reports.
+Reports no flow-specific metrics.
 
 ### `yosys`
 

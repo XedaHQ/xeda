@@ -524,9 +524,6 @@ class Dc(AsicSynthFlow):
             r"^\s*Design\s+\(Hold\)\s+WNS:\s+(?P<wns>\d+\.\d+)\s+TNS:\s+(?P<tns>\d+\.\d+)\s+Number of Violating Paths:\s*(?P<nvp>\d+)"
         )
 
-        # Reserve the key's place in the order of the results.
-        self.results["path_groups"] = None
-
         qor_report = self.report_file(reportfile_path)  # only a report that this run wrote
         if qor_report is None:
             return False

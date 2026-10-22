@@ -859,6 +859,11 @@ class VivadoSynth(VivadoImplementation):
         latch=MetricSpec("Number of latches inferred. Usually a design bug on FPGAs.", "integer"),
         bram_RAMB36=MetricSpec("Number of RAMB36/FIFO36 block RAM primitives used.", "integer"),
         bram_RAMB18=MetricSpec("Number of RAMB18 block RAM primitives used.", "integer"),
+        bram_tile=MetricSpec(
+            "Number of block RAM tiles used. A RAMB18 uses half a tile, so the number can end in "
+            "`.5`.",
+            "number",
+        ),
     )
 
     reads_sources = frozenset(

@@ -142,7 +142,7 @@ def _flow_section(flow: Dict[str, object]) -> str:
     if paths:
         lines += ["Reports: " + ", ".join(f"`{p}`" for p in paths), ""]
     else:
-        lines += ["Reports no metrics beyond the keys every flow reports.", ""]
+        lines += ["Reports no flow-specific metrics.", ""]
     return "\n".join(lines)
 
 
