@@ -491,7 +491,7 @@ def test_an_interrupt_stops_a_child_that_outlived_a_tool_with_a_terminal(
         def flush(self) -> None:
             terminal.stream.flush()
 
-    monkeypatch.setattr(proc_utils, "_tool_output", Interrupting())
+    monkeypatch.setattr(proc_utils, "console_target", lambda: Interrupting())
     grandchild = None
     try:
         with pytest.raises(KeyboardInterrupt), _stopped_within():

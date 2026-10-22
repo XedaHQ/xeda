@@ -962,7 +962,7 @@ def test_an_interrupt_without_a_time_limit_stops_what_the_tool_started(
     context = contextlib.nullcontext()
     if route in ("copied-lines", "highlighted"):
         # The tool writes the trigger after its child wrote the process id.
-        monkeypatch.setattr(pu, "_tool_output", _InterruptingStream(trigger))
+        monkeypatch.setattr(pu, "console_target", lambda: _InterruptingStream(trigger))
     else:
         context = _interrupting_after_the_child_ran(monkeypatch, started)
     child = None
@@ -1351,7 +1351,7 @@ def test_an_interrupt_while_copying_output_stops_a_child_that_outlived_the_tool(
 
     started = tmp_path / "started"
     trigger = "interrupt now"
-    monkeypatch.setattr(pu, "_tool_output", _InterruptingStream(trigger))
+    monkeypatch.setattr(pu, "console_target", lambda: _InterruptingStream(trigger))
     child = None
     try:
         with pytest.raises(KeyboardInterrupt), _stopped_within():
