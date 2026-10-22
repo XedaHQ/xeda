@@ -8,6 +8,10 @@ mutable object with them (`state_snapshot.shared_objects`), and leave the workin
 environment, `sys.path`, the logging and the warning filters as they were. They also leave the
 settings mapping and the `Design` that the caller gave as they were.
 
+The audit hook also fails a launch that changes the working directory, resolves a relative path
+against it, or starts a process without `cwd=`. The sweeps do not change into the design's
+directory, so such a use would also read the checkout.
+
 What the oracle cannot see:
 - A tool outside `FAKED` is stubbed (`run_process` does nothing), so for those flows only xeda's
   own writes and the fake TCL tools' are observed, never what the real tool would write.
@@ -26,6 +30,7 @@ where the sweep can be extended to real tools (a follow-up); real GHDL, nvc and 
 `test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree`."""
 
 import ast
+import contextlib
 import copy
 import enum
 import inspect
@@ -36,6 +41,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import typing
 from collections import Counter
 from contextlib import contextmanager
@@ -370,9 +376,91 @@ def _resolved(raw: object) -> Path:
     return Path(os.path.realpath(os.path.dirname(written)), os.path.basename(written))
 
 
+#: The events that list a directory
+_READS_PATH = ("os.listdir", "os.scandir")
+#: The events that create, change or remove a path, and the positions of their paths in the
+#: arguments (`os.rename`, `os.link` and the copies name two)
+_PATH_EVENTS = {
+    "os.mkdir": (0,),
+    "os.remove": (0,),
+    "os.rmdir": (0,),
+    "os.chmod": (0,),
+    "os.utime": (0,),
+    "os.truncate": (0,),
+    "os.rename": (0, 1),
+    "os.symlink": (1,),  # the new name; the first argument is the link's text
+    "os.link": (0, 1),
+    "shutil.copyfile": (0, 1),
+    "shutil.rmtree": (0,),
+    "shutil.move": (0, 1),
+    "shutil.copytree": (0, 1),
+}
+#: The positions of the directory descriptors of an event, which a path may be relative to
+_DIR_FD = {
+    "os.mkdir": (2,),
+    "os.remove": (1,),
+    "os.rmdir": (1,),
+    "os.chmod": (2,),
+    "os.utime": (3,),
+    "os.rename": (2, 3),
+    "os.symlink": (2,),
+    "os.link": (2, 3),
+    "shutil.rmtree": (1,),
+}
+#: Modules that open a path relative to a directory descriptor (`shutil.rmtree` and `os.fwalk`
+#: walk a tree that way); the `open` event does not carry the descriptor.
+_DIR_FD_OPENERS = (shutil.__file__, os.__file__)
+_IN_HOOK = threading.local()
+
+
+def _relative(raw: object) -> bool:
+    """Whether an audited path is resolved against the working directory. A file descriptor is
+    opened already; `None` is the working directory itself (`os.listdir()`)."""
+    if isinstance(raw, int):
+        return False
+    if raw is None:
+        return True
+    return isinstance(raw, (str, bytes, os.PathLike)) and not os.path.isabs(os.fsdecode(raw))
+
+
+def _by_descriptor(event: str, args: tuple) -> bool:
+    """Whether the paths of the event are relative to a directory descriptor."""
+    return any(i < len(args) and args[i] not in (None, -1) for i in _DIR_FD.get(event, ()))
+
+
+def _relative_uses(event: str, args: tuple) -> List[str]:
+    """The paths an audited event resolves against the working directory, and the processes it
+    starts there: each as the text of a violation."""
+    if event in ("os.chdir", "os.fchdir"):
+        return [f"{event} {args[0]}"]
+    if event == "subprocess.Popen":
+        return [f"process without cwd {args[1]}"] if args[2] is None else []
+    if event == "glob.glob/2":  # (pattern, recursive, root_dir, dir_fd)
+        _, _, root_dir, dir_fd = args
+        by_root = dir_fd is not None or (root_dir is not None and not _relative(root_dir))
+        return [] if by_root or not _relative(args[0]) else [f"relative {event} {args[0]}"]
+    if event == "open":
+        by_descriptor = sys._getframe(2).f_code.co_filename in _DIR_FD_OPENERS
+        return [f"relative open {args[0]}"] if _relative(args[0]) and not by_descriptor else []
+    if event in _READS_PATH:
+        return [f"relative {event} {args[0]}"] if _relative(args[0]) else []
+    if event in _PATH_EVENTS and not _by_descriptor(event, args):
+        return [f"relative {event} {args[i]}" for i in _PATH_EVENTS[event] if _relative(args[i])]
+    return []
+
+
 def _audit(event: str, args: tuple) -> None:
-    if not _WATCH:
+    if not _WATCH or getattr(_IN_HOOK, "busy", False):
         return
+    _IN_HOOK.busy = True
+    try:
+        _WATCH["violations"].extend(_relative_uses(event, args))
+        _audit_writes(event, args)
+    finally:
+        _IN_HOOK.busy = False
+
+
+def _audit_writes(event: str, args: tuple) -> None:
     world: World = _WATCH["world"]
     for raw in _written(event, args):
         if not isinstance(raw, (str, bytes, os.PathLike)):
@@ -471,6 +559,50 @@ def test_the_oracle_sees_every_change_outside_the_run_root(tmp_path):
         "work/xsim.dir",
         "work/xsim.dir/canary.txt",
     }
+
+
+def test_the_oracle_sees_every_use_of_the_working_directory(tmp_path):
+    """The teeth of the audit hook for the working directory: a change of it, a path resolved
+    against it and a process started in it are each seen, while an absolute path, a path relative
+    to a directory descriptor and a process with an explicit `cwd=` are not."""
+    world = _world(tmp_path)
+    world.root.mkdir()
+    here = os.getcwd()
+    quiet = [sys.executable, "-c", ""]
+    with watching(world) as violations:
+        os.chdir(here)  # changes nothing, and is seen
+        with contextlib.chdir(here):  # two changes: in, and back
+            pass
+        os.listdir(".")
+        try:
+            open("a-file-that-is-not-there")
+        except FileNotFoundError:
+            pass
+        shutil.rmtree("a-directory-that-is-not-there", ignore_errors=True)
+        subprocess.run(quiet, cwd=None, check=True)
+        seen = list(violations)
+        violations.clear()
+        # what the hook admits
+        (world.work / "sqrt.vhdl").read_bytes()
+        os.listdir(world.work)
+        subprocess.run(quiet, cwd=world.work, check=True)
+        descriptor = os.open(world.root, os.O_RDONLY)
+        try:
+            os.mkdir("made", dir_fd=descriptor)
+            os.rmdir("made", dir_fd=descriptor)
+            os.listdir(descriptor)
+        finally:
+            os.close(descriptor)
+    assert seen[:6] == [
+        f"os.chdir {here}",
+        f"os.chdir {here}",
+        f"os.chdir {here}",
+        "relative os.listdir .",
+        "relative open a-file-that-is-not-there",
+        "relative shutil.rmtree a-directory-that-is-not-there",
+    ], seen
+    assert len(seen) == 7 and seen[6].startswith("process without cwd"), seen
+    assert not violations, violations
 
 
 # --- the launches ---------------------------------------------------------------------------
@@ -620,7 +752,7 @@ def _launch(
     plan: Optional[List[Launch]] = None,
     seen: Optional[Seen] = None,
 ) -> str:
-    """Launch `flow_class` from the design's directory as `scenario` says, in the launches of
+    """Launch `flow_class` as `scenario` says, in the launches of
     `plan`; how each launch ended ("ok", "failed", or the exception's class name). `reached`
     gets the label of each launch whose flow reached its `run()`, and `seen` what the launches
     left in the process."""
@@ -638,7 +770,6 @@ def _launch(
     run = flow_class.run
     launching = [""]
     monkeypatch.setattr(flow_class, "run", lambda self: reached.append(launching[0]) or run(self))
-    monkeypatch.chdir(world.work)
     own_settings = sweep_settings(flow_class, world)
     launcher: dict = {"display_results": False}
     if scenario == "clean":
@@ -838,7 +969,7 @@ def _also_runs(flow_class, monkeypatch, command: str) -> None:
 
     def run_and_command(self):
         run(self)
-        subprocess.run(["sh", "-c", command], check=True)
+        subprocess.run(["sh", "-c", command], check=True, cwd=self.run_path)
 
     monkeypatch.setattr(flow_class, "run", run_and_command)
 
@@ -1307,7 +1438,7 @@ def _reads_the_producer_s_results(how: str):
         elif how == "run_process":  # not through a Tool: as the chip database generator starts
             run_process("true", ["--read", str(undeclared)])
         elif how == "run_process, relative":
-            run_process("true", [relative])
+            run_process("true", [relative], cwd=self.run_path)
         elif how == "run root":  # a tool started in the run root, given a path relative to it
             root = self.run_path.parent.parent
             run_process("true", [os.path.relpath(undeclared, root)], cwd=root)
@@ -1578,7 +1709,10 @@ def test_the_command_line_changes_nothing_outside_the_run_root(tmp_path, monkeyp
     before = _state(world.parent, [world.root])
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ["PATH"])
     monkeypatch.chdir(world.work)
-    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
+    # the design file as an absolute path: the user's own relative argument is the one use of the
+    # working directory that a call may make, and the hook cannot tell it from a library's
+    design_file = str(world.work / "sqrt.yaml")
+    args = ["run", "vivado_synth", design_file, "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
     for extra in (["--clean"], ["--post-cleanup"], []):
         with watching(world) as violations:
             result = CliRunner().invoke(cli, [*args, *extra])
@@ -1600,7 +1734,10 @@ def test_a_targeted_run_and_its_scrub_change_nothing_outside_the_run_root(tmp_pa
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ["PATH"])
     monkeypatch.chdir(world.work)
     monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
-    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
+    # the design file as an absolute path: the user's own relative argument is the one use of the
+    # working directory that a call may make, and the hook cannot tell it from a library's
+    design_file = str(world.work / "sqrt.yaml")
+    args = ["run", "vivado_synth", design_file, "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
     for target in ("a", "b"):
         for extra in (["--clean"], ["--post-cleanup"], []):
             with watching(world) as violations:
@@ -2631,7 +2768,7 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
             work_dir: Path = Field(Path("work"), description="its work.", json_schema_extra=WORKING)
 
         def run(self) -> None:
-            run_dir = Path.cwd()
+            run_dir = self.run_path
             (run_dir / "work").mkdir(exist_ok=True)
             (run_dir / "work" / "made.txt").write_text("made\n")
             (run_dir / "inside.txt").write_text("inside\n")

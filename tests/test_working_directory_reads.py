@@ -4,7 +4,10 @@ receives a path from its caller, and starts every subprocess in an explicit dire
 The scan lists each place in `src/xeda` that calls `os.chdir`, reads the working directory
 (`Path.cwd()`, `os.getcwd()`) or starts a process without `cwd=`, by module and function. Each
 place is reviewed below with the reason it may do so. A new place fails until it is reviewed; a
-reviewed place that is gone fails until its entry is removed, so the lists only shrink."""
+reviewed place that is gone fails until its entry is removed, so the lists only shrink.
+
+A static scan cannot see an implicit use of the working directory (a relative `open`, `exists` or
+`resolve`); the launch sweep of `tests/test_isolation.py` catches those at run time."""
 
 from __future__ import annotations
 
