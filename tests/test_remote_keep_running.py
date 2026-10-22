@@ -456,14 +456,21 @@ class SlowProfile:
         os.mkfifo(self.ready)
         os.mkfifo(self.go)
         if detached:
-            # The program leaves the process tree of the launch: its parent exits at once.
+            # The program leaves the process tree of the launch. The agent samples the descendants
+            # of the launch and kills a sampled process that is outside the launch's process group
+            # when a cancel ends. So the program must not exist while its ancestor is still alive:
+            # the first child waits until its parent has exited, and only then forks the program.
             program = (
                 "import os, sys, time\n"
+                "me = os.getpid()\n"
                 "if os.fork() == 0:\n"
-                "    os.setsid()\n"
-                "    with open(sys.argv[2], 'w') as ready:\n"
-                "        ready.write(f'{sys.argv[1]} {os.getpid()}')\n"
-                "    time.sleep(600)\n"
+                "    while os.getppid() == me:\n"
+                "        time.sleep(0.001)\n"
+                "    if os.fork() == 0:\n"
+                "        os.setsid()\n"
+                "        with open(sys.argv[2], 'w') as ready:\n"
+                "            ready.write(f'{sys.argv[1]} {os.getpid()}')\n"
+                "        time.sleep(600)\n"
             )
             start = f'{sys.executable} -c "{program}" "$$" {self.ready}\n'
         else:
