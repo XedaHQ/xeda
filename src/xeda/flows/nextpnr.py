@@ -22,6 +22,7 @@ from ..flow import (
     FpgaSynthFlow,
     In,
     Out,
+    MetricSpec,
     describe_results,
 )
 from ..tool import NonZeroExitCode, Tool
@@ -333,12 +334,19 @@ class Nextpnr(FpgaSynthFlow):
         "dsp",
         "io",
         **{
-            "LUT:STAGE": "The stage that the canonical `lut` count describes.",
-            "LUT:METHOD": "The method that gave the canonical `lut` count at that stage.",
-            "clock_port": "Top-level port of the only reported clock domain, when that is certain.",
-            "device": "Xilinx 7-series: the part placed and routed.",
-            "fabric": "Xilinx 7-series: the die that nextpnr routed. Every `available` total "
-            "describes this die (an xc7a35t is routed as an xc7a50t).",
+            "LUT:STAGE": MetricSpec("The stage that the canonical `lut` count describes.", "text"),
+            "LUT:METHOD": MetricSpec(
+                "The method that gave the canonical `lut` count at that stage.", "text"
+            ),
+            "clock_port": MetricSpec(
+                "Top-level port of the only reported clock domain, when that is certain.", "text"
+            ),
+            "device": MetricSpec("Xilinx 7-series: the part placed and routed.", "text"),
+            "fabric": MetricSpec(
+                "Xilinx 7-series: the die that nextpnr routed. Every `available` total "
+                "describes this die (an xc7a35t is routed as an xc7a50t).",
+                "text",
+            ),
         },
     )
 
@@ -951,7 +959,7 @@ class Nextpnr(FpgaSynthFlow):
         path = self.settings.log
         if path is None:
             return []
-        path = self.report_file(path if path.is_absolute() else self.run_path / path)
+        path = self.report_file(path if path.is_absolute() else self.run_path / path, optional=True)
         if path is None:
             return []
         try:
@@ -1398,7 +1406,7 @@ class Nextpnr(FpgaSynthFlow):
         assert isinstance(self.settings, self.Settings)
         path = self.run_path / self._placement_dump()
         try:
-            if self.report_file(path) is None:
+            if self.report_file(path, optional=True) is None:
                 raise ValueError("nextpnr did not write it")
             cells, locations = xilinx_lut_locations(json.loads(path.read_text()))
             if cells != positions:

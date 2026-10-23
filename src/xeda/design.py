@@ -65,7 +65,6 @@ from .run_dir import DIR_NAME_HASH_LEN, RunDirectory, run_directory_name
 from .utils import (
     ConflictingKeys,
     NonZeroExitCode,
-    WorkingDirectory,
     XedaException,
     expand_env_vars,
     expand_hierarchy,
@@ -325,6 +324,32 @@ def _read_design_file(path: Path) -> dict[str, Any]:
     return data
 
 
+#: The root of the design that is being loaded. A relative path in a design resolves against it
+#: (`design_relative_root`). `Design.__init__` sets it around the validation, the generators and
+#: the merge of the dependencies, so a load never changes the working directory of the process.
+#: A dependency is a design with a root of its own, and a thread has its own value.
+_loading_root: ContextVar[Optional[Path]] = ContextVar("loading_root", default=None)
+
+
+@contextmanager
+def loading_in_design_root(root: Path) -> Iterator[None]:
+    """Resolve the relative paths of the designs that are built inside this block against `root`."""
+    token = _loading_root.set(root)
+    try:
+        yield
+    finally:
+        _loading_root.reset(token)
+
+
+def design_relative_root() -> Path:
+    """Return the directory that a relative path in a design resolves against.
+
+    That is the root of the design that is being loaded. Outside a load (a `FileResource` that
+    code builds on its own), it is the working directory at this call."""
+    root = _loading_root.get()
+    return root if root is not None else Path.cwd()
+
+
 def _expand_design_path(
     path: Union[str, os.PathLike], root: Path, escape: Optional[Callable[[str], str]] = None
 ) -> Path:
@@ -380,7 +405,8 @@ def _globbed_source_files(pattern: str, root: Path) -> List[str]:
     The text escapes `?` and `[`, and variable values are literal path components."""
     written = re.sub(r"[?\[]", r"[\g<0>]", pattern)
     expanded = _expand_design_path(written, root, escape=glob_escape)
-    return sorted(m for m in glob(str(expanded)) if isfile(m))
+    # A relative pattern matches below `root`, and a match is as the pattern spells it.
+    return sorted(m for m in glob(str(expanded), root_dir=root) if isfile(root / m))
 
 
 def as_source_list(sources: Any) -> Any:
@@ -447,8 +473,8 @@ class FileResource:
         (which is not checked, for a file that a generator creates later). A plain path is a
         `file`, and a missing one raises `FileNotFoundError`.
 
-        A relative path resolves against `_root_path`, by default the working directory. `Design`
-        sets `_root_path` to the design root while it validates (see `_expand_design_path`).
+        A relative path resolves against `_root_path`. By default that is the root of the design
+        that is being loaded, and without one, the working directory (`design_relative_root`).
         """
         if isinstance(path, dict):
             path_value = path.get("path")
@@ -464,7 +490,7 @@ class FileResource:
                     "for a FileResource."
                 )
             path = path_value
-        root = Path(_root_path) if _root_path else Path.cwd()
+        root = Path(_root_path) if _root_path else design_relative_root()
         # The path as written, before any variable is expanded or the path is made absolute. The
         # design's identity does not depend on it (see `Design._source_fingerprint`). A flow that
         # names a file after where it came from (GHDL, for two VHDL sources with the same stem)
@@ -1166,7 +1192,7 @@ class DVSettings(XedaBaseModel):
             if isinstance(src, str):
                 src_type = None
                 if _is_source_pattern(src):
-                    glob_sources = _expand_source_glob(src, Path.cwd())
+                    glob_sources = _expand_source_glob(src, design_relative_root())
                     srcs = [ds(s, src_type) for s in glob_sources]
                     sources.extend(s for s in srcs if not source_already_exists(s))
                     continue  # skip the append at the bottom
@@ -1206,7 +1232,7 @@ class Clock(XedaBaseModel):
     @classmethod
     def _name_validate(cls, value, info) -> Optional[str]:
         values = info.data if isinstance(info.data, dict) else {}
-        return value or values.get("port", None)
+        return values.get("port", None) if value is None or value == "" else value
 
 
 class Generator(XedaBaseModel):
@@ -1285,20 +1311,21 @@ class Generator(XedaBaseModel):
         """Expand source patterns and normalize the resulting paths."""
         if isinstance(value, str):
             value = [value]
+        root = design_relative_root()
         sources: List[Path] = []
         for src in unique(value):
             if isinstance(src, str):
                 if _is_source_pattern(src):
                     sources.extend(
-                        Path(m).resolve()
-                        for m in _expand_source_glob(src, Path.cwd(), "generator source")
+                        (root / m).resolve()
+                        for m in _expand_source_glob(src, root, "generator source")
                     )
                 else:
-                    sources.append(_expand_design_path(src, Path.cwd()).resolve())
+                    sources.append((root / _expand_design_path(src, root)).resolve())
             elif isinstance(src, Path):
                 # Resolve it like the string spelling, so a relative path does not keep
                 # depending on the working directory it was given in.
-                sources.append(src.resolve())
+                sources.append((root / src).resolve())
             else:
                 raise ValueError(f"Invalid source type: {type(src)} for source '{src}'")
         # Remove duplicates and keep the order.
@@ -1319,6 +1346,14 @@ class Generator(XedaBaseModel):
         else:
             return [self.executable, *self.args]
 
+    def working_directory(self, design_root: Optional[Path] = None) -> Path:
+        """Return the absolute directory that the generator runs in.
+
+        A relative `cwd` is relative to the design root, which is `design_root`, else the root of
+        the design that is being loaded (`design_relative_root`)."""
+        root = Path(design_root or design_relative_root()).resolve()
+        return root if self.cwd is None else root / self.cwd
+
     def execution_executable_path(
         self, design_root: Optional[Path] = None, command: Optional[Sequence[str]] = None
     ) -> Path:
@@ -1329,13 +1364,7 @@ class Generator(XedaBaseModel):
         if not selected_command:
             raise ValueError("generator command is empty")
         executable = selected_command[0]
-        if self.cwd is None:
-            cwd = Path(design_root or Path.cwd()).resolve()
-        else:
-            cwd = Path(self.cwd)
-            if not cwd.is_absolute():
-                cwd = Path(design_root or Path.cwd()).resolve() / cwd
-            cwd = cwd.resolve()
+        cwd = self.working_directory(design_root).resolve()
         env = self.env
         path = env.get("PATH") if env is not None else os.environ.get("PATH")
         if path is None:
@@ -1369,12 +1398,13 @@ class Generator(XedaBaseModel):
 
     def run_cmd(self, cmd, check=None, stdout=None, stderr=None):
         cmd = list(cmd)
+        root = design_relative_root()
         executable = None
         if cmd:
             # Resolve exactly the executable used by freshness identity. This also makes child
             # cwd and PATH selection consistent on Windows, where Popen ignores both for lookup.
             # Pass it separately to preserve argv[0] and symlink-alias behavior for wrappers.
-            executable = str(self.execution_executable_path(Path.cwd(), cmd))
+            executable = str(self.execution_executable_path(root, cmd))
         log.info("Running command: '%s'", " ".join(cmd))
         if stdout is None:
             # A generator's subprocess inherits the stdout of Xeda, which would corrupt a
@@ -1387,7 +1417,7 @@ class Generator(XedaBaseModel):
         wanted = self.check if check is None else check
         p = subprocess.run(
             cmd,
-            cwd=self.cwd,
+            cwd=self.working_directory(root),
             executable=executable,
             check=False,
             stdout=stdout,
@@ -1445,12 +1475,7 @@ class ChiselGenerator(Generator):
             raise Exception(f"Unsupported build system: {self.build_system}")
 
     def execution_command(self, design_root: Optional[Path] = None) -> List[str]:
-        if self.cwd is None:
-            cwd = Path(design_root or Path.cwd()).resolve()
-        else:
-            cwd = Path(self.cwd)
-            if not cwd.is_absolute():
-                cwd = Path(design_root or Path.cwd()).resolve() / cwd
+        cwd = self.working_directory(design_root)
         if self.build_system == "mill":
             mill_exec = "./mill" if (cwd / "mill").exists() else "mill"
             cmd = [mill_exec]
@@ -1786,14 +1811,18 @@ class TbSettings(DVSettings):
     @field_validator("top", mode="before")
     @classmethod
     def _tb_top_validate(cls, value) -> Tuple012:
-        if value:
-            if isinstance(value, str):
-                return (value,)
-            if isinstance(value, (tuple, list, Sequence)):
-                if len(value) > 2:
-                    raise ValueError("At most 2 simulation top modules are supported.")
-                return tuple(value)
-        return tuple()
+        if value is None or value == "":
+            return tuple()
+        if isinstance(value, str):
+            return (value,)
+        if not isinstance(value, (tuple, list)):
+            raise ValueError(
+                "`top` is a module name or a list of at most 2 module names, "
+                f"got {type(value).__name__}: {value!r}"
+            )
+        if len(value) > 2:
+            raise ValueError("At most 2 simulation top modules are supported.")
+        return tuple(value)
 
     @field_validator("cocotb", mode="before")
     @classmethod
@@ -1829,11 +1858,11 @@ class LanguageSettings(XedaBaseModel):
     @field_validator("standard", mode="before")
     @classmethod
     def two_digit_standard(cls, value):
-        if not value:
+        if value is None or value == "":
             return None
-        if isinstance(value, int):
-            value = str(value)
-        elif not isinstance(value, str):
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)  # a standard is naturally written as a number: `2008`
+        if not isinstance(value, str):
             raise ValueError("standard should be of type string")
         return value
 
@@ -2073,7 +2102,8 @@ class DesignReference(XedaBaseModel):
         return DesignReference(**data)  # type: ignore
 
     def fetch_design(self) -> Design:
-        design_path = Path(self.uri)
+        # The path is relative to the root of the design that lists this dependency.
+        design_path = design_relative_root() / self.uri
         if not design_path.exists():
             raise MissingFile(f"file {redacted_url(str(design_path))} does not exist!")
         return Design.from_file(design_path)
@@ -2220,8 +2250,9 @@ def clone_location(
     """
     host, name = clone_name_parts(repo_url, commit, branch)
     location = Path(cache) / host / name
-    base = os.path.abspath(cache)
-    inside = os.path.abspath(location)
+    root = design_relative_root()
+    base = os.path.abspath(root / cache)
+    inside = os.path.abspath(root / location)
     try:
         contained = inside != base and os.path.commonpath([base, inside]) == base
     except ValueError:  # another drive, as on Windows
@@ -2360,6 +2391,8 @@ class GitReference(DesignReference):
                     "a launcher, which clones into its run root"
                 )
             clone_dir = clone_location(cache, self.repo_url, self.commit, self.branch, owner=owner)
+        # A relative `clone_dir` or `local_cache` is relative to the design root.
+        clone_dir = design_relative_root() / clone_dir
         repo = None
         if clone_dir.exists():
             try:
@@ -2870,13 +2903,7 @@ class Design(XedaBaseModel):
     def process_generation(cls, data: Dict[str, Any]):
         """Run declared generators and collect their produced sources."""
         design_root = data.get("design_root")
-        if not design_root:
-            design_root = Path.cwd()
-        else:
-            design_root = Path(design_root)
-        # Normalize before changing the working directory: direct `Design` constructors accept
-        # relative roots too. Resolving inside the lease after `WorkingDirectory` would rebase
-        # the root a second time.
+        design_root = Path(design_root) if design_root else design_relative_root()
         design_root = design_root.resolve()
         rtl = data.get("rtl", {})
         assert isinstance(rtl, dict), f"rtl must be a dictionary, but found {type(rtl)}"
@@ -2896,7 +2923,7 @@ class Design(XedaBaseModel):
                 from .flow_runner.run_lock import generator_design_lock
 
                 generator_lease = generator_design_lock(design_root)
-            with WorkingDirectory(design_root), generator_lease:
+            with generator_lease:
                 # Tell the generator the design root as `$DESIGN_ROOT` names it in the design's
                 # own paths. This replaces whatever the shell exports, which is another
                 # directory's.
@@ -3042,9 +3069,11 @@ class Design(XedaBaseModel):
         # Compatibility processing, generators and source normalization all consume or enrich
         # nested mappings. The data of the caller is input, not a workspace that Xeda owns.
         data = deepcopy(data)
-        if not design_root:
-            design_root = data.pop("design_root", Path.cwd())
-        if not design_root:
+        if design_root is None:
+            design_root = (
+                data.pop("design_root") if "design_root" in data else design_relative_root()
+            )
+        if design_root is None:
             raise ValueError("design_root is not set")
 
         # Everything up to `super().__init__` runs outside the validators of pydantic, so this
@@ -3058,20 +3087,26 @@ class Design(XedaBaseModel):
             return DesignValidationError([(loc, msg, "", kind)], data=data, design_root=design_root)
 
         try:
-            design_root = Path(design_root).resolve()
+            root = Path(design_root)
+            if not root.is_absolute():
+                root = design_relative_root() / root
+            design_root = root.resolve()
         except TypeError:
             raise invalid("design_root", f"not a path: {design_root!r}") from None
         if not design_root.is_dir():
             raise invalid("design_root", f"directory does not exist: {design_root}")
         if not data.get("design_root"):
             data["design_root"] = design_root
-        if "targets" in data:
-            data = self.select_target(data)
-        try:
-            data = Design.process_dict(data)
-        except (ValueError, TypeError, AssertionError) as e:
-            raise invalid(None, str(e)) from e
-        with WorkingDirectory(design_root):
+        # A relative path in the design resolves against the design root, in the validation of
+        # the nested models, in the generators and in the dependencies alike. The working
+        # directory of the process stays as it is.
+        with loading_in_design_root(design_root):
+            if "targets" in data:
+                data = self.select_target(data)
+            try:
+                data = Design.process_dict(data)
+            except (ValueError, TypeError, AssertionError) as e:
+                raise invalid(None, str(e)) from e
             try:
                 super().__init__(**data)
             except ValidationError as e:
@@ -3214,6 +3249,8 @@ class Design(XedaBaseModel):
             remove_extra = []
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
+        # Read the working directory here, in the call that receives the file, and nowhere later.
+        absolute_file = design_file.absolute()
         design_dict = _read_design_file(design_file)
         if allow_extra:
             cls = model_with_allow_extra(cls)
@@ -3246,6 +3283,9 @@ class Design(XedaBaseModel):
                 cls.remove_keys(design_dict, remove_extra)
             # The default design root is the directory that holds the design file.
             dr = design_dict.pop("design_root", None)
+            if design_root is None and isinstance(dr, (str, os.PathLike)) and dr:
+                # A relative `design_root` in the file is relative to the file.
+                dr = absolute_file.parent / dr
             if design_root is None:
                 design_root = dr
             if design_root is None:
@@ -3257,10 +3297,10 @@ class Design(XedaBaseModel):
                 data=e.data,
                 design_root=e.design_root,
                 design_name=e.design_name,
-                file=str(design_file.absolute()),
+                file=str(absolute_file),
             ) from e
         except Exception as e:
-            log.error("Error processing design file: %s", design_file.absolute())
+            log.error("Error processing design file: %s", absolute_file)
             raise e
 
     @classmethod

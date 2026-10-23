@@ -6,7 +6,7 @@ from typing import ClassVar, Dict, List, Literal, Optional, Union
 from colorama import Fore as fg
 from colorama import Style as style
 
-from ..dataclass import WORKING, Field, waveform
+from ..dataclass import WORKING, Field, field_validator, waveform
 from ..design import SourceType
 from ..flow import Flow, FlowSettingsException, SimFlow, NoReplacement
 from ..flow.flow import describe_results
@@ -261,6 +261,14 @@ class Vcs(SimFlow):
             json_schema_extra=data_size(),
         )
 
+        @field_validator("gui", "debug_access", mode="before")
+        @classmethod
+        def _switch_text_is_a_switch(cls, value):
+            """Read `true` and `false` text (how a command line writes a boolean) as a boolean."""
+            if isinstance(value, str) and value.lower() in ("true", "false"):
+                return value.lower() == "true"
+            return value
+
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         """Refuse an SDF file without the instance it annotates, before anything runs."""
@@ -495,7 +503,7 @@ class Vcs(SimFlow):
             )
         if ss.to_vcd:
             if ss.fsdb:
-                if not ss.fsdb.exists():
+                if not self.run_file(ss.fsdb).exists():
                     log.error(f"FSDB file {ss.fsdb} does not exist")
                 else:
                     fsdb2vcd_args = [
@@ -506,7 +514,7 @@ class Vcs(SimFlow):
                         ss.fsdb, *fsdb2vcd_args, "-o", ss.fsdb.with_suffix(".vcd"), check=True
                     )
             if ss.vpd:
-                if not ss.vpd.exists():
+                if not self.run_file(ss.vpd).exists():
                     log.error(f"VPD file {ss.vpd} does not exist")
                 else:
                     vpd2vcd_args = [

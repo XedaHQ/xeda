@@ -231,29 +231,28 @@ for streaming or grepping.
 Discovering what comes back
 ===========================
 
-``xeda list-results <flow> --json`` lists the keys that the flow writes to ``results.json`` and the
-canonical aliases that Xeda adds:
+``xeda list-results <flow> --json`` lists the metrics that the flow writes to ``results.json``:
 
 .. code-block:: json
 
     {
       "flow": "vivado_synth",
-      "documented": true,
-      "keys": [
-        {"name": "Fmax", "description": "Maximum achievable clock frequency in MHz, ...",
-         "common": false, "documented": true}
+      "metrics": [
+        {"path": "Fmax", "description": "Maximum achievable clock frequency, ...",
+         "type": "number", "unit": "MHz"},
+        {"path": "lut", "description": "Number of LUTs used.", "type": "integer", "unit": null}
       ],
-      "canonical_aliases": {
-        "Fmax": ["Fmax", "f_max", "maximum_frequency"],
-        "lut": ["lut", "LUT"],
-        "ff": ["ff", "FF"]
-      },
+      "artifacts": [],
       "note": "..."
     }
 
-``documented: false`` means that the flow has not declared a ``results_description`` (a flow from a
-plugin, for example). Xeda then detects the keys from the source of the flow as a best effort. In
-that case, read an actual ``results.json``.
+``type`` is one of ``number``, ``integer``, ``boolean``, ``text``, ``text_list`` (a list of text),
+``counts`` (a table of text to integer), ``numbers`` (a table of text to number) and ``object`` (a
+JSON object that the description documents). ``unit`` is a unit text such as ``MHz``, ``ns`` or
+``W``. For ``numbers``, it is the unit of every value. A metric in the units of the platform, such
+as a cell area in the area unit of the Liberty files, has the unit ``null``, and its description
+says so. The keys that every flow reports (``success``, ``runtime``, ...) are no metrics and are not
+listed. The table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
 
 A canonical key names a quantity, not one way to measure it. ``lut`` is reported per toolchain and
 per stage. The open-source FPGA flows add ``LUT:STAGE`` (``mapped`` for ``yosys_fpga``, ``placed and
@@ -405,9 +404,9 @@ Xeda checks the output records at two points:
   containment and the content, under a verified read lease on the producer. This is true whether the
   producer ran or was reused.
 
-A failure to record an output uses ``MissingOutput`` and the normal failure identity. A failed
-hand-over check of a consumer is a ``FlowDependencyFailure``. A flow can also fail earlier with its
-own check. For example, ``nextpnr`` raises ``FlowFatalError`` and names the configuration setting
+A failure to record an output uses ``missing_output`` and the normal failure identity. A failed
+hand-over check of a consumer is a ``producer_failed``. A flow can also fail earlier with its
+own check. For example, ``nextpnr`` fails with ``reported_failure`` and names the configuration setting
 and the path of an enabled configuration that its tool did not write.
 
 ``outputs`` is bookkeeping, like ``artifacts``, and not a ``list-results`` metric. The printed
@@ -435,8 +434,10 @@ an unknown setting:
       "nodes": []
     }
 
-``error.type`` names the type of the failure. It is usually the class of an exception, and it is
-stable enough to branch on either way:
+``error.type`` is a field of this top-level ``xeda run --json`` document only. It names the type of
+the failure. It is usually the class of an exception, and it is stable enough to branch on either
+way. The ``results.json`` of a node has no ``type``: its ``error`` carries a stable ``code`` (see
+the paragraph on the ``results.json`` of every node below). The types are:
 
 - ``FlowSettingsError``: a bad setting.
 - ``ExecutableNotFound``: the tool is not installed.
@@ -480,26 +481,35 @@ refusals before it starts a run, and they use the same document with ``UsageErro
 that declares no inputs, or a chain together with a command-line or API binding of the same input)
 is a settings error. It names the input and the place where the binding was written.
 
-The ``results.json`` of every node is a failure document too, and its ``error.type`` is more
-specific than the one of the top-level document. The top-level ``FlowFailed`` is the verdict of the
-run, and a node names the cause. A failure of a producer is never ``FlowFailed``. The
-``results.json`` of the producer names its cause, and the flows after it say
-``FlowDependencyFailure`` and quote it (``producer yosys_fpga failed: ...``). The top-level
-``error`` of a chain whose last flow was never reached says the same. A flow that raises names its
-exception class (``NonZeroExitCode``, ``FlowFatalError`` and so on). Two causes belong to a flow
+The ``results.json`` of every node is a failure document too. Its ``error`` has a stable ``code``,
+a ``message``, the ``node``, the ``exit_status`` of the tool (for ``nonzero_exit``) and a ``log``
+(the artifact to read, or ``null``). The ``code`` is lower snake case and never the name of a
+class. The top-level ``FlowFailed`` is the verdict of the run, and a node names the cause. A
+failure of a producer is never ``FlowFailed``. The ``results.json`` of the producer names its
+cause, and the flows after it say ``producer_failed`` and quote the producer, its code and its
+message (``producer yosys_fpga failed (nonzero_exit): ...``). The top-level ``error`` of a chain
+whose last flow was never reached says the same. A flow that raises has a code for the kind of
+failure: ``nonzero_exit``, ``timeout``, ``executable_not_found``, ``reported_failure`` (also for
+``FlowFatalError``, and for a design, a project or a setting that Xeda refuses while it launches the
+flow), ``storage_error`` (a file or directory error of the operating system, or a path that leaves
+the run directory), ``producer_failed`` or ``internal_error`` (a bug of Xeda). A run that was
+judged negative after its reports were read says ``rejected``. Three more causes belong to a flow
 that finished without raising. The top-level document of such a flow says ``FlowFailed``:
 
-* ``ReportedFailure``: ``"`<flow>` reported failure: its reports or checks did not pass (see the log
+* ``reported_failure``: ``"`<flow>` reported failure: its reports or checks did not pass (see the log
   and its run directory)"``. A ``parse_reports()`` or ``check_results()`` that does not raise
   reported the failure: the tool exited 0, and the reports or checks that the flow reads say
   otherwise. A flow can give a message of its own. For example, ``openfpgaloader`` says what its
   loader reported and quotes the lines.
-* ``MissingOutput``: the flow passed its own checks, but an enabled declared output is absent,
+* ``missing_report``: the reports of the flow could not be read, because a report that the flow
+  needs does not exist or is a previous run's, not this run's. The message names the files. A
+  report that the flow reads but can do without never gives this code.
+* ``missing_output``: the flow passed its own checks, but an enabled declared output is absent,
   unreadable, outside the run directory or not written by this run (see ``outputs`` above).
 
-``nextpnr`` can catch a missing enabled output earlier. It raises ``FlowFatalError``, which names
-the configuration setting and the path that its tool did not write. This is a raised error, and not
-a ``MissingOutput``.
+``nextpnr`` can catch a missing enabled output earlier. It raises an error that names the
+configuration setting and the path that its tool did not write. This is a raised error with the code
+``reported_failure``, and not a ``missing_output``.
 
 Other documents of executional commands
 ---------------------------------------

@@ -29,6 +29,7 @@ from click.testing import CliRunner
 
 from xeda.cli import cli
 from xeda.design import Design
+from xeda.flow_runner import get_flow_class
 from xeda.introspect import results_info
 
 from . import tool_utils
@@ -145,9 +146,10 @@ def _missing_in(document: Any, path: str) -> str | None:
 
 
 def _results_keys(flow: str) -> set[str]:
-    """The result keys that `xeda list-results` documents for a flow, canonical names included."""
-    info = results_info(flow)
-    return {entry["name"] for entry in info["keys"]} | set(info["canonical_aliases"])
+    """The metric paths that `xeda list-results` documents for a flow, and the canonical aliases
+    that the runner adds."""
+    paths = {metric["path"] for metric in results_info(flow)["metrics"]}
+    return paths | set(get_flow_class(flow).results_canonical_aliases)
 
 
 @pytest.fixture(scope="module")

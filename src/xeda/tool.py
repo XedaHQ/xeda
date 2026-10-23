@@ -25,7 +25,6 @@ from .utils import (
     ExecutableNotFound,
     NonZeroExitCode,
     ToolException,
-    WorkingDirectory,
     cached_property,
     replacing_file,
     try_convert,
@@ -51,6 +50,15 @@ OptionalPath = Union[None, str, os.PathLike]
 OptionalBoolOrPath = Union[None, bool, str, os.PathLike]
 
 
+def _placed(directory: Path, path: OptionalBoolOrPath) -> OptionalBoolOrPath:
+    """Return `path` as an absolute path: a relative one is relative to `directory`. A missing
+    path and a flag (`stdout=True`) stay as they are. `run_process` opens a relative file against
+    the working directory of the process, so a file of a tool is named in full."""
+    if path is None or isinstance(path, bool):
+        return path
+    return directory / path
+
+
 class Docker(XedaBaseModel):
     image: str = Field(description="Docker image name")
     command: List[str] = []
@@ -69,8 +77,11 @@ class Docker(XedaBaseModel):
     # NOTE only works for Linux containers
     @cached_property
     def cpuinfo(self) -> Optional[List[List[str]]]:
+        # The query needs no directory of the user: it runs in a scratch directory, as a probe of
+        # the version of a tool does.
         try:
-            ret = self.run("cat", "/proc/cpuinfo", stdout=True)
+            with tempfile.TemporaryDirectory(prefix="xeda-probe-") as scratch:
+                ret = self.run("cat", "/proc/cpuinfo", stdout=True, cwd=Path(scratch))
         except Exception:  # noqa: BLE001 - CPU details are optional Docker metadata
             ret = None
         if ret is not None:
@@ -100,12 +111,19 @@ class Docker(XedaBaseModel):
         merge_stderr: bool = False,
         timeout: float | None = None,
         tee: Path | None = None,
+        cwd: Path | None = None,
     ) -> Union[str, None]:
         """Run the tool in a Docker container.
 
-        The container mounts the current directory (the run directory) writable and each
-        directory of `read_only` read-only: the design's, and those of the flow's inputs
-        (`Tool.execute` chooses them). A mount configured in `mounts` stays as configured."""
+        The container works in `cwd` (by default the current directory, read once here) and mounts
+        it writable. It sees the resolved path of that directory, as a process that changed into
+        it would. It mounts each directory of `read_only` read-only: the design's, and those of
+        the flow's inputs (`Tool.execute` chooses them). A mount configured in `mounts` stays as
+        configured. The `docker` client starts in `cwd` too, and the files that Xeda writes for
+        the container (the environment file, the CPU information) go there."""
+        cwd = Path(os.path.realpath(Path.cwd() if cwd is None else cwd))
+        stdout = _placed(cwd, stdout)
+        tee = None if tee is None else cwd / tee
         note_program(f"{DOCKER_IMAGE_PREFIX}{self.image}:{self.tag or 'latest'}")
         # These are this run's mounts: `mounts` and the directories this run needs. The extra ones
         # stay out of `mounts`, because a later run would mount them again. A version probe's
@@ -113,7 +131,7 @@ class Docker(XedaBaseModel):
         # anew.
         mounts = dict(self.mounts)
         if self.fix_cpuinfo and self.cpuinfo:
-            cpuinfo_file = Path(".cpuinfo").resolve()
+            cpuinfo_file = cwd / ".cpuinfo"
             with replacing_file(cpuinfo_file) as f:
                 for proc in self.cpuinfo:
                     for line in proc:
@@ -124,7 +142,6 @@ class Docker(XedaBaseModel):
                     f.write("\n")
             mounts[str(cpuinfo_file)] = "/proc/cpuinfo"
 
-        cwd = Path.cwd()
         docker_args = [
             "--rm",
             f"--workdir={cwd}",
@@ -175,6 +192,7 @@ class Docker(XedaBaseModel):
                     check=False,
                     merge_stderr=True,
                     timeout=DOCKER_KILL_TIMEOUT,
+                    cwd=cwd,
                 )
             except (OSError, ProcessTimeout) as e:
                 log.warning("Could not stop container %s: %s", container, e)
@@ -191,6 +209,7 @@ class Docker(XedaBaseModel):
                 merge_stderr=merge_stderr,
                 timeout=timeout,
                 tee=tee,
+                cwd=cwd,
                 on_stop=kill_container,
             )
         except FileNotFoundError as e:
@@ -282,6 +301,7 @@ class Tool(XedaBaseModel):
                 caller_inst = s.frame.f_locals.get("self")
                 if isinstance(caller_inst, Flow):
                     flow = caller_inst
+                    break
 
         super().__init__(**kwargs)
 
@@ -502,12 +522,14 @@ class Tool(XedaBaseModel):
         merge_stderr: bool = False,
         timeout: float | None = None,
         tee: Path | None = None,
+        cwd: Path | None = None,
     ) -> Union[str, None]:
+        """Run the tool with `args` in its working directory (`execute`)."""
         if env:
             env = {k: str(v) for k, v in env.items() if v is not None}
-            env_file = "env.sh"
-            if self._run_directory is not None:
-                self._run_directory.writable(env_file)  # inside the flow's run directory
+            env_file = self._directory(cwd) / "env.sh"
+            if self._in_run_directory(env_file):
+                self._run_directory.writable(env_file)
             with replacing_file(env_file) as f:
                 f.write("\n".join(f'export {k}="{v}"' for k, v in env.items()))
         return self.execute(
@@ -516,13 +538,43 @@ class Tool(XedaBaseModel):
             env=env,
             stdout=stdout,
             check=check,
+            cwd=cwd,
             highlight_rules=highlight_rules,
             merge_stderr=merge_stderr,
             timeout=timeout,
             tee=tee,
         )
 
-    def _read_only_directories(self) -> List[Path]:
+    def working_directory(self) -> Path:
+        """Return the absolute directory where the tool works.
+
+        It is the run path of the flow that the tool belongs to, as the flow has it (it may be a
+        link into the run root, and the tool sees it so). A tool outside a flow works in the
+        current directory, read at this call."""
+        flow = self._flow() if self._flow is not None else None
+        return flow.run_path if flow is not None else Path.cwd()
+
+    def _directory(self, cwd: OptionalPath = None) -> Path:
+        """Return the absolute directory for one start of the tool: `cwd`, if given (a relative
+        one is relative to the working directory of the tool), else the working directory."""
+        base = self.working_directory()
+        if cwd is None:
+            return base
+        cwd = Path(cwd)
+        return cwd if cwd.is_absolute() else base / cwd
+
+    def _in_run_directory(self, path: Path) -> bool:
+        """Return whether `path` lies in the run directory of the flow of this tool, by its name
+        or by where it leads. A file in a probe's scratch directory does not."""
+        run_directory = self._run_directory
+        if run_directory is None:
+            return False
+        lexical = Path(os.path.abspath(path))
+        return lexical.is_relative_to(self.working_directory()) or (
+            run_directory.named_within(lexical) is not None
+        )
+
+    def _read_only_directories(self, cwd: Path) -> List[Path]:
         """Return the directories that a container mounts read-only in this run.
 
         These are the directories of the design and the directories of the flow's inputs
@@ -531,12 +583,12 @@ class Tool(XedaBaseModel):
         (the run directory) and in a mount that the user configured writable. A directory is left
         out when the run directory, a directory of the design, or a configured mount at the same
         path already holds it. A read-only mount inside the run directory would make a part of it
-        read-only."""
+        read-only. `cwd` is the directory the tool runs in."""
         design = [d for d in (self.design_root_, *self.source_dirs_) if d is not None]
         flow = self._flow() if self._flow is not None else None
         inputs = flow.input_directories() if flow is not None else []
         held = [
-            Path.cwd(),
+            cwd,
             *design,
             # A configured mount holds a directory only when the container path is the host path.
             *(
@@ -565,26 +617,40 @@ class Tool(XedaBaseModel):
         timeout: float | None = None,
         tee: Path | None = None,
     ) -> Union[str, None]:
+        """Start `executable` with `args` in an explicit directory and return what `run_process`
+        returns.
+
+        The directory is `cwd` (a relative one is relative to the working directory of the tool),
+        else `working_directory()`. The process starts there, and a relative `stdout` or `tee`
+        file and the files that Xeda writes for the tool are relative to it too."""
+        directory = self._directory(cwd)
         if not stdout and self.redirect_stdout:
             stdout = self.redirect_stdout
+        stdout = _placed(directory, stdout)
+        if tee is not None:
+            tee = directory / tee
         args = tuple(list(self.default_args) + list(args))
         if self.console_colors:
             highlight_rules = highlight_rules or self.highlight_rules
         else:
             highlight_rules = None
         if self.docker and self.dockerized:
+            # The container sees the physical directory (`Docker.run`), and so do its read-only
+            # mounts, which are compared with it.
+            container_directory = Path(os.path.realpath(directory))
             return self.docker.run(
                 executable,
                 *args,
                 env=env,
                 stdout=stdout,
                 check=check,
-                read_only=self._read_only_directories(),
+                read_only=self._read_only_directories(container_directory),
                 print_command=self.print_command,
                 highlight_rules=highlight_rules,
                 merge_stderr=merge_stderr,
                 timeout=timeout,
                 tee=tee,
+                cwd=container_directory,
             )
         if env is not None:
             env = {**os.environ, **env}
@@ -595,7 +661,7 @@ class Tool(XedaBaseModel):
                 env=env,
                 stdout=stdout,
                 check=check,
-                cwd=cwd,
+                cwd=directory,
                 print_command=self.print_command,
                 highlight_rules=highlight_rules,
                 merge_stderr=merge_stderr,
@@ -616,6 +682,7 @@ class Tool(XedaBaseModel):
         raise_on_error: bool = True,
         merge_stderr: bool = False,
         timeout: float | None = None,
+        cwd: Optional[Path] = None,
     ) -> Optional[str]:
         out = self.run(
             *args,
@@ -624,6 +691,7 @@ class Tool(XedaBaseModel):
             check=raise_on_error,
             merge_stderr=merge_stderr,
             timeout=timeout,
+            cwd=cwd,
         )
         if raise_on_error or out is not None:
             assert isinstance(out, str)
@@ -649,14 +717,14 @@ class Tool(XedaBaseModel):
         relative executable path would be looked up from the temporary directory, so a tool is
         named by its name or by an absolute path."""
         with tempfile.TemporaryDirectory(prefix="xeda-probe-") as scratch:
-            with WorkingDirectory(scratch):
-                return self.run_get_stdout(
-                    *args,
-                    env=env,
-                    raise_on_error=raise_on_error,
-                    merge_stderr=merge_stderr,
-                    timeout=timeout,
-                )
+            return self.run_get_stdout(
+                *args,
+                env=env,
+                raise_on_error=raise_on_error,
+                merge_stderr=merge_stderr,
+                timeout=timeout,
+                cwd=Path(scratch),
+            )
 
     def run_stdout_to_file(
         self,

@@ -145,6 +145,17 @@ class ProcessTimeout(NonZeroExitCode):
         return f"{what} ran past its time limit of {self.timeout} s and was stopped"
 
 
+#: The signals that stop Xeda from outside (a `kill`, a CI cancel, a closed terminal or ssh
+#: session) and that Xeda would not survive. While a tool runs, they stop the tool as Ctrl-C does.
+_STOP_SIGNALS = tuple(
+    getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)
+)
+
+
+def _interrupt_like_ctrl_c(number: int, _frame: Any) -> None:
+    raise KeyboardInterrupt(f"{signal.Signals(number).name} received")
+
+
 class _Deadline:
     """A watch on `proc`. Once `timeout` seconds pass (`None`: never) while the process still
     runs, it stops the process and, when the process leads a session of its own (`group`,
@@ -158,6 +169,20 @@ class _Deadline:
     before the leader is reaped, so the group id cannot be recycled (the other members of the
     group are not children of the caller, so they cannot be reaped here). `on_stop` then runs,
     on the thread that leaves the context, as `run_process` documents.
+
+    A process with a `group` runs in a session of its own, so the terminal's Ctrl-C and hangup
+    do not reach it. Within the context, on the main thread, SIGTERM and SIGHUP therefore raise
+    `KeyboardInterrupt` in place of their default action (the end of Xeda, with the tool left
+    running). A signal that the caller ignores (`nohup`) stays ignored. The previous handlers
+    return on leaving. From the start of the stop to its end, `on_stop` included, the two signals
+    only get recorded, so that a repeated one cannot cut the stop short or skip `on_stop`. A
+    second Ctrl-C can still do both. The recorded signal then ends the wait with
+    `KeyboardInterrupt`, unless one is already on its way.
+
+    An exception stops the group even when the leader has already ended (a child can outlive it,
+    holding the output pipe that Xeda still copies), as long as nobody reaped the leader. The
+    group id of a leader that is not reaped is still its own, so the signal cannot reach another
+    group.
     """
 
     def __init__(
@@ -173,6 +198,8 @@ class _Deadline:
         self._on_stop = on_stop
         self._lock = threading.Lock()
         self._cancelled = False
+        self._previous_handlers: dict[int, Any] = {}
+        self._received: list[int] = []
         self._timer = threading.Timer(timeout, self._expire) if timeout is not None else None
         if self._timer is not None:
             self._timer.daemon = True
@@ -191,7 +218,8 @@ class _Deadline:
             pass
 
     def _stopped(self) -> None:
-        """Run `on_stop` once, in the calling thread, after the process was reaped. Nothing
+        """Run `on_stop` once, in the calling thread, after the process was stopped and, unless a
+        second Ctrl-C cut the stop short, reaped. Nothing
         bounds it here, because it bounds itself. A `KeyboardInterrupt` or `SystemExit` from it
         propagates. Any other `Exception` is logged and never replaces the exception in
         flight."""
@@ -204,9 +232,9 @@ class _Deadline:
 
     def _expire(self) -> None:
         with self._lock:
-            # A process that ended by itself is not a timeout. While `poll` returns `None`, the
-            # process is not yet reaped, so its pid (and group) cannot be recycled.
-            if self._cancelled or self.proc.poll() is not None:
+            # A process that ended by itself is not a timeout. The answer does not reap a leader
+            # that leads a group, so a later interrupt can still signal the group.
+            if self._cancelled or self.leader_exited():
                 return
             self.expired = True
             self._stop(force=True)
@@ -220,7 +248,26 @@ class _Deadline:
                 self._timer.join()
 
     def __enter__(self) -> "_Deadline":
+        if self._group and threading.current_thread() is threading.main_thread():
+            for number in _STOP_SIGNALS:
+                previous = signal.getsignal(number)
+                if previous is not None and previous != signal.SIG_IGN:
+                    self._previous_handlers[number] = previous
+                    signal.signal(number, _interrupt_like_ctrl_c)
         return self
+
+    def _restore_handlers(self) -> None:
+        for number, previous in self._previous_handlers.items():
+            signal.signal(number, previous)
+        self._previous_handlers.clear()
+
+    def _record_stop_signal(self, number: int, _frame: Any) -> None:
+        self._received.append(number)
+
+    def _hold_stop_signals(self) -> None:
+        """Make the stop signals that `__enter__` took over only get recorded."""
+        for number in self._previous_handlers:
+            signal.signal(number, self._record_stop_signal)
 
     def _exited_unreaped(self) -> bool:
         """Return whether the leader has exited but is still waiting to be reaped (a zombie).
@@ -240,30 +287,61 @@ class _Deadline:
                 return
             time.sleep(min(0.01, remaining))
 
+    def leader_exited(self) -> bool:
+        """Return whether the process has ended. A POSIX leader that leads a group is not reaped
+        by the answer (`poll` would release its pid and group id)."""
+        if self._group:
+            return self.proc.returncode is not None or self._exited_unreaped()
+        return self.proc.poll() is not None
+
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
-        self.cancel()
-        was_running = exc_type is not None and self.proc.poll() is None
-        if was_running:
-            log.debug("Stopping %s(pid=%s)", self.proc.args, self.proc.pid)
-            self._stop(interrupt=issubclass(exc_type, KeyboardInterrupt))
+        try:
+            self._hold_stop_signals()
+            self.cancel()
+            # Decided before anything is signaled: the hook is for a process that Xeda stopped.
+            stopped = self.expired or (exc_type is not None and not self.leader_exited())
+            try:
+                self._stop_and_reap(exc_type)
+            finally:
+                # The hook runs also when a second Ctrl-C cut the wait short.
+                if stopped:
+                    self._stopped()
+        finally:
+            self._restore_handlers()
+        if self._received and not (
+            exc_type is not None and issubclass(exc_type, KeyboardInterrupt)
+        ):
+            raise KeyboardInterrupt(f"{signal.Signals(self._received[0]).name} received")
+
+    def _stop_and_reap(self, exc_type: Any) -> None:
+        if exc_type is not None:
             if self._group:
-                try:
-                    self._wait_unreaped()
-                finally:
-                    # The leader is still a child of this process, running or a zombie. Signal
-                    # its descendants before `wait()` releases its pid. A second Ctrl-C still
-                    # kills and reaps it.
-                    self._stop(force=True)
-                    self.proc.wait()
-            else:
+                # Signal the group even if the leader ended: a child can outlive it. Nobody reaped
+                # the leader (`returncode` is `None`), so its pid stays reserved as the group id
+                # while the leader or any member lives, and the signal reaches no other group.
+                # With the leader reaped (an earlier `poll`), the group id may be free again.
+                if self.proc.returncode is None:
+                    log.debug("Stopping %s(pid=%s)", self.proc.args, self.proc.pid)
+                    self._stop(interrupt=issubclass(exc_type, KeyboardInterrupt))
+                    try:
+                        # A leader that already ended is not waited for: its children get the
+                        # SIGKILL at once.
+                        self._wait_unreaped()
+                    finally:
+                        # The leader is still a child of this process, running or a zombie. Signal
+                        # its descendants before `wait()` releases its pid. A second Ctrl-C still
+                        # kills and reaps it.
+                        self._stop(force=True)
+                        self.proc.wait()
+            elif self.proc.poll() is None:
+                log.debug("Stopping %s(pid=%s)", self.proc.args, self.proc.pid)
+                self._stop(interrupt=issubclass(exc_type, KeyboardInterrupt))
                 try:
                     self.proc.wait(PROCESS_STOP_GRACE)
                 except subprocess.TimeoutExpired:
                     self._stop(force=True)
         if exc_type is not None or self.expired:
             self.proc.wait()
-        if was_running or self.expired:
-            self._stopped()
 
 
 def _needs_line_copy(
@@ -442,7 +520,7 @@ def _run_in_terminal(
                     master,
                     log_file,
                     tool_output_stream(),
-                    lambda: proc.poll() is not None,
+                    deadline.leader_exited,
                     release_slave,
                 )
                 ret = proc.wait()
@@ -482,11 +560,18 @@ def run_process(
 ) -> Union[None, str]:
     """Run `executable`, and return its captured stdout when `stdout` is True.
 
-    `timeout` stops the process after this many seconds and raises `ProcessTimeout`. On POSIX it
-    also stops the processes that the child started, which share its process group. On other
-    systems it stops only the child. `tee` also writes every line of the output to this file. The output is
-    then not captured, so `tee` with a `stdout` other than `None` is a `ValueError`. A `stdout`
-    that is a path sends the output to that file alone. Either file is the log of a tool. Xeda
+    On POSIX the child leads a session and a process group of its own, so that stopping it also
+    stops the processes that it started: after `timeout` seconds, and when an exception (Ctrl-C
+    included) interrupts the wait. On other systems only the child is stopped. `timeout` stops
+    the process after this many seconds and raises `ProcessTimeout`. SIGTERM and SIGHUP to Xeda
+    stop the tool as Ctrl-C does, while it runs on the main thread (`_Deadline`). Another one of
+    them while the tool is being stopped waits until the stop, and the hook, are done. An
+    interrupted wait also stops a child that outlived the tool and still holds its output open,
+    because Xeda reaps the tool only after the output ends.
+
+    `tee` also writes every line of the output to this file. The output is then not captured, so
+    `tee` with a `stdout` other than `None` is a `ValueError`. A `stdout` that is a path sends
+    the output to that file alone. Either file is the log of a tool. Xeda
     makes it as a new file at the given name before the tool starts and writes it as the output
     arrives (`utils.live_log`). The new file replaces whatever was there, a link or a hard link
     included, and Xeda never writes through that link. A log that cannot be made starts no tool.
@@ -496,7 +581,7 @@ def run_process(
     exception (Ctrl-C included) was raised while the process still ran. It is never called for a
     process that ended by itself. It runs synchronously, on the thread that called
     `run_process`, after the process was stopped and reaped and, when the process leads a
-    process group of its own (POSIX, with a `timeout`), after that group was sent SIGKILL. A
+    process group of its own (POSIX), after that group was sent SIGKILL. A
     `KeyboardInterrupt` (a second Ctrl-C) or `SystemExit` that it raises propagates. Any other
     `Exception` is logged and never replaces the exception in flight, nor the `ProcessTimeout`.
     Nothing bounds its run time from outside, and the caller waits for it. A hook that can block
@@ -514,6 +599,8 @@ def run_process(
     each redraw and no empty line. In any other case (a pipe, a file, a CI log, a captured
     stream) `terminal` has no effect, and the child sees the pipe that it always saw.
     `highlight_rules` do not apply to a child with a terminal, which colors its own output.
+    The terminal is the output of the child, not its controlling terminal: the child leads a
+    session of its own, as with any other output.
     """
     if timeout is not None and not timeout > 0:
         raise ValueError(f"timeout must be a positive number of seconds, not {timeout!r}")
@@ -533,7 +620,15 @@ def run_process(
         log.debug("Running `%s`", cmd_str)
     if cwd:
         log.debug("cwd=%s", cwd)
-    new_session = timeout is not None and os.name == "posix"
+    # Every tool leads a session of its own on POSIX, with or without a time limit, so that
+    # stopping the tool (a time limit, Ctrl-C) reaches the processes that it started. A session
+    # and not only a process group: the tool then has no controlling terminal, so a tool that
+    # reads its inherited standard input is never stopped by SIGTTIN, and one that changes the
+    # terminal modes is never stopped by SIGTTOU, as a member of a background process group of the
+    # terminal would be. The terminal's own Ctrl-C reaches only the process group of Xeda. Xeda
+    # then raises `KeyboardInterrupt`, and `_Deadline` signals the group of the tool. SIGTERM and
+    # SIGHUP to Xeda do the same (`_Deadline`).
+    new_session = os.name == "posix"
     if terminal and stdout is None and tee is not None and _stdout_terminal_fd() is not None:
         _run_in_terminal(command, env, cwd, check, merge_stderr, timeout, tee, on_stop, new_session)
         return None

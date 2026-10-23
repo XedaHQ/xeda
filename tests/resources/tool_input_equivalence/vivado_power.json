@@ -549,7 +549,7 @@
    "results": {
     "Fake: activity": "(SAIFILE) | // fake Vivado activity of: // fake Vivado netlist | // write_verilog -mode timesim -sdf_anno false ; module tb; reg a; wire y; top dut(a, y); endmodule | // back-annotated with: max (DELAYFILE | // fake Vivado SDF, write_sdf -mode timesim -process_corner slow | (DESIGN \"top\")",
     "Fake: checkpoint": "fake Vivado checkpoint post_route | top top",
-    "Total On-Chip Power (W)": "0.5",
+    "Total On-Chip Power (W)": 0.5,
     "artifacts": {},
     "design": "sim",
     "flow": "vivado_power",
@@ -2898,7 +2898,7 @@
      "xdc_exported": "outputs/route_design/impl.xdc"
     },
     "bram_RAMB18": 1,
-    "bram_tile": "0.5",
+    "bram_tile": 0.5,
     "clock_frequency": 450.045,
     "clock_period": 2.222,
     "design": "sim",

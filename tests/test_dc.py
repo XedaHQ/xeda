@@ -7,7 +7,6 @@ import pytest
 
 from xeda import Design
 from xeda.flows import Dc
-from xeda.utils import WorkingDirectory
 
 from .tool_utils import fake_calls, use_fake_tools
 
@@ -40,8 +39,7 @@ def test_dc_records_the_outputs_its_script_writes(sdf_version, tmp_path, monkeyp
     run_path.mkdir()
     flow = Dc(settings, _dc_design(tmp_path / "design"), run_path)
     flow.init()
-    with WorkingDirectory(run_path):
-        flow.run()  # the fake `dc_shell` runs the script, its commands recorded
+    flow.run()  # the fake `dc_shell` runs the script, its commands recorded
 
     written = {
         label: str(flow.settings.outputs_dir / f"top.mapped.{suffix}")

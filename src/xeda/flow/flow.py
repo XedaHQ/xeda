@@ -35,7 +35,7 @@ from typing import (
 import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
-from pydantic_core import ErrorDetails, InitErrorDetails
+from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError
 
 from ..dataclass import (
     DELIVERABLE_ROLE,
@@ -52,7 +52,6 @@ from ..dataclass import (
     comma_separated_items,
     conventional_output,
     field_annotation,
-    field_validator,
     fold_dotted_keys,
     input_names,
     is_locator,
@@ -67,6 +66,7 @@ from ..dataclass import (
     written_role,
 )
 from ..design import LANGUAGE_TYPES, Design, DesignSource, SourceType
+from ..records import REJECTED, ErrorInfo
 from ..run_dir import OutputSnapshot, RunDirectory, record_output_state, resolved_inside
 from ..units import count, finalize_template_value, to_filter
 from ..utils import (
@@ -86,11 +86,12 @@ from ..utils import (
     tcl_list,
     tcl_quote,
     tcl_word,
-    try_convert,
     unique,
 )
 
 from .derived import DesignConversion
+from .source_file import without_source_file
+from .metrics import MetricSpec, describe_results
 from .io import (
     DESIGN,
     FlowInputs,
@@ -110,7 +111,6 @@ log = logging.getLogger(__name__)
 
 
 __all__ = [
-    "COMMON_RESULT_DESCRIPTIONS",
     "Flow",
     "FlowFatalError",
     "FlowSettingsError",
@@ -747,94 +747,6 @@ def flowrun_hash(flow_name: str, settings: Flow.Settings, design_name: Optional[
     return semantic_hash(identity_values(flow_name, settings, design_name))
 
 
-#: Descriptions of result keys that several flows report with the same meaning. A flow declares
-#: the subset it actually reports through `describe_results`, so `xeda list-results <flow>` never
-#: advertises a key that flow does not produce.
-COMMON_RESULT_DESCRIPTIONS: Dict[str, str] = {
-    # timing
-    "Fmax": "Maximum achievable clock frequency in MHz, derived from the constrained period and "
-    "the worst negative slack. This is the achieved result, unlike `clock_frequency`. Each tool "
-    "times a design with its own model: compare `Fmax` only between runs of the same tool.",
-    "clock_period": "Constrained clock period in nanoseconds, as given to the tool.",
-    "clock_frequency": "Constrained clock frequency in MHz. This is the constraint that was "
-    "given to the tool, not the achieved maximum (see `Fmax`).",
-    "clock_name": "Name of the clock the reported timing refers to.",
-    "clock_port": "Design port the reported clock is attached to.",
-    "wns": "Worst negative slack (ns) over all setup paths. Negative means setup timing is not "
-    "met.",
-    "whs": "Worst hold slack (ns) over all hold paths. Negative means a hold violation.",
-    "tns": "Total negative slack (ns), summed over every failing setup endpoint.",
-    "setup_wns": "Worst negative slack (ns) on setup paths.",
-    "hold_wns": "Worst negative slack (ns) on hold paths.",
-    "worst_slack": "Worst slack (ns) over all analyzed paths.",
-    "setup_violations": "Number of endpoints that fail setup timing.",
-    "hold_violations": "Number of endpoints that fail hold timing.",
-    "num_violating_paths": "Number of paths that fail setup timing.",
-    "hold_num_violating_paths": "Number of paths that fail hold timing.",
-    "minimum_period": "Minimum achievable clock period in nanoseconds.",
-    "maximum_frequency": "Maximum achievable clock frequency in MHz.",
-    "f_max": "Maximum achievable clock frequency in MHz.",
-    # FPGA resources
-    "lut": "Number of LUTs used.",
-    "LUT": "Number of LUTs used.",
-    "ff": "Number of flip-flops (registers) used.",
-    "FF": "Number of flip-flops (registers) used.",
-    "slice": "Number of slices / logic elements occupied.",
-    "dsp": "Number of DSP blocks used.",
-    "bram": "Number of block RAM primitives used.",
-    # ASIC area
-    "area": "Cell area of the synthesized design, in the technology's area unit.",
-    "design_area": "Area of the placed design, in `design_area_unit`.",
-    "design_area_unit": "Unit the reported `design_area` is expressed in.",
-    "utilization_percent": "Core area utilization, in percent.",
-    "utilization_ratio": "Core area utilization, as a ratio in 0..1.",
-    "aspect_ratio": "Core height divided by core width.",
-    "area_combinational": "Area of the combinational cells.",
-    "area_noncombinational": "Area of the sequential (state-holding) cells.",
-    "area_macro_bbox": "Area of macros and black boxes.",
-    "area_cell_total": "Total cell area, excluding net interconnect.",
-    "area_total": "Total area, including net interconnect where the tool reports it.",
-    "area_core": "Area of the core region.",
-    "utilization": "Share of the core area that the standard cells fill, as a ratio from 0 to 1.",
-    "power": "Total power of the design in watts, as the tool estimates it.",
-    "io": "Number of I/O buffers/pads used.",
-    "timing_met": "Whether every constrained clock domain met its constraint.",
-    "clock_domains": "Number of clock domains the timing analysis reported.",
-    # simulation: how it ended, from the simulator's end record (`SimFlow.simulation_evidence`)
-    "sim.evidence": "Normalized simulation end record, including measured cycles and events; "
-    "preserved even when the evidence fails the simulation verdict.",
-    "sim.ended_by": "What ended the simulation: `finish` ($finish), `stop_time` (the requested "
-    "stop time, reached), `max_cycles`, `exit` (the testbench's own driver exited), `drained` "
-    "(no event left, and no $finish), `error`, `fatal`, or `unknown`. Only `finish`, a "
-    "requested `stop_time` or `max_cycles`, and an `exit` with status 0 can pass.",
-    "sim.time": "Simulated time at the end, in `sim.time_unit`; null when the simulator did not "
-    "report it.",
-    "sim.time_unit": "The unit of `sim.time`, e.g. `1ps` (the model's time precision).",
-    "sim.errors": "Number of errors the simulation reported: $error, failed assertions, $stop "
-    "and $fatal.",
-    "sim.warnings": "Number of warnings the simulation reported.",
-}
-
-
-def describe_results(*keys: str, **extra: str) -> Dict[str, str]:
-    """Build a flow's `results_description` from the shared vocabulary plus its own keys.
-
-    Positional arguments name keys from `COMMON_RESULT_DESCRIPTIONS`; keyword arguments add or
-    override flow-specific ones.
-    """
-    described = {}
-    for key in keys:
-        try:
-            described[key] = COMMON_RESULT_DESCRIPTIONS[key]
-        except KeyError:
-            raise KeyError(
-                f"No shared description for result key {key!r}. Add it to "
-                "COMMON_RESULT_DESCRIPTIONS, or pass it as a keyword argument."
-            ) from None
-    described.update(extra)
-    return described
-
-
 def is_unset(value: Any) -> bool:
     """Return whether `value` says nothing: `None`, or an empty string or container.
 
@@ -859,6 +771,14 @@ def removed_message(name: str, replacement: str, value: Any) -> str:
     if isinstance(replacement, NoReplacement):
         return f"`{name}` was removed: {replacement}; delete it"
     return f"`{name}` was removed: use {_removed_replacement(replacement, value)}"
+
+
+def removed_setting_error(name: str, replacement: str, value: Any) -> PydanticCustomError:
+    """Return the validation error that refuses the removed setting `name`: its type is
+    `removed_setting`, and its message is `removed_message`."""
+    return PydanticCustomError(
+        "removed_setting", "{message}", {"message": removed_message(name, replacement, value)}
+    )
 
 
 def _removed_replacement(replacement: str, value: Any) -> str:
@@ -888,9 +808,10 @@ class Flow(metaclass=ABCMeta):
     name: str  # set automatically
     aliases: List[str] = []  # list of alternative names for the flow
 
-    #: Documentation for the flow-specific keys this flow writes to `results` (and therefore to
-    #: `results.json`). Reported by `xeda list-results <flow>`. Build it with `describe_results`.
-    results_description: Dict[str, str] = {}
+    #: The metrics this flow writes to `results` (and therefore to `results.json`), each with a
+    #: description, a type and a unit. Reported by `xeda list-results <flow>`. Build it with
+    #: `describe_results`.
+    results_description: ClassVar[Dict[str, MetricSpec]] = {}
 
     #: Additive canonical aliases for results, as canonical_key -> candidate keys in preference
     #: order. After `parse_reports`, the first candidate that is present is copied to the
@@ -988,7 +909,8 @@ class Flow(metaclass=ABCMeta):
                     notes.append(unreached[name])
         if missing:
             raise FlowSettingsException(
-                f"{cls.name} needs " + "; and ".join(missing) + "".join(f". {n}" for n in notes)
+                f"{cls.name} needs " + "; and ".join(missing) + "".join(f". {n}" for n in notes),
+                code="required_setting",
             )
 
     @classmethod
@@ -1372,7 +1294,7 @@ class Flow(metaclass=ABCMeta):
             if isinstance(values, dict):
                 for name, replacement in cls.removed_setting_replacements().items():
                     if name in values:
-                        raise ValueError(removed_message(name, replacement, values[name]))
+                        raise removed_setting_error(name, replacement, values[name])
             if info.field_name is not None and info.data is None:
                 return values  # an assignment: `__setattr__` has normalized the assigned value
             roots = cls._path_roots(info.context)
@@ -1413,13 +1335,6 @@ class Flow(metaclass=ABCMeta):
             This is decided where it is read, so `quiet` keeps the value that was written and the
             order of the three settings does not matter."""
             return self.quiet and not (self.verbose or self.debug)
-
-        @field_validator("verbose", mode="before")
-        @classmethod
-        def _validate_verbose(cls, value):
-            if not isinstance(value, int):
-                return try_convert(value, int, 0)
-            return value
 
     class Results(Box):
         """The results of a flow, written to `results.json`."""
@@ -1556,7 +1471,9 @@ class Flow(metaclass=ABCMeta):
         for mp in mod_paths:
             try:  # TODO better/cleaner way
                 loaderChoices.append(PackageLoader(mp))
-            except ValueError:
+            except (ValueError, ImportError):
+                # no templates directory, or a module that cannot be imported (a class defined by
+                # `exec`, whose module is no module)
                 pass
         env = jinja2.Environment(
             loader=ChoiceLoader(loaderChoices),
@@ -1699,6 +1616,7 @@ class Flow(metaclass=ABCMeta):
         #: records those inside the run directory, which the launcher removes before the next
         #: run executes, so a previous run's report is gone whatever its mtime.
         self.reports_read: List[Path] = []
+        self.reports_missing: List[Path] = []
         #: Set by the launcher: the previous run was still up to date and its results are reused.
         self.reused: bool = False
         #: Set by `reject()`: why the checks of this run rejected its results. A rejection that
@@ -1730,8 +1648,14 @@ class Flow(metaclass=ABCMeta):
         settings ask for a new random seed, or that reads something no trace can verify, returns
         a reason. The launcher then runs the flow every time, keeps no trace of it, and reports
         the reason. It still brings the producers of the flow up to date as usual. The launcher
-        asks this once the `init()` of the flow has run and its producers have completed."""
-        return None
+        asks this once the `init()` of the flow has run and its producers have completed.
+
+        This answers for a flow class that has no source file on disk (defined in a notebook cell,
+        for example): Xeda cannot tell whether its code changed, so it computes no code digest for
+        it. Every override calls this method."""
+        return without_source_file(
+            cls for cls in type(self).__mro__ if isinstance(cls, type) and issubclass(cls, Flow)
+        )
 
     @abstractmethod
     def run(self) -> None:
@@ -1800,10 +1724,13 @@ class Flow(metaclass=ABCMeta):
         returns False for it, and the next launch runs again."""
         self.rejection = message
         if not self.results.get("error"):
-            self.results["error"] = {
-                "type": "ReportedFailure",
-                "message": f"`{self.name}` reported failure: {message}",
-            }
+            self.results["error"] = ErrorInfo(
+                code=REJECTED,
+                message=f"`{self.name}` reported failure: {message}",
+                node=self.name,
+                exit_status=None,
+                log=None,
+            ).as_json_value()
 
     def add_canonical_result_aliases(self) -> None:
         """Copy flow-specific result keys to their canonical names, additively.
@@ -1841,7 +1768,7 @@ class Flow(metaclass=ABCMeta):
         template = self.jinja_env.get_template(resource_name)
         template.environment.lstrip_blocks = lstrip_blocks
         template.environment.trim_blocks = trim_blocks
-        script_path = Path(script_filename) if script_filename else self.run_path / resource_name
+        script_path = self.run_file(script_filename or resource_name)
 
         log.debug("generating %s from template.", str(script_path.resolve()))
         rendered_content = template.render(
@@ -1887,6 +1814,7 @@ class Flow(metaclass=ABCMeta):
         dotall: bool = True,
         required: bool = False,
         sequential: bool = False,
+        optional: bool = False,
     ) -> bool:
         res = self.parse_regex(
             reportfile_path,
@@ -1895,6 +1823,7 @@ class Flow(metaclass=ABCMeta):
             dotall=dotall,
             required=required,
             sequential=sequential,
+            optional=optional,
         )
         if not res:
             return False
@@ -1903,25 +1832,39 @@ class Flow(metaclass=ABCMeta):
         self.results.update(**res)
         return self.results.success
 
+    def run_file(self, path: Union[str, os.PathLike]) -> Path:
+        """Return `path` as an absolute path: a relative one is relative to the run directory.
+
+        A tool runs in the run directory, so the flow names its files relative to it. Python code
+        does not depend on the working directory of the process: it reads and writes such a file
+        through this method (the file helpers of `Flow` do), never through a relative path."""
+        return self.run_path / path
+
     def written_by_this_run(self, path: Union[str, os.PathLike]) -> bool:
         """Return whether the file `path` exists and is this run's.
 
         The run must have written it (`wrote_output`, judged by the identity and state of the
         file, never by a clock). For a flow that no launcher started (`run_started` is false),
-        any file that exists counts."""
+        any file that exists counts. A relative `path` is relative to the run directory."""
+        path = self.run_file(path)
         if not os.path.lexists(path):
             return False
         return not self.run_started or self.wrote_output(path)
 
-    def report_file(self, path: Union[str, os.PathLike]) -> Optional[Path]:
+    def report_file(
+        self, path: Union[str, os.PathLike], *, optional: bool = False
+    ) -> Optional[Path]:
         """Return `path`, a report (or any file) that the tools write, if this run wrote it.
 
         Return None, with a warning, if the file does not exist or is not this run's
         (`written_by_this_run`: its identity and state are what they were before the run). A
         previous run's report, left in a reused run directory, is never taken for this run's.
         Every report a flow reads goes through here (`parse_regex` does). Every `path` asked for
-        is noted in `reports_read`."""
-        path = Path(path)
+        is noted in `reports_read`, and each one returned as None in `reports_missing`, unless
+        `optional` is true. A read is optional when the flow does not fail for the lack of the
+        file: the lack is then no cause of a failure, and the launcher never names it as one. A
+        relative `path` is relative to the run directory, and the returned path is absolute."""
+        path = self.run_file(path)
         self.reports_read.append(Path(os.path.abspath(path)))
         if not path.exists():
             log.warning(
@@ -1929,6 +1872,8 @@ class Flow(metaclass=ABCMeta):
                 path.absolute(),
                 self.run_path,
             )
+            if not optional:
+                self.reports_missing.append(Path(os.path.abspath(path)))
             return None
         if not self.written_by_this_run(path):
             log.warning(
@@ -1937,6 +1882,8 @@ class Flow(metaclass=ABCMeta):
                 path.absolute(),
                 self.run_path,
             )
+            if not optional:
+                self.reports_missing.append(Path(os.path.abspath(path)))
             return None
         return path
 
@@ -1948,8 +1895,12 @@ class Flow(metaclass=ABCMeta):
         dotall: bool = True,
         required: bool = False,
         sequential: bool = False,
+        optional: bool = False,
     ) -> Optional[dict]:
-        report = self.report_file(reportfile_path)
+        """Return the values that the patterns find in the report, or None without a report.
+
+        `optional` is the argument of `report_file`."""
+        report = self.report_file(reportfile_path, optional=optional)
         if report is None:
             return None
         reportfile_path = report
@@ -2025,8 +1976,16 @@ class FlowDependencyFailure(FlowException):
 class FlowSettingsException(FlowException):
     """The settings of a flow failed validation.
 
-    This is a fatal error: the flow must not run.
+    This is a fatal error: the flow must not run. `code` is the stable code of the refusal
+    (`xeda.errors.SettingsError.code`). A refusal that names no code is an unsupported setting.
     """
+
+    code: str = "unsupported_setting"
+
+    def __init__(self, *args: object, code: str | None = None) -> None:
+        super().__init__(*args)
+        if code is not None:
+            self.code = code
 
 
 class NoReadableSource(FlowSettingsException):
@@ -2053,6 +2012,10 @@ class FlowSettingsError(FlowSettingsException):
         super().__init__(*args)
         self.errors = errors
         self.model = model
+        #: True for the refusal of settings that the flow cannot support
+        #: (`Flow.check_settings_supported`): its findings that name no other kind are
+        #: unsupported settings, not invalid values.
+        self.refuses_support = False
 
     def __str__(self) -> str:
         return "{}: {} error{} validating {}\n{}".format(

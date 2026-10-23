@@ -149,6 +149,20 @@ REQUIRED_VALUES: dict[FieldKey, Any] = {
     ("RegionAdjustment", "adjustment"): 0.5,
     ("RoutingBlockage", "layer"): "m2",
     ("SteinerAlpha", "alpha"): 0.5,
+    ("Clock", "port"): "clk",
+    ("DesignReference", "uri"): "design.yaml",
+    ("DVSettings", "sources"): [],
+    ("GlobalConnect", "net"): "VDD",
+    ("GlobalConnect", "pin_pattern"): "VDD",
+    ("HiLoMap", "hi"): ("TIEHI", "Z"),
+    ("HiLoMap", "lo"): ("TIELO", "Z"),
+    ("PinConstraint", "region"): {"edge": "top"},
+    ("PlacementBlockage", "region"): ["1 um", "1 um", "9 um", "9 um"],
+    ("RegionAdjustment", "region"): ["1 um", "1 um", "9 um", "9 um"],
+    ("RoutingBlockage", "region"): ["1 um", "1 um", "9 um", "9 um"],
+    ("TechmapFile", "path"): "map.v",
+    ("ViaInPin", "bottom"): "m1",
+    ("ViaInPin", "top"): "m2",
 }
 
 #: The key that stands for any key of a `dict`.

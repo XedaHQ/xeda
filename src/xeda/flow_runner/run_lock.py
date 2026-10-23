@@ -13,7 +13,7 @@ from typing import TextIO
 
 from ..digest import FileRecord, record_file, unknown_record
 from ..listing import directory_files
-from ..run_dir import RunDirectoryError
+from ..run_dir import RunDirectoryError, refuse_link_on_way
 
 if sys.platform != "win32":
     import fcntl
@@ -79,8 +79,10 @@ def lock_file(run_path: Path, run_root: Path | None = None) -> Path:
 def _check_inside(run_path: Path, run_root: Path) -> None:
     """Refuse a run directory that is not inside `run_root`.
 
-    Such a directory is reached through a parent that is a link leading out of the run root, or
-    it is itself a link that leads out of the run root or nowhere."""
+    Such a directory is reached through a link between the run root and its parent
+    (`refuse_link_on_way`: the design, the target, the mirror of a host), or it is itself a link
+    that leads out of the run root or nowhere."""
+    refuse_link_on_way(run_path.parent, run_root)
     root = Path(os.path.realpath(run_root))
     parent = Path(os.path.realpath(run_path.parent))
     if parent != root and not parent.is_relative_to(root):

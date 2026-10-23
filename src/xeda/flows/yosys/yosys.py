@@ -14,6 +14,7 @@ from ...flow import (
     NoReplacement,
     Out,
     SynthFlow,
+    MetricSpec,
     describe_results,
 )
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
@@ -316,12 +317,13 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
 
     results_description = describe_results(
         "area",
-        **{
-            "cells": "Total number of cells in the synthesized netlist.",
-            "platform": "The platform that the netlist is mapped to, when the run maps to one: "
-            "`name`, the PDK `provider` and `version`, the `corner`, and `sources`, the layer "
-            "(derived, upstream, residue or user) that gave each value of the platform model.",
-        },
+        cells=MetricSpec("Total number of cells in the synthesized netlist.", "integer"),
+        platform=MetricSpec(
+            "The platform that the netlist is mapped to, when the run maps to one: `name`, the "
+            "PDK `provider` and `version`, the `corner`, and `sources`, the layer (derived, "
+            "upstream, residue or user) that gave each value of the platform model.",
+            "object",
+        ),
     )
 
     class Settings(AsicPlatformSettings, YosysSynthesisBase.Settings, SynthFlow.Settings):
@@ -975,7 +977,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             asic=asic,
             dont_use=self.dont_use_cells(),
         )
-        log.info("Yosys script: %s", script_path.absolute())
+        log.info("Yosys script: %s", self.run_file(script_path))
         args = [self.script_flag, script_path]
         if ss.log_file:
             log.info("Logging yosys output to %s", ss.log_file)

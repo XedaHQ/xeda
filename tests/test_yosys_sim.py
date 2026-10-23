@@ -85,7 +85,7 @@ def test_driver_timeout_preserves_output_and_names_limit(tmp_path):
         tmp_path, 'std::puts("driver started"); while (true) {}', settings={"timeout": 0.5}
     )
     assert not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
     assert "0.5" in flow.results["error"]["message"]
     assert "driver started" in (flow.run_path / "cxxrtl_sim.log").read_text()
     assert not (flow.run_path / "cxxrtl_end.json").exists()
@@ -190,7 +190,9 @@ def test_driver_missing_malformed_or_stale_monitor_fails(tmp_path, monkeypatch, 
         if record is not None and "exit_code" not in record:
             program += f"Path('cxxrtl_end.json').write_text({record!r})\n"
             program += "Path('cxxrtl_events.jsonl').write_text('')\n"
-        return run_process(sys.executable, ["-c", program], timeout=10)
+        return run_process(
+            sys.executable, ["-c", program], timeout=10, cwd=tool.working_directory()
+        )
 
     monkeypatch.setattr(Tool, "execute", execute)
     if record and "exit_code" in record:
@@ -221,7 +223,9 @@ def test_driver_missing_or_invalid_events_fail(tmp_path, monkeypatch, events):
         program += 'Path(\'cxxrtl_end.json\').write_text(\'{"ended_by":"exit","events":[]}\')\n'
         if events is not None:
             program += f"Path('cxxrtl_events.jsonl').write_text({events!r})\n"
-        return run_process(sys.executable, ["-c", program], timeout=10)
+        return run_process(
+            sys.executable, ["-c", program], timeout=10, cwd=tool.working_directory()
+        )
 
     monkeypatch.setattr(Tool, "execute", execute)
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
@@ -264,6 +268,7 @@ def test_driver_monitor_paths_use_the_execution_environment(tmp_path, monkeypatc
                     "from pathlib import Path; Path('cxxrtl_end.json').write_text('{\"ended_by\":\"exit\",\"events\":[]}'); Path('cxxrtl_events.jsonl').write_text('')",
                 ],
                 timeout=10,
+                cwd=tool.working_directory(),
             )
         return ""
 

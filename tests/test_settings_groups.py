@@ -11,6 +11,7 @@ from typing import Annotated, Any, ClassVar, Literal, Optional, Union
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda.dataclass import (
     Field,
     ValidationError,
@@ -90,7 +91,7 @@ def toy_flow():
         class ToyGroups(Flow):
             """A flow that exists to carry a group."""
 
-            results_description: ClassVar[dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             class Settings(Flow.Settings):
                 toy: _Toy = Field(default_factory=_Toy, description="The toy group.")
@@ -419,7 +420,7 @@ def _toy_design(root: Path) -> dict[str, Any]:
 def test_a_removed_group_leaf_names_what_replaces_it(toy_flow):
     with pytest.raises(FlowSettingsError) as raised:
         toy_flow.Settings.from_input({"toy": {"old": 1}})
-    assert _messages(raised.value) == ["Value error, `old` was removed: use `toy.value`"]
+    assert _messages(raised.value) == ["`old` was removed: use `toy.value`"]
 
 
 def test_a_removed_group_leaf_given_on_the_command_line_names_what_replaces_it(toy_flow):

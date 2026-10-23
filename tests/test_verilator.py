@@ -346,7 +346,7 @@ def test_the_wall_clock_timeout_stops_a_simulation_that_never_finishes(tmp_path)
     require_verilator()
     flow = _launch(tmp_path, "reg clk = 0; always #5 clk = ~clk;", {"timing": True, "timeout": 2})
     assert "sim.ended_by" not in flow.results
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
     assert not flow.succeeded
 
 
@@ -362,7 +362,7 @@ def test_a_timed_out_model_s_output_reaches_the_log(tmp_path, own_driver):
         {"timing": True, "timeout": 3, **({"main": False} if own_driver else {})},
         extra_sources={"main.cpp": OWN_DRIVER.replace("STATUS", "0")} if own_driver else None,
     )
-    assert (flow.results.get("error") or {}).get("type") == "ProcessTimeout"
+    assert (flow.results.get("error") or {}).get("code") == "timeout"
     assert not flow.succeeded
     log = (flow.run_path / flow.settings.sim_dir / "sim.log").read_text()
     assert "printed before the hang" in log
@@ -422,7 +422,7 @@ def test_a_failed_model_keeps_its_warning_evidence(tmp_path, own_driver):
         extra_sources={"main.cpp": OWN_DRIVER.replace("STATUS", "3")} if own_driver else None,
     )
     assert not flow.succeeded
-    assert flow.results["error"]["type"] == "NonZeroExitCode"
+    assert flow.results["error"]["code"] == "nonzero_exit"
     assert flow.results["sim.warnings"] == 1
 
 

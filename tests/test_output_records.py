@@ -9,6 +9,7 @@ from typing import ClassVar
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.digest import content_digest
@@ -49,7 +50,7 @@ def test_an_enabled_output_the_run_did_not_produce_fails_the_run(tmp_path, desig
     monkeypatch.setattr(_Maker, "run", lambda self: None)
     maker = _launch(tmp_path, design, {})
     assert not maker.succeeded
-    assert maker.results["error"]["type"] == "MissingOutput"
+    assert maker.results["error"]["code"] == "missing_output"
     assert "did not produce its output `made`" in maker.results["error"]["message"]
 
 
@@ -109,7 +110,7 @@ def test_an_output_nothing_recorded_is_never_handed_over(tmp_path, design):
 class _ManyMaker(_Maker):
     """Writes an ordered list of declared files."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(_Maker.Outputs):
         made: list[Path] = Out(SourceType.Data, description="The ordered files.")
@@ -124,7 +125,7 @@ class _ManyMaker(_Maker):
 class _RequiredMaker(_Maker):
     """Requires exactly one declared file."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(_Maker.Outputs):
         made: Path = Out(SourceType.Data, description="The required file.")
@@ -133,7 +134,7 @@ class _RequiredMaker(_Maker):
 class _OptionalMaker(_Maker):
     """May omit a declared file without a switch."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Outputs(_Maker.Outputs):
         made: Path | None = Out(SourceType.Data, description="An optional file.")
@@ -166,7 +167,7 @@ def test_required_outputs_cannot_be_absent(tmp_path, design, monkeypatch, cls):
     maker = _launch_class(tmp_path, design, cls)
     assert not maker.succeeded
     assert maker.results["outputs"] == {}
-    assert maker.results["error"]["type"] == "MissingOutput"
+    assert maker.results["error"]["code"] == "missing_output"
 
 
 def test_an_unswitched_optional_output_may_be_absent(tmp_path, design, monkeypatch):
@@ -186,7 +187,7 @@ def test_invalid_output_values_fail_usefully(tmp_path, design, monkeypatch, cls,
     monkeypatch.setattr(cls, "run", invalid)
     maker = _launch_class(tmp_path, design, cls)
     assert not maker.succeeded
-    assert maker.results["error"]["type"] == "MissingOutput"
+    assert maker.results["error"]["code"] == "missing_output"
     assert "invalid" in maker.results["error"]["message"]
 
 
@@ -312,7 +313,7 @@ def test_a_missing_output_replaces_old_success_and_keeps_failure_identity(
     assert not again.succeeded
     document = json.loads((again.run_path / "results.json").read_text())
     assert document["success"] is False and document["outputs"] == {}
-    assert document["error"]["type"] == "MissingOutput"
+    assert document["error"]["code"] == "missing_output"
     assert document["design"] == "d" and document["flow"] == first.name
     for name in ("run_path", "timestamp", "flow_hash", "design_hash"):
         assert document[name]

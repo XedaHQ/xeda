@@ -173,9 +173,11 @@ class Vivado(Flow, metaclass=ABCMeta):
             "vivado_defines", vivado_defines(not isinstance(self, SynthFlow))
         )
 
-    def parse_xml_report(self, report_xml) -> Optional[Dict[str, Any]]:
-        """Return the tables of a Vivado XML report that this run wrote (`Flow.report_file`)."""
-        report = self.report_file(report_xml)
+    def parse_xml_report(self, report_xml, *, optional: bool = False) -> Optional[Dict[str, Any]]:
+        """Return the tables of a Vivado XML report that this run wrote (`Flow.report_file`).
+
+        `optional` is the argument of `Flow.report_file`."""
+        report = self.report_file(report_xml, optional=optional)
         if report is None:
             return None
         try:

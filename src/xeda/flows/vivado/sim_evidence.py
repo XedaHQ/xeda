@@ -38,7 +38,7 @@ def parse_xsim_evidence(flow: Flow) -> SimEvidence | None:
         str(source.file) for source in flow.design.sim_sources if source.type is SourceType.Vhdl
     }
     # Resolve relative native paths against the simulator's working directory, never by suffix.
-    vhdl_paths = {Path(path).resolve() for path in vhdl_files}
+    vhdl_paths = {(flow.run_path / path).resolve() for path in vhdl_files}
     finish_times = []
     checkpoints: list[tuple[str, int, int]] = []
     limit = None

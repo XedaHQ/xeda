@@ -15,9 +15,11 @@ from ...flow import (
     FlowFatalError,
     FlowSettingsError,
     FpgaSynthFlow,
+    MetricSpec,
     Out,
     describe_results,
 )
+from ...records import MISSING_REPORT, ErrorInfo
 from ...units import count
 from ...utils import HierDict, parse_xml, replacing_file, try_convert
 
@@ -282,14 +284,21 @@ def post_step_hooks(
             user_hooks = []  # TODO add alternative methods for adding multiple user hooks?
             if current_hook:
                 user_hooks.append(current_hook)
-            post_step_hook = flow.copy_from_template(
-                "write_bitstream_hook.tcl" if step == "WRITE_BITSTREAM" else "post_step_hook.tcl",
-                script_filename=f"post_{step.lower()}_hook.tcl",
-                run_dir=flow.run_path,
-                user_hooks=user_hooks,
-                step=step.lower(),
-                outputs=outputs,
-                bin_file=bitstream_bin_file(outputs[BITSTREAM]) if BITSTREAM in outputs else None,
+            template = (
+                "write_bitstream_hook.tcl" if step == "WRITE_BITSTREAM" else "post_step_hook.tcl"
+            )
+            post_step_hook = flow.run_file(
+                flow.copy_from_template(
+                    template,
+                    script_filename=f"post_{step.lower()}_hook.tcl",
+                    run_dir=flow.run_path,
+                    user_hooks=user_hooks,
+                    step=step.lower(),
+                    outputs=outputs,
+                    bin_file=(
+                        bitstream_bin_file(outputs[BITSTREAM]) if BITSTREAM in outputs else None
+                    ),
+                )
             ).resolve()
             tcl_settings["POST"] = post_step_hook
             hooks.append(post_step_hook)
@@ -313,7 +322,9 @@ def power_report_written(flow: Any) -> bool:
     )
     log.error("%s", message)
     if not flow.results.get("error"):  # a failed tool's own error is the cause
-        flow.results["error"] = {"type": "ReportedFailure", "message": message}
+        flow.results["error"] = ErrorInfo(
+            code=MISSING_REPORT, message=message, node=flow.name, exit_status=None, log=None
+        ).as_json_value()
     return False
 
 
@@ -644,8 +655,11 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
 
         # Only this run's reports, logs and bitstream are artifacts. A previous run's files in the
         # run directory are not (`written_by_this_run`).
-        for report_file in self.settings.reports_dir.glob("**/*"):
-            if report_file.is_file() and self.written_by_this_run(report_file):
+        reports_dir = self.settings.reports_dir
+        reports_root = self.run_file(reports_dir)
+        for found in reports_root.glob("**/*"):
+            report_file = reports_dir / found.relative_to(reports_root)
+            if found.is_file() and self.written_by_this_run(report_file):
                 self.artifacts[str(report_file)] = report_file
 
         for log_file in self.run_path.glob("**/*.log"):
@@ -654,8 +668,8 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
                 self.artifacts[str(log_file)] = log_file
 
         if self.settings.bitstream is not None and not self.artifacts.get(BITSTREAM):
-            if self.settings.bitstream.exists():
-                if self.report_file(self.settings.bitstream) is not None:
+            if self.run_file(self.settings.bitstream).exists():
+                if self.report_file(self.settings.bitstream, optional=True) is not None:
                     self.artifacts[BITSTREAM] = self.settings.bitstream
             else:
                 for bitstream in self.run_path.glob("**/*.bit"):
@@ -671,7 +685,12 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
 
         reports_dir = self.settings.reports_dir / "route_design"
         failed = not self.parse_timing_report(reports_dir)
-        hier_util_xml = self.report_file(reports_dir / "hierarchical_utilization.xml")
+        # The lack of this report fails the run only when nothing else did. After a failure the
+        # lack follows from that failure and is not its cause, so it must not take the place of
+        # the cause as `missing_report`.
+        hier_util_xml = self.report_file(
+            reports_dir / "hierarchical_utilization.xml", optional=failed
+        )
         hier_util = parse_hier_util(hier_util_xml) if hier_util_xml is not None else None
         if hier_util:
             hier_json = self.run_directory.writable(reports_dir / "hierarchical_utilization.json")
@@ -682,7 +701,7 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             failed = True
             log.error("Parsing the hierarchical utilization report failed.")
         report_file = reports_dir / "utilization.xml"
-        utilization = self.parse_xml_report(report_file)
+        utilization = self.parse_xml_report(report_file, optional=True)
         # (result key, path in the utilization report). For a key with several paths, the first
         # path that gives a value wins.
         fields = [
@@ -725,7 +744,9 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
                             report_file,
                         )
                     if util is not None:
-                        r = try_convert(util, int, default=util)
+                        # A block RAM tile count can end in .5: a RAMB18 uses half a tile.
+                        kind = float if k == "bram_tile" else int
+                        r = try_convert(util, kind, default=util)
                         if r:
                             self.results[k] = r
             self.results["_utilization"] = utilization
@@ -835,18 +856,26 @@ class VivadoSynth(VivadoImplementation):
         "ff",
         "slice",
         "dsp",
-        status="Vivado's own status of the last run that the flow waited for. It is "
-        '"route_design Complete!" (or "write_bitstream Complete!" with a `bitstream`) when the '
-        "implementation run completes. A run that does not complete its step reports its own "
-        'status, for example "synth_design ERROR". The flow fails unless the run completed the '
-        "step that it was launched to.",
-        **{
-            "lut_logic": "Number of LUTs used as logic.",
-            "lut_mem": "Number of LUTs used as memory (distributed RAM or shift registers).",
-            "latch": "Number of latches inferred. Usually a design bug on FPGAs.",
-            "bram_RAMB36": "Number of RAMB36/FIFO36 block RAM primitives used.",
-            "bram_RAMB18": "Number of RAMB18 block RAM primitives used.",
-        },
+        status=MetricSpec(
+            "Vivado's own status of the last run that the flow waited for. It is "
+            '"route_design Complete!" (or "write_bitstream Complete!" with a `bitstream`) when '
+            "the implementation run completes. A run that does not complete its step reports "
+            'its own status, for example "synth_design ERROR". The flow fails unless the run '
+            "completed the step that it was launched to.",
+            "text",
+        ),
+        lut_logic=MetricSpec("Number of LUTs used as logic.", "integer"),
+        lut_mem=MetricSpec(
+            "Number of LUTs used as memory (distributed RAM or shift registers).", "integer"
+        ),
+        latch=MetricSpec("Number of latches inferred. Usually a design bug on FPGAs.", "integer"),
+        bram_RAMB36=MetricSpec("Number of RAMB36/FIFO36 block RAM primitives used.", "integer"),
+        bram_RAMB18=MetricSpec("Number of RAMB18 block RAM primitives used.", "integer"),
+        bram_tile=MetricSpec(
+            "Number of block RAM tiles used. A RAMB18 uses half a tile, so the number can end in "
+            "`.5`.",
+            "number",
+        ),
     )
 
     reads_sources = frozenset(
@@ -988,7 +1017,7 @@ class VivadoSynth(VivadoImplementation):
             log.debug("Bitstream path: %s", bs_str)
             if self.runner_cwd and bs_str.startswith("$PWD/"):
                 self.settings.bitstream = self.runner_cwd / bs_str[5:]
-            self.settings.bitstream = Path(self.settings.bitstream).resolve()
+            self.settings.bitstream = self.run_file(self.settings.bitstream).resolve()
 
         outputs = project_outputs(self, settings)
         run_status = self.run_path / RUN_STATUS_FILE

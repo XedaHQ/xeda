@@ -182,7 +182,7 @@ def test_an_older_loader_is_refused_before_it_programs_and_the_message_names_bot
     assert "Release 0.13.0 does, but it prints 0.12.1 as its version" in message
     assert not _calls(tmp_path, "openfpgaloader")  # the loader was never started to program
     results = json.loads((tmp_path / "run/top/openfpgaloader/results.json").read_text())
-    assert results["success"] is False and results["error"]["type"] == "ToolException"
+    assert results["success"] is False and results["error"]["code"] == "reported_failure"
     assert results["error"]["message"] == message
 
 
@@ -200,7 +200,7 @@ def test_an_older_loader_is_refused_before_any_producer_runs(tmp_path, fake_load
     for built in ("yosys_fpga", "nextpnr", "fpga_pack"):
         assert not _calls(tmp_path, built), f"{built} ran"
     results = json.loads((tmp_path / "run/top/openfpgaloader/results.json").read_text())
-    assert results["success"] is False and results["error"]["type"] == "ToolException"
+    assert results["success"] is False and results["error"]["code"] == "reported_failure"
 
 
 def test_planning_never_starts_the_loader(tmp_path, programmer_guard):
@@ -468,7 +468,7 @@ def test_the_fake_loader_rejects_what_the_real_option_parser_rejects(
         flow_settings={"fpga": ECP5, "extra_args": argument},
     )
     assert flow is not None and not flow.succeeded
-    assert flow.results["error"]["type"] == "NonZeroExitCode"
+    assert flow.results["error"]["code"] == "nonzero_exit"
     log = (tmp_path / "run/top/openfpgaloader/openfpgaloader.log").read_text()
     assert f"Error parsing options: {message}" in log
     assert not _calls(tmp_path, "openfpgaloader")  # it stopped before it read the bitstream
@@ -889,7 +889,7 @@ def test_a_bitstream_the_packer_did_not_finish_never_reaches_the_programmer(
     assert len(_calls(tmp_path, "openfpgaloader")) == 1  # the first launch's only
     assert (tmp_path / "run/top/fpga_pack/outputs/top.bit").read_bytes() == BITSTREAM
     results = json.loads((tmp_path / "run/top/openfpgaloader/results.json").read_text())
-    assert results["success"] is False and results["error"]["type"] == "FlowDependencyFailure"
+    assert results["success"] is False and results["error"]["code"] == "producer_failed"
 
 
 def test_a_bitstream_edited_after_packing_is_packed_again_not_programmed(tmp_path, fake_loader):

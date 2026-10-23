@@ -63,6 +63,23 @@ def _run_errors(output: str, run: str) -> list[str]:
 
 
 @needs_tclsh
+def test_the_reports_and_logs_of_a_run_are_artifacts_whatever_the_working_directory(
+    tmp_path, monkeypatch
+) -> None:
+    """The process does not work in the run directory, so the flow finds the reports and the logs
+    that the run wrote through the run directory."""
+    flow = _run(tmp_path, monkeypatch)
+    assert flow.succeeded
+    flow.artifacts.clear()
+    assert flow.parse_reports()
+    reports = flow.settings.reports_dir
+    assert reports.parts and not reports.is_absolute()
+    found = [label for label in flow.artifacts if str(label).startswith(f"{reports}/")]
+    assert found
+    assert all((flow.run_path / flow.artifacts[label]).is_file() for label in found)
+
+
+@needs_tclsh
 @pytest.mark.parametrize("bitstream", [None, BITSTREAM], ids=["routed", "bitstream"])
 def test_a_run_whose_vivado_runs_complete_their_steps_succeeds(
     tmp_path, monkeypatch, bitstream
@@ -176,7 +193,6 @@ def test_fail_timing_governs_only_the_timing_violation_decision(
     reports_dir = flow.run_path / flow.settings.reports_dir / "route_design"
     (reports_dir / "timing_summary.rpt").write_text(_violated_timing_summary())
 
-    monkeypatch.chdir(flow.run_path)  # `parse_reports` globs `settings.reports_dir` relative to it
     assert flow.parse_reports() is True
     assert flow.check_results() != fail_timing
     assert (flow.rejection is not None) == fail_timing

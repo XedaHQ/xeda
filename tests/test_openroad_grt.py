@@ -1308,7 +1308,7 @@ def test_a_launch_reports_the_recorded_metrics_of_the_global_route(tmp_path, mon
 
 
 def test_the_results_are_described():
-    from xeda.flow.flow import COMMON_RESULT_DESCRIPTIONS
+    from xeda.flow import COMMON_METRICS
 
     described = OpenroadGrt.results_description
     for key in (
@@ -1330,9 +1330,9 @@ def test_the_results_are_described():
         "antenna_diodes",
         "platform",
     ):
-        assert described[key], key
+        assert described[key].description, key
     for key in ("wns", "tns", "whs", "worst_slack", "Fmax", "utilization", "power"):
-        assert described[key] == COMMON_RESULT_DESCRIPTIONS[key]
+        assert described[key] == COMMON_METRICS[key]
 
 
 def test_a_second_launch_is_fresh(tmp_path, monkeypatch):

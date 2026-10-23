@@ -13,8 +13,13 @@ What the oracle cannot see:
   own writes and the fake TCL tools' are observed, never what the real tool would write.
 - The audit hook sees this process only, not the tools it starts; the snapshot and the read-only
   tree see those through the file system.
-- Only the start directory's parent is snapshotted and made read-only: a write elsewhere on the
-  file system is seen by the audit hook alone, and only when it is this process's own.
+- Only the start directory's parent (`world.parent`) is snapshotted, made read-only and audited:
+  an absolute write elsewhere, the real home directory for one, is seen by nothing.
+- A process that a tool's own children start is not seen. The processes the sweep records are the
+  ones that this interpreter asks for (`ProcessRecorder`); it judges where they start, not what
+  they read or write after that.
+- A read that depends on the directory of the caller is not detected, because the sweep launches
+  from one directory only.
 The opt-in real-tool layers (`XEDA_TESTS_VIVADO`, `XEDA_TESTS_DOCKER`, `XEDA_TESTS_EXTERNAL`) are
 where the sweep can be extended to real tools (a follow-up); real GHDL, nvc and bsc already run in
 `test_a_cocotb_simulation_leaves_the_design_directory_as_it_was` and
@@ -23,12 +28,14 @@ where the sweep can be extended to real tools (a follow-up); real GHDL, nvc and 
 import ast
 import copy
 import enum
+import inspect
 import os
 import re
 import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import typing
 from collections import Counter
 from contextlib import contextmanager
@@ -41,11 +48,14 @@ import yaml
 from click.testing import CliRunner
 
 import xeda
+import xeda.tool as xeda_tool
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cli import cli
 from xeda.flow import Flow, SimFlow
 from xeda.design import SourceType, loading_in_run_root
 from xeda.flow_runner import DefaultRunner
+from xeda.proc_utils import run_process
 from xeda.run_root import ensure_run_root
 
 from . import state_snapshot as ss
@@ -187,6 +197,13 @@ UNPLANNABLE = {
 #: The flows the sweep does not bring to their `run()`, and why nothing is lost.
 UNREACHED = {
     **{name: f"its plan is refused ({reason})" for name, reason in UNPLANNABLE.items()},
+}
+
+#: The flows whose launches ask for no process but a probe, with the reason. The sweep then
+#: sees no process of theirs, so the check of the directory of a process says nothing of them.
+NO_PROCESS_IN_RUN: Dict[str, str] = {
+    "bsc_sim": "its Verilator link needs `VERILATOR_ROOT` from `verilator -V`, which the "
+    "stand-in tool does not print: `run()` ends in a settings error before it starts a tool",
 }
 
 CANARIES = sorted(
@@ -501,11 +518,13 @@ class Launch(NamedTuple):
 
 @dataclass
 class Seen:
-    """What the launches of a case left in the process, as `_launch` saw it: the problems, and the
-    flows that finished (their objects are compared with the state of the package at the end)."""
+    """What the launches of a case left in the process, as `_launch` saw it: the problems, the
+    flows that finished (their objects are compared with the state of the package at the end), and
+    the processes that the launches asked for."""
 
     problems: List[str] = field(default_factory=list)
     finished: List[tuple] = field(default_factory=list)
+    processes: "ProcessRecorder" = field(default_factory=lambda: ProcessRecorder())
 
 
 def variant_design(flow_name: str) -> tuple:
@@ -612,8 +631,9 @@ def _launch(
 
         ensure_run_root(world.root)
         use_fake_fpga_tools(monkeypatch, world.root / FAKE_TOOLCHAIN)
+    seen.processes.install(monkeypatch)
     if flow_class.name not in FAKED:
-        monkeypatch.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")
+        monkeypatch.setattr("xeda.tool.run_process", seen.processes.stub)
         monkeypatch.setattr("xeda.tool.Tool.version_gte", lambda self, *args: True)
     run = flow_class.run
     launching = [""]
@@ -781,7 +801,22 @@ def test_nothing_outside_the_run_root_changes_but_what_was_named(flow_class, sce
     assert not violations, f"{flow_class.name}: {violations}"
     problems = [*seen.problems, *process_leftovers(state_before, process_before, seen.finished)]
     assert not problems, f"{flow_class.name} left in the process:\n" + "\n".join(problems)
+    misplaced = process_findings(seen.processes.events)
+    assert not misplaced, f"{flow_class.name} started processes in the wrong place:\n" + "\n".join(
+        misplaced
+    )
     if scenario == "twice":  # the sweep keeps its teeth
+        if flow_class.name not in UNREACHED:
+            ran = [
+                e
+                for e in seen.processes.events
+                if e.flow is not None and e.flow.name == flow_class.name and not e.probe
+            ]
+            assert bool(ran) is (
+                flow_class.name not in NO_PROCESS_IN_RUN
+            ), f"{flow_class.name}: " + NO_PROCESS_IN_RUN.get(
+                flow_class.name, "it asked for no process"
+            )
         own = "its own settings" in reached
         assert own is (flow_class.name not in UNREACHED), UNREACHED.get(flow_class.name)
         # a launch that fails before `run()` is judged clean by everything above: say so
@@ -931,7 +966,7 @@ def _flow_in_the_stack() -> Flow | None:
     """The flow whose code is running: the innermost `self` on the stack that is a flow. A
     producer started from a consumer's launch is the innermost one, and a tool that a helper
     (the chip database's generator) starts is the flow's that called the helper."""
-    frame = sys._getframe(2)
+    frame = sys._getframe(1)
     while frame is not None:
         candidate = frame.f_locals.get("self")
         if isinstance(candidate, Flow):
@@ -940,43 +975,170 @@ def _flow_in_the_stack() -> Flow | None:
     return None
 
 
-def _tools_handed(
-    flow_class, world: World | None, monkeypatch, launch_it=None
-) -> list[tuple[Flow, Sequence[Started]]]:
-    """Launch `flow_class` as the sweep does; its launched flows, each with the processes it
-    started. Every process starts at `subprocess.Popen`, whichever way the flow asked
-    (`Tool.execute`, `run_process`, a helper's own call), so that is where they are recorded."""
-    started: list[tuple[Flow, Started]] = []
+#: The code that makes the scratch directory of a probe: a version query of a tool, and the CPU
+#: query of a container (`xeda/tool.py`, by qualified name). A directory that any other code
+#: makes is no probe's, whatever its name.
+PROBE_ALLOCATORS = ("Tool.probe_stdout", "Docker.cpuinfo")
+_TOOL_MODULE = Path(xeda_tool.__file__).resolve()
+_POPEN_SIGNATURE = inspect.signature(subprocess.Popen.__init__)
+_RUN_PROCESS_SIGNATURE = inspect.signature(run_process)
+
+
+class ProcessEvent(NamedTuple):
+    """A request to start a process, as it was when made."""
+
+    flow: Flow | None  # the innermost flow on the stack; None: no flow was running it
+    operation: str  # the program and its first argument: `docker image`
+    raw_cwd: object  # the `cwd` as given: None, a relative path or an absolute one
+    cwd: Path  # the directory it starts in, resolved then (for no `cwd`, the current one)
+    text: str  # the command line, and the environment the flow added
+    stubbed: bool  # a request to the stand-in of `run_process`, not a real `Popen`
+    probe: bool  # `cwd` was the active scratch directory of a probe
+
+
+@dataclass
+class ProcessRecorder:
+    """Every process the code under test asks for, kept in order: a real `Popen`, and a request
+    to the stand-in of `run_process` (`stub`), which flows without a fake tool get. The owner of
+    an event is the innermost flow on the stack when it was made. The scratch directories that
+    `PROBE_ALLOCATORS` make are known while they exist."""
+
+    events: List[ProcessEvent] = field(default_factory=list)
+    probes: set = field(default_factory=set)
+
+    def note(self, words: List[str], raw_cwd: object, env: Any, stubbed: bool) -> None:
+        added = {k: v for k, v in (env or {}).items() if os.environ.get(k) != v}
+        text = " ".join([*words, *(f"{k}={v}" for k, v in added.items())])
+        cwd = Path(os.path.realpath(Path.cwd() if raw_cwd is None else os.fsdecode(raw_cwd)))
+        self.events.append(
+            ProcessEvent(
+                _flow_in_the_stack(),
+                " ".join([os.path.basename(words[0]), *words[1:2]]) if words else "",
+                raw_cwd,
+                cwd,
+                text,
+                stubbed,
+                raw_cwd is not None and os.path.isabs(os.fsdecode(raw_cwd)) and cwd in self.probes,
+            )
+        )
+
+    def stub(self, *args: Any, **kwargs: Any) -> str:
+        """Stand in for `run_process`: record the request, start nothing."""
+        given = _RUN_PROCESS_SIGNATURE.bind(*args, **kwargs).arguments
+        words = [str(given["executable"]), *map(str, given.get("args") or [])]
+        self.note(words, given.get("cwd"), given.get("env"), stubbed=True)
+        return ""
+
+    def install(self, monkeypatch) -> None:
+        """Record from now on, until `monkeypatch` is undone: at `subprocess.Popen`, where every
+        process starts whichever way the code asked (`Tool.execute`, `run_process`, a helper's own
+        call), and at the allocation of scratch directories."""
+        popen_init, recorder = subprocess.Popen.__init__, self
+
+        def recording(popen, *args, **kwargs):
+            try:
+                given = _POPEN_SIGNATURE.bind(popen, *args, **kwargs).arguments
+            except TypeError:  # a call `Popen` refuses itself
+                return popen_init(popen, *args, **kwargs)
+            command = given["args"]
+            words = [command] if isinstance(command, (str, os.PathLike)) else list(command)
+            recorder.note(list(map(str, words)), given.get("cwd"), given.get("env"), False)
+            return popen_init(popen, *args, **kwargs)
+
+        class Probing(tempfile.TemporaryDirectory):  # type: ignore[type-arg]
+            """A scratch directory that is known while it exists if a probe made it."""
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                code = sys._getframe(1).f_code
+                self.known = None
+                if (
+                    code.co_qualname in PROBE_ALLOCATORS
+                    and Path(code.co_filename).resolve() == _TOOL_MODULE
+                ):
+                    self.known = Path(self.name).resolve()
+                    recorder.probes.add(self.known)
+
+            def cleanup(self) -> None:
+                recorder.probes.discard(self.known)
+                super().cleanup()
+
+        monkeypatch.setattr(subprocess.Popen, "__init__", recording)
+        monkeypatch.setattr(tempfile, "TemporaryDirectory", Probing)
+
+
+#: The processes that no flow runs and that may start anywhere, by operation (the program and its
+#: first argument, as `ProcessEvent.operation`), each with the reason. None does.
+REVIEWED_UNOWNED_PROCESSES: Dict[str, str] = {}
+
+
+def process_findings(events: Sequence[ProcessEvent]) -> list[str]:
+    """What the processes of `events` did wrong. A process of a flow starts with an absolute
+    `cwd`, in the claimed run directory of that flow (`flow.run_directory.path`, resolved: a link
+    that leads out of it does not count) or in the active scratch directory of a probe; a
+    process of no flow is a finding unless its operation is reviewed. A tool that starts in the
+    directory of the caller writes its logs and journals there."""
+    findings = []
+    for event in events:
+        verb = "requested" if event.stubbed else "started"
+        what = f"{event.flow.name if event.flow else 'no flow'} {verb} `{event.text[:120]}`"
+        if event.flow is None:
+            if event.operation not in REVIEWED_UNOWNED_PROCESSES:
+                findings.append(f"{what} in {event.cwd}: it is no flow's process")
+            continue
+        run = getattr(event.flow, "run_directory", None)
+        if event.raw_cwd is None:
+            findings.append(f"{what} with no cwd (it starts in {event.cwd})")
+        elif not os.path.isabs(os.fsdecode(event.raw_cwd)):
+            findings.append(f"{what} with the relative cwd {event.raw_cwd!s} ({event.cwd})")
+        elif event.probe:
+            continue
+        elif run is None:
+            findings.append(f"{what} in {event.cwd}: its flow has no run directory")
+        elif not event.cwd.is_relative_to(run.path):
+            findings.append(f"{what} in {event.cwd}, outside its run directory {run.path}")
+    return findings
+
+
+def _launched(
+    flow_class,
+    world: World | None,
+    monkeypatch,
+    launch_it=None,
+    plan: Optional[List[Launch]] = None,
+) -> tuple[list[Flow], ProcessRecorder]:
+    """Launch `flow_class` as the sweep does (in the launches of `plan`), or run `launch_it`: the
+    flows the request's runner launched, and every process that was asked for, those of flows that
+    did not finish included."""
     runners: list[DefaultRunner] = []
-    popen = subprocess.Popen.__init__
-
-    def recording(self, args, *rest, **kwargs):
-        flow = _flow_in_the_stack()
-        if flow is not None:
-            words = [args] if isinstance(args, (str, os.PathLike)) else list(args)
-            env = {
-                k: v for k, v in (kwargs.get("env") or {}).items() if os.environ.get(k) != v
-            }  # what the flow gave the tool, not the whole environment
-            text = " ".join([*map(str, words), *(f"{k}={v}" for k, v in env.items())])
-            cwd = Path(kwargs.get("cwd") or Path.cwd())
-            started.append((flow, Started(cwd.resolve(), text)))
-        return popen(self, args, *rest, **kwargs)
-
     launch = DefaultRunner.launch_flow
 
     def spying(self, *args, **kwargs):
         runners.append(self)
         return launch(self, *args, **kwargs)
 
-    monkeypatch.setattr(subprocess.Popen, "__init__", recording)
     monkeypatch.setattr(DefaultRunner, "launch_flow", spying)
+    seen = Seen()
     if launch_it is None:
-        _launch(flow_class, world, monkeypatch, "clean", [])
+        _launch(flow_class, world, monkeypatch, "clean", [], plan, seen)
     else:
+        seen.processes.install(monkeypatch)
         launch_it()
-    runner = runners[0]  # the request's; a producer is launched by one of its own
+    return list(runners[0].launched), seen.processes  # the request's; a producer has its own
+
+
+def _tools_handed(
+    flow_class, world: World | None, monkeypatch, launch_it=None
+) -> list[tuple[Flow, Sequence[Started]]]:
+    """Launch `flow_class` as the sweep does; its launched flows, each with the processes it
+    started (the real ones)."""
+    flows, processes = _launched(flow_class, world, monkeypatch, launch_it)
     return [
-        (flow, [process for owner, process in started if owner is flow]) for flow in runner.launched
+        (
+            flow,
+            [Started(e.cwd, e.text) for e in processes.events if e.flow is flow and not e.stubbed],
+        )
+        for flow in flows
     ]
 
 
@@ -994,6 +1156,118 @@ def test_a_tool_is_handed_no_file_of_another_flow_but_its_declared_inputs(
         assert (
             foreign_paths(flow, world.root, handed) == []
         ), f"{flow.name} was handed a foreign path"
+
+
+def _starts_a_process_wrongly(how: str, world: World, monkeypatch) -> None:
+    """Patch `nextpnr` so that, besides its own work, it starts `true --wrong` the way `how`
+    says (`WRONG_STARTS`), or, for the starts outside its `run()`, in the place `how` names."""
+    from xeda.flow_runner import launch_run
+    from xeda.flows import Nextpnr
+
+    run = Nextpnr.run
+
+    def run_and_start(self):
+        run(self)
+        here = self.run_path
+        if how == "caller's directory":
+            run_process("true", ["--wrong"], cwd=world.work)
+        elif how == "no cwd":
+            run_process("true", ["--wrong"])
+        elif how == "relative cwd":  # it leads into the run directory, from where we are
+            run_process("true", ["--wrong"], cwd=Path(os.path.relpath(here, Path.cwd())))
+        elif how == "producer's directory":
+            run_process("true", ["--wrong"], cwd=self.inputs.netlist.parent)
+        elif how == "link that leads out":
+            (here / "escape").symlink_to(world.outside, target_is_directory=True)
+            run_process("true", ["--wrong"], cwd=here / "escape")
+        else:
+            assert how == "forged probe directory"
+            with tempfile.TemporaryDirectory(prefix="xeda-probe-", dir=world.outside) as forged:
+                run_process("true", ["--wrong"], cwd=Path(forged))
+
+    if how == "no flow":
+        free_working_locations = launch_run.free_working_locations
+
+        started: list = []
+
+        def free_and_start(flow):  # launcher code: `flow` is no `self`
+            if not started:
+                started.append(flow)
+                run_process("true", ["--wrong"], cwd=flow.run_path)
+            free_working_locations(flow)
+
+        monkeypatch.setattr(launch_run, "free_working_locations", free_and_start)
+    elif how == "constructor that raises":
+        init = Nextpnr.__init__
+
+        def init_start_and_raise(self, *args, **kwargs):
+            init(self, *args, **kwargs)
+            run_process("true", ["--wrong"], cwd=world.work)
+            raise RuntimeError("the constructor failed")
+
+        monkeypatch.setattr(Nextpnr, "__init__", init_start_and_raise)
+    else:
+        monkeypatch.setattr(Nextpnr, "run", run_and_start)
+
+
+#: How a flow starts a process wrongly, with what the finding says: the flow, the command, the
+#: directory, and which part failed. Each way fails one branch of `process_findings` alone.
+WRONG_STARTS = {
+    "caller's directory": ("nextpnr started", "outside its run directory", "work"),
+    "no cwd": ("nextpnr started", "with no cwd", "work"),
+    "relative cwd": ("nextpnr started", "with the relative cwd", "nextpnr"),
+    "producer's directory": ("nextpnr started", "outside its run directory", "yosys_fpga"),
+    "link that leads out": ("nextpnr started", "outside its run directory", "outside"),
+    "forged probe directory": ("nextpnr started", "outside its run directory", "xeda-probe-"),
+    "no flow": ("no flow started", "it is no flow's process", "xeda_run"),
+    "constructor that raises": ("nextpnr started", "outside its run directory", "work"),
+}
+
+
+@pytest.mark.parametrize("how", WRONG_STARTS)
+def test_the_process_check_finds_a_process_that_does_not_start_in_its_run_directory(
+    how, tmp_path, monkeypatch
+):
+    """Not vacuous: a process that starts in the directory of the caller, with no `cwd` or a
+    relative one, in a producer's directory, through a link that leads out of the run directory,
+    in a directory named like a probe's that no probe made, with no flow running it, or in a
+    flow's constructor that then raises, is a finding that names the flow (or none), the command
+    and the directory, and the part that failed. The one wrong start is the only finding."""
+    from xeda.flows import Nextpnr
+
+    world = _world(tmp_path)
+    _starts_a_process_wrongly(how, world, monkeypatch)
+    plan = [Launch("its own settings", strict=False)]  # the constructor that raises ends it
+    flows, processes = _launched(Nextpnr, world, monkeypatch, plan=plan)
+    (finding,) = process_findings(processes.events)
+    who, failed, directory = WRONG_STARTS[how]
+    assert finding.startswith(f"{who} `true --wrong`"), finding
+    assert failed in finding, finding
+    assert directory in finding, finding
+    if how == "constructor that raises":  # it never reached the launcher's list
+        assert "nextpnr" not in [flow.name for flow in flows]
+
+
+def test_a_version_probe_in_a_flow_method_is_no_finding(tmp_path, monkeypatch):
+    """A probe (`Tool.probe_stdout`) runs in its scratch directory, which no run directory
+    holds: it is allowed, and the event shows it was a probe."""
+    from xeda.flows import Nextpnr
+    from xeda.tool import Tool
+
+    run = Nextpnr.run
+
+    def run_and_probe(self):
+        run(self)
+        Tool(executable="true", version_flag=None).probe_stdout("--probe")
+
+    monkeypatch.setattr(Nextpnr, "run", run_and_probe)
+    _, processes = _launched(Nextpnr, _world(tmp_path), monkeypatch)
+    (probe,) = [e for e in processes.events if "--probe" in e.text]
+    assert probe.flow is not None and probe.flow.name == "nextpnr"
+    assert probe.probe and probe.cwd.name.startswith("xeda-probe-")
+    assert not probe.cwd.is_relative_to(probe.flow.run_directory.path)
+    assert process_findings(processes.events) == []
+    assert probe.cwd not in processes.probes, "the scratch directory is no longer known when gone"
 
 
 @pytest.mark.parametrize("flow_name", ["nextpnr", "fpga_pack", "openfpgaloader"])
@@ -2200,11 +2474,12 @@ REVIEWED_WRITES = [
     ),
     (
         "remote/agent.py",
-        "descriptor = os.open(path / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)",
-        "`xeda.remote.agent clean`, outside a run directory: a read-only descriptor on the lock "
-        "file of a workspace, an environment or a code copy, to try the lock. It creates and "
-        "writes nothing, `O_NOFOLLOW` makes it fail on a link, and `O_NONBLOCK` keeps a FIFO from "
-        "blocking it (`clean` then skips a lock that is no regular file)",
+        "descriptor = os.open(path / name, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)",
+        "`xeda.remote.agent clean`, outside a run directory: the lock file of a workspace, an "
+        "environment or a code copy, opened to try the exclusive lock, not written (an exclusive "
+        "flock on Linux NFS needs a file open for writing). It creates nothing, `O_NOFOLLOW` "
+        "makes it fail on a link, and `O_NONBLOCK` keeps a FIFO from blocking it (`clean` then "
+        "skips a lock that is no regular file)",
     ),
     (
         "remote/agent.py",
@@ -2350,7 +2625,7 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
     class LinkLeaver(Flow):
         """Leaves every kind of link in its run directory, as a tool may."""
 
-        results_description: dict = {}
+        results_description: dict[str, MetricSpec] = {}
 
         class Settings(Flow.Settings):
             work_dir: Path = Field(Path("work"), description="its work.", json_schema_extra=WORKING)
@@ -2420,8 +2695,9 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
         assert purge.launch_flow(LinkLeaver, design, {}).succeeded
         assert not run_dir.exists()
         assert DefaultRunner(root, display_results=False).launch_flow(LinkLeaver, design, {})
-        monkeypatch.setattr("xeda.console.console.input", lambda _: "yes")
-        assert scrub_runs(LinkLeaver.name, run_dir.parent, run_root=root.resolve())
+        assert scrub_runs(
+            LinkLeaver.name, run_dir.parent, run_root=root.resolve(), confirm=lambda _: True
+        )
         assert not run_dir.exists()
         assert _outside_tree(outside) == before
     finally:

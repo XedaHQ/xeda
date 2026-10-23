@@ -22,6 +22,7 @@ from click.testing import CliRunner
 
 from xeda.cli import cli
 from xeda.flow_runner import DefaultRunner
+from xeda.run_dir import RunDirectoryError
 from xeda.remote import client
 from xeda.remote.client import new_launch_id, workspace_key
 from xeda.remote.errors import (
@@ -279,7 +280,7 @@ def test_rejected_run_reports_the_rejection(tmp_path, remote_host):
     for _launch in range(2):
         outcome = _request(tmp_path, design)
         assert outcome.error is None and not outcome.success
-        assert outcome.document["results"]["error"]["type"] == "ReportedFailure"
+        assert outcome.document["results"]["error"]["code"] == "rejected"
         assert "timing not met" in outcome.document["results"]["error"]["message"]
         assert not list(Path(outcome.document["mirror"]).rglob("trace.json"))
 
@@ -343,6 +344,29 @@ def test_post_cleanup_options_are_refused_with_remote(tmp_path, remote_host):
         assert result.exit_code == 2, result.output
         assert "removes run directories after delivery" in result.output
         assert "xeda remote clean" in result.output
+
+
+def test_scrub_is_refused_with_remote_before_any_connection(tmp_path, remote_host):
+    """A remote launch cannot ask for the confirmation, so the plan refuses `--scrub`: no ssh
+    call is made, with the text output and with `--json` (one document on stdout)."""
+    design = _design(tmp_path)
+    text = _cli(tmp_path, design, "nextpnr", "--scrub")
+    assert text.exit_code == 2, text.output
+    assert "`--scrub`" in text.output and "xeda remote clean" in text.output
+    assert "without --remote" in text.output
+    document = CliRunner().invoke(
+        cli,
+        ["run", "nextpnr", "--design", str(design), "--remote", "somewhere", "--scrub", "--json"]
+        + ["--run-root", str(tmp_path / "local" / "xeda_run")],
+    )
+    assert document.exit_code != 0
+    result = json.loads(document.stdout)
+    assert result["success"] is False
+    assert result["error"]["type"] == "UsageError" and "--scrub" in result["error"]["message"]
+    dry = _cli(tmp_path, design, "nextpnr", "--scrub", "--dry-run")
+    assert dry.exit_code == 2 and "`--scrub`" in dry.output
+    assert not remote_host.remote.calls("ssh")
+    assert not (tmp_path / "local" / "xeda_run").exists()
 
 
 def test_fetch_all_needs_remote(tmp_path):
@@ -473,7 +497,7 @@ def test_a_failed_remote_flow_is_a_failed_run(tmp_path, remote_host):
     document = json.loads(result.stdout)
     assert document["success"] is False and document["remote"] == "somewhere"
     assert document["error"]["type"] == "FlowFailed"
-    assert document["results"]["error"]["type"] == "ReportedFailure"
+    assert document["results"]["error"]["code"] == "rejected"
 
 
 def test_an_error_before_the_connection_is_one_json_document(tmp_path, remote_host):
@@ -671,6 +695,74 @@ def test_agent_failure_names_the_step(tmp_path, remote_host, monkeypatch):
     assert isinstance(outcome.error, RemoteError) and not outcome.success
     message = outcome.document["error"]["message"]
     assert "running the launch" in message and "run root" in message
+
+
+# --- A link in the mirror -----------------------------------------------------------------------
+
+
+def _keep_beside_the_mirror(tmp_path: Path, *, leads: str) -> tuple[Path, Path]:
+    """Return the sentinel files of two places that a link in the mirror may lead to: the run
+    root's `b` and a directory outside it. Each holds the run directories of the request."""
+    inside = tmp_path / "local" / "xeda_run" / "b"
+    outside = tmp_path / "outside"
+    for home in (inside, outside):
+        for flow in ("yosys_fpga", "nextpnr"):
+            (home / flow).mkdir(parents=True)
+            (home / flow / "KEEP").write_text("keep\n")
+    return inside, outside
+
+
+def _replace_with_link(path: Path, target: Path) -> None:
+    import shutil
+
+    shutil.rmtree(path)
+    path.symlink_to(target, target_is_directory=True)
+
+
+@pytest.mark.parametrize("leads", ["inside", "outside"])
+@pytest.mark.parametrize("level", ["mirror", "design"])
+def test_a_link_in_the_mirror_is_refused_before_the_host_runs_anything(
+    tmp_path, remote_host, leads, level
+):
+    design, mirror = _earlier_success(tmp_path)
+    inside, outside = _keep_beside_the_mirror(tmp_path, leads=leads)
+    home = inside if leads == "inside" else outside
+    link = mirror if level == "design" else mirror.parent
+    _replace_with_link(link, home)
+    connections = sum("-M" in call for call in remote_host.remote.calls("ssh"))
+    outcome = _request(tmp_path, design)
+    assert isinstance(outcome.error, RunDirectoryError), outcome.document
+    assert f"{link} is a symbolic link" in outcome.document["error"]["message"]
+    now = sum("-M" in call for call in remote_host.remote.calls("ssh"))
+    assert now == connections, "no connection to the host was opened"
+    for place in (inside, outside):
+        for flow in ("yosys_fpga", "nextpnr"):
+            assert (place / flow / "KEEP").read_text() == "keep\n"
+            assert sorted(p.name for p in (place / flow).iterdir()) == ["KEEP"]
+
+
+@pytest.mark.parametrize("leads", ["inside", "outside"])
+def test_a_link_that_appears_while_the_host_runs_empties_nothing(
+    tmp_path, remote_host, monkeypatch, leads
+):
+    """The mirror is judged again when its files arrive: the lock refuses the link before the
+    mirror is emptied or written."""
+    design, mirror = _earlier_success(tmp_path)
+    inside, outside = _keep_beside_the_mirror(tmp_path, leads=leads)
+    real_fetch = client._fetch
+
+    def fetch_then_link(agent, fetch_all):
+        fetched = real_fetch(agent, fetch_all)
+        _replace_with_link(mirror, inside if leads == "inside" else outside)
+        return fetched
+
+    monkeypatch.setattr(client, "_fetch", fetch_then_link)
+    outcome = _request(tmp_path, design)
+    assert isinstance(outcome.error, RunDirectoryError), outcome.document
+    assert f"{mirror} is a symbolic link" in outcome.document["error"]["message"]
+    for place in (inside, outside):
+        for flow in ("yosys_fpga", "nextpnr"):
+            assert sorted(p.name for p in (place / flow).iterdir()) == ["KEEP"]
 
 
 # --- The records of the mirror -------------------------------------------------------------------

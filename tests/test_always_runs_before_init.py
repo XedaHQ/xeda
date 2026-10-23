@@ -12,6 +12,7 @@ import os
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.flow import Flow, FlowSettingsError, SimFlow
 from xeda.run_dir import RunDirectory
@@ -133,7 +134,7 @@ def test_the_sweep_finds_a_flow_that_answers_from_what_init_made(tmp_path, monke
         class ToyLate(Flow):
             """Decides in `always_runs` from a value its `init()` made."""
 
-            results_description: ClassVar[dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             def init(self) -> None:
                 self.late = True

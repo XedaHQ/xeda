@@ -83,6 +83,15 @@ flow, to a directory below or above, to a place outside the run root, to a file,
 launch refuses such a link before it writes anything, and the error names the link and what it leads
 to. ``xeda scrub`` skips it (see `Cleaning up`_). One rule decides both.
 
+No name between the run root and a run directory may be a symbolic link. This holds for the design
+directory (``<run root>/<design>``), for the target directory, and for ``@<host>`` and the
+directories below it in the mirror of a remote run (see :doc:`remote`). Xeda neither follows nor
+removes such a link, whether it leads into the run root or out of it. A launch (``--dry-run``
+included) refuses it before it writes anything. ``xeda scrub`` refuses a design directory or a
+named ``--target`` that is a link. When it finds a link at a target, it skips the link and says
+which one. Every error names the link and what it leads to. A run root that is itself a link works:
+Xeda resolves the run root first, so you can keep it on another disk.
+
 By default, Xeda reuses the directory of a flow from run to run. This helps while you iterate,
 because incremental tool state (a synthesis checkpoint, a compiled library) survives between runs.
 Use ``--clean`` for a run that must start from nothing (see `Rebuilding only what changed`_).
@@ -164,11 +173,12 @@ directory and the trace gives the reason for the new run: ``declared input bindi
 
 This file holds what the flow parsed out of the tool's reports. A run that fails after it has
 started still writes the file, as a failure document. This covers a failing tool and a failing
-producer. The ``success`` key is ``false``, and ``error.type`` and ``error.message`` say what
-failed. The run's identity is in the document too. A flow whose reports or checks failed without a
-tool error says ``ReportedFailure``. A consumer of a failed producer says ``FlowDependencyFailure``
-and quotes the cause. Xeda removes the previous ``results.json`` before a run starts, so an earlier
-success never stands for a run that failed. Every flow reports these keys:
+producer. The ``success`` key is ``false``, and ``error.code`` and ``error.message`` say what
+failed. The ``code`` is a stable text, never a class name. The run's identity is in the document
+too. A flow whose reports or checks failed without a tool error and without a rejection says
+``reported_failure``. A flow that rejected its results says ``rejected``. A consumer of a failed
+producer says ``producer_failed`` and quotes the cause. Xeda removes the previous ``results.json``
+before a run starts, so an earlier success never stands for a run that failed. Every flow reports these keys:
 
 .. list-table::
    :header-rows: 1
@@ -197,8 +207,8 @@ success never stands for a run that failed. Every flow reports these keys:
 A flow with declared outputs also records ``outputs``. This key holds the absolute path and the
 content digest of each enabled output (an ordered list for a list output). A consumer receives these
 checked records under a verified read lease (see :doc:`machine-readable`). A failed output check
-uses ``MissingOutput`` and the normal failure document. ``nextpnr`` checks its enabled configuration
-earlier and raises ``FlowFatalError`` if the tool did not write the file.
+uses ``missing_output`` and the normal failure document. ``nextpnr`` checks its enabled configuration
+earlier and fails with ``reported_failure`` if the tool did not write the file.
 
 Each flow also reports keys of its own. ``xeda list-results <flow>`` lists them. Keys that start
 with ``_`` are internal and may change without notice.
@@ -230,13 +240,13 @@ A flow is stale, and runs again, in any of these cases:
 - There is no completed previous run: none yet, or the last one failed without a rejection by its
   checks (a tool error, a crash, a kill, a missing report). A failure that no check rejected keeps
   no trace.
-- The flow always runs. It programs a device, draws a new random seed, or reads pin constraints
-  fetched from a URL (see `Flows that always run`_).
+- The flow always runs. It programs a device, draws a new random seed, reads pin constraints
+  fetched from a URL, or has a class without a source file (see `Flows that always run`_).
 - Its settings changed (the reason names which ones), or a path that a setting names now points
   elsewhere, from another start directory or for another design tree.
 - Xeda changed: its version, or any file of the installed package (code, templates, bundled data).
-  An editable install keeps one version string across edits. For a flow defined outside Xeda, its
-  own modules and templates count.
+  An editable install keeps one version string across edits.
+- The code of a flow defined outside Xeda changed (see `The code of a flow outside Xeda`_).
 - A program the flow started changed (the path, size or mtime of an executable, or the ID of a
   container image), or was replaced while the run was going on.
 - What a producer handed over changed. This means the files of the outputs that the flow takes from
@@ -294,8 +304,8 @@ The trace records:
 
 - The identity of the run: ``flowrun_hash`` (the settings and where the declared inputs come from),
   ``settings_hash`` (the settings alone) and the design hash.
-- The Xeda version, a digest of every file of the installed Xeda package, and a digest of the flow's
-  own modules when the flow is defined outside Xeda.
+- The Xeda version, a digest of every file of the installed Xeda package, and a digest of the code
+  of the flow when the flow is defined outside Xeda.
 - The programs the run started, each as a file record (below) of the resolved executable: size,
   mtime, inode change time, inode and content hash. A program that was replaced during the run is
   caught like any other input. A program whose record from the previous run still vouches for it
@@ -415,6 +425,9 @@ Some runs can never be reused. These flows always run, keep no trace and report 
 - ``openfpgaloader`` has the reason "it programs a device", which changes the outside world. The
   stages that build its bitstream (``yosys_fpga``, ``nextpnr`` and ``fpga_pack``) are ordinary
   nodes, and Xeda reuses them when nothing changed.
+- A flow whose class has no source file on disk, such as one defined in a notebook cell, has the
+  reason "its class ... has no source file on disk ..., so Xeda cannot tell whether its code
+  changed".
 - A flow that is asked for a fresh random seed has the reason "it draws a new random seed". Every
   seed is a setting with a fixed default, so equal inputs give equal outputs. The random
   initialization of Verilator is off unless ``random_init`` is set, and then it uses ``random_seed``
@@ -505,6 +518,37 @@ notices a change only in what it tracks. If a file that the run reads is not tra
 not tracked`_), an edit of it goes unnoticed, and Xeda reports the old rejection. A data file that a
 testbench reads is the common case: declare it as a source of the design.
 
+The code of a flow outside Xeda
+-------------------------------
+
+A flow that a plugin or your own code defines is stale when its code changed. Xeda lists the files
+and checks each one at every launch, also in a process that lives long, such as a notebook, so an
+edit, an added file and a removed file count at once. The check is by the metadata of a file, as for
+the inputs of a run: Xeda reads a file again only when its size, times or inode changed, or when it
+changed just before the last check. It judges "just before" by the clock of this machine. A code
+tree on a network file system whose clock is several seconds behind this machine's can miss two
+same-size edits of one file made within one timestamp tick of that file system. A digest names
+each file relative to the root of the code, so moving the code to another place does not make the
+run stale. The runs of such a flow that an older Xeda made are stale once, because the digest is
+made in a new way. The root of the code is:
+
+- For a flow defined in a package, the top-level package: the directory with the ``__init__.py``
+  files from the module of the flow up. Every file in it counts: helper modules, templates and
+  data. Hidden files, compiled bytecode and run roots (directories with the ``.xeda-run-root``
+  marker) do not count.
+- For a flow defined in a module outside a package, the module and the modules that it imports from
+  its own directory, with the ``templates`` directory next to it. The ``import`` statements in the
+  source tell which modules (a relative import with one dot too), and so on for each module found.
+  A package of that directory counts as a whole. Other files next to the module do not count. A
+  directory without an ``__init__.py`` is no package for this rule: a module in it counts when the
+  code imports it, and the other files of the directory do not. A module that the code imports
+  with ``importlib.import_module`` is not found: put the code in a package.
+
+A flow class that has no source file on disk cannot be checked this way. An example is a class
+defined in a notebook cell or in the interactive interpreter. Such a flow always runs (see `Flows
+that always run`_), and Xeda computes no code digest for it. To reuse its runs, define the class in
+a ``.py`` file.
+
 What is not tracked
 ---------------------
 
@@ -559,9 +603,10 @@ earlier runs works there as it does locally. Xeda mirrors the results, the logs,
 the declared outputs under ``<run root>/@<host>/``, with the same layout as a local run root
 (``<design>[/<target>]/<flow>[_<hash>]``). The mirror holds no ``trace.json``, so a local run never
 reuses it. A mirror directory is replaced by each fetch. ``--hashed-run-dirs``, ``--clean``,
-``--rebuild-all``, ``--scrub`` and ``--dry-run`` act on the remote run directories, as they do for a
-local run. ``--post-cleanup`` and ``--post-cleanup-purge`` are refused, because the run directories
-are not on your machine: ``xeda remote clean`` frees the space on the host. See :doc:`remote`.
+``--rebuild-all`` and ``--dry-run`` act on the remote run directories, as they do for a local run.
+``--scrub`` is refused: a remote launch cannot ask you to confirm it.
+``--post-cleanup`` and ``--post-cleanup-purge`` are refused, because the run directories are not on
+your machine: ``xeda remote clean`` frees the space on the host. See :doc:`remote`.
 
 Cleaning up
 ===========
@@ -587,7 +632,8 @@ Cleaning up
    * - ``--scrub``
      - Before the run, remove the other run directories of the flow for this design. Xeda asks
        for confirmation. If the launch also has to ask whether to replace a file that you named
-       for an output, it asks that first. A launch that you decline removes nothing.
+       for an output, it asks that first. A launch that you decline removes nothing. Xeda
+       refuses ``--scrub`` with ``--remote``, because a remote launch cannot ask you.
 
 Pruning (``--post-cleanup`` and ``--post-cleanup-purge``) removes the trace first. A pruned run is
 therefore not reused, even though its ``settings.json`` and ``results.json`` remain.
@@ -640,7 +686,7 @@ leads to. Before it asks, it says so with one line for each link:
 Scrub writes each message on one line, with full paths. The end of the message depends on the
 reason. For example, a link to a place that does not exist ends with ``which does not exist``. Scrub
 never searches the run directories of another flow, and never follows a link that leads out of the
-run root.
+run root, or one at the design or target level.
 
 The lock does not protect a run that was complete when scrub listed it. If another launch is about
 to read that run, scrub removes it. For example, a consumer has run its producer but has not yet
@@ -651,6 +697,13 @@ Do not scrub a flow whose runs other launches are starting to use.
 
 ``--scrub`` on a launch removes the other run directories of the flow in the launch's own directory.
 It never reaches the directories of another target.
+
+Only the command line asks for the confirmation. The Python functions ``scrub_design`` and
+``scrub_runs``, and a ``DefaultRunner`` launch with ``scrub_old_runs``, never prompt. They ask the
+callback that you give them (the ``confirm`` argument, or the ``confirm_scrub`` attribute of the
+launcher). The callback gets the listed run directories and returns whether to remove them. Without
+a callback, nothing is removed, and Xeda logs a warning that names the run directories. This holds
+when stdin is closed, in a notebook or a CI job.
 
 Xeda's space and yours
 -----------------------

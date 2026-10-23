@@ -71,6 +71,7 @@ These limits apply to every remote run:
 
 * The run directories are on the host. ``--post-cleanup`` and
   ``--post-cleanup-purge`` are refused. Use ``xeda remote clean`` to free the space on the host.
+* ``--scrub`` is refused, because it asks you to confirm and a remote launch cannot ask.
 * A deliverable setting that names a location is refused, because it would write on the host. Use
   ``--outputs-to`` (see `What comes back`_).
 * A flow that programs a board (``openfpgaloader``) cannot run with ``--remote``, because the board
@@ -292,8 +293,9 @@ A workspace has these parts:
 The runs are make-like, as local runs are. A second run of the same request finds the run
 directories of the first one in the workspace. A flow whose inputs and settings did not change is
 fresh, and its results come back without running the tool. A run that passed or was rejected by its
-checks is reused. A run that failed runs again. ``--rebuild-all``, ``--clean`` and ``--scrub``
-act on the run directories of the host.
+checks is reused. A run that failed runs again. ``--rebuild-all`` and ``--clean`` act on the run
+directories of the host. ``--scrub`` is refused with ``--remote``, because it asks you to confirm
+and a remote launch cannot ask. Run ``xeda remote clean`` to free the space.
 
 The local mirror
 ================
@@ -302,7 +304,9 @@ Xeda copies the files of a remote run into ``<run root>/@<host>/``, with the lay
 root (``<design>[/<target>]/<flow>[_<hash>]``). ``<host>`` is the text of ``--remote``, with each
 character other than a letter, a digit, ``.``, ``_``, ``@`` and ``-`` replaced by ``_``. The mirror
 keeps the files as the host wrote them. Xeda checks each file against its SHA-256 and writes it
-atomically. It follows no link. The mirror holds no ``trace.json``, so a local run never reuses a
+atomically. A symbolic link at ``@<host>``, at a design or at a target below it makes Xeda
+refuse the run before it writes or deletes anything there, as for a local run root (see
+:doc:`run-directories`). The mirror holds no ``trace.json``, so a local run never reuses a
 mirror directory.
 
 The records ``results.json`` and ``settings.json`` of each mirror directory are written again with
@@ -366,8 +370,8 @@ Ctrl-C and lost connections
 
 A normal remote run stops when you stop it or when the connection goes away:
 
-* **Ctrl-C** during the launch asks the host to cancel it. The launch and the tools in its process
-  group get SIGINT first, as they do at a terminal, so the tools stop as they stop in a local run.
+* **Ctrl-C** during the launch asks the host to cancel it. The launch gets SIGINT first, as it does
+  at a terminal. It passes the signal on to its tools, so they stop as they stop in a local run.
   After 15 seconds it gets SIGTERM, and after 10 more seconds SIGKILL. The same holds for the
   processes that the tools started. A second Ctrl-C closes the connection at once. The host then
   stops the launch by itself.

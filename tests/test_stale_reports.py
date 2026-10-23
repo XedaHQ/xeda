@@ -25,6 +25,7 @@ from typing import ClassVar
 import pytest
 from pydantic import Field
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
@@ -200,7 +201,7 @@ def test_report_file_says_whether_this_run_wrote_it(tmp_path):
     class ProbeReports(Flow):
         """Reads reports."""
 
-        results_description: dict = {}
+        results_description: dict[str, MetricSpec] = {}
 
         def run(self) -> None:
             pass
@@ -321,7 +322,7 @@ def test_a_flow_the_sweep_cannot_run_never_reads_a_previous_run_s_report(
 class _ReadsReport(Flow):
     """Writes its report only when told to, and succeeds only when it can read one."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         write: bool = Field(True, description="Whether the run writes its report.")
@@ -362,7 +363,7 @@ class _ReportsWhenTold(Flow):
     """Writes its report only while `WRITE_REPORT` is set (the environment is no input of a
     run), and succeeds only when it can read one."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         tag: str = Field("a", description="Any text: another tag is other settings.")

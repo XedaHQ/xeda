@@ -22,6 +22,7 @@ from typing import ClassVar
 import pytest
 
 import xeda
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.board import WithFpgaBoardSettings
 from xeda.design import LANGUAGE_TYPES, SOURCE_SUFFIXES, SourceType
@@ -58,14 +59,15 @@ def _calls(flow, design, settings, tmp_path, monkeypatch, elements=True):
     def marked(self, template_name, *args, **kwargs):
         path = original(self, template_name, *args, **kwargs)
         if template_name in MAIN_SCRIPTS:
-            text = Path(path).read_text()
+            script = self.run_file(path)
+            text = script.read_text()
             sentinel = "\nxeda_source_contract_complete\n"
             # DC ends normally with exit; early exits must not reach the sentinel.
             if text.rstrip().endswith("\nexit"):
                 text = text.rstrip()[:-4] + sentinel + "exit\n"
             else:
                 text += sentinel
-            Path(path).write_text(text)
+            script.write_text(text)
         return path
 
     monkeypatch.setattr(Flow, "copy_from_template", marked)
@@ -452,7 +454,7 @@ def _reads_nextpnr_and_the_netlist():
     class _ReadsNextpnrAndTheNetlist(Flow):
         """Read a configuration from nextpnr and a netlist from yosys_fpga."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
         required_settings = Nextpnr.required_settings
 
         class Settings(WithFpgaBoardSettings, Flow.Settings):

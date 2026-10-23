@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import secrets
+import shlex
 import shutil
 import signal
 import subprocess
@@ -34,6 +35,7 @@ from xeda.cli import cli
 from xeda.remote.constants import UV_VERSION
 from xeda.remote.errors import RemoteCanceled
 from xeda.remote.profile import load_host_profile
+from xeda.remote.provision import env_file_text
 from xeda.remote.ssh import SshSession
 
 from .remote_fixtures import remote_request
@@ -67,7 +69,7 @@ SSH_OPTIONS = ("-F", CONFIG) if CONFIG else ()
 def remote(command: str, timeout: float = 120) -> "subprocess.CompletedProcess[str]":
     """Run `command` on the host in a connection of its own (`bash -lc`, as a launch starts)."""
     return subprocess.run(
-        ["ssh", *SSH_OPTIONS, "-o", "BatchMode=yes", HOST, "bash", "-lc", f"'{command}'"],
+        ["ssh", *SSH_OPTIONS, "-o", "BatchMode=yes", HOST, "bash", "-lc", shlex.quote(command)],
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
@@ -141,8 +143,14 @@ def ssh_with_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def require_ghdl() -> None:
-    if remote("command -v ghdl").returncode != 0:
-        pytest.skip(f"ghdl is not on the login PATH of {HOST}")
+    """Skip unless `ghdl` runs on the host as a launch would start it: in the login shell, with
+    the `env` table and after the `setup` lines of the host profile."""
+    profile = load_host_profile(HOST)
+    setup = "".join(f"{line}\n" for line in profile.setup)
+    found = remote(f"{env_file_text(profile.env)}{setup}ghdl --version")
+    if found.returncode != 0:
+        why = (found.stderr.strip().splitlines() or [f"exit status {found.returncode}"])[-1]
+        pytest.skip(f"ghdl does not run on {HOST} after the setup lines of its profile: {why}")
 
 
 def run(tmp_path: Path, design: Path, chain: str = "ghdl_sim", **overrides: Any):

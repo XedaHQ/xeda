@@ -7,6 +7,7 @@ from typing import ClassVar
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.dataclass import Field
 from xeda.design import SourceType
@@ -19,7 +20,7 @@ from .tool_utils import producers_of
 class _MayFail(Flow):
     """Writes a report, or raises in `run()` when told to."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         fail: bool = Field(False, description="Raise a FlowFatalError in run().")
@@ -42,7 +43,7 @@ class _MayFail(Flow):
 class _NeedsMayFail(Flow):
     """Reads the report `_MayFail` writes, which fails when told to."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         report: Path = In(
@@ -59,7 +60,7 @@ class _NeedsMayFail(Flow):
 class _ExitsNonZero(Flow):
     """Runs a program that exits with status 3."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     def run(self) -> None:
         from xeda.proc_utils import run_process
@@ -103,7 +104,13 @@ def test_a_raising_run_replaces_the_previous_success_with_a_failure_document(tmp
         runner.run_flow(_MayFail, design, {"fail": True})
     document = json.loads(results_json.read_text())
     assert document["success"] is False
-    assert document["error"] == {"type": "FlowFatalError", "message": "boom"}
+    assert document["error"] == {
+        "code": "reported_failure",
+        "message": "boom",
+        "node": first.name,
+        "exit_status": None,
+        "log": None,
+    }
     assert document["design"] == "d" and document["flow"] == first.name
     assert document["run_path"] and document["timestamp"]
     assert not (first.run_path / "trace.json").exists()
@@ -116,7 +123,9 @@ def test_a_non_zero_exit_is_recorded_in_the_failure_document(tmp_path):
     )
     document = json.loads((flow.run_path / "results.json").read_text())
     assert document["success"] is False
-    assert document["error"]["type"] == "NonZeroExitCode"
+    assert document["error"]["code"] == "nonzero_exit"
+    assert document["error"]["exit_status"] == 3
+    assert document["error"]["node"] == flow.name
 
 
 def test_a_failure_the_reports_show_is_a_failure_document_with_an_error(tmp_path):
@@ -127,7 +136,7 @@ def test_a_failure_the_reports_show_is_a_failure_document_with_an_error(tmp_path
     flow = runner.run_flow(_MayFail, design, {"report_failure": True})
     document = json.loads((flow.run_path / "results.json").read_text())
     assert document["success"] is False
-    assert document["error"]["type"] == "ReportedFailure"
+    assert document["error"]["code"] == "reported_failure"
     assert f"`{flow.name}` reported failure" in document["error"]["message"]
     assert "reports or checks" in document["error"]["message"]
 
@@ -155,7 +164,7 @@ def test_a_failing_producer_replaces_the_consumer_s_previous_success(
         runner.run_flow(_NeedsMayFail, design, {}, all_flows_settings={"__may_fail": producer})
     document = json.loads(results_json.read_text())
     assert document["success"] is False
-    assert document["error"]["type"] == "FlowDependencyFailure"
+    assert document["error"]["code"] == "producer_failed"
     assert document["flow"] == first.name and document["design"] == "d"
     assert not (first.run_path / "trace.json").exists()
     # the consumer's document says which producer failed, and where its own document is

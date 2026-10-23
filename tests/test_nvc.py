@@ -164,7 +164,7 @@ def test_nvc_time_limit_retains_runtime_diagnostics(tmp_path, one_shot):
         Nvc, design, {"one_shot": one_shot, "timeout": 1}
     )
     assert flow is not None and not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
     assert "BEFORE_TIMEOUT" in (flow.run_path / "sim.log").read_text()
 
 
@@ -277,7 +277,7 @@ def test_nvc_cocotb_time_limit(tmp_path, one_shot):
         Nvc, design, {"timeout": 3, "one_shot": one_shot}
     )
     assert flow is not None and not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
     assert not (flow.run_path / "sim.log").exists()
     assert not (flow.run_path / "nvc_end.cpp").exists()
 
@@ -386,7 +386,7 @@ def test_nvc_plugin_load_failure_is_a_failure(tmp_path):
         {"vhpi": [tmp_path / "missing.so"], "timeout": 5},
     )
     assert flow is not None and not flow.succeeded
-    assert flow.results["error"]["type"] == "NonZeroExitCode"
+    assert flow.results["error"]["code"] == "nonzero_exit"
 
 
 @pytest.mark.parametrize("one_shot", [True, False])
@@ -408,11 +408,14 @@ def test_nvc_evidence_excludes_build_diagnostics_and_avoids_redirect_conflict(
             text = (
                 "lib/std.08/env-body.vhd:42:9: note: 0ms+0: FINISH called\nXEDA_NVC_RUNTIME_START\n"
             )
+            here = tool.working_directory()
+            tee = kwargs.get("tee")
             return run_process(
                 sys.executable,
                 ["-c", f"import sys; sys.stderr.write({text!r})"],
-                tee=kwargs.get("tee"),
+                tee=None if tee is None else here / tee,
                 merge_stderr=kwargs.get("merge_stderr", False),
+                cwd=here,
             )
         return original(tool, *args, **kwargs)
 
@@ -485,7 +488,6 @@ def test_nvc_evidence_compiles_against_container_paths(tmp_path, monkeypatch):
     use_fake_tools(monkeypatch)
     run_path = tmp_path / "run"
     run_path.mkdir()
-    monkeypatch.chdir(run_path)
     flow = Nvc(
         {"docker": "test/nvc", "dockerized": True},
         _evidence_design(tmp_path, ""),

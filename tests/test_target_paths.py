@@ -438,9 +438,9 @@ def test_a_target_directory_leading_out_of_the_run_root_is_refused(tmp_path):
     outside.mkdir()
     (plan_root / "d").mkdir()
     (plan_root / "d" / "a").symlink_to(outside, target_is_directory=True)
-    with pytest.raises(RunDirectoryError, match="leads out"):
+    with pytest.raises(RunDirectoryError, match="xeda_run/d/a is a symbolic link"):
         launcher.plan(_Taker, design)
-    with pytest.raises(RunDirectoryError, match="leads out"):
+    with pytest.raises(RunDirectoryError, match="xeda_run/d/a is a symbolic link"):
         launcher.launch_flow(_Taker, design, {})
     assert list(outside.iterdir()) == []
 

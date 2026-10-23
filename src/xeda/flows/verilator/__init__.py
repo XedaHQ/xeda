@@ -19,6 +19,7 @@ from ...flow import (
     SimFlow,
     describe_results,
 )
+from ...flow.metrics import COCOTB_METRICS
 from ...flow.sim import SimEvent, SimEvidence
 from ...tool import Docker, NonZeroExitCode, Tool
 from ...units import count
@@ -178,7 +179,13 @@ class Verilator(SimFlow):
     )
 
     results_description = describe_results(
-        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+        "sim.evidence",
+        "sim.ended_by",
+        "sim.time",
+        "sim.time_unit",
+        "sim.errors",
+        "sim.warnings",
+        *COCOTB_METRICS,
     )
 
     #: The exit status of this run's model, once it has returned (0) or failed.
@@ -564,7 +571,7 @@ class Verilator(SimFlow):
             return None
         if ss.fail_severity == "warning" and self._model_log is not None:
             # `$warning` reaches no hook: Verilator prints it as `[time] %Warning: ...`
-            log_file = self.report_file(self._model_log)
+            log_file = self.report_file(self._model_log, optional=True)
             if log_file is not None:
                 for line in log_file.read_text(errors="replace").splitlines():
                     if re.match(r"\[\d+\] %Warning:", line):
@@ -722,7 +729,7 @@ class Verilator(SimFlow):
         hooks: list[Any] = []
         build_env: dict[str, str] | None = None
         if hooked:
-            sim_dir.mkdir(parents=True, exist_ok=True)
+            self.run_file(sim_dir).mkdir(parents=True, exist_ok=True)
             self.copy_from_template("xeda_hooks.h", script_filename=sim_dir / "xeda_hooks.h")
             self.copy_from_template(HOOKS_MAKEFILE, script_filename=sim_dir / HOOKS_MAKEFILE)
             hooks.append(
@@ -780,7 +787,7 @@ class Verilator(SimFlow):
                 sources.append(cocotb_cpp_path)
             elif cocotb_cpp_path.exists():
                 log.debug("Using cocotb verilator.cpp from %s", cocotb_cpp_path)
-                sim_dir.mkdir(parents=True, exist_ok=True)
+                self.run_file(sim_dir).mkdir(parents=True, exist_ok=True)
                 target = self.run_directory.writable(sim_dir / "cocotb_verilator.cpp")
                 sources.append(replacing_copy(cocotb_cpp_path, target))
             else:
@@ -866,6 +873,7 @@ class Verilator(SimFlow):
         sim_dir = self.settings.sim_dir
         if not sim_dir:
             return
-        if os.path.exists(sim_dir):
+        sim_path = self.run_file(sim_dir)
+        if os.path.exists(sim_path):
             log.info("Removing dependency files to trigger verilator")
-            self.run_directory.remove(*glob(f"{glob_escape(str(sim_dir))}{os.sep}*.d"))
+            self.run_directory.remove(*glob(f"{glob_escape(str(sim_path))}{os.sep}*.d"))

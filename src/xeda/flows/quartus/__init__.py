@@ -2,12 +2,11 @@
 
 import csv
 import logging
-from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional, Set
 
 from ...dataclass import Field
 from ...design import SourceType
-from ...flow import FpgaSynthFlow, describe_results, NoReplacement
+from ...flow import FpgaSynthFlow, MetricSpec, NoReplacement, describe_results
 from ...tool import Docker, Tool
 from ...types import PathLike
 from ...units import count, ratio
@@ -85,10 +84,8 @@ class Quartus(FpgaSynthFlow):
         "Fmax",
         "wns",
         "whs",
-        **{
-            "lut": "Number of combinational ALUTs / logic elements used.",
-            "ff": "Number of dedicated logic registers used.",
-        },
+        lut=MetricSpec("Number of combinational ALUTs / logic elements used.", "integer"),
+        ff=MetricSpec("Number of dedicated logic registers used.", "integer"),
     )
 
     reads_sources = frozenset(
@@ -351,10 +348,10 @@ class Quartus(FpgaSynthFlow):
                 whs = try_convert_to_primitives(whs)
                 self.results["whs"] = whs
 
-        timing_reports_folder = Path(reports["timing_dir"])
+        timing_reports_folder = self.run_file(reports["timing_dir"])
         max_fmax = 0.0
         for found in timing_reports_folder.glob("Slow_*_Model/Slow_*_Model_Fmax_Summary.csv"):
-            fmax_report = self.report_file(found)
+            fmax_report = self.report_file(found, optional=True)
             if fmax_report is None:
                 continue
             log.info("Parsing timing report: %s", fmax_report)

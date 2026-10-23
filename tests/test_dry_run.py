@@ -306,7 +306,7 @@ def test_an_escaping_run_directory_is_refused_without_writes(tmp_path):
     )
     document = json_stdout(proc)
     assert proc.returncode == 1 and document["success"] is False
-    assert "leads out" in document["error"]["message"]
+    assert "blink is a symbolic link" in document["error"]["message"]
     assert sorted(p.name for p in root.iterdir()) == before
     assert list(outside.iterdir()) == []
 

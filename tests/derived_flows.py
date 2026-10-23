@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import ClassVar
 
+from xeda.flow import MetricSpec
 from xeda.design import SourceType
 from xeda.flow import DESIGN, Flow, Out
 from xeda.flow.derived import DerivedSources, DesignConversion, Generated, Passed
@@ -30,7 +31,7 @@ def converter_flows() -> tuple[type[Flow], type[Flow], type[Flow]]:
     class _FakeBsc(Flow):
         """Converts each Bluespec source into a module of the same name, for the tests."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
         reads_sources = frozenset({SourceType.Bluespec, SourceType.Verilog})
         written = SourceType.Verilog
 
@@ -74,7 +75,7 @@ def vhdl_converter() -> type[Flow]:
     class _VhdlToVerilog(Flow):
         """Converts each VHDL source into a module of the same name, for the tests."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
         reads_sources = frozenset({SourceType.Vhdl, SourceType.Verilog})
 
         class Outputs(Flow.Outputs):
@@ -109,7 +110,7 @@ def design_output_flow() -> type[Flow]:
     class _Netlister(Flow):
         """Writes a design and converts none, for the tests."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
         reads_sources = frozenset({SourceType.Verilog})
 
         class Outputs(Flow.Outputs):

@@ -18,7 +18,7 @@ from typing import List, Optional
 
 from ...dataclass import Field
 from ...design import SourceType
-from ...flow import Flow, In, Out, describe_results
+from ...flow import Flow, In, MetricSpec, Out, describe_results
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import PlatformModel
 from .base import EffectiveBase, OpenroadStage, base_values, platform_time_unit
@@ -130,22 +130,44 @@ class OpenroadGrt(OpenroadStage):
         "Fmax",
         "utilization",
         "power",
-        area="Area of the standard cells after the global route and its repair, in square "
-        "micrometers.",
-        hold_tns="Total negative hold slack (ns) after the global route, with propagated clocks "
-        "and the parasitics that OpenROAD estimates from the route.",
-        clock_skew_setup="Clock skew (ns) of the setup check after the global route.",
-        clock_skew_hold="Clock skew (ns) of the hold check after the global route.",
-        global_route_wirelength="Total wire length of the global route, in micrometers.",
-        global_route_vias="Number of vias of the global route.",
-        antenna_violating_nets="Number of nets with an antenna violation after the global route "
-        "and its repair.",
-        antenna_violating_pins="Number of pins with an antenna violation after the global route "
-        "and its repair.",
-        antenna_diodes="Number of diodes that the repair of the antenna violations inserted.",
-        platform="The platform that the design is routed on: `name`, the PDK `provider` and "
-        "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or user) "
-        "that gave each value of the platform model.",
+        area=MetricSpec(
+            "Area of the standard cells after the global route and its repair, in square "
+            "micrometers.",
+            "number",
+        ),
+        hold_tns=MetricSpec(
+            "Total negative hold slack after the global route, with propagated clocks and the "
+            "parasitics that OpenROAD estimates from the route.",
+            "number",
+            "ns",
+        ),
+        clock_skew_setup=MetricSpec(
+            "Clock skew of the setup check after the global route.", "number", "ns"
+        ),
+        clock_skew_hold=MetricSpec(
+            "Clock skew of the hold check after the global route.", "number", "ns"
+        ),
+        global_route_wirelength=MetricSpec(
+            "Total wire length of the global route.", "number", "um"
+        ),
+        global_route_vias=MetricSpec("Number of vias of the global route.", "integer"),
+        antenna_violating_nets=MetricSpec(
+            "Number of nets with an antenna violation after the global route and its repair.",
+            "integer",
+        ),
+        antenna_violating_pins=MetricSpec(
+            "Number of pins with an antenna violation after the global route and its repair.",
+            "integer",
+        ),
+        antenna_diodes=MetricSpec(
+            "Number of diodes that the repair of the antenna violations inserted.", "integer"
+        ),
+        platform=MetricSpec(
+            "The platform that the design is routed on: `name`, the PDK `provider` and "
+            "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or "
+            "user) that gave each value of the platform model.",
+            "object",
+        ),
     )
 
     #: The design sources it can take as its inputs: the database and constraints of the clock tree.

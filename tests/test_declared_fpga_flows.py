@@ -72,7 +72,9 @@ def tools(monkeypatch):
         for arg in map(str, args):
             name, _, value = arg.partition("=")
             if name in ("--report", "--textcfg", "--asc", "--fasm"):
-                Path(value).write_text(REPORT if name == "--report" else "config\n")
+                (tool.working_directory() / value).write_text(
+                    REPORT if name == "--report" else "config\n"
+                )
 
     monkeypatch.setattr(YosysFpga, "run", yosys_run)
     monkeypatch.setattr(YosysFpga, "parse_reports", lambda self: True)
@@ -330,7 +332,7 @@ def test_missing_or_stale_configuration_fails(
     def no_config(self, *args, env=None):
         for arg in map(str, args):
             if arg.startswith("--report="):
-                Path(arg.partition("=")[2]).write_text(REPORT)
+                (self.working_directory() / arg.partition("=")[2]).write_text(REPORT)
 
     monkeypatch.setattr(NextpnrTool, "run", no_config)
     runner = DefaultRunner(tmp_path / "xeda_run", rebuild_all=True, display_results=False)
@@ -501,7 +503,6 @@ def test_nextpnr_subprocess_reads_only_the_selected_netlist(
 
 
 _CLI_STANDINS = """
-from pathlib import Path
 from xeda.flows import YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
 from xeda.cli import cli
@@ -512,9 +513,11 @@ def place(self, *args, env=None):
     for arg in map(str, args):
         name, _, value = arg.partition('=')
         if name == '--report':
-            Path(value).write_text('{"fmax": {}, "utilization": {}, "critical_paths": []}\\n')
+            (self.working_directory() / value).write_text(
+                '{"fmax": {}, "utilization": {}, "critical_paths": []}\\n'
+            )
         elif name == '--textcfg':
-            Path(value).write_text('config\\n')
+            (self.working_directory() / value).write_text('config\\n')
 YosysFpga.run = synth
 YosysFpga.parse_reports = lambda self: True
 NextpnrTool.run = place

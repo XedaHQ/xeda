@@ -19,8 +19,9 @@ import yaml
 from click.testing import CliRunner
 
 import xeda.deliver as deliver
+from xeda.flow import MetricSpec
 from xeda import Design
-from xeda.cli import cli
+from xeda.cli import _prompt_scrub, cli
 from xeda.console import console
 from xeda.dataclass import Field, deliverable
 from xeda.deliver import Deliveries, DeliveryError, OutputExistsError
@@ -39,7 +40,7 @@ DURING_RUN: List[Callable[[], object]] = []
 class _ReadsDir(Flow):
     """A producer that reads a directory and writes `a.txt`."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         reads: Optional[Path] = Field(None, description="A directory it reads.")
@@ -59,8 +60,8 @@ class _ReadsDir(Flow):
         self.outputs.a = path
         if self.settings.copy is not None:
             copy = Path(self.settings.copy)
-            copy.parent.mkdir(parents=True, exist_ok=True)
-            copy.write_text("a\n")
+            self.run_file(copy).parent.mkdir(parents=True, exist_ok=True)
+            self.run_file(copy).write_text("a\n")
             self.artifacts["copy"] = str(copy)
         for action in DURING_RUN:
             action()
@@ -69,7 +70,7 @@ class _ReadsDir(Flow):
 class _Delivers(Flow):
     """A producer that delivers a netlist to the location its setting names."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         reads: Optional[Path] = Field(None, description="A file it reads.")
@@ -86,15 +87,15 @@ class _Delivers(Flow):
         RUNS.append(self.name)
         assert self.settings.netlist is not None
         netlist = Path(self.settings.netlist)
-        netlist.parent.mkdir(parents=True, exist_ok=True)
-        netlist.write_text("net\n")
+        self.run_file(netlist).parent.mkdir(parents=True, exist_ok=True)
+        self.run_file(netlist).write_text("net\n")
         self.outputs.b = netlist
 
 
 class _Both(Flow):
     """Reads what both producers write: two producers launched before it, in plan order."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         report: Optional[Path] = Field(
@@ -111,8 +112,8 @@ class _Both(Flow):
         RUNS.append(self.name)
         if self.settings.report is not None:
             report = Path(self.settings.report)
-            report.parent.mkdir(parents=True, exist_ok=True)
-            report.write_text("report\n")
+            self.run_file(report).parent.mkdir(parents=True, exist_ok=True)
+            self.run_file(report).write_text("report\n")
             self.artifacts["report"] = str(report)
 
 
@@ -149,7 +150,10 @@ def world(tmp_path, monkeypatch):
 
 
 def _runner(tmp_path: Path, **settings) -> DefaultRunner:
-    return DefaultRunner(tmp_path / "xeda_run", display_results=False, **settings)
+    """A launcher that asks the way the command line does (`console.input`), as `--scrub` does."""
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, **settings)
+    runner.confirm_scrub = _prompt_scrub
+    return runner
 
 
 def _launch(world, runner=None, own=None, **sections):

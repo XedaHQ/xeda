@@ -663,15 +663,17 @@ def test_a_tool_is_not_started_when_its_log_cannot_be_created(
 DEFAULT_SIGINT = "import signal; signal.signal(signal.SIGINT, signal.SIG_DFL)\n"
 
 
-def _tree(started: Path) -> str:
+def _tree(started: Path, announce: str | None = None) -> str:
     """A program for a tool that starts a tool: a leader that runs one child and waits for it.
     The child writes its process id to `started` when it runs, and then sleeps. Both stop at
-    SIGINT."""
+    SIGINT. With `announce`, the child prints that line (flushed) after it wrote its process id,
+    and the output of the leader is the output of the child."""
     child = (
         f"{DEFAULT_SIGINT}"
         "import os, pathlib, time\n"
         f"pathlib.Path({str(started)!r}).write_text(str(os.getpid()))\n"
-        "time.sleep(60)\n"
+        + (f"print({announce!r}, flush=True)\n" if announce else "")
+        + "time.sleep(60)\n"
     )
     leader = f"import subprocess, sys\nsubprocess.run([sys.executable, '-c', {child!r}])\n"
     return DEFAULT_SIGINT + leader
@@ -769,6 +771,7 @@ class _Finished:
 
     pid = 2**22 + 12345
     killed = False
+    returncode = 0
 
     def __init__(self):
         self.args = ["done"]
@@ -852,24 +855,254 @@ def test_an_interrupt_while_copying_output_stops_the_process(monkeypatch):
         )
 
 
+#: A tool that records, in the file named by its argument, whether it leads a process group and a
+#: session. It asks itself, so that no query races with its exit.
+LEADER_PROBE = (
+    "import os, sys\n"
+    "open(sys.argv[1], 'a').write("
+    "f'{os.getpgid(0) == os.getpid()} {os.getsid(0) == os.getpid()}\\n')\n"
+)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
-def test_a_process_without_a_time_limit_stays_in_the_callers_group(tmp_path, monkeypatch):
-    """Both output paths preserve the caller's process group when no timeout is set."""
+@pytest.mark.parametrize("timeout", [None, 60], ids=["no-limit", "limit"])
+def test_every_tool_leads_a_process_group_and_a_session_of_its_own(tmp_path, timeout):
+    """Every route of `run_process` starts the tool as the leader of a group and of a session,
+    with or without a time limit. A route that did not would let a stop leave the processes of
+    the tool running."""
+    record = tmp_path / "record"
+    probe = ["-c", LEADER_PROBE, str(record)]
+    run_process(sys.executable, probe, timeout=timeout)  # plain
+    run_process(sys.executable, probe, stdout=True, timeout=timeout)  # captured
+    run_process(sys.executable, probe, stdout=tmp_path / "out", timeout=timeout)  # to a file
+    run_process(sys.executable, probe, tee=tmp_path / "log", timeout=timeout)  # copied lines
+    run_process(sys.executable, probe, highlight_rules={"x": ""}, timeout=timeout)  # highlighted
+    assert record.read_text().splitlines() == ["True True"] * 5
+
+
+@contextlib.contextmanager
+def _interrupting_after_the_child_ran(monkeypatch, started: Path):
+    """Make the first wait of a tool on `Popen` (`wait` or `communicate`) end with a
+    `KeyboardInterrupt`, as Ctrl-C does, once the grandchild of the tool wrote its process id to
+    `started`. This does not send a signal to the test process, which a `pytest &` ignores."""
     import xeda.proc_utils as pu
 
-    groups = []
-    real_popen = subprocess.Popen
+    class Interrupted(subprocess.Popen):
+        interrupted = False
 
-    def started(*args, **kwargs):
-        proc = real_popen(*args, **kwargs)
-        groups.append(os.getpgid(proc.pid))
-        return proc
+        def _interrupt_once(self):
+            if not Interrupted.interrupted:
+                Interrupted.interrupted = True
+                _wait_until(lambda: _read_pid(started), "the child to run")
+                raise KeyboardInterrupt
 
-    monkeypatch.setattr(pu.subprocess, "Popen", started)
-    run_process(sys.executable, ["-c", "print('ok')"], stdout=True)
-    run_process(sys.executable, ["-c", "print('ok')"], tee=tmp_path / "log")
-    # A terminal's SIGINT/SIGHUP must reach the tool and its descendants.
-    assert groups == [os.getpgrp(), os.getpgrp()]
+        def wait(self, timeout=None):
+            self._interrupt_once()
+            return super().wait(timeout)
+
+        def communicate(self, *args, **kwargs):
+            self._interrupt_once()
+            return super().communicate(*args, **kwargs)
+
+    monkeypatch.setattr(pu.subprocess, "Popen", Interrupted)
+    yield
+
+
+class _InterruptingStream:
+    """The stream of tool output, which raises `KeyboardInterrupt` as it gets `trigger`."""
+
+    def __init__(self, trigger: str) -> None:
+        self.trigger = trigger
+
+    def isatty(self) -> bool:
+        return False
+
+    def write(self, text: str) -> int:
+        if self.trigger in text:
+            raise KeyboardInterrupt
+        return len(text)
+
+    def flush(self) -> None:
+        pass
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+@pytest.mark.parametrize("route", ["plain", "captured", "file", "copied-lines", "highlighted"])
+def test_an_interrupt_without_a_time_limit_stops_what_the_tool_started(
+    tmp_path, monkeypatch, route
+):
+    """Ctrl-C while a tool runs, with no time limit, ends the child that the tool started."""
+    import xeda.proc_utils as pu
+
+    started = tmp_path / "started"
+    trigger = "interrupt now"
+    kwargs: dict = {
+        "plain": {},
+        "captured": {"stdout": True},
+        "file": {"stdout": tmp_path / "out"},
+        "copied-lines": {"tee": tmp_path / "log"},
+        "highlighted": {"highlight_rules": {"x": ""}},
+    }[route]
+    code = _tree(started, announce=trigger if route in ("copied-lines", "highlighted") else None)
+    context = contextlib.nullcontext()
+    if route in ("copied-lines", "highlighted"):
+        # The tool writes the trigger after its child wrote the process id.
+        monkeypatch.setattr(pu, "_tool_output", _InterruptingStream(trigger))
+    else:
+        context = _interrupting_after_the_child_ran(monkeypatch, started)
+    child = None
+    try:
+        with context, pytest.raises(KeyboardInterrupt), _stopped_within():
+            run_process(sys.executable, ["-c", code], **kwargs)
+        child = _read_pid(started)
+        assert child is not None, "the child did not run"
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+
+
+#: A program that runs a tool tree through `run_process`, as a launch does. Its stop signals are
+#: at their default: a test run under `nohup` or `pytest &` could pass on ignored ones.
+_LAUNCH = """
+import signal, sys
+for name in ("SIGTERM", "SIGHUP"):
+    signal.signal(getattr(signal, name), signal.SIG_DFL)
+from xeda.proc_utils import run_process
+run_process(sys.executable, ["-c", {tool!r}])
+"""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_the_stop_signal_handlers_are_the_callers_before_and_after_a_tool_runs(monkeypatch):
+    """The handlers are those of the caller except while a tool runs, and a signal that the
+    caller ignores (`nohup`) stays ignored."""
+    seen = {}
+
+    def handler(number, frame):
+        pass
+
+    def record():
+        return {n: signal.getsignal(n) for n in (signal.SIGTERM, signal.SIGHUP)}
+
+    def run_and_record():
+        run_process(sys.executable, ["-c", "pass"])
+
+    real_wait = subprocess.Popen.wait
+
+    def wait(self, *args, **kwargs):
+        seen.setdefault("during", record())
+        return real_wait(self, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess.Popen, "wait", wait)
+    previous = record()
+    try:
+        signal.signal(signal.SIGTERM, handler)
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        run_and_record()
+        assert seen["during"][signal.SIGTERM] not in (handler, signal.SIG_DFL, signal.SIG_IGN)
+        assert seen["during"][signal.SIGHUP] == signal.SIG_IGN
+        assert record() == {signal.SIGTERM: handler, signal.SIGHUP: signal.SIG_IGN}
+    finally:
+        for number, old in previous.items():
+            signal.signal(number, old)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+@pytest.mark.parametrize("name", ["SIGTERM", "SIGHUP"])
+def test_a_stop_signal_to_xeda_stops_what_the_tool_started(tmp_path, name):
+    """`kill`, a CI cancel and a closed terminal signal Xeda and no tool, which leads a session of
+    its own. Xeda stops the tool as Ctrl-C does, and the tool takes its child with it."""
+    started = tmp_path / "started"
+    launch = subprocess.Popen(
+        [sys.executable, "-c", _LAUNCH.format(tool=_tree(started))], start_new_session=True
+    )
+    child = None
+    try:
+        child = _wait_until(lambda: _read_pid(started), "the child to run")
+        launch.send_signal(getattr(signal, name))
+        with _stopped_within():
+            launch.wait(timeout=60)
+        # Xeda ended by the Ctrl-C path (an uncaught KeyboardInterrupt), not by the signal itself.
+        assert launch.returncode != -getattr(signal, name)
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+    finally:
+        if launch.poll() is None:
+            launch.kill()
+        launch.wait()
+
+
+#: A program that runs a tool tree in the worker of a process pool, as a design-space exploration
+#: does, and stops the pool once the tool runs, as its Ctrl-C does. The worker ignores SIGINT.
+_POOL_LAUNCH = """
+import sys, time
+from pathlib import Path
+from pebble import ProcessPool
+from xeda.proc_utils import run_process
+
+def work(tool):
+    run_process(sys.executable, ["-c", tool])
+
+if __name__ == "__main__":
+    started = Path(sys.argv[2])
+    with ProcessPool(max_workers=1) as pool:
+        pool.schedule(work, args=(sys.argv[1],))
+        while not (started.exists() and started.read_text().isdigit()):
+            time.sleep(0.01)
+        pool.stop()
+        pool.join()
+"""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_stopping_a_process_pool_stops_what_its_tools_started(tmp_path):
+    started = tmp_path / "started"
+    script = tmp_path / "pool_launch.py"
+    script.write_text(_POOL_LAUNCH)
+    launch = subprocess.Popen(
+        [sys.executable, str(script), _tree(started), str(started)], start_new_session=True
+    )
+    child = None
+    try:
+        with _stopped_within():
+            launch.wait(timeout=120)
+        child = _read_pid(started)
+        assert child is not None, "the child did not run"
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+    finally:
+        if launch.poll() is None:
+            launch.kill()
+        launch.wait()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+@pytest.mark.parametrize("route", ["plain", "captured", "copied-lines"])
+def test_a_time_limit_stops_what_the_tool_started_on_every_route(tmp_path, route):
+    child = None
+    kwargs = {
+        "plain": {},
+        "captured": {"stdout": True},
+        "copied-lines": {"tee": tmp_path / "log"},
+    }[route]
+    try:
+        for attempt, limit in enumerate(TIME_LIMITS):
+            started = tmp_path / f"started-{attempt}"
+            with pytest.raises(ProcessTimeout), _stopped_within(limit):
+                run_process(sys.executable, ["-c", _tree(started)], timeout=limit, **kwargs)
+            child = _read_pid(started)
+            if child is not None:  # the child ran when the limit expired
+                break
+        assert child is not None, f"the child did not run within {limit} s"
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child)
+        raise
 
 
 @pytest.mark.parametrize("stop", ["timeout", "interrupt"])
@@ -1025,6 +1258,265 @@ def test_exception_cleanup_kills_a_tool_after_the_grace_period(monkeypatch, erro
         proc.stdout.close()
 
 
+def _orphaning(started: Path, announce: str | None = None) -> str:
+    """A program for a tool whose leader ends at once and leaves a child that holds the standard
+    output of the leader open. The child waits until the leader is gone, then writes its process
+    id to `started` and, with `announce`, prints that line (flushed). It then sleeps."""
+    child = (
+        f"{DEFAULT_SIGINT}"
+        "import os, pathlib, sys, time\n"
+        "while os.getppid() == int(sys.argv[1]):\n"
+        "    time.sleep(0.01)\n"
+        f"pathlib.Path({str(started)!r}).write_text(str(os.getpid()))\n"
+        + (f"print({announce!r}, flush=True)\n" if announce else "")
+        + "time.sleep(60)\n"
+    )
+    return (
+        "import os, subprocess, sys\n"
+        f"subprocess.Popen([sys.executable, '-c', {child!r}, str(os.getpid())])\n"
+    )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_an_interrupt_stops_what_a_tool_that_already_ended_left_running(tmp_path):
+    """The leader ended and nobody reaped it, so its group id is still its own. The interrupt
+    stops the child that outlived it. The leader ended by itself, so the stop hook does not run."""
+    started = tmp_path / "started"
+    proc = subprocess.Popen([sys.executable, "-c", _orphaning(started)], start_new_session=True)
+    child = None
+    stopped = []
+    try:
+        child = _wait_until(lambda: _read_pid(started), "the child to outlive the leader")
+        with pytest.raises(KeyboardInterrupt), _stopped_within():
+            with _Deadline(proc, None, group=True, on_stop=lambda: stopped.append(1)):
+                raise KeyboardInterrupt
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+        assert stopped == []
+    except BaseException:
+        _kill(child or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_the_time_limit_passing_does_not_reap_a_tool_that_already_ended(tmp_path):
+    """The watch looks at a leader that ended and a child that did not. It is no timeout, and it
+    leaves the leader for the interrupt that follows, which stops the child."""
+    started = tmp_path / "started"
+    proc = subprocess.Popen([sys.executable, "-c", _orphaning(started)], start_new_session=True)
+    child = None
+    try:
+        child = _wait_until(lambda: _read_pid(started), "the child to outlive the leader")
+        with pytest.raises(KeyboardInterrupt), _stopped_within():
+            with _Deadline(proc, 0.05, group=True) as deadline:
+                assert deadline._timer is not None
+                deadline._timer.join()  # the time limit has passed
+                assert not deadline.expired
+                raise KeyboardInterrupt
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_an_interrupt_while_copying_output_stops_a_child_that_outlived_the_tool(
+    tmp_path, monkeypatch
+):
+    """The child of a tool that ended keeps the pipe of the tool open, so Xeda still copies lines
+    when Ctrl-C comes."""
+    import xeda.proc_utils as pu
+
+    started = tmp_path / "started"
+    trigger = "interrupt now"
+    monkeypatch.setattr(pu, "_tool_output", _InterruptingStream(trigger))
+    child = None
+    try:
+        with pytest.raises(KeyboardInterrupt), _stopped_within():
+            run_process(
+                sys.executable,
+                ["-c", _orphaning(started, announce=trigger)],
+                tee=tmp_path / "log",
+            )
+        child = _read_pid(started)
+        assert child is not None, "the child did not run"
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+
+
+#: A program that runs a tool through `run_process` with a stop hook, as a launch does, and keeps
+#: the default disposition of the stop signals. The tool ignores SIGTERM and answers SIGINT, the
+#: first signal that the stop sends it, by writing `stopping`. It then runs on, so that the stop
+#: waits for it for the length of the grace period.
+_STOPPED_TWICE = """
+import sys
+import signal
+from pathlib import Path
+import xeda.proc_utils as pu
+
+for name in ("SIGTERM", "SIGHUP"):
+    signal.signal(getattr(signal, name), signal.SIG_DFL)
+pu.PROCESS_STOP_GRACE = 2.0
+armed = Path(sys.argv[4])
+real_enter = pu._Deadline.__enter__
+
+
+def enter(self):
+    result = real_enter(self)
+    armed.write_text("x")  # the stop signals are handled from here
+    return result
+
+
+pu._Deadline.__enter__ = enter
+TOOL = '''
+import os, signal, sys, time
+from pathlib import Path
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+signal.signal(signal.SIGINT, lambda *args: Path(sys.argv[2]).write_text("x"))
+Path(sys.argv[1]).write_text(str(os.getpid()))
+while True:
+    time.sleep(1)
+'''
+started, stopping, hook = sys.argv[1:4]
+pu.run_process(
+    sys.executable,
+    ["-c", TOOL, started, stopping],
+    on_stop=lambda: Path(hook).write_text("ran"),
+)
+"""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+@pytest.mark.parametrize("name", ["SIGTERM", "SIGHUP"])
+def test_a_second_stop_signal_never_cuts_the_stopping_short(tmp_path, name):
+    """The first stop signal starts the stop. A second one, while the tool is given its time to
+    end, neither skips the stop hook nor leaves the tool running."""
+    started, stopping, hook, armed = (
+        tmp_path / n for n in ("started", "stopping", "hook", "armed")
+    )
+    launch = subprocess.Popen(
+        [sys.executable, "-c", _STOPPED_TWICE, str(started), str(stopping), str(hook), str(armed)],
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    tool = None
+    try:
+        tool = _wait_until(lambda: _read_pid(started), "the tool to run")
+        _wait_until(armed.exists, "Xeda to handle the stop signals")
+        launch.send_signal(getattr(signal, name))
+        _wait_until(stopping.exists, "the tool to be sent SIGINT")
+        launch.send_signal(getattr(signal, name))
+        with _stopped_within():
+            launch.wait(timeout=60)
+        assert hook.read_text() == "ran"
+        assert not _is_running(tool)
+    except BaseException:
+        _kill(tool or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+    finally:
+        if launch.poll() is None:
+            launch.kill()
+        launch.wait()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+@pytest.mark.parametrize("error", [KeyboardInterrupt, RuntimeError])
+@pytest.mark.parametrize("where", ["grace", "kill"])
+def test_a_stop_signal_during_the_stopping_is_held_until_it_is_done(monkeypatch, error, where):
+    """A stop signal comes while the tool is given its time to end (`grace`), or as the kill
+    starts (`kill`; the tool ignores SIGINT and SIGTERM). Then the hook ran, the tool is killed and
+    reaped, the handlers are the caller's again, and the signal still ends the wait: as a
+    `KeyboardInterrupt` in place of any other error."""
+    import xeda.proc_utils as pu
+
+    def caller(number, frame):
+        pass
+
+    ran = []
+    real_wait, real_stop = _Deadline._wait_unreaped, _Deadline._stop
+
+    def signaled_wait(self):
+        os.kill(os.getpid(), signal.SIGTERM)
+        real_wait(self)
+
+    def signaled_kill(self, *, force=False, interrupt=False):
+        if force:
+            os.kill(os.getpid(), signal.SIGTERM)
+        real_stop(self, force=force, interrupt=interrupt)
+
+    monkeypatch.setattr(pu, "PROCESS_STOP_GRACE", 0.2)
+    if where == "grace":
+        monkeypatch.setattr(pu._Deadline, "_wait_unreaped", signaled_wait)
+    else:
+        monkeypatch.setattr(pu._Deadline, "_stop", signaled_kill)
+    script = (
+        "import signal, time\n"
+        "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "print('ready', flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, start_new_session=True
+    )
+    previous = signal.signal(signal.SIGTERM, caller)
+    try:
+        assert proc.stdout.readline() == b"ready\n"
+        with pytest.raises(KeyboardInterrupt):
+            with _Deadline(proc, 60, group=True, on_stop=lambda: ran.append(1)):
+                raise error
+        assert ran == [1]
+        assert proc.returncode == -signal.SIGKILL
+        assert signal.getsignal(signal.SIGTERM) is caller
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        proc.stdout.close()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_a_second_ctrl_c_during_the_stopping_kills_the_tool_and_still_runs_the_hook(monkeypatch):
+    import xeda.proc_utils as pu
+
+    def second_ctrl_c(self):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(pu._Deadline, "_wait_unreaped", second_ctrl_c)
+    script = (
+        "import signal, time\n"
+        "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+        "print('ready', flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, start_new_session=True
+    )
+    ran = []
+    try:
+        assert proc.stdout.readline() == b"ready\n"
+        with pytest.raises(KeyboardInterrupt):
+            with _Deadline(proc, 60, group=True, on_stop=lambda: ran.append(1)):
+                raise KeyboardInterrupt
+        assert ran == [1]
+        assert proc.returncode == -signal.SIGKILL
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        proc.stdout.close()
+
+
 @pytest.mark.parametrize("bad", [0, -1, 0.0])
 def test_a_non_positive_time_limit_is_refused(bad):
     with pytest.raises(ValueError, match=str(bad)):
@@ -1057,6 +1549,8 @@ def test_a_docker_run_names_its_container_and_stops_it_when_stopped(monkeypatch,
     assert name.startswith("xeda-")
     assert kill_args == ["kill", name]
     assert kill_kwargs.get("check") is False
+    assert kill_kwargs["cwd"] == run_kwargs["cwd"]
+    assert Path(kill_kwargs["cwd"]).is_absolute()
     assert run_kwargs["timeout"] == 3
 
 

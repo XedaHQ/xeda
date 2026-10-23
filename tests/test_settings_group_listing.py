@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Literal, Optional
 import pytest
 from click.testing import CliRunner
 
+from xeda.flow import MetricSpec
 from xeda.agent_skill import _flow_section
 from xeda.cli import cli
 from xeda.dataclass import Field, extras, tier, WORKING
@@ -69,7 +70,7 @@ def listing_flow():
         class ListingToy(Flow):
             """A flow that exists to carry a group."""
 
-            results_description: ClassVar[dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             class Settings(Flow.Settings):
                 before: int = Field(1, description="A setting before the group.")
@@ -372,7 +373,7 @@ def aliased_flow():
         class AliasedToy(Flow):
             """A flow whose group has a field with an alias."""
 
-            results_description: ClassVar[dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             class Settings(Flow.Settings):
                 aliased: _Aliased = Field(default_factory=_Aliased, description="The group.")
@@ -410,7 +411,7 @@ def shared_group_flow(monkeypatch):
         class SharedGroupToy(Flow):
             """A flow with a group that every flow accepts, and one of its own."""
 
-            results_description: ClassVar[dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             class Settings(Flow.Settings):
                 shared: _Outer = Field(default_factory=_Outer, description="Shared group.")

@@ -82,6 +82,7 @@ from .trace import (
     check_trace,
     locate_program,
 )
+from .code_digest import CodeDigests
 from .trace_inputs import expected_run
 
 log = logging.getLogger(__name__)
@@ -303,6 +304,7 @@ def judge_node(
     clean: bool,
     debug: bool,
     run_path: Callable[..., Path],
+    digests: CodeDigests,
 ) -> NodeFreshness:
     flow_class = node.flow_class
     # The design the node reads: the one its converter derived when that is `fresh`, else the one
@@ -409,6 +411,7 @@ def judge_node(
         registered=registered,
         declared=_records(plan, node, settings, entries),
         dependency_run_ids={},
+        digests=digests,
     )
     try:
         freshness = check_trace(
@@ -443,6 +446,7 @@ def judge_plan(
 
     `run_path` is the `run_path_of` of the launcher (`resolver.planned_design_of`)."""
     states: dict[str, NodeFreshness] = {}
+    digests = CodeDigests()  # this judgment's: the next one reads the files again
     for node in plan.nodes:
         states[node.name] = judge_node(
             plan,
@@ -455,5 +459,6 @@ def judge_plan(
             clean=clean,
             debug=debug,
             run_path=run_path,
+            digests=digests,
         )
     return states

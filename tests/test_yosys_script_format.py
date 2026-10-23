@@ -89,7 +89,7 @@ def test_a_failed_tcl_script_names_the_setting_that_needs_tcl(tmp_path, monkeypa
         )
     assert "since `memory.max_bits` needs one" in caplog.text
     (results,) = (tmp_path / "run").glob("mac/yosys/results.json")
-    assert '"NonZeroExitCode"' in results.read_text()
+    assert '"nonzero_exit"' in results.read_text()
 
 
 def test_real_yosys_maps_a_design_elaborated_by_prep(tmp_path):

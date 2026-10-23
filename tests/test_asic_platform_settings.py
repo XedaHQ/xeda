@@ -19,6 +19,7 @@ from typing import ClassVar, Optional
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.design import SourceType
 from xeda.dataclass import Field
@@ -255,7 +256,7 @@ def test_a_flow_that_declares_a_platform_without_the_pin_is_refused_when_planned
         class _PlatformWithoutPin(Flow):
             """Declares `platform` and no pin."""
 
-            results_description: ClassVar[dict[str, str]] = {}
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
 
             class Settings(Flow.Settings):
                 platform: Optional[str] = Field(None, description="A platform.")
@@ -472,7 +473,7 @@ def test_a_launch_with_a_missing_store_stops_at_the_first_node(tmp_path):
             {"platform_file": "tiny.yaml", "pdk_root": tmp_path / "empty"},
         )
     maker = json.loads((tmp_path / "run" / "d" / "__asic_maker" / "results.json").read_text())
-    assert maker["success"] is False and maker["error"]["type"] == "PdkNotInstalled"
+    assert maker["success"] is False and maker["error"]["code"] == "reported_failure"
     taker = tmp_path / "run" / "d" / "__asic_taker"
     assert json.loads((taker / "results.json").read_text())["success"] is False
     assert not (taker / "trace.json").exists()

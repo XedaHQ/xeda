@@ -11,14 +11,11 @@ data and never touches the console, so other code can use it too:
 
 from __future__ import annotations
 
-import ast
 from copy import deepcopy
 import inspect
 import json
 import logging
 import os
-import re
-import textwrap
 from collections.abc import Mapping
 from enum import Enum, IntEnum
 from pathlib import Path
@@ -908,152 +905,30 @@ def settings_completion_info(flow: Union[str, Type[Flow]]) -> dict[str, dict[str
     return entries
 
 
-_NAMED_GROUP_RE = re.compile(r"\(\?P<([A-Za-z_]\w*)>")
-
-
-def _detected_result_keys(cls: Type[Flow]) -> List[str]:
-    """Return the result keys that the source of a flow shows it reports. Three signals give them:
-
-    1. Assignments to `self.results[...]` and `self.results.<key>`.
-    2. Named groups of the regexes passed to `parse_report_regex` and `parse_regex`, which is how
-       most flows fill the results.
-    3. Keys that the flow reads back with `self.results[...]` or `self.results.get(...)`.
-
-    The detection is static, so a key computed at run time (for example, the utilization of each
-    FPGA resource) is not listed. Keys that start with `_` are internal and excluded.
-    """
-    keys: List[str] = []
-    for klass in cls.__mro__:
-        if klass is object:
-            continue
-        try:
-            source = textwrap.dedent(inspect.getsource(klass))
-        except (OSError, TypeError):  # pragma: no cover (source not available)
-            continue
-        if "parse_regex" in source or "parse_report_regex" in source:
-            keys += _NAMED_GROUP_RE.findall(source)
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:  # pragma: no cover
-            continue
-        for node in ast.walk(tree):
-            # `self.results["key"]` anywhere (assigned, augmented or read back)
-            if isinstance(node, ast.Subscript):
-                value = node.value
-                if (
-                    isinstance(value, ast.Attribute)
-                    and value.attr == "results"
-                    and isinstance(node.slice, ast.Constant)
-                    and isinstance(node.slice.value, str)
-                ):
-                    keys.append(node.slice.value)
-            # `self.results.key = ...` (attribute assignment on the results box)
-            elif isinstance(node, (ast.Assign, ast.AugAssign)):
-                targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
-                for target in targets:
-                    if (
-                        isinstance(target, ast.Attribute)
-                        and isinstance(target.value, ast.Attribute)
-                        and target.value.attr == "results"
-                    ):
-                        keys.append(target.attr)
-            # `self.results.get("key")`
-            elif isinstance(node, ast.Call) and node.args:
-                func = node.func
-                if (
-                    isinstance(func, ast.Attribute)
-                    and func.attr == "get"
-                    and isinstance(func.value, ast.Attribute)
-                    and func.value.attr == "results"
-                    and isinstance(node.args[0], ast.Constant)
-                    and isinstance(node.args[0].value, str)
-                ):
-                    keys.append(node.args[0].value)
-    return sorted(unique([k for k in keys if not k.startswith("_")]))
-
-
-#: The result keys of every simulation flow that runs cocotb, added by `Cocotb.add_results`.
-COCOTB_RESULTS: Dict[str, str] = {
-    "cocotb.tests": "Number of cocotb tests that ran.",
-    "cocotb.errors": "Number of cocotb tests that errored.",
-    "cocotb.failures": "Number of cocotb tests that failed.",
-    "cocotb.skipped": "Number of cocotb tests that were skipped.",
-    "cocotb.time": "Wall-clock duration of the cocotb regression, in seconds.",
-    "cocotb.sim_time_ns": "Total simulated time of the cocotb regression, in nanoseconds.",
-}
-
-
 def results_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
-    """Return the result keys that a flow writes to `results.json`, with descriptions where
-    documented.
+    """Return the metrics that a flow can write to `results.json`.
 
-    A flow that declares `results_description` lists only its documented keys, plus the keys that
-    every flow reports. For a flow without that declaration, the keys are detected from its
-    source on a best-effort basis, and the `note` says so.
+    Each metric is `{path, description, type, unit}`. The keys that every flow reports (`success`,
+    `runtime`, ...) are no metrics and are not listed. `artifacts` is empty until a flow
+    describes the files it keeps.
     """
     cls = _resolve(flow)
-    documented: Dict[str, str] = dict(getattr(cls, "results_description", {}) or {})
-    if getattr(cls, "cocotb_sim_name", None):
-        documented = {**COCOTB_RESULTS, **documented}
-    # A flow counts as documented once it declares `results_description` itself. An empty dict
-    # counts: it states that the flow reports nothing beyond the common keys.
-    curated = bool(documented) or any(
-        "results_description" in klass.__dict__ for klass in cls.__mro__ if klass is not Flow
-    )
-    common = {
-        "success": "Whether the flow completed successfully. This decides the process exit status.",
-        "runtime": "Wall-clock duration of run() in fractional seconds.",
-        "tools": "Executables invoked by the flow, with their detected versions.",
-        "artifacts": "Files produced by the flow, by name.",
-        "design": "Name of the design that was run.",
-        "design_hash": "Hash of the parts of the design the flow reads (`design_parts`): its RTL, "
-        "and its testbench for a flow that reads it; for a flow that takes only some types of "
-        "source (`design_source_types`), the design's metadata and the sources of those types.",
-        "flow": "Canonical flow name.",
-        "flow_hash": "The run's identity: a hash of its settings and of where each declared "
-        "input comes from (a producer's identity and output, or the design's sources).",
-        "settings_hash": "Hash of the flow name and its input settings alone.",
-        "run_path": "Absolute path of the run directory holding reports/, outputs/ and checkpoints/.",
-        "timestamp": "Local time the run finished, as YYYY-MM-DD-HHMMSS.",
-    }
-    extra = [] if curated else [k for k in _detected_result_keys(cls) if k not in documented]
-    keys = [
+    metrics = [
         {
-            "name": key,
-            "description": common[key],
-            "common": True,
-            "documented": True,
+            "path": path,
+            "description": spec.description,
+            "type": spec.type,
+            "unit": spec.unit,
         }
-        for key in common
-    ] + [
-        {
-            "name": key,
-            "description": documented.get(key),
-            "common": False,
-            "documented": key in documented,
-        }
-        for key in list(documented) + extra
-        if key not in common
+        for path, spec in cls.results_description.items()
     ]
-    note = (
-        "Keys starting with '_' are internal detail and are omitted. Some keys are only present "
-        "when the relevant setting is enabled or the tool reports them. The authoritative record "
-        "of a run is always the results.json in its run directory."
-        if curated
-        else "This flow's results are not documented yet: the keys below were detected from its "
-        "source as a best effort and may be incomplete or over-inclusive. Read the results.json "
-        "of an actual run for the definitive list."
-    )
-    aliases = {
-        canonical: list(candidates)
-        for canonical, candidates in getattr(cls, "results_canonical_aliases", {}).items()
-    }
     return {
         "flow": cls.name,
-        "documented": curated,
-        "keys": keys,
-        "canonical_aliases": aliases,
-        "note": note,
+        "metrics": metrics,
+        "artifacts": [],
+        "note": "Some metrics are only present when the relevant setting is enabled or the tool "
+        "reports them. The authoritative record of a run is always the results.json in its run "
+        "directory.",
     }
 
 

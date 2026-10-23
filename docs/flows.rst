@@ -14,7 +14,7 @@ Discovering flows and their settings
     xeda list-flows                     # name, aliases, category, description, dependencies,
                                         # declared inputs/outputs, what can follow it in a chain
     xeda list-settings <flow>           # every setting: name, type, default, meaning
-    xeda list-results <flow>            # every key the flow writes to results.json
+    xeda list-results <flow>            # every metric the flow writes, with its type and unit
 
 ``list-flows`` reports a ``category`` that comes from the base class of the flow:
 
@@ -1396,7 +1396,7 @@ releases and refuses it too.
 
 The run fails when the loader exits with a nonzero status. It also fails when the log shows that
 the device was not programmed, because openFPGALoader 1.1.1 exits with status 0 after several
-failures. The error of the run (``ReportedFailure``) says what happened and quotes the lines of the
+failures. The error of the run (``reported_failure``) says what happened and quotes the lines of the
 log that show it. Xeda looks for these signs:
 
 * DONE stayed low after a load into a Xilinx FPGA. The loader prints a line such as ``ir: 1
@@ -2536,5 +2536,6 @@ models. Do not add setting names to the catalog by hand.
 The test suite enforces two things that a new flow owes its users:
 
 * a docstring of its own, which ``xeda list-flows`` shows
-* a ``description=`` on every settings field, and a ``results_description`` that describes the keys
-  the flow reports (or ``results_description = {}`` if it reports none)
+* a ``description=`` on every settings field, and a ``results_description`` that describes the metrics
+  the flow reports, each as a ``MetricSpec`` with a type and a unit (or ``results_description = {}``
+  if it reports none)

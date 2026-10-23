@@ -180,7 +180,7 @@ def report(
         )
 
 
-def adoptable_document(document: Any, verdict: str, error: Optional[Mapping[str, str]]) -> bool:
+def adoptable_document(document: Any, verdict: str, error: Optional[Mapping[str, Any]]) -> bool:
     """Return whether the `results.json` document `document` agrees with the trace of its run.
 
     `verdict` and `error` are those of the trace (`Trace.verdict`, `Trace.error`). The document
@@ -188,8 +188,8 @@ def adoptable_document(document: Any, verdict: str, error: Optional[Mapping[str,
 
     - The trace says `passed`, and the document is a mapping with `success` true.
     - The trace says `rejected`, and the document is a mapping with `success` false whose
-      `error` is a mapping equal to the `error` of the trace, which is a mapping with a text
-      `type` and a text `message`.
+      `error` is a mapping with the `code` and the `message` of the `error` of the trace, which
+      is a mapping with a text `code` and a text `message`.
 
     Any other combination is False: a document that is not a mapping, a `success` that is not
     a boolean, an unknown verdict, or a trace and a document that disagree (one was edited, or
@@ -206,9 +206,12 @@ def adoptable_document(document: Any, verdict: str, error: Optional[Mapping[str,
         return False
     if not isinstance(error, Mapping):
         return False
-    if not all(isinstance(error.get(key), str) for key in ("type", "message")):
+    if not all(isinstance(error.get(key), str) for key in ("code", "message")):
         return False
-    return document.get("error") == error
+    recorded = document.get("error")
+    return isinstance(recorded, Mapping) and all(
+        recorded.get(key) == error[key] for key in ("code", "message")
+    )
 
 
 def reuse_results(flow: Flow, results_json: Path, freshness: Freshness) -> bool:

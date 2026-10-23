@@ -12,6 +12,7 @@ from typing import ClassVar
 import pytest
 from box import Box
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.artifacts import filter_artifact_paths, iter_artifact_paths, map_artifact_paths
 from xeda.flow import Flow, registered_flows
@@ -112,7 +113,7 @@ def test_a_failed_run_reports_only_the_artifacts_that_exist(passes, tmp_path, ca
     class HalfWritten(Flow):
         """Record four outputs, write two of them, and succeed or fail as the test says."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             (self.run_path / "written.v").write_text("module m; endmodule\n")
@@ -268,7 +269,7 @@ def test_a_new_output_with_an_early_mtime_still_counts_as_written(tmp_path):
     class NewOutputEarlyMtime(Flow):
         """Write one output, then set its mtime long before this run could have started."""
 
-        results_description: ClassVar[dict] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             path = self.run_path / "fresh.bit"
@@ -308,7 +309,7 @@ def test_an_untouched_artifact_at_the_run_starts_own_tick_is_not_written(tmp_pat
     class SeesEarlierArtifact(Flow):
         """Declare an artifact an earlier run left, without ever touching the file."""
 
-        results_description: ClassVar[dict] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             self.artifacts.bitstream = "old.bit"
@@ -372,7 +373,7 @@ def test_a_directly_constructed_flow_does_not_reintroduce_the_stale_artifact_bug
     launched it."""
 
     class DirectlyConstructed(Flow):
-        results_description: ClassVar[dict] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             pass
@@ -404,7 +405,7 @@ def test_a_directly_constructed_flow_with_a_relative_run_path_is_still_sound(tmp
     monkeypatch.chdir(tmp_path)
 
     class DirectlyConstructedRelative(Flow):
-        results_description: ClassVar[dict] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             pass
@@ -449,7 +450,7 @@ def _failed_run_artifacts(tmp_path: Path, run_dir: Path, artifact: str, rewrite=
     class DeclaresAnOutput(Flow):
         """Declare one output, write it only if told to, and fail."""
 
-        results_description: ClassVar[dict] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             self.artifacts.output = artifact
@@ -535,7 +536,7 @@ def test_a_directory_the_snapshot_could_not_read_is_never_taken_for_empty(tmp_pa
     class NeverRuns(Flow):
         """Only constructed."""
 
-        results_description: ClassVar[dict] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             pass
@@ -644,7 +645,7 @@ def test_a_runs_artifacts_and_results_pickle(tmp_path):
     class ManyShapes(Flow):
         """Declare outputs in every shape."""
 
-        results_description: ClassVar[dict] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             for name in ("a.v", "b.v", "t.rpt"):

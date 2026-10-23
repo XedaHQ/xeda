@@ -12,6 +12,7 @@ from typing import ClassVar
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
 from xeda.flow_runner.bindings import node_identity
@@ -399,7 +400,7 @@ def _board_place():
     class _BoardPlace(FpgaSynthFlow):
         """A board-aware consumer of the same test synthesis producer."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Settings(WithFpgaBoardSettings):
             """A board-aware implementation's settings."""
@@ -458,7 +459,7 @@ def _board_edge():
         """Board-aware producer for shared database contracts."""
 
         Settings = WithFpgaBoardSettings
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Outputs(Flow.Outputs):
             made: Path = Out(SourceType.Data, description="The produced file.")
@@ -470,7 +471,7 @@ def _board_edge():
         """Board-aware consumer for shared database contracts."""
 
         Settings = WithFpgaBoardSettings
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             made: Path = In(SourceType.Data, producer="__board_maker", description="The file.")
@@ -490,7 +491,7 @@ def _device_relay():
     class _DeviceMaker(FpgaSynthFlow):
         """Makes the file the relay passes on; its device is its own."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Outputs(FpgaSynthFlow.Outputs):
             made: Path = Out(SourceType.JsonNetlist, description="The produced file.")
@@ -501,7 +502,7 @@ def _device_relay():
     class _DeviceRelay(Flow):
         """Passes the file on; it has no device."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             made: Path = In(
@@ -517,7 +518,7 @@ def _device_relay():
     class _DeviceTaker(FpgaSynthFlow):
         """Reads the relay's file, and needs a device."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(FpgaSynthFlow.Inputs):
             passed: Path = In(SourceType.Data, producer="__device_relay", description="The file.")
@@ -639,7 +640,7 @@ def test_optional_inputs_and_source_order(tmp_path):
     class _Optional(Flow):
         """Optional files and an ordered required collection."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             absent: Path | None = In(SourceType.JsonNetlist, description="Optional netlist.")
@@ -678,7 +679,7 @@ def test_invalid_producer_output_contracts_fail_at_plan_time(
     class _UnsafeMaker(Flow):
         """A producer whose outputs are checked for cardinality and full type coverage."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Outputs(Flow.Outputs):
             made: list[Path] if many else Path = Out(
@@ -691,7 +692,7 @@ def test_invalid_producer_output_contracts_fail_at_plan_time(
     class _UnsafeTaker(Flow):
         """Consumes Data only."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             data: Path = In(
@@ -715,7 +716,7 @@ def test_aliases_resolve_to_canonical_producers(tmp_path):
     class _AliasTaker(Flow):
         """Consumes a producer addressed by its class name alias."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             data: Path = In(SourceType.Data, producer="_Maker", description="The produced data.")
@@ -736,7 +737,7 @@ def test_a_cycle_is_reported_by_one_finite_walk(tmp_path):
     class _CycleA(Flow):
         """First node of a declaration cycle."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             data: Path = In(SourceType.Data, producer="__cycle_b", description="B's data.")
@@ -750,7 +751,7 @@ def test_a_cycle_is_reported_by_one_finite_walk(tmp_path):
     class _CycleB(Flow):
         """Second node of a declaration cycle."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             data: Path = In(SourceType.Data, producer="__cycle_a", description="A's data.")
@@ -774,7 +775,7 @@ def test_two_inputs_share_one_producer_and_union_enables(tmp_path):
     class _TwoOutputs(Flow):
         """Two optional outputs controlled by independent flags."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Settings(Flow.Settings):
             first: bool = Field(False, description="Enable the first output.")
@@ -790,7 +791,7 @@ def test_two_inputs_share_one_producer_and_union_enables(tmp_path):
     class _TwoInputs(Flow):
         """Two inputs from one configured producer."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             a: Path = In(
@@ -873,7 +874,7 @@ def test_working_path_escape_is_rejected_and_deliveries_keep_hash_rules(tmp_path
     class _LocatedOutput(Flow):
         """A declared output with existing working/delivery roles."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Settings(Flow.Settings):
             scratch: Path = Field(
@@ -1034,7 +1035,7 @@ def _asic_taker():
     class _AsicTaker(AsicPlatformFlow, Flow):
         """Reads yosys's gate-level netlist for one platform, as a place and route would."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Settings(AsicPlatformSettings):
             pass

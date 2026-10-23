@@ -190,17 +190,36 @@ def test_list_settings_no_common_excludes_shared_settings():
     assert {f["name"] for f in info["fields"]}
 
 
-def test_list_results_reports_common_and_flow_specific_keys():
+def test_list_results_lists_each_metric_with_a_type_and_a_unit():
     info = json.loads(run_xeda("list-results", "vivado_synth", "--json").stdout)
-    names = {k["name"] for k in info["keys"]}
-    assert {"success", "runtime", "run_path"} <= names
-    assert "Fmax" in names
+    assert set(info) == {"flow", "metrics", "artifacts", "note"}
+    metrics = {m["path"]: m for m in info["metrics"]}
+    assert all(set(m) == {"path", "description", "type", "unit"} for m in metrics.values())
+    assert (metrics["Fmax"]["type"], metrics["Fmax"]["unit"]) == ("number", "MHz")
+    assert metrics["lut"]["type"] == "integer" and metrics["lut"]["unit"] is None
+    # the keys that every flow reports are no metrics
+    assert not {"success", "runtime", "run_path"} & set(metrics)
 
 
-def test_list_results_of_a_cocotb_sim_flow_documents_cocotb_keys():
+def test_list_results_of_a_cocotb_sim_flow_documents_cocotb_metrics():
     info = json.loads(run_xeda("list-results", "nvc", "--json").stdout)
-    documented = {k["name"]: k for k in info["keys"]}
+    documented = {m["path"]: m for m in info["metrics"]}
     assert documented["cocotb.tests"]["description"]
+    assert (documented["cocotb.sim_time_ns"]["type"], documented["cocotb.sim_time_ns"]["unit"]) == (
+        "number",
+        "ns",
+    )
+
+
+def test_list_results_table_has_a_column_for_the_type_and_one_for_the_unit():
+    out = run_xeda("list-results", "vivado_synth").stdout
+    header = next(line for line in out.splitlines() if "Path" in line)
+    assert [cell.strip() for cell in header.strip("┃").split("┃")] == [
+        "Path",
+        "Type",
+        "Unit",
+        "Description",
+    ]
 
 
 def test_design_schema_is_a_usable_json_schema():

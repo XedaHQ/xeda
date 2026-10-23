@@ -63,15 +63,16 @@ def materialize_builds(monkeypatch):
         if Path(executable).name == "vivado" and "-source" in words:
             script = Path(words[words.index("-source") + 1])
             if script.name != "vivado_sim.tcl":
-                for command in fake_calls(Path.cwd(), elements=True):
+                run_path = tool.working_directory()
+                for command in fake_calls(run_path, elements=True):
                     if command[0] in ("write_verilog", "write_sdf", "write_checkpoint"):
-                        path = Path(command[-1])
+                        path = run_path / command[-1]
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_text("module top(input a, output y); assign y=~a; endmodule\n")
                     if command[0] == "report_power" and not os.environ.get(
                         "XEDA_FAKE_POWER_NO_OUTPUT"
                     ):
-                        path = Path(command[command.index("-file") + 1])
+                        path = run_path / command[command.index("-file") + 1]
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_text(
                             '<report><section title="Summary"><table><tablerow><tablecell contents="Total On-Chip Power (W)"/><tablecell contents="0.5"/></tablerow></table></section></report>'
@@ -153,18 +154,34 @@ def test_the_vcd_starts_before_the_prerun_and_the_saif_after_it(tmp_path, monkey
     assert prerun < commands.index("open_saif") < commands.index("log_saif")
 
 
-@pytest.mark.parametrize("command", ["xvlog", "xelab", "xsim", "run", "close_vcd", "close_saif"])
-def test_vivado_script_errors_override_finish(tmp_path, monkeypatch, command):
+@pytest.mark.parametrize(
+    "settings, flag", [({}, None), ({"quiet": True}, None), ({"verbose": 1}, "-verbose")]
+)
+def test_quiet_does_not_make_log_vcd_ignore_its_errors(tmp_path, monkeypatch, settings, flag):
+    """Vivado's `-quiet` makes a command ignore its errors, and `quiet` only asks for less text."""
+    flow = launch(tmp_path, monkeypatch, "clock", {"vcd": True, "stop_time": "20ns", **settings})
+    assert flow.succeeded
+    (call,) = [call for call in fake_calls(flow.run_path) if call[0] == "log_vcd"]
+    assert call[1:] == ([flag] if flag else [])
+
+
+@pytest.mark.parametrize("quiet", [False, True])
+@pytest.mark.parametrize(
+    "command", ["xvlog", "xelab", "xsim", "run", "log_vcd", "close_vcd", "close_saif"]
+)
+def test_vivado_script_errors_override_finish(tmp_path, monkeypatch, command, quiet):
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", command)
-    flow = launch(tmp_path, monkeypatch, "finish5", {"vcd": True, "saif": "activity.saif"})
+    flow = launch(
+        tmp_path, monkeypatch, "finish5", {"vcd": True, "saif": "activity.saif", "quiet": quiet}
+    )
     assert not flow.succeeded
-    assert flow.results["error"]["type"] == "NonZeroExitCode"
+    assert flow.results["error"]["code"] == "nonzero_exit"
 
 
 def test_vivado_timeout_is_applied_to_combined_process(tmp_path, monkeypatch):
     flow = launch(tmp_path, monkeypatch, "timeout", {"timeout": 2.0})
     assert not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
 
 
 @pytest.mark.parametrize("state", ["silent", "error", "fatal"])
@@ -176,10 +193,7 @@ def test_vivado_power_activity_failure_prevents_power_report(tmp_path, monkeypat
     with pytest.raises(FlowDependencyFailure):
         launch(tmp_path, monkeypatch, state, flow_class=VivadoPower)
     run_path = tmp_path / "run" / "sim" / "vivado_power"
-    assert (
-        json.loads((run_path / "results.json").read_text())["error"]["type"]
-        == "FlowDependencyFailure"
-    )
+    assert json.loads((run_path / "results.json").read_text())["error"]["code"] == "producer_failed"
     assert not (run_path / "vivado_power.tcl").exists()
 
 
@@ -200,7 +214,7 @@ def test_vivado_power_reports_after_fresh_and_reused_producer_evidence(
     producers = {"timeout": 10.0, **settings}
     flow = launch(tmp_path, monkeypatch, state, producers=producers, flow_class=VivadoPower)
     assert flow.succeeded
-    assert flow.results["Total On-Chip Power (W)"] == "0.5"
+    assert flow.results["Total On-Chip Power (W)"] == 0.5
     assert not any(key.startswith("sim.") for key in flow.results)
     assert not (flow.run_path / "xsim_runtime.log").exists()
     simulation = flow.run_path.parent / "vivado_postsynth_sim"
@@ -286,7 +300,7 @@ def test_vivado_malformed_or_contradictory_checkpoint_fails(tmp_path, monkeypatc
 
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
-        path = Path.cwd() / "xsim_runtime.log"
+        path = tool.working_directory() / "xsim_runtime.log"
         if path.is_file():
             path.write_text(
                 path.read_text().replace("XEDA_XSIM_CHECKPOINT=main|5000000 fs|1 ps", replacement)
@@ -327,7 +341,7 @@ def test_vivado_power_propagates_failing_simulation_controls(
     if state == "warning":
         assert result["sim.warnings"] == 1
     else:
-        assert result["error"]["type"] == "ProcessTimeout"
+        assert result["error"]["code"] == "timeout"
 
 
 @pytest.mark.parametrize("quantity", ["10", "10 ns", "1e1ns", "0ns"])

@@ -49,7 +49,9 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
 A run directory is `<run root>/<design>[/<target>]/<flow>[_<run hash>]` (the hash only with
 `--hashed-run-dirs`; run root `./xeda_run/`). A dependency's run directory is a sibling, never
 nested. Launch and `xeda scrub` share one rule, `run_dir.run_directory_problem`
-(`tests/test_run_directory_rule.py`). User-facing rules: `docs/run-directories.rst`.
+(`tests/test_run_directory_rule.py`). No symbolic link lies between the run root and a run
+directory (design, target, mirror `@host`): `run_dir.link_on_way` (`tests/test_run_root_links.py`).
+User-facing rules: `docs/run-directories.rst`.
 
 ## Architecture
 
@@ -84,10 +86,12 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   `check_settings_supported` / `check_design_supported` (call `super()`), never in `init()`,
   `prepare_inputs()` or a constructor (`tests/test_refusals_at_planning.py`).
 - Read every report or log through `Flow.report_file(path)`, which ignores a file this run did
-  not write (`tests/test_stale_reports.py`).
-- A failure after a run starts leaves `results.json` with `success: false`, `error.type` and
-  `error.message` (`tests/test_failure_results.py`). `ReportedFailure` is a node's cause;
-  `FlowFailed` is the verdict of `xeda run --json`. Only a rejection (`Flow.reject` in
+  not write (`tests/test_stale_reports.py`). Pass `optional=True` for a read whose lack fails
+  nothing: only a lack that can fail the run is `missing_report`.
+- A failure after a run starts leaves `results.json` with `success: false`, `error.code` and
+  `error.message` (`tests/test_failure_results.py`). The code is stable and never a class name
+  (`flow_runner/error_codes.py`, `tests/test_public_errors.py`); `reported_failure` is a node's
+  cause, `FlowFailed` the verdict of `xeda run --json`. Only a rejection (`Flow.reject` in
   `check_results()`; `parse_reports()` only reads, `tests/test_verdict_placement.py`) keeps
   the trace and is reported again unchanged; every other failure keeps none.
 - `Flow.always_runs()` returns a reason or `None`; every override calls `super()`. A simulation
@@ -133,7 +137,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   header; state the `.odb` stores has one owner (`openroad_place`); the header re-applies the rest
   (`tests/test_openroad_templates.py`).
 - Each flow needs its own docstring, a `results_description` from `describe_results(...)` (`{}`
-  if none) and `description=` on every settings field (`tests/test_documentation.py`).
+  if none), each entry a `MetricSpec` with a type, and a unit when it is a physical quantity, and
+  `description=` on every settings field (`tests/test_documentation.py`).
 - `Flow.executables` lists every program the flow may start, helpers included; `xeda remote check`
   reads it (`tests/test_flow_executables.py` scans `Tool(...)` and `.derive(...)` calls).
 - A flow that reads design sources declares `reads_sources` and iterates `sources_read()`
@@ -193,6 +198,12 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 ### Writes, caching and isolation
 
 - Runs are make-like; hashes are semantic and location-free; writes are judged by file identity.
+- Code digests (`flow_runner/code_digest.py`) list and check every file at each launch, by the
+  trace's record rule (`digest.record_file`), with names relative to the code root
+  (`tests/test_code_digest.py`); a flow class without a source file
+  always runs, through `Flow.always_runs`, and gets no digest.
+- Add no `os.chdir` and start every process with `cwd=`; the reviewed exceptions are listed in
+  `tests/test_working_directory_reads.py`.
 - Every write in a run directory goes through `RunDirectory` (`xeda/run_dir.py`):
   `writable(path)`, then `utils.replacing_file` / `replacing_copy`; delete with `remove`,
   `clear`, `delete`. Tool logs go through `utils.live_log` only. Never write, delete or follow
@@ -212,6 +223,9 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - User text reaches a script only through a filter, never raw or through `eval`: Tcl `tcl_word`,
   `tcl_quote`, `tcl_list`; yosys `read_path`, `path`, `verbatim_path` (`tests/test_tcl_paths.py`,
   `tests/test_yosys_templates.py`).
+- On POSIX, `run_process` starts every tool as the leader of its own session, so a stop (Ctrl-C,
+  SIGTERM, SIGHUP, a time limit) ends its whole group; start every tool through it
+  (`tests/test_proc_utils.py`).
 - Create a `Tool` inside a flow method (it finds its flow); query its version only with
   `Tool.probe_stdout`, which runs outside the run directory.
 - Fake tools: `tool_utils.use_fake_tools(monkeypatch)` runs Tcl scripts under `tclsh` and
@@ -222,6 +236,10 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - `--json` puts exactly one JSON document on stdout; tool output goes to stderr, so a process
   started outside `run_process` must honor `proc_utils.tool_output_redirect()`. Every failure,
   usage errors too, emits `{"success": false, "error": ...}` (`tests/test_cli_json_contract.py`).
+- The library never prompts: an unanswered question answers "no". Only `cli.py` asks, through a
+  callback it passes (`confirm_overwrite`, `confirm_scrub` / `scrub_design(confirm=)`);
+  `--remote --scrub` is refused at planning (`tests/test_remote_client.py`). A prompt call
+  elsewhere in `src/xeda` fails `tests/test_scrub_no_prompt.py`.
 - CLI: two parameters never share a destination; commands use `XedaCommand`
   (`tests/test_hidden_options.py`); options read only declared environment variables; a behavior
   switch is a flag (`tests/test_option_names.py`). Compare help text via `click.unstyle(...)`.

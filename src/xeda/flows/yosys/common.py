@@ -603,7 +603,7 @@ class YosysBase(Flow):
             return text
         # Xeda renders the scripts and yosys runs in the run directory, so relative paths and
         # the alias are relative to it.
-        target = Path(text).absolute()
+        target = self.run_file(text)
         if target.exists():
             return self._path_alias(target)
         if _NOT_A_YS_TOKEN.search(target.name):
@@ -622,11 +622,12 @@ class YosysBase(Flow):
         keeps its extension (the ghdl plugin, for one, decides by it what a file is).
         """
         digest = hashlib.sha256(str(target).encode()).hexdigest()[:12]
-        alias = Path(PATH_ALIASES_DIR) / digest / _NOT_A_YS_TOKEN.sub("_", target.name)
+        name = Path(PATH_ALIASES_DIR) / digest / _NOT_A_YS_TOKEN.sub("_", target.name)
+        alias = self.run_file(name)
         alias.parent.mkdir(parents=True, exist_ok=True)
         if alias.is_symlink():
             if os.readlink(alias) == str(target):
-                return alias.as_posix()
+                return name.as_posix()
             self.run_directory.remove(alias)
         try:
             alias.symlink_to(target, target_is_directory=target.is_dir())
@@ -635,7 +636,7 @@ class YosysBase(Flow):
                 f"A yosys script cannot name {str(target)!r}, which contains whitespace, and "
                 f"creating a whitespace-free link to it failed: {e}"
             ) from e
-        return alias.as_posix()
+        return name.as_posix()
 
     def ghdl_arg(self, arg: str) -> str:
         """Return an argument of the ghdl plugin as a `.ys` token.

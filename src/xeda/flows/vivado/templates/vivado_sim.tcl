@@ -43,13 +43,15 @@ if { [catch {xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} -onfinish st
 {#- `log_vcd` runs before the pre-run, so the VCD records from time 0. `open_saif` and `log_saif`
     run after it, so the SAIF excludes the pre-run and its duration does not count it. Verified
     with Vivado 2024.2. #}
+{#- `-quiet` makes `log_vcd` ignore its errors, so the setting `quiet` never adds it:
+    a VCD that cannot be logged must fail the run. #}
 
 {%- if settings.vcd %}
 puts "\n===========================( Setting up VCD )==========================="
 open_vcd {{settings.vcd|tcl_word}}
 ## Vivado crashes (tested on 2020.1) when using * and shared or protected variables are present
 ## log_vcd [get_objects -r -filter { type == variable || type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } /*]
-log_vcd {%- if settings.is_quiet %} -quiet {%- elif settings.verbose %} -verbose {%- endif %} {%- if settings.vcd_level %} -level {{settings.vcd_level}} {%- endif %} {%- if settings.vcd_scope %} {{settings.vcd_scope|tcl_word}} {%- endif %}
+log_vcd {%- if settings.verbose %} -verbose {%- endif %} {%- if settings.vcd_level %} -level {{settings.vcd_level}} {%- endif %} {%- if settings.vcd_scope %} {{settings.vcd_scope|tcl_word}} {%- endif %}
 {%- endif %}
 {%- if settings.debug_traces %}
 ltrace on

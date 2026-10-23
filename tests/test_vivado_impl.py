@@ -91,7 +91,6 @@ NETLIST = (
 def toolchain(tmp_path, monkeypatch) -> Path:
     """The fake FPGA tools first on `PATH`, with the fake Vivado behind them."""
     prefix = use_fake_fpga_tools(monkeypatch, tmp_path / "toolchain")
-    monkeypatch.chdir(tmp_path)
     return prefix
 
 
@@ -473,7 +472,8 @@ def _stopped_before_vivado(run_path: Path, raised) -> str:
     assert fake_calls(run_path) == [], "Vivado was started"
     document = json.loads((run_path / "results.json").read_text())
     assert document["success"] is False
-    assert document["error"] == {"type": "FlowFatalError", "message": message}
+    assert document["error"]["code"] == "reported_failure"
+    assert document["error"]["message"] == message
     return message
 
 
@@ -517,7 +517,6 @@ def test_a_hierarchy_the_settings_do_not_show_stops_the_chain_before_vivado_star
     finds the hierarchy."""
     require_yosys()
     use_fake_tools(monkeypatch)
-    monkeypatch.chdir(tmp_path)
     source, attributes = BLINKY_OVER_A_COUNTER, None
     if kept_by == "rtl_attributes":  # a bare name selects a module in yosys; the instance is `c:`
         source = source.replace("(* keep_hierarchy *)\n", "")
@@ -711,7 +710,7 @@ def test_timing_that_is_not_met_fails_the_flow_unless_it_is_allowed(
 
 
 def test_the_results_are_those_of_vivado_synth_but_for_the_projects_status() -> None:
-    kept = {key: text for key, text in VivadoSynth.results_description.items() if key != "status"}
+    kept = {key: spec for key, spec in VivadoSynth.results_description.items() if key != "status"}
     assert VivadoImpl.results_description == kept
     for key in ("Fmax", "wns", "whs", "lut", "ff", "dsp", "bram_RAMB36"):
         assert key in VivadoImpl.results_description

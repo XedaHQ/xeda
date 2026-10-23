@@ -125,7 +125,7 @@ def test_cache_failure_after_success_records_preparation_cause(tmp_path, generat
     with pytest.raises(FlowFatalError, match="generator"):
         _launch_cache(tmp_path, generation)
     recorded = json.loads((first.run_path / "results.json").read_text())
-    assert recorded["success"] is False and recorded["error"]["type"] == "FlowFatalError"
+    assert recorded["success"] is False and recorded["error"]["code"] == "reported_failure"
     assert (
         "generator" in recorded["error"]["message"]
         and "nextpnr failure" not in recorded["error"]["message"]
@@ -241,14 +241,14 @@ def test_nextpnr_accepts_validated_explicit_chipdb_without_generation(
 
 
 def test_scrubbing_flow_directories_preserves_shared_chipdb(tmp_path, generation, monkeypatch):
-    from xeda.console import console
-
     first = _launch_cache(tmp_path, generation)
     chipdb = Path(first.results["chipdb"])
     before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in chipdb.parent.iterdir()}
-    monkeypatch.setattr(console, "input", lambda *args, **kwargs: "yes")
     assert default_runner.scrub_runs(
-        first.name, first.run_path.parent, run_root=generation[1].run_root
+        first.name,
+        first.run_path.parent,
+        run_root=generation[1].run_root,
+        confirm=lambda directories: True,
     )
     assert not first.run_path.exists()
     assert before == {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}

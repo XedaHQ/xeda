@@ -28,7 +28,6 @@ PART_JSON = '{"idcode": "0x3651093"}\n'
 @pytest.fixture
 def toolchain(tmp_path, monkeypatch):
     prefix = tool_utils.use_fake_fpga_tools(monkeypatch, tmp_path / "toolchain")
-    monkeypatch.chdir(tmp_path)
     return prefix
 
 
@@ -243,7 +242,7 @@ def test_a_part_without_data_fails_before_any_tool_runs_and_the_failure_is_recor
     assert _tools(tmp_path) == []
     results = json.loads((tmp_path / "run/top/fpga_pack/results.json").read_text())
     assert results["success"] is False
-    assert results["error"]["type"] == "FlowFatalError"
+    assert results["error"]["code"] == "reported_failure"
     assert f"no part data for {A100T}" in results["error"]["message"]
     assert not (tmp_path / "run/top/yosys_fpga").exists()
 

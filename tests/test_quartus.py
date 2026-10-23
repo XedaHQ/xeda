@@ -130,6 +130,24 @@ def test_quartus_records_bitstream_as_artifact(tmp_path, monkeypatch) -> None:
     assert flow.artifacts.bitstream == f"{design.name}.sof"
 
 
+def test_quartus_reads_the_timing_reports_through_the_run_directory(tmp_path, monkeypatch) -> None:
+    """The process does not work in the run directory: the Fmax reports of the Timing Analyzer
+    are found there, whatever the working directory is."""
+    use_fake_tools(monkeypatch)
+    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock=dict(period="6 ns"))
+    flow = DefaultRunner(tmp_path / "run").run_flow(Quartus, design, settings)
+    assert flow is not None and flow.succeeded
+    model = flow.run_path / flow.settings.reports_dir / "Timing_Analyzer" / "Slow_1100mV_85C_Model"
+    model.mkdir()
+    rows = "".join(f"250.0 MHz,250.0 MHz,{clock},\n" for clock in flow.settings.clocks)
+    (model / "Slow_1100mV_85C_Model_Fmax_Summary.csv").write_text(
+        "Fmax,Restricted Fmax,Clock Name,Note\n" + rows
+    )
+    assert flow.parse_reports()
+    assert flow.results["Fmax"] == 250.0
+
+
 def _quartus_processes(tmp_path, monkeypatch, **settings) -> list:
     """The processes a launch of `quartus` starts, as (program, arguments): every start is
     recorded and none is made, so what is judged is where the flow sends its tool."""

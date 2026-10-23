@@ -10,6 +10,7 @@ from pydantic import Field
 import pytest
 from click.testing import CliRunner
 
+from xeda.flow import MetricSpec
 from xeda.cli import cli
 from xeda.design import SourceType
 from xeda.flow import Flow, FlowFatalError, In, Out, registered_flows
@@ -22,7 +23,7 @@ def toys():
     class ToyNodeProducer(Flow):
         """Writes an output."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Settings(Flow.Settings):
             reject: bool = Field(False, description="Reject the results in the checks.")
@@ -42,7 +43,7 @@ def toys():
     class ToyNodeFailing(Flow):
         """Reads the producer's file, then fails."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             out: Path = In(
@@ -58,7 +59,7 @@ def toys():
     class ToyNodeTwice(Flow):
         """Reads the producer's file through two inputs."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             first: Path = In(

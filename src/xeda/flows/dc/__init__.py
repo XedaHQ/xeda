@@ -9,7 +9,14 @@ from box import Box
 
 from ...dataclass import WORKING, Field, field_validator
 from ...design import SourceType
-from ...flow import AsicSynthFlow, Flow, FlowSettingsError, NoReplacement, describe_results
+from ...flow import (
+    AsicSynthFlow,
+    Flow,
+    FlowSettingsError,
+    MetricSpec,
+    NoReplacement,
+    describe_results,
+)
 from ...tool import Tool
 from ...utils import try_convert, try_convert_to_primitives
 
@@ -72,20 +79,34 @@ class Dc(AsicSynthFlow):
         "area_cell_total",
         "area_total",
         "area_core",
-        **{
-            "area": "Area breakdown from the QoR report, as a mapping of the report's own labels "
-            "to values.",
-            "drc": "Non-zero design-rule violation counts from the QoR report, by rule.",
-            "path_groups": "Per-timing-path-group QoR figures, keyed by path group name.",
-            "num_ports": "Number of ports in the mapped design.",
-            "num_nets": "Number of nets in the mapped design.",
-            "num_cells": "Total number of cells in the mapped design.",
-            "num_cells_combinational": "Number of combinational cells in the mapped design.",
-            "num_cells_sequential": "Number of sequential cells in the mapped design.",
-            "num_cells_sequentual": "Deprecated misspelling of `num_cells_sequential`, still "
-            "reported so existing scripts keep working.",
-            "num_macro_bbox": "Number of macros / black boxes in the mapped design.",
-        },
+        area=MetricSpec(
+            "Area breakdown from the QoR report, as a mapping of the report's own labels to "
+            "values.",
+            "object",
+        ),
+        drc=MetricSpec(
+            "Non-zero design-rule violation counts from the QoR report, by rule.", "counts"
+        ),
+        path_groups=MetricSpec(
+            "Per-timing-path-group QoR figures, keyed by path group name.", "object"
+        ),
+        num_ports=MetricSpec("Number of ports in the mapped design.", "integer"),
+        num_nets=MetricSpec("Number of nets in the mapped design.", "integer"),
+        num_cells=MetricSpec("Total number of cells in the mapped design.", "integer"),
+        num_cells_combinational=MetricSpec(
+            "Number of combinational cells in the mapped design.", "integer"
+        ),
+        num_cells_sequential=MetricSpec(
+            "Number of sequential cells in the mapped design.", "integer"
+        ),
+        num_cells_sequentual=MetricSpec(
+            "Deprecated misspelling of `num_cells_sequential`, still reported so existing "
+            "scripts keep working.",
+            "integer",
+        ),
+        num_macro_bbox=MetricSpec(
+            "Number of macros / black boxes in the mapped design.", "integer"
+        ),
     )
 
     reads_sources = frozenset(
@@ -381,7 +402,8 @@ class Dc(AsicSynthFlow):
             r"^\s*clock\s*(?P<clock_name>\w+)\s+\(\w+ edge\)\s+(?P<clock_time>\d+\.\d+)\s+(?P<clock_period>\d+\.\d+)\s*$"
         )
         max_report_path = self.settings.reports_dir / "mapped.timing.max.rpt"
-        max_report = self.report_file(max_report_path)  # only a report that this run wrote
+        # only a report that this run wrote
+        max_report = self.report_file(max_report_path, optional=True)
         if max_report is not None:
             with open(max_report) as f:
                 for line in f.readlines():
@@ -416,7 +438,8 @@ class Dc(AsicSynthFlow):
                 max_report_path,
             )
         min_report_path = self.settings.reports_dir / "mapped.timing.min.rpt"
-        min_report = self.report_file(min_report_path)  # only a report that this run wrote
+        # only a report that this run wrote
+        min_report = self.report_file(min_report_path, optional=True)
         if min_report is not None:
             with open(min_report) as f:
                 for line in f.readlines():
@@ -473,6 +496,7 @@ class Dc(AsicSynthFlow):
             r"Aspect Ratio:\s*(?P<aspect_ratio>\d+(?:\.\d+)?)",
             r"Utilization Ratio:\s*(?P<utilization_ratio>\d+(?:\.\d+)?)",
             dotall=False,
+            optional=True,
         )
 
         reportfile_path = reports_dir / "mapped.qor.rpt"
@@ -499,9 +523,6 @@ class Dc(AsicSynthFlow):
         hold_wns_re = re.compile(
             r"^\s*Design\s+\(Hold\)\s+WNS:\s+(?P<wns>\d+\.\d+)\s+TNS:\s+(?P<tns>\d+\.\d+)\s+Number of Violating Paths:\s*(?P<nvp>\d+)"
         )
-
-        # Reserve the key's place in the order of the results.
-        self.results["path_groups"] = None
 
         qor_report = self.report_file(reportfile_path)  # only a report that this run wrote
         if qor_report is None:

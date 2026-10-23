@@ -1,7 +1,8 @@
 name: Bump CI tool pins
 
-# CI pins the tools that it installs: the OSS CAD Suite and the Bluespec Compiler (bsc) in ci.yml,
-# the openXC7 toolchain installer in openxc7.yml, and the OpenROAD-flow-scripts Docker image, bsc
+# CI pins the tools that it installs: the OSS CAD Suite, NVC (the `version` of the setup-nvc step)
+# and the Bluespec Compiler (bsc) in ci.yml, the openXC7 toolchain installer in openxc7.yml, and
+# the OpenROAD-flow-scripts Docker image, bsc
 # again (the Ubuntu 22.04 tarball that fits the image) and uv (the `version` of the setup-uv step,
 # which installs Python for that job) in openroad.yml. One bsc release moves both bsc pins. Every
 # Monday this workflow looks for newer versions (.github/scripts/bump_ci_pins.py). When it finds

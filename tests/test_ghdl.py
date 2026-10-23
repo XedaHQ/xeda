@@ -358,7 +358,7 @@ def test_ghdl_time_limit_retains_runtime_diagnostics(tmp_path):
     )
     assert flow is not None and not flow.succeeded
     saved = json.loads((flow.run_path / "results.json").read_text())
-    assert saved["error"]["type"] == "ProcessTimeout"
+    assert saved["error"]["code"] == "timeout"
     assert "0.5" in saved["error"]["message"]
     assert "BEFORE_TIMEOUT" in (flow.run_path / "sim.log").read_text()
 
@@ -381,7 +381,7 @@ def test_ghdl_drained_queue_says_what_to_do_in_results_json(tmp_path):
     )
     assert flow is not None and not flow.succeeded
     error = json.loads((flow.run_path / "results.json").read_text())["error"]
-    assert error["type"] == "ReportedFailure"
+    assert error["code"] == "rejected"
     message = error["message"]
     assert message.startswith("`ghdl_sim` reported failure: ")
     assert "event queue" in message and "std.env.finish" in message and "stop_time" in message
@@ -402,7 +402,7 @@ def test_ghdl_cocotb_time_limit(tmp_path):
         GhdlSim, design, {"timeout": 3}
     )
     assert flow is not None and not flow.succeeded
-    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert flow.results["error"]["code"] == "timeout"
     assert not (flow.run_path / "sim.log").exists()
 
 
@@ -430,7 +430,14 @@ def test_ghdl_evidence_uses_runtime_only_and_copies_flags(tmp_path, monkeypatch,
         if args[0] == "run":
             assert self.redirect_stdout is None
         text = "" if args[0] == "run" else "simulation finished @5ns\n"
-        return run_process(sys.executable, ["-c", f"print({text!r})"], tee=kwargs.get("tee"))
+        here = self.working_directory()
+        tee = kwargs.get("tee")
+        return run_process(
+            sys.executable,
+            ["-c", f"print({text!r})"],
+            tee=None if tee is None else here / tee,
+            cwd=here,
+        )
 
     monkeypatch.setattr(GhdlTool, "run", run)
     monkeypatch.setattr(

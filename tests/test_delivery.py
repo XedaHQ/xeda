@@ -18,6 +18,7 @@ from click.testing import CliRunner
 
 import xeda.deliver as deliver
 import xeda.digest as digest
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cli import cli
 from xeda.dataclass import Field, deliverable
@@ -80,7 +81,7 @@ def test_declared_output_collision_is_refused_before_rebuilding(tmp_path, monkey
 class _Deliverer(Flow):
     """Writes the netlist its setting names, and reports it."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         netlist: Optional[Path] = Field(
@@ -105,14 +106,14 @@ class _Deliverer(Flow):
         RUNS.append(self.name)
         assert self.settings.netlist is not None
         netlist = Path(self.settings.netlist)
-        netlist.parent.mkdir(parents=True, exist_ok=True)
-        netlist.write_text(self.settings.text)
+        self.run_file(netlist).parent.mkdir(parents=True, exist_ok=True)
+        self.run_file(netlist).write_text(self.settings.text)
         self.artifacts["netlist"] = str(netlist)
         self.outputs.netlist = netlist
         if self.settings.report is not None:
             report = Path(self.settings.report)
-            report.parent.mkdir(parents=True, exist_ok=True)
-            report.write_text(self.settings.text)
+            self.run_file(report).parent.mkdir(parents=True, exist_ok=True)
+            self.run_file(report).write_text(self.settings.text)
             self.artifacts["report"] = str(report)
         for action in DURING_RUN:
             action()
@@ -130,7 +131,7 @@ class _Deliverer(Flow):
 class _Wrapper(Flow):
     """Reads the deliverer's netlist: the deliverer is its producer."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         reads: Optional[Path] = Field(None, description="A file it reads: an input.")
@@ -1700,7 +1701,8 @@ def test_a_producer_whose_run_wrote_no_named_output_is_a_failed_producer(world):
     as it does of any failed producer, naming its results.json."""
     DURING_RUN.append(lambda: next(world.root.rglob("outputs/d.rpt")).unlink())
     with pytest.raises(
-        FlowDependencyFailure, match=r"producer __deliverer failed: .*results.json"
+        FlowDependencyFailure,
+        match=r"producer __deliverer failed \(missing_output\): .*results.json",
     ) as failed:
         _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v", "report": "$PWD/r.rpt"})
     cause = failed.value.__cause__

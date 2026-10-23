@@ -33,7 +33,6 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import Yosys, YosysFpga
 from xeda.flows import yosys as yosys_flows
 from xeda.flows.yosys.asic_groups import AbcGroup
-from xeda.utils import WorkingDirectory
 from xeda.tool import ExecutableNotFound
 
 from .flow_registry import preserved_flow_registry
@@ -601,9 +600,8 @@ def test_init_and_prepare_inputs_write_nothing(tmp_path):
     run = tmp_path / "run"
     run.mkdir()
     flow = Yosys(tiny_settings(tiny_store(tmp_path)), design, run)
-    with WorkingDirectory(run):
-        flow.init()
-        flow.prepare_inputs()
+    flow.init()
+    flow.prepare_inputs()
     assert list(run.iterdir()) == []
 
 
@@ -631,8 +629,7 @@ def test_init_registers_the_abc_script_file_and_no_other_prepared_input(tmp_path
                 return [*(super().locate_prepared_inputs() or []), tmp_path / "other.lib"]
 
     flow, script = _flow_with_script_file(tmp_path, _WithOtherInputs)
-    with WorkingDirectory(tmp_path / "run"):
-        flow.init()
+    flow.init()
     assert flow.settings.abc_script == str(script)
     assert flow.implicit_inputs == [script]
 

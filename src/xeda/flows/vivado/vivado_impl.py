@@ -53,7 +53,7 @@ class VivadoImpl(VivadoImplementation):
     # This flow has no project-mode Vivado runs, so it drops the `status` result of
     # `vivado_synth`.
     results_description = {
-        key: text for key, text in VivadoSynth.results_description.items() if key != "status"
+        key: spec for key, spec in VivadoSynth.results_description.items() if key != "status"
     }
 
     class Settings(VivadoImplementation.Settings):

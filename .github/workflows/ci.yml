@@ -55,7 +55,7 @@ jobs:
       - uses: nickg/setup-nvc@v1
         if: matrix.python-version == env.FULL_PYTHON
         with:
-          version: latest
+          version: "1.23.0"
       # Bluespec Compiler (bsc): the bsc/bsc_sim flows require bsc >= 2026.07.1, installed here
       # from the official release tarball, checked against a pinned sha256, so the version is
       # pinned the same way as the OSS CAD Suite above. The extracted bin/ scripts locate the
@@ -192,6 +192,7 @@ jobs:
           tests/test_run_directory_rule.py
           tests/test_run_dir_safety.py
           tests/test_run_root.py
+          tests/test_run_root_links.py
           tests/test_isolation.py
           tests/test_generated_names.py
           tests/test_locator_settings.py
@@ -205,6 +206,7 @@ jobs:
           tests/test_liberty_shared.py
           tests/test_liberty_freshness.py
           tests/test_remote_ssh.py
+          tests/test_remote_fetch.py
           tests/test_remote_manifest.py
           tests/test_remote_provision.py
           tests/test_remote_agent.py

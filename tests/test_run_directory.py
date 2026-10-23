@@ -11,6 +11,7 @@ from typing import ClassVar, Optional
 import pytest
 from click.testing import CliRunner
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cli import cli
 from xeda.dataclass import Field
@@ -27,7 +28,7 @@ SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 class _Probe(Flow):
     """Does nothing: what matters is where it would run."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     def run(self) -> None:
         pass
@@ -36,7 +37,7 @@ class _Probe(Flow):
 class _Reads(Flow):
     """Reads the constraints its setting names."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
         constraints: Optional[Path] = Field(None, description="The constraints it reads.")
@@ -115,7 +116,7 @@ def test_a_flow_constructed_without_a_launcher_deletes_nothing(tmp_path):
     class ProbePurge(Flow):
         """Purges its run directory."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             self.purge_run_path()
@@ -137,7 +138,7 @@ def test_a_flow_s_run_directory_is_decided_once(tmp_path):
     class ProbeOwner(Flow):
         """Does nothing."""
 
-        results_description: ClassVar[dict[str, str]] = {}
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
             pass
@@ -199,7 +200,7 @@ def test_a_run_directory_led_out_of_the_run_root_is_refused(tmp_path, monkeypatc
     run_root = runner.run_root
     (run_root / "d").symlink_to(elsewhere, target_is_directory=True)
     design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
-    with pytest.raises(RunDirectoryError, match="leads out of the run root"):
+    with pytest.raises(RunDirectoryError, match="xeda_run/d is a symbolic link"):
         runner.run_flow(_Probe, design, {})
     assert _files(elsewhere) == before
     assert not list(elsewhere.glob("*.lock"))

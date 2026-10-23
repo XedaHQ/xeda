@@ -148,7 +148,7 @@ class PhysicalClock(XedaBaseModel):
                     )
         elif period is None:
             raise ValueError("Neither `freq` nor `period` was specified")
-        if not values.get("name"):
+        if values.get("name") is None:
             values["name"] = ""
         return values
 

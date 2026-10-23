@@ -5,6 +5,7 @@ from typing import ClassVar
 
 import pytest
 
+from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.board import WithFpgaBoardSettings
 from xeda.dataclass import Field
@@ -26,7 +27,7 @@ def _restore_registry():
 class _ConfigTaker(Flow):
     """Demand the selected configuration through a declared edge."""
 
-    results_description: ClassVar[dict[str, str]] = {}
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
     required_settings = Nextpnr.required_settings
 
     class Settings(WithFpgaBoardSettings, Flow.Settings):

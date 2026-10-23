@@ -1044,6 +1044,19 @@ def _is_boolean_annotation(annotation: Any) -> bool:
     return bool(accepted) and all(a is bool for a in accepted)
 
 
+def _is_boolean_or_text_annotation(annotation: Any) -> bool:
+    """Whether `annotation` holds a boolean beside text or paths only (`Optional[Union[bool,
+    str]]`): a number is neither of them."""
+    accepted = annotation_args(annotation) if annotation is not None else ()
+    return (
+        bool in accepted
+        and len(accepted) > 1
+        and all(
+            a is bool or (isinstance(a, type) and issubclass(a, (str, PurePath))) for a in accepted
+        )
+    )
+
+
 def boolean_text_message(text: str) -> str:
     """Return what to say about `text` given where a boolean is required."""
     word = text.strip().lower()
@@ -1131,7 +1144,8 @@ class XedaBaseModel(BaseModel):
         """Refuse text or a number given to a `bool` or `Optional[bool]` field, unless the text is
         `true` or `false` (a command line has no other way to write a boolean). The lax booleans
         of pydantic would read `yes`, `on`, `y` and `1` as `True`, but a setting accepts exactly
-        its declared type. There is one more exception: `true` and `false` given to a deliverable
+        its declared type. A number is refused for a field that takes a boolean or text too
+        (`Union[bool, str]`). There is one more exception: `true` and `false` given to a deliverable
         that is no waveform are refused too. Every model of Xeda shares this rule: flow settings,
         the design and nested models. The input is only read and never rewritten."""
         if not isinstance(values, dict):
@@ -1165,6 +1179,15 @@ class XedaBaseModel(BaseModel):
                 message = boolean_text_message(value)
             elif isinstance(value, (int, float)) and not isinstance(value, bool):
                 message = f"`{value}` is a number, not a boolean: write `true` or `false`"
+                if _is_boolean_or_text_annotation(field_annotation(cls, names[key])):
+                    problems.append(
+                        InitErrorDetails(
+                            type=PydanticCustomError("boolean_text", message),
+                            loc=(key,),
+                            input=value,
+                        )
+                    )
+                    continue
             else:
                 continue
             if _is_boolean_annotation(field_annotation(cls, names[key])):
