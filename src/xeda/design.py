@@ -32,7 +32,6 @@ from typing import (
     List,
     Optional,
     NotRequired,
-    TypedDict,
     Tuple,
     Type,
     TypeVar,
@@ -42,6 +41,7 @@ from urllib.parse import parse_qs, urlparse
 
 import yaml
 from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, core_schema
+from typing_extensions import TypedDict
 
 from .dataclass import (
     WHOLE,
