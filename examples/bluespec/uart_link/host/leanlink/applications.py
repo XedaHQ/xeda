@@ -165,7 +165,7 @@ def decode_ascon_output(word: bytes) -> AsconOutput:
     keep = metadata & 15
     if kind > 3 or keep not in (1, 3, 7, 15):
         raise StreamProtocolError("invalid Ascon output kind, padding, or keep mask")
-    if any(word[1 + keep :]):
+    if any(word[1 + keep.bit_count() :]):
         raise StreamProtocolError("Ascon output has nonzero bytes outside its keep mask")
     if kind == 3 and metadata != 0x7F:
         raise StreamProtocolError(

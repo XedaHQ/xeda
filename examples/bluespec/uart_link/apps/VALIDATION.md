@@ -1,6 +1,6 @@
 # UART streaming validation
 
-This report records focused protocol, area, host simulation, FPGA flow, repository test, and physical board results. The first full-suite run was a diagnostic run and failed; a later rerun of its 105 failed nodes passed 103 and left two GHDL-plugin failures. The final full-suite run after the reviewed candidate commit is pending. All four boards were connected for final SRAM programming and hardware self-tests.
+This report records protocol, area, host simulation, FPGA flow, repository test, and physical board results. The final full-suite run passed 23,625 tests and skipped 420. Two tests failed in the installed GHDL/Yosys plugin. A later padding fix passed focused host and application tests and passed a final Arty Ascon-128 hardware self-test. The full repository suite was not rerun after that host-only fix. All FPGA programming used SRAM.
 
 ## Scope and source identity
 
@@ -42,13 +42,13 @@ The final transport hashes are LeanLink `de33e8162816107bab065c0fe712ef15b26168b
 | `examples/bluespec/uart_link/apps/gcd.yaml` (STLV build-manifest config at measurement time) | `736c1568eb30fe910b69f791578e02d928e6331b2f4db58c55dd03ede6178522` |
 | `examples/bluespec/uart_link/apps/ascon.yaml` (STLV build-manifest config at measurement time) | `20b5197bcfec9a2cb0e465b930835b29950de1a29ccc805ca665817331444a31` |
 
-These hashes identify the YAML files used for the STLV build manifests, before the source-library refactor. The checked-in YAML files now use dependencies. Their current SHA-256 values are Ascon `787de50dd8dc739a6e4e83a96f604d642a989dd6cfb3d76dee22f2decc9319d5` and GCD `a5b1e3d2f4649f6161b0df5548707fc1efd7543a20940dec88f3b41904d4e8b0`. A fresh pure-Python comparison resolved all 62 baseline variants. Their flattened RTL and testbench source paths, types, order, tops, clocks, defines, parameters, and effective flow settings match. The 42 source-content hash differences are limited to `host/leanlink/stream.py`, `host/leanlink/applications.py`, and `apps/stream_apps.py`; each file appears in 14 app variants. These are Python host or simulation sources, not RTL changes. The machine-readable comparison records every variant and source hash.
+These hashes identify the YAML files used for the STLV build manifests before the source-library refactor. The checked-in YAML files now use dependencies. Their current SHA-256 values are Ascon `787de50dd8dc739a6e4e83a96f604d642a989dd6cfb3d76dee22f2decc9319d5` and GCD `a5b1e3d2f4649f6161b0df5548707fc1efd7543a20940dec88f3b41904d4e8b0`. A fresh pure-Python comparison resolved all 62 baseline variants. Their flattened RTL and testbench source paths, types, order, tops, clocks, defines, parameters, and effective flow settings match. The 42 source-content hash differences are limited to `host/leanlink/stream.py`, `host/leanlink/applications.py`, and `apps/stream_apps.py`; each file appears in 14 app variants. These are Python host or simulation sources, not RTL changes. The `xeda design-schema` schema now accepts the existing URI, local-path, and Git dependency forms. This schema change does not change design resolution. The machine-readable comparison records every variant and source hash.
 
 ## Focused behavior and application simulations
 
 Strict public-pin regressions passed for Ascon40 W8/P256 and W1/P64 (10/10 cases each), and GCD64/32 W8/P256 and W1/P64 (1/1 case each). They observe `coreReset`, data, and handshake pins. Coverage includes status 0 with accepted-prefix reporting under backpressure, host suffix retry, maximum legal packets, empty and malformed requests, a stalled input followed by polling, ordered multiword requests, response rewind without reexecution, CRC recovery, and OPEN while an older response is queued. The Ascon W8 case reaches 48 complete 40-bit words; W1/P64 reaches its maximum legal packet. Generic transport widths 1 through 7, 9, and 13 passed.
 
-The GCD public-pin client polls until all results arrive. A first response may accept a prefix and require a later poll; this is expected backpressure behavior. The GCD byte and UART-pin application cosimulations passed in the first full-suite run. Four Ascon byte and UART-pin cosimulations initially failed because the host test sliced a generator. After that fix, all four Ascon cases passed in the frozen rerun. The independent Ascon vector and long-stream host checks also passed. These results are simulator tests, not physical UART tests.
+The GCD public-pin client polls until all results arrive. A first response may accept a prefix and require a later poll; this is expected backpressure behavior. The final full-suite run passed all six application cosimulations. The independent Ascon vector and long-stream host checks also passed. These results are simulator tests, not physical UART tests.
 
 ## Direct reusable-library tests
 
@@ -78,18 +78,18 @@ xeda run bsc_sim examples/bluespec/ascon/ascon-stream-library.yaml --target stre
 
 ## Logic area
 
-The fresh area matrix below ran in the full repository test suite with BSC 2026.07.1, Yosys 0.70+179, and bundled Yosys-ABC 1.01 on `xc7a100tcsg324-1` at 10 ns. The test checks complete observable tops with clock, reset, data, and handshake ports, including `coreReset` for the adapters. Logic LUTs and distributed-RAM LUT equivalents are separate. It checks all six profiles in `tests/test_uart_stream_area.py`.
+The fresh area matrix below ran in the final full repository test suite with BSC 2026.07.1 and Homebrew Yosys 0.70+post on `xc7a100tcsg324-1` at 10 ns. The test checks complete observable tops with clock, reset, data, and handshake ports, including `coreReset` for the adapters. Logic LUTs and distributed-RAM LUT equivalents are separate. It checks all six profiles in `tests/test_uart_stream_area.py`.
 
 | Complete top | Width / packet | Logic LUT | RAM LUT | Total LUT | FF | CARRY4 | RAMB18 | Ports / bits |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| GCD64/32 | W8/P256 | 489 | 8 | 497 | 680 | 42 | 2 | 15 / 123 |
-| GCD64/32 | W1/P64 | 443 | 24 | 467 | 679 | 31 | 0 | 15 / 123 |
-| Ascon40 | W8/P256 | 491 | 8 | 499 | 650 | 44 | 2 | 15 / 107 |
-| Ascon40 | W1/P64 | 450 | 24 | 474 | 649 | 33 | 0 | 15 / 107 |
-| Bare LeanLink | W8/P256 | 384 | 8 | 392 | 461 | 38 | 2 | 20 / 66 |
-| Bare LeanLink | W1/P64 | 340 | 24 | 364 | 462 | 28 | 0 | 20 / 66 |
+| GCD64/32 | W8/P256 | 498 | 8 | 506 | 679 | 42 | 2 | 15 / 123 |
+| GCD64/32 | W1/P64 | 451 | 24 | 475 | 679 | 31 | 0 | 15 / 123 |
+| Ascon40 | W8/P256 | 495 | 8 | 503 | 649 | 44 | 2 | 15 / 107 |
+| Ascon40 | W1/P64 | 449 | 24 | 473 | 649 | 33 | 0 | 15 / 107 |
+| Bare LeanLink | W8/P256 | 384 | 8 | 392 | 460 | 38 | 2 | 20 / 66 |
+| Bare LeanLink | W1/P64 | 335 | 24 | 359 | 462 | 28 | 0 | 20 / 66 |
 
-All four complete application profiles meet the 500 logic LUT limit. The highest fresh complete-top logic count is Ascon40 W8/P256 at 491 LUT. Earlier scratch runs reported adapter logic counts of 498/451 for GCD W8/W1 and 495/449 for Ascon40 W8/W1, and bare LeanLink counts of 384/335. Those historical measurements used a different Yosys build and are not the current gate results.
+All four complete application profiles meet the 500 logic LUT limit. The highest complete-top logic count is GCD64/32 W8/P256 at 498 LUT. These counts use Yosys 0.70+post. Earlier measurements from the bundled Yosys 0.70+179 build were 489/443 for GCD W8/W1, 491/450 for Ascon40 W8/W1, and 384/340 for bare LeanLink W8/W1. They are historical and are not the final gate results.
 
 ## Board build timing, resources, and bitstream identity
 
@@ -205,18 +205,16 @@ I then used the existing `FaultBackend` from `host/hw_suite.py` on each board. A
 
 Per-image JTAG, programming, self-test, repeated-session, recovery, and Xeda flow logs and manifests were retained in the local validation evidence set. The evidence includes nine Artix/ULX3S images, three STLV images, strict pin tests, and six-top area runs. These local records are not part of this repository.
 
-## Repository suite and remaining checks
+## Repository tests and final host fix
 
-The first full repository run was diagnostic and exited with code 1 after 5,336.97 seconds. It reported **23,517 passed, 424 skipped, 105 failed, one error, and 11 warnings**. Its six area profiles passed. They comprise four complete LeanLink plus StreamExchange adapter profiles and two standalone LeanLink measurements. Those fresh results use BSC 2026.07.1, the bundled OSS Yosys 0.70+179 and ABC 1.01, on `xc7a100tcsg324-1` at 10 ns.
+The final full repository run used candidate commit `90e84dccafe81ea55008fe4eb05749d667a1d917` with four pytest workers. It completed in 1,384.31 seconds and reported **23,625 passed, 420 skipped, 2 failed, and 15 warnings**. All six area profiles and all six app byte and UART-pin cosimulations passed. The two failures were `tests/test_yosys.py::test_yosys_synth_py` and `tests/test_yosys.py::test_yosys_fpga_hands_ghdl_each_vhdl_file_once`. Both failed when the installed GHDL/Yosys plugin terminated with `libc++abi: terminating due to uncaught foreign exception` and `raised PROGRAM_ERROR : unhandled signal`. They do not involve the UART application. The full run used Python 3.15.0, Yosys 0.70+post, Verilator 5.052, BSC 2026.07.1, and GHDL 7.0.0-dev. All 1,086 tracked file hashes and the Git state matched before and after the run.
 
-That run's 81 Yosys ASIC mapping tests failed at `check -assert` with undriven mapped wires under the bundled OSS toolchain. A frozen rerun of the same 105 failed node IDs used a sanitized environment and Homebrew tools. It passed 103 nodes in 110.54 seconds with four workers. It used Homebrew Yosys 0.70+post, Verilator 5.052, BSC 2026.07.1, and GHDL 7.0.0-dev. All four Ascon application cosimulations, the terminal tests, makefile tests, chain documentation, changelog, and Yosys mapping cases passed. The two remaining failures are `tests/test_yosys.py::test_yosys_fpga_hands_ghdl_each_vhdl_file_once` and `tests/test_yosys.py::test_yosys_synth_py`. Both stop with `raised PROGRAM_ERROR : unhandled signal` in the installed GHDL/Yosys plugin. The worktree status and changed-file hashes were identical before and after this rerun.
+After that full run, a host decoder fix made the Ascon client check padding bytes after the `keep` payload bytes. New tests cover zero padding and nonzero bytes in every unused payload position for the affected keep masks. The focused host/client/bounded/protocol tests passed **178 tests**. The application test module passed **10 tests**, including all six public app cosimulations and four wrapper cases. These checks ran with the sanitized Homebrew tool environment. The final full repository suite was not rerun after this host-only change.
 
-The first run's other failures were caused by its environment or by fixes applied while that diagnostic run was active. `NO_COLOR=1` disabled the PTY path in five openFPGALoader terminal tests. Inherited `CPPFLAGS=-I/opt/homebrew/include` changed the expected make flags in two Verilator tests; `CPATH` was retained for the FST test. The checkout guard detected files changed after collection started, so that teardown error does not establish a failure in the initial worktree. The chain and changelog failures were fixed by updating the resolved-design assertion and adding the required changelog bullet. The four Ascon cosim failures came from slicing a generator and are now fixed. A targeted FST test and all seven terminal/makefile cases pass with the sanitized environment.
+The final host source hashes are `applications.py` `a69de039b25c4d7c2b7f24c7d926bec7df8b3d19541114939b9888f1ae91dd1e`, `stream.py` `8d7d13f8c10e814251ff3a923c6fe09ea1cb3920365191ec5fcfe8e74d8edff0`, and `apps/stream_apps.py` `96f6162d3c91a4e90542083066f38fc76fd1199ed180827d91ba44c95c3eb5e3`. The padding regression file is `tests/test_uart_stream_clients.py` SHA-256 `d2e06106abe86ecf413b3b7fa43da58fc4707932ffce12fa8413a88491510179`.
 
-Focused dependency, schema, chain-documentation, changelog, and library tests passed 344 tests on the final report revision. The documentation test suite passed 377 tests. All 19 direct reusable-library simulation commands passed. Mypy, Black, the required Ruff check, catalog freshness, docs with warnings as errors, and `git diff --check` passed. Optional ORFS and PDK integration tests were skipped because their environment roots were not set. The final full repository run after the reviewed candidate commit is still pending.
+The 19 direct reusable-library simulation commands passed. Focused schema, dependency, chain-documentation, changelog, and library tests passed 344 tests. The documentation test suite passed 377 tests. Final quality checks passed: mypy on 153 source files, Black on 487 files, the required Ruff check, catalog freshness, docs with warnings as errors, and `git diff --check`. Optional ORFS, PDK, openXC7, Vivado, and remote-host tests were skipped because their external tool or host settings were not enabled.
 
-The first-run suite log, frozen 105-node rerun logs, status records, and source manifests remain in the local validation evidence set. They are not part of this repository.
+After the padding fix, I ran the public Ascon-128 self-test on the Arty without reprogramming. The previously loaded SRAM image hash and matching bitstream artifact hash were `86ced51ce8c31aa0e863f17bda0b2cbd80e1887ed43c2d51be9b30005d432100`. The test passed all 61 vectors, long encrypt/decrypt, long hash, key reuse, and bad-tag rejection. It used the final `applications.py` hash above. This is a current host check on one loaded image; the 12-image board matrix above uses the earlier host version.
 
-The host test environment used `pyserial==3.5`, `pyftdi==0.57.2`, and `pyusb==1.3.1`. The tool help and board listing were checked without opening a USB device; that check confirms software readiness only.
-
-Physical SRAM self-tests are complete for the 12 final image/board combinations. The serial-versus-FTDI throughput measurements shown above cover the Arty images and use the earlier host-client version; no throughput benchmark ran after the bounded-input client update. No nonvolatile flash was written. The two GHDL/Yosys plugin tests remain unresolved in the frozen rerun. The final full-suite result is pending.
+The serial-versus-FTDI throughput measurements above predate the bounded-input host-client update and the padding fix. No new throughput benchmark ran after those host changes. No nonvolatile flash was written. The two GHDL/Yosys plugin tests remain unresolved in the final full-suite run.

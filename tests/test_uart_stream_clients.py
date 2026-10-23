@@ -337,6 +337,32 @@ def test_ascon_output_decoder_rejects_reserved_or_empty_success_words(word):
         apps.decode_ascon_output(word)
 
 
+@pytest.mark.parametrize("keep", [1, 3, 7, 15])
+def test_ascon_output_decoder_accepts_zero_padding_for_contiguous_keep_masks(keep):
+    _, apps = modules()
+    data_bytes = keep.bit_count()
+    word = bytes([keep]) + bytes.fromhex("11223344")[:data_bytes].ljust(4, b"\0")
+
+    decoded = apps.decode_ascon_output(word)
+
+    assert decoded.keep == keep
+    assert decoded.data == bytes.fromhex("11223344")[:data_bytes]
+
+
+@pytest.mark.parametrize(
+    "keep,padding_offset",
+    [(keep, padding_offset) for keep in (1, 3, 7) for padding_offset in range(keep.bit_count(), 4)],
+)
+def test_ascon_output_decoder_rejects_nonzero_byte_at_each_padding_position(keep, padding_offset):
+    _, apps = modules()
+    data_bytes = keep.bit_count()
+    word = bytearray(bytes([keep]) + bytes.fromhex("11223344")[:data_bytes].ljust(4, b"\0"))
+    word[1 + padding_offset] = 0xA5
+
+    with pytest.raises(apps.StreamProtocolError):
+        apps.decode_ascon_output(bytes(word))
+
+
 def test_ascon_error_output_fails_immediately_and_requires_reset():
     stream, apps = modules()
     device, _ = app_device([bytes.fromhex("7f04000000")])
