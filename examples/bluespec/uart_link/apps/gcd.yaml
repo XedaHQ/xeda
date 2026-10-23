@@ -28,6 +28,9 @@ tb:
     - {file: "../host/leanlink/stream.py", type: Data}
     - {file: "../host/leanlink/applications.py", type: Data}
     - {file: "../host/app_suite.py", type: Data}
+    - {file: "../host/leanlink/cli_common.py", type: Data}
+    - {file: "../host/leanlink/gcd_cli.py", type: Data}
+    - {file: "../host/leanlink/ascon_cli.py", type: Data}
   cocotb.module: stream_apps
 flows:
   vivado_synth:

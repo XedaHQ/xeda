@@ -108,7 +108,9 @@ Open a new `LinkDevice` for another concurrent application stream. A host link f
 raise `StreamProtocolError` when RESET is required. `AsconClient.decrypt` raises
 `AuthenticationError` when the tag is invalid and returns no plaintext.
 
-For GCD and Ascon, use `host/app_suite.py` for command-line access:
+For GCD and Ascon, use `host/gcd_cli.py` and `host/ascon_cli.py` for focused command-line
+access. The existing `host/app_suite.py` remains available when you want one combined command.
+Put connection options before the subcommand:
 
 ```bash
 python3 examples/bluespec/uart_link/host/app_suite.py list
@@ -117,15 +119,20 @@ python3 examples/bluespec/uart_link/host/app_suite.py --port /dev/cu.usbserial-X
 python3 examples/bluespec/uart_link/host/app_suite.py --port /dev/cu.usbserial-XXXX hash --data-hex 616263
 python3 examples/bluespec/uart_link/host/app_suite.py --board arty --serial-number SERIAL selftest ascon
 python3 examples/bluespec/uart_link/host/app_suite.py --board arty --serial-number SERIAL selftest ascon --variant 128a
+python3 examples/bluespec/uart_link/host/gcd_cli.py --port /dev/cu.usbserial-XXXX gcd 48 18
+python3 examples/bluespec/uart_link/host/gcd_cli.py --port /dev/cu.usbserial-XXXX selftest
+python3 examples/bluespec/uart_link/host/ascon_cli.py --port /dev/cu.usbserial-XXXX hash --data-hex 616263
+python3 examples/bluespec/uart_link/host/ascon_cli.py --port /dev/cu.usbserial-XXXX selftest --variant 128a
+PYTHONPATH=examples/bluespec/uart_link/host python3 -m leanlink.gcd_cli --port PORT gcd-many 48:18 0:7
+PYTHONPATH=examples/bluespec/uart_link/host python3 -m leanlink.ascon_cli --port PORT hash --data-hex 616263
 ```
 
-The CLI also supports `encrypt`, `decrypt`, `--input`, and `--output`. Select `--variant 128a`
-when the Ascon-128a bitstream is loaded. The Python API accepts bytes and key reuse within one
-reset session. It buffers the complete operation in host memory; the FPGA packet size stays fixed.
-The CLI opens a new session per command and resets the application. A lost session produces an
-unknown outcome; the client does not replay the operation in a new session. The app clients use
-`pyserial` for serial ports and `pyftdi` for direct FTDI access. Install the needed backend package
-as described above.
+The Ascon command also supports `encrypt`, `decrypt`, `--input`, and `--output`. Select
+`--variant 128a` when the Ascon-128a bitstream is loaded. The Python API accepts bytes and key
+reuse within one reset session. It buffers the complete operation in host memory; the FPGA packet
+size stays fixed. Each CLI command opens a new session and resets the application. A lost session
+produces an unknown outcome; the client does not replay the operation in a new session. Install
+the needed backend package as described in [The host library](#the-host-library).
 
 The application area and board timing differ from the bare LeanLink numbers in this README. Check
 the GCD and Ascon designs' own build reports before choosing a board or clock. Hardware validation

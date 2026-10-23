@@ -6,9 +6,11 @@ import importlib
 import importlib.util
 import json
 import math
+import os
 import subprocess
 import sys
 import types
+from types import SimpleNamespace
 from collections import deque
 from pathlib import Path
 
@@ -299,9 +301,11 @@ def test_ascon_encrypt_streams_large_input_and_reuses_a_key():
     client.reset()
     assert client.encrypt(bytes(16), bytes(16), b"ad", plaintext, timeout=10) == ciphertext + tag
     assert sum(word[0] >> 5 == 1 for word in admitted) == 4
-    device.handler = app_device(output_words(b"", tag))[0].handler
+    reuse_device, reuse_admitted = app_device(output_words(b"", tag))
+    device.handler = reuse_device.handler
     assert client.encrypt(None, bytes(16), b"", b"") == tag
-    assert device.calls[-1] != b"\x00"
+    assert reuse_admitted[0] == bytes.fromhex("1000000000")
+    assert all(word[0] >> 5 != 1 for word in reuse_admitted)
 
 
 def test_ascon_decrypt_returns_plaintext_only_after_the_full_tag_matches():
@@ -422,16 +426,166 @@ def cli_module(monkeypatch):
     return module
 
 
-def test_application_cli_help_needs_no_board_or_optional_backend_library():
+@pytest.mark.parametrize(
+    "script, expected",
+    [
+        ("app_suite.py", "decrypt"),
+        ("gcd_cli.py", "gcd-many"),
+        ("ascon_cli.py", "encrypt"),
+    ],
+)
+def test_application_cli_help_needs_no_board_or_optional_backend_library(script, expected):
     result = subprocess.run(
-        [sys.executable, "-I", "-B", str(HOST.parent / "app_suite.py"), "--help"],
+        [sys.executable, "-I", "-B", str(HOST.parent / script), "--help"],
         capture_output=True,
         text=True,
         check=False,
         timeout=10,
     )
     assert result.returncode == 0, result.stderr
-    assert "selftest" in result.stdout and "decrypt" in result.stdout
+    assert expected in result.stdout
+
+
+@pytest.mark.parametrize("script", ["app_suite.py", "gcd_cli.py", "ascon_cli.py"])
+def test_application_cli_help_does_not_import_optional_backends(script):
+    target = str(HOST.parent / script)
+    code = """
+import importlib.abc
+import runpy
+import sys
+
+class BlockOptionalBackends(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "serial" or fullname.startswith("serial.") or fullname == "pyftdi" or fullname.startswith("pyftdi."):
+            raise ImportError("optional backend blocked")
+        return None
+
+sys.meta_path.insert(0, BlockOptionalBackends())
+sys.argv = [sys.argv[1], "--help"]
+try:
+    runpy.run_path(sys.argv[0], run_name="__main__")
+except SystemExit as exc:
+    raise SystemExit(exc.code)
+"""
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", code, target],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "usage:" in result.stdout
+
+
+@pytest.mark.parametrize("module", ["gcd_cli", "ascon_cli"])
+def test_application_cli_module_help_works_with_host_pythonpath(module):
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(HOST.parent)
+    env.pop("NO_COLOR", None)
+    result = subprocess.run(
+        [sys.executable, "-B", "-m", f"leanlink.{module}", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "usage:" in result.stdout
+
+
+def test_application_cli_rejects_an_unsupported_internal_command(monkeypatch):
+    cli = cli_module(monkeypatch)
+    with pytest.raises(ValueError, match="unsupported"):
+        cli._execute(SimpleNamespace(command="unknown", timeout=1), object())
+
+
+def package_cli_module(monkeypatch, name):
+    monkeypatch.syspath_prepend(str(HOST.parent))
+    return importlib.import_module(f"leanlink.{name}")
+
+
+def test_focused_gcd_cli_reports_result_and_closes_device(monkeypatch, capsys):
+    cli = package_cli_module(monkeypatch, "gcd_cli")
+    common = importlib.import_module("leanlink.cli_common")
+    device = Device(
+        lambda packet: b"\x00\x01"
+        + math.gcd(
+            int.from_bytes(packet[1:5], "little"), int.from_bytes(packet[5:9], "little")
+        ).to_bytes(4, "little")
+    )
+    device.open = lambda timeout: None
+    closed = []
+    device.close = lambda: closed.append(True)
+    monkeypatch.setattr(common, "SerialBackend", lambda *args, **kwargs: object())
+    monkeypatch.setattr(common, "LinkDevice", lambda backend, config: device)
+
+    assert cli.main(["--port", "unused", "gcd", "48", "18"]) == 0
+
+    report = json.loads(capsys.readouterr().out)
+    assert report == {"success": True, "command": "gcd", "gcd": 6}
+    assert closed == [True]
+
+
+def test_focused_ascon_cli_hash_reports_digest_and_closes_device(monkeypatch, capsys, tmp_path):
+    cli = package_cli_module(monkeypatch, "ascon_cli")
+    common = importlib.import_module("leanlink.cli_common")
+    digest = bytes(range(32))
+    device, _ = app_device(output_words(trailer=digest, hash_mode=True))
+    device.open = lambda timeout: None
+    closed = []
+    device.close = lambda: closed.append(True)
+    monkeypatch.setattr(common, "SerialBackend", lambda *args, **kwargs: object())
+    monkeypatch.setattr(common, "LinkDevice", lambda backend, config: device)
+
+    output = tmp_path / "digest.bin"
+    assert (
+        cli.main(["--port", "unused", "hash", "--data-hex", "616263", "--output", str(output)]) == 0
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["success"] and report["digest"] == digest.hex()
+    assert report["bytes"] == len(digest)
+    assert output.read_bytes() == digest
+    assert closed == [True]
+
+
+def test_application_cli_reports_open_error_as_json_and_closes_backend(monkeypatch, capsys):
+    cli = cli_module(monkeypatch)
+    closed = []
+
+    class Backend:
+        def close(self):
+            closed.append("backend")
+
+    class FailedDevice:
+        def __init__(self, backend, config):
+            self.backend = backend
+
+        def open(self, timeout):
+            raise RuntimeError("open failed")
+
+        def close(self):
+            closed.append("device")
+            self.backend.close()
+
+    monkeypatch.setattr(cli, "SerialBackend", lambda *args, **kwargs: Backend())
+    monkeypatch.setattr(cli, "LinkDevice", FailedDevice)
+
+    assert cli.main(["--port", "unused", "gcd", "48", "18"]) == 1
+
+    report = json.loads(capsys.readouterr().out)
+    assert report == {
+        "success": False,
+        "error": {"type": "RuntimeError", "message": "open failed"},
+    }
+    assert closed == ["device", "backend"]
+
+
+def test_ascon_selftest_long_vectors_are_resolved_from_module_location(monkeypatch):
+    cli = package_cli_module(monkeypatch, "ascon_cli")
+    assert cli.long_vectors_path().is_file()
 
 
 def test_application_cli_hash_uses_stream_clients_and_closes_the_device(monkeypatch, capsys):
