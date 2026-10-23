@@ -350,6 +350,129 @@ def test_submit_many_and_wait_in_any_order() -> None:
     assert len(model.executed) == 9
 
 
+@pytest.mark.parametrize("w", [1, 2, 8])
+def test_completed_requests_release_replay_storage_before_results_are_taken(w: int) -> None:
+    """Completed input packets need no replay storage, even with results waiting for the caller."""
+    p = started(w=w)
+    tickets = []
+    for index in range(257):
+        now = index * 0.001
+        tickets.append(p.submit(index.to_bytes(4, "little") + bytes(235)))
+        sent = [parse_host(wire, w=w) for wire in drain(p, now)]
+        assert [frame["seq"] for frame in sent if frame["kind"] == "data"] == [index % (2 * w)]
+        p.feed(
+            response_wire(
+                w=w,
+                seq=index % (2 * w),
+                exp=(index + 1) % (2 * w),
+                cursor=u16(12 + 16 * (index + 1)),
+                payload=index.to_bytes(4, "little"),
+                trunc=bool(index % 2),
+            ),
+            now,
+        )
+        assert p.outstanding == 0
+        assert not p._reqs, "completed requests still retain their input packets"
+    for index in reversed(range(257)):
+        result = p.take_result(tickets[index])
+        assert result is not None
+        assert result.status is (Status.TRUNCATED if index % 2 else Status.OK)
+        assert result.data == index.to_bytes(4, "little")
+
+
+def test_pruned_request_history_keeps_retries_and_rewind_correct_across_sequence_wrap() -> None:
+    p = started(w=4)
+    cursor = 12
+    for batch in range(12):
+        base = 4 * batch
+        now = batch * 0.1
+        payloads = [(base + index).to_bytes(4, "little") for index in range(4)]
+        tickets = [p.submit(payload) for payload in payloads]
+        sent = [parse_host(wire) for wire in drain(p, now)]
+        assert [frame["payload"] for frame in sent if frame["kind"] == "data"] == payloads
+        for index in range(2):
+            cursor += 16
+            p.feed(
+                response_wire(
+                    seq=(base + index) % 8,
+                    exp=(base + 2) % 8,
+                    cursor=cursor,
+                    payload=payloads[index],
+                ),
+                now + 0.001 * (index + 1),
+            )
+        assert len(p._reqs) == 2
+        retry = [parse_host(wire) for wire in drain(p, now + 0.0121)]
+        data = [frame for frame in retry if frame["kind"] == "data"]
+        assert [frame["seq"] for frame in data] == [(base + 2) % 8, (base + 3) % 8]
+        assert [frame["payload"] for frame in data] == payloads[2:]
+        cursor += 12
+        p.feed(status_wire(exp=(base + 4) % 8, cursor=cursor), now + 0.013)
+        replay = [parse_host(wire) for wire in drain(p, now + 0.0331)]
+        assert len(replay) == 1 and replay[0]["kind"] == "header"
+        assert replay[0]["ack"] == (base + 2) % 8
+        assert replay[0]["rewind"] == (batch + 1) % 4
+        for index in range(2, 4):
+            cursor += 16
+            wire = response_wire(
+                seq=(base + index) % 8,
+                exp=(base + 4) % 8,
+                cursor=cursor,
+                payload=payloads[index],
+            )
+            p.feed(wire, now + 0.032 + index * 0.001)
+        p.feed(wire, now + 0.036)  # A duplicate reply cannot remove another request.
+        assert p.outstanding == 0 and not p._reqs
+        for index in reversed(range(4)):
+            result = p.take_result(tickets[index])
+            assert result is not None and result.status is Status.OK
+            assert result.data == payloads[index]
+
+
+def test_terminal_session_releases_request_storage_and_keeps_ticket_results() -> None:
+    p = started(w=2)
+    tickets = [p.submit(bytes([index]) * 239) for index in range(3)]
+    drain(p, 0.0)
+    p.abort(0.001)
+    assert not p._reqs, "a terminal session still retains request packets"
+    assert not p._queue
+    for index, ticket in enumerate(tickets):
+        result = p.take_result(ticket)
+        assert result is not None and result.status is Status.UNKNOWN_OUTCOME
+        assert result.was_sent is (index < 2)
+
+
+def test_abandon_ignores_inactive_tickets_and_releases_live_abandonment() -> None:
+    p = started(w=4)
+    completed = p.submit(b"completed")
+    drain(p, 0.001)
+    p.feed(response_wire(seq=0, exp=1, cursor=40, payload=b"done"), 0.002)
+    assert p.peek_result(completed).data == b"done"
+
+    # Abandoning a completed result still discards that result, as the API promises.
+    p.abandon(completed)
+    assert p.take_result(completed) is None and not p._abandoned
+
+    stale = p.submit(b"already taken")
+    drain(p, 0.003)
+    p.feed(response_wire(seq=1, exp=2, cursor=60, payload=b"taken"), 0.004)
+    assert p.take_result(stale).data == b"taken"
+
+    # A stale completed ticket and an ID never returned by submit must not leave tombstones.
+    p.abandon(stale)
+    p.abandon(1000)
+    assert not p._abandoned
+
+    # A real outstanding ticket still suppresses its result and clears its tombstone on reply.
+    live = p.submit(b"live")
+    drain(p, 0.005)
+    p.abandon(live)
+    assert p._abandoned == {live}
+    p.feed(response_wire(seq=2, exp=3, cursor=80, payload=b"ignored"), 0.006)
+    assert p.take_result(live) is None
+    assert not p._abandoned
+
+
 def test_truncated_response_raises_with_the_partial_data() -> None:
     dev, _model, _clock = make_device(rsp_limit=20)  # responseMax 8
     dev.open(timeout=1.0)

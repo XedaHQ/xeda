@@ -19,6 +19,13 @@ import Connectable :: *;
 import Uart :: *;
 import LeanLink :: *;
 import LeanLinkTestTop :: *;
+`ifdef LL_APP_ASCON
+import StreamExchange :: *;
+import AsconStream :: *;
+`elsif LL_APP_GCD
+import StreamExchange :: *;
+import GcdStream :: *;
+`endif
 
 `ifndef LL_LOGW
 `define LL_LOGW 3
@@ -53,24 +60,39 @@ module mkLinkDemo(LeanLinkBoard);
 
    Uart#(8) uart <- mkUart;
    LeanLink#(`LL_LOGW, `LL_LOGP) link <- mkLeanLink;
+`ifdef LL_APP_ASCON
+   StreamExchange#(Bit#(40), Bit#(40)) stream <- mkStreamExchange(link);
+   Empty application <- mkAsconStream(stream);
+   Bit#(1) activity = 0;
+`elsif LL_APP_GCD
+   StreamExchange#(Bit#(64), Bit#(32)) stream <- mkStreamExchange(link);
+   Empty application <- mkGcdStream(stream);
+   Bit#(1) activity = 0;
+`else
    LeanLinkTestTop demo <- mkLeanLinkTestTopOf(link);
+   Bit#(1) activity = demo.executed[0];
+`endif
 
-   mkConnection(uart.rx, demo.rx);
-   mkConnection(demo.tx, uart.tx);
+   mkConnection(uart.rx, link.rx);
+   mkConnection(link.tx, uart.tx);
 
    (* fire_when_enabled, no_implicit_conditions *)
    rule pins;
       uart.pins.rxd(rxdIn);
       btnSync1 <= btnIn; btnSync2 <= btnSync1;
       stallSync1 <= swIn[0]; stallSync2 <= stallSync1;
+`ifndef LL_APP_ASCON
+`ifndef LL_APP_GCD
       demo.stall(`LL_STALL_SW != 0 && stallSync2 == 1);
+`endif
+`endif
       if (btnSync2 == 1) uart.clearFlags;
    endrule
 
    Clock clk <- exposeCurrentClock;
    UartFlags fl = uart.flags;
    Bit#(4) ledValue = {pack(fl.overrun), pack(fl.frameError || fl.parityError || fl.brk),
-                       demo.executed[0], pack(demo.responseReady)};
+                       activity, pack(link.responseReady)};
    ReadOnly#(Bit#(1)) txdPin <- mkNullCrossingWire(clk, uart.pins.txd);
    ReadOnly#(Bit#(4)) ledPins <- mkNullCrossingWire(clk, ledValue);
 

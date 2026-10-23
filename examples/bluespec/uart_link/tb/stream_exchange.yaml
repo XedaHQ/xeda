@@ -1,0 +1,36 @@
+name: stream_exchange
+description: >-
+  Directed Bluesim tests for StreamExchange packet validation, typed stream admission, response
+  budgets and reset behavior.
+rtl:
+  sources:
+    - "../rtl/LeanLink.bsv"
+    - "../rtl/StreamExchange.bsv"
+    - "../../gcd/rtl/GcdEngine.bsv"
+    - "../../gcd/rtl/GcdUnit.bsv"
+    - "../../gcd/rtl/GcdStream.bsv"
+    - "TbStreamExchange.bsv"
+  top: mkTbStreamExchange
+tb:
+  sources: []
+targets:
+  gcd:
+    rtl.top: mkTbGcdStream
+  width1:
+    rtl.top: mkTbStreamExchangeW1
+  width2:
+    rtl.top: mkTbStreamExchangeW2
+  width3:
+    rtl.top: mkTbStreamExchangeW3
+  width4:
+    rtl.top: mkTbStreamExchangeW4
+  width5:
+    rtl.top: mkTbStreamExchangeW5
+  width6:
+    rtl.top: mkTbStreamExchangeW6
+  width7:
+    rtl.top: mkTbStreamExchangeW7
+  width9:
+    rtl.top: mkTbStreamExchangeW9
+  width13:
+    rtl.top: mkTbStreamExchangeW13

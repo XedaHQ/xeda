@@ -1,0 +1,113 @@
+name: uart_gcd
+description: Reliable UART access to the streaming GCD example.
+rtl:
+  sources:
+    - "../../uart/rtl/RingFifo.bsv"
+    - "../../uart/rtl/UartTypes.bsv"
+    - "../../uart/rtl/BitTimer.bsv"
+    - "../../uart/rtl/UartRx.bsv"
+    - "../../uart/rtl/UartTx.bsv"
+    - "../../uart/rtl/Uart.bsv"
+    - "../rtl/LeanLink.bsv"
+    - "../rtl/StreamExchange.bsv"
+    - "../../gcd/rtl/GcdEngine.bsv"
+    - "../../gcd/rtl/GcdUnit.bsv"
+    - "../../gcd/rtl/GcdStream.bsv"
+    - "../rtl/LeanLinkTestTop.bsv"
+    - "../rtl/LeanLinkBoard.bsv"
+  top: mkLeanLinkBoard
+  clock.port: CLK
+  defines:
+    CLK_HZ: 100000000
+    BAUD: 12000000
+    LL_LOGW: 3
+    LL_LOGP: 8
+    LL_APP_GCD: true
+tb:
+  sources:
+    - "stream_apps.py"
+    - {file: "../host/leanlink/__init__.py", type: Data}
+    - {file: "../host/leanlink/backends.py", type: Data}
+    - {file: "../host/leanlink/codec.py", type: Data}
+    - {file: "../host/leanlink/device.py", type: Data}
+    - {file: "../host/leanlink/protocol.py", type: Data}
+    - {file: "../host/leanlink/stream.py", type: Data}
+    - {file: "../host/leanlink/applications.py", type: Data}
+    - {file: "../host/app_suite.py", type: Data}
+  cocotb.module: stream_apps
+flows:
+  vivado_synth:
+    fpga.part: xc7a100tcsg324-1
+    clock.period: 10 ns
+    out_of_context: true
+  yosys_fpga:
+    fpga.part: xc7a100tcsg324-1
+    clock.period: 10 ns
+targets:
+  sim_bytes:
+    rtl:
+      sources: ["StreamAppTops.bsv"]
+      top: mkStreamAppBytes
+    flows.bsc.positive_reset: false
+  sim_uart:
+    rtl:
+      sources: ["StreamAppTops.bsv"]
+      top: mkStreamAppUart
+    flows.bsc.positive_reset: false
+  arty:
+    rtl.sources:
+      - "../../uart_echo/boards/arty_a7_100t.xdc"
+      - "../../uart_echo/boards/arty_a7_100t_sync.xdc"
+    flows:
+      vivado_synth:
+        out_of_context: false
+        bitstream: uart_app.bit
+      openfpgaloader:
+        board: arty_a7_100t
+  basys3:
+    rtl.sources:
+      - "../boards/basys3.xdc"
+      - "../../uart_echo/boards/arty_a7_100t_sync.xdc"
+    flows:
+      vivado_synth:
+        fpga.part: xc7a35tcpg236-1
+        out_of_context: false
+        bitstream: uart_app.bit
+      openfpgaloader:
+        board: basys_3
+  ulx3s:
+    rtl:
+      sources: ["../../uart_echo/boards/ulx3s.lpf"]
+      defines:
+        CLK_HZ: 25000000
+        BAUD: 3000000
+    flows:
+      yosys_fpga:
+        fpga.part: LFE5U-85F-6BG381C
+        clock.period: 40 ns
+      nextpnr:
+        board: ulx3s_85f
+        clock.freq: 25 MHz
+      openfpgaloader:
+        board: ulx3s_85f
+  stlv7325:
+    rtl:
+      sources:
+        - "../boards/StlvLeanLink50.bsv"
+        - "../boards/StlvClock50.v"
+        - "../boards/stlv7325_v2.xdc"
+        - "../boards/stlv50.xdc"
+      top: mkStlvLeanLink50
+      clock.port: clk_p
+      defines:
+        CLK_HZ: 50000000
+        BAUD: 3000000
+    flows:
+      yosys_fpga:
+        fpga.part: xc7k325tffg676-2
+        clock.period: 5 ns
+      nextpnr:
+        board: stlv7325_v2
+        clock.freq: 200 MHz
+      openfpgaloader:
+        board: stlv7325_v2

@@ -29,6 +29,7 @@ interface LeanLink#(numeric type logW, numeric type logP);
    interface Put#(Bit#(8)) rx;          // encoded bytes from the byte transport
    interface Get#(Bit#(8)) tx;          // encoded bytes to the byte transport
    interface Get#(LinkTok) request;     // validated requests, whole and in order
+   method UInt#(8) requestPayloadLength;
    interface Put#(LinkTok) response;    // one response per request, in request order
    (* always_ready *) method Bool responseReady;
    (* always_ready *) method UInt#(8) responseMax;
@@ -473,6 +474,9 @@ module mkLeanLink(LeanLink#(logW, logP))
          return ob;
       endmethod
    endinterface
+
+   method UInt#(8) requestPayloadLength
+      if ((rdState == RdData || rdState == RdEmpty) && !rdAbandon) = unpack(rlast - 8'd11);
 
    interface Get request;
       method ActionValue#(LinkTok) get if ((rdState == RdData || rdState == RdEmpty) && !rdAbandon);
