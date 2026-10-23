@@ -4,15 +4,12 @@ description: >-
   budgets and reset behavior.
 rtl:
   sources:
-    - "../rtl/LeanLink.bsv"
-    - "../rtl/StreamExchange.bsv"
-    - "../../gcd/rtl/GcdEngine.bsv"
-    - "../../gcd/rtl/GcdUnit.bsv"
-    - "../../gcd/rtl/GcdStream.bsv"
     - "TbStreamExchange.bsv"
   top: mkTbStreamExchange
 tb:
   sources: []
+dependencies:
+  - "../../gcd/gcd-stream-library.yaml"
 targets:
   gcd:
     rtl.top: mkTbGcdStream

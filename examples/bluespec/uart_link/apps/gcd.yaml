@@ -2,17 +2,6 @@ name: uart_gcd
 description: Reliable UART access to the streaming GCD example.
 rtl:
   sources:
-    - "../../uart/rtl/RingFifo.bsv"
-    - "../../uart/rtl/UartTypes.bsv"
-    - "../../uart/rtl/BitTimer.bsv"
-    - "../../uart/rtl/UartRx.bsv"
-    - "../../uart/rtl/UartTx.bsv"
-    - "../../uart/rtl/Uart.bsv"
-    - "../rtl/LeanLink.bsv"
-    - "../rtl/StreamExchange.bsv"
-    - "../../gcd/rtl/GcdEngine.bsv"
-    - "../../gcd/rtl/GcdUnit.bsv"
-    - "../../gcd/rtl/GcdStream.bsv"
     - "../rtl/LeanLinkTestTop.bsv"
     - "../rtl/LeanLinkBoard.bsv"
   top: mkLeanLinkBoard
@@ -23,6 +12,11 @@ rtl:
     LL_LOGW: 3
     LL_LOGP: 8
     LL_APP_GCD: true
+dependencies:
+  - "../../uart/uart-library.yaml"
+  - uri: "../../gcd/gcd-stream-library.yaml"
+    rtl:
+      pos: 6
 tb:
   sources:
     - "stream_apps.py"

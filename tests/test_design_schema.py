@@ -40,6 +40,22 @@ def test_design_source_schema_documents_the_object_form():
     assert props["type"]["enum"] == [t.name for t in SourceType]
 
 
+def test_dependency_schema_documents_each_accepted_input_form():
+    """The dependency schema includes URI strings and both local and Git mapping forms."""
+    base = {"name": "d", "rtl": {"sources": [], "top": "top"}}
+    valid = (
+        "local-library.yaml",
+        "git+https://example.org/repo.git#library.yaml",
+        {"uri": "local-library.yaml"},
+        {"repo_url": "https://example.org/repo.git", "design_file": "library.yaml"},
+    )
+    for dependency in valid:
+        assert not list(validator().iter_errors({**base, "dependencies": [dependency]}))
+
+    for dependency in (4, {}):
+        assert list(validator().iter_errors({**base, "dependencies": [dependency]}))
+
+
 def test_source_type_values_are_names_not_ordinals():
     """Serialized settings/results must be self-describing: "Vhdl", never "5"."""
     for member in SourceType:

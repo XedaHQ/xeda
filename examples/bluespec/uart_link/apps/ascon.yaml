@@ -2,19 +2,6 @@ name: uart_ascon
 description: Reliable UART access to the streaming Ascon v1.2 example.
 rtl:
   sources:
-    - "../../uart/rtl/RingFifo.bsv"
-    - "../../uart/rtl/UartTypes.bsv"
-    - "../../uart/rtl/BitTimer.bsv"
-    - "../../uart/rtl/UartRx.bsv"
-    - "../../uart/rtl/UartTx.bsv"
-    - "../../uart/rtl/Uart.bsv"
-    - "../rtl/LeanLink.bsv"
-    - "../rtl/StreamExchange.bsv"
-    - "../../ascon/rtl/AsconTypes.bsv"
-    - "../../ascon/rtl/AsconRound.bsv"
-    - "../../ascon/rtl/AsconCipher.bsv"
-    - "../../ascon/rtl/Ascon.bsv"
-    - "../../ascon/rtl/AsconStream.bsv"
     - "../rtl/LeanLinkTestTop.bsv"
     - "../rtl/LeanLinkBoard.bsv"
   top: mkLeanLinkBoard
@@ -26,6 +13,11 @@ rtl:
     LL_LOGP: 8
     LL_APP_ASCON: true
     UNROLL_FACTOR: 1
+dependencies:
+  - "../../uart/uart-library.yaml"
+  - uri: "../../ascon/ascon-stream-library.yaml"
+    rtl:
+      pos: 6
 tb:
   sources:
     - "stream_apps.py"

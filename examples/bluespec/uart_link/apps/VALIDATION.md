@@ -1,6 +1,6 @@
 # UART streaming validation
 
-This report records focused protocol, area, host simulation, FPGA flow, repository test, and physical board results. The full repository suite completed with seven failures; later focused reruns resolved five of those outcomes. Two unrelated Yosys/GHDL plugin tests remain unresolved. All four boards were connected for final SRAM programming and hardware self-tests.
+This report records focused protocol, area, host simulation, FPGA flow, repository test, and physical board results. The first full-suite run was a diagnostic run and failed; a later rerun of its 105 failed nodes passed 103 and left two GHDL-plugin failures. The final full-suite run after the reviewed candidate commit is pending. All four boards were connected for final SRAM programming and hardware self-tests.
 
 ## Scope and source identity
 
@@ -39,31 +39,57 @@ The final transport hashes are LeanLink `de33e8162816107bab065c0fe712ef15b26168b
 | `examples/bluespec/uart_link/rtl/LeanLinkBoard.bsv` | `62f0fde99e1d9f0a5a1223c28db8bf28837c8c5dbac07da6c668eb154d651386` |
 | `examples/bluespec/uart_link/rtl/LeanLinkTestTop.bsv` | `7a4684587c91feed1f9728c047fb4cf6bf1e73884ff8d159f29e10cfd25c5d2b` |
 | `examples/bluespec/uart_link/rtl/StreamExchange.bsv` | `c8b12623bc3ce00065f173b1bc556061c854f296bd15613a256d8e5864586f04` |
-| `examples/bluespec/uart_link/apps/gcd.yaml` (current STLV config) | `736c1568eb30fe910b69f791578e02d928e6331b2f4db58c55dd03ede6178522` |
-| `examples/bluespec/uart_link/apps/ascon.yaml` (current STLV config) | `20b5197bcfec9a2cb0e465b930835b29950de1a29ccc805ca665817331444a31` |
+| `examples/bluespec/uart_link/apps/gcd.yaml` (STLV build-manifest config at measurement time) | `736c1568eb30fe910b69f791578e02d928e6331b2f4db58c55dd03ede6178522` |
+| `examples/bluespec/uart_link/apps/ascon.yaml` (STLV build-manifest config at measurement time) | `20b5197bcfec9a2cb0e465b930835b29950de1a29ccc805ca665817331444a31` |
 
-The final STLV manifests used the two current config hashes shown above. During PR preparation, I removed an extra trailing blank line from each checked-in application YAML file. Their normalized current SHA-256 values are Ascon `396da341108579e790a6b67e88a749695e930db53725a00abf451a979a188afa` and GCD `81ad770d5e51bdd95ccec813bbe8ea519109e84c060ae04d2bd2f791d2a21ea2`. The YAML content is otherwise unchanged. The measured hardware results map to the original manifest hashes; the checked-in RTL and host source hashes still match the measured source hashes above.
+These hashes identify the YAML files used for the STLV build manifests, before the source-library refactor. The checked-in YAML files now use dependencies. Their current SHA-256 values are Ascon `787de50dd8dc739a6e4e83a96f604d642a989dd6cfb3d76dee22f2decc9319d5` and GCD `a5b1e3d2f4649f6161b0df5548707fc1efd7543a20940dec88f3b41904d4e8b0`. A fresh pure-Python comparison resolved all 62 baseline variants. Their flattened RTL and testbench source paths, types, order, tops, clocks, defines, parameters, and effective flow settings match. The 42 source-content hash differences are limited to `host/leanlink/stream.py`, `host/leanlink/applications.py`, and `apps/stream_apps.py`; each file appears in 14 app variants. These are Python host or simulation sources, not RTL changes. The machine-readable comparison records every variant and source hash.
 
 ## Focused behavior and application simulations
 
 Strict public-pin regressions passed for Ascon40 W8/P256 and W1/P64 (10/10 cases each), and GCD64/32 W8/P256 and W1/P64 (1/1 case each). They observe `coreReset`, data, and handshake pins. Coverage includes status 0 with accepted-prefix reporting under backpressure, host suffix retry, maximum legal packets, empty and malformed requests, a stalled input followed by polling, ordered multiword requests, response rewind without reexecution, CRC recovery, and OPEN while an older response is queued. The Ascon W8 case reaches 48 complete 40-bit words; W1/P64 reaches its maximum legal packet. Generic transport widths 1 through 7, 9, and 13 passed.
 
-The GCD public-pin client polls until all results arrive. A first response may accept a prefix and require a later poll; this is expected backpressure behavior. The byte and UART host simulations passed for GCD, Ascon-128, and Ascon-128a. Ascon-128 and Ascon-128a passed the 61 independent reference vectors and long-stream host cases. These are simulator results, not physical UART tests.
+The GCD public-pin client polls until all results arrive. A first response may accept a prefix and require a later poll; this is expected backpressure behavior. The GCD byte and UART-pin application cosimulations passed in the first full-suite run. Four Ascon byte and UART-pin cosimulations initially failed because the host test sliced a generator. After that fix, all four Ascon cases passed in the frozen rerun. The independent Ascon vector and long-stream host checks also passed. These results are simulator tests, not physical UART tests.
+
+## Direct reusable-library tests
+
+The seven library YAML defaults have no active testbench. Each library has explicit direct test targets. All 19 target commands below passed and printed `PASS` in BSC Bluesim:
+
+```bash
+xeda run bsc_sim examples/bluespec/uart/uart-library.yaml --target sim
+xeda run bsc_sim examples/bluespec/uart_link/leanlink-library.yaml --target test
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target test
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target gcd
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target width1
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target width2
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target width3
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target width4
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target width5
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target width6
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target width7
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target width9
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target width13
+xeda run bsc_sim examples/bluespec/gcd/gcd-library.yaml --target unit
+xeda run bsc_sim examples/bluespec/gcd/gcd-stream-library.yaml --target stream
+xeda run bsc_sim examples/bluespec/ascon/ascon-library.yaml --target core
+xeda run bsc_sim examples/bluespec/ascon/ascon-stream-library.yaml --target stream_vectors
+xeda run bsc_sim examples/bluespec/ascon/ascon-stream-library.yaml --target stream_validation
+xeda run bsc_sim examples/bluespec/ascon/ascon-stream-library.yaml --target stream_backpressure
+```
 
 ## Logic area
 
-The area matrix uses canonical Yosys 0.70+post and complete observable tops with reset, data, and handshake ports. Logic LUTs and distributed-RAM LUT equivalents are separate.
+The fresh area matrix below ran in the full repository test suite with BSC 2026.07.1, Yosys 0.70+179, and bundled Yosys-ABC 1.01 on `xc7a100tcsg324-1` at 10 ns. The test checks complete observable tops with clock, reset, data, and handshake ports, including `coreReset` for the adapters. Logic LUTs and distributed-RAM LUT equivalents are separate. It checks all six profiles in `tests/test_uart_stream_area.py`.
 
 | Complete top | Width / packet | Logic LUT | RAM LUT | Total LUT | FF | CARRY4 | RAMB18 | Ports / bits |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| GCD64/32 | W8/P256 | 498 | 8 | 506 | 679 | 42 | 2 | 15 / 123 |
-| GCD64/32 | W1/P64 | 451 | 24 | 475 | 679 | 31 | 0 | 15 / 123 |
-| Ascon40 | W8/P256 | 495 | 8 | 503 | 649 | 44 | 2 | 15 / 107 |
-| Ascon40 | W1/P64 | 449 | 24 | 473 | 649 | 33 | 0 | 15 / 107 |
-| Bare LeanLink | W8/P256 | 384 | 8 | 392 | 460 | 38 | 2 | 20 / 66 |
-| Bare LeanLink | W1/P64 | 335 | 24 | 359 | 462 | 28 | 0 | 20 / 66 |
+| GCD64/32 | W8/P256 | 489 | 8 | 497 | 680 | 42 | 2 | 15 / 123 |
+| GCD64/32 | W1/P64 | 443 | 24 | 467 | 679 | 31 | 0 | 15 / 123 |
+| Ascon40 | W8/P256 | 491 | 8 | 499 | 650 | 44 | 2 | 15 / 107 |
+| Ascon40 | W1/P64 | 450 | 24 | 474 | 649 | 33 | 0 | 15 / 107 |
+| Bare LeanLink | W8/P256 | 384 | 8 | 392 | 461 | 38 | 2 | 20 / 66 |
+| Bare LeanLink | W1/P64 | 340 | 24 | 364 | 462 | 28 | 0 | 20 / 66 |
 
-All four complete application profiles meet the 500 logic LUT limit. Peak complete-top logic use is GCD64/32 W8/P256 at 498 LUT; Ascon40 W8/P256 uses 495 LUT.
+All four complete application profiles meet the 500 logic LUT limit. The highest fresh complete-top logic count is Ascon40 W8/P256 at 491 LUT. Earlier scratch runs reported adapter logic counts of 498/451 for GCD W8/W1 and 495/449 for Ascon40 W8/W1, and bare LeanLink counts of 384/335. Those historical measurements used a different Yosys build and are not the current gate results.
 
 ## Board build timing, resources, and bitstream identity
 
@@ -109,20 +135,20 @@ Vivado could not provide an independent STLV cross-check because the available v
 
 ## Reproduction and board checks
 
-The final application images were programmed to SRAM only. No flash was written. To build and program from the checked-in application designs, use Xeda's `openfpgaloader` flow with the matching target. PR #236 is present in this worktree history. The flow compares FPGA JTAG IDs with each target's part and selects the matching FTDI probe when multiple probes share the cable type.
+The final application images were programmed to SRAM only. No flash was written. The Artix-7 images used Vivado for synthesis and programming; the reproduction commands select `vivado_synth+openfpgaloader`. ULX3S and STLV7325 use the configured open-source flow through `openfpgaloader`. PR #236 is present in this worktree history. The flow compares FPGA JTAG IDs with each target's part and selects the matching FTDI probe when multiple probes share the cable type. Earlier Xeda-only programming checks used prebuilt typed bitstreams; they do not replace these source-build commands.
 
 ```bash
-xeda run openfpgaloader examples/bluespec/uart_link/apps/gcd.yaml --target arty
-xeda run openfpgaloader examples/bluespec/uart_link/apps/gcd.yaml --target basys3
+xeda run vivado_synth+openfpgaloader examples/bluespec/uart_link/apps/gcd.yaml --target arty
+xeda run vivado_synth+openfpgaloader examples/bluespec/uart_link/apps/gcd.yaml --target basys3
 xeda run openfpgaloader examples/bluespec/uart_link/apps/gcd.yaml --target ulx3s
 xeda run openfpgaloader examples/bluespec/uart_link/apps/gcd.yaml --target stlv7325
-xeda run openfpgaloader examples/bluespec/uart_link/apps/ascon.yaml --target arty
-xeda run openfpgaloader examples/bluespec/uart_link/apps/ascon.yaml --target basys3
+xeda run vivado_synth+openfpgaloader examples/bluespec/uart_link/apps/ascon.yaml --target arty
+xeda run vivado_synth+openfpgaloader examples/bluespec/uart_link/apps/ascon.yaml --target basys3
 xeda run openfpgaloader examples/bluespec/uart_link/apps/ascon.yaml --target ulx3s
 xeda run openfpgaloader examples/bluespec/uart_link/apps/ascon.yaml --target stlv7325
 ```
 
-Ascon-128a uses the Ascon design with the `ASCON128A=true` compile define. For example, add `-s rtl.defines.ASCON128A=true` to the Ascon command. The openFPGALoader flow defaults to SRAM (`write_flash: false`). The STLV target uses the openXC7 chain and its 50 MHz core clock generated from the physical 200 MHz input.
+Ascon-128a uses the Ascon design with the `ASCON128A=true` compile define. For example, add `--design-overrides rtl.defines.ASCON128A=true` to the Ascon command. The openFPGALoader flow defaults to SRAM (`write_flash: false`). The STLV target uses the openXC7 chain and its 50 MHz core clock generated from the physical 200 MHz input.
 
 If you use the raw loader as a fallback, name the probe explicitly when multiple boards of one cable type are connected. The board-specific JTAG IDs, serial numbers, and UART device paths are retained in the local hardware records. For example, explicit raw SRAM programming uses `openFPGALoader -b arty_a7_100t --usb-serial-num SERIAL --write-sram IMAGE.bit`. Set `SERIAL` to the connected board's JTAG serial. Do not omit the serial when both Artix probes are connected.
 
@@ -136,6 +162,8 @@ python3 examples/bluespec/uart_link/host/app_suite.py --port "$STLV7325_PORT" --
 ```
 
 All 12 image/board combinations passed these public hardware checks. The 4 GCD images each returned the exact expected results for all 1,004 pairs. All 8 Ascon images passed the 61 independent vectors, long-message encryption and decryption, long hash, key reuse after hash, and incorrect-tag rejection. The loaded image hashes match the 12 bitstream hashes in the table above. Every operation used SRAM programming; power cycle or reconfiguration removes the image. During the separate response-loss recovery pass below, the GCD image was loaded on all four boards. Arty was restored to the Ascon-128 image for throughput measurement and held that image at the end of validation; Basys-3, ULX3S, and STLV7325 held their GCD images.
+
+The 12-image results above were collected before the bounded-input host-client change. The RTL and programmed images did not change. After that host update, I ran the public self-test against the four then-loaded SRAM images without reprogramming: Arty Ascon-128 passed 61 vectors and long encrypt/decrypt, hash, key-reuse, and bad-tag checks; Basys-3, ULX3S, and STLV7325 each passed 1,004 GCD cases. This validates the final host source on four loaded image/board combinations. It does not claim a new host-client run across all 12 combinations. The tested host sources are `stream.py` SHA-256 `8d7d13f8c10e814251ff3a923c6fe09ea1cb3920365191ec5fcfe8e74d8edff0` and `applications.py` SHA-256 `816f8b14cff394f1820a808e119b42659c1ae2b15a48b280edfb0b05bddec5fc`.
 
 The Xeda flow was also exercised with typed prebuilt bitstreams from the final manifest on all four boards. For Arty and Basys-3, both Digilent JTAG probes were connected at once. Xeda read both ID codes and selected the probe that matched each target's FPGA. The ULX3S FT231X cable and STLV FT4232 cable each had one matching probe, so Xeda used their board-specific cable without a serial override. Each Xeda load was followed by a successful 1,004-case GCD self-test. The tested Xeda version includes the probe selector from PR #236.
 
@@ -156,7 +184,7 @@ The Xeda flow was also exercised with typed prebuilt bitstreams from the final m
 
 ### Large-batch throughput
 
-These are measured application transfer times on the Arty at 12 Mbaud, with the manifest-matched GCD and Ascon-128 images. Each backend used a fresh session and RESET; UART counters were cleared after RESET before each timed operation. The FTDI backend used channel B with a 1 ms latency timer and event character 0. The application goodput is application input bytes divided by operation time. UART byte counts are the actual bytes written and read by the backend during the timed operation. The 1.2 MB/s figure is the theoretical one-direction 8N1 byte rate at 12 Mbaud; it is not measured payload throughput.
+These application transfer times were measured on the Arty at 12 Mbaud, before the bounded-input host-client update, using the manifest-matched GCD and Ascon-128 images. They are not throughput measurements of the final host client. Each backend used a fresh session and RESET; UART counters were cleared after RESET before each timed operation. The FTDI backend used channel B with a 1 ms latency timer and event character 0. The application goodput is application input bytes divided by operation time. UART byte counts are the actual bytes written and read by the backend during the timed operation. The 1.2 MB/s figure is the theoretical one-direction 8N1 byte rate at 12 Mbaud; it is not measured payload throughput. The final host client passed byte and UART simulations and was smoke-tested on the four previously loaded images; no new throughput benchmark was run after that host update.
 
 The 10,000 GCD result values were each compared with Python `math.gcd`; both backends produced the same result SHA-256. For the 64 KiB hash, the digest SHA-256 matched between backends. This large digest was not checked against a separate software oracle; the independent Ascon vector and long-hash checks are covered by the 61-vector self-tests. The large AEAD ciphertext and tag SHA-256 matched between backends. Each backend then decrypted that output on the FPGA, reusing the loaded key, and matched all 65,536 plaintext bytes exactly. The independent vectors and long reference cases are covered separately by the self-tests.
 
@@ -179,12 +207,16 @@ Per-image JTAG, programming, self-test, repeated-session, recovery, and Xeda flo
 
 ## Repository suite and remaining checks
 
-The final full repository suite completed with **22,732 passed, 405 skipped, 7 failed, and 15 warnings** in 1,298.90 seconds. After that run, a focused rerun passed 158 tests, including all six area tests, the changelog test, and two make-flag tests. Four owned failures were fixed: one changelog failure and three W1 area-test RAM mapping assumptions. The FST test failure came from missing Homebrew `CPATH` and `LIBRARY_PATH`; after setting those paths, its targeted rerun passed.
+The first full repository run was diagnostic and exited with code 1 after 5,336.97 seconds. It reported **23,517 passed, 424 skipped, 105 failed, one error, and 11 warnings**. Its six area profiles passed. They comprise four complete LeanLink plus StreamExchange adapter profiles and two standalone LeanLink measurements. Those fresh results use BSC 2026.07.1, the bundled OSS Yosys 0.70+179 and ABC 1.01, on `xc7a100tcsg324-1` at 10 ns.
 
-Two Yosys/GHDL tests remain unresolved. The installed plugin crashes at `netlists.adb:978`. Direct reproduction on unchanged upstream HEAD produced the same crash with both the Homebrew Yosys 0.70+post/GHDL 7 development toolchain and the OSS toolchain. Standalone GHDL synthesis works. No coherent installed plugin was found, and the UART implementation does not depend on these plugin tests. The full suite was not rerun after the focused fixes, so its result remains the seven-failure result above. Quality checks and catalog validation completed with exit code 0.
+That run's 81 Yosys ASIC mapping tests failed at `check -assert` with undriven mapped wires under the bundled OSS toolchain. A frozen rerun of the same 105 failed node IDs used a sanitized environment and Homebrew tools. It passed 103 nodes in 110.54 seconds with four workers. It used Homebrew Yosys 0.70+post, Verilator 5.052, BSC 2026.07.1, and GHDL 7.0.0-dev. All four Ascon application cosimulations, the terminal tests, makefile tests, chain documentation, changelog, and Yosys mapping cases passed. The two remaining failures are `tests/test_yosys.py::test_yosys_fpga_hands_ghdl_each_vhdl_file_once` and `tests/test_yosys.py::test_yosys_synth_py`. Both stop with `raised PROGRAM_ERROR : unhandled signal` in the installed GHDL/Yosys plugin. The worktree status and changed-file hashes were identical before and after this rerun.
 
-The raw full-suite log, status record, and preflight record were retained with the local validation evidence. They are not part of this repository.
+The first run's other failures were caused by its environment or by fixes applied while that diagnostic run was active. `NO_COLOR=1` disabled the PTY path in five openFPGALoader terminal tests. Inherited `CPPFLAGS=-I/opt/homebrew/include` changed the expected make flags in two Verilator tests; `CPATH` was retained for the FST test. The checkout guard detected files changed after collection started, so that teardown error does not establish a failure in the initial worktree. The chain and changelog failures were fixed by updating the resolved-design assertion and adding the required changelog bullet. The four Ascon cosim failures came from slicing a generator and are now fixed. A targeted FST test and all seven terminal/makefile cases pass with the sanitized environment.
+
+Focused dependency, schema, chain-documentation, changelog, and library tests passed 344 tests on the final report revision. The documentation test suite passed 377 tests. All 19 direct reusable-library simulation commands passed. Mypy, Black, the required Ruff check, catalog freshness, docs with warnings as errors, and `git diff --check` passed. Optional ORFS and PDK integration tests were skipped because their environment roots were not set. The final full repository run after the reviewed candidate commit is still pending.
+
+The first-run suite log, frozen 105-node rerun logs, status records, and source manifests remain in the local validation evidence set. They are not part of this repository.
 
 The host test environment used `pyserial==3.5`, `pyftdi==0.57.2`, and `pyusb==1.3.1`. The tool help and board listing were checked without opening a USB device; that check confirms software readiness only.
 
-Physical SRAM self-tests and serial-versus-FTDI throughput measurements are complete for the final 12 images. No nonvolatile flash was written. The two unresolved repository-suite failures are the Yosys/GHDL plugin tests described above.
+Physical SRAM self-tests are complete for the 12 final image/board combinations. The serial-versus-FTDI throughput measurements shown above cover the Arty images and use the earlier host-client version; no throughput benchmark ran after the bounded-input client update. No nonvolatile flash was written. The two GHDL/Yosys plugin tests remain unresolved in the frozen rerun. The final full-suite result is pending.

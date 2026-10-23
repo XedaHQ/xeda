@@ -264,12 +264,14 @@ def test_ascon_wire_words_have_exact_start_key_nonce_and_partial_segment_metadat
 
 def test_ascon40_client_word_bytes_match_the_little_endian_exchange_contract():
     _, apps = modules()
-    words = apps._ascon_stream_words40(
-        "encrypt",
-        key=bytes(range(16)),
-        nonce=bytes(range(16, 32)),
-        associated_data=b"",
-        message=b"\x11\x22\x33\x44",
+    words = list(
+        apps._ascon_stream_words40(
+            "encrypt",
+            key=bytes(range(16)),
+            nonce=bytes(range(16, 32)),
+            associated_data=b"",
+            message=b"\x11\x22\x33\x44",
+        )
     )
     assert words[0] == bytes.fromhex("1004000000")
     assert words[1] == bytes.fromhex("2f00010203")

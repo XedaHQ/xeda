@@ -1,0 +1,10 @@
+name: gcd_core
+description: Reusable transport-independent GCD core source library.
+rtl.sources:
+  - "rtl/GcdEngine.bsv"
+  - "rtl/GcdUnit.bsv"
+targets:
+  unit:
+    tb.sources:
+      - "tb/TbGcdUnit.bsv"
+    tb.top: mkTbGcdUnit

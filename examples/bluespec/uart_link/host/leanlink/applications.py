@@ -9,8 +9,9 @@ from __future__ import annotations
 import hmac
 import re
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 
 from .device import LinkDevice
@@ -86,7 +87,7 @@ def _ascon_stream_words40(
     nonce: bytes | None = None,
     associated_data: bytes = b"",
     message: bytes = b"",
-) -> list[bytes]:
+) -> Iterator[bytes]:
     """Encode the 40-bit stream endpoint format: metadata, then four little-endian data bytes."""
     if operation not in ("encrypt", "decrypt", "hash"):
         raise ValueError("operation must be encrypt, decrypt, or hash")
@@ -95,7 +96,12 @@ def _ascon_stream_words40(
     if operation == "hash":
         if key is not None or nonce is not None or associated_data:
             raise ValueError("hash uses no key, nonce, or associated data")
-        return [_ascon_start40(2), *_ascon_segment_words40(message, 5)]
+
+        def hash_words() -> Iterator[bytes]:
+            yield _ascon_start40(2)
+            yield from _ascon_segment_words40(message, 5)
+
+        return hash_words()
     if nonce is None or len(_bytes(nonce, "nonce")) != 16:
         raise ValueError("nonce must contain 16 bytes")
     nonce = bytes(nonce)
@@ -105,36 +111,37 @@ def _ascon_stream_words40(
             raise ValueError("key must contain 16 bytes")
     operation_code = int(operation == "decrypt")
     start_data = operation_code | (int(key is not None) << 2)
-    words = [_ascon_start40(start_data)]
-    if key is not None:
-        words.extend(_ascon_full_words40(key, 1))
-    words.extend(_ascon_full_words40(nonce, 2))
-    words.extend(_ascon_segment_words40(associated_data, 3))
-    words.extend(_ascon_segment_words40(message, 4))
-    return words
+
+    def words() -> Iterator[bytes]:
+        yield _ascon_start40(start_data)
+        if key is not None:
+            yield from _ascon_full_words40(key, 1)
+        yield from _ascon_full_words40(nonce, 2)
+        yield from _ascon_segment_words40(associated_data, 3)
+        yield from _ascon_segment_words40(message, 4)
+
+    return words()
 
 
 def _ascon_start40(data: int) -> bytes:
     return bytes([0x10]) + data.to_bytes(4, "little")
 
 
-def _ascon_full_words40(data: bytes, kind: int) -> list[bytes]:
-    chunks = [data[offset : offset + 4] for offset in range(0, len(data), 4)]
-    return [
-        bytes([(kind << 5) | 0x0F | (int(index == len(chunks) - 1) << 4)]) + chunk
-        for index, chunk in enumerate(chunks)
-    ]
+def _ascon_full_words40(data: bytes, kind: int) -> Iterator[bytes]:
+    count = len(data) // 4
+    for index, offset in enumerate(range(0, len(data), 4)):
+        chunk = data[offset : offset + 4]
+        yield bytes([(kind << 5) | 0x0F | (int(index == count - 1) << 4)]) + chunk
 
 
-def _ascon_segment_words40(data: bytes, kind: int) -> list[bytes]:
-    chunks = [data[offset : offset + 4] for offset in range(0, len(data), 4)] or [b""]
-    words = []
-    for index, chunk in enumerate(chunks):
-        last = index == len(chunks) - 1
+def _ascon_segment_words40(data: bytes, kind: int) -> Iterator[bytes]:
+    count = (len(data) + 3) // 4 or 1
+    for index in range(count):
+        chunk = data[index * 4 : index * 4 + 4]
+        last = index == count - 1
         keep = (1 << len(chunk)) - 1
         metadata = (kind << 5) | (int(last) << 4) | keep
-        words.append(bytes([metadata]) + chunk.ljust(4, b"\0"))
-    return words
+        yield bytes([metadata]) + chunk.ljust(4, b"\0")
 
 
 @dataclass(frozen=True)
@@ -272,18 +279,30 @@ class GcdClient:
         self.stream.reset(timeout)
 
     def gcd_many(self, pairs: Iterable[tuple[int, int]], timeout: float = 5.0) -> list[int]:
-        words = []
-        for a, b in pairs:
-            if (
-                not isinstance(a, int)
-                or not isinstance(b, int)
-                or not 0 <= a <= 0xFFFFFFFF
-                or not 0 <= b <= 0xFFFFFFFF
-            ):
-                raise ValueError("GCD operands must be unsigned 32-bit integers")
-            words.append(a.to_bytes(4, "little") + b.to_bytes(4, "little"))
-        output = self.stream.transfer(words, output_words=len(words), timeout=timeout)
-        return [int.from_bytes(word, "little") for word in output]
+        self.stream._timeout(timeout)
+        self.stream.check_session()
+        maximum = (self.stream._limits()[0] - 1) // self.stream.input_bytes
+        deadline = self.stream._clock() + timeout
+        pending_pairs = iter(pairs)
+        output: list[int] = []
+        while batch := list(islice(pending_pairs, maximum)):
+            words = []
+            for a, b in batch:
+                if (
+                    not isinstance(a, int)
+                    or not isinstance(b, int)
+                    or not 0 <= a <= 0xFFFFFFFF
+                    or not 0 <= b <= 0xFFFFFFFF
+                ):
+                    raise ValueError("GCD operands must be unsigned 32-bit integers")
+                words.append(a.to_bytes(4, "little") + b.to_bytes(4, "little"))
+            remaining = deadline - self.stream._clock()
+            if remaining <= 0:
+                self.stream.invalidate()
+                raise TimeoutError("stream transfer did not finish before its deadline")
+            result = self.stream.transfer(words, output_words=len(words), timeout=remaining)
+            output.extend(int.from_bytes(word, "little") for word in result)
+        return output
 
     def gcd(self, a: int, b: int, timeout: float = 5.0) -> int:
         return self.gcd_many([(a, b)], timeout)[0]

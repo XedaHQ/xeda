@@ -1,0 +1,23 @@
+name: ascon_stream
+description: Ascon stream adapter composed with StreamExchange and the Ascon core.
+dependencies:
+  - "../uart_link/stream-exchange-library.yaml"
+  - uri: "ascon-library.yaml"
+    rtl:
+      pos: 2
+rtl.sources:
+  - "rtl/AsconStream.bsv"
+targets:
+  stream_vectors:
+    tb.sources:
+      - "tb/AsconVectors.bsv"
+      - "tb/TbAsconStreamVectors.bsv"
+    tb.top: mkTbAsconStreamVectors
+  stream_validation:
+    tb.sources:
+      - "tb/TbAsconStreamValidation.bsv"
+    tb.top: mkTbAsconStreamValidation40
+  stream_backpressure:
+    tb.sources:
+      - "tb/TbAsconStreamBackpressure.bsv"
+    tb.top: mkTbAsconStreamBackpressure

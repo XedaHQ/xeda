@@ -14,14 +14,7 @@ description: >-
   reverseBits(b) ^ 8'hB1 for each byte b, so that a host test can tell a design from a hardwired
   TXD to RXD loopback.
 rtl:
-  # The PHY of the uart example comes first; the package that defines `top` comes last.
   sources:
-    - "../uart/rtl/RingFifo.bsv"
-    - "../uart/rtl/UartTypes.bsv"
-    - "../uart/rtl/BitTimer.bsv"
-    - "../uart/rtl/UartRx.bsv"
-    - "../uart/rtl/UartTx.bsv"
-    - "../uart/rtl/Uart.bsv"
     - "rtl/UartEcho.bsv"
   top: mkUartEcho
   clock.port: CLK
@@ -34,6 +27,8 @@ rtl:
   defines.BAUD: 12000000
   defines.FIXED_BAUD: 1
   defines.ECHO_TRANSFORM: 0
+dependencies:
+  - "../uart/uart-library.yaml"
 tb:
   sources:
     - "../uart/tb/TbUartModels.bsv"

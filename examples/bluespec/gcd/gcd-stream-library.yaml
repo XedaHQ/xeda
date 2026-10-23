@@ -1,0 +1,20 @@
+name: gcd_stream
+description: GCD stream adapter composed with StreamExchange and the GCD core.
+dependencies:
+  - "../uart_link/stream-exchange-library.yaml"
+  - uri: "gcd-library.yaml"
+    rtl:
+      pos: 2
+rtl.sources:
+  - "rtl/GcdStream.bsv"
+targets:
+  stream:
+    dependencies:
+      - "../uart_link/stream-exchange-library.yaml"
+      - uri: "gcd-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "../uart_link/tb/TbStreamExchange.bsv"
+    rtl.top: mkTbGcdStream
+    tb.sources: []

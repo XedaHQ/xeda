@@ -2,11 +2,11 @@ name: uart_link_area
 description: Complete LeanLink and StreamExchange area tops for the UART link LUT gate.
 rtl:
   sources:
-    - "../rtl/LeanLink.bsv"
-    - "../rtl/StreamExchange.bsv"
     - "StreamAreaTops.bsv"
   top: mkAreaGcdW8P256
   clock.port: CLK
+dependencies:
+  - "../stream-exchange-library.yaml"
 flows:
   yosys_fpga:
     fpga.part: xc7a100tcsg324-1

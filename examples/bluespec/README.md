@@ -57,6 +57,29 @@ The FPGA configurations are resource and timing estimates without pins. A board 
 wrapper and constraints, as the targets of [`uart_echo`](#uart_echo-a-uart-echo-demo-for-three-boards)
 have.
 
+## Reusable Bluespec libraries
+
+The UART PHY, LeanLink, StreamExchange, GCD, and Ascon source groups are available as design files
+with no active testbench. Their test targets select the existing benches, so each library can also
+be run directly:
+
+```bash
+xeda run bsc_sim examples/bluespec/uart/uart-library.yaml --target sim
+xeda run bsc_sim examples/bluespec/uart_link/leanlink-library.yaml --target test
+xeda run bsc_sim examples/bluespec/uart_link/stream-exchange-library.yaml --target test
+xeda run bsc_sim examples/bluespec/gcd/gcd-library.yaml --target unit
+xeda run bsc_sim examples/bluespec/gcd/gcd-stream-library.yaml --target stream
+xeda run bsc_sim examples/bluespec/ascon/ascon-library.yaml --target core
+xeda run bsc_sim examples/bluespec/ascon/ascon-stream-library.yaml --target stream_vectors
+```
+
+The StreamExchange library also has `gcd`, `width1` through `width7`, `width9`, and `width13`
+targets. The Ascon stream library has `stream_validation` and `stream_backpressure` targets.
+Standalone examples and applications use these libraries as dependencies.
+Xeda inserts dependencies at `rtl.pos`, which defaults to zero. The manifests set a position only
+when a dependency must follow earlier sources; those nonzero positions preserve the current package
+order.
+
 ## gcd: multi-package BSV
 
 A GCD accelerator with a Get/Put (`Server`) interface. `mkGcdUnit` hands requests round-robin

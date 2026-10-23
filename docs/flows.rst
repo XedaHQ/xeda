@@ -2028,12 +2028,11 @@ OpenROAD flows. Every other setting keeps its default:
       another package. The testbench checks 200 directed and LFSR-driven requests against Euclid's
       algorithm.
     rtl:
-      # The package that defines `top` comes last.
-      sources:
-        - "rtl/GcdEngine.bsv"
-        - "rtl/GcdUnit.bsv"
+      sources: []
       top: mkGcdUnit
       clock.port: CLK
+    dependencies:
+      - "gcd-library.yaml"
     tb:
       sources:
         - "tb/TbGcdUnit.bsv"

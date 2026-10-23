@@ -13,6 +13,7 @@ import os
 import random
 import sys
 from collections import deque
+from itertools import islice
 from pathlib import Path
 
 import cocotb
@@ -247,7 +248,7 @@ def check_ascon(device, backend, variant_a):
         "7346bc14f036e87ae03d0997913088f5f68411434b3cf8b54fa796a80d251f91"
     )
     # Lose the session while the core waits for the remaining key words.
-    partial = _ascon_stream_words40("encrypt", key=key, nonce=nonce)[:3]
+    partial = list(islice(_ascon_stream_words40("encrypt", key=key, nonce=nonce), 3))
     accepted, output = client.stream.exchange(partial)
     assert accepted == len(partial) and not output
     device.open(timeout=0.1)

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 
 from .device import LinkDevice
 from .protocol import LinkError
@@ -95,6 +95,15 @@ class StreamClient:
             result.append(bytes(word))
         return result
 
+    def _word_iterator(self, words: Iterable[bytes]) -> Iterator[bytes]:
+        for word in words:
+            if (
+                not isinstance(word, (bytes, bytearray, memoryview))
+                or len(word) != self.input_bytes
+            ):
+                raise ValueError(f"each input word must contain {self.input_bytes} bytes")
+            yield bytes(word)
+
     def exchange(
         self, words: Iterable[bytes] = (), timeout: float = 5.0
     ) -> tuple[int, list[bytes]]:
@@ -144,27 +153,36 @@ class StreamClient:
         self.check_session()
         if output_words < 0:
             raise ValueError("output_words must be nonnegative")
-        pending = self._words(words)
         maximum = (self._limits()[0] - 1) // self.input_bytes
+        pending: list[bytes] = []
+        inputs = self._word_iterator(words)
+        exhausted = False
         deadline = self._clock() + timeout
-        admitted = 0
         output: list[bytes] = []
+        exchange_attempted = False
         try:
-            while admitted < len(pending) or len(output) < output_words:
+            while True:
+                while len(pending) < maximum and not exhausted:
+                    try:
+                        pending.append(next(inputs))
+                    except StopIteration:
+                        exhausted = True
+                if not pending and len(output) >= output_words:
+                    break
                 remaining = deadline - self._clock()
                 if remaining <= 0:
                     raise TimeoutError("stream transfer did not finish before its deadline")
-                accepted, received = self.exchange(
-                    pending[admitted : admitted + maximum], timeout=remaining
-                )
+                exchange_attempted = True
+                accepted, received = self.exchange(pending, timeout=remaining)
                 if len(output) + len(received) > output_words:
                     raise StreamProtocolError("the application returned too many output words")
-                admitted += accepted
+                del pending[:accepted]
                 for word in received:
                     if on_output is not None:
                         on_output(word)
                     output.append(word)
             return output
         except BaseException:
-            self.invalidate()
+            if exchange_attempted:
+                self.invalidate()
             raise
