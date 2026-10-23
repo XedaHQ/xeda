@@ -42,6 +42,8 @@ The final transport hashes are LeanLink `de33e8162816107bab065c0fe712ef15b26168b
 | `examples/bluespec/uart_link/apps/gcd.yaml` (current STLV config) | `736c1568eb30fe910b69f791578e02d928e6331b2f4db58c55dd03ede6178522` |
 | `examples/bluespec/uart_link/apps/ascon.yaml` (current STLV config) | `20b5197bcfec9a2cb0e465b930835b29950de1a29ccc805ca665817331444a31` |
 
+The final STLV manifests used the two current config hashes shown above. During PR preparation, I removed an extra trailing blank line from each checked-in application YAML file. Their normalized current SHA-256 values are Ascon `396da341108579e790a6b67e88a749695e930db53725a00abf451a979a188afa` and GCD `81ad770d5e51bdd95ccec813bbe8ea519109e84c060ae04d2bd2f791d2a21ea2`. The YAML content is otherwise unchanged. The measured hardware results map to the original manifest hashes; the checked-in RTL and host source hashes still match the measured source hashes above.
+
 ## Focused behavior and application simulations
 
 Strict public-pin regressions passed for Ascon40 W8/P256 and W1/P64 (10/10 cases each), and GCD64/32 W8/P256 and W1/P64 (1/1 case each). They observe `coreReset`, data, and handshake pins. Coverage includes status 0 with accepted-prefix reporting under backpressure, host suffix retry, maximum legal packets, empty and malformed requests, a stalled input followed by polling, ordered multiword requests, response rewind without reexecution, CRC recovery, and OPEN while an older response is queued. The Ascon W8 case reaches 48 complete 40-bit words; W1/P64 reaches its maximum legal packet. Generic transport widths 1 through 7, 9, and 13 passed.
