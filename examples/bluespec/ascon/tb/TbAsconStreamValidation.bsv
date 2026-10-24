@@ -1,4 +1,4 @@
-package TbAsconStreamValidation40;
+package TbAsconStreamValidation;
 
 import Clocks :: *;
 import GetPut :: *;

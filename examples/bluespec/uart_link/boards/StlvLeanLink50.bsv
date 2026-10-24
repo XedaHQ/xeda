@@ -1,7 +1,6 @@
 // STLV7325 v2 wrapper with a physical 200 MHz input and a generated 50 MHz core clock.
 package StlvLeanLink50;
 
-import Clocks :: *;
 import LeanLinkBoard :: *;
 
 interface Clock50;
