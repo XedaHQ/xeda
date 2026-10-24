@@ -584,7 +584,9 @@ def test_cli_close_error_does_not_override_json_result(
     args = SimpleNamespace(command="gcd")
 
     assert cli.run_cli(args, execute) == status
-    assert capsys.readouterr().out == json.dumps(expected) + "\n"
+    captured = capsys.readouterr()
+    assert captured.out == json.dumps(expected) + "\n"
+    assert captured.err == "warning: device cleanup failed: close failed\n"
 
 
 def test_combined_selftest_variant_is_only_available_for_ascon(monkeypatch):
