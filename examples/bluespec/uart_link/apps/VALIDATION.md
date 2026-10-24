@@ -1,12 +1,12 @@
 # UART streaming validation
 
-This report records protocol, area, host simulation, FPGA flow, repository test, and physical board results. The final full-suite run passed 23,625 tests and skipped 420. Two tests failed in the installed GHDL/Yosys plugin. A later padding fix passed focused host and application tests and passed a final Arty Ascon-128 hardware self-test. The full repository suite was not rerun after that host-only fix. All FPGA programming used SRAM.
+This report records protocol, area, host simulation, FPGA flow, repository test, and physical board results from the revisions named below. The recorded full-suite run passed 23,625 tests and skipped 420. Two tests failed in the installed GHDL/Yosys plugin. A later padding fix passed focused host and application tests and passed an Arty Ascon-128 hardware self-test. The full repository suite was not rerun after that host-only fix. These measurements are historical; they are not fresh builds of the current worktree. All FPGA programming used SRAM.
 
 ## Scope and source identity
 
 The stream word is 40 bits: 32 payload bits and 8 metadata bits. Metadata has a 3-bit type, 1-bit last flag, and 4-bit keep mask. There is no message counter. The 500 logic LUT gate applies to the complete LeanLink plus StreamExchange; it excludes application cores, UART PHY, and board clock generation.
 
-The final transport hashes are LeanLink `de33e8162816107bab065c0fe712ef15b26168bd0728ffafdbb1820e30f7d0f3` and StreamExchange `c8b12623bc3ce00065f173b1bc556061c854f296bd15613a256d8e5864586f04`. The full source hash table below covers the 9 Artix/ULX3S images and 3 STLV images. The STLV wrapper, MMCM source, pin constraints, and generated-clock XDC are included. The per-run manifests listed at the end retain all source hashes and flow identities. Strict transport bench hashes are `TbStreamExchange.bsv` `5652ebe0a2449f63565d14c4733940f5aeac18f3b7718a52c92dde4660edded6` and `tb/stream_exchange.yaml` `d7540dcea2e542362923308ca1ad4793c120c7e509b10d0858a41cdab48d16e5`.
+The measured transport hashes are LeanLink `de33e8162816107bab065c0fe712ef15b26168bd0728ffafdbb1820e30f7d0f3` and StreamExchange `c8b12623bc3ce00065f173b1bc556061c854f296bd15613a256d8e5864586f04`. The source hash table below covers the recorded 9 Artix/ULX3S images and 3 STLV images. It lists the files used by those bitstreams, including the STLV wrapper, MMCM source, pin constraints, and generated-clock constraint file. The per-run manifests retain the build-time source hashes and flow identities. Strict transport bench hashes are `TbStreamExchange.bsv` `5652ebe0a2449f63565d14c4733940f5aeac18f3b7718a52c92dde4660edded6` and `tb/stream_exchange.yaml` `d7540dcea2e542362923308ca1ad4793c120c7e509b10d0858a41cdab48d16e5`.
 
 | Source path | Raw SHA-256 |
 |---|---|
@@ -28,13 +28,13 @@ The final transport hashes are LeanLink `de33e8162816107bab065c0fe712ef15b26168b
 | `examples/bluespec/uart_echo/boards/arty_a7_100t_sync.xdc` | `731e064c431b57133492ce0493998cefb0f0a2b12a028596c23f4257e760c5a1` |
 | `examples/bluespec/uart_echo/boards/ulx3s.lpf` | `7cd014b3cb9bd20cf6515d77b602e7a52bbbb76a8e24b4f3588a7eb099f0ba3d` |
 | `examples/bluespec/uart_link/apps/ascon.yaml` | `89d7e5f350d1141f3a9bafe40bafc9a1e8e93ce4a030a750b0fc17ed06bf40d8` |
-| `examples/bluespec/uart_link/apps/ascon128a.yaml` | `37b747c4a81bc89748fe584a9d9e0c3dc7af848443282ecbd7f539d87ba49486` |
+| `examples/bluespec/uart_link/apps/ascon128a.yaml` (historical STLV build-manifest config) | `37b747c4a81bc89748fe584a9d9e0c3dc7af848443282ecbd7f539d87ba49486` |
 | `examples/bluespec/uart_link/apps/gcd.yaml` | `0e1bd1fe020544799a4ee73b5085810bde12d1ea73b85c7719c5d700dfd8accc` |
 | `examples/bluespec/uart_link/boards/StlvClock50.v` | `7ee7169436f0040e225394de2c8fb1c2af22a34775775774f061bd57b666ec67` |
 | `examples/bluespec/uart_link/boards/StlvLeanLink50.bsv` | `dd7efee6372e89fea6796fe8fb5f661b78cefa765d3c8985f9300135df42edcf` |
 | `examples/bluespec/uart_link/boards/basys3.xdc` | `cc188f99d077277f7f2ac7f63fbf303e24a48cebcd47218c6bc6a01b94875e54` |
-| `examples/bluespec/uart_link/boards/stlv50.xdc` | `84416bb58ff5b698a33ca068d06bfa18756ca4ffdbef242dbc612bffb812be30` |
-| `examples/bluespec/uart_link/boards/stlv7325_v2.xdc` | `fb2f8ffd0492b1af1a06e9a34f798d00b5b6f116fc40c7f808c3b64f1ecab30e` |
+| `examples/bluespec/uart_link/boards/stlv50.xdc` (historical generated-clock build input) | `84416bb58ff5b698a33ca068d06bfa18756ca4ffdbef242dbc612bffb812be30` |
+| `examples/bluespec/uart_link/boards/stlv7325_v2.xdc` (historical board-pin build input) | `fb2f8ffd0492b1af1a06e9a34f798d00b5b6f116fc40c7f808c3b64f1ecab30e` |
 | `examples/bluespec/uart_link/rtl/LeanLink.bsv` | `de33e8162816107bab065c0fe712ef15b26168bd0728ffafdbb1820e30f7d0f3` |
 | `examples/bluespec/uart_link/rtl/LeanLinkBoard.bsv` | `62f0fde99e1d9f0a5a1223c28db8bf28837c8c5dbac07da6c668eb154d651386` |
 | `examples/bluespec/uart_link/rtl/LeanLinkTestTop.bsv` | `7a4684587c91feed1f9728c047fb4cf6bf1e73884ff8d159f29e10cfd25c5d2b` |
@@ -42,7 +42,7 @@ The final transport hashes are LeanLink `de33e8162816107bab065c0fe712ef15b26168b
 | `examples/bluespec/uart_link/apps/gcd.yaml` (STLV build-manifest config at measurement time) | `736c1568eb30fe910b69f791578e02d928e6331b2f4db58c55dd03ede6178522` |
 | `examples/bluespec/uart_link/apps/ascon.yaml` (STLV build-manifest config at measurement time) | `20b5197bcfec9a2cb0e465b930835b29950de1a29ccc805ca665817331444a31` |
 
-These hashes identify the YAML files used for the STLV build manifests before the source-library refactor. The checked-in YAML files now use dependencies. Their current SHA-256 values are Ascon `787de50dd8dc739a6e4e83a96f604d642a989dd6cfb3d76dee22f2decc9319d5` and GCD `a5b1e3d2f4649f6161b0df5548707fc1efd7543a20940dec88f3b41904d4e8b0`. A fresh pure-Python comparison resolved all 62 baseline variants. Their flattened RTL and testbench source paths, types, order, tops, clocks, defines, parameters, and effective flow settings match. The 42 source-content hash differences are limited to `host/leanlink/stream.py`, `host/leanlink/applications.py`, and `apps/stream_apps.py`; each file appears in 14 app variants. These are Python host or simulation sources, not RTL changes. The `xeda design-schema` schema now accepts the existing URI, local-path, and Git dependency forms. This schema change does not change design resolution. The machine-readable comparison records every variant and source hash.
+The historical STLV bitstreams used the local pin XDC and generated-clock XDC named in the table. The current targets use the bundled STLV board pin fallback, whose XDC has the same hash as the former local file, and `boards/stlv50.sdc` for the generated 20 ns core clock. The SDC file retains the same create_clock command as the former XDC. At review base commit `285292577a9a9713e69bf8212a21ed03dd5d84ad`, the dependency-enabled YAML SHA-256 values were Ascon `787de50dd8dc739a6e4e83a96f604d642a989dd6cfb3d76dee22f2decc9319d5` and GCD `a5b1e3d2f4649f6161b0df5548707fc1efd7543a20940dec88f3b41904d4e8b0`. These base-snapshot hashes do not identify the files after this constraint-path update. At the review-base snapshot, a pure-Python comparison resolved 62 baseline variants. It found matching flattened RTL and testbench paths, types, order, tops, clocks, defines, parameters, and effective flow settings, with 42 source-content hash differences limited to three Python files. That comparison predates later stream-helper and STLV constraint-source changes; it does not describe the current flattened sources. The `xeda design-schema` schema accepts the existing URI, local-path, and Git dependency forms. The machine-readable comparison records the comparison-time variants and hashes.
 
 ## Focused behavior and application simulations
 
@@ -78,7 +78,7 @@ xeda run bsc_sim examples/bluespec/ascon/ascon-stream-library.yaml --target stre
 
 ## Logic area
 
-The fresh area matrix below ran in the final full repository test suite with BSC 2026.07.1 and Homebrew Yosys 0.70+post on `xc7a100tcsg324-1` at 10 ns. The test checks complete observable tops with clock, reset, data, and handshake ports, including `coreReset` for the adapters. Logic LUTs and distributed-RAM LUT equivalents are separate. It checks all six profiles in `tests/test_uart_stream_area.py`.
+The recorded area matrix below ran in the full repository test suite with BSC 2026.07.1 and Homebrew Yosys 0.70+post on `xc7a100tcsg324-1` at 10 ns. The test checks complete observable tops with clock, reset, data, and handshake ports, including `coreReset` for the adapters. Logic LUTs and distributed-RAM LUT equivalents are separate. It checks all six profiles in `tests/test_uart_stream_area.py`.
 
 | Complete top | Width / packet | Logic LUT | RAM LUT | Total LUT | FF | CARRY4 | RAMB18 | Ports / bits |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -89,11 +89,11 @@ The fresh area matrix below ran in the final full repository test suite with BSC
 | Bare LeanLink | W8/P256 | 384 | 8 | 392 | 460 | 38 | 2 | 20 / 66 |
 | Bare LeanLink | W1/P64 | 335 | 24 | 359 | 462 | 28 | 0 | 20 / 66 |
 
-All four complete application profiles meet the 500 logic LUT limit. The highest complete-top logic count is GCD64/32 W8/P256 at 498 LUT. These counts use Yosys 0.70+post. Earlier measurements from the bundled Yosys 0.70+179 build were 489/443 for GCD W8/W1, 491/450 for Ascon40 W8/W1, and 384/340 for bare LeanLink W8/W1. They are historical and are not the final gate results.
+All four transport and adapter profiles meet the 500 logic LUT limit. The highest complete-top logic count is GCD64/32 W8/P256 at 498 LUT. These counts use Yosys 0.70+post. Earlier measurements from the bundled Yosys 0.70+179 build were 489/443 for GCD W8/W1, 491/450 for Ascon40 W8/W1, and 384/340 for bare LeanLink W8/W1. They are historical and are not the final gate results.
 
 ## Board build timing, resources, and bitstream identity
 
-All 12 final builds completed synthesis and place-and-route and produced a bitstream. The Artix-7 images used Vivado 2025.2. The area gate used Yosys 0.70+post. The STLV7325 flows used BSC 2026.07.1, the openXC7 Yosys 0.69 build, and nextpnr-himbaechel `1.0.0-75-g26f5e17a`; fpga-as completed bitstream packing.
+The 12 recorded builds completed synthesis and place-and-route and produced bitstreams. The Artix-7 images used Vivado 2025.2. The area gate used Yosys 0.70+post. The STLV7325 flows used BSC 2026.07.1, the openXC7 Yosys 0.69 build, and nextpnr-himbaechel `1.0.0-75-g26f5e17a`; fpga-as completed bitstream packing.
 
 | Application | Board | Clock | Fmax | WNS | Bitstream SHA-256 |
 |---|---|---:|---:|---:|---|
@@ -150,7 +150,7 @@ xeda run openfpgaloader examples/bluespec/uart_link/apps/ascon.yaml --target stl
 
 Ascon-128a uses the Ascon design with the `ASCON128A=true` compile define. For example, add `--design-overrides rtl.defines.ASCON128A=true` to the Ascon command. The openFPGALoader flow defaults to SRAM (`write_flash: false`). The STLV target uses the openXC7 chain and its 50 MHz core clock generated from the physical 200 MHz input.
 
-If you use the raw loader as a fallback, name the probe explicitly when multiple boards of one cable type are connected. The board-specific JTAG IDs, serial numbers, and UART device paths are retained in the local hardware records. For example, explicit raw SRAM programming uses `openFPGALoader -b arty_a7_100t --usb-serial-num SERIAL --write-sram IMAGE.bit`. Set `SERIAL` to the connected board's JTAG serial. Do not omit the serial when both Artix probes are connected.
+If you use the raw loader as a fallback, name the probe explicitly when multiple boards of one cable type are connected. The board-specific JTAG IDs, serial numbers, and UART device paths are retained in the local hardware records. For example, explicit raw SRAM programming uses `openFPGALoader -b arty_a7_100t --ftdi-serial SERIAL --write-sram IMAGE.bit`. Set `SERIAL` to the connected board's JTAG serial. Do not omit the serial when both Artix probes are connected.
 
 The public host self-tests use an explicit UART port because the FT2232 boards expose two serial interfaces with the same USB serial number. Set each port variable to the UART interface for the connected board. The exact device identifiers used during this validation remain in the local hardware records. Each invocation opens a new session and sends RESET. The self-tests run 1,004 GCD cases, or 61 Ascon reference vectors plus long AEAD/hash, key reuse, and bad-tag checks:
 
@@ -161,9 +161,9 @@ python3 examples/bluespec/uart_link/host/app_suite.py --port "$ULX3S_PORT" --boa
 python3 examples/bluespec/uart_link/host/app_suite.py --port "$STLV7325_PORT" --board stlv7325 selftest ascon --variant 128a
 ```
 
-All 12 image/board combinations passed these public hardware checks. The 4 GCD images each returned the exact expected results for all 1,004 pairs. All 8 Ascon images passed the 61 independent vectors, long-message encryption and decryption, long hash, key reuse after hash, and incorrect-tag rejection. The loaded image hashes match the 12 bitstream hashes in the table above. Every operation used SRAM programming; power cycle or reconfiguration removes the image. During the separate response-loss recovery pass below, the GCD image was loaded on all four boards. Arty was restored to the Ascon-128 image for throughput measurement and held that image at the end of validation; Basys-3, ULX3S, and STLV7325 held their GCD images.
+The 12 recorded image/board combinations passed these public hardware checks. The 4 GCD images each returned the exact expected results for all 1,004 pairs. All 8 Ascon images passed the 61 independent vectors, long-message encryption and decryption, long hash, key reuse after hash, and incorrect-tag rejection. The loaded image hashes match the 12 bitstream hashes in the table above. Every operation used SRAM programming; power cycle or reconfiguration removes the image. During the separate response-loss recovery pass below, the GCD image was loaded on all four boards. Arty was restored to the Ascon-128 image for throughput measurement and held that image at the end of validation; Basys-3, ULX3S, and STLV7325 held their GCD images.
 
-The 12-image results above were collected before the bounded-input host-client change. The RTL and programmed images did not change. After that host update, I ran the public self-test against the four then-loaded SRAM images without reprogramming: Arty Ascon-128 passed 61 vectors and long encrypt/decrypt, hash, key-reuse, and bad-tag checks; Basys-3, ULX3S, and STLV7325 each passed 1,004 GCD cases. This validates the final host source on four loaded image/board combinations. It does not claim a new host-client run across all 12 combinations. The tested host sources are `stream.py` SHA-256 `8d7d13f8c10e814251ff3a923c6fe09ea1cb3920365191ec5fcfe8e74d8edff0` and `applications.py` SHA-256 `816f8b14cff394f1820a808e119b42659c1ae2b15a48b280edfb0b05bddec5fc`.
+The 12-image results above were collected before the bounded-input host-client change and the current application source updates. The RTL and programmed images did not change. After that host update, I ran the public self-test against the four then-loaded SRAM images without reprogramming: Arty Ascon-128 passed 61 vectors and long encrypt/decrypt, hash, key-reuse, and bad-tag checks; Basys-3, ULX3S, and STLV7325 each passed 1,004 GCD cases. This validates the host sources identified by the hashes below on four loaded image/board combinations. It does not claim a new host-client run across all 12 combinations. The tested host sources are `stream.py` SHA-256 `8d7d13f8c10e814251ff3a923c6fe09ea1cb3920365191ec5fcfe8e74d8edff0` and `applications.py` SHA-256 `816f8b14cff394f1820a808e119b42659c1ae2b15a48b280edfb0b05bddec5fc`.
 
 The Xeda flow was also exercised with typed prebuilt bitstreams from the final manifest on all four boards. For Arty and Basys-3, both Digilent JTAG probes were connected at once. Xeda read both ID codes and selected the probe that matched each target's FPGA. The ULX3S FT231X cable and STLV FT4232 cable each had one matching probe, so Xeda used their board-specific cable without a serial override. Each Xeda load was followed by a successful 1,004-case GCD self-test. The tested Xeda version includes the probe selector from PR #236.
 
@@ -207,7 +207,7 @@ Per-image JTAG, programming, self-test, repeated-session, recovery, and Xeda flo
 
 ## Repository tests and final host fix
 
-The final full repository run used candidate commit `90e84dccafe81ea55008fe4eb05749d667a1d917` with four pytest workers. It completed in 1,384.31 seconds and reported **23,625 passed, 420 skipped, 2 failed, and 15 warnings**. All six area profiles and all six app byte and UART-pin cosimulations passed. The two failures were `tests/test_yosys.py::test_yosys_synth_py` and `tests/test_yosys.py::test_yosys_fpga_hands_ghdl_each_vhdl_file_once`. Both failed when the installed GHDL/Yosys plugin terminated with `libc++abi: terminating due to uncaught foreign exception` and `raised PROGRAM_ERROR : unhandled signal`. They do not involve the UART application. The full run used Python 3.15.0, Yosys 0.70+post, Verilator 5.052, BSC 2026.07.1, and GHDL 7.0.0-dev. All 1,086 tracked file hashes and the Git state matched before and after the run.
+The recorded full repository run used candidate commit `90e84dccafe81ea55008fe4eb05749d667a1d917` with four pytest workers. It completed in 1,384.31 seconds and reported **23,625 passed, 420 skipped, 2 failed, and 15 warnings**. All six area profiles and all six app byte and UART-pin cosimulations passed. The two failures were `tests/test_yosys.py::test_yosys_synth_py` and `tests/test_yosys.py::test_yosys_fpga_hands_ghdl_each_vhdl_file_once`. Both failed when the installed GHDL/Yosys plugin terminated with `libc++abi: terminating due to uncaught foreign exception` and `raised PROGRAM_ERROR : unhandled signal`. They do not involve the UART application. The full run used Python 3.15.0, Yosys 0.70+post, Verilator 5.052, BSC 2026.07.1, and GHDL 7.0.0-dev. All 1,086 tracked file hashes and the Git state matched before and after the run.
 
 After that full run, a host decoder fix made the Ascon client check padding bytes after the `keep` payload bytes. New tests cover zero padding and nonzero bytes in every unused payload position for the affected keep masks. The focused host/client/bounded/protocol tests passed **178 tests**. The application test module passed **10 tests**, including all six public app cosimulations and four wrapper cases. These checks ran with the sanitized Homebrew tool environment. The final full repository suite was not rerun after this host-only change.
 

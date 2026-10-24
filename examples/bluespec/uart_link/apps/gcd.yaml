@@ -92,8 +92,7 @@ targets:
       sources:
         - "../boards/StlvLeanLink50.bsv"
         - "../boards/StlvClock50.v"
-        - "../boards/stlv7325_v2.xdc"
-        - "../boards/stlv50.xdc"
+        - "../boards/stlv50.sdc"
       top: mkStlvLeanLink50
       clock.port: clk_p
       defines:

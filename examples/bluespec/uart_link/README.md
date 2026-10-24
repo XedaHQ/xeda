@@ -72,7 +72,7 @@ xeda run yosys_fpga+nextpnr examples/bluespec/uart_link/apps/ascon.yaml --target
 ```
 
 The `stlv7325` application target uses the board's 200 MHz differential clock input and an MMCM
-to generate a 50 MHz core clock. The `stlv50.xdc` file constrains that generated clock at 20 ns.
+to generate a 50 MHz core clock. The `stlv50.sdc` file constrains that generated clock at 20 ns.
 Use the openXC7 Yosys and nextpnr flow for this target; Vivado support is not validated here.
 
 `host/leanlink/stream.py` provides `StreamClient` for custom word protocols. It offers `reset`,

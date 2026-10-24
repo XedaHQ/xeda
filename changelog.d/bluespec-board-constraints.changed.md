@@ -1,0 +1,1 @@
+- Use Xeda's bundled STLV7325 v2 pin constraints and retain the generated core clock in an SDC file.
