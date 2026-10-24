@@ -589,6 +589,46 @@ def test_cli_close_error_does_not_override_json_result(
     assert captured.err == "warning: device cleanup failed: close failed\n"
 
 
+@pytest.mark.parametrize(
+    "execute, expected, expected_status",
+    [
+        (
+            lambda _args, _device: {"answer": 42},
+            {"success": True, "command": "gcd", "answer": 42},
+            0,
+        ),
+        (
+            _fail_cli_operation,
+            {"success": False, "error": {"type": "ValueError", "message": "operation failed"}},
+            1,
+        ),
+    ],
+)
+def test_cli_cleanup_warning_failure_does_not_override_result(
+    monkeypatch, capsys, execute, expected, expected_status
+):
+    cli = package_cli_module(monkeypatch, "cli_common")
+
+    class FailedCloseDevice:
+        def close(self):
+            raise OSError("close failed")
+
+    class FailedStderr:
+        def write(self, _value):
+            raise BrokenPipeError("stderr closed")
+
+    device = FailedCloseDevice()
+    monkeypatch.setattr(cli, "open_device", lambda *args, **kwargs: device)
+    args = SimpleNamespace(command="gcd")
+
+    with monkeypatch.context() as context:
+        context.setattr(cli.sys, "stderr", FailedStderr())
+        status = cli.run_cli(args, execute)
+
+    assert status == expected_status
+    assert capsys.readouterr().out == json.dumps(expected) + "\n"
+
+
 def test_combined_selftest_variant_is_only_available_for_ascon(monkeypatch):
     cli = cli_module(monkeypatch)
 

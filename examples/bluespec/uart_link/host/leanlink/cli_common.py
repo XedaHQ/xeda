@@ -189,4 +189,7 @@ def run_cli(
                 device.close()
             except Exception as exc:
                 # Report cleanup failures without replacing the command's JSON result.
-                print(f"warning: device cleanup failed: {exc}", file=sys.stderr)
+                try:
+                    print(f"warning: device cleanup failed: {exc}", file=sys.stderr)
+                except (OSError, ValueError):
+                    pass
