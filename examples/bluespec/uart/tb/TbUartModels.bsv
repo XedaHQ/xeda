@@ -10,6 +10,7 @@ package TbUartModels;
 import FIFOF :: *;
 import GetPut :: *;
 import Vector :: *;
+import Clocks :: *;
 import UartTypes :: *;
 import Uart :: *;
 
@@ -30,6 +31,50 @@ export inFlight;
 export Counter(..);
 export Bench(..);
 export mkBench;
+
+module mkUartPinResetBridge#(Integer enabled, UartPins pins, ReadOnly#(Bit#(1)) remoteLine,
+                             ReadOnly#(Bool) looping, ReadOnly#(Bool) forcedLow)(Empty);
+   if (enabled == 1) begin
+      (* fire_when_enabled, no_implicit_conditions *)
+      rule driveRx;
+         pins.rxd(forcedLow._read ? 0 : (looping._read ? pins.txd : remoteLine._read));
+      endrule
+   end
+endmodule
+
+module mkUartClearResetBridge#(Integer enabled, Uart#(nd) dut, RWire#(Bool) clear)(Empty);
+   if (enabled == 1) begin
+      rule clearFlags (clear.wget matches tagged Valid True);
+         dut.clearFlags;
+      endrule
+   end
+endmodule
+
+module mkUartRxResetBridge#(Integer enabled, Uart#(nd) dut, RWire#(Bit#(nd)) rxData)(Empty);
+   if (enabled == 1) begin
+      rule receive;
+         let b <- dut.rx.get;
+         rxData.wset(b);
+      endrule
+   end
+endmodule
+
+module mkUartEventsResetBridge#(Integer enabled, Uart#(nd) dut, RWire#(UartEvents) events)(Empty);
+   if (enabled == 1) begin
+      rule sampleEvents;
+         events.wset(dut.events);
+      endrule
+   end
+endmodule
+
+module mkUartTxResetBridge#(Integer enabled, Uart#(nd) dut, FIFOF#(Bit#(nd)) txData)(Empty);
+   if (enabled == 1) begin
+      rule transmit (txData.notEmpty);
+         dut.tx.put(txData.first);
+         txData.deq;
+      endrule
+   end
+endmodule
 
 typedef Int#(40) Fx;
 
@@ -399,8 +444,8 @@ interface Bench#(numeric type nd);
 endinterface
 
 // `room` is the most bytes that can be in flight at once, see `inFlight`.
-module mkBench#(String name, Uart#(nd) dut, Parity parity, Integer stops, Bool lowAtPowerUp,
-                Integer room)(Bench#(nd));
+module mkBench#(String name, Uart#(nd) dut, Reset pinsReset, Integer resetSplit,
+                Parity parity, Integer stops, Bool lowAtPowerUp, Integer room)(Bench#(nd));
    LineSender remote <- mkLineSender;
    LineChecker checker <- mkLineChecker(name + " txd", room);
    FIFOF#(Bit#(nd)) expected <- mkUGSizedFIFOF(room);
@@ -414,16 +459,39 @@ module mkBench#(String name, Uart#(nd) dut, Parity parity, Integer stops, Bool l
    PulseWire arming <- mkPulseWire;
    Reg#(UInt#(2)) collision <- mkReg(0);          // 1: armed, 2: an event met a clear
    RWire#(Bool) delivery <- mkRWire;   // a byte was taken from rx: was it the expected one?
+   Clock benchClock <- exposeCurrentClock;
+   ReadOnly#(Bit#(1)) txd <- mkNullCrossingWire(benchClock, dut.pins.txd);
+   ReadOnly#(Bit#(1)) remoteLine <- mkNullCrossingWire(benchClock, remote.line);
+   ReadOnly#(Bool) loopingCross <- mkNullCrossingWire(benchClock, looping);
+   ReadOnly#(Bool) forcedLowCross <- mkNullCrossingWire(benchClock, forcedLow);
+   RWire#(UartEvents) events <- mkRWire(reset_by noReset);
+   ReadOnly#(UartFlags) flagsCross <- mkNullCrossingWire(benchClock, dut.flags);
+   ReadOnly#(Bool) busy <- mkNullCrossingWire(benchClock, dut.txBusy);
+   FIFOF#(Bit#(nd)) txData <- mkSizedFIFOF(1, reset_by noReset);
+   Empty pinResetBridge <- mkUartPinResetBridge(resetSplit, dut.pins, remoteLine, loopingCross,
+                                                forcedLowCross, reset_by pinsReset);
+   RWire#(Bool) clearCross <- mkRWire(reset_by noReset);
+   Empty clearResetBridge <- mkUartClearResetBridge(resetSplit, dut, clearCross,
+                                                     reset_by pinsReset);
+   RWire#(Bit#(nd)) rxData <- mkRWire(reset_by noReset);
+   Empty rxResetBridge <- mkUartRxResetBridge(resetSplit, dut, rxData, reset_by pinsReset);
+   Empty txResetBridge <- mkUartTxResetBridge(resetSplit, dut, txData, reset_by pinsReset);
+   Empty eventsResetBridge <- mkUartEventsResetBridge(resetSplit, dut, events,
+                                                      reset_by pinsReset);
 
    (* fire_when_enabled, no_implicit_conditions *)
    rule wires;
-      dut.pins.rxd(forcedLow ? 0 : (looping ? dut.pins.txd : remote.line));
-      checker.line(dut.pins.txd);
+      if (resetSplit == 1) begin
+         checker.line(txd._read);
+      end else begin
+         dut.pins.rxd(forcedLow ? 0 : (looping ? dut.pins.txd : remote.line));
+         checker.line(dut.pins.txd);
+      end
    endrule
 
    (* fire_when_enabled, no_implicit_conditions *)
    rule countEvents;
-      UartEvents ev = dut.events;
+      UartEvents ev = resetSplit == 1 ? fromMaybe(unpack(0), events.wget) : dut.events;
       function UInt#(16) bump(Counter c, Bool hit) =
          resetting ? 0 : (hit ? cs[pack(c)] + 1 : cs[pack(c)]);
       cs[pack(RxBytes)] <= bump(RxBytes, ev.rxByte);
@@ -436,12 +504,13 @@ module mkBench#(String name, Uart#(nd) dut, Parity parity, Integer stops, Bool l
 
    (* fire_when_enabled, no_implicit_conditions *)
    rule driveClear (clearing);
-      dut.clearFlags;
+      if (resetSplit == 1) clearCross.wset(True);
+      else dut.clearFlags;
    endrule
 
    (* fire_when_enabled, no_implicit_conditions *)
    rule collide;
-      UartEvents ev = dut.events;
+      UartEvents ev = resetSplit == 1 ? fromMaybe(unpack(0), events.wget) : dut.events;
       Bool hit = collision == 1 && (ev.frameError || ev.parityError || ev.brk || ev.overrun);
       if (hit) clearing.send;
       collision <= arming ? 1 : (hit ? 2 : collision);
@@ -449,13 +518,24 @@ module mkBench#(String name, Uart#(nd) dut, Parity parity, Integer stops, Bool l
 
    (* fire_when_enabled *)
    rule consume (!stalled);
-      let d <- dut.rx.get;
-      Bool good = expected.notEmpty && expected.first == d;
-      if (expected.notEmpty) expected.deq;
-      if (!good && !lenient)
-         $fatal(1, "FAIL: %s: received %h, expected %s", name, d,
-                expected.notEmpty ? "another byte" : "nothing");
-      delivery.wset(good);
+      if (resetSplit == 1) begin
+         if (rxData.wget matches tagged Valid .d) begin
+            Bool good = expected.notEmpty && expected.first == d;
+            if (expected.notEmpty) expected.deq;
+            if (!good && !lenient)
+               $fatal(1, "FAIL: %s: received %h, expected %s", name, d,
+                      expected.notEmpty ? "another byte" : "nothing");
+            delivery.wset(good);
+         end
+      end else begin
+         let d <- dut.rx.get;
+         Bool good = expected.notEmpty && expected.first == d;
+         if (expected.notEmpty) expected.deq;
+         if (!good && !lenient)
+            $fatal(1, "FAIL: %s: received %h, expected %s", name, d,
+                   expected.notEmpty ? "another byte" : "nothing");
+         delivery.wset(good);
+      end
    endrule
 
    (* fire_when_enabled, no_implicit_conditions *)
@@ -479,13 +559,14 @@ module mkBench#(String name, Uart#(nd) dut, Parity parity, Integer stops, Bool l
 
    method Action txPeriod(Fx p) = checker.setPeriod(p);
    method Action sendByte(Bit#(nd) b, Bool continuous);
-      dut.tx.put(b);
+      if (resetSplit == 1) txData.enq(b);
+      else dut.tx.put(b);
       checker.expectFrame(frameWord(b, parity, stops, False, False),
                      frameLen(valueOf(nd), parity, stops), continuous);
    endmethod
-   method Bool txIdle = checker.idle && !dut.txBusy;
-   method Bit#(1) txLine = dut.pins.txd;
-   method Bool txBusy = dut.txBusy;
+   method Bool txIdle = checker.idle && !(resetSplit == 1 ? busy._read : dut.txBusy);
+   method Bit#(1) txLine = resetSplit == 1 ? txd._read : dut.pins.txd;
+   method Bool txBusy = resetSplit == 1 ? busy._read : dut.txBusy;
    method UInt#(32) txFrames = checker.frames;
    method Fx maxEdgeDeviation = checker.maxDeviation;
 
@@ -499,7 +580,7 @@ module mkBench#(String name, Uart#(nd) dut, Parity parity, Integer stops, Bool l
    method Action tolerant(Bool on) = lenient._write(on);
    method UInt#(16) count(Counter c) = cs[pack(c)];
    method Action resetCounters = resetting.send;
-   method UartFlags flags = dut.flags;
+   method UartFlags flags = resetSplit == 1 ? flagsCross._read : dut.flags;
    method Action clearFlags = clearing.send;
    method Action clearAtEvent = arming.send;
    method Bool collided = collision == 2;

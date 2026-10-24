@@ -564,10 +564,12 @@ endfunction
 
 (* synthesize *)
 module mkTbUart(Empty);
+   Reset benchReset <- exposeCurrentReset;
    // A: the synthesizable mkUart
    Rng rngA <- mkRng(32'h2545F491);
    Uart#(8) dutA <- mkUart;
-   Bench#(8) benchA <- mkBench("A", dutA, NoParity, 1, True, inFlight(`TX_DEPTH, `RX_DEPTH));
+   Bench#(8) benchA <- mkBench("A", dutA, benchReset, 0, NoParity, 1, True,
+                               inFlight(`TX_DEPTH, `RX_DEPTH));
    FSM scriptA <- mkScriptA(benchA, rngA);
 
    function Action keepRate(Integer r) = noAction;
@@ -581,7 +583,7 @@ module mkTbUart(Empty);
    Depth#(1) depthTxB = depth;
    Depth#(2) depthRxB = depth;
    Uart#(7) dutB <- mkUartCore(timingB, fmtB, 2, depthTxB, depthRxB);
-   Bench#(7) benchB <- mkBench("B", dutB, EvenParity, 2, False, inFlight(1, 2));
+   Bench#(7) benchB <- mkBench("B", dutB, benchReset, 0, EvenParity, 2, False, inFlight(1, 2));
    FSM scriptB <- mkFormatScript("B", benchB, rngB, EvenParity, 2, 100000000,
                                  vec(8000000), vec(60), vec(20), 30, True, keepRate, exactPeriod,
                                  noStatement);
@@ -599,7 +601,8 @@ module mkTbUart(Empty);
    MakeResetIfc resetC <- mkReset(0, True, clk);   // to reset C in the middle of a frame
    Uart#(8) dutC <- mkUartCore(runtimeTiming(period, 0, shortestBit(100000000, bauds[0], 6)),
                                fmtC, 3, depthTxC, depthRxC, reset_by resetC.new_rst);
-   Bench#(8) benchC <- mkBench("C", dutC, OddParity, 1, False, inFlight(2, 4));
+   Bench#(8) benchC <- mkBench("C", dutC, resetC.new_rst, 1, OddParity, 1, False,
+                               inFlight(2, 4));
    function Action selectRate(Integer r) = action period <= periods[r]; endaction;
    // the period register holds D-1 and 6 fraction bits: the DUT's baud is rounded to that
    function Fx registered(Integer r) =
@@ -626,7 +629,7 @@ module mkTbUart(Empty);
    Depth#(1) depthTxD = depth;
    Depth#(4) depthRxD = depth;
    Uart#(8) dutD <- mkUartCore(timingD, fmtD, 2, depthTxD, depthRxD);
-   Bench#(8) benchD <- mkBench("D", dutD, NoParity, 1, False, inFlight(1, 4));
+   Bench#(8) benchD <- mkBench("D", dutD, benchReset, 0, NoParity, 1, False, inFlight(1, 4));
    function Fx exactPeriodD(Integer r) = periodFx(100000000, 16000000, 0);
    FSM scriptD <- mkFormatScript("D", benchD, rngD, NoParity, 1, 100000000, vec(16000000),
                                  vec(40), vec(20), 20, False, keepRate, exactPeriodD,
@@ -639,7 +642,7 @@ module mkTbUart(Empty);
       staticTiming(100000000, 921600, defaultAdjust(100000000, 921600));
    Depth#(2) depthE = depth;
    Uart#(8) dutE <- mkUartCore(timingE, fmtD, 3, depthE, depthE);
-   Bench#(8) benchE <- mkBench("E", dutE, NoParity, 1, False, inFlight(2, 2));
+   Bench#(8) benchE <- mkBench("E", dutE, benchReset, 0, NoParity, 1, False, inFlight(2, 2));
    function Fx roundedPeriodE(Integer r) = clocksFx(108) + oneClock / 2;
    FSM scriptE <- mkFormatScript("E", benchE, rngE, NoParity, 1, 100000000, vec(921600),
                                  vec(12), vec(6), 20, False, keepRate, roundedPeriodE,
