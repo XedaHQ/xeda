@@ -629,6 +629,30 @@ def test_cli_cleanup_warning_failure_does_not_override_result(
     assert capsys.readouterr().out == json.dumps(expected) + "\n"
 
 
+def test_cli_cleanup_warning_does_not_write_to_stdout_when_stderr_is_unavailable(
+    monkeypatch, capsys
+):
+    cli = package_cli_module(monkeypatch, "cli_common")
+
+    class FailedCloseDevice:
+        def close(self):
+            raise OSError("close failed")
+
+    device = FailedCloseDevice()
+    monkeypatch.setattr(cli, "open_device", lambda *args, **kwargs: device)
+    args = SimpleNamespace(command="gcd")
+
+    with monkeypatch.context() as context:
+        context.setattr(cli.sys, "stderr", None)
+        status = cli.run_cli(args, lambda _args, _device: {"answer": 42})
+
+    assert status == 0
+    assert (
+        capsys.readouterr().out
+        == json.dumps({"success": True, "command": "gcd", "answer": 42}) + "\n"
+    )
+
+
 def test_combined_selftest_variant_is_only_available_for_ascon(monkeypatch):
     cli = cli_module(monkeypatch)
 

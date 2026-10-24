@@ -50,9 +50,10 @@ module mkUartClearResetBridge#(Integer enabled, Uart#(nd) dut, RWire#(Bool) clea
    end
 endmodule
 
-module mkUartRxResetBridge#(Integer enabled, Uart#(nd) dut, RWire#(Bit#(nd)) rxData)(Empty);
+module mkUartRxResetBridge#(Integer enabled, Uart#(nd) dut, RWire#(Bit#(nd)) rxData,
+                            ReadOnly#(Bool) stalled)(Empty);
    if (enabled == 1) begin
-      rule receive;
+      rule receive (!stalled._read);
          let b <- dut.rx.get;
          rxData.wset(b);
       endrule
@@ -464,6 +465,7 @@ module mkBench#(String name, Uart#(nd) dut, Reset pinsReset, Integer resetSplit,
    ReadOnly#(Bit#(1)) remoteLine <- mkNullCrossingWire(benchClock, remote.line);
    ReadOnly#(Bool) loopingCross <- mkNullCrossingWire(benchClock, looping);
    ReadOnly#(Bool) forcedLowCross <- mkNullCrossingWire(benchClock, forcedLow);
+   ReadOnly#(Bool) stalledCross <- mkNullCrossingWire(benchClock, stalled);
    RWire#(UartEvents) events <- mkRWire(reset_by noReset);
    ReadOnly#(UartFlags) flagsCross <- mkNullCrossingWire(benchClock, dut.flags);
    ReadOnly#(Bool) busy <- mkNullCrossingWire(benchClock, dut.txBusy);
@@ -474,7 +476,8 @@ module mkBench#(String name, Uart#(nd) dut, Reset pinsReset, Integer resetSplit,
    Empty clearResetBridge <- mkUartClearResetBridge(resetSplit, dut, clearCross,
                                                      reset_by pinsReset);
    RWire#(Bit#(nd)) rxData <- mkRWire(reset_by noReset);
-   Empty rxResetBridge <- mkUartRxResetBridge(resetSplit, dut, rxData, reset_by pinsReset);
+   Empty rxResetBridge <- mkUartRxResetBridge(resetSplit, dut, rxData, stalledCross,
+                                              reset_by pinsReset);
    Empty txResetBridge <- mkUartTxResetBridge(resetSplit, dut, txData, reset_by pinsReset);
    Empty eventsResetBridge <- mkUartEventsResetBridge(resetSplit, dut, events,
                                                       reset_by pinsReset);

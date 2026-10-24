@@ -495,7 +495,7 @@ endmodule
 //    before the reset reached it does not count).
 
 function Stmt resetScript(Bench#(8) b, MakeResetIfc rst, Reg#(UInt#(8)) cut, Reg#(UInt#(32)) t,
-                          Action prepare, Integer bitClocks);
+                          Reg#(UInt#(4)) stalledByte, Action prepare, Integer bitClocks);
    function Stmt pause(Integer n) = seq
       t <= 0;
       while (t < fromInteger(n)) t <= t + 1;
@@ -550,6 +550,23 @@ function Stmt resetScript(Bench#(8) b, MakeResetIfc rst, Reg#(UInt#(8)) cut, Reg
       expectCounts("after a reset in a frame", b, 1, 0, 0, 0, 0);
    endseq;
 
+   Stmt stalledReceive = seq
+      b.resetCounters;
+      b.stall(True);
+      for (stalledByte <= 0; stalledByte < 7; stalledByte <= stalledByte + 1) action
+         Bit#(8) d = 8'h10 + zeroExtend(pack(stalledByte));
+         if (stalledByte < 4) b.expectByte(d);
+         b.sendLine(frameWord(d, OddParity, 1, False, False), 11);
+      endaction
+      await(b.lineIdle);
+      pause(14 * bitClocks);
+      expectCounts("reset-split stalled receiver", b, 0, 0, 0, 0, 3);
+      expectFlags("reset-split stalled receiver", b, False, False, False, True);
+      b.stall(False);
+      pause(20 * bitClocks);
+      expectCounts("reset-split stalled receiver drained", b, 4, 0, 0, 0, 3);
+   endseq;
+
    return seq
       prepare;
       for (cut <= 3; cut < 100; cut <= cut + 6) seq
@@ -557,6 +574,7 @@ function Stmt resetScript(Bench#(8) b, MakeResetIfc rst, Reg#(UInt#(8)) cut, Reg
          receive;
       endseq
       after;
+      stalledReceive;
    endseq;
 endfunction
 
@@ -611,6 +629,7 @@ module mkTbUart(Empty);
    // after its rates, C goes back to 12 Mbaud and is reset in the middle of frames
    Reg#(UInt#(8)) cutC <- mkReg(0);
    Reg#(UInt#(32)) waitC <- mkReg(0);
+   Reg#(UInt#(4)) stallC <- mkReg(0);
    Action twelveMbaud = action
       period <= periods[0];
       benchC.txPeriod(registered(0));
@@ -618,7 +637,7 @@ module mkTbUart(Empty);
    endaction;
    FSM scriptC <- mkFormatScript("C", benchC, rngC, OddParity, 1, 100000000, bauds,
                                  vec(24, 16, 6), vec(24, 10, 4), 30, True, selectRate, registered,
-                                 resetScript(benchC, resetC, cutC, waitC, twelveMbaud, 9));
+                                 resetScript(benchC, resetC, cutC, waitC, stallC, twelveMbaud, 9));
 
    // D: 8N1 at 16 Mbaud, 6.25 clocks per bit. Below 8 clocks per bit the receiver samples one
    // clock earlier (defaultAdjust), and 6 clocks in the shortest bit allow a hold filter of 2.
