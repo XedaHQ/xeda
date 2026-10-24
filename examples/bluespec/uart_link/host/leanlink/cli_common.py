@@ -184,4 +184,8 @@ def run_cli(
         return 1
     finally:
         if device is not None:
-            device.close()
+            try:
+                device.close()
+            except Exception:
+                # Cleanup must not replace the command's JSON result.
+                pass

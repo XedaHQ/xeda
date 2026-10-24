@@ -135,7 +135,7 @@ Vivado could not provide an independent STLV cross-check because the available v
 
 ## Reproduction and board checks
 
-The final application images were programmed to SRAM only. No flash was written. The Artix-7 images used Vivado for synthesis and programming; the reproduction commands select `vivado_synth+openfpgaloader`. ULX3S and STLV7325 use the configured open-source flow through `openfpgaloader`. PR #236 is present in this worktree history. The flow compares FPGA JTAG IDs with each target's part and selects the matching FTDI probe when multiple probes share the cable type. Earlier Xeda-only programming checks used prebuilt typed bitstreams; they do not replace these source-build commands.
+The final application images were programmed to SRAM only. No flash was written. The Artix-7 images used Vivado for synthesis and openFPGALoader for programming; the reproduction commands select `vivado_synth+openfpgaloader`. ULX3S and STLV7325 use the configured open-source flow through `openfpgaloader`. PR #236 is present in this worktree history. The flow compares FPGA JTAG IDs with each target's part and selects the matching FTDI probe when multiple probes share the cable type. Earlier Xeda-only programming checks used prebuilt typed bitstreams; they do not replace these source-build commands.
 
 ```bash
 xeda run vivado_synth+openfpgaloader examples/bluespec/uart_link/apps/gcd.yaml --target arty
