@@ -1,0 +1,15 @@
+name: uart_phy
+description: Reusable UART PHY source library.
+rtl.sources:
+  - "rtl/RingFifo.bsv"
+  - "rtl/UartTypes.bsv"
+  - "rtl/BitTimer.bsv"
+  - "rtl/UartRx.bsv"
+  - "rtl/UartTx.bsv"
+  - "rtl/Uart.bsv"
+targets:
+  sim:
+    tb.sources:
+      - "tb/TbUartModels.bsv"
+      - "tb/TbUart.bsv"
+    tb.top: mkTbUart

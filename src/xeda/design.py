@@ -31,6 +31,7 @@ from typing import (
     Dict,
     List,
     Optional,
+    NotRequired,
     Tuple,
     Type,
     TypeVar,
@@ -40,6 +41,7 @@ from urllib.parse import parse_qs, urlparse
 
 import yaml
 from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, core_schema
+from typing_extensions import TypedDict
 
 from .dataclass import (
     WHOLE,
@@ -2564,6 +2566,20 @@ def _flow_named(name: str) -> str | None:
     return next((flow for flow in sorted(flows) if run_directory_name(flow).match(folded)), None)
 
 
+class _GitReferenceInput(TypedDict):
+    """The Git mapping form accepted by `DesignReference.from_data`."""
+
+    repo_url: str
+    design_file: str
+    uri: NotRequired[str]
+    branch: NotRequired[Optional[str]]
+    commit: NotRequired[Optional[str]]
+    clone_dir: NotRequired[Optional[Path]]
+    local_cache: NotRequired[Optional[Path]]
+    rtl: NotRequired[RtlDep]
+    tb: NotRequired[TbDep]
+
+
 class Design(XedaBaseModel):
     name: str = Field(
         description="The unique name of the design. It starts with a letter and has only "
@@ -2627,7 +2643,11 @@ class Design(XedaBaseModel):
     def _flow_settings(cls, value):
         return _flows_table(value)
 
-    @field_validator("dependencies", mode="before")
+    @field_validator(
+        "dependencies",
+        mode="before",
+        json_schema_input_type=List[Union[str, DesignReference, _GitReferenceInput]],
+    )
     @classmethod
     def _dependencies_from_str(cls, value):
         if value and isinstance(value, list):

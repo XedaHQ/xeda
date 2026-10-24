@@ -5,7 +5,6 @@ description: >-
   The target `w1` builds W = 1 page of 64 bytes. The targets `core_w8` and `core_w1` build the bare
   core, where the test plays the core.
 rtl.sources:
-  - "../rtl/LeanLink.bsv"
   - "../rtl/LeanLinkTestTop.bsv"
   - "LeanLinkCosimTops.bsv"
 rtl.top: mkLeanLinkCosimW8
@@ -23,6 +22,8 @@ tb.sources:
 tb.cocotb.module: "lean_basic,lean_reject,lean_session,lean_arq,lean_credit,lean_sizes,lean_perf,lean_stress"
 # The tests drive the active-low reset RST_N of bsc. (Xeda makes the reset active high by default.)
 flows.bsc.positive_reset: false
+dependencies:
+  - "../leanlink-library.yaml"
 targets:
   w1:
     rtl.top: mkLeanLinkCosimW1

@@ -1,0 +1,13 @@
+name: ascon_core
+description: Reusable transport-independent Ascon v1.2 core source library.
+rtl.sources:
+  - "rtl/AsconTypes.bsv"
+  - "rtl/AsconRound.bsv"
+  - "rtl/AsconCipher.bsv"
+  - "rtl/Ascon.bsv"
+targets:
+  core:
+    tb.sources:
+      - "tb/AsconVectors.bsv"
+      - "tb/TbAscon.bsv"
+    tb.top: mkTbAscon

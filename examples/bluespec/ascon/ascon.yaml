@@ -2,16 +2,14 @@ name: ascon
 description: >-
   Standalone 32-bit Put/Get Ascon-128/128a and Ascon-Hash v1.2 core with a vector-driven testbench.
 rtl:
-  sources:
-    - "rtl/AsconTypes.bsv"
-    - "rtl/AsconRound.bsv"
-    - "rtl/AsconCipher.bsv"
-    - "rtl/Ascon.bsv"
+  sources: []
   top: mkAscon
   clock.port: CLK
   defines.UNROLL_FACTOR: 1
   # Uncomment to select Ascon-128a AEAD. Hash remains Ascon-Hash v1.2.
   # defines.ASCON128A: true
+dependencies:
+  - "ascon-library.yaml"
 tb:
   sources:
     - "tb/AsconVectors.bsv"

@@ -2028,12 +2028,11 @@ OpenROAD flows. Every other setting keeps its default:
       another package. The testbench checks 200 directed and LFSR-driven requests against Euclid's
       algorithm.
     rtl:
-      # The package that defines `top` comes last.
-      sources:
-        - "rtl/GcdEngine.bsv"
-        - "rtl/GcdUnit.bsv"
+      sources: []
       top: mkGcdUnit
       clock.port: CLK
+    dependencies:
+      - "gcd-library.yaml"
     tb:
       sources:
         - "tb/TbGcdUnit.bsv"
@@ -2138,7 +2137,8 @@ several packages, one that macros size, one that imports Verilog with ``import "
 that mixes BSV and BH. ``examples/bluespec/uart_link`` shows a larger design: a reliable packet
 link whose bench compares the exact bytes of frames that a Python codec makes, whose cocotb tests
 (``tb/cosim.yaml``) run on the Verilog that ``bsc`` makes, and which has board targets for four
-boards and a host library in Python.
+boards and a host library in Python. Its ``examples/bluespec/uart_link/README.md`` file shows
+how to build and use its GCD and Ascon endpoints.
 
 .. _converted-designs:
 

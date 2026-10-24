@@ -27,8 +27,117 @@ host <-> USB bridge <-> UART PHY (uart example) <-> LeanLink <-> core (request, 
 | `tb/cosim.yaml`, `tb/lean_*.py` | the cocotb tests against the Python codec |
 | `tb/run_cosim.py` | runs the full cocotb suite (several minutes) |
 | `host/leanlink/` | the host library: codec, protocol state machine, device, backends, a model of the FPGA |
+| `host/app_suite.py` | command-line GCD and Ascon clients for the streaming application tops |
+| `rtl/StreamExchange.bsv`, `apps/` | reusable typed stream endpoint and example GCD/Ascon application designs |
 | `host/hw_suite.py` | tests a real board |
 | `uart_link.yaml` | the design file: bench, FPGA flows, board targets |
+
+## GCD and Ascon stream applications
+
+The original `GcdUnit` and Ascon cores stay available through their standalone examples. These
+applications wrap each core with `mkStreamExchange`, which connects a typed word stream to LeanLink
+requests and responses. The adapter has bounded input and output queues. It returns the accepted
+input prefix with each response, so a client resends only the suffix the endpoint did not accept.
+Output collection proceeds while input is blocked. LeanLink replay returns the same acceptance
+count and output without running the exchange a second time.
+
+The stream protocol uses request byte `00` for RESET and `01` for EXCHANGE. RESET requires one
+byte, clears the application and both stream queues, and must be the first stream operation after
+each connection. An EXCHANGE body contains whole little-endian words. The reply contains a status
+byte, an accepted-word count, then whole output words. The host infers the output count from the
+reply length. Malformed packets return an error and accept no input. One exchange still fits the
+LeanLink packet limit of 243 payload bytes; the host splits larger operations across packets.
+
+GCD input words contain unsigned `a` and `b` as two little-endian 32-bit integers, with `a` in the
+low half. Each output is the 32-bit GCD. Ascon uses 40-bit words sent as five wire bytes: one
+metadata byte followed by four little-endian data bytes. Metadata carries a four-bit byte mask, a
+last flag, and a three-bit type. Input types 0 through 5 are START, KEY, Nonce, AD, Text, and
+Hash. START carries the operation and key selection in its data field. KEY and Nonce each use four
+full words. AD, Text, and Hash carry streamed bytes and a final-byte mask; an empty final segment
+uses a zero-byte marker. Output types 0 through 3 are Text, Tag, Digest, and Error. The RTL checks
+word order and metadata before it feeds the existing Ascon core. A bad word returns an error and
+leaves the endpoint failed until RESET. Both Ascon-128 and Ascon-128a v1.2 builds support hashing
+and authenticated encryption. Decryption clients hold all plaintext until the full 16-byte tag
+matches.
+
+Build or simulate the designs with Xeda:
+
+```bash
+xeda run verilator examples/bluespec/uart_link/apps/gcd.yaml --target sim_uart
+xeda run verilator examples/bluespec/uart_link/apps/ascon.yaml --target sim_bytes
+xeda run vivado_synth examples/bluespec/uart_link/apps/gcd.yaml --target arty
+xeda run vivado_synth examples/bluespec/uart_link/apps/ascon.yaml --target basys3
+xeda run yosys_fpga+nextpnr examples/bluespec/uart_link/apps/gcd.yaml --target ulx3s
+xeda run yosys_fpga+nextpnr examples/bluespec/uart_link/apps/ascon.yaml --target stlv7325
+```
+
+The `stlv7325` application target uses the board's 200 MHz differential clock input and an MMCM
+to generate a 50 MHz core clock. The `stlv50.sdc` file constrains that generated clock at 20 ns.
+Use the openXC7 Yosys and nextpnr flow for this target; Vivado support is not validated here.
+
+`host/leanlink/stream.py` provides `StreamClient` for custom word protocols. It offers `reset`,
+`exchange`, and `transfer`. `host/leanlink/applications.py` provides `GcdClient.gcd`,
+`GcdClient.gcd_many`, and `AsconClient.encrypt`, `decrypt`, and `hash`. Call the client's `reset`
+after opening a `LinkDevice`; each stream is bound to that device session. If an exchange times out
+or returns an invalid reply, the client requires RESET because some input may already have run.
+For direct API use, construct one client per application stream:
+
+```python
+from leanlink import HostConfig, LinkDevice, SerialBackend
+from leanlink.applications import AsconClient, GcdClient
+
+device = LinkDevice(
+    SerialBackend("/dev/cu.usbserial-XXXX", baudrate=12_000_000),
+    HostConfig(bridge_budget=2048, rsp_limit=255),
+)
+device.open()
+
+# Use the client that matches the application in the FPGA bitstream.
+client = GcdClient(device)
+client.reset()
+print(client.gcd_many([(48, 18), (0, 7)]))
+
+# For an Ascon bitstream, use this client instead:
+# client = AsconClient(device)
+# client.reset()
+# print(client.hash(b"abc").hex())
+```
+
+Open a new `LinkDevice` for another concurrent application stream. A host link failure raises
+`UnknownOutcome` when the request may have run; the client does not retry it. The stream clients
+raise `StreamProtocolError` when RESET is required. `AsconClient.decrypt` raises
+`AuthenticationError` when the tag is invalid and returns no plaintext.
+
+For GCD and Ascon, use `host/gcd_cli.py` and `host/ascon_cli.py` for focused command-line
+access. The existing `host/app_suite.py` remains available when you want one combined command.
+Put connection options before the subcommand:
+
+```bash
+python3 examples/bluespec/uart_link/host/app_suite.py list
+python3 examples/bluespec/uart_link/host/app_suite.py --port /dev/cu.usbserial-XXXX gcd 48 18
+python3 examples/bluespec/uart_link/host/app_suite.py --port /dev/cu.usbserial-XXXX gcd-many 48:18 0:7
+python3 examples/bluespec/uart_link/host/app_suite.py --port /dev/cu.usbserial-XXXX hash --data-hex 616263
+python3 examples/bluespec/uart_link/host/app_suite.py --board arty --serial-number SERIAL selftest ascon
+python3 examples/bluespec/uart_link/host/app_suite.py --board arty --serial-number SERIAL selftest ascon --variant 128a
+python3 examples/bluespec/uart_link/host/gcd_cli.py --port /dev/cu.usbserial-XXXX gcd 48 18
+python3 examples/bluespec/uart_link/host/gcd_cli.py --port /dev/cu.usbserial-XXXX selftest
+python3 examples/bluespec/uart_link/host/ascon_cli.py --port /dev/cu.usbserial-XXXX hash --data-hex 616263
+python3 examples/bluespec/uart_link/host/ascon_cli.py --port /dev/cu.usbserial-XXXX selftest --variant 128a
+PYTHONPATH=examples/bluespec/uart_link/host python3 -m leanlink.gcd_cli --port PORT gcd-many 48:18 0:7
+PYTHONPATH=examples/bluespec/uart_link/host python3 -m leanlink.ascon_cli --port PORT hash --data-hex 616263
+```
+
+The Ascon command also supports `encrypt`, `decrypt`, `--input`, and `--output`. Select
+`--variant 128a` when the Ascon-128a bitstream is loaded. The Python API accepts bytes and key
+reuse within one reset session. It buffers the complete operation in host memory; the FPGA packet
+size stays fixed. Each CLI command opens a new session and resets the application. A lost session
+produces an unknown outcome; the client does not replay the operation in a new session. Install
+the needed backend package as described in [The host library](#the-host-library).
+
+The application area and board timing differ from the bare LeanLink numbers in this README. Check
+the GCD and Ascon designs' own build reports before choosing a board or clock. Hardware validation
+requires the matching application bitstream and board; the standalone transport's older board
+results do not validate these applications.
 
 ## The protocol in short
 

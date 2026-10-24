@@ -1,0 +1,10 @@
+name: leanlink_core
+description: Reusable byte-oriented LeanLink core source library.
+rtl.sources:
+  - "rtl/LeanLink.bsv"
+targets:
+  test:
+    tb.sources:
+      - "tb/LeanLinkFrames.bsv"
+      - "tb/TbLeanLink.bsv"
+    tb.top: mkTbLeanLink

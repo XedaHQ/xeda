@@ -161,11 +161,14 @@ class HostProtocol:
         # Tickets and requests.
         self._next_ticket = 0
         self._queue: Deque[tuple[int, bytes]] = deque()
-        self._reqs: list[_Req] = []
+        # Only sent requests without a response need replay storage. The front has absolute
+        # sequence number _rsp; _sent_count stays absolute as completed entries are removed.
+        self._reqs: Deque[_Req] = deque()
         self._results: dict[int, Result] = {}
         self._abandoned: set[int] = set()
         # Counters (absolute).
         self._snd = 0  # next request to put on the wire (rewound by go-back-N)
+        self._sent_count = 0  # requests sent at least once
         self._exp = 0  # requests that the FPGA reported as accepted
         self._rsp = 0  # responses delivered in order
         self._consumed = 0  # cursor of the last valid FPGA frame (u16)
@@ -205,7 +208,7 @@ class HostProtocol:
     @property
     def outstanding(self) -> int:
         """Requests that were sent at least once and have no response yet."""
-        return len(self._reqs) - self._rsp
+        return self._sent_count - self._rsp
 
     @property
     def queued(self) -> int:
@@ -250,7 +253,11 @@ class HostProtocol:
     def abandon(self, ticket: int) -> None:
         """Give up the result of ``ticket``. The request stays in flight, and it can still run on
         the FPGA, but the protocol keeps no result for it."""
-        if self._results.pop(ticket, None) is None:
+        if self._results.pop(ticket, None) is not None:
+            return
+        if any(queued_ticket == ticket for queued_ticket, _payload in self._queue) or any(
+            req.ticket == ticket for req in self._reqs
+        ):
             self._abandoned.add(ticket)
 
     def _finish(self, ticket: int, result: Result) -> None:
@@ -282,12 +289,12 @@ class HostProtocol:
         self.state = State.LOST
         self.lost_reason = reason
         self._count("lost")
-        for index in range(self._rsp, len(self._reqs)):
-            req = self._reqs[index]
+        for req in self._reqs:
             self._finish(
                 req.ticket,
                 Result(req.ticket, Status.UNKNOWN_OUTCOME, was_sent=True, reason=reason),
             )
+        self._reqs.clear()
         for ticket, _payload in self._queue:
             self._finish(
                 ticket,
@@ -416,7 +423,7 @@ class HostProtocol:
         if (frame["cursor"] - self._consumed) & U16 < 0x8000:
             self._consumed = frame["cursor"]
         # Accepted requests (exp). A value that is behind or beyond what we sent is stale.
-        sent = len(self._reqs)
+        sent = self._sent_count
         step = (frame["exp"] - self._exp) % self.M
         if 0 < step <= sent - self._exp:
             if self._rsp >= self._exp:
@@ -432,7 +439,7 @@ class HostProtocol:
         # Response.
         if frame["kind"] == "data":
             if (frame["seq"] - self._rsp) % self.M == 0 and self._rsp < self._exp:
-                req = self._reqs[self._rsp]
+                req = self._reqs.popleft()
                 status = Status.TRUNCATED if frame["trunc"] else Status.OK
                 self._finish(req.ticket, Result(req.ticket, status, frame["payload"]))
                 self._rsp += 1
@@ -449,9 +456,9 @@ class HostProtocol:
     # Timers
 
     def _req_deadline(self) -> float | None:
-        if self._exp >= len(self._reqs):
+        if self._exp >= self._sent_count:
             return None
-        base = max(self._reqs[self._exp].sent_end, self._req_progress)
+        base = max(self._reqs[self._exp - self._rsp].sent_end, self._req_progress)
         return base + self.cfg.rto * self._req_backoff
 
     def _rsp_deadline(self) -> float | None:
@@ -460,13 +467,13 @@ class HostProtocol:
         return self._rsp_clock + self.cfg.rewind_timeout * self._rsp_backoff
 
     def _sil_deadline(self) -> float | None:
-        if self._rsp >= len(self._reqs):
+        if self._rsp >= self._sent_count:
             return None
         base = max(self._last_rx, self._last_poll)
         return base + self.cfg.poll_interval * self._sil_backoff
 
     def _resync_deadline(self) -> float | None:
-        if self._rsp >= len(self._reqs):
+        if self._rsp >= self._sent_count:
             return None  # nothing is awaited
         base = max(self._last_byte, self._last_resync)
         return base + self.cfg.resync_quiet * self._resync_backoff
@@ -566,7 +573,7 @@ class HostProtocol:
         return wire
 
     def _can_send_request(self) -> bool:
-        if self._snd < len(self._reqs):
+        if self._snd < self._sent_count:
             return True  # retransmission: the window rule held at the first send
         if not self._queue:
             return False
@@ -580,7 +587,7 @@ class HostProtocol:
         cursor of the last frame read. Return None if no response is outstanding or the grant has
         not moved.
         """
-        if self._rsp >= len(self._reqs):
+        if self._rsp >= self._sent_count:
             return None
         step = (self._grant() - self._last_grant) & U16
         if not 0 < step < 0x8000:
@@ -648,13 +655,14 @@ class HostProtocol:
         return wire, end
 
     def _send_request(self, now: float) -> bytes:
-        if self._snd == len(self._reqs):
+        if self._snd == self._sent_count:
             ticket, payload = self._queue.popleft()
             self._reqs.append(_Req(ticket, payload))
+            self._sent_count += 1
         else:
             self._count("retransmissions")
         index = self._snd
-        req = self._reqs[index]
+        req = self._reqs[index - self._rsp]
         ack, grant = self._frame_fields()
         ctl = lc.host_ctl(data=True, poll=self._need_poll, rewind=self._epoch)
         decoded = lc.build_host_frame(ctl, index % self.M, ack, grant, req.payload, self.sid)

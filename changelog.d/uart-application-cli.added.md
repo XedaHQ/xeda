@@ -1,0 +1,1 @@
+- Add focused GCD and Ascon UART CLI scripts. Keep the combined application command available.

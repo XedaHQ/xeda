@@ -106,9 +106,16 @@ def _stage(tmp_path: Path, *names: str) -> Path:
         text = _fixture(name)
         (root / name).write_text(text + "\n", encoding="utf-8")
         data = yaml.safe_load(text)
+        dependency_sources = []
+        if name == "openroad-gcd.yaml":
+            library = ROOT / "examples/bluespec/gcd/gcd-library.yaml"
+            library_data = yaml.safe_load(library.read_text(encoding="utf-8"))
+            (root / library.name).write_text(library.read_text(encoding="utf-8"), encoding="utf-8")
+            dependency_sources = library_data["rtl.sources"]
         listed = [
             *(data.get("rtl") or {}).get("sources", []),
             *(data.get("tb") or {}).get("sources", []),
+            *dependency_sources,
         ]
         for source in listed:
             file = source["file"] if isinstance(source, dict) else source
@@ -158,10 +165,32 @@ def test_the_documents_carry_the_fixtures_the_chain_chapter_teaches():
     assert {"prebuilt_demo.yaml", "project.yaml"} <= set(_fixtures(SKILL_MD))
 
 
-def test_the_openroad_fixture_is_the_example_that_the_real_tool_tests_run():
-    """The OpenROAD section shows the design file `examples/bluespec/gcd/gcd.yaml`, as data."""
-    example = yaml.safe_load((ROOT / "examples/bluespec/gcd/gcd.yaml").read_text(encoding="utf-8"))
-    assert yaml.safe_load(_fixture("openroad-gcd.yaml")) == example
+def test_the_openroad_fixture_is_the_example_that_the_real_tool_tests_run(tmp_path):
+    """The OpenROAD example keeps the standalone GCD design's resolved sources and settings."""
+    root = _stage(tmp_path, "openroad-gcd.yaml")
+
+    def source_names(section):
+        return [(source.file.name, source.type) for source in section.sources]
+
+    def resolved_contract(design):
+        return (
+            source_names(design.rtl),
+            source_names(design.tb),
+            design.rtl.top,
+            design.rtl.defines,
+            design.rtl.parameters,
+            design.rtl.clocks,
+            design.tb.top,
+            design.tb.defines,
+            design.tb.parameters,
+            design.flow,
+        )
+
+    example_file = ROOT / "examples/bluespec/gcd/gcd.yaml"
+    for target in (None, "ecp5", "artix7"):
+        documented = Design.from_file(root / "openroad-gcd.yaml", target=target)
+        example = Design.from_file(example_file, target=target)
+        assert resolved_contract(documented) == resolved_contract(example), target
 
 
 @pytest.mark.parametrize("target", [None, "ecp5", "artix7"])

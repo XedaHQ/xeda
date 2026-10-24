@@ -10,15 +10,7 @@ description: >-
   Arty A7-100T, the Basys-3, the ULX3S and the STLV7325 v2, and estimate the area of the bare
   core. The cocotb tests are in tb/cosim.yaml.
 rtl:
-  # The PHY of the uart example comes first; the package that defines `top` comes last.
   sources:
-    - "../uart/rtl/RingFifo.bsv"
-    - "../uart/rtl/UartTypes.bsv"
-    - "../uart/rtl/BitTimer.bsv"
-    - "../uart/rtl/UartRx.bsv"
-    - "../uart/rtl/UartTx.bsv"
-    - "../uart/rtl/Uart.bsv"
-    - "rtl/LeanLink.bsv"
     - "rtl/LeanLinkTestTop.bsv"
     - "rtl/LeanLinkBoard.bsv"
   top: mkLeanLinkBoard
@@ -31,6 +23,11 @@ rtl:
   defines.BAUD: 12000000
   defines.LL_LOGW: 3
   defines.LL_LOGP: 8
+dependencies:
+  - "../uart/uart-library.yaml"
+  - uri: "leanlink-library.yaml"
+    rtl:
+      pos: 6
 tb:
   sources:
     - "tb/LeanLinkFrames.bsv"

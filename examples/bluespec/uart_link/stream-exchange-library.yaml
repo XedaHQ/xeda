@@ -1,0 +1,117 @@
+name: stream_exchange
+description: Reusable typed stream exchange source library.
+dependencies:
+  - "leanlink-library.yaml"
+rtl.sources:
+  - "rtl/StreamExchange.bsv"
+targets:
+  test:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchange
+    tb.sources: []
+  gcd:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbGcdStream
+    tb.sources: []
+  width1:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeW1
+    tb.sources: []
+  width2:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeW2
+    tb.sources: []
+  width3:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeW3
+    tb.sources: []
+  width4:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeW4
+    tb.sources: []
+  width5:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeW5
+    tb.sources: []
+  width6:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeW6
+    tb.sources: []
+  width7:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeW7
+    tb.sources: []
+  width9:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeW9
+    tb.sources: []
+  width13:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeW13
+    tb.sources: []
