@@ -984,16 +984,33 @@ def root_relative_text(root: Path, path: Path) -> str:
 
 
 class Source(FileResource):
-    """A source file of a design. It is immutable."""
+    """A source file of a design. It is immutable.
+
+    A source is either written (a file of the design) or generated. A generated source belongs to
+    the output of a producer: the design's generator, or a converter flow. Its `output_name` is its
+    name in that output, relative to the output. It is the same for both producers.
+
+    A generated source is in one of two states:
+
+    - A declaration (`Source.declaration`) is what a design file lists for a generator. It is a
+      name or a pattern (`gen/*.v`) in the output of the generator, and the generator has not run
+      yet, or the design is not run. It names no file: `file` is None, and the source has no
+      content.
+    - A located source names a real file in the output: `file` is its absolute path, and
+      `output_name` its name in the output.
+    """
 
     type: SourceType
     _stated: dict[str, Any]
-    #: The place of a source that a converter flow generated, in the output of that flow. Only
-    #: the design a converter derives sets it (`xeda.flow.derived`). The identity of the design
-    #: counts the source by this name, never by its path (`Design._source_fingerprint`),
-    #: because the path into a run directory depends on where the run root is. It is no part
-    #: of the table of a source, and a design that is loaded from a file never has it.
-    generated_name: str | None
+    #: Whether the source belongs to the output of a producer (the generator of the design, or a
+    #: converter flow) and is no file that the design's author wrote.
+    generated: bool
+    #: The name (or, for a declaration, the pattern) of a generated source in the output of its
+    #: producer; None for a written source. The identity of the design counts a generated source
+    #: by this name, never by its path (`Design._source_fingerprint`), because the path into a
+    #: storage or a run directory depends on where the run root is. It is no part of the table of
+    #: a source in a design file.
+    output_name: str | None
 
     def __init__(
         self,
@@ -1001,10 +1018,13 @@ class Source(FileResource):
         typ: Union[str, SourceType, None] = None,
         _root_path: Optional[Path] = None,
         *,
-        generated_name: str | None = None,
+        generated: bool = False,
+        output_name: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Build a design source while retaining its stated type."""
+        if generated != (output_name is not None):
+            raise ValueError("a generated source has an `output_name`, and no other source has")
         if isinstance(path, dict):
             problems = source_table_problems(path)
             if problems:
@@ -1030,15 +1050,80 @@ class Source(FileResource):
         # (`{file: legacy.v, type: SystemVerilog}`) would be lost if the dump left it out, and it
         # is part of the design's identity.
         attributes["_stated"] = {"type": str(self.type)} if typ is not None else {}
-        attributes["generated_name"] = generated_name
+        attributes["generated"] = generated
+        attributes["output_name"] = output_name
+
+    @classmethod
+    def declaration(cls, name: str, typ: SourceType, *, stated: bool = False) -> Source:
+        """Return the declaration of a generated source: a `name` or pattern in the output of the
+        design's generator.
+
+        `typ` is its type. `stated` says that the design gave the type, which a dump of the design
+        writes back; a type that the suffix implies is inferred again on reload."""
+        source = object.__new__(cls)
+        attributes = vars(source)
+        attributes["file"] = None
+        attributes["_specified_path"] = Path(name)
+        attributes["_checked"] = False
+        attributes["type"] = typ
+        attributes["_stated"] = {"type": str(typ)} if stated else {}
+        attributes["generated"] = True
+        attributes["output_name"] = name
+        return source
 
     @property
-    def generated(self) -> bool:
-        """Whether a converter flow generated the source (`generated_name`)."""
-        return self.generated_name is not None
+    def located(self) -> bool:
+        """Whether the source names a file. A declaration of a generated source does not."""
+        return self.file is not None
+
+    @property
+    def path(self) -> Path:
+        """The absolute file of a located source; the name or pattern of a declaration."""
+        if self.file is None:
+            assert self.output_name is not None
+            return Path(self.output_name)
+        return self.file
+
+    @property
+    def content_hash(self) -> str:
+        if self.file is None:
+            raise FileNotFoundError(
+                f"the generated source {self.output_name} names no file yet: the generator has "
+                "not run, so the design that uses it cannot be identified by content"
+            )
+        return super().content_hash
+
+    def __eq__(self, other: Any) -> bool:
+        # Added attributes do not change semantic equality. A declaration is its name and type.
+        if not isinstance(other, FileResource):
+            return False
+        if self.file is None or getattr(other, "file", None) is None:
+            return (
+                isinstance(other, Source)
+                and self.file is None
+                and other.file is None
+                and self.output_name == other.output_name
+                and self.type is other.type
+            )
+        return super().__eq__(other)
+
+    def __hash__(self) -> int:
+        # Added attributes do not change semantic identity.
+        if self.file is None:
+            return hash(("declaration", self.output_name))
+        return super().__hash__()
+
+    def __str__(self) -> str:
+        return str(self.output_name) if self.file is None else super().__str__()
 
     def as_json_value(self) -> Union[str, Dict[str, Any]]:
-        """Serialize a source with only the metadata explicitly supplied."""
+        """Serialize a source with only the metadata explicitly supplied.
+
+        A declaration is written as its name, or as a table with its `path` and its stated type."""
+        if self.file is None:
+            if not self._stated:
+                return str(self.output_name)
+            return {"path": str(self.output_name), **self._stated}
         value = super().as_json_value()
         if not self._stated:
             return value
@@ -1046,15 +1131,9 @@ class Source(FileResource):
             value = {"file": value}
         return {**value, **self._stated}
 
-    def __eq__(self, other: Any) -> bool:  # pylint: disable=useless-super-delegation
-        # Added attributes do not change semantic equality.
-        return super().__eq__(other)
-
-    def __hash__(self) -> int:  # pylint: disable=useless-super-delegation
-        # Added attributes do not change semantic identity.
-        return super().__hash__()
-
     def __repr__(self) -> str:
+        if self.file is None:
+            return f"generated:{self.output_name} type:{self.type}"
         return f"file:{self.file} type:{self.type}"
 
     @classmethod
@@ -3693,8 +3772,8 @@ class Design(XedaBaseModel):
 
     def _source_fingerprint(self, source: Source) -> Dict[str, Any]:
         """Return what identifies a source: its content, its type and its place: its path relative
-        to the design root, or for a file that a converter generated, its name in the output of
-        the converter (`Source.generated_name`).
+        to the design root, or for a generated file, its name in the output of its producer
+        (`Source.output_name`).
 
         A source's location may affect include resolution, commands in a sourced constraint or
         script, and tool lookup. Counting every declared source by path avoids reusing a cached
@@ -3708,9 +3787,9 @@ class Design(XedaBaseModel):
             "content": source.content_hash,
             "type": str(source.type) if source.type is not None else None,
         }
-        if source.generated_name is not None:
-            # A file a converter generated: where it sits in the output of the converter.
-            fingerprint["generated"] = source.generated_name
+        if source.generated:
+            # A generated file: where it sits in the output of its producer.
+            fingerprint["generated"] = source.output_name
         else:
             fingerprint["path"] = self.source_place(source)
         return fingerprint
@@ -3720,7 +3799,12 @@ class Design(XedaBaseModel):
         design root, as POSIX text (`root_relative_text`).
 
         A remote launch moves the sources outside the design root. Then the host counts the
-        place as the client does (`path_identity`, role `source`)."""
+        place as the client does (`path_identity`, role `source`). A generated source has no path
+        from the design root: its place is its name in the output of its producer (the name or
+        pattern that a design file declares)."""
+        if source.generated:
+            assert source.output_name is not None
+            return source.output_name
         known = path_identity(source.file, "source")
         return known if known is not None else root_relative_text(self.root_path, source.file)
 

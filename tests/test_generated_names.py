@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import SourceType
+from xeda.design import Source, SourceType
 from xeda.flow.derived import derive_design, generated_name
 
 pytestmark = pytest.mark.skipif(
@@ -117,7 +117,7 @@ def test_the_hash_does_not_depend_on_where_the_output_is(tmp_path) -> None:
     for place in ("out", "deeper/elsewhere/out"):
         base = _output(tmp_path / place)
         derived = derive_design(design, _record(base / "a" / "top.v"), base)
-        assert derived.rtl.sources[0].generated_name == "a/top.v"
+        assert derived.rtl.sources[0].output_name == "a/top.v"
         hashes.append(derived.rtl_hash)
     assert hashes[0] == hashes[1]
     assert str(tmp_path) not in str(design.rtl_fingerprint)
@@ -129,6 +129,55 @@ def test_a_copy_of_a_derived_design_keeps_its_identity(tmp_path) -> None:
     base = _output(tmp_path / "out")
     derived = derive_design(design, _record(base / "a" / "top.v"), base)
     copied = derived.model_copy(deep=True)
-    assert copied.rtl.sources[0].generated_name == "a/top.v"
+    assert copied.rtl.sources[0].output_name == "a/top.v"
     assert copied.rtl_hash == derived.rtl_hash
     assert copied.rtl.sources[0].type is SourceType.Verilog
+
+
+# --------------------------------------------- one meaning of `generated`, for both producers
+
+
+def test_a_declaration_is_a_name_in_the_output_and_names_no_file() -> None:
+    import copy
+
+    source = Source.declaration("gen/*.v", SourceType.Verilog)
+    assert source.generated and not source.located
+    assert source.output_name == "gen/*.v" and source.path == Path("gen/*.v")
+    assert source.file is None and str(source) == "gen/*.v"
+    with pytest.raises(FileNotFoundError, match="generator has not run"):
+        source.content_hash
+    with pytest.raises(AttributeError):
+        source.output_name = "x"  # type: ignore[misc]
+    again = copy.deepcopy(source)
+    assert again == source and hash(again) == hash(source) and not again.located
+
+
+def test_a_declaration_is_equal_to_the_same_name_and_type_only() -> None:
+    verilog = Source.declaration("gen/*.v", SourceType.Verilog)
+    assert verilog == Source.declaration("gen/*.v", SourceType.Verilog)
+    assert verilog != Source.declaration("gen/*.v", SourceType.SystemVerilog)
+    assert verilog != Source.declaration("gen/*.sv", SourceType.Verilog)
+    assert verilog != Source({"path": "/x/gen/*.v"}, SourceType.Verilog)
+
+
+def test_a_declaration_is_written_as_a_name_or_a_table_with_its_stated_type() -> None:
+    assert Source.declaration("gen/top.v", SourceType.Verilog).as_json_value() == "gen/top.v"
+    stated = Source.declaration("gen/top", SourceType.Verilog, stated=True)
+    assert stated.as_json_value() == {"path": "gen/top", "type": "Verilog"}
+
+
+def test_a_converter_output_and_a_declaration_are_generated_in_one_sense(tmp_path) -> None:
+    base = _output(tmp_path / "out")
+    derived = derive_design(_design(tmp_path / "d"), _record(base / "a" / "top.v"), base)
+    written, converted = derived.rtl.sources[1], derived.rtl.sources[0]
+    assert converted.generated and converted.output_name == "a/top.v" and converted.located
+    assert not written.generated and written.output_name is None
+    assert derived.source_place(converted) == "a/top.v"
+    assert derived.source_place(Source.declaration("gen/*.v", SourceType.Verilog)) == "gen/*.v"
+
+
+def test_a_generated_source_needs_its_name_and_a_written_source_has_none(tmp_path) -> None:
+    with pytest.raises(ValueError, match="output_name"):
+        Source({"path": str(tmp_path / "top.v")}, SourceType.Verilog, generated=True)
+    with pytest.raises(ValueError, match="output_name"):
+        Source({"path": str(tmp_path / "top.v")}, SourceType.Verilog, output_name="top.v")

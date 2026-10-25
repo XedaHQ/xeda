@@ -95,7 +95,7 @@ class _skipping_generation:
         lambda d: d.rtl.parameters["LIST"].append(3),
         lambda d: d.rtl.sources.append(d.rtl.sources[0]),
         lambda d: setattr(d.rtl.sources[0], "type", SourceType.Vhdl),
-        lambda d: setattr(d.rtl.sources[0], "generated_name", "x"),
+        lambda d: setattr(d.rtl.sources[0], "output_name", "x"),
         lambda d: setattr(d.rtl.sources[0], "file", Path("/x")),
         lambda d: d.rtl.attributes["keep"].__setitem__("top", "false"),
         lambda d: d.rtl.clocks.append({}),
@@ -252,8 +252,8 @@ def test_a_converted_design_plans_and_runs_with_frozen_values(tmp_path):
 
 
 def test_a_generated_source_is_built_in_one_call():
-    source = Source({"path": "out/top.v"}, SourceType.Verilog, generated_name="top.v")
-    assert source.generated and source.generated_name == "top.v"
+    source = Source({"path": "out/top.v"}, SourceType.Verilog, generated=True, output_name="top.v")
+    assert source.generated and source.output_name == "top.v"
     assert source.type is SourceType.Verilog
     assert not Source({"path": "out/top.v"}).generated
 
