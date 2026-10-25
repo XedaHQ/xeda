@@ -18,16 +18,17 @@ import os
 import stat
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Any, BinaryIO, Dict, Optional
 
 from ..artifacts import (
     ArtifactPath,
     drop_unwritten_artifacts,
+    filter_artifact_paths,
     iter_artifact_paths,
     map_artifact_paths,
 )
-from ..deliver import Deliveries, DeliveryError, ReadInputs, outputs_to_deliveries
+from ..deliver import Deliveries, DeliveryError, ReadInputs, leads_out, outputs_to_deliveries
 from ..design import Design
 from ..digest import content_digest
 from ..flow import Flow, FlowSettingsError
@@ -136,6 +137,80 @@ def _is_regular_inside(run_dir: str, place: str) -> bool:
     return _is_regular(os.path.join(current, name))
 
 
+@dataclass(frozen=True)
+class SkippedSource:
+    """An artifact of node `node` that a symbolic link leads out of its run directory.
+
+    `place` is its place in the run directory, with `/`, as the results name it. `source` is its
+    path on the remote and `target` where it leads. Its content is not fetched, and a delivery of
+    `--outputs-to` skips it, as for a local run (`deliver._outside`)."""
+
+    node: str
+    place: str
+    source: str
+    target: str
+
+    def as_json_value(self) -> Dict[str, str]:
+        return {
+            "node": self.node,
+            "place": self.place,
+            "source": self.source,
+            "target": self.target,
+        }
+
+    @classmethod
+    def from_json_value(cls, value: Any) -> "SkippedSource":
+        keys = ("node", "place", "source", "target")
+        if (
+            not isinstance(value, Mapping)
+            or set(value) != set(keys)
+            or not all(isinstance(value[key], str) and value[key] for key in keys)
+        ):
+            raise RemoteFetchError(f"a skipped source is not {{{', '.join(keys)}}}: {value!r}")
+        place = PurePosixPath(value["place"])
+        if place.is_absolute() or ".." in place.parts or place.parts[:1] == (_EXTERNAL,):
+            raise RemoteFetchError(f"a skipped source has the place {value['place']!r}")
+        return cls(*(value[key] for key in keys))
+
+
+@dataclass(frozen=True)
+class FetchSelection:
+    """What `select_fetch` chose: the files that come back, and the artifacts that do not
+    because a link leads them out of their run directory."""
+
+    files: dict[str, Path]
+    skipped: list[SkippedSource]
+
+
+def _through_a_link(
+    node: str, given: str, full: str, run_dir: str, declared: bool
+) -> Optional[Path]:
+    """Return the regular file of the run directory that the named file `full` leads to.
+
+    The name is not a regular file reached through real directories only: a symbolic link lies
+    at it or on the way to it. A link that leads to a regular file in the run directory brings
+    that file back under the name. One that leads out of the run directory brings nothing back,
+    and the function returns None for an artifact. A declared output that leads out, a link that
+    leads nowhere, and a name that is no regular file raise `RemoteFetchError`."""
+    if not os.path.exists(full):
+        raise RemoteFetchError(
+            f"{node} names {given}, but there is no file of that name in {run_dir}, or it is a "
+            "symbolic link that leads nowhere"
+        )
+    target = leads_out(Path(full), Path(run_dir))
+    if target is not None:
+        if declared:
+            raise RemoteFetchError(
+                f"{node} names {given} as a declared output, but it leads to {target}, outside "
+                f"its run directory {run_dir}"
+            )
+        return None
+    resolved = Path(os.path.realpath(full))
+    if not _is_regular(str(resolved)):
+        raise RemoteFetchError(f"{node} names {given}, but it is no regular file in {run_dir}")
+    return resolved
+
+
 def _files_below(run_dir: str, subdirectory: str = "") -> list[str]:
     """The files to fetch below `run_dir`/`subdirectory`, as paths relative to `run_dir`, in
     order. The walk follows no link: a linked directory is not entered (the directory the walk
@@ -177,18 +252,22 @@ def _node_prefix(run_root: Path, run_dir: Path) -> PurePosixPath:
     raise RemoteFetchError(f"the run directory {run_dir} is not below the run root {run_root}")
 
 
-def select_fetch(
-    run_root: Path, nodes: Sequence[NodeResult], *, fetch_all: bool
-) -> dict[str, Path]:
+def select_fetch(run_root: Path, nodes: Sequence[NodeResult], *, fetch_all: bool) -> FetchSelection:
     """Return the files that come back to the local machine, on the remote.
 
-    The keys are paths relative to `run_root`, with `/`: the run directory of the node and then
-    the place in it. The values are the files on the remote.
+    The keys of `files` are paths relative to `run_root`, with `/`: the run directory of the node
+    and then the place in it. The values are the files on the remote.
 
     Of every node, these come back: `results.json`, `settings.json`, the `*.log` files at the top
     of the run directory, and everything below `reports/`. Of a node that the request names, the
     paths in `results.outputs` and `results.artifacts` come back too. With `fetch_all`, the whole
     run directory comes back. `trace.json` never does.
+
+    A named path of a node that succeeded may be a symbolic link, or lie through one, that a tool
+    left. If it leads to a regular file in the run directory, that file comes back under the
+    name. If it leads out of the run directory, nothing of it comes back: an artifact is listed
+    in `skipped`, and a declared output is an error. A link that leads nowhere is an error. The
+    other files, whose discovery follows no link, come back only as regular files.
 
     A node that failed (`results.success` is not true) returns only the files that its run wrote
     (`NodeResult.written`) and no declared outputs. If the remote gave no `written`, it returns
@@ -196,6 +275,7 @@ def select_fetch(
     `_external/<digest>/<name>` (`external_place`). A file that a succeeded node names and that is
     missing is an error."""
     selected: dict[str, Path] = {}
+    skipped: list[SkippedSource] = []
     for node in nodes:
         run_dir = os.path.abspath(node.run_dir)
         prefix = _node_prefix(run_root, node.run_dir)
@@ -221,24 +301,41 @@ def select_fetch(
         if node.named:
             if succeeded:
                 _declared_outputs_problem(node.results, run_dir)
-            named = [os.fspath(path) for path in iter_artifact_paths(node.results.get("artifacts"))]
+            named = [
+                (os.fspath(path), False)
+                for path in iter_artifact_paths(node.results.get("artifacts"))
+            ]
             if succeeded:
-                named += [os.fspath(path) for path in declared_output_files(dict(node.results))]
-            for given in named:
+                named += [
+                    (os.fspath(path), True) for path in declared_output_files(dict(node.results))
+                ]
+            for given, declared in named:
                 mirrored = mirror_relative(given, run_dir)
                 full = given if os.path.isabs(given) else os.path.join(run_dir, given)
                 full = os.path.normpath(full)
                 is_external = mirrored.parts[0] == _EXTERNAL
-                if not (
-                    _is_regular(full)
-                    if is_external
-                    else _is_regular_inside(run_dir, mirrored.as_posix())
-                ):
+                if is_external and not _is_regular(full):
                     if succeeded:
                         raise RemoteFetchError(
                             f"{node.name} names {given}, but there is no regular file of that "
                             f"name in {run_dir} (a link is not followed)"
                         )
+                    continue
+                if not is_external and not _is_regular_inside(run_dir, mirrored.as_posix()):
+                    if not succeeded:
+                        continue
+                    resolved = _through_a_link(node.name, given, full, run_dir, declared)
+                    if resolved is None:
+                        skipped.append(
+                            SkippedSource(
+                                node.name,
+                                mirrored.as_posix(),
+                                full,
+                                os.path.realpath(full),
+                            )
+                        )
+                    else:
+                        inside[mirrored.as_posix()] = resolved
                     continue
                 if is_external:
                     outside[mirrored.as_posix()] = Path(full)
@@ -251,7 +348,7 @@ def select_fetch(
             outside = {}
         for place, path in {**inside, **outside}.items():
             selected[(prefix / place).as_posix() if prefix.parts else place] = path
-    return selected
+    return FetchSelection(selected, list(dict.fromkeys(skipped)))
 
 
 def publish_mirror(
@@ -306,6 +403,7 @@ def rewrite_results(
     mirror_dir: Path,
     *,
     written: Optional[Collection[str]] = None,
+    skipped: Collection[str] = (),
 ) -> dict[str, Any]:
     """Return the results of a node that the request names, with the paths of the remote run
     directory `remote_run_dir` pointed at the mirror directory `mirror_dir`: `run_path` and
@@ -317,7 +415,8 @@ def rewrite_results(
     the paths relative to its run directory that the remote vouched for (as `NodeResult.written`
     does), and with none given no artifact survives. A declared output must lie in the run
     directory, and its file in the mirror must have the digest in its record, or
-    `DeliveryError`."""
+    `DeliveryError`. The artifacts at the places `skipped` lead out of the run directory and were
+    not fetched (`SkippedSource`): they are left out, with a warning."""
     rewritten = copy.deepcopy(results)
     remote_dir = str(remote_run_dir)
     succeeded = bool(rewritten.get("success"))
@@ -337,6 +436,18 @@ def rewrite_results(
                 raise DeliveryError(f"Declared remote output {record[key]} changed during transfer")
             record[key] = str(local)
     artifacts = rewritten.get("artifacts")
+    if artifacts is not None and skipped:
+
+        def fetched(artifact: ArtifactPath) -> bool:
+            return mirror_relative(os.fspath(artifact), remote_dir).as_posix() not in skipped
+
+        log.warning(
+            "On the remote, these artifacts lead out of the run directory %s through a symbolic "
+            "link and were not fetched: %s",
+            remote_dir,
+            ", ".join(sorted(skipped)),
+        )
+        artifacts = filter_artifact_paths(artifacts, fetched)
     if artifacts is not None:
         vouched = frozenset(written or ())
 
@@ -452,20 +563,23 @@ def deliver_fetched(
     local_artifacts_dir: Path,
     *,
     outputs_to: Optional[Path],
+    skipped: Sequence[SkippedSource] = (),
 ) -> None:
     """Deliver `--outputs-to` (`outputs_to`) from the artifacts fetched into
     `local_artifacts_dir`.
 
     The artifacts are named by their paths in the remote run directory. Only a run that
     succeeded delivers: the files of a failed run never replace earlier copies made by
-    Xeda. What was delivered goes into `results`."""
+    Xeda. What was delivered goes into `results`. An artifact in `skipped` leads out of the run
+    directory on the remote: it is skipped, as a local one is."""
     if outputs_to is None or not remote_run_path or not remote_artifacts:
         return
     if not results.get("success"):
         log.warning("The remote run failed: nothing is delivered to %s", outputs_to)
         return
     extra = outputs_to_deliveries(remote_artifacts, Path(remote_run_path), outputs_to)
-    delivery.collect(local_artifacts_dir, extra)
+    outside = {PurePath(source.place): (source.source, source.target) for source in skipped}
+    delivery.collect(local_artifacts_dir, extra, outside)
     try:
         delivered = delivery.deliver()
     except Exception:

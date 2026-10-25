@@ -56,7 +56,7 @@ import os
 import stat
 import tempfile
 from collections import Counter
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 from typing import Any, Dict, Optional
@@ -688,9 +688,16 @@ def _outside(delivery: Delivery, source: Path, run_dir: Path) -> Optional[Path]:
     target = leads_out(source, run_dir)
     if target is None or delivery.key == OUTPUTS_TO:
         return target
-    raise DeliveryError(
-        f"{what} leads to {target}, outside the run directory, through a symbolic link that the "
-        "tool left: Xeda delivers only what the run directory holds",
+    raise _refused_outside(delivery, str(source), str(target))
+
+
+def _refused_outside(delivery: Delivery, source: str, target: str) -> DeliveryError:
+    """The refusal of a delivery that a setting names, whose source leads out of the run
+    directory (`_outside`)."""
+    return DeliveryError(
+        f"`{delivery.key}` names {delivery.destination}, but {source} leads to {target}, outside "
+        "the run directory, through a symbolic link that the tool left: Xeda delivers only what "
+        "the run directory holds",
         output_problem=True,
     )
 
@@ -1073,7 +1080,12 @@ class Deliveries:
             raise OutputExistsError(_refused(conflicts), before_run=True)
         self.checked = states
 
-    def collect(self, source_root: Path, extra: Sequence[Delivery] = ()) -> None:
+    def collect(
+        self,
+        source_root: Path,
+        extra: Sequence[Delivery] = (),
+        outside: Optional[Mapping[PurePath, tuple[str, str]]] = None,
+    ) -> None:
         """Note each file that the node delivers, when its run is over.
 
         Call it under the lock of the run directory. The files come from `source_root` (the run
@@ -1081,29 +1093,31 @@ class Deliveries:
         of `--outputs-to`). The method notes each file with the content digest that the run left,
         for `deliver` to copy once the launch has finished. Raise a `DeliveryError` if the run
         wrote no file that a delivery names.
+
+        `outside` names the sources that lead out of their run directory, by their name there,
+        when another side made that check: the remote, for a mirror that holds no file of them
+        (`remote.fetch.SkippedSource`). Each maps to its path there and where it leads. They are
+        skipped or refused as a local source that leads out is.
         """
         self.pending = []
         self.skipped = []
         for delivery in [*self.named, *extra]:
             source = Path(source_root) / delivery.name
+            known = (outside or {}).get(PurePath(delivery.name))
+            if known is not None:
+                if delivery.key != OUTPUTS_TO:
+                    raise _refused_outside(delivery, *known)
+                self._skip(delivery, *known)
+                continue
             if not os.path.lexists(source):
                 raise DeliveryError(
                     f"`{delivery.key}` names {delivery.destination}, but the run wrote no "
                     f"{delivery.name} in {source_root}",
                     output_problem=True,
                 )
-            outside = _outside(delivery, source, Path(source_root))
-            if outside is not None:
-                log.warning(
-                    "%s leads to %s, outside the run directory, through a symbolic link that the "
-                    "tool left: not copied to %s",
-                    source,
-                    outside,
-                    delivery.destination,
-                )
-                self.skipped.append(
-                    Delivered(delivery.key, source, delivery.destination, "skipped")
-                )
+            target = _outside(delivery, source, Path(source_root))
+            if target is not None:
+                self._skip(delivery, str(source), str(target))
                 continue
             if source.is_dir():
                 pairs = [
@@ -1116,6 +1130,17 @@ class Deliveries:
             else:
                 pairs = [(source, delivery.destination)]
             self.pending += [(delivery, src, dest, content_digest(src)) for src, dest in pairs]
+
+    def _skip(self, delivery: Delivery, source: str, target: str) -> None:
+        """Skip a delivery of `--outputs-to` whose source leads out of the run directory."""
+        log.warning(
+            "%s leads to %s, outside the run directory, through a symbolic link that the tool "
+            "left: not copied to %s",
+            source,
+            target,
+            delivery.destination,
+        )
+        self.skipped.append(Delivered(delivery.key, Path(source), delivery.destination, "skipped"))
 
     @staticmethod
     def sources_reached(deliveries: Iterable[Deliveries]) -> Counter[tuple[int, int]]:

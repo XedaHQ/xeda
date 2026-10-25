@@ -353,10 +353,17 @@ def assert_gone(processes: list[psutil.Process]) -> None:
     assert not alive, f"still running: {alive}"
 
 
-def fetched(agent: Agent, fetch_all: bool = False) -> dict[str, bytes]:
-    """Fetch and return the content of every file that comes back."""
+def fetched(
+    agent: Agent, fetch_all: bool = False, skipped: Optional[list] = None
+) -> dict[str, bytes]:
+    """Fetch and return the content of every file that comes back. `skipped` gets the sources
+    that the agent did not send, because a link leads them out of their run directory."""
     agent.send({"fetch": {"fetch_all": fetch_all}})
-    entries = [Entry.from_json_value(item) for item in agent.get("files")]
+    listing = agent.get("files", whole=True)
+    assert set(listing) == {"files", "skipped"}
+    if skipped is not None:
+        skipped.extend(listing["skipped"])
+    entries = [Entry.from_json_value(item) for item in listing["files"]]
     pending: "queue.Queue[tuple[bytes, bytes]]" = queue.Queue()
 
     class Source(io.RawIOBase):
@@ -414,6 +421,41 @@ def test_session_syncs_launches_streams_and_fetches(tmp_path, toolchain, start_a
     assert "top/nextpnr/results.json" in files and "top/nextpnr/settings.json" in files
     assert not any(path.endswith("trace.json") for path in files)
     assert json.loads(files["top/nextpnr/results.json"])["success"] is True
+    agent.send({"bye": True})
+    assert agent.process.wait(timeout=TIMEOUT) == 0
+
+
+def test_a_fetch_follows_a_link_only_inside_the_run_directory(tmp_path, toolchain, start_agent):
+    """A tool may leave a link at the name of an artifact. One that leads to a file of the run
+    directory brings that file back under its name; one that leads out of it brings nothing, and
+    the agent says so, with where it leads."""
+    agent = start_agent(env=dict(os.environ))
+    agent.get("hello")
+    agent.sync(DESIGN, "launch-1")
+    agent.send(launch_message(tmp_path, "launch-1", path_setup(toolchain)))
+    result = agent.get("result", whole=True)
+    assert result["result"]["success"] is True
+    run_path = Path(result["result"]["run_path"])
+    secret = tmp_path / "secret.txt"
+    secret.write_text("not the run's\n")
+    (run_path / "outside.log").symlink_to(secret)
+    (run_path / "inside.log").symlink_to("settings.json")
+    results = json.loads((run_path / "results.json").read_text())
+    results.setdefault("artifacts", {}).update(outside="outside.log", inside="inside.log")
+    (run_path / "results.json").write_text(json.dumps(results))
+    skipped: list = []
+    files = fetched(agent, skipped=skipped)
+    assert files["top/nextpnr/inside.log"] == (run_path / "settings.json").read_bytes()
+    assert "top/nextpnr/outside.log" not in files
+    assert not [content for content in files.values() if b"not the run's" in content]
+    assert skipped == [
+        {
+            "node": "nextpnr",
+            "place": "outside.log",
+            "source": str(run_path / "outside.log"),
+            "target": os.path.realpath(secret),
+        }
+    ]
     agent.send({"bye": True})
     assert agent.process.wait(timeout=TIMEOUT) == 0
 

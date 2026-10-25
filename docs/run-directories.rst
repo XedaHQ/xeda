@@ -800,9 +800,10 @@ link and where it leads, the ``deliveries`` of the node list it as ``"skipped"``
 still succeeds. A location that a setting names is refused instead, because you asked for that file
 there. A link that leads nowhere, or into a cycle, is refused in both cases. Before the launch,
 Xeda still asks about a file in the way of every artifact that the last run reported, because the
-next run may leave a regular file at that name. With ``--remote``, Xeda
-brings back no link at all: an artifact that the run names and that is a symbolic link, or lies
-through one, fails the fetch.
+next run may leave a regular file at that name. ``--remote`` follows the same rule: the host brings
+back the regular file that a link leads to in the run directory, under the name of the link, and
+nothing of what a link leads to outside it. An artifact that is a directory, or a link to one,
+fails the fetch.
 
 A run is identified by what it writes: whether it writes the output, and the name it writes the
 output under in the run directory. A location is not part of that. A run that passed and is up to
