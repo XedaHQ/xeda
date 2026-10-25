@@ -267,7 +267,7 @@ def cocotb_verdict(
     flow_results[prefix + "failures"] = results.failures
     flow_results[prefix + "skipped"] = results.skipped
     flow_results[prefix + "time"] = results.time
-    flow_results[prefix + "sim_time_ns"] = results.total_sim_time_ns
+    flow_results[prefix + "sim_time"] = results.total_sim_time_ns
     if results.errors:
         log.error("Cocotb: %d error(s)", results.errors)
         return False

@@ -83,9 +83,7 @@ SETTINGS_EXPRESSIONS = frozenset({"settings", "ss", "self.settings", "flow.setti
 #: In the code of a settings class, the settings are `self` (or `cls`).
 SETTINGS_SELF = frozenset({"self", "cls"})
 #: Class-level tables whose text names things, but whose strings are no read.
-NAME_TABLES = frozenset(
-    {"results_description", "removed_settings", "required_settings", "results_canonical_aliases"}
-)
+NAME_TABLES = frozenset({"results_description", "removed_settings", "required_settings"})
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 #: Template suffixes whose lines starting with `#` are comments.
 HASH_COMMENT_SUFFIXES = frozenset(

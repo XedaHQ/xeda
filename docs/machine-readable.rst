@@ -238,7 +238,7 @@ Discovering what comes back
     {
       "flow": "vivado_synth",
       "metrics": [
-        {"path": "Fmax", "description": "Maximum achievable clock frequency, ...",
+        {"path": "fmax", "description": "Maximum achievable clock frequency, ...",
          "type": "number", "unit": "MHz"},
         {"path": "lut", "description": "Number of LUTs used.", "type": "integer", "unit": null}
       ],
@@ -254,12 +254,12 @@ as a cell area in the area unit of the Liberty files, has the unit ``null``, and
 says so. The keys that every flow reports (``success``, ``runtime``, ...) are no metrics and are not
 listed. The table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
 
-A canonical key names a quantity, not one way to measure it. ``lut`` is reported per toolchain and
-per stage. The open-source FPGA flows add ``LUT:STAGE`` (``mapped`` for ``yosys_fpga``, ``placed and
-routed`` for ``nextpnr``) and ``LUT:METHOD`` beside it. Counts from different toolchains or stages
-are not certified comparable, and this holds in particular for Vivado's utilization report. ``Fmax``
-works the same way. Each tool times a design with its own model, so compare ``Fmax`` only between
-runs of the same tool (see :ref:`flow-results`).
+A metric names a quantity, not one way to measure it. ``lut`` is reported per toolchain and per
+stage. The open-source FPGA flows add ``lut_basis.stage`` (``mapped`` for ``yosys_fpga``, ``placed
+and routed`` for ``nextpnr``) and ``lut_basis.method`` beside it. Counts from different toolchains
+or stages are not certified comparable, and this holds in particular for Vivado's utilization
+report. ``fmax`` works the same way. Each tool times a design with its own model, so compare
+``fmax`` only between runs of the same tool (see :ref:`flow-results`).
 
 Validating a design file
 ========================
@@ -289,7 +289,7 @@ delivered the file there once the run finished:
       "design_file": "/path/to/blinky.yaml",
       "target": null,
       "success": true,
-      "results": {"success": true, "Fmax": 212.4, "lut": 45, "...": "..."},
+      "results": {"success": true, "fmax": 212.4, "lut": 45, "...": "..."},
       "run_path": "/path/to/xeda_run/blinky/nextpnr",
       "results_json": "/path/to/xeda_run/blinky/nextpnr/results.json",
       "settings_json": "/path/to/xeda_run/blinky/nextpnr/settings.json",
@@ -828,7 +828,7 @@ To run a flow:
     runner = DefaultRunner("xeda_run")
     flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5ns"])
     if flow and flow.results.success:
-        print(flow.results.Fmax)
+        print(flow.results.fmax)
 
 To inspect a plan without constructing or running flows:
 

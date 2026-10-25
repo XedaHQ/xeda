@@ -487,7 +487,7 @@ def test_a_dse_outcome_is_one_view_wherever_it_is_written(tmp_path):
 
     outcome = FlowOutcome(
         settings=Flow.Settings(),
-        results=Flow.Results(success=True, Fmax=123.4),
+        results=Flow.Results(success=True, fmax=123.4),
         timestamp="2026-01-01",
         run_path=tmp_path / "run",
     )
@@ -498,7 +498,7 @@ def test_a_dse_outcome_is_one_view_wherever_it_is_written(tmp_path):
 
     assert from_file == _dse_best_document(outcome)
     assert from_file["run_path"] == str(tmp_path / "run"), "a path is written as text"
-    assert from_file["results"]["Fmax"] == 123.4
+    assert from_file["results"]["fmax"] == 123.4
     assert from_file["settings"]["nthreads"] == Flow.Settings().nthreads
 
 
@@ -514,7 +514,7 @@ def _outcome_built_in_a_worker(_):
 
     return FlowOutcome(
         settings=Flow.Settings(verbose=3),
-        results=Flow.Results(success=True, Fmax=456.7),
+        results=Flow.Results(success=True, fmax=456.7),
         timestamp="from-the-worker",
         run_path=Path("/tmp/child-run"),
     )
@@ -541,7 +541,7 @@ def test_a_dse_outcome_survives_the_process_it_was_built_in():
     assert not hasattr(outcome, "__dict__"), "an outcome carries no instance dict to serialize"
     assert outcome.timestamp == "from-the-worker"
     assert outcome.run_path == Path("/tmp/child-run")
-    assert (outcome.results.Fmax, outcome.results.success) == (456.7, True)
+    assert (outcome.results.fmax, outcome.results.success) == (456.7, True)
     assert outcome.settings.verbose == 3, "a pydantic settings model crossed with it"
 
 
@@ -555,7 +555,7 @@ def test_a_dse_outcome_pickles_without_losing_anything(tmp_path):
 
     outcome = FlowOutcome(
         settings=Flow.Settings(verbose=2),
-        results=Flow.Results(success=True, Fmax=123.4),
+        results=Flow.Results(success=True, fmax=123.4),
         timestamp="2026-01-01",
         run_path=tmp_path / "run",
     )

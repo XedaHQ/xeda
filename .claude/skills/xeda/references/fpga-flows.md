@@ -154,7 +154,7 @@ Xeda writes the `create_clock`. Clock settings under `flows.nextpnr` do not reac
 - Its outputs and switches are `vivado_alt_synth`'s: `write_checkpoint` gives `checkpoint_route`,
   `write_netlist` gives `netlist`, `write_timing_netlist` gives `netlist_timing` and `sdf`, and
   `bitstream` is written when set or when `openfpgaloader` follows. It has no `checkpoint_synth`.
-  Its results are `vivado_synth`'s (`Fmax`, `wns`, `lut`, `ff`, ...).
+  Its results are `vivado_synth`'s (`fmax`, `wns`, `lut`, `ff`, ...).
 - `yosys_fpga` writes the EDIF when a Xilinx synthesis is flat. `flatten: false`, `keep_hierarchy`
   (also as an attribute in `set_mod_attribute` or `set_attribute`), `black_box`, or
   `synth_pass_only` without `flatten: true` writes none, and planning refuses the chain naming the

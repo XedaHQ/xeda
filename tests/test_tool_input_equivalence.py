@@ -181,6 +181,12 @@ REVIEWED_DELTAS: dict[str, dict[tuple[str, ...] | str, str]] = {
         },
         f"{_POWER}/results/sim.*": "the producer checks simulation evidence before "
         "activity hand-over; power reports only its own metrics",
+        **{
+            f"{_POWER}/results/Fake: {row}": "a summary row that names no metric gives none; "
+            "the checkpoint and the activity that the report was made from stay compared under "
+            "`calls` and `files`"
+            for row in ("activity", "checkpoint")
+        },
     },
     "yosys_asic": {
         "nodes/*/effective_flow_settings/script_format": "Xeda selects the format of the script "

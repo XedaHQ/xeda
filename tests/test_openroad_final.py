@@ -1675,7 +1675,7 @@ def test_the_results_are_the_recorded_values_of_the_real_run(tmp_path):
         "tns": -10.9686,
         "whs": 0.0159159,
         "hold_tns": 0,
-        "Fmax": 2022.61,
+        "fmax": 2022.61,
         "setup_violations": 88,
         "hold_violations": 0,
         "max_slew_violations": 0,
@@ -1748,7 +1748,7 @@ def test_the_times_convert_from_the_liberty_unit_to_nanoseconds(tmp_path):
     assert flow.results["whs"] == pytest.approx(0.0159159e-3)
     assert flow.results["tns"] == pytest.approx(-10.9686e-3)
     assert flow.results["clock_skew_setup"] == pytest.approx(0.00138606e-3)
-    assert flow.results["Fmax"] == pytest.approx(2022.61)  # a frequency has no Liberty unit
+    assert flow.results["fmax"] == pytest.approx(2022.61)  # a frequency has no Liberty unit
 
 
 def test_the_wns_is_zero_when_the_slack_is_positive(tmp_path):
@@ -1758,7 +1758,7 @@ def test_the_wns_is_zero_when_the_slack_is_positive(tmp_path):
 
 def test_a_result_that_no_verdict_reads_and_that_is_absent_is_left_out(tmp_path):
     optional = {
-        "finish__timing__fmax": "Fmax",
+        "finish__timing__fmax": "fmax",
         "finish__design__die__area": "die_area",
         "finish__design__core__area": "core_area",
         "finish__power__internal__total": "power_internal",

@@ -195,7 +195,7 @@ def test_list_results_lists_each_metric_with_a_type_and_a_unit():
     assert set(info) == {"flow", "metrics", "artifacts", "note"}
     metrics = {m["path"]: m for m in info["metrics"]}
     assert all(set(m) == {"path", "description", "type", "unit"} for m in metrics.values())
-    assert (metrics["Fmax"]["type"], metrics["Fmax"]["unit"]) == ("number", "MHz")
+    assert (metrics["fmax"]["type"], metrics["fmax"]["unit"]) == ("number", "MHz")
     assert metrics["lut"]["type"] == "integer" and metrics["lut"]["unit"] is None
     # the keys that every flow reports are no metrics
     assert not {"success", "runtime", "run_path"} & set(metrics)
@@ -205,7 +205,7 @@ def test_list_results_of_a_cocotb_sim_flow_documents_cocotb_metrics():
     info = json.loads(run_xeda("list-results", "nvc", "--json").stdout)
     documented = {m["path"]: m for m in info["metrics"]}
     assert documented["cocotb.tests"]["description"]
-    assert (documented["cocotb.sim_time_ns"]["type"], documented["cocotb.sim_time_ns"]["unit"]) == (
+    assert (documented["cocotb.sim_time"]["type"], documented["cocotb.sim_time"]["unit"]) == (
         "number",
         "ns",
     )

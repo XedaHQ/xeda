@@ -175,14 +175,14 @@ def test_the_arty_blinky_builds_to_a_bitstream(built, run_root):
     assert flow.inputs.config == run_root / design.name / "nextpnr/config.fasm"
     assert flow.inputs.config.stat().st_size > 1000
     routed = _results(run_root, design, "nextpnr")
-    assert routed["success"] and routed["timing_met"] is True and routed["Fmax"] > 100
+    assert routed["success"] and routed["timing_met"] is True and routed["fmax"] > 100
     assert routed["device"] == PART and routed["fabric"] == FABRIC
     assert (routed["ff"], routed["bram"], routed["dsp"], routed["io"]) == (25, 0, 0, 2)
     # a 25-bit counter: carry chains with their LUTs, counted as occupied LUT locations
     assert 25 <= routed["lut"] <= routed["SLICE_LUTX"]
-    assert routed["LUT:STAGE"] == "placed and routed"
+    assert routed["lut_basis.stage"] == "placed and routed"
     mapped = _results(run_root, design, "yosys_fpga")
-    assert mapped["LUT:STAGE"] == "mapped" and mapped["ff"] == 25
+    assert mapped["lut_basis.stage"] == "mapped" and mapped["ff"] == 25
     assert len(_chipdbs(run_root)) == 1
 
 
@@ -275,7 +275,7 @@ def test_a_second_design_reuses_the_chip_database(built, run_root, tmp_path):
     # again only if abc9 stops (or starts) materializing an inversion for this design.
     cells = mapped["_utilization"]
     assert (cells["INV"], cells["LUT6_2"], cells["RAM32X1D"], cells["SRL16E"]) == (1, 1, 1, 1)
-    assert (mapped["LUT:LOGIC"], mapped["LUT:RAM"], mapped["LUT:SRL"]) == (3, 2, 1)
+    assert (mapped["lut_use.logic"], mapped["lut_use.ram"], mapped["lut_use.srl"]) == (3, 2, 1)
     assert mapped["lut"] == 6
 
 

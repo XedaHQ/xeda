@@ -127,7 +127,7 @@ class OpenroadGrt(OpenroadStage):
         "tns",
         "whs",
         "worst_slack",
-        "Fmax",
+        "fmax",
         "utilization",
         "power",
         area=MetricSpec(

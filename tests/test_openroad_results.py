@@ -116,7 +116,7 @@ def test_the_detailed_placement_stage_of_the_recorded_run():
     assert results["tns"] == pytest.approx(-7.7916)
     assert results["whs"] == pytest.approx(0.0846772)
     assert results["hold_tns"] == 0
-    assert results["Fmax"] == pytest.approx(2306.81)
+    assert results["fmax"] == pytest.approx(2306.81)
     assert results["area"] == pytest.approx(657.02)
     assert results["utilization"] == pytest.approx(0.753968)
     assert results["power"] == pytest.approx(0.00388374)
@@ -214,7 +214,7 @@ def test_the_last_flow_takes_the_slack_from_the_final_file_and_the_counts_from_t
     assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
     assert results["wirelength"] == 3599 and results["vias"] == 3073
     assert results["area"] == pytest.approx(773.528)
-    assert results["Fmax"] == pytest.approx(2022.61)
+    assert results["fmax"] == pytest.approx(2022.61)
 
 
 def test_a_verdict_key_that_is_missing_is_named_with_its_file():

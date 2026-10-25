@@ -85,7 +85,7 @@ def test_parses_a_real_ecp5_report(tmp_path):
     assert flow.parse_reports() is True
     r = flow.results
     # timing: 25 MHz constraint, 253.936 MHz achieved -> 40ns - 3.938ns of slack
-    assert r["Fmax"] == pytest.approx(253.936, abs=1e-3)
+    assert r["fmax"] == pytest.approx(253.936, abs=1e-3)
     assert r["clock_frequency"] == 25
     assert r["clock_period"] == pytest.approx(40.0)
     assert r["wns"] == pytest.approx(40.0 - 1000.0 / 253.936, abs=1e-3)
@@ -163,7 +163,7 @@ def test_timing_failure_still_reports_results(tmp_path):
     assert flow.parse_reports() is True
     assert flow.check_results() is False
     assert flow.rejection is not None and "timing not met" in flow.rejection
-    assert flow.results["Fmax"] == pytest.approx(100.0)
+    assert flow.results["fmax"] == pytest.approx(100.0)
     assert flow.results["wns"] < 0
     assert flow.results["lut"] == 5
 
@@ -188,7 +188,7 @@ def test_multiple_clock_domains(tmp_path):
     flow = make_flow(tmp_path, report)
     assert flow.parse_reports() is True
     # Fmax is the lowest achieved: the frequency at which every domain is still satisfied
-    assert flow.results["Fmax"] == pytest.approx(120.0)
+    assert flow.results["fmax"] == pytest.approx(120.0)
     # wns comes from the domain with the least slack, which here is the other one
     assert flow.results["wns"] == pytest.approx(1000 / 200.0 - 1000 / 210.0, abs=1e-3)
     assert flow.results["clock_domains"] == 2
@@ -212,7 +212,7 @@ def test_empty_fmax_is_not_a_failure(tmp_path):
     report = {"fmax": {}, "utilization": {"TRELLIS_FF": {"used": 3, "available": 10}}}
     flow = make_flow(tmp_path, report)
     assert flow.parse_reports() is True
-    assert "Fmax" not in flow.results
+    assert "fmax" not in flow.results
     assert flow.results["ff"] == 3
 
 
@@ -254,7 +254,7 @@ def test_non_ecp5_family_gets_raw_bel_counts_only(tmp_path):
     }
     flow = make_flow(tmp_path, report, family="ice40")
     assert flow.parse_reports() is True
-    assert flow.results["Fmax"] == pytest.approx(300.0)  # timing is family-independent
+    assert flow.results["fmax"] == pytest.approx(300.0)  # timing is family-independent
     assert flow.results["ICESTORM_LC"] == 11
     assert "lut" not in flow.results
 
@@ -555,7 +555,7 @@ def test_nextpnr_ecp5_end_to_end(tmp_path):
     r = flow.results
     # the ULX3S board LPF constrains clk_25mhz to 25 MHz
     assert r.clock_frequency == 25
-    assert r.Fmax > 25, "a blinky must beat 25 MHz on an ECP5"
+    assert r.fmax > 25, "a blinky must beat 25 MHz on an ECP5"
     assert r.timing_met is True
     assert r.wns > 0
     assert r.clock_domains == 1

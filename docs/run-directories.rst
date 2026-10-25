@@ -219,7 +219,7 @@ Reading results from a script
 ``xeda run --json`` writes the whole run as one JSON document to stdout. Tool output and log
 messages go to stderr. You do not need to look for files::
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json | jq '.results.Fmax'
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json | jq '.results.fmax'
 
 The exit status is not zero when the flow fails. The JSON document then has an ``error`` object
 beside any parsed results. See :doc:`machine-readable`.

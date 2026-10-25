@@ -813,16 +813,6 @@ class Flow(metaclass=ABCMeta):
     #: `describe_results`.
     results_description: ClassVar[Dict[str, MetricSpec]] = {}
 
-    #: Additive canonical aliases for results, as canonical_key -> candidate keys in preference
-    #: order. After `parse_reports`, the first candidate that is present is copied to the
-    #: canonical key unless that key is already set. Nothing is ever renamed or removed, so
-    #: existing consumers of `results.json` are unaffected.
-    results_canonical_aliases: Dict[str, Tuple[str, ...]] = {
-        "Fmax": ("Fmax", "f_max", "maximum_frequency"),
-        "lut": ("lut", "LUT"),
-        "ff": ("ff", "FF"),
-    }
-
     #: Settings this flow cannot run without, each with what it is and how to give it (the text
     #: may name the flow as `{flow}`). Checked when the flow is launched, by
     #: `check_required_settings`, not when its settings are validated: a layer of settings, such
@@ -1731,22 +1721,6 @@ class Flow(metaclass=ABCMeta):
                 exit_status=None,
                 log=None,
             ).as_json_value()
-
-    def add_canonical_result_aliases(self) -> None:
-        """Copy flow-specific result keys to their canonical names, additively.
-
-        Flows report the same quantity under different names (`Fmax` and `f_max`, `lut` and
-        `LUT`), which makes `results.json` awkward to consume across flows. This method adds the
-        canonical name beside whatever the flow reported; see `results_canonical_aliases`.
-        """
-        for canonical, candidates in self.results_canonical_aliases.items():
-            if self.results.get(canonical) is not None:
-                continue
-            for candidate in candidates:
-                value = self.results.get(candidate)
-                if value is not None:
-                    self.results[canonical] = value
-                    break
 
     def sources_read(self, rtl: bool = True, tb: bool = False) -> list[DesignSource]:
         """Return the sources of the design that this flow reads (`reads_sources`), in design order.

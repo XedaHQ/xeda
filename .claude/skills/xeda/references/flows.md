@@ -29,7 +29,7 @@ Simulate a VHDL design with GHDL.
 
 35 flow-specific settings (plus the common ones): `xeda list-settings ghdl_sim --json`
 
-Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
 
 ### `modelsim`
 
@@ -49,7 +49,7 @@ Simulate VHDL with NVC, using its native diagnostics and a passive VHPI end moni
 
 34 flow-specific settings (plus the common ones): `xeda list-settings nvc --json`
 
-Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
 
 ### `vcs`
 
@@ -69,7 +69,7 @@ Simulate a Verilog or SystemVerilog design with Verilator 5.048 or newer. Verila
 
 34 flow-specific settings (plus the common ones): `xeda list-settings verilator --json`
 
-Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
 
 ### `vivado_postsynth_sim`
 
@@ -137,19 +137,19 @@ Required settings: `fpga`
 
 10 flow-specific settings (plus the common ones): `xeda list-settings ise_synth --json`
 
-Reports: `minimum_period`, `maximum_frequency`, `Fmax`, `wns`, `lut`, `ff`, `slice`
+Reports: `minimum_period`, `fmax`, `wns`, `lut`, `ff`, `slice`
 
 ### `nextpnr`
 
 *runs first: `yosys_fpga` | can follow: `yosys_fpga`, `bsc` (through `yosys_fpga`) | can be followed by: `fpga_pack` (depends on the target), `openfpgaloader` (through `fpga_pack`) (depends on the target)*
 
-Place and route an FPGA design with nextpnr. The input `netlist` is a `JsonNetlist` design source or, by default, the netlist that `yosys_fpga` produces. The flow runs the nextpnr variant for `fpga.family`: `nextpnr-ecp5`, `nextpnr-ice40`, `nextpnr-nexus`, or openXC7's `nextpnr-himbaechel` for Xilinx 7-series (Artix, Kintex, Spartan, Virtex, Zynq). It then parses the JSON report of nextpnr for the achieved frequency, the slack and the resource utilization. A 7-series part needs the full part name (`xc7a100tcsg324-1`) and pin constraints (typed `Xdc` sources, or the pin constraints of a board). The chip database is generated once for each run root, unless `chipdb` names one. Canonical resource names (`lut`, `ff`, ...) are mapped for ECP5 and 7-series. Other families report raw bel-type counts. `lut` is counted at this stage by the method that `LUT:METHOD` names. For 7-series it is the number of occupied physical LUTs, read from the placement dump. It is not certified comparable with the count of another toolchain. `Fmax` is the timing of nextpnr itself: compare it only with other nextpnr runs. A family without a tested mapping of device, constraints and output is refused before any producer runs.
+Place and route an FPGA design with nextpnr. The input `netlist` is a `JsonNetlist` design source or, by default, the netlist that `yosys_fpga` produces. The flow runs the nextpnr variant for `fpga.family`: `nextpnr-ecp5`, `nextpnr-ice40`, `nextpnr-nexus`, or openXC7's `nextpnr-himbaechel` for Xilinx 7-series (Artix, Kintex, Spartan, Virtex, Zynq). It then parses the JSON report of nextpnr for the achieved frequency, the slack and the resource utilization. A 7-series part needs the full part name (`xc7a100tcsg324-1`) and pin constraints (typed `Xdc` sources, or the pin constraints of a board). The chip database is generated once for each run root, unless `chipdb` names one. Canonical resource names (`lut`, `ff`, ...) are mapped for ECP5 and 7-series. Other families report raw bel-type counts. `lut` is counted at this stage by the method that `lut_basis.method` names. For 7-series it is the number of occupied physical LUTs, read from the placement dump. It is not certified comparable with the count of another toolchain. `fmax` is the timing of nextpnr itself: compare it only with other nextpnr runs. A family without a tested mapping of device, constraints and output is refused before any producer runs.
 
 Required settings: `fpga`
 
 60 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
 
-Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`, `LUT:STAGE`, `LUT:METHOD`, `clock_port`, `device`, `fabric`
+Reports: `fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`, `lut_basis.stage`, `lut_basis.method`, `clock_port`, `device`, `fabric`
 
 ### `openfpgaloader`
 
@@ -171,7 +171,7 @@ Required settings: `fpga`
 
 19 flow-specific settings (plus the common ones): `xeda list-settings quartus --json`
 
-Reports: `Fmax`, `wns`, `whs`, `lut`, `ff`
+Reports: `fmax`, `wns`, `whs`, `fmax_by_clock`, `lut`, `ff`
 
 ### `vivado_alt_synth`
 
@@ -183,7 +183,7 @@ Required settings: `fpga`
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
 
-Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`, `bram_tile`
+Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
 ### `vivado_impl`
 
@@ -195,7 +195,7 @@ Required settings: `fpga`
 
 22 flow-specific settings (plus the common ones): `xeda list-settings vivado_impl --json`
 
-Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`, `bram_tile`
+Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
 ### `vivado_power`
 
@@ -207,7 +207,7 @@ Required settings: `fpga`
 
 6 flow-specific settings (plus the common ones): `xeda list-settings vivado_power --json`
 
-Reports: `Total On-Chip Power (W)`, `Dynamic (W)`, `Device Static (W)`, `Effective TJA (C/W)`, `Junction Temperature (C)`, `Thermal Margin (C)`, `Confidence Level`, `Component Power: <component>`
+Reports: `power.total`, `power.dynamic`, `power.static`, `power.effective_tja`, `power.junction_temperature`, `power.thermal_margin`, `power.confidence`, `power.components`
 
 ### `vivado_project`
 
@@ -231,7 +231,7 @@ Required settings: `fpga`
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
 
-Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`, `bram_tile`
+Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
 ### `yosys_fpga`
 
@@ -243,7 +243,7 @@ Required settings: `fpga`
 
 69 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
-Reports: `LUT`, `lut`, `ff`, `LUT:LOGIC`, `LUT:RAM`, `LUT:SRL`, `LUT:STAGE`, `LUT:METHOD`, `FF`
+Reports: `lut`, `ff`, `lut_use.logic`, `lut_use.ram`, `lut_use.srl`, `lut_basis.stage`, `lut_basis.method`
 
 ## ASIC synthesis
 
@@ -257,7 +257,7 @@ Required settings: `target_libraries`
 
 27 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
 
-Reports: `Fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequential`, `num_cells_sequentual`, `num_macro_bbox`
+Reports: `fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequential`, `num_macro_bbox`
 
 ### `openroad_place`
 
@@ -291,7 +291,7 @@ Group `arith_swap`: no common settings; 4 more: `xeda list-settings openroad_pla
 
 Group `detailed_placement`: `detailed_placement.improve.enabled`, `detailed_placement.check`; 23 more: `xeda list-settings openroad_place --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `utilization`, `power`, `area`, `hold_tns`, `platform`
+Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `utilization`, `power`, `area`, `hold_tns`, `platform`
 
 ## Synthesis (generic)
 
@@ -365,7 +365,7 @@ Group `ir_drop`: `ir_drop.nets`; 17 more: `xeda list-settings openroad --tier ex
 
 Group `gds`: no common settings; 10 more: `xeda list-settings openroad --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `setup_violations`, `hold_violations`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `max_slew_violations`, `max_cap_violations`, `max_fanout_violations`, `core_area`, `die_area`, `power_internal`, `power_switching`, `power_leakage`, `drc_errors`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `wirelength`, `vias`, `instances`, `fill_cells`, `tap_cells`, `warnings`, `errors`, `parasitics`, `platform`
+Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `setup_violations`, `hold_violations`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `max_slew_violations`, `max_cap_violations`, `max_fanout_violations`, `core_area`, `die_area`, `power_internal`, `power_switching`, `power_leakage`, `drc_errors`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `wirelength`, `vias`, `instances`, `fill_cells`, `tap_cells`, `warnings`, `errors`, `parasitics`, `platform`
 
 ### `openroad_cts`
 
@@ -397,7 +397,7 @@ Group `legalize`: no common settings; 3 more: `xeda list-settings openroad_cts -
 
 Group `repair`: `repair.enabled`, `repair.fix`, `repair.setup_margin`, `repair.hold_margin`; 20 more: `xeda list-settings openroad_cts --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `platform`
+Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `platform`
 
 ### `openroad_grt`
 
@@ -421,4 +421,4 @@ Group `repair`: `repair.strategy`, `repair.design.enabled`, `repair.timing.enabl
 
 Group `antenna`: `antenna.repair`; 4 more: `xeda list-settings openroad_grt --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `global_route_wirelength`, `global_route_vias`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `platform`
+Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `global_route_wirelength`, `global_route_vias`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `platform`

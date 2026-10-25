@@ -1,6 +1,5 @@
 """Check that a written value has the type that its descriptor declares."""
 
-import re
 from typing import Any, Callable, Dict, Mapping, Type
 
 from xeda.flow import Flow, MetricSpec
@@ -34,16 +33,8 @@ VALUE_TESTS: Dict[str, Callable[[Any], bool]] = {
 
 
 def descriptor_of(key: str, declared: Mapping[str, MetricSpec]) -> MetricSpec | None:
-    """Return the descriptor of the result `key`: the one under its name, or the one whose name
-    has a placeholder (`Component Power: <component>`) that the key fills."""
-    if key in declared:
-        return declared[key]
-    for name, spec in declared.items():
-        if "<" in name:
-            pattern = re.escape(name).replace(r"\<", "<").replace(r"\>", ">")
-            if re.fullmatch(re.sub(r"<[^>]*>", ".+", pattern), key):
-                return spec
-    return None
+    """Return the descriptor of the result `key`, or `None` when the flow does not describe it."""
+    return declared.get(key)
 
 
 def mismatches(flow_class: Type[Flow], results: Mapping[str, Any]) -> list[str]:

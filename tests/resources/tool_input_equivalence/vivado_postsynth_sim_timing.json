@@ -1686,7 +1686,6 @@
     "<RUN>/sim/vivado_synth/reports/route_design/utilization.xml": "e1ce8bb3ad3ea1f0078d17572d206ac8a655482d335a69a97d26f3c5383e241a"
    },
    "results": {
-    "Fmax": 459.5588235294117,
     "_hierarchical_utilization": {
      "PVMU": {
       "@children": {
@@ -2578,7 +2577,7 @@
      "sim.runs/runme.log": "sim.runs/runme.log",
      "xdc_exported": "outputs/route_design/impl.xdc"
     },
-    "bram_RAMB18": 1,
+    "bram.ramb18": 1,
     "bram_tile": 0.5,
     "clock_frequency": 450.045,
     "clock_period": 2.222,
@@ -2586,6 +2585,7 @@
     "dsp": 8,
     "ff": 4063,
     "flow": "vivado_synth",
+    "fmax": 459.5588235294117,
     "hold_violations": 0,
     "lut": 4123,
     "lut_logic": 3667,

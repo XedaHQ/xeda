@@ -352,7 +352,7 @@ class Dse(FlowLauncher):
         pool = None
 
         results_sub = [
-            "Fmax",
+            "fmax",
             "lut",
             "ff",
             "slice",

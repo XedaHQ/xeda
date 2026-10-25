@@ -306,12 +306,12 @@ def test_the_measured_counter_reports_occupied_luts_not_positions(tmp_path, monk
     assert ok is True
     assert r["lut"] == 29  # physical LUT locations: (tile, site, A-D)
     assert r["SLICE_LUTX"] == 57  # nextpnr's own count: 5LUT/6LUT positions
-    assert r["LUT:STAGE"] == "placed and routed"
-    assert "placement dump" in r["LUT:METHOD"]
+    assert r["lut_basis.stage"] == "placed and routed"
+    assert "placement dump" in r["lut_basis.method"]
     assert r["ff"] == 25 and r["SLICE_FFX"] == 25
     assert r["CARRY4"] == 7  # raw, never folded into another resource
     assert r["bram"] == 0 and r["dsp"] == 0 and r["io"] == 2
-    assert r["Fmax"] == pytest.approx(325.839, abs=1e-3)
+    assert r["fmax"] == pytest.approx(325.839, abs=1e-3)
     assert r["clock_frequency"] == 100 and r["timing_met"] is True
     assert r["wns"] == pytest.approx(10 - 1000 / 325.8390197753906, abs=1e-6)
     assert r["device"] == A100T and r["fabric"] == "xc7a100t"
@@ -331,7 +331,7 @@ def test_the_two_outputs_of_a_lut6_2_are_two_locations(tmp_path, monkeypatch, pr
     )
     assert ok is True
     assert flow.results["lut"] == 2 and flow.results["SLICE_LUTX"] == 2
-    assert "Fmax" not in flow.results and "clock_port" not in flow.results
+    assert "fmax" not in flow.results and "clock_port" not in flow.results
     assert flow.results["ff"] == 0
 
 
@@ -388,7 +388,7 @@ def test_an_unusable_placement_dump_gives_no_lut_count(tmp_path, monkeypatch, pr
         tmp_path, monkeypatch, prefix, {**REPORT, "utilization": UTILIZATION}, placement
     )
     assert ok is True
-    assert "lut" not in flow.results and "LUT:METHOD" not in flow.results
+    assert "lut" not in flow.results and "lut_basis.method" not in flow.results
     assert flow.results["SLICE_LUTX"] == 3
 
 
@@ -456,7 +456,7 @@ def test_two_domains_keep_their_raw_names_only(tmp_path, monkeypatch, prefix):
         {},
         clocks={"main": {"port": "clk", "period": "10 ns"}},
     )
-    assert ok is True and flow.results["Fmax"] == 150.0
+    assert ok is True and flow.results["fmax"] == 150.0
     assert "clock_port" not in flow.results and set(flow.results["_fmax"]) == {"$glb$a", "$glb$b"}
 
 

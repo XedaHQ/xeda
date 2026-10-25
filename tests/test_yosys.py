@@ -56,8 +56,8 @@ def test_yosys_synth_py(tmp_path: Path) -> None:
         assert isinstance(flow.settings, YosysFpga.Settings)
         assert flow.settings.fpga is not None
         if flow.settings.fpga.vendor == "xilinx":
-            assert flow.results.LUT > 1
-            assert flow.results.FF > 1
+            assert flow.results.lut > 1
+            assert flow.results.ff > 1
         assert results_json.exists()
 
 

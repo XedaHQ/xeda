@@ -920,7 +920,7 @@ OPENROAD_RESULTS: dict[str, Any] = {
     "tns": -7.03717,
     "whs": 0.0848803,
     "hold_tns": 0.0,
-    "Fmax": 2448.1,
+    "fmax": 2448.1,
     "area": 976.22,
     "utilization": 0.731367,
     "power": 0.00652553,
@@ -961,7 +961,7 @@ def test_a_positive_slack_stays_positive_in_the_metrics() -> None:
 
 
 def test_a_result_that_a_run_lacks_leaves_its_optional_metric_out() -> None:
-    results = {k: v for k, v in OPENROAD_RESULTS.items() if k not in ("Fmax", "core_area")}
+    results = {k: v for k, v in OPENROAD_RESULTS.items() if k not in ("fmax", "core_area")}
     part = tool.read_xeda_results({"success": True, "results": results}, "both")
     assert "finish__timing__fmax" not in part["metrics"]
     assert "finish__design__core__area" not in part["metrics"]
