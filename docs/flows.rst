@@ -1208,7 +1208,7 @@ master XDC of Digilent, and they keep its port names (``CLK100MHZ``, ``led[0]``,
 ``btn[0]`` and so on). A design that relies on the fallback names the ports of its top module that
 way. The ULX3S file likewise uses the names of the board (``clk_25mhz``, ``led[0]`` and so on), and
 it sets a 25 MHz constraint on ``clk_25mhz``. The bundled Xilinx files contain no clock constraint.
-Timing comes from the ``clock`` or ``clocks`` setting of the flow, or from the files of the design,
+Timing comes from the ``clocks`` setting of the flow, or from the files of the design,
 and each clock has one authority. With no clock constraint at all, nextpnr analyzes at its default
 of 12 MHz, and Xeda says so. nextpnr reads ``set_property PULLTYPE PULLUP [get_ports rst]``. It
 ignores ``set_property PULLUP true [get_ports rst]`` and prints no warning, so a port that uses the
@@ -1528,7 +1528,7 @@ compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The des
     xeda run yosys_fpga+vivado_impl blinky.yaml -s bitstream=$PWD/blinky.bit # and a bitstream
     xeda run yosys_fpga+vivado_impl+openfpgaloader blinky.yaml --dry-run     # plan the loader too
 
-``fpga`` and ``clock`` are shared along the edge, so one section gives them to both flows, and one
+``fpga`` and ``clocks`` are shared along the edge, so one section gives them to both flows, and one
 clock period drives the ABC9 delay of Yosys and the constraint of Vivado. Xeda writes the bitstream
 when ``bitstream`` is set, or when a flow after ``vivado_impl`` needs it, such as
 ``openfpgaloader``. A bitstream needs every port to be constrained. Without ``bitstream``, Vivado

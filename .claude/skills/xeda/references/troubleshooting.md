@@ -50,7 +50,7 @@
 | --- | --- |
 | `rtl.sources: Value error, source file does not exist: <path>` | Relative paths resolve against the design file's directory. A file a generator writes is `{path: "gen/top.v"}`. |
 | `rtl.<key>: Extra inputs are not permitted` | Unknown design key. |
-| `<key>: Extra inputs are not permitted` at the root, often with `rtl.sources: Field required` | The flat form (`sources`, `top`, `clock` at the root) beside an `rtl:` section. Write everything under `rtl:`. |
+| `` `<key>` was removed: use `rtl.<key>` `` | A key of `rtl` (`sources`, `top`, `clocks`, ...) written at the root. The code is `removed_alias`. Put the key under `rtl:`. |
 | `` `.json` names several kinds of file ... give its type `` | Add `type` (`{file: "top.json", type: JsonNetlist}`). |
 | `` `standard` was removed from a source `` | Use `language.vhdl.standard`. |
 | `<flow> reads none of the design's sources: ...` (`NoReadableSource`) | The design lists no source the flow reads. Pick a flow for the design's languages, or give a source its `type`. |

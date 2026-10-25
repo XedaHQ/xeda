@@ -32,7 +32,7 @@ from xeda.flow_runner import FlowNotFoundError, get_flow_class
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.error_codes import public_error, settings_codes
 from xeda.flow_runner.settings_layers import merge_flow_sections
-from xeda.xedaproject import XedaProject
+from xeda.xedaproject import ProjectFileError, XedaProject
 
 #: The flows of Xeda. A test module may register a flow of its own, named with a leading `_`.
 FLOWS = sorted(
@@ -338,8 +338,11 @@ def test_a_removed_project_key_names_its_successor(tmp_path, spelling, given, co
     file = tmp_path / "xedaproject.json"
     file.write_text(json.dumps(given))
 
-    with pytest.raises(ValueError, match=f"`{spelling}` was removed: use {successor}"):
+    with pytest.raises(ProjectFileError, match=f"`{spelling}` was removed: use {successor}") as bad:
         XedaProject.from_file(file)
+
+    error = public_error(bad.value)
+    assert (type(error).__name__, error.code) == ("ProjectError", code)
 
 
 # ------------------------------------------------------------------------------ flow names
@@ -466,3 +469,68 @@ def test_the_commands_take_the_design_as_an_argument_and_the_settings_as_dash_s(
         assert arguments[-1] == ("design_file" if command is run else "design")
     assert [p.name for p in dse.params if p.param_type_name == "argument"] == ["flow", "design"]
     assert "--init-freq-low" in {opt for p in dse.params for opt in p.opts}
+
+
+@pytest.mark.parametrize("command", [["run", "vivado_synth", "d.yaml"], ["dse", "vivado_synth"]])
+@pytest.mark.parametrize("option", ["--design-allow-extra", "--no-design-allow-extra"])
+def test_the_option_that_allowed_extra_design_keys_is_gone(tmp_path, command, option):
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    design = tmp_path / "d.yaml"
+    design.write_text("name: d\n")
+    args = [str(design) if arg == "d.yaml" else arg for arg in [*command, option]]
+    result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code == 2, result.output
+    assert (
+        f"`{option}` was removed: a design file holds the keys of the design and nothing else; "
+        "delete it"
+    ) in click.unstyle(result.output)
+
+
+# ------------------------------------------------------------------------------ letter case
+
+from xeda import units  # noqa: E402
+
+
+def _quantity_classes():
+    return [cls for cls in units.Quantity.__subclasses__() if getattr(cls, "units", None)]
+
+
+UNIT_SYMBOLS = [(cls, symbol) for cls in _quantity_classes() for symbol in cls.units]
+
+
+def test_every_kind_of_quantity_is_covered_by_the_letter_case_rows():
+    assert {cls.__name__ for cls in _quantity_classes()} >= {
+        "Time",
+        "Frequency",
+        "Capacitance",
+        "Length",
+        "Voltage",
+        "Resistance",
+        "Power",
+    }
+
+
+@pytest.mark.parametrize(
+    ("cls", "symbol"), UNIT_SYMBOLS, ids=[f"{c.__name__}-{s}" for c, s in UNIT_SYMBOLS]
+)
+def test_a_unit_symbol_is_accepted_only_in_its_own_letter_case(cls, symbol):
+    assert cls(f"3 {symbol}") is not None  # the spelling of the docs
+    for other in {symbol.upper(), symbol.lower(), symbol.swapcase(), symbol.capitalize()}:
+        if other in cls.units:  # another symbol of the same kind (`mV` and `V`)
+            continue
+        with pytest.raises(ValueError, match="case-sensitive") as refused:
+            cls(f"3 {other}")
+        assert any(f"`{known}`" in str(refused.value) for known in cls.units), other
+
+
+@pytest.mark.parametrize(
+    ("wrong", "right"), [("MV", "mV"), ("Ms", "ms"), ("mhz", "MHz"), ("PF", "pF"), ("mw", "mW")]
+)
+def test_a_unit_that_si_reads_as_another_unit_is_refused_and_the_right_one_named(wrong, right):
+    kind = next(cls for cls in _quantity_classes() if right in cls.units)
+    with pytest.raises(ValueError, match=f"did you mean `{right}`"):
+        kind(f"5 {wrong}")

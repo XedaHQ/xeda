@@ -156,11 +156,14 @@ def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
         add_file_logger(log_to_file)
 
 
-def _removed_option(replacement: str, false_replacement: Optional[str] = None):
+def _removed_option(
+    replacement: str, false_replacement: Optional[str] = None, *, gone: Optional[str] = None
+):
     """Return the callback of a hidden option that only exists to say what replaced it.
 
     `replacement` is the text for the option as given (`--foo`). For a pair whose negation
-    (`--no-foo`) needs other text, `false_replacement` gives it. The message has the form of the
+    (`--no-foo`) needs other text, `false_replacement` gives it. An option that nothing replaces
+    gives `gone`, the reason, instead: "`--foo` was removed: <reason>; delete it". The message has the form of the
     messages of the launcher settings and the flow settings (`<name>` was removed: use
     <replacement>), so a removed option, launcher setting and flow setting all read the same
     way.
@@ -169,6 +172,8 @@ def _removed_option(replacement: str, false_replacement: Optional[str] = None):
     def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value is not None:
             given = param.opts[0] if value else param.secondary_opts[0]
+            if gone is not None:
+                raise click.UsageError(f"`{given}` was removed: {gone}; delete it", ctx=ctx)
             text = replacement if value or false_replacement is None else false_replacement
             raise click.UsageError(f"`{given}` was removed: use {text}", ctx=ctx)
 
@@ -806,10 +811,13 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
 )
 @click.option(
     "--design-allow-extra/--no-design-allow-extra",
-    type=bool,
     is_flag=True,
-    default=False,
-    help="""Allow extra properties (fields) in the design file.""",
+    default=None,
+    hidden=True,
+    expose_value=False,
+    callback=_removed_option(
+        "", gone="a design file holds the keys of the design and nothing else"
+    ),
 )
 @_removed_options("-s or --settings", "--flow-settings")
 @click.option(
@@ -929,7 +937,6 @@ def run(
     design_name: Optional[str] = None,
     target: str | None = None,
     design_overrides: Iterable[str] = tuple(),
-    design_allow_extra: bool = False,
     log_level: Optional[int] = None,
     detailed_logs: bool = False,
     post_cleanup: bool = False,
@@ -1017,7 +1024,7 @@ def run(
             flow_settings=flow_settings,
             xedaproject=xedaproject,
             design_overrides=design_overrides,
-            design_allow_extra=design_allow_extra,
+            design_allow_extra=False,
             target=target,
             select_design_in_project=select_design_in_project,
             hashed_run_dirs=hashed_run_dirs,
@@ -1151,7 +1158,6 @@ def run(
                 flow_settings=flow_settings,
                 select_design_in_project=select_design_in_project,
                 design_overrides=design_overrides,
-                design_allow_extra=design_allow_extra,
                 target=target,
             )
         except KeyboardInterrupt:
@@ -1198,7 +1204,6 @@ def run(
             flow_settings=flow_settings,
             select_design_in_project=select_design_in_project,
             design_overrides=design_overrides,
-            design_allow_extra=design_allow_extra,
             target=target,
         )
     except KeyboardInterrupt:
@@ -1350,10 +1355,13 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
 @_removed_options("the positional DESIGN argument", "--design", "--design-file")
 @click.option(
     "--design-allow-extra/--no-design-allow-extra",
-    type=bool,
     is_flag=True,
-    default=True,  # unlike `run`, dse allows extra properties by default
-    help="""Allow extra properties (fields) in the design file.""",
+    default=None,
+    hidden=True,
+    expose_value=False,
+    callback=_removed_option(
+        "", gone="a design file holds the keys of the design and nothing else"
+    ),
 )
 @click.option(
     "--detailed-logs/--no-detailed-logs",
@@ -1431,7 +1439,6 @@ def dse(
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
     target: str | None = None,
-    design_allow_extra: bool = True,
     log_level: Optional[int] = None,
     detailed_logs: bool = True,
     json_flag: bool = False,
@@ -1519,7 +1526,6 @@ def dse(
             design=design or design_name,
             flow_settings=list(flow_settings),
             select_design_in_project=select_design_in_project,
-            design_allow_extra=design_allow_extra,
             target=target,
         )
     except SystemExit:
