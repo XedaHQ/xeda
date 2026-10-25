@@ -1751,3 +1751,17 @@ def test_a_given_environment_reaches_the_process_exactly_with_its_pwd(tmp_path, 
     assert seen["ONE"] == "1"
     assert seen["PWD"] == os.path.abspath(tmp_path)
     assert "XEDA_TEST_PARENT_ONLY" not in seen
+
+
+def test_the_pwd_of_a_process_started_through_a_link_and_dot_dot_names_where_it_runs(tmp_path):
+    """`..` after a link leads out of the link's target, not back to where the link lies, so the
+    spelling of such a directory cannot be kept: `PWD` is then the resolved directory. It never
+    holds a `.` or `..` component."""
+    (tmp_path / "real" / "src").mkdir(parents=True)
+    (tmp_path / "real" / "build").mkdir()
+    (tmp_path / "alias").symlink_to(tmp_path / "real" / "src", target_is_directory=True)
+    (tmp_path / "build").mkdir()  # where a lexical `..` would lead
+    pwd, cwd = _directory_seen(cwd=f"{tmp_path}/alias/../build")
+    assert os.path.samefile(cwd, tmp_path / "real" / "build")
+    assert os.path.samefile(pwd, cwd)
+    assert not {".", ".."} & set(pwd.split(os.sep))
