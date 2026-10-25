@@ -145,6 +145,16 @@ targets:
       - "tb/TbStreamExchange.bsv"
     rtl.top: mkTbStreamExchangeW13
     tb.sources: []
+  width257:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeW257
+    tb.sources: []
   reset_interrupt:
     dependencies:
       - "leanlink-library.yaml"

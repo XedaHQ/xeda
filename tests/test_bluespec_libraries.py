@@ -53,7 +53,7 @@ LIBRARY_SIMULATIONS = [
             "rtl",
             f"mkTbStreamExchangeW{width}",
         )
-        for width in (1, 2, 3, 4, 5, 6, 7, 9, 13)
+        for width in (1, 2, 3, 4, 5, 6, 7, 9, 13, 257)
     ],
     ("gcd/gcd-library.yaml", "unit", "tb", "mkTbGcdUnit"),
     ("gcd/gcd-stream-library.yaml", "stream", "rtl", "mkTbGcdStream"),
@@ -162,6 +162,7 @@ def test_library_test_target_selects_existing_sources(path, rtl_sources, target,
         ("width7", "mkTbStreamExchangeW7"),
         ("width9", "mkTbStreamExchangeW9"),
         ("width13", "mkTbStreamExchangeW13"),
+        ("width257", "mkTbStreamExchangeW257"),
     ],
 )
 def test_stream_exchange_library_keeps_width_targets(target, top):

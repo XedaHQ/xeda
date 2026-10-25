@@ -461,6 +461,32 @@ module mkTbStreamExchangeNonByte#(Bit#(width) inputWord)(Empty)
    Reg#(Bool) countLast <- mkReg(False);
    Integer bytes = (valueOf(width) + 7) / 8;
    Bit#(TMax#(8, width)) paddedInput = zeroExtend(inputWord);
+   // The expected bytes use elaboration-time shifts, independent of the adapter's dynamic ones.
+   function Bit#(8) inputByte(Integer i) = truncate(paddedInput >> (8 * i));
+   function Bool isLastByte(Integer i) = i == bytes - 1;
+   Bit#(8) paddingBit = 8'h01 << (valueOf(width) % 8);
+
+   Stmt sendWord = seq noAction; endseq;
+   Stmt checkWord = seq noAction; endseq;
+   Stmt sendPadded = seq noAction; endseq;
+   for (Integer i = 0; i < bytes; i = i + 1) begin
+      sendWord = seq
+         sendWord;
+         testLink.hostRequest.put(byteTok(inputByte(i), isLastByte(i)));
+      endseq;
+      checkWord = seq
+         checkWord;
+         action
+            let b <- testLink.hostResponse.get;
+            if (b.data != inputByte(i) || b.last != isLastByte(i))
+               $fatal(1, "FAIL: non-byte output word byte %0d changed", i);
+         endaction
+      endseq;
+      sendPadded = seq
+         sendPadded;
+         testLink.hostRequest.put(byteTok(isLastByte(i) ? paddingBit : 0, isLastByte(i)));
+      endseq;
+   end
 
    Wire#(Bool) corePaused <- mkDWire(True, reset_by noReset);
    rule publishPause; corePaused <= pauseCore; endrule
@@ -490,12 +516,7 @@ module mkTbStreamExchangeNonByte#(Bit#(width) inputWord)(Empty)
       if (outputReady) $fatal(1, "FAIL: core output state survived initial RESET");
 
       testLink.hostRequest.put(byteTok(8'h01, False));
-      if (bytes == 1)
-         testLink.hostRequest.put(byteTok(truncate(paddedInput), True));
-      else seq
-         testLink.hostRequest.put(byteTok(truncate(paddedInput), False));
-         testLink.hostRequest.put(byteTok(truncate(paddedInput >> 8), True));
-      endseq
+      sendWord;
       action
          let status <- testLink.hostResponse.get;
          statusByte <= status.data;
@@ -508,6 +529,8 @@ module mkTbStreamExchangeNonByte#(Bit#(width) inputWord)(Empty)
       pauseCore <= False;
       while (!outputReady) action noAction; endaction
       if (outputWord != inputWord) $fatal(1, "FAIL: non-byte input word changed at core port");
+      // The response must hold the status, the count and the whole word.
+      testLink.setResponseMax(fromInteger(max(8, bytes + 2)));
       testLink.hostRequest.put(byteTok(8'h01, True));
       action
          let status <- testLink.hostResponse.get;
@@ -517,25 +540,10 @@ module mkTbStreamExchangeNonByte#(Bit#(width) inputWord)(Empty)
       action let count <- testLink.hostResponse.get; countByte <= count.data; countLast <= count.last; endaction
       if (statusByte != 0 || statusLast || countByte != 0 || countLast)
          $fatal(1, "FAIL: non-byte output poll header");
-      action
-         let b <- testLink.hostResponse.get;
-         if (b.data != truncate(paddedInput) || b.last != (bytes == 1))
-            $fatal(1, "FAIL: non-byte output word low byte changed");
-      endaction
-      if (bytes != 1)
-         action
-            let b <- testLink.hostResponse.get;
-            if (b.data != truncate(paddedInput >> 8) || !b.last)
-               $fatal(1, "FAIL: non-byte output word high byte changed");
-         endaction
+      checkWord;
 
       testLink.hostRequest.put(byteTok(8'h01, False));
-      if (bytes == 1)
-         testLink.hostRequest.put(byteTok(8'h01 << (valueOf(width) % 8), True));
-      else seq
-         testLink.hostRequest.put(byteTok(0, False));
-         testLink.hostRequest.put(byteTok(8'h01 << (valueOf(width) % 8), True));
-      endseq
+      sendPadded;
       action
          let status <- testLink.hostResponse.get;
          statusByte <= status.data;
@@ -803,6 +811,14 @@ endmodule
 (* synthesize *)
 module mkTbStreamExchangeW13(Empty);
    Empty test <- mkTbStreamExchangeNonByte(13'h1abc);
+endmodule
+
+// A 257-bit word needs 33 bytes: the last byte holds only bit 256, and the byte offset 256 does
+// not fit in 8 bits.
+(* synthesize *)
+module mkTbStreamExchangeW257(Empty);
+   Empty test <- mkTbStreamExchangeNonByte(
+      257'h1_f0e1d2c3b4a5968778695a4b3c2d1e0f_0123456789abcdef_fedcba98765432c7);
 endmodule
 
 

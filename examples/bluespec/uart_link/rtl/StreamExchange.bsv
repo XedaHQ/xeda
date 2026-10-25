@@ -293,7 +293,9 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
          assembled = (zeroExtend(b) << (valueOf(TMax#(8, inWidth)) - 8))
                      | (inputAssembly >> 8);
       else begin
-         Bit#(TMax#(8, inWidth)) shifted = zeroExtend(b) << (admitByteIndex * 8);
+         // The bit offset reaches 8 * (inBytes - 1), which does not fit in 8 bits.
+         Bit#(11) bitOffset = {pack(admitByteIndex), 3'b000};
+         Bit#(TMax#(8, inWidth)) shifted = zeroExtend(b) << bitOffset;
          assembled = inputAssembly | shifted;
       end
       if (admitByteIndex == fromInteger(inBytes - 1)) begin
@@ -362,7 +364,9 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
          outputShift <= outputShift >> 8;
       end else begin
          Bit#(TMax#(8, outWidth)) bits = zeroExtend(pack(outputHold));
-         b = truncate(bits >> (outputByte * 8));
+         // The bit offset reaches 8 * (outBytes - 1), which does not fit in 8 bits.
+         Bit#(11) bitOffset = {outputByte, 3'b000};
+         b = truncate(bits >> bitOffset);
       end
       Bool lastByte = outputByte + 1 == fromInteger(outBytes);
       if (!lastByte) begin
