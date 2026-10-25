@@ -3,6 +3,8 @@
 `xeda.flows` registers the built-ins when it is first imported, and a test file run alone imports
 it late. A restore of an earlier snapshot then removes the built-ins for good. The shared helper
 loads them before it takes the snapshot, and no test restores the registry by any other means.
+
+The last section checks the check of what the import of the test modules leaves registered.
 """
 
 import ast
@@ -208,3 +210,82 @@ def test_the_scan_leaves_the_registration_of_a_flow_by_name_alone(tmp_path, sour
     path = tmp_path / "t.py"
     path.write_text(source + "\n")
     assert _restoring_by_hand(path) == []
+
+
+# --------------------------------------------- what the import of the test modules leaves
+#
+# A flow class registers itself when it is defined, under its snake-case name, its class name and
+# its aliases. A flow that a test defines is gone after the test (`_flow_registry_is_put_back` in
+# `conftest.py`). A flow that a test module defines as it is imported stays registered in every
+# test of the worker, so the session checks it (`_importing_the_tests_leaves_the_flow_registry_
+# alone`): only a module in `REVIEWED_IMPORT_REGISTRATIONS` may keep one, and every name that a
+# built-in or reviewed flow registered must still lead to that flow. These tests run the check on
+# flows they define. A class of an earlier test may still be alive, so each test looks only for
+# what its own flow causes.
+
+REVIEWED = "tests.io_flows"
+
+
+def _flow(name: str, module: str, **attributes) -> type:
+    """A concrete flow class named `name`, as if the module `module` defined it."""
+    from xeda.flow import Flow
+
+    namespace = {"__module__": module, "results_description": {}, "run": lambda self: None}
+    return type(name, (Flow,), {**namespace, **attributes})
+
+
+def _builtin() -> type:
+    from xeda.flows import __builtin_flows__
+
+    return __builtin_flows__[0]
+
+
+def test_the_reviewed_module_of_these_tests_is_reviewed():
+    from .conftest import REVIEWED_IMPORT_REGISTRATIONS
+
+    assert REVIEWED in REVIEWED_IMPORT_REGISTRATIONS
+
+
+def test_a_flow_that_an_unreviewed_module_keeps_registered_is_reported():
+    from .conftest import _import_registration_problems
+
+    _flow("LeftBehind", __name__)
+    problems = _import_registration_problems()
+    assert f"left_behind ({__name__})" in problems
+    assert f"LeftBehind ({__name__})" in problems
+
+
+def test_a_reviewed_flow_whose_alias_replaces_a_builtin_name_is_reported():
+    from .conftest import _import_registration_problems
+
+    builtin = _builtin()
+    _flow("Shadow", REVIEWED, aliases=[builtin.name])
+    assert (
+        f"{builtin.name}: {builtin.__module__}.{builtin.__qualname__} and {REVIEWED}.Shadow"
+        in _import_registration_problems()
+    )
+
+
+def test_a_builtin_that_replaces_the_name_of_a_reviewed_flow_is_reported():
+    from xeda.flow import registered_flows
+
+    from .conftest import _import_registration_problems
+
+    builtin = _builtin()
+    _flow("Shadowed", REVIEWED)
+    registered_flows["shadowed"] = (builtin.__module__, builtin)
+    assert (
+        f"shadowed: {REVIEWED}.Shadowed and {builtin.__module__}.{builtin.__qualname__}"
+        in _import_registration_problems()
+    )
+
+
+def test_a_reviewed_flow_that_its_module_unregisters_is_no_problem():
+    from xeda.flow import registered_flows
+
+    from .conftest import _import_registration_problems
+
+    _flow("Withdrawn", REVIEWED, aliases=["withdrawn_alias"])
+    for name in ("withdrawn", "Withdrawn", "withdrawn_alias"):
+        del registered_flows[name]
+    assert not [problem for problem in _import_registration_problems() if "Withdrawn" in problem]

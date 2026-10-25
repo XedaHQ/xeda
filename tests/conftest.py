@@ -4,7 +4,7 @@ import os
 import shutil
 import stat
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import pytest
 
@@ -222,10 +222,10 @@ REVIEWED_IMPORT_REGISTRATIONS = {
 
 def _import_registration_problems() -> list[str]:
     """What the imported test modules left in the flow registry that no review allows: a flow of
-    a module not in `REVIEWED_IMPORT_REGISTRATIONS`, and a flow of a test module whose name now
-    leads to another class (two modules registered one name, and the later one won)."""
+    a module not in `REVIEWED_IMPORT_REGISTRATIONS`, and a name that a built-in flow or a flow of
+    a reviewed module registered but that now leads to another class (two flows registered one
+    name, their snake-case name, class name or alias, and the later one won)."""
     import inspect
-    import sys
 
     from xeda.flow import Flow, registered_flows
 
@@ -235,20 +235,23 @@ def _import_registration_problems() -> list[str]:
         if not cls.__module__.startswith("xeda.")
         and cls.__module__ not in REVIEWED_IMPORT_REGISTRATIONS
     )
-    for module_name in sorted(REVIEWED_IMPORT_REGISTRATIONS):
-        module = sys.modules.get(module_name)
-        for value in vars(module).values() if module is not None else ():
-            if (
-                isinstance(value, type)
-                and issubclass(value, Flow)
-                and value.__module__ == module_name
-                and not inspect.isabstract(value)
-                and registered_flows.get(value.name, (None, value))[1] is not value
-            ):
-                other = registered_flows[value.name][1]
+
+    def subclasses(cls: type) -> Iterator[type]:
+        for subclass in cls.__subclasses__():
+            yield subclass
+            yield from subclasses(subclass)
+
+    for cls in dict.fromkeys(subclasses(Flow)):
+        if inspect.isabstract(cls) or not (
+            cls.__module__.startswith("xeda.") or cls.__module__ in REVIEWED_IMPORT_REGISTRATIONS
+        ):
+            continue
+        for name in dict.fromkeys([cls.name, cls.__name__, *cls.aliases]):
+            holder = registered_flows.get(name, (None, cls))[1]  # a module may unregister its own
+            if holder is not cls:
                 problems.append(
-                    f"{value.name}: {module_name}.{value.__name__} and "
-                    f"{other.__module__}.{other.__name__}"
+                    f"{name}: {cls.__module__}.{cls.__qualname__} and "
+                    f"{holder.__module__}.{holder.__qualname__}"
                 )
     return problems
 
