@@ -788,3 +788,105 @@ def test_the_remote_plans_the_edges_of_the_local_plan(tmp_path, case, hashed):
         assert not holding  # the chain binds the input, and the remote gets the chain
     else:
         assert holding and all(name not in ("__maker",) for name in holding)
+
+
+# --- The identity of a node is the same on both ends -------------------------------------------
+
+
+def _places_outside_the_root(tmp_path: Path) -> Design:
+    """A design with the four paths that packaging moves or keeps by a rule of its own:
+
+    - a source outside the design root, which travels among the flat sources,
+    - a file outside the root that is a source and the value of a parameter,
+    - a file outside the root that is only the value of a parameter,
+    - a directory under the root that is the value of a parameter, as an absolute path."""
+    root = tmp_path / "design"
+    (root / "assets").mkdir(parents=True)
+    (root / "top.v").write_text("module top(input clk); endmodule\n")
+    (root / "assets" / "a.txt").write_text("a\n")
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "ext.v").write_text("module ext(); endmodule\n")
+    (tmp_path / "lib" / "shared.v").write_text("module shared(); endmodule\n")
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "rom.mem").write_text("00\n")
+    return Design(
+        name="d",
+        design_root=root,
+        rtl={
+            "sources": [
+                "top.v",
+                str(tmp_path / "lib" / "ext.v"),
+                str(tmp_path / "lib" / "shared.v"),
+            ],
+            "top": "top",
+            "parameters": {
+                "ROM": str(tmp_path / "data" / "rom.mem"),
+                "SHARED": str(tmp_path / "lib" / "shared.v"),
+                "ASSETS": str(root / "assets"),
+                "W": 8,
+            },
+        },
+    )
+
+
+@pytest.mark.parametrize("hashed", [False, True])
+def test_the_remote_has_the_identities_and_configurations_of_the_local_plan(tmp_path, hashed):
+    """Packaging puts a source outside the design root among the flat sources and moves the files
+    that parameters name. The host still computes the identities of the local plan, from the
+    configuration as the client counted it."""
+    from xeda.flow_runner import DefaultRunner
+    from xeda.frozen import thaw
+
+    design = _places_outside_the_root(tmp_path)
+    local_root = tmp_path / "local" / "xeda_run"
+    local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=hashed)
+    prepared = local.prepare_request("yosys", design=design)
+
+    package, remote_plan, remote_root, _remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, "yosys", hashed
+    )
+
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+    configuration = thaw(prepared.plan.node("yosys").configuration)
+    assert thaw(remote_plan.node("yosys").configuration) == configuration
+    # the client's spelling: places relative to the design root, `../` outside it
+    assert [source["path"] for source in configuration["rtl"]["sources"]] == [
+        "top.v",
+        "../lib/ext.v",
+        "../lib/shared.v",
+    ]
+    assert configuration["rtl"]["parameters"] == {
+        "ROM": str(tmp_path / "data" / "rom.mem"),
+        "SHARED": str(tmp_path / "lib" / "shared.v"),
+        "ASSETS": "$DESIGN_ROOT/assets",
+        "W": 8,
+    }
+    # the package moved the files: the host sees other places than the client does
+    assert any(path.startswith("d/sources/") for path in package.files)
+
+
+def test_a_converted_design_has_the_same_identities_on_the_remote(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+    from xeda.frozen import thaw
+
+    from .flow_registry import preserved_flow_registry
+    from .test_node_configuration import bluespec_design, converted_chain
+
+    with preserved_flow_registry():
+        converter, consumer, chain = converted_chain()
+        design = bluespec_design(tmp_path / "design")
+        local_root = tmp_path / "local" / "xeda_run"
+        local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=True)
+        prepared = local.prepare_request(chain, design=design)
+
+        _package_, remote_plan, remote_root, _remote_dir = _remote_plan(
+            tmp_path, prepared, local_root, chain, True
+        )
+
+        assert [node.name for node in remote_plan.nodes] == [converter.name, consumer.name]
+        assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+        for node in prepared.plan.nodes:
+            assert thaw(remote_plan.node(node.name).configuration) == thaw(node.configuration)
+        assert thaw(prepared.plan.node(consumer.name).configuration)["converted_from"] == (
+            converter.name
+        )
