@@ -272,16 +272,26 @@ hash checks, key reuse after hash, and bad-tag rejection. A separate hash after 
 the independent 1,537-byte fixture. The Ascon fast-path RTL from the counter change matches the
 previously tested design after three collision-free internal wire renames; all core files match
 byte for byte. The buffered wide-word change does not instantiate in these application profiles.
-The final source comparison and explicit openXC7 board checks are recorded separately from these
-Vivado image results.
+The final source reproduces all GCD and Ascon application Verilog byte for byte against the
+counter-change builds. Its comparison with the preserved Vivado Ascon image differs only by
+three collision-free internal wire renames. This proves RTL equivalence; it does not claim
+identical rebuilt Vivado bitstreams.
 
 The Arty Ascon target supplies `nextpnr.tmg_ripup=true` and
-`nextpnr.placer_heap_timingweight=40` for explicit openXC7 builds. On the counter-change source,
+`nextpnr.placer_heap_timingweight=40` for explicit openXC7 builds. On the final integrated source,
 both variants built through Xeda at 100 MHz: Ascon-128 reported 100.675 MHz and +0.067 ns slack;
 Ascon-128a reported 101.031 MHz and +0.102 ns slack. No clock or timing check was relaxed.
 These are nextpnr timing results, not physical frequency-sweep measurements. Bare programming
 commands select Vivado; use an explicit `yosys_fpga+nextpnr+fpga_pack+openfpgaloader` chain to
-select openXC7.
+select openXC7. Both final-source openXC7 images were loaded into Arty SRAM and passed the public
+61-vector self-test, long encryption/decryption and hash, key reuse, and bad-tag rejection.
+Their bitstream SHA-256 values are
+`8c13b5ace9e849b8bf95594bb71dd6b548e06560a5e30ce6219bd39fc198a64c` (128) and
+`7311fbfd39e828f570fcfdbf9c1fce106f784b8277a9504f2ab75049e79095ca` (128a).
+The preserved Vivado Ascon-128a image
+`d6aece373e1cb8fa1b6ba04273c5255f76480fe4d20f8a7646027bc23be39edd` was restored last and passed
+its full self-test. Only SRAM was programmed. The openXC7 builds each ran once on the final
+source; reproducible bitstreams across run roots are not established.
 
 The older four-board tables and throughput measurements above belong to their recorded source
 and host versions. They do not establish results for this follow-up. A later physical GCD check
