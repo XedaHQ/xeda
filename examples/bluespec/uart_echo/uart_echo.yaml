@@ -116,7 +116,6 @@ targets:
       nextpnr:
         clock.freq: 100 MHz
       openfpgaloader:
-        inputs.bitstream: vivado_synth.bitstream
         board: arty_a7_100t
   # ULX3S 85F (put the oss-cad-suite bin directory first on PATH):
   # `xeda run yosys_fpga+nextpnr+fpga_pack uart_echo.yaml --target ulx3s`
