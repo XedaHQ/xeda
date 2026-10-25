@@ -49,7 +49,7 @@ def _assert_memory_mapping(flow: YosysFpga, target: str) -> None:
     """Check the expected block RAM or distributed RAM mapping for this width profile."""
     results = flow.results
     utilization = results["_utilization"]
-    assert results["LUT:RAM"] > 0
+    assert results["lut_use.ram"] > 0
     block_rams = sum(utilization.get(cell, 0) for cell in BLOCK_RAM_CELLS)
     if target.endswith("_w8"):
         assert block_rams > 0
@@ -62,9 +62,9 @@ def _assert_memory_mapping(flow: YosysFpga, target: str) -> None:
 @pytest.mark.parametrize("cell", BLOCK_RAM_CELLS)
 def test_memory_mapping_recognizes_block_ram_variants(cell):
     utilization = {cell: 1}
-    block_ram_flow = SimpleNamespace(results={"_utilization": utilization, "LUT:RAM": 1})
+    block_ram_flow = SimpleNamespace(results={"_utilization": utilization, "lut_use.ram": 1})
     distributed_flow = SimpleNamespace(
-        results={"_utilization": {**utilization, "RAM64M": 1}, "LUT:RAM": 1}
+        results={"_utilization": {**utilization, "RAM64M": 1}, "lut_use.ram": 1}
     )
 
     _assert_memory_mapping(block_ram_flow, "gcd_w8")
@@ -82,15 +82,15 @@ def test_uart_stream_adapter_area(target, input_width, output_width, tmp_path, c
     flow = DefaultRunner(run_root, display_results=False).run_flow(YosysFpga, design)
     captured = capfd.readouterr()
     assert flow is not None and flow.succeeded, run_report(flow, captured)
-    assert flow.results["LUT:STAGE"] == "mapped"
-    assert flow.results["LUT:METHOD"] == "primitive-footprint estimate"
-    assert 0 <= flow.results["LUT:LOGIC"] <= 500
-    assert flow.results["LUT:RAM"] >= 0
-    assert flow.results["LUT:SRL"] >= 0
-    assert flow.results["FF"] >= 0
+    assert flow.results["lut_basis.stage"] == "mapped"
+    assert flow.results["lut_basis.method"] == "primitive-footprint estimate"
+    assert 0 <= flow.results["lut_use.logic"] <= 500
+    assert flow.results["lut_use.ram"] >= 0
+    assert flow.results["lut_use.srl"] >= 0
+    assert flow.results["ff"] >= 0
     assert flow.results["CARRY4"] >= 0
-    assert flow.results["LUT"] == (
-        flow.results["LUT:LOGIC"] + flow.results["LUT:RAM"] + flow.results["LUT:SRL"]
+    assert flow.results["lut"] == (
+        flow.results["lut_use.logic"] + flow.results["lut_use.ram"] + flow.results["lut_use.srl"]
     )
     _assert_memory_mapping(flow, target)
     ports = _port_widths(run_root, design.rtl.top)
@@ -124,15 +124,15 @@ def test_leanlink_core_area(target, tmp_path, capfd):
     flow = DefaultRunner(run_root, display_results=False).run_flow(YosysFpga, design)
     captured = capfd.readouterr()
     assert flow is not None and flow.succeeded, run_report(flow, captured)
-    assert flow.results["LUT:STAGE"] == "mapped"
-    assert flow.results["LUT:METHOD"] == "primitive-footprint estimate"
-    assert flow.results["LUT:LOGIC"] >= 0
-    assert flow.results["LUT:RAM"] >= 0
-    assert flow.results["LUT:SRL"] >= 0
-    assert flow.results["FF"] >= 0
+    assert flow.results["lut_basis.stage"] == "mapped"
+    assert flow.results["lut_basis.method"] == "primitive-footprint estimate"
+    assert flow.results["lut_use.logic"] >= 0
+    assert flow.results["lut_use.ram"] >= 0
+    assert flow.results["lut_use.srl"] >= 0
+    assert flow.results["ff"] >= 0
     assert flow.results["CARRY4"] >= 0
-    assert flow.results["LUT"] == (
-        flow.results["LUT:LOGIC"] + flow.results["LUT:RAM"] + flow.results["LUT:SRL"]
+    assert flow.results["lut"] == (
+        flow.results["lut_use.logic"] + flow.results["lut_use.ram"] + flow.results["lut_use.srl"]
     )
     _assert_memory_mapping(flow, target)
     ports = _port_widths(run_root, design.rtl.top)

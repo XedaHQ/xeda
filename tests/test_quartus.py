@@ -145,7 +145,7 @@ def test_quartus_reads_the_timing_reports_through_the_run_directory(tmp_path, mo
         "Fmax,Restricted Fmax,Clock Name,Note\n" + rows
     )
     assert flow.parse_reports()
-    assert flow.results["Fmax"] == 250.0
+    assert flow.results["fmax"] == 250.0
 
 
 def _quartus_processes(tmp_path, monkeypatch, **settings) -> list:
