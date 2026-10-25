@@ -11,7 +11,6 @@ the remote, and a warning names it.
 """
 
 import copy
-import hashlib
 import json
 import logging
 import os
@@ -46,29 +45,21 @@ log = logging.getLogger(__name__)
 _RECORDS = ("results.json", "settings.json")
 #: The record of freshness: it stays on the remote.
 _TRACE = "trace.json"
-_EXTERNAL = "_external"
 
 
-def external_place(remote_path: str) -> PurePosixPath:
-    """Return where a file outside the run directory lies in the mirror directory. The digest
-    keeps same-named files of different places apart."""
-    digest = hashlib.sha256(remote_path.encode()).hexdigest()[:16]
-    return PurePosixPath(_EXTERNAL) / digest / PurePosixPath(remote_path).name
-
-
-def mirror_relative(remote_path: str, remote_run_dir: str) -> PurePosixPath:
+def mirror_relative(remote_path: str, remote_run_dir: str) -> Optional[PurePosixPath]:
     """Return the place in the mirror directory of the file `remote_path`, which a result names
     as an absolute path or relative to the run directory `remote_run_dir`.
 
     A file below the run directory keeps its place. Any other file (an absolute path elsewhere,
-    or a relative `../` path) has an external place, so that nothing leaves the mirror."""
+    or a relative `../` path) has no place in the mirror: `None`. Xeda never fetches it."""
     remote_root = os.path.normpath(remote_run_dir)
     full = os.path.normpath(
         remote_path if os.path.isabs(remote_path) else os.path.join(remote_root, remote_path)
     )
     relative = PurePosixPath(os.path.relpath(full, remote_root))
     if ".." in relative.parts:
-        return external_place(full)
+        return None
     return relative
 
 
@@ -167,7 +158,7 @@ class SkippedSource:
         ):
             raise RemoteFetchError(f"a skipped source is not {{{', '.join(keys)}}}: {value!r}")
         place = PurePosixPath(value["place"])
-        if place.is_absolute() or ".." in place.parts or place.parts[:1] == (_EXTERNAL,):
+        if place.is_absolute() or ".." in place.parts:
             raise RemoteFetchError(f"a skipped source has the place {value['place']!r}")
         return cls(*(value[key] for key in keys))
 
@@ -309,10 +300,10 @@ def select_fetch(run_root: Path, nodes: Sequence[NodeResult], *, fetch_all: bool
                 ]
             for given, declared in named:
                 mirrored = mirror_relative(given, run_dir)
+                if mirrored is None:
+                    continue  # outside the run directory: never read nor sent
                 full = given if os.path.isabs(given) else os.path.join(run_dir, given)
                 full = os.path.normpath(full)
-                if mirrored.parts[0] == _EXTERNAL:
-                    continue  # outside the run directory: never read nor sent
                 if not _is_regular_inside(run_dir, mirrored.as_posix()):
                     if not succeeded:
                         continue
@@ -417,7 +408,10 @@ def rewrite_results(
     _declared_outputs_problem(rewritten, remote_dir)
 
     def local_path(path: str) -> Path:
-        return mirror_dir / mirror_relative(path, remote_dir)
+        place = mirror_relative(path, remote_dir)
+        if place is None:  # `_declared_outputs_problem` refused it already
+            raise DeliveryError(f"Declared remote output {path} is outside the run directory")
+        return mirror_dir / place
 
     for recorded in (rewritten.get("outputs") or {}).values():
         for record, key in recorded_files(recorded):
@@ -440,7 +434,11 @@ def rewrite_results(
 
         def kept(artifact: ArtifactPath) -> bool:
             place = mirror_relative(os.fspath(artifact), remote_dir)
-            return place.as_posix() in vouched and _is_regular(str(mirror_dir / place))
+            return (
+                place is not None
+                and place.as_posix() in vouched
+                and _is_regular(str(mirror_dir / place))
+            )
 
         if not succeeded and isinstance(artifacts, Mapping):
             artifacts = drop_unwritten_artifacts(artifacts, kept, str(rewritten.get("flow")))
@@ -449,7 +447,7 @@ def rewrite_results(
 
         def rewrite(artifact: ArtifactPath) -> str:
             place = mirror_relative(os.fspath(artifact), remote_dir)
-            if place.parts[0] == _EXTERNAL:
+            if place is None:
                 remote = os.path.normpath(os.path.join(remote_dir, os.fspath(artifact)))
                 elsewhere.append(remote)
                 return remote

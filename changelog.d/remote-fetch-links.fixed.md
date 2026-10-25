@@ -1,3 +1,2 @@
-- `xeda run --remote` now treats a symbolic link that a tool left as a local launch does: an
-  artifact that a link leads to a file of the run directory comes back, and `--outputs-to` skips
-  one that a link leads out of it, where the fetch failed before.
+- `xeda run --remote` no longer fails on an artifact that is a symbolic link. A link to a file in
+  the run directory brings that file back, and `--outputs-to` skips a link that leads out of it.

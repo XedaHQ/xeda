@@ -15,7 +15,6 @@ from xeda.remote.errors import RemoteFetchError, RemoteProtocolError
 from xeda.remote.fetch import (
     NodeResult,
     SkippedSource,
-    external_place,
     mirror_relative,
     publish_mirror,
     rewrite_results,
@@ -280,7 +279,6 @@ def test_a_skipped_source_from_the_remote_is_checked():
     for bad in (
         {**good, "place": "../x.bit"},
         {**good, "place": "/x.bit"},
-        {**good, "place": "_external/abc/x.bit"},
         {**good, "target": 3},
         {key: value for key, value in good.items() if key != "node"},
         {**good, "more": "x"},
@@ -328,15 +326,14 @@ def test_an_artifact_outside_the_run_directory_is_never_read(tmp_path, kind):
     assert selection.skipped == []
 
 
-def test_mirror_relative_keeps_a_place_in_the_run_directory_and_files_the_rest_by_digest():
+def test_mirror_relative_keeps_a_place_in_the_run_directory_and_gives_the_rest_none():
     run = "/remote/xeda_run/d/flow"
     assert mirror_relative("reports/a.rpt", run) == PurePosixPath("reports/a.rpt")
     assert mirror_relative(f"{run}/out/b.bit", run) == PurePosixPath("out/b.bit")
-    outside = mirror_relative("/remote/other/b.bit", run)
-    assert outside == external_place("/remote/other/b.bit")
-    assert outside.parts[0] == "_external" and outside.name == "b.bit"
-    assert mirror_relative("../up/b.bit", run) == external_place("/remote/xeda_run/d/up/b.bit")
-    assert external_place("/a/x.bit") != external_place("/b/x.bit")
+    assert mirror_relative("_external/b.bit", run) == PurePosixPath("_external/b.bit")
+    assert mirror_relative("/remote/other/b.bit", run) is None
+    assert mirror_relative("../up/b.bit", run) is None
+    assert mirror_relative(f"{run}/../b.bit", run) is None
 
 
 # --------------------------------------------------------------------------------- the mirror
