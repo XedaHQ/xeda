@@ -132,10 +132,15 @@ def child_stdout() -> Union[None, int, TextIO]:
 
 
 def run_child(
-    command: Any, *, source: str = "child", stdout: Any = None, **kwargs: Any
+    command: Any,
+    *,
+    cwd: Union[str, os.PathLike],
+    source: str = "child",
+    stdout: Any = None,
+    **kwargs: Any,
 ) -> "subprocess.CompletedProcess[str]":
-    """Run a child process that has no log (a design generator) and wait for it. `command` and
-    `kwargs` are those of `subprocess.run`, except `stdout`.
+    """Run a child process that has no log (a design generator) in the directory `cwd` and wait
+    for it. `command` and `kwargs` are those of `subprocess.run`, except `stdout`.
 
     The child writes where `child_stdout()` says (its own standard error as before). In `"log"`
     mode its output, error output included, goes to the `xeda` logger at INFO, one record for
@@ -143,13 +148,14 @@ def run_child(
     `stdout` gets it as it is."""
     if stdout is not None or TOOL_OUTPUT.get() == "terminal":
         return subprocess.run(
-            command, stdout=child_stdout() if stdout is None else stdout, **kwargs
+            command, cwd=cwd, stdout=child_stdout() if stdout is None else stdout, **kwargs
         )
     if kwargs.get("stderr") is None:
         kwargs["stderr"] = subprocess.STDOUT
     check = kwargs.pop("check", False)
     done = subprocess.run(
         command,
+        cwd=cwd,
         stdout=subprocess.PIPE,
         text=True,
         encoding="utf-8",
@@ -788,6 +794,7 @@ def _copy_errors(pipe: IO[str], tool_log: _LogFile | None, show: bool, name: str
 def _run_to_file(
     command: List[str],
     env: Optional[Dict[str, Any]],
+    cwd: Union[None, str, os.PathLike],
     check: bool,
     stdout: Path,
     timeout: float | None,
@@ -814,6 +821,7 @@ def _run_to_file(
         )
         with subprocess.Popen(
             command,
+            cwd=cwd,
             stdout=out_file,
             stderr=subprocess.PIPE,
             env=env,
@@ -999,7 +1007,16 @@ def run_process(
         return _run_capturing(command, env, cwd, check, merge_stderr, timeout, on_stop, new_session)
     if isinstance(stdout, (str, os.PathLike)):
         _run_to_file(
-            command, env, check, Path(stdout), timeout, on_stop, new_session, log_to, log_append
+            command,
+            env,
+            cwd,
+            check,
+            Path(stdout),
+            timeout,
+            on_stop,
+            new_session,
+            log_to,
+            log_append,
         )
         return None
     _run_copying(

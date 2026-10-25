@@ -144,17 +144,17 @@ def test_a_captured_process_keeps_its_error_output_off_the_streams(capfd):
     assert capfd.readouterr() == ("", "")
 
 
-def test_a_child_with_no_log_writes_nowhere_unless_asked(capfd, caplog):
+def test_a_child_with_no_log_writes_nowhere_unless_asked(tmp_path, capfd, caplog):
     assert child_stdout() is not None  # the null device
     with caplog.at_level(logging.INFO, logger="xeda"):
-        done = run_child([sys.executable, "-c", CHATTER], source="generator")
+        done = run_child([sys.executable, "-c", CHATTER], source="generator", cwd=tmp_path)
     assert done.returncode == 0
     assert capfd.readouterr() == ("", "")
     assert "generator: tool says hi" in caplog.text and "generator: tool says oops" in caplog.text
     token = TOOL_OUTPUT.set("terminal")
     try:
         assert child_stdout() is None
-        run_child([sys.executable, "-c", CHATTER], source="generator")
+        run_child([sys.executable, "-c", CHATTER], source="generator", cwd=tmp_path)
     finally:
         TOOL_OUTPUT.reset(token)
     out, err = capfd.readouterr()
@@ -316,13 +316,14 @@ def test_a_logs_entry_that_is_no_directory_costs_a_log_and_not_the_run(tmp_path,
     assert (flow.run_path / "logs").is_symlink() or (flow.run_path / "logs").is_file()
 
 
-def test_a_failing_generator_leaves_its_output_in_the_log(caplog):
+def test_a_failing_generator_leaves_its_output_in_the_log(tmp_path, caplog):
     with caplog.at_level(logging.INFO, logger="xeda"):
         with pytest.raises(subprocess.CalledProcessError):
             run_child(
                 [sys.executable, "-c", "print('why it failed'); raise SystemExit(3)"],
                 source="generator",
                 check=True,
+                cwd=tmp_path,
             )
     assert "generator: why it failed" in caplog.text
 
