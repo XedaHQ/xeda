@@ -798,3 +798,31 @@ def test_the_time_of_a_node_is_that_of_its_own_execution(tmp_path, flows):
     slow, after = result.nodes[flows["_Slow"].name], result.nodes[flows["_AfterSlow"].name]
     assert slow.elapsed >= 0.4
     assert 0.0 < after.elapsed < 0.2, "the consumer's time includes its producer's"
+
+
+def test_a_delivery_that_xeda_skipped_is_noted_as_not_delivered(tmp_path):
+    """An artifact of `--outputs-to` that a link leads out of the run directory is skipped: Xeda
+    writes nothing for it, so its delivery is in the node's deliveries, as not delivered."""
+    from types import SimpleNamespace
+
+    from xeda.deliver import Delivered
+    from xeda.flow_runner.launch_result import LaunchCollector
+
+    collector = LaunchCollector()
+    flow = object()
+    run, user = tmp_path / "run", tmp_path / "user"
+    run.mkdir()
+    user.mkdir()
+    named = SimpleNamespace(key="netlist")
+    collector.deliveries_noted(
+        flow,  # type: ignore[arg-type]
+        [(named, run / "d.v", user / "net.v", "digest")],
+        [
+            Delivered("netlist", run / "d.v", user / "net.v", "delivered"),
+            Delivered("--outputs-to", run / "link.v", user / "got" / "link.v", "skipped"),
+        ],
+    )
+    assert collector.deliveries_of(flow) == (  # type: ignore[arg-type]
+        DeliveryRecord("netlist", user / "net.v", True),
+        DeliveryRecord("--outputs-to", user / "got" / "link.v", False),
+    )

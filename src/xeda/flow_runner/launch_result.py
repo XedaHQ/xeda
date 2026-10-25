@@ -128,8 +128,10 @@ class LaunchCollector:
         delivered: Sequence[Delivered],
     ) -> None:
         """Note the deliveries of `flow`: `pending` is what its launch had to deliver, and
-        `delivered` is what reached its destination."""
-        made = {(done.key, done.destination) for done in delivered}
+        `delivered` is what reached its destination, with the deliveries that Xeda skipped (an
+        artifact of `--outputs-to` that a link leads out of the run directory). A skipped
+        delivery is noted as not delivered."""
+        made = {(done.key, done.destination) for done in delivered if done.state != "skipped"}
         self._deliveries[id(flow)] = tuple(
             DeliveryRecord(
                 key=named.key,
@@ -137,6 +139,10 @@ class LaunchCollector:
                 delivered=(named.key, _located(destination)) in made,
             )
             for named, _source, destination, _digest in pending
+        ) + tuple(
+            DeliveryRecord(key=done.key, destination=done.destination, delivered=False)
+            for done in delivered
+            if done.state == "skipped"
         )
 
     def deliveries_of(self, flow: Flow) -> tuple[DeliveryRecord, ...]:
