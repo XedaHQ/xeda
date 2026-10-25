@@ -76,8 +76,8 @@ The run hash covers three things:
   another file through a declared input) also counts each source by its type and its path relative
   to the design root. A flow that reads a design that a converter makes counts the metadata of
   the design and the conversion, never the files that the converter will write.
-* Where each declared input comes from: the producing flow's own run hash and output, or the
-  design's sources.
+* Where each declared input comes from: the producing flow's own run hash and output, or the place
+  and type of the design's source files (a netlist that you list in ``rtl.sources``, for example).
 
 A flow with unchanged settings therefore gets another directory when you change the top or a
 parameter of the design, or when its producer's settings change, or when another producer or
@@ -189,7 +189,7 @@ what the inputs mean, not on where they are:
   (``$DESIGN_ROOT/c.xdc``). It also covers the design configuration: what the flow reads of the
   design, without the content of any file (the ``configuration`` of ``results.json``). Finally it
   covers where each declared input of the flow comes from, in order: the producing flow's own
-  ``flowrun_hash`` and output, or the design's sources. The settings of a producer therefore count
+  ``flowrun_hash`` and output, or the place and type of the design's source files. The settings of a producer therefore count
   for its consumers. ``settings_hash`` covers the settings alone, and ``configuration_hash`` the
   design configuration alone. The trace records all three. ``results.json`` records the
   ``flowrun_hash`` as its ``identity``.
@@ -289,8 +289,11 @@ A flow is stale, and runs again, in any of these cases:
   again only if what they take from it changed.
 - A file appeared in the run directory after the run (``new file in the run directory``). The
   directory belongs to Xeda alone, and a consumer that reads it could find the file.
-- The design's metadata changed: ``top``, parameters, defines and other fields that affect behavior.
-  A change in the place of the files is not a change in the metadata.
+- The design configuration changed (the reason is "the design configuration changed"). This is what
+  the flow reads of the design: the top, parameters, defines, clocks and other metadata, the
+  language, and the place and type of each source that the flow reads or hands to a declared input.
+  A change in the content of a source is not a change of the configuration. The design hash catches
+  it, as a changed input.
 
 ``xeda run --dry-run`` applies these rules and runs nothing. It reports each planned flow as
 ``fresh`` (the launch reuses it), ``stale: <reason>`` (the launch runs it, for the reason that the

@@ -383,7 +383,7 @@ trace (indirect programs, environment variables, files a tool finds on its own) 
 | --- | --- |
 | Run every flow | `--rebuild-all` |
 | Empty each run directory, then run every flow | `--clean` |
-| Keep settings variants side by side | `--hashed-run-dirs` |
+| Keep variants of the settings or of the design side by side | `--hashed-run-dirs` |
 | Remove the flow's other run directories first (prompts for `yes`) | `--scrub` |
 | Keep only `settings.json`, `results.json` and artifacts afterward | `--post-cleanup` |
 | Remove each run directory afterward | `--post-cleanup-purge` |

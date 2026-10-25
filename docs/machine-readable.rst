@@ -825,10 +825,10 @@ top is ``blinky``. It also shows a consumer that switches an optional output of 
 16-character hash suffix. ``flowrun_hash`` is the identity of the node. It combines the settings
 (``settings_hash``, the hash of the flow name and the input settings alone), the design
 configuration (the ``configuration`` of its record) and the origin of each input, in order: the
-identity and output of a producer, or the sources of the design. The same flow with the same
-settings therefore has another identity when the top or a parameter of the design is another, or
-when another producer, another output or another producer configuration feeds it. Where a binding was written (a file, the command line or a
-chain) changes nothing.
+identity and output of a producer, or the place and type of the source files of the design. The same
+flow with the same settings therefore has another identity when the top or a parameter of the design
+is another, or when another producer, another output or another producer configuration feeds it.
+Where a binding was written (a file, the command line or a chain) changes nothing.
 
 Each input has these keys:
 
