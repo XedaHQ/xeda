@@ -145,7 +145,8 @@ module mkSerializationCase(SerializationCase#(outW))
       // The core cannot produce the second word before the first one leaves the output queue.
       host.write(8'h5A);
       expectNoOutput(1);
-      host.setResponseMax(fromInteger(outBytes + 2));
+      // At 255, the 128-byte case must reject a second word despite the clamped literal.
+      host.setResponseMax(fromInteger(valueOf(outW) == 1024 ? 255 : outBytes + 2));
       host.poll;
       expectOutput(bytes0);
       while (produced != 2) action noAction; endaction

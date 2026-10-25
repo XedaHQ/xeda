@@ -233,7 +233,8 @@ Its index covers only valid byte positions, including output widths 9, 25, and 5
 failed elaboration. The buffered adapter uses 11-bit byte offsets so words wider than 256 bits
 retain their upper bytes. The runnable tests cover output widths 1, 7, 9, 13, 20, 25, 57, and 64
 under backpressure, plus a 257-bit buffered round trip, padding rejection, and reset. A final
-1,024-bit output case checks a reply that fits one word while another word is queued. Its old
+1,024-bit output case uses the maximum 255-byte budget and checks that a second queued word
+stays for the next reply. Its old
 two-word budget literal failed elaboration because 258 does not fit in eight bits. The guard now
 rejects an impossible two-word budget at compile time and bounds the converted literal. External
 mutants that restore either narrow buffered shift compile and then fail the intended assertion.
@@ -312,3 +313,8 @@ these tests do not establish peak throughput. No flash was written.
 The final budget-fix delta passed **163 tests**, including all four complete adapter area gates,
 the serialization library target, its strict warning gate, and changelog validation. The existing
 area tops are byte-identical to the source used for the two-tool area table above.
+The strengthened maximum-budget case also passes on Icarus with all compiler warnings promoted.
+An external mutant that removes only the static budget guard compiles, then fails at the last byte
+of the first 1,024-bit word: `last=0`, expected `last=1`. The final 163-test delta was rerun after
+this test change and passed. The independent Claude review found no guard defect and prompted
+this stronger regression.
