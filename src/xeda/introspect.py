@@ -38,6 +38,8 @@ from pydantic import BaseModel, PydanticSchemaGenerationError
 from pydantic.errors import PydanticInvalidForJsonSchema
 
 from .dataclass import (
+    ListLiteralText,
+    comma_separated_items,
     PydanticUndefined,
     field_annotation,
     field_shorthands_of,
@@ -505,6 +507,15 @@ def _in_field_units(schema: Any, definitions: Mapping[str, Any], value: Any) -> 
             key: _in_field_units(properties.get(key, values), definitions, item)
             for key, item in value.items()
         }
+    if isinstance(value, str) and schema.get("type") == "array":
+        # A list setting given as text is comma-separated, by the one rule of the settings input.
+        # Show the text as it was given unless an item holds a quantity.
+        try:
+            parts = comma_separated_items("setting", value)
+        except ListLiteralText:
+            return value  # the launch refuses it
+        shown = _in_field_units(schema, definitions, parts)
+        return shown if shown != parts else value
     if isinstance(value, (list, tuple)):
         prefix = schema.get("prefixItems")
         items = schema.get("items")

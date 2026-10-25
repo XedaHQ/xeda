@@ -370,6 +370,30 @@ def test_the_document_of_a_run_echoes_the_settings_it_got_in_the_unit_of_each_fi
     assert nested == {"clocks": {"main_clock": {"period": "5 ns"}, "c": {"freq": "100 MHz"}}}
 
 
+def test_a_list_of_quantities_given_as_comma_separated_text_shows_the_unit_of_the_field():
+    given = {"floorplan": {"die_area": "0nm, 0nm,100000nm,100000nm,"}}
+    shown = settings_in_field_units("openroad_place", given)
+    assert shown == {"floorplan": {"die_area": ["0 um", "0 um", "100 um", "100 um"]}}
+    document = spec_document(
+        flow="openroad_place",
+        design="d",
+        design_file=None,
+        target=None,
+        settings={"openroad_place": given},
+    )
+    assert document["settings"] == {"openroad_place": shown}
+    # the same list given as a list, and text that is no list of quantities or is a refused
+    # literal, stay as the launch will judge them
+    as_list = {"floorplan": {"die_area": ["0nm", "0nm", "100000nm", "100000nm"]}}
+    assert settings_in_field_units("openroad_place", as_list) == shown
+    bad = {"floorplan": {"die_area": "0nm,soon"}}
+    assert settings_in_field_units("openroad_place", bad) == {
+        "floorplan": {"die_area": ["0 um", "soon"]}
+    }
+    literal = {"floorplan": {"die_area": "[0nm, 0nm]"}}
+    assert settings_in_field_units("openroad_place", literal) == literal
+
+
 @needs_tclsh
 def test_a_command_line_launch_shows_the_unit_of_the_field(tmp_path):
     design = tmp_path / "design"
