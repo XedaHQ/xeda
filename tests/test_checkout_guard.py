@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from . import conftest as guard
-from . import sharding
+from . import flow_registry, sharding
 from .tool_utils import HANG_GUARD
 
 #: Files that a checkout has when the session starts, in places that the guard watches.
@@ -170,7 +170,8 @@ def test_a_directory_that_a_checkout_lacks_is_no_error(tmp_path, monkeypatch):
 # The tests above call the guard's functions. Whether the guard runs them at the right time is a
 # matter of the session: pytest imports `conftest.py`, then the test modules, then runs the
 # session fixtures. Each case below is a pytest session on a small tree in `tmp_path`, with the
-# conftest of the suite, a stub of its helper module, and one test module.
+# conftest of the suite, the helper modules it imports (`tool_utils` as a stub), and one test
+# module.
 
 STUB_TOOL_UTILS = """
 from pathlib import Path
@@ -277,6 +278,7 @@ def pytest_session(tmp_path: Path, conftest: str, module: str) -> subprocess.Com
     (tree / "tests" / "__init__.py").write_text("")
     (tree / "tests" / "tool_utils.py").write_text(STUB_TOOL_UTILS)
     (tree / "tests" / "sharding.py").write_text(Path(sharding.__file__).read_text())
+    (tree / "tests" / "flow_registry.py").write_text(Path(flow_registry.__file__).read_text())
     (tree / "tests" / "fake_tools" / "fake_fpga_tool.py").write_text("")
     (tree / "tests" / "the_suites_conftest.py").write_text(Path(guard.__file__).read_text())
     (tree / "tests" / "conftest.py").write_text(conftest)

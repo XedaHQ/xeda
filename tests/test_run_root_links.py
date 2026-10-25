@@ -41,7 +41,7 @@ pytestmark = [
 SCRUBBED = "yosys_fpga"
 
 
-class _Probe(Flow):
+class _LinkProbe(Flow):
     """Does nothing: what matters is where it would run."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -105,7 +105,7 @@ class World:
         self.inside = root / "b"
         self.outside = tmp_path / "outside"
         for home in (self.inside, self.outside):
-            for flow in (_Probe.name, SCRUBBED):
+            for flow in (_LinkProbe.name, SCRUBBED):
                 (home / flow).mkdir(parents=True)
                 (home / flow / "KEEP").write_text("keep\n")
         level, leads = case.split("-")
@@ -155,7 +155,7 @@ def test_a_launch_through_a_link_is_refused_before_anything_is_written(tmp_path,
     world = World(tmp_path, case)
     runner = DefaultRunner(world.root, display_results=False, clean=clean)
     with pytest.raises(RunDirectoryError) as refused:
-        runner.run_flow(_Probe, world.design(), {})
+        runner.run_flow(_LinkProbe, world.design(), {})
     names_the_link(world, str(refused.value))
     world.unchanged()
 
@@ -265,9 +265,11 @@ def test_a_run_root_that_is_a_link_keeps_working(tmp_path, confirmed):
     link.symlink_to(real, target_is_directory=True)
     design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
     for clean in (False, True, True):
-        flow = DefaultRunner(link, display_results=False, clean=clean).run_flow(_Probe, design, {})
-        assert flow.run_path == real.resolve() / "d" / _Probe.name
-    assert (real / "d" / _Probe.name / "results.json").is_file()
+        flow = DefaultRunner(link, display_results=False, clean=clean).run_flow(
+            _LinkProbe, design, {}
+        )
+        assert flow.run_path == real.resolve() / "d" / _LinkProbe.name
+    assert (real / "d" / _LinkProbe.name / "results.json").is_file()
     assert link_on_way(link / "d", link) is None
     # scrub through the link names the same directories
     scrubbed = real / "d" / SCRUBBED

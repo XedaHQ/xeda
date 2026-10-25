@@ -193,6 +193,92 @@ def _environment_is_left_as_found():
         pytest.fail(f"the test left these environment variables changed: {changed}")
 
 
+# ----------------------------------------------------------------- the flow registry
+
+
+#: The test modules that keep the flows they define registered as they are imported, because
+#: their tests launch or resolve those flows by name (a chain `a+b`, a binding, a producer found
+#: by its name): module -> why. Any other module that leaves a flow registered at import fails the
+#: run, and so does a name that two test modules register.
+REVIEWED_IMPORT_REGISTRATIONS = {
+    "tests.io_flows": "the declared-I/O flows of the chain, binding and resolver tests; the remote "
+    "fixtures import it on the host for the same flows",
+    "tests.test_asic_platform_settings": "an ASIC producer and consumer resolved by name",
+    "tests.test_chain_resolver": "a consumer that the chain resolver finds by name",
+    "tests.test_dse_run": "the flows that a design space exploration launches by name",
+    "tests.test_flow_io": "a flow whose outputs a binding switches by name",
+    "tests.test_fpga_chains": "the producers of FPGA chains resolved by name",
+    "tests.test_fpga_io_specialization": "a consumer resolved by name",
+    "tests.test_output_records": "the producers whose records the consumers find by name",
+    "tests.test_prepare_inputs": "a consumer whose producer is found by name",
+    "tests.test_required_model_fields": "flows launched by name",
+    "tests.test_run_directory": "flows launched by name",
+    "tests.test_run_root_links": "a flow launched by name",
+    "tests.test_stale_reports": "flows launched by name",
+    "tests.test_trace_directories": "a flow launched by name",
+    "tests.test_trace_programs": "a flow launched by name",
+}
+
+
+def _import_registration_problems() -> list[str]:
+    """What the imported test modules left in the flow registry that no review allows: a flow of
+    a module not in `REVIEWED_IMPORT_REGISTRATIONS`, and a flow of a test module whose name now
+    leads to another class (two modules registered one name, and the later one won)."""
+    import inspect
+    import sys
+
+    from xeda.flow import Flow, registered_flows
+
+    problems = sorted(
+        f"{name} ({cls.__module__})"
+        for name, (_module, cls) in registered_flows.items()
+        if not cls.__module__.startswith("xeda.")
+        and cls.__module__ not in REVIEWED_IMPORT_REGISTRATIONS
+    )
+    for module_name in sorted(REVIEWED_IMPORT_REGISTRATIONS):
+        module = sys.modules.get(module_name)
+        for value in vars(module).values() if module is not None else ():
+            if (
+                isinstance(value, type)
+                and issubclass(value, Flow)
+                and value.__module__ == module_name
+                and not inspect.isabstract(value)
+                and registered_flows.get(value.name, (None, value))[1] is not value
+            ):
+                other = registered_flows[value.name][1]
+                problems.append(
+                    f"{value.name}: {module_name}.{value.__name__} and "
+                    f"{other.__module__}.{other.__name__}"
+                )
+    return problems
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _importing_the_tests_leaves_the_flow_registry_alone():
+    """No test module leaves a flow registered as it is imported, unless a review allows it
+    (`REVIEWED_IMPORT_REGISTRATIONS`). Collection imports every test module in every worker, so
+    such a flow is in the registry of every test of the run, and a test that checks every flow
+    finds it. A module unregisters what it defines at import (`test_delivery`), or defines its
+    flows in a test, which leaves nothing registered (`_flow_registry_is_put_back`)."""
+    from .flow_registry import load_builtin_flows
+
+    load_builtin_flows()
+    problems = _import_registration_problems()
+    if problems:
+        pytest.fail(f"importing the test modules left these flows registered: {problems}")
+
+
+@pytest.fixture(autouse=True)
+def _flow_registry_is_put_back():
+    """Every test runs under `preserved_flow_registry`: a flow class that a test defines, or a
+    built-in that it removes, is gone from the registry after the test, so no later test in the
+    worker sees it."""
+    from .flow_registry import preserved_flow_registry
+
+    with preserved_flow_registry():
+        yield
+
+
 # ----------------------------------------------------------------- no test programs a device
 
 #: Stands first on every test's `PATH` under the programmer's name: a launch that reaches
