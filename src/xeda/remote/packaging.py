@@ -35,14 +35,15 @@ class InputPackage:
     `design_file` names the design document. `files` maps a path relative to the inputs directory
     of the remote to the local file that goes there. `generated` maps a path to content made
     here: the design document itself (`generated[design_file]`) and the Liberty files with
-    rewritten include names. `path_identities` maps the absolute remote path of a setting's input
-    to the location-free text that the local run counts for it. `directories` lists the empty
-    directories of directory settings."""
+    rewritten include names. `path_identities` maps the absolute remote path of a source, a
+    parameter value or a setting's input to the text that the local run counts for it, by role
+    (`utils.PATH_IDENTITY_ROLES`): one file can be a source and a parameter value, with two texts.
+    `directories` lists the empty directories of directory settings."""
 
     design_file: str
     files: dict[str, Path]
     generated: dict[str, bytes]
-    path_identities: dict[str, str]
+    path_identities: dict[str, dict[str, str]]
     #: The directories of the inputs that hold no file, relative to the inputs directory. The
     #: remote makes them, since a manifest lists files only.
     directories: list[str] = field(default_factory=list)
@@ -79,7 +80,7 @@ def package_inputs(
     flow, so the remote plans the same edges. A binding that the chain `request` makes does not
     travel, because the remote gets the chain."""
     host_flows = host_flows or {}
-    path_identities: dict[str, str] = {}
+    path_identities: dict[str, dict[str, str]] = {}
     # `mode="json"`: the fields kept as they are (`dependencies` and its `local_cache` /
     # `clone_dir`) hold `Path`s, which a python-mode dump leaves as objects for the encoder
     # to stringify by luck rather than by rule.
@@ -103,6 +104,22 @@ def package_inputs(
     places: Dict[Path, Path | bytes] = {Path(design_file): b""}
     flat_places: Dict[Path, Path] = {}
     directories: set[str] = set()  # the directories of directory settings
+
+    def identified(remote: str | Path, role: str, text: str) -> None:
+        """Record that the host sees `remote` (a place below the inputs directory, or an absolute
+        path) in `role`, and that this side counts `text` for it. The host counts the same text.
+        Two different texts for one path in one role are an error, never decided by order."""
+        key = (
+            str(remote_inputs / Path(remote).as_posix())
+            if not os.path.isabs(remote)
+            else str(remote)
+        )
+        known = path_identities.setdefault(key, {}).setdefault(role, text)
+        if known != text:
+            raise FlowSettingsException(
+                f"one file, {key}, is named as `{known}` and as `{text}` in the same role "
+                f"({role}) of the request, and the remote host counts it once: name it one way"
+            )
 
     def archived(resource: FileResource) -> Path:
         """Return where `resource` lands among the packaged sources.
@@ -149,6 +166,7 @@ def package_inputs(
                 place = relative
             else:
                 place = archived(src)
+                identified(place, "source", design.source_place(src))
             spec: Dict[str, Any] = {"file": place.as_posix()}
             spec["type"] = str(src.type)
             packaged.append(spec)
@@ -168,21 +186,31 @@ def package_inputs(
 
         Either way it travels as a table (`{file: ...}`, `{path: ...}`), which the remote
         resolves against its own design root and not against whatever directory it runs in.
-        Anything else is a value, and travels as it is.
+        Anything else is a value, and travels as it is (an absolute directory, for example).
+
+        For every absolute path, the host gets the text that this side counts for it
+        (`Design.part_metadata`), keyed by the path as the host sees it: the new place, or the
+        value itself when it travels as it is.
         """
         parameters: Dict[str, Any] = {}
+        counted = design.part_metadata("rtl" if dv is design.rtl else "tb")["parameters"]
         for name, value in dv.parameters.items():
             parameters[name] = thaw(value)
             if not (isinstance(value, str) and os.path.isabs(value)):
                 continue
             path = Path(value)
             relative = design.relative_to_root(path)
+            seen: str | Path = value
             if relative is not None and not path.exists():
                 parameters[name] = {"path": relative.as_posix()}
+                seen = relative
             elif relative is not None and path.is_file() and archived_in_place(path, relative):
                 parameters[name] = {"file": relative.as_posix()}
+                seen = relative
             elif path.is_file():
-                parameters[name] = {"file": archived(FileResource(path)).as_posix()}
+                seen = archived(FileResource(path))
+                parameters[name] = {"file": seen.as_posix()}
+            identified(seen, "parameter", counted[name])
         return parameters
 
     rtl["sources"] = packaged_sources(design.rtl.sources)
@@ -218,7 +246,7 @@ def package_inputs(
             digest = hashlib.sha256(str(path).encode()).hexdigest()[:16]
             relative = Path("_setting_inputs") / digest / local.name
         roots = location_roots(design.root_path, Path.cwd())
-        path_identities[str(remote_inputs / relative.as_posix())] = str(location_free(value, roots))
+        identified(relative, "setting", str(location_free(value, roots)))
         if local.is_file():
             places.setdefault(relative, local)
         elif local.is_dir():
@@ -284,9 +312,7 @@ def package_inputs(
                 content = gzip.compress(content, mtime=0)  # the same bytes on every run
             places[place(local)] = content
         roots = location_roots(design.root_path, Path.cwd())
-        path_identities[str(remote_inputs / place(path).as_posix())] = str(
-            location_free(value, roots)
-        )
+        identified(place(path), "setting", str(location_free(value, roots)))
         return "$DESIGN_ROOT/" + place(path).as_posix()
 
     def packaged_value(value: Any, host: Any = None) -> Any:

@@ -76,6 +76,7 @@ from .utils import (
     flows_table_problems,
     hierarchical_merge,
     location_free,
+    path_identity,
     removesuffix,
     semantic_hash,
     settings_to_dict,
@@ -3649,6 +3650,31 @@ class Design(XedaBaseModel):
         )
         return "_".join(part for part in parts if part)
 
+    def part_metadata(self, part: str) -> Dict[str, Any]:
+        """Return the metadata of a design part (`rtl` or `tb`): everything but its sources.
+
+        This is what the identity of a run counts of a part, beside the places and types of its
+        sources (`flow_runner.configuration`), and what the freshness fingerprint counts beside
+        their content. It reads no file. Every value is the validated one: the clocks are
+        complete, and so is the `cocotb` table."""
+        if part == "rtl":
+            return {
+                "top": self.rtl.top,
+                "parameters": self._parameters_fingerprint(self.rtl),
+                "defines": thaw(self.rtl.defines),
+                "clocks": thaw(self.rtl.clocks),
+                "attributes": thaw(self.rtl.attributes),
+            }
+        if part == "tb":
+            return {
+                "top": self.tb.top,
+                "parameters": self._parameters_fingerprint(self.tb),
+                "defines": thaw(self.tb.defines),
+                "uut": self.tb.uut,
+                "cocotb": thaw(self.tb.cocotb),
+            }
+        raise ValueError(f"{part!r} is not a part of a design (its parts are rtl and tb)")
+
     @property
     def rtl_fingerprint(self) -> Dict[str, Any]:
         """Location-independent inputs that can change RTL compilation or synthesis.
@@ -3660,11 +3686,7 @@ class Design(XedaBaseModel):
         """
         return {
             "sources": [self._source_fingerprint(src) for src in self.rtl.sources],
-            "parameters": self._parameters_fingerprint(self.rtl),
-            "defines": thaw(self.rtl.defines),
-            "top": self.rtl.top,
-            "attributes": thaw(self.rtl.attributes),
-            "clocks": thaw(self.rtl.clocks),
+            **self.part_metadata("rtl"),
             "language": thaw(self.language),
         }
 
@@ -3673,11 +3695,7 @@ class Design(XedaBaseModel):
         """The location-independent testbench inputs that identify a run."""
         return {
             "sources": [self._source_fingerprint(src) for src in self.tb.sources],
-            "parameters": self._parameters_fingerprint(self.tb),
-            "defines": thaw(self.tb.defines),
-            "top": self.tb.top,
-            "uut": self.tb.uut,
-            "cocotb": thaw(self.tb.cocotb),
+            **self.part_metadata("tb"),
         }
 
     def _parameters_fingerprint(self, dv: DesignPart) -> Dict[str, Any]:
@@ -3687,9 +3705,18 @@ class Design(XedaBaseModel):
         that `flowrun_hash` applies to settings. So a design that is given a file under its root
         keeps its identity wherever it is moved. A path outside the root is the location that
         the design names, and counts as such.
+
+        A remote launch moves some of the paths. Then the host counts the value as the client
+        does (`path_identity`, role `parameter`).
         """
         roots = [("DESIGN_ROOT", self.root_path)] if self.design_root else []
-        return {k: location_free(thaw(v), roots) for k, v in dv.parameters.items()}
+
+        def counted(value: Any) -> Any:
+            value = thaw(value)
+            known = path_identity(value, "parameter") if isinstance(value, str) else None
+            return location_free(value, roots) if known is None else known
+
+        return {k: counted(v) for k, v in dv.parameters.items()}
 
     def relative_to_root(self, path: Union[str, os.PathLike]) -> Optional[Path]:
         """Return `path` relative to the design root, or None when it is not an absolute path
@@ -3724,8 +3751,17 @@ class Design(XedaBaseModel):
             # A file a converter generated: where it sits in the output of the converter.
             fingerprint["generated"] = source.generated_name
         else:
-            fingerprint["path"] = root_relative_text(self.root_path, source.file)
+            fingerprint["path"] = self.source_place(source)
         return fingerprint
+
+    def source_place(self, source: Source) -> str:
+        """Return the place of `source` as the identity of a run counts it: its path from the
+        design root, as POSIX text (`root_relative_text`).
+
+        A remote launch moves the sources outside the design root. Then the host counts the
+        place as the client does (`path_identity`, role `source`)."""
+        known = path_identity(source.file, "source")
+        return known if known is not None else root_relative_text(self.root_path, source.file)
 
     @property
     def rtl_hash(self) -> str:

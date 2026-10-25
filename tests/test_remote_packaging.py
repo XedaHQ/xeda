@@ -123,9 +123,9 @@ def test_liberty_rewrite_names_the_remote_inputs_path(tmp_path):
     assert str(REMOTE_INPUTS).encode() in gzip.decompress(nested)
     assert any(name.endswith("units.lib.gz") for name in package.files)  # nothing to rename
     # the identity of the run is that of the original file
-    assert package.path_identities[
-        str(REMOTE_INPUTS / shipped.removeprefix("$DESIGN_ROOT/"))
-    ] == str(library)
+    assert package.path_identities[str(REMOTE_INPUTS / shipped.removeprefix("$DESIGN_ROOT/"))] == {
+        "setting": str(library)
+    }
 
 
 def test_liberty_of_a_flow_outside_the_plan_travels_as_a_path(tmp_path):
@@ -294,7 +294,7 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
     """Package a prepared request, put the package where the remote has it, load the document as
     the launch entry does and plan it. Return the package, the plan of the remote, the run root of
     the remote and the directory of the inputs."""
-    from xeda.flow.flow import using_path_identities
+    from xeda.utils import using_path_identities
     from xeda.flow_runner import DefaultRunner
     from xeda.remote.launch_entry import load_packaged_design
 
@@ -611,8 +611,8 @@ EXAMPLES = sorted(
 def test_every_example_design_unpacks_with_the_same_sources(design_file, tmp_path):
     """What the remote loads from the package has the sources of the example, each with its type
     and its content, in order, and the same settings of the design. (A source outside the design
-    root has another place there, so the hash of the design may differ: the run identity does not
-    count a place.)"""
+    root has another place there, so the hash of the design may differ. The run identity does not:
+    the host counts the place as this side does.)"""
     design = Design.from_file(design_file)
     restored = _unpacked(_package(design, {}, tmp_path), tmp_path / "remote")
 
@@ -890,3 +890,37 @@ def test_a_converted_design_has_the_same_identities_on_the_remote(tmp_path):
         assert thaw(prepared.plan.node(consumer.name).configuration)["converted_from"] == (
             converter.name
         )
+
+
+def test_a_file_that_is_a_source_and_a_parameter_has_a_text_for_each_role(tmp_path):
+    design = _places_outside_the_root(tmp_path)
+    package = _package(design, {}, tmp_path)
+
+    shared = tmp_path / "lib" / "shared.v"
+    (key,) = [
+        key
+        for key, roles in package.path_identities.items()
+        if roles.get("source") == "../lib/shared.v"
+    ]
+    assert key.startswith(str(REMOTE_INPUTS / "d" / "sources"))
+    assert package.path_identities[key] == {"source": "../lib/shared.v", "parameter": str(shared)}
+    # a value that travels as it is is keyed by itself
+    assets = str(design.root_path / "assets")
+    assert package.path_identities[assets] == {"parameter": "$DESIGN_ROOT/assets"}
+
+
+def test_two_texts_for_one_file_in_one_role_are_refused(tmp_path):
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    (lib / "rom.mem").write_text("00\n")
+    design = _design(
+        tmp_path,
+        rtl={
+            "sources": [],
+            "top": "t",
+            "parameters": {"A": str(lib / "rom.mem"), "B": str(lib / ".." / "lib" / "rom.mem")},
+        },
+    )
+
+    with pytest.raises(FlowSettingsException, match="same role"):
+        _package(design, {}, tmp_path)

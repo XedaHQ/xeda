@@ -76,7 +76,8 @@ TRACE_FILE = "trace.json"
 #: 18: metrics have lower-snake names, so a `results.json` with the earlier names is not reused.
 #: 19: a trace holds the equivalence digest of each declared output file
 #: (`Trace.output_equivalences`), no longer `results.json`.
-TRACE_FORMAT = 19
+#: 20: the identity holds the design configuration, and a trace holds its hash.
+TRACE_FORMAT = 20
 
 #: The names that Xeda reserves at the top of a run directory, never outputs: the trace and the
 #: trace being written. The clock markers (`digest.TIME_MARKER_PREFIX` plus a random suffix) are
@@ -267,6 +268,9 @@ class Trace(XedaBaseModel):
     #: made of.
     flowrun_hash: str
     settings_hash: str = ""
+    #: The hash of what the run read of its design (`configuration.configuration_hash`), the
+    #: third part of the identity.
+    configuration_hash: str = ""
     design_hash: str
     xeda_version: str
     #: A digest of every file of the installed xeda package: code, templates and data.
@@ -465,6 +469,9 @@ class Expectation:
     declared_inputs: tuple[DeclaredInputRecord, ...] = ()
     #: The hash of the settings alone, to tell a settings change from a change of wiring.
     settings_hash: str = ""
+    #: The hash of the design configuration, to tell a change of the design from a change of
+    #: settings.
+    configuration_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -552,10 +559,14 @@ def check_trace(
     if trace.flow != expected.flow:
         return Freshness(False, f"recorded for another flow: {trace.flow}")
     if trace.flowrun_hash != expected.flowrun_hash:
-        # The identity is settings plus input origins: say which of them moved.
-        rewired = changed_binding(trace.declared_inputs, expected.declared_inputs)
-        if rewired is not None and trace.settings_hash == expected.settings_hash:
-            return Freshness(False, rewired)
+        # The identity is settings, design configuration and input origins: say which of them
+        # moved.
+        if trace.settings_hash == expected.settings_hash:
+            rewired = changed_binding(trace.declared_inputs, expected.declared_inputs)
+            if rewired is not None:
+                return Freshness(False, rewired)
+            if trace.configuration_hash != expected.configuration_hash:
+                return Freshness(False, "the design configuration changed")
         return Freshness(
             False, "settings changed: " + _changed_settings(run_dir, expected.settings)
         )

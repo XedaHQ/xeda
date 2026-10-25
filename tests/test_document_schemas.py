@@ -229,9 +229,8 @@ def test_a_passed_run_writes_schema_1(tmp_path, design):
     for gone in ("success", "run_path", "design_hash", "flow_hash", "settings_hash", "timestamp"):
         assert gone not in document
     assert document["settings"]["mode"] == "ok"
-    assert document["configuration"]["rtl"]["sources"] == [
-        {"path": "top.sv", "type": "SystemVerilog"}
-    ]
+    # the flow reads no source of the design, so its configuration lists none
+    assert "sources" not in document["configuration"]["rtl"]
     assert document["configuration"]["rtl"]["top"] == "top"
     for name in ("started", "finished"):
         assert datetime.fromisoformat(document[name]).utcoffset() == timezone.utc.utcoffset(None)

@@ -17,6 +17,7 @@ import unittest
 from collections import OrderedDict, defaultdict
 from collections.abc import Iterable, Mapping, MutableMapping
 from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from datetime import datetime, timedelta
 from enum import Enum
@@ -63,6 +64,9 @@ __all__ = [
     "rebuild_like",
     "location_free",
     "location_roots",
+    "path_identity",
+    "plain_json",
+    "using_path_identities",
     # str utils
     "camelcase_to_snakecase",
     "snakecase_to_camelcase",
@@ -462,7 +466,7 @@ def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
     in order, most specific first, and the first one that holds the path under any spelling of
     either names it. A place reached through a symbolic link therefore counts as the same place
     however it is spelled."""
-    if isinstance(value, (dict, FrozenDict)):
+    if isinstance(value, Mapping):
         return {key: location_free(item, roots) for key, item in value.items()}
     if isinstance(value, (list, tuple, set, frozenset)):
         return rebuild_like(value, [location_free(item, roots) for item in value])
@@ -479,6 +483,68 @@ def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
                         relative = path.relative_to(root_spelling).as_posix()
                         return f"${var}" if relative == "." else f"${var}/{relative}"
     return value
+
+
+#: The roles of a path whose identity text a remote launch carries (`using_path_identities`):
+#: a path that a setting names, a source of the design and a value of a design parameter.
+PATH_IDENTITY_ROLES = ("setting", "source", "parameter")
+
+_path_identities: ContextVar[Mapping[str, Mapping[str, str]]] = ContextVar(
+    "path_identities", default={}
+)
+
+
+def _canonical_path(text: str) -> str:
+    """Return an absolute path as this file system resolves it.
+
+    The identity of a shipped file is keyed by this one spelling, whether or not its run
+    directory is reached through a symbolic link."""
+    return os.path.realpath(text) if os.path.isabs(text) else text
+
+
+@contextmanager
+def using_path_identities(paths: Mapping[str, Mapping[str, str]]) -> Iterator[None]:
+    """Keep the original identity of a shipped path while tools use its relocated file.
+
+    A remote launch moves some of the paths of a request: it flattens the sources outside the
+    design root and rewrites the files that settings and parameters name. The host must count
+    each one as the client does. `paths` maps the path as the host sees it to the identity text
+    that the client counts for it, by role (`PATH_IDENTITY_ROLES`): the same file can be a source
+    and the value of a parameter, with two identity texts.
+
+    The keys of `paths` are the paths as this file system resolves them (`_canonical_path`). A
+    lookup resolves the given path the same way, so a file is found under any spelling of its
+    path (through a symbolic link or not) and under none that names another file."""
+    unknown = {role for roles in paths.values() for role in roles} - set(PATH_IDENTITY_ROLES)
+    if unknown:
+        raise ValueError(f"unknown path identity roles: {', '.join(sorted(unknown))}")
+    token = _path_identities.set(
+        {_canonical_path(path): dict(roles) for path, roles in paths.items()}
+    )
+    try:
+        yield
+    finally:
+        _path_identities.reset(token)
+
+
+def path_identity(path: Union[str, os.PathLike], role: str) -> Optional[str]:
+    """Return the identity text that the client counts for `path` in `role`, or None.
+
+    This is the one lookup. There is an answer only inside `using_path_identities`, for a path
+    that the remote launch moved or rewrote. Look a path up before it becomes relative to a root
+    (`root_relative_text`, `location_free`): the key is the absolute path."""
+    assert role in PATH_IDENTITY_ROLES, role
+    paths = _path_identities.get()
+    if not paths:
+        return None
+    return paths.get(_canonical_path(os.fspath(path)), {}).get(role)
+
+
+def plain_json(value: Any) -> Any:
+    """Return `value` as plain JSON data, the form a record holds and a document writes.
+
+    A number that is not finite raises `ValueError`: a document never holds `NaN`."""
+    return json.loads(json.dumps(with_json_keys(value), default=json_encodable, allow_nan=False))
 
 
 def json_encodable(obj: Any) -> Any:

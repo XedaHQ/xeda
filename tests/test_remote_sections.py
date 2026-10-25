@@ -219,8 +219,9 @@ def test_every_setting_of_a_section_reaches_the_remote(tmp_path, cls):
         for key in local.model_fields_set:
             before = json.dumps(getattr(local, key), default=_plain, sort_keys=True)
             after = json.dumps(getattr(remote, key), default=_plain, sort_keys=True)
-            for place, identity in identities:
-                after = after.replace(place, identity)
+            for place, roles in identities:
+                if "setting" in roles:
+                    after = after.replace(place, roles["setting"])
             here = sorted({str(root), str(root.resolve())}, key=len, reverse=True)
             # A setting that names a file the run writes keeps its text: the remote writes below
             # its own run directory, and the identity counts the name.

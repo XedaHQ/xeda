@@ -16,6 +16,7 @@ from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
 from xeda.flow_runner.bindings import node_identity
+from xeda.flow_runner.configuration import configuration_hash
 from xeda.flow_runner.resolver import resolve
 from xeda.flow_runner.settings_layers import (
     COMMAND_LINE_ORIGIN,
@@ -100,7 +101,9 @@ def test_each_node_s_identity_is_what_the_launcher_hashes(tmp_path):
     assert maker.origins == () and taker.origins == (("made", ((maker.flowrun_hash, "made"),)),)
     for node in plan.nodes:
         assert node.settings_hash == flowrun_hash(node.name, node.settings, "d")
-        assert node.flowrun_hash == node_identity(node.settings_hash, node.origins)
+        assert node.flowrun_hash == node_identity(
+            node.settings_hash, configuration_hash(node.configuration), node.origins
+        )
         assert node.run_path == tmp_path / "run" / "d" / node.name
 
 
@@ -941,7 +944,8 @@ def test_direct_entry_points_share_context_and_alias_validation(tmp_path, monkey
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "d"
     root.mkdir()
-    design = Design(name="d", design_root=root, rtl={"sources": [], "top": "t"})
+    # the same design as the plan's (`_plan`): its configuration is part of the identity
+    design = Design(name="d", design_root=root, rtl={"sources": [], "top": "t", "clock": "clk"})
     values = {"ncpus": 2, "lib_paths": [("work", "$DESIGN_ROOT/lib")], "text": "entry point\n"}
     given = (
         _Maker.Settings.from_input(values, design_root=root, runner_cwd=tmp_path)

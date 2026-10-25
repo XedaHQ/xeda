@@ -7,9 +7,6 @@ import logging
 import os
 import re
 from abc import ABCMeta, abstractmethod
-from collections.abc import Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path, PurePath
 from types import UnionType
@@ -67,6 +64,7 @@ from ..dataclass import (
     written_role,
 )
 from ..design import LANGUAGE_TYPES, Design, Source, SourceType
+from ..frozen import FrozenDict
 from ..records import REJECTED, ErrorInfo, RunRecord
 from ..run_dir import OutputSnapshot, RunDirectory, record_output_state, resolved_inside
 from ..units import count, finalize_template_value, to_filter
@@ -79,6 +77,7 @@ from ..utils import (
     location_free,
     location_roots,
     parse_patterns_in_file,
+    path_identity,
     path_variables,
     rebuild_like,
     regex_match,
@@ -682,39 +681,16 @@ def _name_unset_outputs(model: BaseModel, design: str, prefix: str = "") -> None
             _name_unset_outputs(nested, design, key + ".")
 
 
-_path_identities: ContextVar[Mapping[str, str]] = ContextVar("path_identities", default={})
-
-
-def _canonical_path(text: str) -> str:
-    """Return an absolute path as this file system resolves it.
-
-    The identity of a shipped file is keyed by this one spelling, whether or not its run
-    directory is reached through a symbolic link."""
-    return os.path.realpath(text) if os.path.isabs(text) else text
-
-
-@contextmanager
-def using_path_identities(paths: Mapping[str, str]) -> Iterator[None]:
-    """Keep the original identity of a shipped read path while tools use its relocated file.
-
-    The keys of `paths` are the relocated paths as this file system resolves them
-    (`_canonical_path`). A lookup resolves the given path the same way, so a file is found under
-    any spelling of its path (through a symbolic link or not) and under none that names another
-    file."""
-    token = _path_identities.set({_canonical_path(path): value for path, value in paths.items()})
-    try:
-        yield
-    finally:
-        _path_identities.reset(token)
-
-
-def _with_path_identities(value: Any, paths: Mapping[str, str]) -> Any:
+def _with_path_identities(value: Any) -> Any:
+    """Return `value` with each path that a remote launch moved written as the client counts it
+    (`path_identity`, role `setting`)."""
     if isinstance(value, dict):
-        return {key: _with_path_identities(item, paths) for key, item in value.items()}
+        return {key: _with_path_identities(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return rebuild_like(value, [_with_path_identities(item, paths) for item in value])
+        return rebuild_like(value, [_with_path_identities(item) for item in value])
     if isinstance(value, (str, os.PathLike)):
-        return paths.get(_canonical_path(os.fspath(value)), value)
+        found = path_identity(value, "setting")
+        return value if found is None else found
     return value
 
 
@@ -729,9 +705,7 @@ def identity_values(
     roots = location_roots(settings.context.get("design_root"), settings.context.get("runner_cwd"))
     identity = identity_settings(settings, design_name)
     values = identity.model_dump()
-    paths = _path_identities.get()
-    if paths:
-        values = _with_path_identities(values, paths)
+    values = _with_path_identities(values)
     return dict(flow_name=flow_name, flow_settings=location_free(values, roots))
 
 
@@ -1591,11 +1565,16 @@ class Flow(metaclass=ABCMeta):
         #: directory that the run did not write is a previous run's (`report_file`).
         self.run_started: bool = False
         self.timestamp: Optional[str] = None
-        #: The identity of the run (its settings and where its inputs come from) and the hash of
-        #: its settings alone, which the identity is made of (`bindings.node_identity`).
+        #: The identity of the run (its settings, its design configuration and where its inputs
+        #: come from) and the hash of its settings alone, which the identity is made of
+        #: (`bindings.node_identity`). The `design_hash` is the content of the design it reads,
+        #: evidence of freshness and no part of the identity.
         self.flow_hash: Optional[str] = None
         self.settings_hash: Optional[str] = None
         self.design_hash: Optional[str] = None
+        #: What the run reads of its design (`flow_runner.configuration`): the configuration
+        #: that the plan froze for its node.
+        self.configuration: Mapping[str, Any] = FrozenDict()
         self.declared_input_records: tuple[Any, ...] = ()
 
         if isinstance(settings, dict):

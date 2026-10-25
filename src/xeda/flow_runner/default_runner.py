@@ -35,7 +35,7 @@ import yaml
 
 from ..artifacts import iter_artifact_paths
 from ..dataclass import XedaBaseModel, model_validator
-from ..frozen import thaw
+from ..frozen import freeze, thaw
 from ..deliver import (
     OUTPUTS_TO,
     Conflict,
@@ -96,6 +96,7 @@ from .bindings import (
 from . import launch_identity, launch_input, launch_producers, launch_report, launch_run
 from .chains import ChainElement, FlowRequest, parse_request
 from .code_digest import CodeDigests
+from .configuration import configuration_hash
 from .error_codes import error_info
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
@@ -111,6 +112,7 @@ from .resolver import (
     Plan,
     PlanNode,
     check_launchable,
+    planned_configuration,
     planned_design_of,
     resolve as resolve_plan,
 )
@@ -756,8 +758,8 @@ class FlowLauncher:
             or as_recorded(sections or {}) != captured[2]
         ):
             raise FlowFatalError("The plan does not match this request's settings")
-        # Every node's identity is recomputed from its settings and its ordered input origins,
-        # producers first, by the one helper the resolver froze it with.
+        # Every node's identity is recomputed from its settings, its design configuration and its
+        # ordered input origins, producers first, by the helpers the resolver froze it with.
         identities: dict[str, str] = {}
         for planned in plan.nodes:
             try:
@@ -767,10 +769,23 @@ class FlowLauncher:
                     f"The plan's node {planned.name} reads a node that does not precede it"
                 ) from error
             settings_hash = flow_run_hash(planned.flow_class.name, planned.settings, design.name)
-            identities[planned.name] = node_identity(settings_hash, origins)
+            configuration = freeze(
+                planned_configuration(
+                    plan,
+                    planned,
+                    design,
+                    self.run_path_of,
+                    planned.flow_class,
+                    planned.settings,
+                )
+            )
+            identities[planned.name] = node_identity(
+                settings_hash, configuration_hash(configuration), origins
+            )
             if (
                 planned.settings_hash != settings_hash
                 or planned.origins != origins
+                or planned.configuration != configuration
                 or planned.flowrun_hash != identities[planned.name]
                 or planned.run_path
                 != self.run_path_of(
@@ -1273,6 +1288,7 @@ class FlowLauncher:
             failure: BaseException | None = None
             try:
                 flow.design_hash = design_hash
+                flow.configuration = node.configuration
                 flow.flow_hash = flowrun_hash
                 flow.settings_hash = settings_hash
                 flow.started = datetime.now(timezone.utc)

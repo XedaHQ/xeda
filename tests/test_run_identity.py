@@ -1,10 +1,13 @@
-"""What identifies a flow run: `flowrun_hash` over the settings, beside the design's hash.
+"""What identifies a flow run: `flowrun_hash` over the settings and the design configuration,
+beside the design's hash.
 
 A run's identity depends on what its inputs mean, not on where anything is: moving a design,
 copying it, or starting xeda from another directory keeps it. Design sources count by content,
-metadata and path relative to the design root (`Design.rtl_hash`); settings count by value, with
-a path counting as its text relative to the design root or start directory -- no file or
-directory named in the settings is ever read.
+metadata and path relative to the design root in the design hash (`Design.rtl_hash`), which is
+evidence of freshness. In the identity they count by type and path, without content
+(`flow_runner/configuration.py`). Settings count by value, with a path counting as its text
+relative to the design root or start directory -- no file or directory named in the settings is
+ever read.
 """
 
 import json
@@ -19,6 +22,7 @@ from xeda import Design
 from xeda.design import Source
 from xeda.flow import flowrun_hash
 from xeda.flow_runner.bindings import node_identity
+from xeda.flow_runner.configuration import configuration_hash
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.trace import read_trace
 from xeda.flows import VivadoSynth
@@ -325,10 +329,14 @@ def test_a_recorded_settings_json_is_a_rerunnable_input(tmp_path, fake_tools):
 
     again = VivadoSynth.Settings.from_input(recorded["flow_settings"], design_root=design.root_path)
 
-    # the settings alone hash as recorded; the run's identity adds its input origins (none
-    # for a flow that declares no inputs)
+    # the settings alone hash as recorded; the run's identity adds its design configuration and
+    # its input origins (none for a flow that declares no inputs)
     assert flowrun_hash("vivado_synth", again) == recorded["settings_hash"]
-    assert node_identity(recorded["settings_hash"]) == recorded["flowrun_hash"]
+    configuration = json.loads((flow.run_path / "results.json").read_text())["configuration"]
+    assert (
+        node_identity(recorded["settings_hash"], configuration_hash(configuration))
+        == recorded["flowrun_hash"]
+    )
 
 
 def test_a_source_hashes_the_same_however_its_path_is_written(tmp_path):

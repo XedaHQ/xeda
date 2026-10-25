@@ -784,9 +784,9 @@ def _plain(value: Any) -> Any:
     """Return `value` as plain JSON data, the form a record holds and a document writes.
 
     A number that is not finite raises `ValueError`: the document never holds `NaN`."""
-    from .utils import json_encodable, with_json_keys
+    from .utils import plain_json
 
-    return json.loads(json.dumps(with_json_keys(value), default=json_encodable, allow_nan=False))
+    return plain_json(value)
 
 
 def name_in(run_dir: Path, path: str | os.PathLike[str]) -> str | None:
@@ -991,50 +991,6 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
     return inputs
 
 
-def _configuration_of(flow: Flow) -> dict[str, Any]:
-    """Return what `flow` read of its design: the parts of `Flow.design_parts` (see `RunRecord`).
-
-    Each part has its metadata and its sources as `{path, type}`, without content. A path is
-    relative to the design root, and a source that a converter generated is named by its place in
-    the output of the converter."""
-    from .design import root_relative_text
-
-    design = flow.design
-    scope = type(flow).design_scope(flow.settings)
-    configuration: dict[str, Any] = {}
-    for part in ("rtl", "tb"):
-        if part not in flow.design_parts:
-            continue
-        settings = getattr(design, part)
-        entry: dict[str, Any] = {
-            "top": settings.top,
-            "parameters": design._parameters_fingerprint(settings),  # pylint: disable=W0212
-            "defines": thaw(settings.defines),
-        }
-        if part == "rtl":
-            entry["clocks"] = thaw(settings.clocks)
-            entry["attributes"] = settings.attributes
-        else:
-            entry["uut"] = settings.uut
-            entry["cocotb"] = thaw(settings.cocotb)
-        entry["sources"] = [
-            {
-                "path": (
-                    source.generated_name
-                    if source.generated_name is not None
-                    else root_relative_text(design.root_path, source.file)
-                ),
-                "type": source.type.name,
-            }
-            for source in settings.sources
-            if scope is None or source.type in scope
-        ]
-        configuration[part] = entry
-    if "rtl" in flow.design_parts:
-        configuration["language"] = thaw(design.language)
-    return cast(dict[str, Any], _plain(configuration))
-
-
 def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) -> RunRecord:
     """Return the record of the execution that `flow` just made.
 
@@ -1092,7 +1048,7 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
         design=flow.design.name,
         target=flow.design.target,
         identity=flow.flow_hash or "",
-        configuration=_configuration_of(flow),
+        configuration=_plain(flow.configuration),
         run_root=run_root,
         run_dir=flow.run_path,
         outcome=Outcome(outcome),

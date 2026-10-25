@@ -14,6 +14,7 @@ from xeda.flow import FlowFatalError
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.bindings import node_identity
 from xeda.flow_runner.chains import parse_request
+from xeda.flow_runner.configuration import configuration_hash
 from xeda.flow_runner.default_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner.trace import TRACE_FORMAT
 
@@ -72,7 +73,9 @@ def test_identity_is_the_settings_hash_and_the_ordered_input_origins(tmp_path):
         ("more", ()),
     )
     for node in plan.nodes:
-        assert node.flowrun_hash == node_identity(node.settings_hash, node.origins)
+        assert node.flowrun_hash == node_identity(
+            node.settings_hash, configuration_hash(node.configuration), node.origins
+        )
         assert node.flowrun_hash != node.settings_hash
 
 
@@ -192,8 +195,8 @@ def test_hashed_variants_of_one_flow_coexist_and_run_where_they_were_planned(tmp
         ]
         paths.append(flow.run_path)
     assert paths[0] != paths[1] and all(path.is_dir() for path in paths)
-    assert trace["declared_inputs"][0]["binding_origin"] == "file" and trace["format"] == 19
-    assert TRACE_FORMAT == 19
+    assert trace["declared_inputs"][0]["binding_origin"] == "file"
+    assert trace["format"] == TRACE_FORMAT
 
 
 def test_a_tampered_identity_fails_before_execution(tmp_path):

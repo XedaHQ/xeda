@@ -405,17 +405,21 @@ def input_origins(
     )
 
 
-def node_identity(settings_hash: str, origins: Sequence[Any] = ()) -> str:
-    """Return the identity of a node: its settings plus its ordered resolved input origins.
+def node_identity(settings_hash: str, configuration_hash: str, origins: Sequence[Any] = ()) -> str:
+    """Return the identity of a node: its settings, its design configuration and its ordered
+    resolved input origins.
 
     This is the one identity rule (`input_origins`), for default and explicit edges alike.
-    `settings_hash` is the settings-only `flowrun_hash`. A flow that declares no inputs has no
-    origins.
+    `settings_hash` is the settings-only `flowrun_hash`. `configuration_hash` is the hash of what
+    the node reads of its design (`configuration.configuration_hash`). A flow that declares no
+    inputs has no origins.
 
     The freeze of the resolver, the plan validation and run identity of the launcher, the
     run-directory claims, `results.json` and the trace all take the hash of a run from here.
     """
-    return semantic_hash({"settings": settings_hash, "inputs": tuple(origins)})
+    return semantic_hash(
+        {"settings": settings_hash, "configuration": configuration_hash, "inputs": tuple(origins)}
+    )
 
 
 def default_nodes(classes: Sequence[type[Flow]]) -> list[tuple[NodeKey, type[Flow]]]:

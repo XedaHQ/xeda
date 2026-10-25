@@ -27,7 +27,7 @@ from ..dataclass import BaseModel, expand_forms, field_type, nested_model
 from ..design import DESIGN_PARTS, LANGUAGE_TYPES, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
-from ..flow.derived import planned_design
+from ..flow.derived import DesignConversion, planned_design
 from ..flow.fpga import FPGA
 from ..flow.io import (
     declared_inputs,
@@ -37,6 +37,7 @@ from ..flow.io import (
     selected_types,
 )
 from ..flow.synth import PhysicalClock
+from ..frozen import FrozenDict, freeze
 from ..units import Quantity
 from .bindings import (
     BindingLayer,
@@ -55,6 +56,7 @@ from .chains import (
     fitting_outputs,
     request_text,
 )
+from .configuration import configuration_hash, conversion_descriptor, node_configuration
 from .related_inputs import Node, check_related_inputs
 from .settings_layers import (
     API_ORIGIN,
@@ -197,6 +199,9 @@ class PlanNode:
     #: recompute the identity.
     settings_hash: str = ""
     origins: tuple[tuple[str, Any], ...] = ()
+    #: What the node reads of its design, frozen (`configuration.node_configuration`). It is the
+    #: third part of `flowrun_hash`.
+    configuration: Mapping[str, Any] = field(default_factory=FrozenDict)
 
     @property
     def settings(self) -> Flow.Settings:
@@ -250,6 +255,33 @@ def check_launchable(
         raise
 
 
+def _design_conversion(
+    planned: Plan | Sequence[_Request], node: PlanNode | _Request
+) -> tuple[DesignConversion, str] | None:
+    """Return the conversion that makes the `design` input of `node` and the label of its
+    converter, or None when the node reads the design as it is.
+
+    The conversion is the final one: it is declared by the settings of the converter in the plan
+    (`Flow.design_conversion`). `planned` is the plan, or the requests of the resolver while it
+    builds one."""
+    if isinstance(planned, Plan):
+        assert isinstance(node, PlanNode)
+        selected = next((item for item in node.inputs if item.name == "design"), None)
+        if selected is None or not selected.references:
+            return None
+        producer = planned.node(selected.references[0].node)
+        flow_class, settings, label = producer.flow_class, producer.settings, producer.name
+    else:
+        found = node.producers.get("design") if isinstance(node, _Request) else None
+        if not found:
+            return None
+        child = found[0][0]
+        assert child.settings is not None
+        flow_class, settings, label = child.cls, child.settings, child.label
+    conversion = flow_class.design_conversion(settings)
+    return None if conversion is None else (conversion, label)
+
+
 def planned_design_of(
     planned: Plan | Sequence[_Request],
     node: PlanNode | _Request,
@@ -260,29 +292,39 @@ def planned_design_of(
 
     That is the loaded `design`, or, when the `design` input of the node comes from a converter
     (`xeda.flow.derived.planned_design`), the design that the converter will derive. The view
-    serves checks only: the languages the flow will get, its metadata and its clocks. It is no
-    identity. `planned` is the plan, or the requests of the resolver while it builds one.
+    serves checks and the design configuration of the node (`planned_configuration`): the
+    languages the flow will get, its metadata and its clocks. Its list of sources is never
+    counted. `planned` is the plan, or the requests of the resolver while it builds one.
     `run_path` is the `run_path_of` of the launcher, which names the run directory of the
     converter (without a run hash) for messages."""
-    if isinstance(planned, Plan):
-        assert isinstance(node, PlanNode)
-        selected = next((item for item in node.inputs if item.name == "design"), None)
-        if selected is None or not selected.references:
-            return design
-        producer = planned.node(selected.references[0].node)
-        flow_class, settings, label = producer.flow_class, producer.settings, producer.name
-    else:
-        found = node.producers.get("design") if isinstance(node, _Request) else None
-        if not found:
-            return design
-        child = found[0][0]
-        assert child.settings is not None
-        flow_class, settings, label = child.cls, child.settings, child.label
-    conversion = flow_class.design_conversion(settings)
-    if conversion is None:
+    found = _design_conversion(planned, node)
+    if found is None:
         return design
+    conversion, label = found
     return planned_design(
         design, conversion, run_path(design.name, label, None, target=design.target)
+    )
+
+
+def planned_configuration(
+    planned: Plan | Sequence[_Request],
+    node: PlanNode | _Request,
+    design: Design,
+    run_path: Callable[..., Path],
+    flow_class: type[Flow],
+    settings: Flow.Settings,
+) -> dict[str, Any]:
+    """Return the design configuration of `node` (`configuration.node_configuration`).
+
+    The resolver freezes it into the plan, and the launcher recomputes it from the same view of
+    the design to check the plan. A node whose design a converter makes gets the metadata of the
+    planned design and the declared conversion."""
+    found = _design_conversion(planned, node)
+    return node_configuration(
+        planned_design_of(planned, node, design, run_path),
+        flow_class,
+        settings,
+        conversion=None if found is None else conversion_descriptor(found[1], found[0]),
     )
 
 
@@ -1563,7 +1605,14 @@ def resolve(
         label = request.label
         settings_hash = flowrun_hash(request.cls.name, request.settings, design.name)
         origins = input_origins(request.inputs, identities.__getitem__)
-        identity = identities[label] = node_identity(settings_hash, origins)
+        configuration = freeze(
+            planned_configuration(
+                requests, request, design, run_path, request.cls, request.settings
+            )
+        )
+        identity = identities[label] = node_identity(
+            settings_hash, configuration_hash(configuration), origins
+        )
         nodes.append(
             PlanNode(
                 label,
@@ -1576,6 +1625,7 @@ def resolve(
                 request.key,
                 settings_hash,
                 origins,
+                configuration,
             )
         )
     return Plan(
