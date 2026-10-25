@@ -3,6 +3,7 @@ results point at it."""
 
 import io
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath
 
@@ -85,9 +86,8 @@ def test_a_named_node_also_fetches_its_outputs_and_artifacts(tmp_path):
         "d/flow/reports/deep/more.rpt",
         "d/flow/out.bit",
         "d/flow/other/x.v",
-        f"d/flow/{external_place(str(outside))}",
     }
-    assert selected[f"d/flow/{external_place(str(outside))}"] == outside
+    assert outside not in selected.values(), "a file outside the run directory never comes back"
 
 
 def test_a_node_the_request_does_not_name_returns_no_outputs(tmp_path):
@@ -311,16 +311,21 @@ def test_rewritten_results_keep_the_place_of_a_skipped_artifact(tmp_path):
         rewrite_results(results, PurePosixPath("/r/d/flow"), mirror)
 
 
-def test_an_external_artifact_that_is_a_link_is_not_taken(tmp_path):
+@pytest.mark.parametrize("kind", ["file", "link", "missing"])
+def test_an_artifact_outside_the_run_directory_is_never_read(tmp_path, kind):
     run = _run_dir(tmp_path)
     real = tmp_path / "real.bin"
     real.write_text("x\n")
-    link = tmp_path / "elsewhere.bin"
-    link.symlink_to(real)
-    with pytest.raises(RemoteFetchError, match="a link is not followed"):
-        select_fetch(
-            tmp_path, [_node(run, named=True, artifacts={"x": str(link)})], fetch_all=False
-        ).files
+    named = tmp_path / "elsewhere.bin"
+    if kind == "file":
+        named.write_text("outside\n")
+    elif kind == "link":
+        named.symlink_to(real)
+    selection = select_fetch(
+        tmp_path, [_node(run, named=True, artifacts={"x": str(named)})], fetch_all=False
+    )
+    assert not [p for p in selection.files.values() if not p.is_relative_to(run)]
+    assert selection.skipped == []
 
 
 def test_mirror_relative_keeps_a_place_in_the_run_directory_and_files_the_rest_by_digest():
@@ -416,21 +421,17 @@ def test_a_file_in_the_stream_that_was_not_asked_for_is_refused(tmp_path):
     assert not (run_root / "@host" / "d/flow/flow.log").exists()
 
 
-def test_mirror_refuses_escape_and_maps_external_paths(tmp_path):
+def test_mirror_refuses_escape(tmp_path):
     remote_root = tmp_path / "remote"
     run = _run_dir(remote_root)
-    outside = tmp_path / "elsewhere" / "extra.bin"
-    outside.parent.mkdir()
-    outside.write_text("outside\n")
     selected = select_fetch(
-        remote_root, [_node(run, named=True, artifacts={"x": str(outside)})], fetch_all=False
+        remote_root, [_node(run, named=True, artifacts={"x": "out.bit"})], fetch_all=False
     ).files
     run_root = tmp_path / "local"
     run_root.mkdir()
     mirror = run_root / "@host"
     published = _publish(remote_root, selected, mirror)
-    place = f"d/flow/{external_place(str(outside))}"
-    assert (mirror / place).read_text() == "outside\n"
+    assert (mirror / "d/flow/out.bit").read_text() == "d/flow/out.bit\n"
     assert all(path.is_relative_to(mirror) for path in published.values())
 
     # a directory of the mirror that is a link out of it: nothing is written through it
@@ -527,10 +528,9 @@ def _mirror_with(tmp_path: Path, *names: str) -> Path:
     return mirror_dir
 
 
-def test_results_point_at_the_mirror(tmp_path):
+def test_results_point_at_the_mirror(tmp_path, caplog):
     remote = PurePosixPath("/remote/xeda_run/d/flow")
-    external = external_place("/remote/elsewhere/e.bin").as_posix()
-    mirror_dir = _mirror_with(tmp_path, "other/x.v", "out.bit", external)
+    mirror_dir = _mirror_with(tmp_path, "other/x.v", "out.bit")
     output = mirror_dir / "other" / "x.v"
     results = {
         "success": True,
@@ -545,14 +545,17 @@ def test_results_point_at_the_mirror(tmp_path):
         },
     }
     original = json.dumps(results)
-    rewritten = rewrite_results(results, remote, mirror_dir)
+    with caplog.at_level(logging.WARNING, logger="xeda.remote.fetch"):
+        rewritten = rewrite_results(results, remote, mirror_dir)
     assert json.dumps(results) == original, "the argument stays as it is"
     assert rewritten["run_path"] == str(mirror_dir)
     assert rewritten["artifacts"] == {
         "netlist": str(mirror_dir / "other/x.v"),
-        "bit": [str(mirror_dir / "out.bit"), str(mirror_dir / external)],
+        "bit": [str(mirror_dir / "out.bit"), "/remote/elsewhere/e.bin"],
         "none": None,
     }
+    (warning,) = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert "/remote/elsewhere/e.bin" in warning and "never fetches" in warning
     assert rewritten["outputs"]["netlist"]["path"] == str(output)
 
 

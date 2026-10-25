@@ -5,9 +5,9 @@
 writes it into the mirror. `rewrite_results` points the paths in a node's results at the mirror. `rewrite_records` writes the
 records of a mirror directory again with the paths of this side.
 
-A mirror directory holds the files of one run directory under the names they have there. A file
-that is not in the run directory (an artifact outside it) lies in the mirror directory under
-`_external/<digest>/<name>`, where the digest names its remote path.
+A mirror directory holds the files of one run directory under the names they have there. Nothing
+outside a run directory comes back: an artifact that a result names outside it keeps its path on
+the remote, and a warning names it.
 """
 
 import copy
@@ -270,9 +270,9 @@ def select_fetch(run_root: Path, nodes: Sequence[NodeResult], *, fetch_all: bool
 
     A node that failed (`results.success` is not true) returns only the files that its run wrote
     (`NodeResult.written`) and no declared outputs. If the remote gave no `written`, it returns
-    none. A file outside the run directory is returned only for a node that succeeded, under
-    `_external/<digest>/<name>` (`external_place`). A file that a succeeded node names and that is
-    missing is an error."""
+    none. A file outside the run directory never comes back: an artifact that a node names there is
+    not fetched (`rewrite_results` keeps its path on the remote and warns). A file that a succeeded
+    node names in its run directory and that is missing is an error."""
     selected: dict[str, Path] = {}
     skipped: list[SkippedSource] = []
     for node in nodes:
@@ -280,7 +280,6 @@ def select_fetch(run_root: Path, nodes: Sequence[NodeResult], *, fetch_all: bool
         prefix = _node_prefix(run_root, node.run_dir)
         succeeded = bool(node.results.get("success"))
         inside: dict[str, Path] = {}  # place in the run directory -> file
-        outside: dict[str, Path] = {}  # place in the mirror directory -> file
         if fetch_all:
             places = _files_below(run_dir)
         else:
@@ -312,15 +311,9 @@ def select_fetch(run_root: Path, nodes: Sequence[NodeResult], *, fetch_all: bool
                 mirrored = mirror_relative(given, run_dir)
                 full = given if os.path.isabs(given) else os.path.join(run_dir, given)
                 full = os.path.normpath(full)
-                is_external = mirrored.parts[0] == _EXTERNAL
-                if is_external and not _is_regular(full):
-                    if succeeded:
-                        raise RemoteFetchError(
-                            f"{node.name} names {given}, but there is no regular file of that "
-                            f"name in {run_dir} (a link is not followed)"
-                        )
-                    continue
-                if not is_external and not _is_regular_inside(run_dir, mirrored.as_posix()):
+                if mirrored.parts[0] == _EXTERNAL:
+                    continue  # outside the run directory: never read nor sent
+                if not _is_regular_inside(run_dir, mirrored.as_posix()):
                     if not succeeded:
                         continue
                     resolved = _through_a_link(node.name, given, full, run_dir, declared)
@@ -336,16 +329,12 @@ def select_fetch(run_root: Path, nodes: Sequence[NodeResult], *, fetch_all: bool
                     else:
                         inside[mirrored.as_posix()] = resolved
                     continue
-                if is_external:
-                    outside[mirrored.as_posix()] = Path(full)
-                else:
-                    inside[mirrored.as_posix()] = Path(full)
+                inside[mirrored.as_posix()] = Path(full)
         inside.pop(_TRACE, None)
         if not succeeded:
             written = node.written or frozenset()
             inside = {place: path for place, path in inside.items() if place in written}
-            outside = {}
-        for place, path in {**inside, **outside}.items():
+        for place, path in inside.items():
             selected[(prefix / place).as_posix() if prefix.parts else place] = path
     return FetchSelection(selected, list(dict.fromkeys(skipped)))
 
@@ -409,7 +398,9 @@ def rewrite_results(
     every artifact and declared output. Call it for a node that `select_fetch` took the named
     files of.
 
-    Every path it returns is a regular file in the mirror, or it raises. A failed run has no
+    Every path it returns is a regular file in the mirror, or it raises, but for two kinds of
+    artifact that do not come back: one outside the run directory keeps its path on the remote,
+    and a warning names it; a skipped one keeps its place in the mirror (below). A failed run has no
     declared outputs, and of its artifacts only those survive that its run wrote: `written` are
     the paths relative to its run directory that the remote vouched for (as `NodeResult.written`
     does), and with none given no artifact survives. A declared output must lie in the run
@@ -454,15 +445,29 @@ def rewrite_results(
         if not succeeded and isinstance(artifacts, Mapping):
             artifacts = drop_unwritten_artifacts(artifacts, kept, str(rewritten.get("flow")))
 
+        elsewhere: list[str] = []
+
         def rewrite(artifact: ArtifactPath) -> str:
-            local = local_path(os.fspath(artifact))
-            if mirror_relative(os.fspath(artifact), remote_dir).as_posix() in skipped:
+            place = mirror_relative(os.fspath(artifact), remote_dir)
+            if place.parts[0] == _EXTERNAL:
+                remote = os.path.normpath(os.path.join(remote_dir, os.fspath(artifact)))
+                elsewhere.append(remote)
+                return remote
+            local = mirror_dir / place
+            if place.as_posix() in skipped:
                 return str(local)
             if not _is_regular(str(local)):
                 raise RemoteFetchError(f"the artifact {os.fspath(artifact)} is not in the mirror")
             return str(local)
 
         rewritten["artifacts"] = map_artifact_paths(artifacts, rewrite)
+        if elsewhere:
+            log.warning(
+                "These artifacts lie outside the run directory %s on the remote, and Xeda never "
+                "fetches a file from there: %s",
+                remote_dir,
+                ", ".join(dict.fromkeys(elsewhere)),
+            )
     if "run_path" in rewritten:
         rewritten["run_path"] = str(mirror_dir)
     return rewritten

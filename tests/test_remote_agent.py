@@ -428,7 +428,8 @@ def test_session_syncs_launches_streams_and_fetches(tmp_path, toolchain, start_a
 def test_a_fetch_follows_a_link_only_inside_the_run_directory(tmp_path, toolchain, start_agent):
     """A tool may leave a link at the name of an artifact. One that leads to a file of the run
     directory brings that file back under its name; one that leads out of it brings nothing, and
-    the agent says so, with where it leads."""
+    the agent says so, with where it leads. An artifact named outside the run directory never
+    comes back either."""
     agent = start_agent(env=dict(os.environ))
     agent.get("hello")
     agent.sync(DESIGN, "launch-1")
@@ -441,7 +442,9 @@ def test_a_fetch_follows_a_link_only_inside_the_run_directory(tmp_path, toolchai
     (run_path / "outside.log").symlink_to(secret)
     (run_path / "inside.log").symlink_to("settings.json")
     results = json.loads((run_path / "results.json").read_text())
-    results.setdefault("artifacts", {}).update(outside="outside.log", inside="inside.log")
+    results.setdefault("artifacts", {}).update(
+        outside="outside.log", inside="inside.log", elsewhere=str(secret)
+    )
     (run_path / "results.json").write_text(json.dumps(results))
     skipped: list = []
     files = fetched(agent, skipped=skipped)
