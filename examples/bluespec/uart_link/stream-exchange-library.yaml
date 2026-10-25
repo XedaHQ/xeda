@@ -170,3 +170,8 @@ targets:
       - "tb/TbStreamExchangeOutputReplacement.bsv"
     rtl.top: mkTbStreamExchangeOutputReplacement
     tb.sources: []
+  serialization:
+    rtl.sources:
+      - "tb/TbStreamExchangeSerialization.bsv"
+    rtl.top: mkTbStreamExchangeSerialization
+    tb.sources: []
