@@ -784,9 +784,9 @@ def test_a_design_file_binding_reaches_the_remote_plan(tmp_path, remote_host):
     )
     assert [node.name for node in planned.nodes] == ["__input_maker", "__taker"]
     document = _succeeded(remote_request(tmp_path, design, _Taker.name))
-    assert document["results"]["read"] == "from the bound producer\n"
-    assert document["results"]["flow_hash"] == planned.node(_Taker.name).flowrun_hash
-    assert [node["node"] for node in document["nodes"]] == ["__input_maker", "__taker"]
+    assert _results(document)["read"] == "from the bound producer\n"
+    assert _identity(document) == planned.node(_Taker.name).flowrun_hash
+    assert [node["name"] for node in document["nodes"]] == ["__input_maker", "__taker"]
 
 
 def test_a_command_line_binding_over_a_file_binding_reaches_the_remote_plan(tmp_path, remote_host):
@@ -809,8 +809,8 @@ def test_a_command_line_binding_over_a_file_binding_reaches_the_remote_plan(tmp_
             flow_settings=["flows.__taker.inputs.made=__input_maker.made"],
         )
     )
-    assert document["results"]["read"] == "from the bound producer\n"
-    assert [node["node"] for node in document["nodes"]] == ["__input_maker", "__taker"]
+    assert _results(document)["read"] == "from the bound producer\n"
+    assert [node["name"] for node in document["nodes"]] == ["__input_maker", "__taker"]
 
 
 def test_two_producers_of_a_many_input_run_remotely(tmp_path, remote_host):
@@ -829,8 +829,8 @@ def test_two_producers_of_a_many_input_run_remotely(tmp_path, remote_host):
         _Join, Design.from_file(design), {}
     )
     document = _succeeded(remote_request(tmp_path, design, _Join.name))
-    assert document["results"]["more"] == ["made\n", "second\n"]
-    assert document["results"]["flow_hash"] == planned.node(_Join.name).flowrun_hash
+    assert _results(document)["more"] == ["made\n", "second\n"]
+    assert _identity(document) == planned.node(_Join.name).flowrun_hash
     assert {node.name for node in planned.nodes} >= {"__maker", "__input_maker"}
 
 
@@ -851,8 +851,8 @@ def test_the_record_of_a_remote_many_input_has_one_row_for_each_producer(tmp_pat
         },
     )
     document = _succeeded(remote_request(tmp_path, design, _Join.name))
-    mirror = Path(document["mirror"])
-    run_dirs = {node["node"]: Path(node["run_path"]) for node in document["nodes"]}
+    mirror = tmp_path / "local" / "xeda_run" / "@somewhere"
+    run_dirs = {node["name"]: Path(node["run_dir"]) for node in document["nodes"]}
     record = read_record(run_dirs[_Join.name], run_root=mirror)
     rows = [row for row in record.inputs if row.name == "more"]
     assert [(row.origin, row.producer, row.output) for row in rows] == [
