@@ -92,6 +92,7 @@ __all__ = [
     "delivery_record",
     "outputs_to_deliveries",
     "recorded_artifacts",
+    "leads_out",
     "refuse_shared_destinations",
     "split_deliveries",
 ]
@@ -657,6 +658,15 @@ def _files_under(directory: Path) -> list[Path]:
     )
 
 
+def leads_out(source: Path, run_dir: Path) -> Optional[Path]:
+    """Return where `source` resolves, if that is outside `run_dir`, else None.
+
+    A symbolic link at `source` or on the way to it decides where it resolves."""
+    target = Path(os.path.realpath(source))
+    root = Path(os.path.realpath(run_dir))
+    return None if target == root or target.is_relative_to(root) else target
+
+
 def _outside(delivery: Delivery, source: Path, run_dir: Path) -> Optional[Path]:
     """Return where `source` leads, if that is outside the run directory, else None.
 
@@ -675,11 +685,8 @@ def _outside(delivery: Delivery, source: Path, run_dir: Path) -> Optional[Path]:
             "cycle",
             output_problem=True,
         )
-    target = Path(os.path.realpath(source))
-    root = Path(os.path.realpath(run_dir))
-    if target == root or target.is_relative_to(root):
-        return None
-    if delivery.key == OUTPUTS_TO:
+    target = leads_out(source, run_dir)
+    if target is None or delivery.key == OUTPUTS_TO:
         return target
     raise DeliveryError(
         f"{what} leads to {target}, outside the run directory, through a symbolic link that the "

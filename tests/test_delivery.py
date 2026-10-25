@@ -2029,6 +2029,7 @@ def test_the_prompt_lists_what_it_would_replace_and_defaults_to_no(monkeypatch, 
 
 #: what `_Linker`'s log leads to, outside its run directory
 LINKED_OUT: dict[str, Path] = {}
+_linker_before = dict(registered_flows)
 
 
 class _Linker(Flow):
@@ -2042,6 +2043,14 @@ class _Linker(Flow):
 
     def parse_reports(self) -> bool:
         return True
+
+
+# A test flow stays out of the registry, as `_Deliverer` and `_Wrapper` do.
+for _name in (_Linker.name, _Linker.__name__):
+    if _name in _linker_before:
+        registered_flows[_name] = _linker_before[_name]
+    else:
+        registered_flows.pop(_name, None)
 
 
 def test_outputs_to_never_copies_the_file_that_a_link_out_of_the_run_directory_leads_to(
@@ -2068,3 +2077,36 @@ def test_outputs_to_never_copies_the_file_that_a_link_out_of_the_run_directory_l
         (deliver.OUTPUTS_TO, got / "tool.log", "skipped")
     ]
     assert (outside / "secret.txt").read_text() == "not the run's\n"
+
+
+def test_a_file_in_the_way_of_an_artifact_that_leads_out_is_still_asked_about_before_the_run(
+    tmp_path, monkeypatch
+):
+    """Before a launch, `--outputs-to` asks about each file in the way of what the last run
+    reported, before any tool runs. That holds for an artifact that leads out of the run
+    directory too, because the next run may leave a regular file at its name. Without an answer,
+    the launch is refused and the user's file stays."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("not the run's\n")
+    monkeypatch.setitem(LINKED_OUT, "file", outside / "secret.txt")
+    (tmp_path / "design").mkdir()
+    (tmp_path / "design" / "top.v").write_text("module top; endmodule\n")
+    design = Design(
+        name="d", design_root=tmp_path / "design", rtl={"sources": ["top.v"], "top": "top"}
+    )
+    got = tmp_path / "got"
+
+    def launch():
+        runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, outputs_to=got)
+        return runner.launch_flow(_Linker, design, {})
+
+    assert launch().succeeded
+    got.mkdir(exist_ok=True)
+    (got / "tool.log").write_text("the user's\n")
+    monkeypatch.setattr(_Linker, "run", lambda self: pytest.fail("it ran"))
+    with pytest.raises(OutputExistsError, match="tool.log"):
+        DefaultRunner(
+            tmp_path / "xeda_run", display_results=False, outputs_to=got, rebuild_all=True
+        ).launch_flow(_Linker, design, {})
+    assert (got / "tool.log").read_text() == "the user's\n"
