@@ -1,7 +1,7 @@
 """The ABC options of `yosys` that measure something take quantities with units.
 
 `abc.delay_target` is a time, `abc.max_slew` is a time and `abc.load` is a capacitance. Each is
-text with a unit, such as `500 ps`. The flow converts it to the unit that ABC reads: picoseconds
+text with a unit, such as `500 ns`. The flow converts it to the unit that ABC reads: picoseconds
 for `-D` and `buffer -S`, femtofarads for `set_load`. A bare number is refused. Every other
 number of the settings of the yosys flows says whether it is a count or a ratio.
 """
@@ -110,7 +110,7 @@ def test_a_bad_delay_target_names_the_quantity_problem():
     with pytest.raises(REFUSED) as raised:
         _abc(delay_target=500)
     text = str(raised.value)
-    assert "needs a unit, such as `10 ns`" in text
+    assert "`delay_target` needs a unit, such as `500 ns`" in text
     assert "Input should be 'auto'" not in text
 
 

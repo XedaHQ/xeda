@@ -15,7 +15,7 @@ import pytest
 from pydantic import ValidationError
 
 from xeda.dataclass import Field, XedaBaseModel, tier
-from xeda.flow import flowrun_hash
+from xeda.flow import FlowSettingsError, flowrun_hash
 from xeda.flow.settings_group import SettingsGroup
 from xeda.flows import GhdlSim, Vcs, VivadoSynth
 from xeda.frozen import freeze, thaw
@@ -447,3 +447,94 @@ def test_a_bound_message_shows_both_numbers_in_the_unit_of_the_field():
         GhdlSim.Settings(timeout="-1 s")
     with pytest.raises(Exception, match="must be at least 0 ns, got -1 ns"):
         GhdlSim.Settings(stop_time="-1000 ps")
+
+
+# ------------------------------------------------------------------- the message of a refusal
+
+
+def refusal(model: type[XedaBaseModel], **values) -> str:
+    """Return the message of the quantity error that `model(**values)` raises."""
+    with pytest.raises(ValidationError) as refused:
+        model(**values)
+    (error,) = [e for e in refused.value.errors() if e["type"] == "quantity"]
+    return error["msg"]
+
+
+BARE = "a bare number does not mean anything"
+
+
+@pytest.mark.parametrize(
+    "field,value,example",
+    [
+        ("seconds", 180, "180 s"),
+        ("seconds", "180", "180 s"),
+        ("seconds", 2.5, "2.5 s"),
+        ("nanoseconds", 5, "5 ns"),
+        ("gigahertz", 3, "3 GHz"),
+        ("micrometers", "40", "40 nm"),
+        ("mixed", 7, "7 ms"),
+        ("plain", 12, "12 ns"),  # no unit on the field: the unit of the kind
+        ("megahertz", 12, "12 MHz"),
+    ],
+)
+def test_a_bare_number_names_the_field_and_its_own_unit(field, value, example):
+    assert refusal(Toy, **{field: value}) == f"`{field}` needs a unit, such as `{example}`: {BARE}"
+
+
+def test_a_bare_number_in_a_group_a_container_or_a_nested_model_names_its_leaf():
+    assert refusal(Toy, group={"settle": 5}) == f"`settle` needs a unit, such as `5 us`: {BARE}"
+    assert refusal(Toy, inner={"pause": "9"}) == f"`pause` needs a unit, such as `9 ps`: {BARE}"
+    assert refusal(Toy, in_order=["1 ns", 4]) == f"`in_order` needs a unit, such as `4 us`: {BARE}"
+    assert refusal(Toy, by_name={"a": 4}) == f"`by_name` needs a unit, such as `4 ps`: {BARE}"
+
+
+def test_other_text_gives_an_example_value_in_the_unit_of_the_field():
+    assert refusal(Toy, seconds="soon") == (
+        "`seconds`: cannot read `soon` as a time: write one number and one unit, such as `10 s`"
+    )
+    assert refusal(Toy, gigahertz="fast") == (
+        "`gigahertz`: cannot read `fast` as a frequency: write one number and one unit, such as "
+        "`100 GHz`"
+    )
+    assert refusal(Toy, micrometers=["1 nm"]) == (
+        "`micrometers`: expected a length, such as `5 nm`, not list"
+    )
+    assert refusal(Toy, seconds=True) == f"`seconds` needs a unit, such as `10 s`: {BARE}"
+
+
+def test_a_unit_of_another_kind_or_an_unknown_unit_keeps_its_message():
+    assert refusal(Toy, seconds="5 MHz") == "`5 MHz` is a frequency, not a time"
+    assert refusal(Toy, seconds="5 parsec").startswith("unknown unit `parsec` in `5 parsec`")
+
+
+def test_a_quantity_built_by_hand_has_no_field_and_keeps_the_example_of_its_kind():
+    with pytest.raises(QuantityError) as refused:
+        Time(180)
+    assert str(refused.value) == f"`180` needs a unit, such as `10 ns`: {BARE}"
+
+
+@pytest.mark.parametrize(
+    "name,value,example",
+    [("timeout", 180, "180 s"), ("stop_time", 5, "5 ns"), ("timeout", "180", "180 s")],
+)
+def test_a_simulator_refuses_a_bare_time_with_the_unit_of_the_field(name, value, example):
+    with pytest.raises(FlowSettingsError) as refused:
+        GhdlSim.Settings.from_input({name: value})
+    assert f"`{name}` needs a unit, such as `{example}`: {BARE}" in str(refused.value)
+
+
+def test_a_bare_time_on_the_command_line_names_the_field_and_its_unit(tmp_path):
+    (tmp_path / "t.vhd").write_text("entity t is end; architecture a of t is begin end;\n")
+    (tmp_path / "d.yaml").write_text("name: t\nrtl: {top: t, sources: [t.vhd]}\n")
+    for text, example in (("timeout=180", "180 s"), ("stop_time=5", "5 ns")):
+        run_root = str(tmp_path / "xeda_run")
+        proc = run_xeda(
+            *("run", "ghdl_sim", "d.yaml", "--run-root", run_root, "-s", text, "--json"),
+            cwd=tmp_path,
+        )
+        document = json_stdout(proc)
+        name = text.split("=")[0]
+        assert proc.returncode == 2 and document["outcome"] is None
+        assert f"`{name}` needs a unit, such as `{example}`: {BARE}" in json.dumps(
+            document["error"]
+        )

@@ -397,34 +397,49 @@ class Quantity:
         return QuantityError(f"`{text}` is {error}: {reason}")
 
     @classmethod
-    def _read(cls, value: Any) -> float:
-        """Return the canonical magnitude of `value`: text or an instance of this type."""
+    def _read(cls, value: Any, field: Optional[str] = None, unit: Optional[str] = None) -> float:
+        """Return the canonical magnitude of `value`: text or an instance of this type.
+
+        The messages that suggest a value write it in `unit`, the unit of the setting `field`
+        (the canonical unit of the kind if `unit` is None), and name the field. A value that has
+        no field (`Time("10")`) gets the example of the kind."""
         cls._need_kind()
         if isinstance(value, cls):
             return value._magnitude
         if isinstance(value, Quantity):
             raise QuantityError(f"`{value}` is a {value.kind}, not a {cls.kind}")
-        if isinstance(value, (bool, int, float, Decimal)):
-            raise QuantityError(
-                f"`{value}` needs a unit, such as `{cls.example}`: a bare number does not mean "
-                f"anything"
+        where = "" if field is None else f"`{field}`: "
+
+        def suggestion(number: Optional[str] = None) -> str:
+            """Return a value to write, with the number that the user gave, if any."""
+            if field is None:
+                return cls.example
+            example_number = cls.example.split(" ")[0]
+            return f"{example_number if number is None else number} {unit or cls.canonical_unit}"
+
+        def needs_unit(shown: str, number: Optional[str]) -> QuantityError:
+            subject = f"`{shown}`" if field is None else f"`{field}`"
+            return QuantityError(
+                f"{subject} needs a unit, such as `{suggestion(number)}`: a bare number does not "
+                f"mean anything"
             )
+
+        if isinstance(value, (bool, int, float, Decimal)):
+            raise needs_unit(str(value), None if isinstance(value, bool) else str(value))
         if not isinstance(value, str):
             raise QuantityError(
-                f"expected a {cls.kind}, such as `{cls.example}`, not {type(value).__name__}"
+                f"{where}expected a {cls.kind}, such as `{suggestion()}`, not "
+                f"{type(value).__name__}"
             )
         text = value.strip()
         m = _QUANTITY_RE.fullmatch(text)
         if m is None or m["number"] is None:
             raise QuantityError(
-                f"cannot read `{value}` as a {cls.kind}: write one number and one unit, such as "
-                f"`{cls.example}`"
+                f"{where}cannot read `{value}` as a {cls.kind}: write one number and one unit, "
+                f"such as `{suggestion()}`"
             )
         if m["unit"] is None:
-            raise QuantityError(
-                f"`{text}` needs a unit, such as `{cls.example}`: a bare number does not mean "
-                f"anything"
-            )
+            raise needs_unit(text, text)
         factor = cls._factor(m["unit"], text)
         try:
             return _exact_float(_digits_of_text(m["number"]), factor)
@@ -588,13 +603,19 @@ class Quantity:
     # ---- pydantic ------------------------------------------------------------------------
 
     @classmethod
-    def _validate(cls, value: Any) -> Self:
+    def _validate(cls, value: Any, info: core_schema.ValidationInfo) -> Self:
+        return cls._validate_field(value, info.field_name, None)
+
+    @classmethod
+    def _validate_field(cls, value: Any, field: Optional[str], unit: Optional[str]) -> Self:
+        """Return `value` as a quantity of the setting `field`, which is written in `unit`
+        (the canonical unit if None). Both name the setting in the message of a refusal."""
         if isinstance(value, cls):
             # A field without `Unit` writes in the unit of its kind, whatever unit this value
             # came with. A `Unit` after this validator gives the unit of its field.
             return value.with_unit(cls.canonical_unit)
         try:
-            return cls._from_magnitude(cls._read(value))
+            return cls._from_magnitude(cls._read(value, field, unit))
         except QuantityError as e:
             raise PydanticCustomError("quantity", "{message}", {"message": str(e)}) from None
 
@@ -603,7 +624,7 @@ class Quantity:
         cls, source: Any, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
         cls._need_kind()
-        return core_schema.no_info_plain_validator_function(
+        return core_schema.with_info_plain_validator_function(
             cls._validate,
             serialization=core_schema.plain_serializer_function_ser_schema(
                 Quantity.as_json_value, when_used="json"
@@ -861,6 +882,16 @@ class Unit:
             if getattr(function, "_xeda_bounds", None):
                 raise TypeError(f"{self!r} must come before Bounds in the annotation")
         unit = self.unit
+        if _unit_functions(inner) != [source._validate]:  # pylint: disable=protected-access
+            raise TypeError(f"{self!r} must be the first annotation of the quantity")
+
+        def read(value: Any, info: core_schema.ValidationInfo) -> Any:
+            # The messages of a refusal write a suggestion in the unit of the field.
+            return source._validate_field(value, info.field_name, unit)  # pylint: disable=W0212
+
+        inner = core_schema.with_info_plain_validator_function(
+            read, serialization=inner.get("serialization"), metadata=inner.get("metadata")
+        )
 
         def give_unit(value: Any) -> Any:
             return value.with_unit(unit)

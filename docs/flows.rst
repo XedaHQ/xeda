@@ -441,7 +441,14 @@ unit, as in ``clock.period: 10``, gives this message:
 
 .. code-block:: text
 
-    `10` needs a unit, such as `10 ns`: a bare number does not mean anything
+    `period` needs a unit, such as `10 ns`: a bare number does not mean anything
+
+The message names the setting and writes your number in the unit of that setting. A ``timeout`` is
+in seconds, so ``timeout: 180`` gives this message:
+
+.. code-block:: text
+
+    `timeout` needs a unit, such as `180 s`: a bare number does not mean anything
 
 A unit of another kind, as in ``clock.period: 5 MHz``:
 
@@ -459,7 +466,7 @@ Text that is no quantity at all, as in ``clock.period: 5 ns * 2`` or ``clock.per
 
 .. code-block:: text
 
-    cannot read `5 ns * 2` as a time: write one number and one unit, such as `10 ns`
+    `period`: cannot read `5 ns * 2` as a time: write one number and one unit, such as `10 ns`
 
 A unit that is not in the table, as in ``clock.period: 10 nanoseconds``:
 

@@ -244,7 +244,7 @@ def test_a_flow_refuses_a_bad_clock(clock, problem):
 @pytest.mark.parametrize("value", ["5.5", "5", "0"])
 def test_a_bare_number_from_the_command_line_names_the_missing_unit(value):
     """`-s clocks.main_clock.period=5.5` hands the model the text `5.5`."""
-    with pytest.raises(REFUSED, match="needs a unit, such as `10 ns`"):
+    with pytest.raises(REFUSED, match=f"`period` needs a unit, such as `{value} ns`"):
         VivadoSynth.Settings(
             fpga={"part": "xc7a100tftg256-2L"}, clocks={"main_clock": {"period": value}}
         )

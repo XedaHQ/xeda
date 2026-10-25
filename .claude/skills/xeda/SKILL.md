@@ -125,7 +125,8 @@ flows:
 - Give the clock port in `rtl.clock` and the period in the flow: `clock.period` (`5 ns`) or
   `clock.freq` (`200 MHz`). For several clocks, use `rtl.clocks` and the flow's `clocks.<name>`.
 - A physical setting needs a unit: `clock.period: 5 ns`, `-s clock.period=5ns` (no space, so no
-  quotes), `abc.load: 3.9 fF`. A bare number fails with `` `5` needs a unit, such as `10 ns` ``.
+  quotes), `abc.load: 3.9 fF`. A bare number fails with `` `period` needs a unit, such as `5 ns` ``:
+  the message names the field and writes the example in its unit (`timeout: 180` suggests `180 s`).
   `list-settings` shows the kind (`time`, `frequency`, `capacitance`, ...) as the `type` of a
   setting that takes a unit. Units are case-sensitive (`MHz`, `fF`). See "Units" in
   `references/design-file.md`.
