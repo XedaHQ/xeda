@@ -252,8 +252,8 @@ design too). `RX_DEPTH=2` does not build the testbench, because bsc finds a sche
 between the bench's event counters and its consumer; depth 2 is covered by DUT B. `HOLD=4` stops
 the build with the error of `mkUartCore`.
 
-DUT C is reset by a `mkReset` around it, so the rules of its bench use two reset domains on purpose;
-the design file suppresses bsc's warning about it (G0043) for `bsc_sim`.
+DUT C is reset by a `mkReset` around it. Its bench handles the DUT reset domain explicitly,
+so the test compiles without suppressing reset-domain warnings.
 
 ```bash
 xeda run bsc_sim examples/bluespec/uart/uart.yaml                          # Bluesim

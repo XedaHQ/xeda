@@ -26,10 +26,6 @@ tb:
   # late to hunt for the next start bit). The testbench must catch it (non-zero exit).
   # defines.XEDA_INJECT_BUG: true
 flows:
-  # The testbench resets one DUT on its own (mkReset), so the rules of its bench use methods of two
-  # reset domains on purpose; bsc's warning about it (G0043) says nothing here.
-  bsc_sim:
-    suppress_warnings: [G0043]
   # ASIC synthesis on nangate45: `xeda run yosys uart.yaml`.
   yosys:
     platform: nangate45

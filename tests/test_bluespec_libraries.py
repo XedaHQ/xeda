@@ -19,6 +19,25 @@ LIBRARY_SIMULATIONS = [
     ("uart_link/leanlink-library.yaml", "test", "tb", "mkTbLeanLink"),
     ("uart_link/stream-exchange-library.yaml", "test", "rtl", "mkTbStreamExchange"),
     ("uart_link/stream-exchange-library.yaml", "gcd", "rtl", "mkTbGcdStream"),
+    ("uart_link/stream-exchange-library.yaml", "reset_interrupt", "rtl", "mkTbResetInterrupt"),
+    (
+        "uart_link/stream-exchange-library.yaml",
+        "output_replacement",
+        "rtl",
+        "mkTbStreamExchangeOutputReplacement",
+    ),
+    (
+        "uart_link/stream-exchange-library.yaml",
+        "word5_lengths",
+        "rtl",
+        "mkTbStreamExchangeWord5Lengths",
+    ),
+    (
+        "uart_link/stream-exchange-library.yaml",
+        "serialization",
+        "rtl",
+        "mkTbStreamExchangeSerialization",
+    ),
     (
         "uart_link/stream-exchange-library.yaml",
         "width8_page4",
@@ -34,7 +53,7 @@ LIBRARY_SIMULATIONS = [
             "rtl",
             f"mkTbStreamExchangeW{width}",
         )
-        for width in (1, 2, 3, 4, 5, 6, 7, 9, 13)
+        for width in (1, 2, 3, 4, 5, 6, 7, 9, 13, 257)
     ],
     ("gcd/gcd-library.yaml", "unit", "tb", "mkTbGcdUnit"),
     ("gcd/gcd-stream-library.yaml", "stream", "rtl", "mkTbGcdStream"),
@@ -130,6 +149,10 @@ def test_library_test_target_selects_existing_sources(path, rtl_sources, target,
     "target,top",
     [
         ("gcd", "mkTbGcdStream"),
+        ("reset_interrupt", "mkTbResetInterrupt"),
+        ("output_replacement", "mkTbStreamExchangeOutputReplacement"),
+        ("word5_lengths", "mkTbStreamExchangeWord5Lengths"),
+        ("serialization", "mkTbStreamExchangeSerialization"),
         ("width1", "mkTbStreamExchangeW1"),
         ("width2", "mkTbStreamExchangeW2"),
         ("width3", "mkTbStreamExchangeW3"),
@@ -139,6 +162,7 @@ def test_library_test_target_selects_existing_sources(path, rtl_sources, target,
         ("width7", "mkTbStreamExchangeW7"),
         ("width9", "mkTbStreamExchangeW9"),
         ("width13", "mkTbStreamExchangeW13"),
+        ("width257", "mkTbStreamExchangeW257"),
     ],
 )
 def test_stream_exchange_library_keeps_width_targets(target, top):

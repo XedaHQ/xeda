@@ -62,6 +62,9 @@ targets:
         xdc_files: ["../../uart_echo/boards/arty_a7_100t_sync.xdc"]
         out_of_context: false
         bitstream: uart_app.bit
+      nextpnr:
+        tmg_ripup: true
+        placer_heap_timingweight: 40
       openfpgaloader:
         inputs.bitstream: vivado_synth.bitstream
         board: arty_a7_100t

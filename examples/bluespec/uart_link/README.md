@@ -48,6 +48,13 @@ byte, an accepted-word count, then whole output words. The host infers the outpu
 reply length. Malformed packets return an error and accept no input. One exchange still fits the
 LeanLink packet limit of 243 payload bytes; the host splits larger operations across packets.
 
+Parent reset initializes the application and empties both stream queues. The adapter waits for
+application reset to end before it consumes request bytes. Software RESET waits for the actual
+reset to end before it sends success. Each stream queue holds one word and supports enqueue and
+dequeue in the same cycle, including replacement while full. If the input queue cannot accept a
+complete word, admission stops for the rest of that request and the reply reports the accepted
+prefix.
+
 GCD input words contain unsigned `a` and `b` as two little-endian 32-bit integers, with `a` in the
 low half. Each output is the 32-bit GCD. Ascon uses 40-bit words sent as five wire bytes: one
 metadata byte followed by four little-endian data bytes. Metadata carries a four-bit byte mask, a
@@ -128,7 +135,7 @@ PYTHONPATH=examples/bluespec/uart_link/host python3 -m leanlink.ascon_cli --port
 ```
 
 The Ascon command also supports `encrypt`, `decrypt`, `--input`, and `--output`. Select
-`--variant 128a` when the Ascon-128a bitstream is loaded. The Python API accepts bytes and key
+`--variant 128a` for self-tests when the Ascon-128a bitstream is loaded. The Python API accepts bytes and key
 reuse within one reset session. It buffers the complete operation in host memory; the FPGA packet
 size stays fixed. Each CLI command opens a new session and resets the application. A lost session
 produces an unknown outcome; the client does not replay the operation in a new session. Install
