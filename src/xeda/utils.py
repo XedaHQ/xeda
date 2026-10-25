@@ -16,13 +16,13 @@ import tomllib
 import unittest
 from collections import OrderedDict, defaultdict
 from collections.abc import Iterable, Mapping, MutableMapping
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta
 from enum import Enum
 from functools import cached_property, reduce
 from pathlib import Path, PurePath
-from types import MappingProxyType, TracebackType
+from types import MappingProxyType
 from typing import (
     IO,
     Any,
@@ -45,7 +45,6 @@ from .units import Quantity
 
 __all__ = [
     "SDF",
-    "WorkingDirectory",
     "Timer",
     # re-exports
     "tomllib",
@@ -95,30 +94,6 @@ log = logging.getLogger(__name__)
 
 
 _T = TypeVar("_T")
-
-
-class WorkingDirectory(AbstractContextManager):
-    def __init__(self, wd: Union[None, str, os.PathLike]):
-        self.prev_wd: Optional[Path] = None
-        if wd is not None and not isinstance(wd, Path):
-            wd = Path(wd)
-        self.wd = wd
-
-    def __enter__(self) -> None:
-        self.prev_wd = Path.cwd()
-        if self.wd:
-            log.debug("Changing working directory from %s to %s", self.prev_wd, self.wd)
-            os.chdir(self.wd)
-
-    def __exit__(
-        self,
-        exception_type: Optional[Type[BaseException]],
-        exception_value: Optional[BaseException],
-        exception_traceback: Optional[TracebackType],
-    ) -> None:
-        if self.prev_wd:
-            log.debug("Changing back working directory to %s", self.prev_wd)
-            os.chdir(self.prev_wd)
 
 
 class SDF(XedaBaseModel):

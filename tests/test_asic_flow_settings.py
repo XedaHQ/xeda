@@ -13,7 +13,6 @@ import pytest
 from xeda import Design
 from xeda.flow import FlowSettingsError
 from xeda.flows import Dc
-from xeda.utils import WorkingDirectory
 
 from .tool_utils import fake_calls, use_fake_tools
 
@@ -43,8 +42,7 @@ def _run_dc(tmp_path: Path, monkeypatch, **settings):
     run_path.mkdir()
     flow = Dc(Dc.Settings.from_input(given), _dc_design(tmp_path / "design"), run_path)
     flow.init()
-    with WorkingDirectory(run_path):
-        flow.run()
+    flow.run()
     return flow, run_path
 
 

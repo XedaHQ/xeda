@@ -64,8 +64,11 @@ class RtlBackend:
             self.dut.EN_rx_put.value = 0
             self.dut.EN_tx_get.value = 0
             self.dut.rx_put.value = 0
-        cocotb.start_soon(Clock(self.dut.CLK, 10, unit="ns").start())
+        # The native driver avoids Python callbacks on every clock edge.
+        Clock(self.dut.CLK, 10, unit="ns", impl="gpi").start()
         await Timer(100, unit="ns")
+        # Release reset on the inactive clock edge before starting traffic.
+        await FallingEdge(self.dut.CLK)
         self.dut.RST_N.value = 1
         if self.serial:
             cocotb.start_soon(self._uart_send())

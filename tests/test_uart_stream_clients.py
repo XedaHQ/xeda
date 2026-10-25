@@ -331,6 +331,10 @@ def test_ascon_hash_needs_no_key_and_returns_the_digest():
     assert all(word[0] >> 5 != 1 for word in admitted)
 
 
+def _fail_cli_operation(_args, _device):
+    raise ValueError("operation failed")
+
+
 @pytest.mark.parametrize(
     "word",
     [bytes.fromhex(value) for value in ("8000000000", "0000000000", "1111223344", "7e00000000")],
@@ -549,6 +553,116 @@ def test_focused_ascon_cli_hash_reports_digest_and_closes_device(monkeypatch, ca
     assert report["bytes"] == len(digest)
     assert output.read_bytes() == digest
     assert closed == [True]
+
+
+@pytest.mark.parametrize(
+    "execute, expected, status",
+    [
+        (
+            lambda _args, _device: {"answer": 42},
+            {"success": True, "command": "gcd", "answer": 42},
+            0,
+        ),
+        (
+            _fail_cli_operation,
+            {"success": False, "error": {"type": "ValueError", "message": "operation failed"}},
+            1,
+        ),
+    ],
+)
+def test_cli_close_error_does_not_override_json_result(
+    monkeypatch, capsys, execute, expected, status
+):
+    cli = package_cli_module(monkeypatch, "cli_common")
+
+    class FailedCloseDevice:
+        def close(self):
+            raise OSError("close failed")
+
+    device = FailedCloseDevice()
+    monkeypatch.setattr(cli, "open_device", lambda *args, **kwargs: device)
+    args = SimpleNamespace(command="gcd")
+
+    assert cli.run_cli(args, execute) == status
+    captured = capsys.readouterr()
+    assert captured.out == json.dumps(expected) + "\n"
+    assert captured.err == "warning: device cleanup failed: close failed\n"
+
+
+@pytest.mark.parametrize(
+    "execute, expected, expected_status",
+    [
+        (
+            lambda _args, _device: {"answer": 42},
+            {"success": True, "command": "gcd", "answer": 42},
+            0,
+        ),
+        (
+            _fail_cli_operation,
+            {"success": False, "error": {"type": "ValueError", "message": "operation failed"}},
+            1,
+        ),
+    ],
+)
+def test_cli_cleanup_warning_failure_does_not_override_result(
+    monkeypatch, capsys, execute, expected, expected_status
+):
+    cli = package_cli_module(monkeypatch, "cli_common")
+
+    class FailedCloseDevice:
+        def close(self):
+            raise OSError("close failed")
+
+    class FailedStderr:
+        def write(self, _value):
+            raise BrokenPipeError("stderr closed")
+
+    device = FailedCloseDevice()
+    monkeypatch.setattr(cli, "open_device", lambda *args, **kwargs: device)
+    args = SimpleNamespace(command="gcd")
+
+    with monkeypatch.context() as context:
+        context.setattr(cli.sys, "stderr", FailedStderr())
+        status = cli.run_cli(args, execute)
+
+    assert status == expected_status
+    assert capsys.readouterr().out == json.dumps(expected) + "\n"
+
+
+def test_cli_cleanup_warning_does_not_write_to_stdout_when_stderr_is_unavailable(
+    monkeypatch, capsys
+):
+    cli = package_cli_module(monkeypatch, "cli_common")
+
+    class FailedCloseDevice:
+        def close(self):
+            raise OSError("close failed")
+
+    device = FailedCloseDevice()
+    monkeypatch.setattr(cli, "open_device", lambda *args, **kwargs: device)
+    args = SimpleNamespace(command="gcd")
+
+    with monkeypatch.context() as context:
+        context.setattr(cli.sys, "stderr", None)
+        status = cli.run_cli(args, lambda _args, _device: {"answer": 42})
+
+    assert status == 0
+    assert (
+        capsys.readouterr().out
+        == json.dumps({"success": True, "command": "gcd", "answer": 42}) + "\n"
+    )
+
+
+def test_combined_selftest_variant_is_only_available_for_ascon(monkeypatch):
+    cli = cli_module(monkeypatch)
+
+    ascon = cli.parser().parse_args(["selftest", "ascon", "--variant", "128a"])
+    assert ascon.application == "ascon" and ascon.variant == "128a"
+
+    gcd = cli.parser().parse_args(["selftest", "gcd"])
+    assert gcd.application == "gcd" and not hasattr(gcd, "variant")
+    with pytest.raises(SystemExit):
+        cli.parser().parse_args(["selftest", "gcd", "--variant", "128"])
 
 
 def test_application_cli_reports_open_error_as_json_and_closes_backend(monkeypatch, capsys):

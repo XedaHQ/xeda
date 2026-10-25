@@ -8,9 +8,13 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import DesignValidationError, Generator, loading_in_run_root
+from xeda.design import (
+    DesignValidationError,
+    Generator,
+    loading_in_design_root,
+    loading_in_run_root,
+)
 from xeda.run_root import ensure_run_root
-from xeda.utils import WorkingDirectory
 
 ROOT_SPELLINGS = ["a.vhd", "$DESIGN_ROOT/a.vhd", "${DESIGN_ROOT}/a.vhd", "$DESIGN_DIR/a.vhd"]
 
@@ -81,7 +85,7 @@ def test_a_design_file_resolves_the_design_root_from_its_own_location(root):
 @pytest.mark.parametrize("source", ROOT_SPELLINGS)
 def test_generator_sources_resolve_the_same_way(root, source):
     """Generator sources resolve the same way."""
-    with WorkingDirectory(root):  # as `Design` builds its generator
+    with loading_in_design_root(root):  # as `Design` builds its generator
         generator = Generator(command="true", sources=[source])
     assert generator.sources == [Path(root / "a.vhd")]
 
@@ -229,7 +233,7 @@ def test_a_glob_that_matches_nothing_is_an_error(root, pattern):
 
 def test_a_generator_glob_expands_in_a_stable_order_and_must_match(root):
     """A generator glob expands in a stable order and must match."""
-    with WorkingDirectory(root):  # as `Design` builds its generator
+    with loading_in_design_root(root):  # as `Design` builds its generator
         generator = Generator(command="true", sources=["$DESIGN_ROOT/*.vhd", "sub/*.vhd"])
         assert generator.sources == [root / "a.vhd", root / "sub" / "b.vhd"]
         with pytest.raises(ValueError, match="no file matches the generator source pattern"):
@@ -531,7 +535,7 @@ def test_only_a_star_makes_a_source_a_pattern(tmp_path, name, decoys):
         (tmp_path / file).write_text(f"// {file}\n")
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [name], "top": "t"})
     assert [src.file.name for src in design.rtl.sources] == [name]
-    with WorkingDirectory(tmp_path):  # as `Design` builds its generator
+    with loading_in_design_root(tmp_path):  # as `Design` builds its generator
         assert Generator(command="true", sources=[name]).sources == [tmp_path / name]
 
 

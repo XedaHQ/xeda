@@ -35,6 +35,36 @@ targets:
       - "tb/TbStreamExchange.bsv"
     rtl.top: mkTbStreamExchangeW1
     tb.sources: []
+  width8_page4:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeByteAlignedPage4
+    tb.sources: []
+  page8_cap:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangePage8Cap
+    tb.sources: []
+  page4_w12:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangePage4W12
+    tb.sources: []
   width2:
     dependencies:
       - "leanlink-library.yaml"

@@ -55,6 +55,13 @@ COMMANDS = [
     ("uart_echo", "switches", "bsc_sim", ["bsc_sim"]),
     ("uart_echo", "echo_transform", "bsc_sim", ["bsc_sim"]),
     ("uart_echo", "arty", "vivado_synth", ["bsc", "vivado_synth"]),
+    ("uart_echo", "arty", "openfpgaloader", ["bsc", "vivado_synth", "openfpgaloader"]),
+    (
+        "uart_echo",
+        "arty_nextpnr",
+        "openfpgaloader",
+        ["bsc", "yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"],
+    ),
     (
         "uart_echo",
         "arty_nextpnr",
@@ -80,6 +87,8 @@ COMMANDS = [
     ("uart_link", "ecp5", "yosys_fpga+nextpnr", ["bsc", "yosys_fpga", "nextpnr"]),
     ("uart_link", "core_w8", "yosys_fpga", ["bsc", "yosys_fpga"]),
     ("uart_link", "core_w1", "yosys_fpga", ["bsc", "yosys_fpga"]),
+    ("uart_link", "arty", "openfpgaloader", ["bsc", "vivado_synth", "openfpgaloader"]),
+    ("uart_link", "basys3", "openfpgaloader", ["bsc", "vivado_synth", "openfpgaloader"]),
     ("uart_link", "arty", "vivado_synth+openfpgaloader", ["bsc", "vivado_synth", "openfpgaloader"]),
     (
         "uart_link",
