@@ -139,7 +139,10 @@ class XedaProject:
             raise ValueError(f"Invalid project file {file}: it must hold a nonempty mapping")
         for key, replacement in REMOVED_PROJECT_KEYS.items():
             if key in data:
-                raise ValueError(f"project file {file}: {removed_message(key, replacement, None)}")
+                raise ProjectFileError(
+                    f"project file {file}: {removed_message(key, replacement, None)}",
+                    code="removed_alias",
+                )
         # The design entries are expanded where they are used, one by one, whether `design` is a
         # table or a list of tables.
         entries = {key: data.pop(key) for key in DESIGN_KEYS if key in data}

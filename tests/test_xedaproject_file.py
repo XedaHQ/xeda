@@ -8,7 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from xeda.xedaproject import PROJECT_FILE_NAMES, XedaProject, find_default_xedaproject
+from xeda.xedaproject import (
+    PROJECT_FILE_NAMES,
+    ProjectFileError,
+    XedaProject,
+    find_default_xedaproject,
+)
 
 from .project_files import PROJECT_FILE, TOML_PROJECT_FILE
 
@@ -85,7 +90,7 @@ def test_the_yaml_spelling_is_what_discovery_finds_first(tmp_path):
 def test_the_singular_key_of_a_project_was_removed(tmp_path, singular, plural):
     path = _write(tmp_path, PROJECT_FILE, f"{singular}: {{}}\n")
 
-    with pytest.raises(ValueError, match=f"`{singular}` was removed: use `{plural}`"):
+    with pytest.raises(ProjectFileError, match=f"`{singular}` was removed: use `{plural}`"):
         XedaProject.from_file(path)
 
 

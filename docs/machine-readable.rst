@@ -653,9 +653,10 @@ not deliver an output that a setting or ``--outputs-to`` named), ``cleanup_faile
 The code of an error of a request that started no launch is the code of the setting, design,
 project, chain or run root problem. For a bad setting: ``unknown_setting``, ``required_setting``,
 ``invalid_quantity``, ``invalid_value``, ``boolean_text``, ``list_text``, ``conflicting_keys``,
-``removed_setting``, ``unsupported_setting`` and others. For a chain: ``invalid_chain``,
+``removed_setting``, ``removed_alias`` (another spelling of a name that stays), ``unsupported_setting`` and others. For a chain: ``invalid_chain``,
 ``repeated_flow``, ``no_edge``, ``unknown_output`` and others. Others are ``invalid_design``,
 ``design_file_not_found``, ``unknown_target``, ``unknown_design``, ``invalid_project``,
+``removed_alias`` and ``removed_key`` (a design or project key that Xeda refuses; the message names the key to write),
 ``flow_not_found``, ``invalid_run_root``, ``delivery_refused`` and ``usage_error``.
 
 With ``delivery_failed`` and ``cleanup_failed``, every node keeps the outcome it had.
