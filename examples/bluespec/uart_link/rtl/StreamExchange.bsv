@@ -426,7 +426,6 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
    Reg#(Bit#(TMax#(8, inWidth))) inputShift <- mkRegU;
    Reg#(UInt#(8)) acceptedCount <- mkReg(0);
    Reg#(UInt#(8)) responseRemaining <- mkReg(0);
-   Reg#(Bit#(TMax#(8, outWidth))) outputShift <- mkReg(0);
    Reg#(Bit#(outWidth)) outputHold <- mkRegU;
    Reg#(UInt#(TMax#(1, TLog#(TDiv#(TAdd#(outWidth, 7), 8))))) outputByte <- mkReg(0);
 
@@ -528,8 +527,7 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
 
    rule startOutput (state == FastReplyStartOutput);
       outputQ.deq;
-      if (outBytes == 5) outputHold <= pack(outputQ.first);
-      else outputShift <= zeroExtend(pack(outputQ.first));
+      outputHold <= pack(outputQ.first);
       outputByte <= 0;
       state <= FastReplyOutput;
    endrule
@@ -546,8 +544,11 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
             default: b = bits[39:32];
          endcase
       end else begin
-         b = truncate(outputShift);
-         outputShift <= outputShift >> 8;
+         // A byte select from the held word costs less logic than a loadable shift register.
+         Bit#(TAdd#(outWidth, 7)) bits = zeroExtend(pack(outputHold));
+         b = bits[7:0];
+         for (Integer i = 1; i < outBytes; i = i + 1)
+            if (outputByte == fromInteger(i)) b = bits[8 * i + 7 : 8 * i];
       end
       Bool lastByte = outputByte + 1 == fromInteger(outBytes);
       if (!lastByte) begin
