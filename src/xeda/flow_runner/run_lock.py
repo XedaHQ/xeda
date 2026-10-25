@@ -6,7 +6,7 @@ import contextlib
 import os
 import sys
 import threading
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -18,7 +18,19 @@ from ..run_dir import RunDirectoryError, refuse_link_on_way
 if sys.platform != "win32":
     import fcntl
 
-__all__ = ["lock_file", "run_dir_lock", "run_dir_read_lock", "CompletedRun"]
+__all__ = [
+    "lock_file",
+    "run_dir_lock",
+    "run_dir_read_lock",
+    "storage_lock",
+    "wait_hook",
+    "CompletedRun",
+]
+
+#: A seam for tests. When it is set, Xeda calls it with the path of a lock file just before it
+#: blocks on that lock, that is, when another holder keeps the lock. A test waits on this call
+#: instead of sleeping.
+wait_hook: Callable[[Path], None] | None = None
 
 
 @dataclass
@@ -99,6 +111,18 @@ def _check_inside(run_path: Path, run_root: Path) -> None:
             )
 
 
+def _acquire(file: TextIO, exclusive: bool, path: Path) -> None:
+    """Take the OS lock on `file`. With a `wait_hook`, tell it when another holder keeps the lock."""
+    mode = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+    if wait_hook is not None:
+        try:
+            fcntl.flock(file.fileno(), mode | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            wait_hook(path)
+    fcntl.flock(file.fileno(), mode)
+
+
 @contextlib.contextmanager
 def _lock(run_path: Path, exclusive: bool, run_root: Path | None = None) -> Iterator[None]:
     if sys.platform == "win32":
@@ -120,7 +144,7 @@ def _lock(run_path: Path, exclusive: bool, run_root: Path | None = None) -> Iter
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        _acquire(f, exclusive, path)
         try:
             if lock_file(run_path, run_root) != path:
                 raise RunDirectoryError(f"{run_path} changed while acquiring its lock")
@@ -148,6 +172,23 @@ def run_dir_read_lock(
 ) -> contextlib.AbstractContextManager[None]:
     """Hold a shared lease on a producer. An enclosing writer keeps its exclusive OS lock."""
     return _lock(run_path, exclusive=False, run_root=run_root)
+
+
+def storage_lock(
+    storage: Path, *, exclusive: bool, run_root: Path
+) -> contextlib.AbstractContextManager[None]:
+    """Hold the lock of a storage directory under the run root, shared (a reader) or exclusive.
+
+    A storage is a directory that a launch writes once and many launches read: the output of a
+    design generator. Its lock file lies beside it, as the lock file of a run directory does. A
+    writer holds the exclusive lock while it writes. Every reader holds the shared lock for as
+    long as it reads a file of the storage, so nothing replaces or removes the storage meanwhile.
+    The lock is reentrant in one thread, as a run-directory lock is, but a shared lock cannot
+    become an exclusive one: release the first, then ask for the second.
+
+    A storage that does not lie inside `run_root`, or that is reached through a link out of it,
+    is a `RunDirectoryError` before anything is created."""
+    return _lock(storage, exclusive=exclusive, run_root=run_root)
 
 
 @contextlib.contextmanager
