@@ -95,8 +95,8 @@ module mkSerializationCase(SerializationCase#(outW))
    Integer word1 = ((2 ** 128 - 1 - pattern1) % msb);
 
    function Bit#(8) byteOf(Integer word, Integer i) = fromInteger((word / (2 ** (8 * i))) % 256);
-   Vector#(8, Bit#(8)) bytes0 = genWith(byteOf(word0));
-   Vector#(8, Bit#(8)) bytes1 = genWith(byteOf(word1));
+   Vector#(TDiv#(outW, 8), Bit#(8)) bytes0 = genWith(byteOf(word0));
+   Vector#(TDiv#(outW, 8), Bit#(8)) bytes1 = genWith(byteOf(word1));
 
    Reg#(UInt#(2)) producedState <- mkReg(0, reset_by stream.coreReset);
    Wire#(UInt#(2)) produced <- mkDWire(0, reset_by noReset);
@@ -111,7 +111,7 @@ module mkSerializationCase(SerializationCase#(outW))
       producedState <= producedState + 1;
    endrule
 
-   Reg#(UInt#(4)) index <- mkReg(0);
+   Reg#(UInt#(9)) index <- mkReg(0);
    Reg#(Bool) passed <- mkReg(False);
 
    function Action expectToken(String what, Bit#(8) data, Bool last) = action
@@ -128,7 +128,7 @@ module mkSerializationCase(SerializationCase#(outW))
    endseq;
 
    // Status 0 and count 0 are followed by the output bytes, least significant first.
-   function Stmt expectOutput(Vector#(8, Bit#(8)) bytes) = seq
+   function Stmt expectOutput(Vector#(TDiv#(outW, 8), Bit#(8)) bytes) = seq
       expectToken("status", 0, False);
       expectToken("count", 0, False);
       index <= 0;
@@ -170,6 +170,7 @@ module mkTbStreamExchangeSerialization(Empty);
    SerializationCase#(25) width25 <- mkSerializationCase;
    SerializationCase#(57) width57 <- mkSerializationCase;
    SerializationCase#(64) width64 <- mkSerializationCase;
+   SerializationCase#(1024) width1024 <- mkSerializationCase;
    Reg#(UInt#(32)) cycles <- mkReg(0);
 
    rule watchdog;
@@ -181,12 +182,13 @@ module mkTbStreamExchangeSerialization(Empty);
       action
          width1.start; width7.start; width9.start; width13.start;
          width20.start; width25.start; width57.start; width64.start;
+         width1024.start;
       endaction
       while (!(width1.done && width7.done && width9.done && width13.done && width20.done
-               && width25.done && width57.done && width64.done))
+               && width25.done && width57.done && width64.done && width1024.done))
          action noAction; endaction
       action
-         $display("PASS: output widths 1, 7, 9, 13, 20, 25, 57 and 64 serialize zero-padded little-endian bytes");
+         $display("PASS: output widths 1, 7, 9, 13, 20, 25, 57, 64 and 1024 serialize zero-padded little-endian bytes");
          $finish(0);
       endaction
    endseq;

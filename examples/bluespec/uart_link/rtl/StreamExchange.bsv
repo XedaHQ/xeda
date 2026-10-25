@@ -431,6 +431,7 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
    Reg#(UInt#(8)) acceptedCount <- mkReg(0);
    Reg#(UInt#(8)) responseRemaining <- mkReg(0);
    Reg#(Bit#(outWidth)) outputHold <- mkRegU;
+   // Type-level TDiv rounds up; the index spans 0 through outBytes - 1.
    Reg#(UInt#(TMax#(1, TLog#(TDiv#(outWidth, 8))))) outputByte <- mkReg(0);
 
    Reg#(FastState) state <- mkReg(FastCollect);
@@ -559,7 +560,10 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
          link.response.put(token(b, False));
          outputByte <= outputByte + 1;
       end else begin
-         Bool more = outputQ.notEmpty && responseRemaining >= fromInteger(outBytes * 2 + 2);
+         // Two words may exceed the 8-bit reply budget even when one word fits.
+         Integer twoWords = outBytes * 2 + 2;
+         Bool more = outputQ.notEmpty && twoWords <= 255
+                     && responseRemaining >= fromInteger(min(255, twoWords));
          link.response.put(token(b, !more));
          responseRemaining <= responseRemaining - fromInteger(outBytes);
          if (more) state <= FastReplyStartOutput;

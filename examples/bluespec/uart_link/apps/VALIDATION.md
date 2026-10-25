@@ -222,7 +222,7 @@ The serial-versus-FTDI throughput measurements above predate the bounded-input h
 
 ## Reset and FIFO follow-up, October 25, 2026
 The final integrated runtime is `StreamExchange.bsv` SHA-256
-`4538de5badf55c9be78a53a96a9ff352c2511572de42fff15f9eaffbb3dac604`.
+`e1af2a32fdc3b49443064d8b89859b96ecf8d6c1c6e4d661a2422bcd5e517099`.
 Parent reset and software RESET initialize the application and both queues. Admission waits for
 the actual application reset to end. Each native one-entry pipeline FIFO accepts a replacement
 word during a dequeue, including when full. A cycle check verifies ten consecutive byte-word
@@ -232,15 +232,22 @@ The byte-aligned adapter holds each output word and selects its bytes in little-
 Its index covers only valid byte positions, including output widths 9, 25, and 57 that previously
 failed elaboration. The buffered adapter uses 11-bit byte offsets so words wider than 256 bits
 retain their upper bytes. The runnable tests cover output widths 1, 7, 9, 13, 20, 25, 57, and 64
-under backpressure, plus a 257-bit buffered round trip, padding rejection, and reset. External
+under backpressure, plus a 257-bit buffered round trip, padding rejection, and reset. A final
+1,024-bit output case checks a reply that fits one word while another word is queued. Its old
+two-word budget literal failed elaboration because 258 does not fit in eight bits. The guard now
+rejects an impossible two-word budget at compile time and bounds the converted literal. External
 mutants that restore either narrow buffered shift compile and then fail the intended assertion.
 
-The final integrated RTL, library, application, area, and warning run passed **177 tests**. It
+The integrated RTL, library, application, area, and warning run on runtime hash
+`4538de5badf55c9be78a53a96a9ff352c2511572de42fff15f9eaffbb3dac604` passed **177 tests**. It
 includes all **101** runnable Bluespec example configurations with every compiler warning promoted
 and no warning suppressions. The gate compiles and elaborates each default and target, including
 library tests and the documented Ascon-128a variants. It does not simulate the board targets.
 Separate Bluesim and Icarus runs cover the generic-width cases, reset interruption, and FIFO
-replacement. The raw Ascon word wrappers passed on the prior source; their RTL is unchanged.
+replacement. The final 1,024-bit addition passes on both simulators with all compiler warnings
+promoted and no suppressions. A post-rebase integration run passed **383 tests** before this
+addition. All six generated area tops remain byte-identical after the budget fix. The raw Ascon
+word wrappers passed on the prior source; their RTL is unchanged.
 
 Fresh synthesis of the complete observable transport-plus-adapter tops gave:
 
@@ -272,18 +279,20 @@ hash checks, key reuse after hash, and bad-tag rejection. A separate hash after 
 the independent 1,537-byte fixture. The Ascon fast-path RTL from the counter change matches the
 previously tested design after three collision-free internal wire renames; all core files match
 byte for byte. The buffered wide-word change does not instantiate in these application profiles.
-The final source reproduces all GCD and Ascon application Verilog byte for byte against the
-counter-change builds. Its comparison with the preserved Vivado Ascon image differs only by
-three collision-free internal wire renames. This proves RTL equivalence; it does not claim
-identical rebuilt Vivado bitstreams.
+The wide-word budget fix leaves all six area tops and the GCD application Verilog byte-identical
+to the measured builds. Both Ascon application tops differ only by three collision-free internal
+wire renames; all other modules match byte for byte. The comparison with the preserved Vivado
+Ascon image also differs only by three collision-free internal wire renames. These comparisons
+establish RTL equivalence. They do not establish identical rebuilt bitstreams or a new routed
+timing result after the budget fix.
 
 The Arty Ascon target supplies `nextpnr.tmg_ripup=true` and
-`nextpnr.placer_heap_timingweight=40` for explicit openXC7 builds. On the final integrated source,
-both variants built through Xeda at 100 MHz: Ascon-128 reported 100.675 MHz and +0.067 ns slack;
+`nextpnr.placer_heap_timingweight=40` for explicit openXC7 builds. On runtime hash `4538de5b`
+before the final budget fix, both variants built through Xeda at 100 MHz: Ascon-128 reported 100.675 MHz and +0.067 ns slack;
 Ascon-128a reported 101.031 MHz and +0.102 ns slack. No clock or timing check was relaxed.
 These are nextpnr timing results, not physical frequency-sweep measurements. Bare programming
 commands select Vivado; use an explicit `yosys_fpga+nextpnr+fpga_pack+openfpgaloader` chain to
-select openXC7. Both final-source openXC7 images were loaded into Arty SRAM and passed the public
+select openXC7. Both openXC7 images were loaded into Arty SRAM and passed the public
 61-vector self-test, long encryption/decryption and hash, key reuse, and bad-tag rejection.
 Their bitstream SHA-256 values are
 `8c13b5ace9e849b8bf95594bb71dd6b548e06560a5e30ce6219bd39fc198a64c` (128) and
@@ -299,3 +308,7 @@ measured 32.60 s over serial before FTDI tuning, 10.47 s over configured FTDI, a
 serial immediately afterward for 10,000 pairs. All results matched. A tuned old/current host
 comparison found no slowdown in the current host. The residual cost remains unexplained, so
 these tests do not establish peak throughput. No flash was written.
+
+The final budget-fix delta passed **163 tests**, including all four complete adapter area gates,
+the serialization library target, its strict warning gate, and changelog validation. The existing
+area tops are byte-identical to the source used for the two-tool area table above.
