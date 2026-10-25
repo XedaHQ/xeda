@@ -1604,7 +1604,7 @@ def resolve(
         assert request.settings is not None and request.key is not None
         label = request.label
         settings_hash = flowrun_hash(request.cls.name, request.settings, design.name)
-        origins = input_origins(request.inputs, identities.__getitem__)
+        origins = input_origins(request.inputs, identities.__getitem__, design)
         configuration = freeze(
             planned_configuration(
                 requests, request, design, run_path, request.cls, request.settings

@@ -924,3 +924,80 @@ def test_two_texts_for_one_file_in_one_role_are_refused(tmp_path):
 
     with pytest.raises(FlowSettingsException, match="same role"):
         _package(design, {}, tmp_path)
+
+
+def test_the_netlist_of_a_design_outside_its_root_has_the_same_identity_on_the_remote(tmp_path):
+    """The origin of a declared input that the sources supply names the file by its place under
+    the design root. Packaging moves a netlist from outside the root among the flat sources, and
+    the host counts the place as the client does."""
+    from xeda.flow_runner import DefaultRunner
+
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "n.json").write_text("{}\n")
+    root = tmp_path / "design"
+    root.mkdir()
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={
+            "sources": [{"file": str(tmp_path / "lib" / "n.json"), "type": "JsonNetlist"}],
+            "top": "t",
+        },
+    )
+    local_root = tmp_path / "local" / "xeda_run"
+    local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=True)
+    prepared = local.prepare_request(
+        "nextpnr", design=design, flow_settings=["fpga.part=LFE5U-25F-6BG381C"]
+    )
+
+    _package_, remote_plan, remote_root, _remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, "nextpnr", True
+    )
+
+    assert prepared.plan.node("nextpnr").origins[0] == (
+        "netlist",
+        ("source", (("../lib/n.json", "JsonNetlist"),)),
+    )
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+
+
+def test_a_testbench_with_cocotb_has_the_same_identity_on_the_remote(tmp_path):
+    """The testbench part, its sources, its cocotb table and the defines (literal text, even when
+    it looks like a path) are the same on both ends."""
+    from xeda.flow_runner import DefaultRunner
+    from xeda.frozen import thaw
+
+    root = tmp_path / "design"
+    root.mkdir()
+    for name in ("top.v", "tb.v"):
+        (root / name).write_text(f"module {name[:-2]}(); endmodule\n")
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={
+            "sources": ["top.v"],
+            "top": "top",
+            "clock": "clk",
+            "defines": {"DUMP": "/not/a/path/here", "FAST": 1},
+        },
+        tb={
+            "sources": ["tb.v"],
+            "top": "tb",
+            "uut": "dut",
+            "defines": {"TRACE": None},
+            "cocotb": {"module": "test_top", "testcase": ["a", "b"]},
+        },
+    )
+    local_root = tmp_path / "local" / "xeda_run"
+    local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=True)
+    prepared = local.prepare_request("verilator", design=design)
+
+    _package_, remote_plan, remote_root, _remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, "verilator", True
+    )
+
+    configuration = thaw(prepared.plan.node("verilator").configuration)
+    assert configuration["tb"]["cocotb"]["testcase"] == ["a", "b"]
+    assert configuration["rtl"]["defines"] == {"DUMP": "/not/a/path/here", "FAST": 1}
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+    assert thaw(remote_plan.node("verilator").configuration) == configuration

@@ -763,7 +763,7 @@ class FlowLauncher:
         identities: dict[str, str] = {}
         for planned in plan.nodes:
             try:
-                origins = input_origins(planned.inputs, identities.__getitem__)
+                origins = input_origins(planned.inputs, identities.__getitem__, design)
             except KeyError as error:
                 raise FlowFatalError(
                     f"The plan's node {planned.name} reads a node that does not precede it"

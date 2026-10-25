@@ -125,7 +125,7 @@ def test_another_producer_another_output_and_another_order_are_other_identities(
 def test_a_source_supplied_input_is_another_identity_than_a_produced_one(tmp_path):
     produced = _plan(tmp_path, _Taker)
     sourced = _plan(tmp_path, _Taker, sources=[("x.dat", SourceType.Data)])
-    assert sourced.node("__taker").origins == (("made", "source"),)
+    assert sourced.node("__taker").origins == (("made", ("source", (("x.dat", "Data"),))),)
     assert _settings_ids(sourced)["__taker"] == _settings_ids(produced)["__taker"]
     assert _ids(sourced)["__taker"] != _ids(produced)["__taker"]
 

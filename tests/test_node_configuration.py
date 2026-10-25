@@ -591,6 +591,66 @@ def test_every_node_of_a_plan_is_identified_by_the_one_formula(tmp_path, make):
         assert node.configuration  # a node always has the configuration its design part gives
 
 
+def two_netlists(root: Path, name: str, top: str = "top") -> Design:
+    """A design whose netlist is the file `name`: nextpnr takes it as its netlist."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / name).write_text("{}\n")
+    return Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": [{"file": name, "type": "JsonNetlist"}], "top": top},
+    )
+
+
+def test_two_netlists_give_two_identities_and_two_hashed_directories(tmp_path):
+    """A file that the sources of the design supply to a declared input is part of the origin of
+    that input, by its place and type and not by its content: two netlists are two nodes."""
+    launcher = runner(tmp_path)
+    settings = [f"fpga.part={PART}"]
+    nodes = [
+        launcher.plan("nextpnr", two_netlists(tmp_path / "d", name), flow_settings=settings).node(
+            "nextpnr"
+        )
+        for name in ("a.json", "b.json", "a.json")
+    ]
+    first, second, again = nodes
+
+    assert first.origins[0] == ("netlist", ("source", (("a.json", "JsonNetlist"),)))
+    assert second.origins[0] == ("netlist", ("source", (("b.json", "JsonNetlist"),)))
+    assert first.settings_hash == second.settings_hash
+    assert configuration_of(first) == configuration_of(second)
+    assert first.flowrun_hash != second.flowrun_hash
+    assert first.run_path != second.run_path
+    assert (again.flowrun_hash, again.run_path) == (first.flowrun_hash, first.run_path)
+    assert_identity_formula([first, second])
+
+
+def test_the_same_netlist_in_two_checkouts_is_one_identity(tmp_path):
+    settings = [f"fpga.part={PART}"]
+    here = DefaultRunner(tmp_path / "a", hashed_run_dirs=True).plan(
+        "nextpnr", two_netlists(tmp_path / "one" / "d", "n.json"), flow_settings=settings
+    )
+    there = DefaultRunner(tmp_path / "b", hashed_run_dirs=True).plan(
+        "nextpnr", two_netlists(tmp_path / "two" / "deeper" / "d", "n.json"), flow_settings=settings
+    )
+
+    assert here.node("nextpnr").origins == there.node("nextpnr").origins
+    assert here.node("nextpnr").flowrun_hash == there.node("nextpnr").flowrun_hash
+    assert str(tmp_path) not in repr(here.node("nextpnr").origins)
+
+
+def test_a_netlist_edit_moves_no_identity(tmp_path):
+    launcher = runner(tmp_path)
+    settings = [f"fpga.part={PART}"]
+    before = launcher.plan(
+        "nextpnr", two_netlists(tmp_path / "d", "n.json"), flow_settings=settings
+    )
+    (tmp_path / "d" / "n.json").write_text('{"modules": {}}\n')
+    after = launcher.plan("nextpnr", two_netlists(tmp_path / "d", "n.json"), flow_settings=settings)
+
+    assert after.node("nextpnr").flowrun_hash == before.node("nextpnr").flowrun_hash
+
+
 def test_the_identity_formula_takes_the_three_parts_in_order():
     from xeda.flow_runner.bindings import node_identity
 
@@ -668,6 +728,23 @@ def test_a_changed_design_configuration_is_the_reason_a_node_runs_again(tmp_path
     assert second is not None and second.succeeded and not second.reused
     assert second.run_path == first.run_path
     assert second.flow_hash != first.flow_hash
+
+
+def test_a_consumer_reports_the_change_of_its_own_design_configuration(tmp_path):
+    """Both flows of the chain read the top of the design. The consumer says so itself, and does
+    not only name the producer that ran again."""
+    from .io_flows import _Taker
+
+    launcher = runner(tmp_path, hashed_run_dirs=False)
+    first = launcher.run(_Taker, verilog_design(tmp_path / "d", top="a"))
+    assert first is not None and first.succeeded
+
+    plan, freshness = launcher.plan_with_freshness(_Taker, verilog_design(tmp_path / "d", top="b"))
+
+    assert [node.name for node in plan.nodes] == ["__maker", "__taker"]
+    assert freshness["__maker"].reason == "the design configuration changed"
+    assert freshness["__taker"].state == "stale"
+    assert freshness["__taker"].reason == "the design configuration changed"
 
 
 def test_a_changed_source_is_not_a_changed_configuration(tmp_path):

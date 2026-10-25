@@ -562,11 +562,13 @@ def check_trace(
         # The identity is settings, design configuration and input origins: say which of them
         # moved.
         if trace.settings_hash == expected.settings_hash:
+            # The node's own design configuration first: a consumer whose design changed says
+            # so, and does not only name the producer that ran again.
+            if trace.configuration_hash != expected.configuration_hash:
+                return Freshness(False, "the design configuration changed")
             rewired = changed_binding(trace.declared_inputs, expected.declared_inputs)
             if rewired is not None:
                 return Freshness(False, rewired)
-            if trace.configuration_hash != expected.configuration_hash:
-                return Freshness(False, "the design configuration changed")
         return Freshness(
             False, "settings changed: " + _changed_settings(run_dir, expected.settings)
         )

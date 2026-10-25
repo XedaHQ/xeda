@@ -13,6 +13,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from ..design import Design
 from ..flow import Flow, FlowSettingsException
 from ..flow.io import declared_inputs, declared_outputs
 from ..utils import semantic_hash
@@ -382,27 +383,34 @@ def effective_bindings(
 
 
 def input_origins(
-    inputs: Sequence[Any], identity_of: Callable[[str], str]
+    inputs: Sequence[Any], identity_of: Callable[[str], str], design: Design
 ) -> tuple[tuple[str, Any], ...]:
     """Return where each resolved input of a node comes from, in declaration order.
 
-    The origin of an input is `"source"`, or its ordered `(producer identity, output key)`
-    references (none for an absent input). `inputs` are the `ResolvedInput`s of a plan node.
-    `identity_of` gives the identity of the plan node that a reference names, so producers are
-    identified before their consumers. The order of the references counts. Where a binding was
-    written (chain, file, command line, API) does not.
+    The origin of an input that sources of the design supply is `("source", entries)`, where the
+    entries are the `(path, type)` of each file it takes, in order. The path is the place from
+    the design root (`Design.source_place`) and the entry holds no content, so two netlists are
+    two origins, and the same netlist in two checkouts is one. The origin of an input that
+    producers supply is its ordered `(producer identity, output key)` references, and none for an
+    absent input. `inputs` are the `ResolvedInput`s of a plan node. `identity_of` gives the
+    identity of the plan node that a reference names, so producers are identified before their
+    consumers. The order of the references and of the files counts. Where a binding was written
+    (chain, file, command line, API) does not.
     """
-    return tuple(
-        (
-            resolved.name,
-            (
-                "source"
-                if resolved.origin == "source"
-                else tuple((identity_of(ref.node), ref.output) for ref in resolved.references)
-            ),
-        )
-        for resolved in inputs
-    )
+    listed = {source.file: source for source in design.rtl.sources}
+
+    def origin(resolved: Any) -> Any:
+        if resolved.origin == "source":
+            return (
+                "source",
+                tuple(
+                    (design.source_place(listed[path]), listed[path].type.name)
+                    for path in resolved.sources
+                ),
+            )
+        return tuple((identity_of(ref.node), ref.output) for ref in resolved.references)
+
+    return tuple((resolved.name, origin(resolved)) for resolved in inputs)
 
 
 def node_identity(settings_hash: str, configuration_hash: str, origins: Sequence[Any] = ()) -> str:
