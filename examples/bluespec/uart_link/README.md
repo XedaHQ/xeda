@@ -135,7 +135,7 @@ PYTHONPATH=examples/bluespec/uart_link/host python3 -m leanlink.ascon_cli --port
 ```
 
 The Ascon command also supports `encrypt`, `decrypt`, `--input`, and `--output`. Select
-`--variant 128a` when the Ascon-128a bitstream is loaded. The Python API accepts bytes and key
+`--variant 128a` for self-tests when the Ascon-128a bitstream is loaded. The Python API accepts bytes and key
 reuse within one reset session. It buffers the complete operation in host memory; the FPGA packet
 size stays fixed. Each CLI command opens a new session and resets the application. A lost session
 produces an unknown outcome; the client does not replay the operation in a new session. Install

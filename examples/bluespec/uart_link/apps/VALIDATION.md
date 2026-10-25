@@ -218,3 +218,74 @@ The 19 direct reusable-library simulation commands passed. Focused schema, depen
 After the padding fix, I ran the public Ascon-128 self-test on the Arty without reprogramming. The previously loaded SRAM image hash and matching bitstream artifact hash were `86ced51ce8c31aa0e863f17bda0b2cbd80e1887ed43c2d51be9b30005d432100`. The test passed all 61 vectors, long encrypt/decrypt, long hash, key reuse, and bad-tag rejection. It used the final `applications.py` hash above. This is a current host check on one loaded image; the 12-image board matrix above uses the earlier host version.
 
 The serial-versus-FTDI throughput measurements above predate the bounded-input host-client update and the padding fix. No new throughput benchmark ran after those host changes. No nonvolatile flash was written. The two GHDL/Yosys plugin tests remain unresolved in the final full-suite run.
+
+
+## Reset and FIFO follow-up, October 25, 2026
+The final integrated runtime is `StreamExchange.bsv` SHA-256
+`4538de5badf55c9be78a53a96a9ff352c2511572de42fff15f9eaffbb3dac604`.
+Parent reset and software RESET initialize the application and both queues. Admission waits for
+the actual application reset to end. Each native one-entry pipeline FIFO accepts a replacement
+word during a dequeue, including when full. A cycle check verifies ten consecutive byte-word
+admissions, and a separate test verifies output replacement under backpressure.
+
+The byte-aligned adapter holds each output word and selects its bytes in little-endian order.
+Its index covers only valid byte positions, including output widths 9, 25, and 57 that previously
+failed elaboration. The buffered adapter uses 11-bit byte offsets so words wider than 256 bits
+retain their upper bytes. The runnable tests cover output widths 1, 7, 9, 13, 20, 25, 57, and 64
+under backpressure, plus a 257-bit buffered round trip, padding rejection, and reset. External
+mutants that restore either narrow buffered shift compile and then fail the intended assertion.
+
+The final integrated RTL, library, application, area, and warning run passed **177 tests**. It
+includes all **101** runnable Bluespec example configurations with every compiler warning promoted
+and no warning suppressions. The gate compiles and elaborates each default and target, including
+library tests and the documented Ascon-128a variants. It does not simulate the board targets.
+Separate Bluesim and Icarus runs cover the generic-width cases, reset interruption, and FIFO
+replacement. The raw Ascon word wrappers passed on the prior source; their RTL is unchanged.
+
+Fresh synthesis of the complete observable transport-plus-adapter tops gave:
+
+| Profile | Logic LUTs, Yosys 0.69 | Logic LUTs, Yosys 0.70+post | RAM LUTs |
+|---|---:|---:|---:|
+| GCD, W=8, P=256 | 482 | 475 | 8 |
+| GCD, W=1, P=64 | 426 | 427 | 24 |
+| Ascon40, W=8, P=256 | 497 | 490 | 8 |
+| Ascon40, W=1, P=64 | 449 | 445 | 24 |
+
+Both runs used BSC 2026.07.1. The 0.69 tool is the installed openXC7 Yosys; the 0.70+post tool is
+the Homebrew build at git `0c11ea098`. Every profile meets the 500-logic-LUT limit. RAM LUTs are
+reported separately. These tops exclude the UART PHY and application core. Synthesis does not
+establish a clock frequency.
+
+The final fast-path GCD counter change was built with Vivado 2025.2 and tested on the Arty
+A7-100T at 100 MHz and 12 Mbaud. The following whole-top results include the application core,
+UART PHY, transport, and adapter:
+
+| Application | Slice LUTs | Slice registers | BRAM tiles | Setup WNS | Hold WHS | Reported Fmax |
+|---|---:|---:|---:|---:|---:|---:|
+| GCD | 1,187 | 1,008 | 1 | +2.742 ns | +0.087 ns | 137.780 MHz |
+| Ascon-128 | 2,750 | 1,896 | 1 | +1.132 ns | +0.058 ns | 112.765 MHz |
+| Ascon-128a | 2,860 | 1,894 | 1 | +0.822 ns | +0.045 ns | 108.956 MHz |
+
+All three routed builds have zero setup and hold violations. GCD passed its 1,004-pair self-test
+twice in fresh processes. The Ascon images passed repeated 61-vector self-tests, long AEAD and
+hash checks, key reuse after hash, and bad-tag rejection. A separate hash after reopening matched
+the independent 1,537-byte fixture. The Ascon fast-path RTL from the counter change matches the
+previously tested design after three collision-free internal wire renames; all core files match
+byte for byte. The buffered wide-word change does not instantiate in these application profiles.
+The final source comparison and explicit openXC7 board checks are recorded separately from these
+Vivado image results.
+
+The Arty Ascon target supplies `nextpnr.tmg_ripup=true` and
+`nextpnr.placer_heap_timingweight=40` for explicit openXC7 builds. On the counter-change source,
+both variants built through Xeda at 100 MHz: Ascon-128 reported 100.675 MHz and +0.067 ns slack;
+Ascon-128a reported 101.031 MHz and +0.102 ns slack. No clock or timing check was relaxed.
+These are nextpnr timing results, not physical frequency-sweep measurements. Bare programming
+commands select Vivado; use an explicit `yosys_fpga+nextpnr+fpga_pack+openfpgaloader` chain to
+select openXC7.
+
+The older four-board tables and throughput measurements above belong to their recorded source
+and host versions. They do not establish results for this follow-up. A later physical GCD check
+measured 32.60 s over serial before FTDI tuning, 10.47 s over configured FTDI, and 6.67 s over
+serial immediately afterward for 10,000 pairs. All results matched. A tuned old/current host
+comparison found no slowdown in the current host. The residual cost remains unexplained, so
+these tests do not establish peak throughput. No flash was written.
