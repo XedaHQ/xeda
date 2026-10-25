@@ -13,7 +13,6 @@ from xeda import Design
 from xeda.flow import FPGA, MetricSpec
 from xeda.flows import Dc, Nextpnr, VivadoPower, Yosys, YosysFpga
 from xeda.flows.openroad import Openroad
-from xeda.utils import WorkingDirectory
 
 from .metric_types import VALUE_TESTS, descriptor_of, described_keys, mismatches
 from .test_nextpnr import load_ecp5_report, make_flow
@@ -141,8 +140,7 @@ def test_dc_writes_the_declared_types(tmp_path):
         ("mapped.qor.rpt", QOR),
     ):
         (reports / name).write_text(text)
-    with WorkingDirectory(run_path):
-        assert flow.parse_reports()
+    assert flow.parse_reports()
     check(Dc, flow.results, 12)
     assert isinstance(flow.results["area"], dict)
 
