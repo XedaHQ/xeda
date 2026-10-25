@@ -19,7 +19,7 @@ from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
 
-from .io_flows import _InputTaker, _Maker, _PartialMaker, _Place, _Taker
+from .io_flows import _InputTaker, _Join, _Maker, _PartialMaker, _Place, _Taker
 from .remote_fixtures import (
     connected,
     fake_remote,
@@ -736,3 +736,77 @@ def test_declared_shared_settings_must_agree_before_connecting(tmp_path, remote_
     assert isinstance(outcome.error, FlowSettingsError) and "disagree" in str(outcome.error)
     assert not connected(remote_host)
     assert not (tmp_path / "local" / "xeda_run").exists()
+
+
+# --- Explicit input bindings travel to the remote ------------------------------------------------
+
+
+def _bound_design(root: Path) -> Path:
+    """A design whose file binds `__taker.made` to `__input_maker`, not to the default producer."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "input.txt").write_text("from the bound producer\n")
+    return _declared_design(
+        root,
+        {
+            "__taker": {"inputs": {"made": "__input_maker.made"}},
+            "__input_maker": {"input_file": "input.txt"},
+        },
+    )
+
+
+def test_a_design_file_binding_reaches_the_remote_plan(tmp_path, remote_host):
+    remote_host.load_test_flows()
+    design = _bound_design(tmp_path / "design")
+    planned = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
+        _Taker, Design.from_file(design), {}
+    )
+    assert [node.name for node in planned.nodes] == ["__input_maker", "__taker"]
+    document = _succeeded(remote_request(tmp_path, design, _Taker.name))
+    assert document["results"]["read"] == "from the bound producer\n"
+    assert document["results"]["flow_hash"] == planned.node(_Taker.name).flowrun_hash
+    assert [node["node"] for node in document["nodes"]] == ["__input_maker", "__taker"]
+
+
+def test_a_command_line_binding_over_a_file_binding_reaches_the_remote_plan(tmp_path, remote_host):
+    remote_host.load_test_flows()
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "input.txt").write_text("from the bound producer\n")
+    design = _declared_design(
+        root,
+        {
+            "__taker": {"inputs": {"made": "__maker.made"}},
+            "__input_maker": {"input_file": "input.txt"},
+        },
+    )
+    document = _succeeded(
+        remote_request(
+            tmp_path,
+            design,
+            _Taker.name,
+            flow_settings=["flows.__taker.inputs.made=__input_maker.made"],
+        )
+    )
+    assert document["results"]["read"] == "from the bound producer\n"
+    assert [node["node"] for node in document["nodes"]] == ["__input_maker", "__taker"]
+
+
+def test_two_producers_of_a_many_input_run_remotely(tmp_path, remote_host):
+    remote_host.load_test_flows()
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "input.txt").write_text("second\n")
+    design = _declared_design(
+        root,
+        {
+            "__join": {"inputs": {"more": ["__maker.made", "__input_maker.made"]}},
+            "__input_maker": {"input_file": "input.txt"},
+        },
+    )
+    planned = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
+        _Join, Design.from_file(design), {}
+    )
+    document = _succeeded(remote_request(tmp_path, design, _Join.name))
+    assert document["results"]["more"] == ["made\n", "second\n"]
+    assert document["results"]["flow_hash"] == planned.node(_Join.name).flowrun_hash
+    assert {node.name for node in planned.nodes} >= {"__maker", "__input_maker"}

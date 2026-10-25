@@ -19,6 +19,10 @@ from ..utils import semantic_hash
 from .chains import ChainLink, FlowRequest, close_names
 from .settings_layers import merge_flow_sections, registered_flow
 
+#: The key of a flow section that holds input bindings. It is wiring, never a setting:
+#: `split_bindings` takes it out of a section before the settings model sees it.
+INPUTS_KEY = "inputs"
+
 
 @dataclass(frozen=True)
 class NodeKey:
@@ -140,9 +144,9 @@ def split_bindings(
     entries = []
     invalid_inputs = []
     for node, values in normalized.items():
-        if "inputs" not in values:
+        if INPUTS_KEY not in values:
             continue
-        inputs = values.pop("inputs")
+        inputs = values.pop(INPUTS_KEY)
         if not isinstance(inputs, Mapping):
             invalid_inputs.append(node)
             continue
@@ -239,6 +243,50 @@ def check_chain_collisions(layers: Sequence[BindingLayer], request: FlowRequest 
                 )
 
 
+def _winning_entries(
+    layers: Sequence[BindingLayer], key: NodeKey | None = None
+) -> dict[tuple[NodeKey, str], tuple[BindingEntry, str]]:
+    """Return the entry that wins each `(node, input)` and the kind of the layer it came from.
+
+    This is the one precedence rule: a later layer replaces the whole value of an earlier one.
+    `key` limits the answer to one node. Nothing is validated."""
+    winners: dict[tuple[NodeKey, str], tuple[BindingEntry, str]] = {}
+    for layer in layers:
+        for entry in layer.entries:
+            if key is None or entry.node == key:
+                winners[(entry.node, entry.name)] = (entry, layer.kind)
+    return winners
+
+
+def _thaw(value: Any) -> Any:
+    """Return a frozen binding value as plain data (a mapping, a list or a scalar)."""
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw(item) for item in value]
+    return value
+
+
+def written_bindings(
+    layers: Sequence[BindingLayer], request: FlowRequest | None = None
+) -> dict[str, dict[str, Any]]:
+    """Return the bindings of a request as one table: flow name, then input name, then the value.
+
+    The value is the text of the winning entry, as the user wrote it (a name, or a list of
+    names), and it is not validated. A table in this shape is the `inputs` of a flow section,
+    which a host that gets the request without its origins (`--remote`) plans again. The
+    bindings that a chain link makes are left out: the chain replaces them there as it does
+    here."""
+    chained = set(chain_bindings(request))
+    table: dict[str, dict[str, Any]] = {}
+    for (node, name), (entry, _kind) in _winning_entries(layers).items():
+        if node.instance is not None:
+            raise ValueError(f"The binding of {node.label!r} has no place in a flow section.")
+        if (node, name) not in chained:
+            table.setdefault(node.flow, {})[name] = _thaw(entry.value)
+    return table
+
+
 def node_bindings(
     layers: Sequence[BindingLayer],
     key: NodeKey,
@@ -253,7 +301,6 @@ def node_bindings(
     chain link replaces a file binding of its input and notes the location of that binding.
     """
     declarations = declared_inputs(cls)
-    winners: dict[str, tuple[BindingEntry, str]] = {}
     for layer in layers:
         if key.instance is None and key.flow in layer.invalid_inputs:
             raise FlowSettingsException(
@@ -272,7 +319,7 @@ def node_bindings(
                         " only a flow's declared inputs can be bound."
                     )
                 )
-            winners[entry.name] = (entry, layer.kind)
+    winners = {name: won for (_node, name), won in _winning_entries(layers, key).items()}
     chain = {
         name: adjacency
         for (node, name), adjacency in chain_bindings(request).items()
