@@ -59,7 +59,7 @@ jobs:
       - name: Let git use the workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           version: "0.12.23"
           enable-cache: false
