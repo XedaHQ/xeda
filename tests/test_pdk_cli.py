@@ -1085,8 +1085,9 @@ def test_a_ciel_install_runs_ciel_with_a_clean_environment(tmp_path, monkeypatch
         *["fetch", "--pdk-root", str(root), "--pdk-family", entry.family],
         *["-l", entry.library, entry.version],
     ]
-    # macOS adds `__CF_USER_TEXT_ENCODING` to every process it starts.
-    assert set(call["env"]) - {"__CF_USER_TEXT_ENCODING"} <= {"PATH", "HOME", "LANG"}
+    # macOS adds `__CF_USER_TEXT_ENCODING` to every process it starts, and `run_process` sets
+    # `PWD` to the directory the process starts in.
+    assert set(call["env"]) - {"__CF_USER_TEXT_ENCODING"} <= {"PATH", "HOME", "LANG", "PWD"}
     assert call["env"]["PATH"] == str(fake.directory)
     assert call["env"]["LANG"] == "C.UTF-8"
     assert result.located.directory == (
@@ -1453,7 +1454,7 @@ def test_git_gets_a_controlled_environment(tmp_path, monkeypatch):
     assert env["https_proxy"] == "http://proxy.example:3128"
     assert env["NO_PROXY"] == "example.com"
     assert "GITHUB_TOKEN" not in env and "GIT_ASKPASS" not in env
-    allowed = {"PATH", "HOME", "LANG", "https_proxy", "NO_PROXY", "__CF_USER_TEXT_ENCODING"}
+    allowed = {"PATH", "HOME", "LANG", "PWD", "https_proxy", "NO_PROXY", "__CF_USER_TEXT_ENCODING"}
     assert set(env) - allowed <= {"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT"}
     settings = [
         f"core.hooksPath={os.devnull}",

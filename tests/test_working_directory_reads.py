@@ -90,13 +90,13 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
     ("flow_runner/default_runner.py", "FlowLauncher._validate_plan"): "relative setting paths",
     ("flow_runner/default_runner.py", "FlowLauncher.plan_with_freshness"): "relative setting paths",
     ("flow_runner/default_runner.py", "FlowLauncher.resolve"): "relative setting paths",
+    ("proc_utils.py", "_pwd"): "the `PWD` of a process started without a directory or with a "
+    "relative one",
     ("remote/client.py", "_run"): "the default run root of a command",
     ("remote/packaging.py", "package_inputs"): "relative setting paths",
     ("remote/packaging.py", "package_inputs.packaged_liberty"): "relative setting paths",
     ("remote/packaging.py", "package_inputs.packaged_path"): "relative setting paths",
     ("run_root.py", "ensure_run_root"): "a run root given relative to the caller",
-    ("tool.py", "Docker.run"): "a container started outside a tool",
-    ("tool.py", "Tool.working_directory"): "a tool outside a flow",
 }
 
 #: (module, function) -> why a process it starts needs no explicit working directory.

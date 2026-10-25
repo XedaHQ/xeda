@@ -483,7 +483,7 @@ def _copy_from_terminal(
 def _run_in_terminal(
     command: List[str],
     env: Optional[Dict[str, Any]],
-    cwd: Union[None, str, os.PathLike],
+    cwd: Union[None, str, "os.PathLike[str]"],
     check: bool,
     merge_stderr: bool,
     timeout: float | None,
@@ -543,13 +543,30 @@ def proc_output(is_stderr: bool, line):
     )
 
 
+def _pwd(cwd: Union[None, str, "os.PathLike[str]"]) -> str:
+    """Return the `PWD` of a process that starts in `cwd` (Xeda's current directory if None).
+
+    `PWD` names that directory for a program that reads it (a shell, a build script), never an
+    inherited or given value that names another one. It is `cwd` as given, made absolute and not
+    resolved, as a shell keeps it after `cd` through a link. A `..` after a link leads out of the
+    link's target, so a path with `..` is resolved: `PWD` never holds `.` or `..`."""
+    if cwd is None:
+        return os.getcwd()
+    path = os.fspath(cwd)
+    if not os.path.isabs(path):
+        path = os.path.join(os.getcwd(), path)
+    if ".." in path.split(os.sep):
+        return os.path.realpath(path)
+    return os.path.normpath(path)  # `.` and repeated separators never cross a link
+
+
 def run_process(
     executable: str,
     args: Optional[Sequence[Any]] = None,
     env: Optional[Dict[str, Any]] = None,
     stdout: Union[None, bool, str, os.PathLike] = None,
     check: bool = True,
-    cwd: Union[None, str, os.PathLike] = None,
+    cwd: Union[None, str, "os.PathLike[str]"] = None,
     print_command: bool = False,
     highlight_rules: Optional[Dict[str, str]] = None,
     merge_stderr: bool = False,
@@ -568,6 +585,10 @@ def run_process(
     them while the tool is being stopped waits until the stop, and the hook, are done. An
     interrupted wait also stops a child that outlived the tool and still holds its output open,
     because Xeda reaps the tool only after the output ends.
+
+    The process starts in `cwd`, else in the current directory. Its environment variable `PWD`
+    names that directory (`cwd` as an absolute path, resolved only if it holds `..`: `_pwd`) and
+    replaces an inherited value or one in `env`. `env` itself is not changed.
 
     `tee` also writes every line of the output to this file. The output is then not captured, so
     `tee` with a `stdout` other than `None` is a `ValueError`. A `stdout` that is a path sends
@@ -616,6 +637,7 @@ def run_process(
     args = [str(a) for a in args]
     if env is not None:
         env = {k: str(v) for k, v in env.items() if v is not None}
+    env = {**(os.environ if env is None else env), "PWD": _pwd(cwd)}
     command: List[str] = [str(c) for c in (executable, *args)]
     cmd_str = " ".join(map(lambda x: str(x), command))
     if print_command:

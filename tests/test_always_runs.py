@@ -115,9 +115,11 @@ def test_cocotb_seeds_python_s_random_with_a_fixed_default(tmp_path):
         tb={"sources": ["tb.py"], "top": "tb", "cocotb": True},
         design_root=tmp_path,
     )
-    env = Cocotb(sim_name="verilator").env(design)
+    (tmp_path / "run").mkdir()
+    flow = _flow(Verilator, design, tmp_path)  # the cocotb support of a flow works in its run path
+    env = Cocotb(sim_name="verilator", flow=flow).env(design)
     assert env["COCOTB_RANDOM_SEED"] == "1"
-    fresh = Cocotb(sim_name="verilator", random_seed="random").env(design)
+    fresh = Cocotb(sim_name="verilator", random_seed="random", flow=flow).env(design)
     assert "COCOTB_RANDOM_SEED" not in fresh
 
 

@@ -208,10 +208,9 @@ def test_a_containerized_tool_gets_its_default_arguments_once(monkeypatch, tmp_p
     tool's `default_args`, and `execute` passed them as well: `yosys -T -Q -T -Q`."""
     ran = []
     monkeypatch.setattr(xeda.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd]))
-    monkeypatch.chdir(tmp_path)
     tool = Tool(executable="yosys", default_args=["-q"], docker=Docker(image="hdlc/impl"))
     tool.dockerized = True
-    tool.run("-s", "script.ys")
+    tool.run("-s", "script.ys", cwd=tmp_path)
     (command,) = ran
     assert command[command.index("hdlc/impl:latest") + 1 :] == ["yosys", "-q", "-s", "script.ys"]
 
@@ -222,11 +221,10 @@ def test_a_containerized_tool_never_relabels_the_users_files(monkeypatch, tmp_pa
     container runs without a label instead, so every mount is passed as it is."""
     ran = []
     monkeypatch.setattr(xeda.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd]))
-    monkeypatch.chdir(tmp_path)
     design = tmp_path / "design"
     design.mkdir()
     docker = Docker(image="hdlc/impl", mounts={str(tmp_path / "cache"): "/cache"})
-    docker.run("yosys", read_only=[design])
+    docker.run("yosys", read_only=[design], cwd=tmp_path)
     (command,) = ran
     volumes = [a for a in command if a.startswith("--volume=")]
     assert len(volumes) == 3

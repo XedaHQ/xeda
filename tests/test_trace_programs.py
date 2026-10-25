@@ -85,11 +85,10 @@ def test_a_missing_image_or_docker_has_no_location(monkeypatch):
 
 
 def test_running_in_a_container_records_the_image(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(xeda.tool, "run_process", lambda *args, **kwargs: None)
     with recording_programs() as names:
-        Docker(image="hdlc/ghdl", tag="yosys").run("ghdl", "--version")
-        Docker(image="alpine", tag=None).run("true")
+        Docker(image="hdlc/ghdl", tag="yosys").run("ghdl", "--version", cwd=tmp_path)
+        Docker(image="alpine", tag=None).run("true", cwd=tmp_path)
     assert names == [f"{DOCKER_IMAGE_PREFIX}hdlc/ghdl:yosys", f"{DOCKER_IMAGE_PREFIX}alpine:latest"]
 
 

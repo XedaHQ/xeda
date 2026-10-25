@@ -467,7 +467,9 @@ def test_nvc_evidence_captures_stdout_and_preserves_user_vhpi(tmp_path, messages
         else ["-shared", "-fPIC"]
     )
     library = tmp_path / "user.so"
-    Tool(executable="c++", print_command=False).run(*flags, plugin, "-o", library, timeout=30)
+    Tool(executable="c++", print_command=False).run(
+        *flags, plugin, "-o", library, timeout=30, cwd=tmp_path
+    )
     libraries = [library]
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
         Nvc,

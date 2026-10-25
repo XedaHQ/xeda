@@ -48,7 +48,7 @@ from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, NamedTuple, Optional, Sequence
+from typing import Any, Dict, Iterator, List, NamedTuple, Optional, Sequence, Tuple
 
 import pytest
 import yaml
@@ -268,10 +268,24 @@ class World:
     pdk_store: Path  # the store of the `tiny` platform, for a flow that maps to one
 
 
+#: The share directory of the stand-in cocotb, in the world's parent: Verilator's flow copies
+#: cocotb's main for Verilator from it (`lib/verilator/verilator.cpp`).
+COCOTB_SHARE = "cocotb_share"
+
+
+def stand_in_answers(world: World) -> Dict[Tuple[str, str], str]:
+    """What the stand-in of `run_process` prints for a query, by program name and first argument,
+    so that a flow that needs the answer reaches the tools it starts."""
+    return {("cocotb-config", "--share"): str(world.parent / COCOTB_SHARE)}
+
+
 def _world(parent: Path) -> World:
     work, outside = parent / "work", parent / "outside"
     work.mkdir(parents=True)
     outside.mkdir()
+    cocotb_main = parent / COCOTB_SHARE / "lib" / "verilator" / "verilator.cpp"
+    cocotb_main.parent.mkdir(parents=True)
+    cocotb_main.write_text("// the stand-in cocotb's main for Verilator\n")
     for name in ("sqrt.vhdl", "tb_sqrt.py"):
         shutil.copy(SQRT / name, work / name)
     (work / "tb_sqrt_plain.vhdl").write_text(PLAIN_TB)
@@ -790,6 +804,7 @@ def _launch(
         ensure_run_root(world.root)
         use_fake_fpga_tools(monkeypatch, world.root / FAKE_TOOLCHAIN)
     seen.processes.install(monkeypatch)
+    seen.processes.answers = stand_in_answers(world)
     if flow_class.name not in FAKED:
         monkeypatch.setattr("xeda.tool.run_process", seen.processes.stub)
         monkeypatch.setattr("xeda.tool.Tool.version_gte", lambda self, *args: True)
@@ -1162,9 +1177,12 @@ class ProcessRecorder:
 
     events: List[ProcessEvent] = field(default_factory=list)
     probes: set = field(default_factory=set)
+    #: what `stub` prints for a query (`stand_in_answers`); any other request prints nothing
+    answers: Dict[Tuple[str, str], str] = field(default_factory=dict)
 
     def note(self, words: List[str], raw_cwd: object, env: Any, stubbed: bool) -> None:
-        added = {k: v for k, v in (env or {}).items() if os.environ.get(k) != v}
+        # `PWD` is the directory of the process (`run_process` sets it), which a finding names.
+        added = {k: v for k, v in (env or {}).items() if k != "PWD" and os.environ.get(k) != v}
         text = " ".join([*words, *(f"{k}={v}" for k, v in added.items())])
         cwd = Path(os.path.realpath(Path.cwd() if raw_cwd is None else os.fsdecode(raw_cwd)))
         self.events.append(
@@ -1184,7 +1202,9 @@ class ProcessRecorder:
         given = _RUN_PROCESS_SIGNATURE.bind(*args, **kwargs).arguments
         words = [str(given["executable"]), *map(str, given.get("args") or [])]
         self.note(words, given.get("cwd"), given.get("env"), stubbed=True)
-        return ""
+        return self.answers.get(
+            (os.path.basename(words[0]), words[1] if len(words) > 1 else ""), ""
+        )
 
     def install(self, monkeypatch) -> None:
         """Record from now on, until `monkeypatch` is undone: at `subprocess.Popen`, where every

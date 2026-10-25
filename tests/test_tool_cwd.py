@@ -1,13 +1,13 @@
 """A tool starts in an explicit working directory, whatever the working directory of Xeda is.
 
 A tool that belongs to a flow runs in the run path of the flow. A probe runs in a scratch
-directory. Any other tool runs in the current directory, read once when the process starts.
-Xeda writes the files of the tool (`env.sh`, the Docker environment file) there too. The tests
-below run with the working directory of the test process, which is never the run path.
+directory. Any other start of a tool names an absolute directory (`cwd=`); without one it is an
+error. Xeda writes the files of the tool (`env.sh`, the Docker environment file) there too. The
+tests below run with the working directory of the test process, which is never the run path.
 """
 
+import gc
 import json
-import os
 import subprocess
 import sys
 import textwrap
@@ -19,8 +19,10 @@ import pytest
 import xeda.tool
 from xeda import Design
 from xeda.flows import Yosys
+from xeda.flows.nextpnr import EcpPLL
 from xeda.run_dir import RunDirectoryError
 from xeda.tool import Docker, Tool
+from xeda.utils import ToolException
 
 Call = Tuple[str, List[str], dict]
 
@@ -107,11 +109,84 @@ def test_a_tool_made_in_a_flow_method_called_by_another_flow_belongs_to_the_inne
     assert kwargs["cwd"] != outer.run_path
 
 
-def test_a_tool_outside_a_flow_starts_in_the_current_directory_as_an_absolute_path(calls):
-    _tool().run("arg")
+@pytest.mark.parametrize("cwd", [None, Path("sub")], ids=["no-directory", "relative"])
+def test_a_tool_outside_a_flow_needs_an_absolute_directory(cwd, calls):
+    """A tool without a flow has no directory of its own; the current directory is never one."""
+    tool = _tool()
+    with pytest.raises(ToolException, match=r"some-tool.*absolute `cwd=`"):
+        tool.run("arg", cwd=cwd)
+    with pytest.raises(ToolException, match=r"some-tool.*absolute `cwd=`"):
+        tool.run("arg", env={"ONE": "1"}, cwd=cwd)
+    with pytest.raises(ToolException, match=r"some-tool.*absolute `cwd=`"):
+        tool.execute("other", cwd=cwd)
+    with pytest.raises(ToolException, match=r"some-tool.*absolute `cwd=`"):
+        tool.working_directory()
+    assert calls == []
+    assert not (Path.cwd() / "env.sh").exists()
+
+
+def test_a_tool_outside_a_flow_starts_in_the_absolute_directory_given(tmp_path, calls):
+    tool = _tool()
+    tool.run("arg", env={"ONE": "1"}, cwd=tmp_path, stdout=Path("tool.out"))
     ((_, _, kwargs),) = calls
-    assert kwargs["cwd"] == Path(os.getcwd())
-    assert Path(kwargs["cwd"]).is_absolute()
+    assert kwargs["cwd"] == tmp_path
+    assert kwargs["stdout"] == tmp_path / "tool.out"
+    assert (tmp_path / "env.sh").read_text() == 'export ONE="1"'
+
+
+def test_a_tool_whose_flow_is_gone_has_no_flow(tmp_path, calls):
+    """A tool can outlive its flow. It then needs an absolute directory, as a tool outside a flow
+    does. The run directory of the flow still guards the files that Xeda writes in it."""
+    flow = _flow(tmp_path)
+    run_path = flow.run_path
+    tool = _tool(flow)
+    del flow
+    gc.collect()
+    with pytest.raises(ToolException, match=r"some-tool.*absolute `cwd=`"):
+        tool.run("arg")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    tool.run("arg", env={"ONE": "1"}, cwd=elsewhere)
+    assert (elsewhere / "env.sh").read_text() == 'export ONE="1"'
+    tool.run("arg", env={"TWO": "2"}, cwd=run_path)
+    assert (run_path / "env.sh").read_text() == 'export TWO="2"'
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (run_path / "link").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(RunDirectoryError, match="symbolic link"):
+        tool.run("arg", env={"ONE": "1"}, cwd=run_path / "link")
+    assert list(outside.iterdir()) == []
+    assert [kwargs["cwd"] for _, _, kwargs in calls] == [elsewhere, run_path]
+
+
+def test_a_relative_executable_outside_a_flow_is_an_error():
+    """`./simv` names a file in the directory of the tool, which a tool without a flow lacks."""
+    tool = Tool(executable="./simv", version_flag=None)
+    with pytest.raises(ToolException, match=r"\./simv.*absolute `cwd=`"):
+        tool.executable_path()
+
+
+def test_a_tool_outside_a_flow_finds_an_executable_on_path():
+    assert Tool(executable="sh", version_flag=None).executable_path() is not None
+
+
+def test_the_output_of_a_tool_outside_a_flow_goes_to_the_file_in_the_directory_given(
+    tmp_path, calls
+):
+    _tool().run_stdout_to_file("arg", redirect_to=Path("out.txt"), cwd=tmp_path)
+    ((_, _, kwargs),) = calls
+    assert kwargs["cwd"] == tmp_path
+    assert kwargs["stdout"] == tmp_path / "out.txt"
+
+
+def test_ecppll_generates_in_the_directory_given(tmp_path, calls):
+    pll = EcpPLL(clkin=25.0, clkouts=[50.0])
+    with pytest.raises(ToolException, match=r"ecppll.*absolute `cwd=`"):
+        pll.generate()
+    pll.generate(cwd=tmp_path)
+    ((executable, _, kwargs),) = calls
+    assert executable == "ecppll"
+    assert kwargs["cwd"] == tmp_path
 
 
 def test_a_relative_executable_is_found_in_the_working_directory_of_the_tool(tmp_path):
@@ -277,6 +352,34 @@ def test_a_container_started_with_a_directory_works_there(tmp_path, calls):
     assert calls[0][2]["cwd"] == here
 
 
+@pytest.mark.parametrize("cwd", [None, Path("sub")], ids=["no-directory", "relative"])
+def test_a_container_needs_an_absolute_directory(cwd, calls):
+    with pytest.raises(ToolException, match=r"img.*absolute `cwd=`"):
+        Docker(image="img").run("tool", cwd=cwd)
+    assert calls == []
+
+
+def test_a_container_gets_its_directory_as_pwd(tmp_path, calls):
+    """The container works in the resolved directory, and its `PWD` says so."""
+    flow = _flow(tmp_path, linked=True)
+    _docker_tool(flow).run("arg")
+    command = _docker_command(calls)
+    env_file = Path(command[command.index("--env-file") + 1])
+    real = flow.run_path.resolve()
+    assert f"PWD={real}" in env_file.read_text().splitlines()
+    assert f"--workdir={real}" in command
+
+
+def test_the_processors_of_a_container_are_counted_in_a_scratch_directory(tmp_path, calls):
+    flow = _flow(tmp_path)
+    tool = _docker_tool(flow)
+    assert tool.nproc >= 1
+    directories = [Path(kwargs["cwd"]) for _, _, kwargs in calls]
+    assert directories
+    assert all(d.name.startswith("xeda-probe-") for d in directories), directories
+    assert list(flow.run_path.iterdir()) == []
+
+
 def test_the_cpu_information_is_asked_in_a_scratch_directory(tmp_path, calls):
     """The query of a machine property does not mount the directory of the user."""
     assert Docker(image="img").cpuinfo is not None
@@ -368,3 +471,12 @@ def test_real_processes_start_where_they_are_told_and_nothing_changes_directory(
     assert not reached["probe_exists"]
     assert reached["run_files_after_probe"] == ["env.sh"]
     assert list(elsewhere.iterdir()) == []
+
+
+def test_a_tool_of_a_flow_gets_the_run_path_as_pwd(tmp_path):
+    """The run path may be a link into the run root; `PWD` is the run path as the flow has it."""
+    flow = _flow(tmp_path, linked=True)
+    tool = Tool(executable=sys.executable, flow=flow, version_flag=None, print_command=False)
+    show = "import os; print(os.environ['PWD'])"
+    assert tool.run("-c", show, stdout=True).strip() == str(flow.run_path)
+    assert tool.run("-c", show, stdout=True, cwd=tmp_path).strip() == str(tmp_path)
