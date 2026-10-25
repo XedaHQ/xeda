@@ -13,7 +13,7 @@ from ...flow import (
     ArtifactSpec,
     describe_artifacts,
 )
-from ...flow.sim import SimEvidence
+from ...flow.sim import SimEvidence, whole_femtoseconds
 from ...units import Bounds, Time, Unit, count
 from ...utils import SDF
 from ..vivado import Vivado
@@ -30,6 +30,8 @@ class VivadoSim(Vivado, SimFlow):
     pre-run and the run, measured from the current time that `xsim` reports. Verified with
     Vivado 2024.2.
     """
+
+    simulated_time_fields = ("stop_time", "prerun_time")
 
     #: `xvlog` analyzes Verilog and SystemVerilog, `xvhdl` analyzes VHDL.
     reads_sources = frozenset({SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl})
@@ -254,8 +256,8 @@ class VivadoSim(Vivado, SimFlow):
         self.run_directory.remove(RUNTIME_LOG, PROCESS_LOG)
         self.run_directory.writable(RUNTIME_LOG)
         process_log = self.run_directory.writable(PROCESS_LOG)
-        stop_fs = int(round(ss.stop_time.to("fs"))) if ss.stop_time is not None else None
-        prerun_fs = int(round(ss.prerun_time.to("fs"))) if ss.prerun_time is not None else None
+        stop_fs = whole_femtoseconds(ss.stop_time) if ss.stop_time is not None else None
+        prerun_fs = whole_femtoseconds(ss.prerun_time) if ss.prerun_time is not None else None
         script_path = self.copy_from_template(
             "vivado_sim.tcl", stop_fs=stop_fs, prerun_fs=prerun_fs, runtime_log=RUNTIME_LOG
         )

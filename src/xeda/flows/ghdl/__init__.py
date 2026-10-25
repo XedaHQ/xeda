@@ -24,7 +24,7 @@ from ...flow import (
     describe_results,
 )
 from ...flow.metrics import COCOTB_METRICS
-from ...flow.sim import SimEvidence
+from ...flow.sim import SimEvidence, whole_femtoseconds
 from ...flow.sim_evidence import parse_ghdl_log
 from ...tool import Docker, Tool
 from ...utils import LOCATION_FORMS, SDF, common_root, replacing_file, setting_flag
@@ -779,7 +779,7 @@ class GhdlSim(Ghdl, SimFlow):
             )
 
         if ss.stop_time is not None:
-            stop_fs = round(ss.stop_time.to("fs"))
+            stop_fs = whole_femtoseconds(ss.stop_time)
             run_flags.append(f"--stop-time={stop_fs}fs")
         run_flags += setting_flag(ss.stop_delta, name="stop_delta")
 

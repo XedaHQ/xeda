@@ -16,7 +16,7 @@ from ..flow import (
 )
 from ..flow.metrics import program_logs
 from ..flow.flow import describe_results
-from ..flow.sim import SimEvidence
+from ..flow.sim import SimEvidence, whole_femtoseconds
 from ..tool import Tool
 from ..units import Bounds, Time, Unit, data_size
 from ..utils import replacing_file, tcl_word
@@ -363,7 +363,7 @@ class Vcs(SimFlow):
             )
         stop_time = None
         if ss.stop_time is not None:
-            stop_fs = int(round(ss.stop_time.to("fs")))
+            stop_fs = whole_femtoseconds(ss.stop_time)
             if stop_fs <= 0:
                 raise FlowSettingsException(
                     "VCS `stop_time` must be positive after conversion to femtoseconds, "

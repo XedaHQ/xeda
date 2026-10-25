@@ -83,6 +83,18 @@ def time_in_fs(time: int, unit: str) -> int:
     return time * int(match.group(1)) * _FS_PER_UNIT[match.group(2)]
 
 
+def whole_femtoseconds(time: Time) -> int:
+    """Return a simulated time as a whole number of femtoseconds.
+
+    A simulator takes simulated time as an integer number of femtoseconds. Raise `ValueError`
+    for a time that is not one, since a value that a tool cannot take exactly is refused, never
+    rounded."""
+    femtoseconds = time.to("fs")
+    if not femtoseconds.is_integer():
+        raise ValueError(f"{time} is not a whole number of femtoseconds")
+    return int(femtoseconds)
+
+
 def readable_time(time: int, unit: str | None) -> str:
     """Return a simulated time in the largest unit that holds it exactly.
 
@@ -230,7 +242,7 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     ):
         # Within one tick of the record's precision, since the driver stops at the last whole
         # tick.
-        requested = int(round(stop_time.to("fs")))
+        requested = whole_femtoseconds(stop_time)
         tick = time_in_fs(1, evidence.time_unit)
         stop_reached = abs(time_in_fs(evidence.time, evidence.time_unit) - requested) < tick
     max_cycles = getattr(flow.settings, "max_cycles", None)
@@ -344,6 +356,10 @@ class SimFlow(Flow, metaclass=ABCMeta):
     #: simulator.
     unsupported_waveforms: ClassVar[Mapping[str, str]] = {}
 
+    #: The settings that hold a simulated time. A simulator takes such a time as a whole number
+    #: of femtoseconds, so `check_settings_supported` refuses any other value.
+    simulated_time_fields: ClassVar[tuple[str, ...]] = ("stop_time",)
+
     class Settings(Flow.Settings):
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,
@@ -409,7 +425,9 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse a waveform setting that this simulator cannot honor (`unsupported_waveforms`).
+        """Refuse a simulated time that is not a whole number of femtoseconds
+        (`simulated_time_fields`) and a waveform setting that this simulator cannot honor
+        (`unsupported_waveforms`).
 
         Also refuse a name that selects another format. The setting that gets a name decides the
         format, never the name. A name that ends in an extension of another format
@@ -418,6 +436,17 @@ class SimFlow(Flow, metaclass=ABCMeta):
         written under the conventional name of `wave`, in the wrong format, and `true` would
         then be the same run as a location of another format."""
         super().check_settings_supported(settings)
+        for name in cls.simulated_time_fields:
+            value = getattr(settings, name)
+            if value is None:
+                continue
+            try:
+                whole_femtoseconds(value)
+            except ValueError:
+                raise FlowSettingsException(
+                    f"`{name}` is {value}, which is not a whole number of femtoseconds: "
+                    "a simulator takes a simulated time as an integer number of femtoseconds"
+                ) from None
         formats = waveform_fields(type(settings))
         usable = {
             extension: name

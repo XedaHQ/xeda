@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow import FlowSettingsError, SimFlow
+from xeda.flow import FlowSettingsError, FlowSettingsException, SimFlow
+from xeda.flow.sim import whole_femtoseconds
 from xeda.flow_runner import DefaultRunner, get_flow_class
 from xeda.flow_runner.error_codes import settings_codes
 from xeda.flows import GhdlSim, Nvc, Vcs
@@ -80,6 +81,48 @@ def test_the_timeout_reaches_a_tool_in_seconds():
     settings = get_flow_class("ghdl_sim").Settings(timeout="2 min")
     assert settings.timeout_in_seconds() == 120.0
     assert get_flow_class("ghdl_sim").Settings().timeout_in_seconds() is None
+
+
+#: The time settings of a simulator that are no simulated time: a wall-clock limit, a license
+#: wait and the time scale that VCS spells itself.
+NOT_SIMULATED_TIMES = {"timeout", "lic_wait", "time_unit", "time_resolution"}
+
+
+def time_fields(cls):
+    return [name for name, field in cls.Settings.model_fields.items() if "Time" in repr(field)]
+
+
+@pytest.mark.parametrize("cls", SIMULATORS, ids=lambda cls: cls.name)
+def test_every_simulated_time_of_a_simulator_is_declared_and_checked(cls):
+    declared = set(cls.simulated_time_fields)
+    assert declared <= set(time_fields(cls))
+    assert set(time_fields(cls)) - declared <= NOT_SIMULATED_TIMES
+
+
+@pytest.mark.parametrize("cls", SIMULATORS, ids=lambda cls: cls.name)
+def test_a_simulated_time_is_a_whole_number_of_femtoseconds_or_it_is_refused(cls):
+    minimal = minimal_settings(cls)
+    cls.check_settings_supported(cls.Settings(**minimal))
+    for name in cls.simulated_time_fields:
+        for accepted in ("0 fs", "1 fs", "1.5 ns", "100 us"):
+            try:
+                cls.check_settings_supported(cls.Settings(**minimal, **{name: accepted}))
+            except FlowSettingsException as error:
+                # A simulator that cannot stop at a time refuses every value, for its own reason.
+                assert "femtoseconds" not in str(error)
+        for refused in ("1.5 fs", "0.0005 ps", "2.25e-6 ns"):
+            settings = cls.Settings(**minimal, **{name: refused})
+            with pytest.raises(FlowSettingsException) as error:
+                cls.check_settings_supported(settings)
+            message = str(error.value)
+            assert f"`{name}`" in message and "whole number of femtoseconds" in message
+
+
+def test_a_time_converts_to_femtoseconds_exactly_or_not_at_all():
+    assert whole_femtoseconds(Time("0.1 ns")) == 100_000
+    assert whole_femtoseconds(Time("1.5 us")) == 1_500_000_000
+    with pytest.raises(ValueError, match="not a whole number of femtoseconds"):
+        whole_femtoseconds(Time("1.5 fs"))
 
 
 def test_not_migrated_yet_holds_only_the_design_space_search():

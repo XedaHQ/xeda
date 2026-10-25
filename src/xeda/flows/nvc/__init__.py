@@ -17,7 +17,7 @@ from ...flow import (
     describe_artifacts,
 )
 from ...flow.metrics import COCOTB_METRICS, program_logs
-from ...flow.sim import SimEvidence
+from ...flow.sim import SimEvidence, whole_femtoseconds
 from ...flow.sim_evidence import parse_nvc_log, read_sim_log
 from ...tool import Tool
 from ...units import count
@@ -444,7 +444,7 @@ class Nvc(SimFlow):
         if evidence.ended_by == "unknown":
             ss = self.settings
             assert isinstance(ss, self.Settings)
-            stop = round(ss.stop_time.to("fs")) if ss.stop_time is not None else None
+            stop = whole_femtoseconds(ss.stop_time) if ss.stop_time is not None else None
             # A queue with an event beyond the bound confirms a native cutoff. Equality of
             # end time alone proves nothing; judge_evidence separately enforces exact time.
             if (
@@ -493,8 +493,7 @@ class Nvc(SimFlow):
         if ss.stop_delta is not None:
             run_flags.append(f"--stop-delta={ss.stop_delta}")
         if ss.stop_time is not None:
-            stop_fs = ss.stop_time.to("fs")
-            run_flags.append(f"--stop-time={stop_fs:.0f}fs")
+            run_flags.append(f"--stop-time={whole_femtoseconds(ss.stop_time)}fs")
         if ss.stats:
             run_flags.append("--stats")
         if ss.shuffle:

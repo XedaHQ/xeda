@@ -216,6 +216,17 @@ CASES: dict[str, Case] = {
         r"`-iopad` in `synth_flags`.*out_of_context",
         {"fpga": {"part": "LFE5U-25F-6BG256C"}, "out_of_context": True, "synth_flags": ["-iopad"]},
     ),
+    "ghdl-fractional-femtosecond-stop-time": Case(
+        GhdlSim,
+        "`stop_time` is .*not a whole number of femtoseconds",
+        {"stop_time": "1.5 fs"},
+        _vhdl,
+    ),
+    "vivado-sim-fractional-femtosecond-prerun-time": Case(
+        VivadoSim,
+        "`prerun_time` is .*not a whole number of femtoseconds",
+        {"prerun_time": "0.5 fs"},
+    ),
     "yosys-sim-stop-time": Case(YosysSim, "cannot enforce stop_time", {"stop_time": "1us"}),
     "yosys-platform-with-gates": Case(
         Yosys,
