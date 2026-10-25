@@ -761,7 +761,7 @@ def test_a_target_overrides_the_design_and_only_where_it_writes(tmp_path):
     )
     assert both.seed == 11  # API > command line > target
     board = planned_nextpnr(tmp_path, "layered", "ulx3s", flow_settings=["board=arty_a7_35t"])
-    # a command-line `board` beats the target's too,
+    # a command-line `board` beats the target's too
     assert board.board == "arty_a7_35t"
 
 

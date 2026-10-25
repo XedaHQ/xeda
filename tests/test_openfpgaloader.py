@@ -551,10 +551,15 @@ def test_a_cable_takes_precedence_over_every_bundled_board(tmp_path, fake_loader
     ]
 
 
-def test_a_bundled_board_in_capitals_is_programmed_by_the_same_name(tmp_path, fake_loader):
-    _program(tmp_path, _prebuilt(tmp_path), {"board": "BASYS_3"})
+def test_a_bundled_board_is_programmed_by_its_name(tmp_path, fake_loader):
+    _program(tmp_path, _prebuilt(tmp_path), {"board": "basys_3"})
     (call,) = _calls(tmp_path, "openfpgaloader")
     assert call["argv"][2:] == ["--board", "basys3"]
+
+
+def test_a_bundled_board_in_capitals_is_refused_with_its_name(tmp_path, fake_loader):
+    with pytest.raises((FlowSettingsError, ValueError), match="Did you mean 'basys_3'"):
+        _program(tmp_path, _prebuilt(tmp_path), {"board": "BASYS_3"})
 
 
 @pytest.mark.parametrize(
