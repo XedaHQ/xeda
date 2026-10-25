@@ -17,6 +17,7 @@ import pytest
 
 from xeda.design import Design
 from xeda.flow_runner import get_flow_class
+from xeda.flow_runner.bindings import default_nodes, effective_bindings, split_bindings
 from xeda.utils import toml_load
 from xeda.xedaproject import XedaProject
 from xeda.yaml_loader import load_yaml
@@ -90,8 +91,11 @@ def test_every_flow_section_is_valid_for_its_flow(path, index, target):
     invalid = []
     for flow, section in _flow_sections(path, index, target):
         try:
-            get_flow_class(flow).Settings.from_input(
-                section,
+            flow_class = get_flow_class(flow)
+            settings, bindings = split_bindings({flow: section}, location=str(path))
+            effective_bindings([bindings], default_nodes([flow_class]))
+            flow_class.Settings.from_input(
+                settings[flow_class.name],
                 design_root=path.parent,
                 runner_cwd=path.parent,
             )

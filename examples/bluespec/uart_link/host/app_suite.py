@@ -70,8 +70,10 @@ def parser() -> argparse.ArgumentParser:
     gcd_cli.add_commands(commands)
     ascon_cli.add_commands(commands)
     check = commands.add_parser("selftest", help="check independent reference vectors on the board")
-    check.add_argument("application", choices=("gcd", "ascon"))
-    check.add_argument(
+    selftests = check.add_subparsers(dest="application", required=True)
+    selftests.add_parser("gcd", help="check independent GCD reference results")
+    ascon_test = selftests.add_parser("ascon", help="check independent Ascon reference vectors")
+    ascon_test.add_argument(
         "--variant", choices=("128", "128a"), default="128", help="must match the FPGA build"
     )
     return result

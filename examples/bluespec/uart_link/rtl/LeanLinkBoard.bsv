@@ -18,13 +18,14 @@ import GetPut :: *;
 import Connectable :: *;
 import Uart :: *;
 import LeanLink :: *;
-import LeanLinkTestTop :: *;
 `ifdef LL_APP_ASCON
 import StreamExchange :: *;
 import AsconStream :: *;
 `elsif LL_APP_GCD
 import StreamExchange :: *;
 import GcdStream :: *;
+`else
+import LeanLinkTestTop :: *;
 `endif
 
 `ifndef LL_LOGW

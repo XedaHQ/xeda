@@ -65,7 +65,8 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
 
    Integer inBytes = (valueOf(inWidth) + 7) / 8;
    Integer outBytes = (valueOf(outWidth) + 7) / 8;
-   Integer maxAcceptedWords = (2 ** valueOf(logP) - 14) / inBytes;
+   Integer maxFrameLength = min(255, (2 ** valueOf(logP)) + 7);
+   Integer maxAcceptedWords = (maxFrameLength - 13) / inBytes;
    Integer countMask = acceptedCountMask(maxAcceptedWords);
 
    Clock clk <- exposeCurrentClock;
@@ -385,7 +386,8 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
 
    Integer inBytes = (valueOf(inWidth) + 7) / 8;
    Integer outBytes = (valueOf(outWidth) + 7) / 8;
-   Integer maxAcceptedWords = (2 ** valueOf(logP) - 14) / inBytes;
+   Integer maxFrameLength = min(255, (2 ** valueOf(logP)) + 7);
+   Integer maxAcceptedWords = (maxFrameLength - 13) / inBytes;
    Integer countMask = acceptedCountMask(maxAcceptedWords);
    Bit#(256) validLengthMask = fromInteger(makeLengthMask(inBytes));
 
@@ -466,8 +468,9 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
                inputQ.enq(unpack(truncate(assembled)));
                acceptedCount <= (acceptedCount + 1) & fromInteger(countMask);
             end else noAction;
-            if (inBytes == 1 || inBytes == 2 || inBytes == 4 || inBytes == 8
-                || inBytes == 16 || inBytes == 32 || inBytes == 64)
+            if (inBytes == 1) inputByte <= 0;
+            else if (inBytes == 2 || inBytes == 4 || inBytes == 8
+                     || inBytes == 16 || inBytes == 32 || inBytes == 64)
                inputByte <= inputByte + 1;
             else inputByte <= 0;
          end else begin

@@ -500,13 +500,20 @@ class Tool(XedaBaseModel):
     def executable_path(self) -> Path | None:
         """Return the resolved absolute path of the executable, or None if it is not found.
 
-        An absolute executable must exist and be executable. Any other is looked up on `PATH`."""
+        An absolute executable must exist and be executable. A relative path (`./simv`) is
+        relative to the working directory of the tool, where it starts. Any other name is looked
+        up on `PATH`."""
+        executable = self.executable
+        if not os.path.isabs(executable) and os.sep in executable:
+            executable = str(self.working_directory() / executable)
         if (
-            os.path.isabs(self.executable)
-            and os.path.exists(self.executable)
-            and os.access(self.executable, os.X_OK)
+            os.path.isabs(executable)
+            and os.path.exists(executable)
+            and os.access(executable, os.X_OK)
         ):
-            return Path(self.executable).resolve()
+            return Path(executable).resolve()
+        if executable != self.executable:
+            return None
         which = shutil.which(self.executable)
         if which is not None:
             return Path(which).resolve()

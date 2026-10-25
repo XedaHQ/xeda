@@ -4,7 +4,12 @@ receives a path from its caller, and starts every subprocess in an explicit dire
 The scan lists each place in `src/xeda` that calls `os.chdir`, reads the working directory
 (`Path.cwd()`, `os.getcwd()`) or starts a process without `cwd=`, by module and function. Each
 place is reviewed below with the reason it may do so. A new place fails until it is reviewed; a
-reviewed place that is gone fails until its entry is removed, so the lists only shrink."""
+reviewed place that is gone fails until its entry is removed, so the lists only shrink.
+
+A static scan cannot see an implicit use of the working directory. The launch sweep of
+`tests/test_isolation.py` fails a relative open, listing or write at run time. A relative `exists`
+or `resolve` raises no audit event: it shows as a launch that fails or reads the wrong file, since
+no test launches from the run directory."""
 
 from __future__ import annotations
 
@@ -63,8 +68,6 @@ NO_CWD_STARTS = (
 
 #: (module, function) -> why it changes the working directory.
 REVIEWED_CHDIRS: dict[tuple[str, str], str] = {
-    ("utils.py", "WorkingDirectory.__enter__"): "the launch still enters the run directory",
-    ("utils.py", "WorkingDirectory.__exit__"): "the launch still enters the run directory",
     (
         "remote/launch_entry.py",
         "execute",
@@ -94,7 +97,6 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
     ("run_root.py", "ensure_run_root"): "a run root given relative to the caller",
     ("tool.py", "Docker.run"): "a container started outside a tool",
     ("tool.py", "Tool.working_directory"): "a tool outside a flow",
-    ("utils.py", "WorkingDirectory.__enter__"): "the launch still enters the run directory",
 }
 
 #: (module, function) -> why a process it starts needs no explicit working directory.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -24,6 +25,14 @@ BARE = [
     "leanlink_w8",
     "leanlink_w1",
 ]
+BLOCK_RAM_CELLS = (
+    "RAMB18",
+    "RAMB18E1",
+    "RAMB18E2",
+    "RAMB36",
+    "RAMB36E1",
+    "RAMB36E2",
+)
 
 
 def _port_widths(run_root: Path, top: str) -> dict[str, int]:
@@ -41,13 +50,26 @@ def _assert_memory_mapping(flow: YosysFpga, target: str) -> None:
     results = flow.results
     utilization = results["_utilization"]
     assert results["LUT:RAM"] > 0
+    block_rams = sum(utilization.get(cell, 0) for cell in BLOCK_RAM_CELLS)
     if target.endswith("_w8"):
-        block_rams = max(utilization.get("RAMB18", 0), utilization.get("RAMB18E1", 0))
         assert block_rams > 0
         assert utilization.get("RAM64M", 0) == 0
     else:
-        assert utilization.get("RAMB18", 0) == 0
+        assert block_rams == 0
         assert utilization.get("RAM64M", 0) > 0
+
+
+@pytest.mark.parametrize("cell", BLOCK_RAM_CELLS)
+def test_memory_mapping_recognizes_block_ram_variants(cell):
+    utilization = {cell: 1}
+    block_ram_flow = SimpleNamespace(results={"_utilization": utilization, "LUT:RAM": 1})
+    distributed_flow = SimpleNamespace(
+        results={"_utilization": {**utilization, "RAM64M": 1}, "LUT:RAM": 1}
+    )
+
+    _assert_memory_mapping(block_ram_flow, "gcd_w8")
+    with pytest.raises(AssertionError):
+        _assert_memory_mapping(distributed_flow, "gcd_w1")
 
 
 @pytest.mark.parametrize("target,input_width,output_width", ADAPTERS)

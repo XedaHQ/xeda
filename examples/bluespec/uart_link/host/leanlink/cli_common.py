@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -184,4 +185,12 @@ def run_cli(
         return 1
     finally:
         if device is not None:
-            device.close()
+            try:
+                device.close()
+            except Exception as exc:
+                # Report cleanup failures without replacing the command's JSON result.
+                if sys.stderr is not None:
+                    try:
+                        print(f"warning: device cleanup failed: {exc}", file=sys.stderr)
+                    except Exception:
+                        pass

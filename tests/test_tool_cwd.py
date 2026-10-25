@@ -114,6 +114,19 @@ def test_a_tool_outside_a_flow_starts_in_the_current_directory_as_an_absolute_pa
     assert Path(kwargs["cwd"]).is_absolute()
 
 
+def test_a_relative_executable_is_found_in_the_working_directory_of_the_tool(tmp_path):
+    """A tool named by a relative path (`./simv`, which the flow builds) is the file in its run
+    directory, whatever the working directory of the process."""
+    flow = _flow(tmp_path)
+    program = flow.run_path / "simv"
+    program.write_text("#!/bin/sh\nexit 0\n")
+    program.chmod(0o755)
+    assert Tool(executable="./simv", flow=flow, version_flag=None).executable_path() == (
+        program.resolve()
+    )
+    assert Tool(executable="./missing", flow=flow, version_flag=None).executable_path() is None
+
+
 def test_the_environment_file_goes_to_the_run_path(tmp_path, calls):
     flow = _flow(tmp_path)
     _tool(flow).run("arg", env={"ONE": "1", "SKIPPED": None})
