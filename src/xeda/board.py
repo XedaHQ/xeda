@@ -4,7 +4,7 @@ import tomllib
 from contextlib import AbstractContextManager, nullcontext
 from difflib import get_close_matches
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 from importlib_resources import as_file, files
@@ -26,7 +26,6 @@ __all__ = [
     "WithFpgaBoardSettings",
     "board_database_format",
     "bundled_boards",
-    "canonical_board_name",
     "get_board_data",
     "read_board_database",
 ]
@@ -99,9 +98,7 @@ def read_board_database(path: Union[str, os.PathLike]) -> Dict[str, Any]:
 def bundled_boards() -> Dict[str, Any]:
     """Return the boards that Xeda bundles (`xeda/data/boards.toml`), by name.
 
-    A bundled board is stored under a lower-case name and found by its name in any letter case
-    (`get_board_data`). Two names that differ only in case would make that lookup ambiguous, so
-    the database must name every board in lower case.
+    A bundled board is named in lower case, and found only by that name (`get_board_data`).
     """
     boards = toml_loads(files("xeda.data").joinpath("boards.toml").read_text())
     odd = [name for name in boards if name != name.lower()]
@@ -111,20 +108,6 @@ def bundled_boards() -> Dict[str, Any]:
             + ", ".join(map(repr, odd))
         )
     return boards
-
-
-def canonical_board_name(
-    board: Any, custom_boards_file: Union[None, str, os.PathLike] = None
-) -> Any:
-    """Return the name a selected board is stored under, so that every spelling is one setting.
-
-    A bundled board answers to its name in any letter case and is stored in lower case. A board of
-    a custom database is stored as written, because its names are case-sensitive. A name that no
-    board answers to is returned as written, so the error that names it shows what was given.
-    """
-    if custom_boards_file or not isinstance(board, str):
-        return board
-    return board.lower() if board.lower() in bundled_boards() else board
 
 
 #: The keys of a board entry: the device, the board's name in openFPGALoader, and the local pin
@@ -179,14 +162,25 @@ def board_entry(name: Any, entry: Any, database: str) -> Any:
     return entry
 
 
+def _similar_boards(name: str, boards: Dict[str, Any]) -> List[str]:
+    """Return the names of `boards` that `name` probably means: the names that differ from it only
+    in letter case, else the names close to it."""
+    same = [known for known in boards if known.lower() == name.lower()]
+    if same:
+        return same
+    close = get_close_matches(name.lower(), [known.lower() for known in boards])
+    return [known for known in boards if known.lower() in close]
+
+
 def get_board_data(
     board: Optional[str], custom_boards_file: Union[None, str, os.PathLike] = None
 ) -> Optional[Dict[str, Any]]:
     """Return the entry for `board` from `custom_boards_file` (TOML or YAML), else from the
     bundled (TOML) database, as `board_entry` reads it.
 
-    A bundled board is found by its name in any letter case. The names in a custom database are
-    case-sensitive: `board` must be written exactly as the database writes it.
+    The names of the boards are case-sensitive, in the bundled database (all lower case) and in a
+    custom one: `board` must be written exactly as the database writes it. A name in another
+    letter case is an error that names the right spelling.
     """
     if not board:
         return None
@@ -197,12 +191,12 @@ def get_board_data(
         database = str(custom_boards_file)
     else:
         boards_data = bundled_boards()
-        name = board.lower() if isinstance(board, str) else board
+        name = board
         database = "the bundled board database xeda/data/boards.toml"
         if name in boards_data:
             log.debug("Retrieved board data for %s", name)
     if name not in boards_data:
-        suggestions = get_close_matches(name, boards_data) if isinstance(name, str) else []
+        suggestions = _similar_boards(name, boards_data) if isinstance(name, str) else []
         hint = f". Did you mean {', '.join(map(repr, suggestions))}?" if suggestions else ""
         raise ValueError(f"Unknown board {board!r} in {database}{hint}")
     return board_entry(name, boards_data[name], database)
@@ -220,8 +214,8 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
     board: Optional[str] = Field(
         None,
         description="Target development board. Fills in `fpga` (and board-specific constraint "
-        "files) from the board database. See `xeda list-boards`. A bundled board is found by its "
-        "name in any letter case; a name in a custom database is case-sensitive.",
+        "files) from the board database. See `xeda list-boards`. Board names are case-sensitive: "
+        "a bundled board is named in lower case.",
     )
     custom_boards_file: Path | None = Field(
         None,
@@ -266,8 +260,6 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
             board_derived_fpga = self.fpga == self._board_fpga(self.board_data())
         if name == "custom_boards_file":
             value = self._resolve_boards_path(value, self.context)
-        elif name == "board":
-            value = canonical_board_name(value, self.custom_boards_file)
         super().__setattr__(name, value)
         if board_derived_fpga:
             # A board or database change invalidates the device obtained from the old board.
@@ -306,7 +298,6 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
                 )
             if not isinstance(board_data, dict):
                 raise ValueError(f"Board {board_name!r} must be a table in {database}")
-            values["board"] = canonical_board_name(board_name, custom)
             if fpga:
                 return values
             if board_data:

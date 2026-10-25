@@ -62,7 +62,7 @@ This builds `outputs/blinky.bit` and programs nothing.
 
 `nextpnr`, `fpga_pack` and `openfpgaloader` take `board: <name>`; `yosys_fpga` and the Vivado flows
 take `fpga.part`. A board gives the part and, when `rtl.sources` holds no pin file of the family,
-the board's pin names. Names are lower case and match in any letter case. `xeda list-boards --json` lists each
+the board's pin names. Names are lower case and case-sensitive. `xeda list-boards --json` lists each
 board with its part, its pin file (`xdc` or `lpf`, under `xeda/data/`) and `openfpgaloader_board`.
 
 | Board | Ports the design must use |

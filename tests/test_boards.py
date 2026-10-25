@@ -89,35 +89,28 @@ def test_ulx3s_uses_the_bundled_lpf():
 # ------------------------------------------------------------------- names and letter case
 
 
-@pytest.mark.parametrize(
-    "spelling", ["arty_a7_100t", "ARTY_A7_100T", "Arty_A7_100T", "aRTY_a7_100t"]
-)
-def test_a_bundled_board_is_found_by_its_name_in_any_letter_case(spelling):
-    settings = WithFpgaBoardSettings.from_input({"board": spelling})
-    assert settings.board == "arty_a7_100t"  # stored under its one name
+def test_a_bundled_board_is_found_by_its_name():
+    settings = WithFpgaBoardSettings.from_input({"board": "arty_a7_100t"})
+    assert settings.board == "arty_a7_100t"
     assert settings.fpga is not None and settings.fpga.part == "xc7a100tcsg324-1"
-    assert get_board_data(spelling) == get_board_data("arty_a7_100t")
     assert settings.board_data() == get_board_data("arty_a7_100t")
 
 
-def test_the_spellings_of_a_bundled_board_make_one_setting():
-    spellings = ("ULX3S_85F", "ulx3s_85f", "Ulx3s_85F")
-    dumps = [WithFpgaBoardSettings.from_input({"board": name}).model_dump() for name in spellings]
-    assert dumps[0] == dumps[1] == dumps[2]
-    assert dumps[0]["board"] == "ulx3s_85f"
-    # and the settings reload unchanged from what they dump
-    reloaded = WithFpgaBoardSettings.from_input(dumps[0])
-    assert reloaded.model_dump() == dumps[0]
+@pytest.mark.parametrize("spelling", ["ARTY_A7_100T", "Arty_A7_100T", "aRTY_a7_100t"])
+def test_a_bundled_board_in_another_letter_case_is_refused_with_its_name(spelling):
+    with pytest.raises(FlowSettingsError, match=r"Did you mean 'arty_a7_100t'\?"):
+        WithFpgaBoardSettings.from_input({"board": spelling})
+    with pytest.raises(ValueError, match=r"Did you mean 'arty_a7_100t'\?"):
+        get_board_data(spelling)
 
 
-def test_assigning_a_bundled_board_in_any_case_stores_its_one_name():
+def test_assigning_a_board_in_another_letter_case_is_refused():
     settings = WithFpgaBoardSettings.from_input({"board": "ulx3s_85f"})
-    settings.board = "ARTY_A7_35T"
-    assert settings.board == "arty_a7_35t"
+    with pytest.raises(ValidationError, match=r"Unknown board 'ARTY_A7_35T'.*'arty_a7_35t'"):
+        settings.board = "ARTY_A7_35T"
+    assert settings.board == "ulx3s_85f"
+    settings.board = "arty_a7_35t"
     assert settings.fpga is not None and settings.fpga.part == "xc7a35tcsg324-1"
-    with pytest.raises(ValidationError, match="Unknown board 'Nope'"):
-        settings.board = "Nope"  # the message keeps the spelling that was given
-    assert settings.board == "arty_a7_35t"
 
 
 def test_an_unknown_bundled_board_suggests_names_in_lower_case():

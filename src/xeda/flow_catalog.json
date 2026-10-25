@@ -2089,7 +2089,7 @@
       "board": {
         "children": false,
         "assignable": true,
-        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. A bundled board is found by its name in any letter case; a name in a custom database is case-sensitive."
+        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. Board names are case-sensitive: a bundled board is named in lower case."
       },
       "custom_boards_file": {
         "children": false,
@@ -3392,7 +3392,7 @@
       "board": {
         "children": false,
         "assignable": true,
-        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. A bundled board is found by its name in any letter case; a name in a custom database is case-sensitive."
+        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. Board names are case-sensitive: a bundled board is named in lower case."
       },
       "custom_boards_file": {
         "children": false,
@@ -4326,7 +4326,7 @@
       "board": {
         "children": false,
         "assignable": true,
-        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. A bundled board is found by its name in any letter case; a name in a custom database is case-sensitive."
+        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. Board names are case-sensitive: a bundled board is named in lower case."
       },
       "custom_boards_file": {
         "children": false,
