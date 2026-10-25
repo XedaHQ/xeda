@@ -30,6 +30,18 @@ def test_run_process_records_what_it_starts():
     assert names == [sys.executable]
 
 
+def test_a_relative_program_is_recorded_where_the_process_starts(tmp_path):
+    """`./simv` runs from the directory the process starts in, not from the working directory of
+    Xeda, so it is recorded there."""
+    program = tmp_path / "simv"
+    program.write_text("#!/bin/sh\nexit 0\n")
+    program.chmod(0o755)
+    with recording_programs() as names:
+        run_process("./simv", [], cwd=tmp_path)
+    assert names == [str(program)]
+    assert names.before[str(program)] is not None
+
+
 def test_nothing_is_recorded_outside_a_recording():
     note_program("anything")  # no recording active: silently ignored
     with recording_programs() as names:

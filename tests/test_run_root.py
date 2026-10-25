@@ -113,6 +113,29 @@ def test_an_unmarked_xeda_run_elsewhere_is_not_adopted(tmp_path, monkeypatch):
         ensure_run_root(tmp_path / "other" / "xeda_run")
 
 
+def test_a_root_that_another_xeda_marks_meanwhile_is_used(tmp_path, monkeypatch):
+    """Two launches that start on one new run root at once both use it. One finds the root
+    unmarked and empty; the other marks it before the first looks again: the first finds the
+    marker among the files, and does not take the root for a directory of the user's."""
+    import xeda.run_root as run_root
+
+    root = tmp_path / "runs"
+    root.mkdir()
+    checks = []
+    original = run_root.is_run_root
+
+    def raced(path):
+        checks.append(path)
+        if len(checks) == 1:
+            run_root._mark(root)  # the other launch marks the root right after this check
+            return False
+        return original(path)
+
+    monkeypatch.setattr(run_root, "is_run_root", raced)
+    assert ensure_run_root(root) == root.resolve()
+    assert original(root)
+
+
 def test_a_file_is_no_run_root(tmp_path):
     (tmp_path / "runs").write_text("a file\n")
     with pytest.raises(RunRootError, match="is not a directory"):
