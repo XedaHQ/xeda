@@ -54,23 +54,25 @@ targets:
   arty:
     rtl.sources:
       - "../../uart_echo/boards/arty_a7_100t.xdc"
-      - "../../uart_echo/boards/arty_a7_100t_sync.xdc"
     flows:
       vivado_synth:
+        xdc_files: ["../../uart_echo/boards/arty_a7_100t_sync.xdc"]
         out_of_context: false
         bitstream: uart_app.bit
       openfpgaloader:
+        inputs.bitstream: vivado_synth.bitstream
         board: arty_a7_100t
   basys3:
     rtl.sources:
       - "../boards/basys3.xdc"
-      - "../../uart_echo/boards/arty_a7_100t_sync.xdc"
     flows:
       vivado_synth:
+        xdc_files: ["../../uart_echo/boards/arty_a7_100t_sync.xdc"]
         fpga.part: xc7a35tcpg236-1
         out_of_context: false
         bitstream: uart_app.bit
       openfpgaloader:
+        inputs.bitstream: vivado_synth.bitstream
         board: basys_3
   ulx3s:
     rtl:

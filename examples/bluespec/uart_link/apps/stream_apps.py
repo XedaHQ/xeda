@@ -67,6 +67,8 @@ class RtlBackend:
         # The native driver avoids Python callbacks on every clock edge.
         Clock(self.dut.CLK, 10, unit="ns", impl="gpi").start()
         await Timer(100, unit="ns")
+        # Release reset on the inactive clock edge before starting traffic.
+        await FallingEdge(self.dut.CLK)
         self.dut.RST_N.value = 1
         if self.serial:
             cocotb.start_soon(self._uart_send())
