@@ -1188,6 +1188,30 @@ def test_a_remote_chain_fetches_and_loads_schema_1_records(tmp_path, remote_host
     assert not run_root.joinpath("top").exists()
 
 
+def test_the_fetched_record_of_a_remote_chain_names_its_producer_in_the_mirror(
+    tmp_path, remote_host, monkeypatch
+):
+    """The record that the client reads from the document of a remote launch (and checks, and
+    delivers from) is the record of the mirror: the run directory of its producer is the
+    producer's directory in the mirror, as `read_record` and the document give it, never a
+    directory of the local run root."""
+    seen = []
+    checked = client.check_fetched_outputs
+
+    def check(record):
+        seen.append(record)
+        checked(record)
+
+    monkeypatch.setattr(client, "check_fetched_outputs", check)
+    _succeeded(_request(tmp_path, _design(tmp_path), chain="yosys_fpga+nextpnr"))
+    mirror = _mirror(tmp_path)
+    (record,) = seen
+    assert record.run_dir == mirror / "top" / "nextpnr"
+    (netlist,) = [item for item in record.inputs if item.name == "netlist"]
+    assert netlist.producer_run_dir == mirror / "top" / "yosys_fpga"
+    assert record.run_root == mirror
+
+
 def test_a_remote_document_round_trips(tmp_path, remote_host):
     document = _succeeded(_request(tmp_path, _design(tmp_path), chain="yosys_fpga+nextpnr"))
     result = result_from_dict(document)

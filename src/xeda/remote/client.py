@@ -1695,10 +1695,13 @@ def _finish(
                 # The record of the document, not the file of the mirror: a rejected run that was
                 # reused wrote nothing, so its file did not come back.
                 try:
+                    # The run root of a record in the mirror is the mirror, as for
+                    # `read_record` and `result_from_dict`: the run directories of its producers
+                    # are directories of the mirror too.
                     record = decode_record(
                         requested["record"],
                         run_dir=Path(requested["run_dir"]),
-                        run_root=local_root,
+                        run_root=mirror_root,
                     )
                 except RecordError as problem:
                     raise RemoteFetchError(f"cannot read the fetched record: {problem}") from None
