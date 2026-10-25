@@ -1346,6 +1346,11 @@ class FlowLauncher:
             try:
                 flow.design_hash = design_hash
                 flow.configuration = node.configuration
+                flow.generation_key = (
+                    self._generation.generation.key
+                    if self._generation is not None and self._generation.generation is not None
+                    else None
+                )
                 flow.flow_hash = flowrun_hash
                 flow.settings_hash = settings_hash
                 flow.started = datetime.now(timezone.utc)

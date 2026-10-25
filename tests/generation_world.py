@@ -15,7 +15,7 @@ from typing import ClassVar
 
 from xeda import Design
 from xeda.design import SourceType
-from xeda.flow import Flow, MetricSpec
+from xeda.flow import Flow, In, MetricSpec
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.launch_result import launch_result
 from xeda.outcomes import Result
@@ -60,6 +60,27 @@ def reader_flow() -> type[Flow]:
             self.results["seen"] = "".join(src.path.read_text() for src in self.sources_read())
 
     return _GenReader
+
+
+def input_reader_flow() -> type[Flow]:
+    """Define a flow that takes a Verilog design source through a declared input.
+
+    Call it inside `preserved_flow_registry`: the class registers itself."""
+
+    class _GenInputReader(Flow):
+        """Reads its declared input, which the design supplies, for the tests of generation."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {
+            "seen": MetricSpec("The text of its input.", "text")
+        }
+
+        class Inputs(Flow.Inputs):
+            netlist: Path = In(SourceType.Verilog, description="The Verilog source it reads.")
+
+        def run(self) -> None:
+            self.results["seen"] = self.inputs.netlist.read_text()
+
+    return _GenInputReader
 
 
 def blocking_reader_flow(started: Path, gate: Path) -> type[Flow]:

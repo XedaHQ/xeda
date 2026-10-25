@@ -173,8 +173,12 @@ def _source_file(design: Design, index: int) -> str:
     """Return the path of source `index` of `design` relative to its root, as the record names it.
 
     The path may begin with `..` for a source outside the root. It is `posix` text, whatever the
-    system. A source with no relative path (on another drive) is named by its absolute path."""
-    return root_relative_text(design.root_path, design.rtl.sources[index].file)
+    system. A source with no relative path (on another drive) is named by its absolute path. A
+    generated source is named by its name in the output of its producer."""
+    source = design.rtl.sources[index]
+    if source.generated:
+        return str(source.output_name)  # its name in the output of its producer, no path
+    return root_relative_text(design.root_path, source.file)
 
 
 def _design_record(flow: Flow, name: str, value: Any, problems: list[str]) -> dict[str, Any] | None:

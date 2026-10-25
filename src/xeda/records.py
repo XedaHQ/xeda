@@ -917,21 +917,45 @@ def _outputs_of(flow: Flow) -> dict[str, OutputRecord]:
     return outputs
 
 
+def _design_source(flow: Flow, path: Path) -> Any:
+    """Return the source of the design of `flow` that is the file at `path`, or None."""
+    for part in ("rtl", "tb"):
+        for source in getattr(flow.design, part).sources:
+            if source.file == path:
+                return source
+    return None
+
+
 def _source_digest(flow: Flow, path: Path) -> str:
     """Return the content digest of the design source at `path`, or "" if it cannot be read."""
     from .digest import content_digest
 
-    for part in ("rtl", "tb"):
-        for source in getattr(flow.design, part).sources:
-            if source.file == path:
-                try:
-                    return cast(str, source.content_hash)
-                except (OSError, ValueError):
-                    return ""
+    source = _design_source(flow, path)
     try:
-        return content_digest(path)
+        return cast(str, source.content_hash) if source is not None else content_digest(path)
     except (OSError, ValueError):
         return ""
+
+
+def _input_source(flow: Flow, path: str) -> InputSource:
+    """Return the record of the design source at `path`, one that an input reads.
+
+    A written source is named by its path from the design root. A generated source is named by
+    its name in the output of its producer, so the record does not hold the place of a storage."""
+    from .design import root_relative_text
+
+    source = _design_source(flow, Path(path))
+    generated = source is not None and source.generated
+    return InputSource(
+        path=(
+            cast(str, source.output_name)
+            if generated
+            else root_relative_text(flow.design.root_path, Path(path))
+        ),
+        generated=generated,
+        digest=_source_digest(flow, Path(path)),
+        dependency=None,
+    )
 
 
 def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
@@ -941,8 +965,6 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
     so an input of cardinality `many` that is bound to several producers repeats its name. Any
     other input has one row. The resolver gives an input either design sources or producer
     references, never both, so only a row without a producer holds sources."""
-    from .design import root_relative_text
-
     inputs: list[InputRecord] = []
     for declared in flow.declared_input_records:
         if declared.references:
@@ -969,6 +991,7 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
                     )
                 )
             continue
+        sources = tuple(_input_source(flow, path) for path in declared.paths)
         inputs.append(
             InputRecord(
                 name=declared.name,
@@ -977,16 +1000,8 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
                 output=declared.output,
                 producer_run_id=None,
                 producer_run_dir=None,
-                generation=None,
-                sources=tuple(
-                    InputSource(
-                        path=root_relative_text(flow.design.root_path, Path(path)),
-                        generated=False,
-                        digest=_source_digest(flow, Path(path)),
-                        dependency=None,
-                    )
-                    for path in declared.paths
-                ),
+                generation=flow.generation_key if any(item.generated for item in sources) else None,
+                sources=sources,
             )
         )
     return inputs

@@ -23,7 +23,7 @@ from xeda.generation import RECORD_NAME
 from xeda.outcomes import Outcome
 
 from .flow_registry import preserved_flow_registry
-from .generation_world import World, blocking_reader_flow, reader_flow
+from .generation_world import World, blocking_reader_flow, input_reader_flow, reader_flow
 from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no storage locks")
@@ -251,6 +251,20 @@ def test_the_configuration_names_a_generated_source_by_its_declaration(tmp_path)
     record = result.nodes[flow.name].record
     assert thaw(record.configuration["rtl"]["sources"]) == [{"path": "gen/*.v", "type": "Verilog"}]
     assert record.identity == planned.flowrun_hash
+
+
+def test_a_record_names_a_generated_input_by_its_name_and_the_key_of_its_storage(tmp_path):
+    flow = input_reader_flow()
+    world = World(tmp_path)
+    result = world.launch(flow)
+    assert result.outcome is Outcome.PASSED, result.error
+    record = result.nodes[flow.name].record
+    (item,) = record.inputs
+    (source,) = item.sources
+    assert (source.path, source.generated) == ("gen/top.v", True) and source.digest
+    (storage,) = world.storages()
+    assert item.generation == storage.name
+    assert str(world.run_root) not in repr(record.to_dict())
 
 
 # ---------------------------------------------------------------- the key of the storage
@@ -587,3 +601,39 @@ def test_a_scrub_of_generations_asks_first_and_removes_only_that_design(tmp_path
     assert len(result.removed) == 1 and result.gone == []
     assert world.storages() == [other]
     assert scrub_generations("generated", run_root=root, confirm=lambda c: True).removed == []
+
+
+# ---------------------------------------------------------------- a converter reads generated sources
+
+
+def test_a_generated_source_passes_through_a_converter_by_its_name(tmp_path):
+    """The generator writes Bluespec and Verilog. The converter converts the first and passes the
+    second through, and the record of the converter names the second one by its name in the output
+    of the generator, with no path to a storage. A second launch reuses both nodes."""
+    from xeda.outcomes import Disposition
+
+    from .test_converted_designs import Events, consumer_flows
+
+    converter, reader = consumer_flows(Events())
+    world = World(
+        tmp_path,
+        sources=["gen/Top.bsv", "gen/ext.v"],
+        extra=f"flows:\n  {reader.name}:\n    inputs:\n      design: {converter.name}\n",
+    )
+    script = (world.root / "gen.py").read_text()
+    (world.root / "gen.py").write_text(
+        script
+        + "(out / 'gen' / 'Top.bsv').write_text('package Top; endpackage\\n')\n"
+        + "(out / 'gen' / 'ext.v').write_text('module ext(); endmodule\\n')\n"
+    )
+    result = world.launch(reader)
+    assert result.outcome is Outcome.PASSED, result.error
+    made = result.nodes[converter.name].record.outputs["design"]
+    entries = [thaw(entry) for entry in made.design["sources"]]
+    passed = [entry for entry in entries if "source" in entry]
+    assert [(e["file"], e["type"]) for e in passed] == [("gen/ext.v", "Verilog")]
+    assert str(world.run_root) not in str(made.design)
+    again = world.launch(reader)
+    assert again.outcome is Outcome.PASSED, again.error
+    assert {n.disposition for n in again.nodes.values()} == {Disposition.REUSED}
+    assert world.runs == 1
