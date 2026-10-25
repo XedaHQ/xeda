@@ -148,6 +148,8 @@ def test_an_interrupted_launch_prints_the_run_document_of_a_canceled_launch(toys
         ("toy_node_interrupted", "canceled"),
     ]
     assert document["nodes"][0]["record"] is not None
+    # the document names the launch of the log records, as for any other failure
+    assert document["launch_id"]
 
 
 def test_a_producer_reached_twice_within_a_launch_is_one_node(toys, design):

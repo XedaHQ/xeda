@@ -1197,7 +1197,7 @@ def run(
     spec = Spec(chain, resolved.design, settings=table)
     try:
         result = launch_result(launcher, spec, lambda: launcher.run_resolved(resolved, plan))
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as interrupt:
         if not json_flag:
             raise
         # The launch is canceled, and `--json` still prints its one run document: the nodes that
@@ -1205,7 +1205,15 @@ def run(
         canceled = ErrorInfo(CANCELED, "The launch was canceled by Ctrl-C.", None, None, None)
         log.critical("%s", canceled.message)
         emit_structured(
-            failed_result(launcher, spec, plan, canceled, interrupted=True).to_dict(), "json"
+            failed_result(
+                launcher,
+                spec,
+                plan,
+                canceled,
+                interrupted=True,
+                launch_id=launch_id_of(interrupt),
+            ).to_dict(),
+            "json",
         )
         sys.exit(1)
     except Exception as e:
