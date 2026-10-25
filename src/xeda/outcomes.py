@@ -94,7 +94,8 @@ class NodeResult:
     the producer whose outcome blocked the node. `elapsed` is the time in seconds that this launch
     spent on the node: it is 0.0 unless the node `ran`. `record` is the record of the run, or
     `None` when the node did not run or when its record could not be stored. A `skipped` node has
-    no `error`. `run_dir` is the run directory of the node, and `flow` is the name of its flow."""
+    no `error`. `run_dir` is the run directory of the node, and `flow` is the name of its flow.
+    Both are public fields. The run document has a key of the same name for each field."""
 
     name: str
     outcome: Outcome
@@ -218,10 +219,9 @@ class Result:
     def to_dict(self) -> dict[str, Any]:
         """Return the document that `xeda run --json` prints (schema 1).
 
-        It has the keys `schema_version`, `outcome`, `error`, `launch_id`, `spec`, `roots` and
-        `nodes`. The `nodes` are in plan order. The document of a node has no `error`: the error
-        of a node that ran is in its `record`, and the error that decided the launch is the
-        top-level `error`."""
+        It has the keys `schema_version` and one for each field of `Result`, named as the field.
+        `spec` is a table (`spec_document_of`) and `nodes` is a list in plan order. Each entry of
+        `nodes` has one key for each field of `NodeResult`, named as the field (`node_document`)."""
         return run_document(
             outcome=self.outcome,
             error=self.error,
@@ -313,6 +313,7 @@ def node_document(node: NodeResult) -> dict[str, Any]:
             for d in node.deliveries
         ],
         "record": None if node.record is None else encode_record(node.record),
+        "error": None if node.error is None else node.error.as_json_value(),
     }
 
 
@@ -337,7 +338,7 @@ def _run_root_of(run_dir: Path, target: str | None) -> Path:
 
 
 def _node_of(document: Any) -> NodeResult:
-    from .records import PRODUCER_FAILED, ErrorInfo, decode_record
+    from .records import ErrorInfo, decode_record
 
     if not isinstance(document, Mapping):
         raise ValueError(f"a node of the document is not an object: {document!r}")
@@ -357,15 +358,12 @@ def _node_of(document: Any) -> NodeResult:
         except RecordError as problem:
             raise ValueError(f"{what} has a bad record: {problem}") from None
     outcome = Outcome(_field(document, "outcome", str, what))
-    error = None if record is None else record.error
-    if error is None and outcome is Outcome.BLOCKED and blocked_by is not None:
-        error = ErrorInfo(
-            code=PRODUCER_FAILED,
-            message=f"producer {blocked_by} did not pass",
-            node=name,
-            exit_status=None,
-            log=None,
-        )
+    if "error" not in document:
+        raise ValueError(f"{what} has no `error`")
+    try:
+        error = None if document["error"] is None else ErrorInfo.from_json(document["error"])
+    except ValueError as problem:
+        raise ValueError(f"{what} has a bad error: {problem}") from None
     deliveries = []
     for item in _field(document, "deliveries", list, what):
         if not isinstance(item, Mapping):
@@ -426,10 +424,8 @@ def result_from_dict(document: Mapping[str, Any]) -> Result:
     request that never started a launch (its `outcome` is null), has another schema version, or
     is malformed.
 
-    The document keeps less than the `Result` holds. The `spec` of the result has an empty design
-    of the same name, target and file, and the settings of the document. A node has no `error` of
-    its own in the document: the node takes the error of its record, and a blocked node gets
-    the error `producer_failed`."""
+    The nodes come back as they were. Only the `spec` is less than it was: the result has an empty
+    design of the same name, target and file, and the settings of the document."""
     from .records import ErrorInfo
 
     if not isinstance(document, Mapping):

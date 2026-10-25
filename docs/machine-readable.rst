@@ -397,7 +397,7 @@ location, so Xeda delivered the file there once the run finished:
         {"name": "yosys_fpga", "flow": "yosys_fpga", "outcome": "passed",
          "disposition": "reused", "reason": "up to date", "blocked_by": null, "elapsed": 0.0,
          "run_dir": "/path/to/xeda_run/blinky/yosys_fpga", "deliveries": [],
-         "record": {"schema_version": 1, "outcome": "passed", "...": "..."}},
+         "record": {"schema_version": 1, "outcome": "passed", "...": "..."}, "error": null},
         {"name": "nextpnr", "flow": "nextpnr", "outcome": "passed", "disposition": "ran",
          "reason": "settings changed: seed", "blocked_by": null, "elapsed": 4.2,
          "run_dir": "/path/to/xeda_run/blinky/nextpnr",
@@ -405,7 +405,8 @@ location, so Xeda delivered the file there once the run finished:
            {"key": "textcfg", "destination": "/home/user/blinky_config.txt", "delivered": true}
          ],
          "record": {"schema_version": 1, "outcome": "passed",
-                    "metrics": {"fmax": 212.4, "lut": 45, "...": "..."}, "...": "..."}}
+                    "metrics": {"fmax": 212.4, "lut": 45, "...": "..."}, "...": "..."},
+         "error": null}
       ]
     }
 
@@ -419,7 +420,8 @@ next flow or, when the link passes through flows, the inputs that it feeds in th
 flow. ``nodes`` lists the producers of the request too, also the ones that the request did not name.
 ``xeda dse`` refuses a chain. ``xeda run --remote`` takes one.
 
-A ``nodes`` entry has these keys:
+A ``nodes`` entry has one key for each field of the ``NodeResult`` of the Python API, with the same
+name and meaning:
 
 ``name``, ``flow``
     The name of the node in the plan and the name of its flow.
@@ -462,6 +464,11 @@ A ``nodes`` entry has these keys:
     The ``results.json`` of the run, as :ref:`described above <results-json>`, or ``null`` for a node
     that did not run (``blocked``, ``skipped`` or ``detached``) or whose record could not be stored.
     The metrics of a run are in ``record.metrics``, for example ``.nodes[-1].record.metrics.fmax``.
+``error``
+    Why the node did not pass, or ``null`` for a node that passed or was skipped. It has the keys of
+    the ``error`` of the document. For a node that ran, it is the error of its ``record``. A
+    ``blocked`` node has the code ``producer_failed``. A node that failed before its run started has
+    no ``record``, so this is the only place that names the cause.
 
 The ``outcome`` of the document is the outcome of the cause of the launch, in this order:
 

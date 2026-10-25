@@ -876,6 +876,7 @@ def _document_keys(document: dict[str, Any]) -> None:
             "run_dir",
             "deliveries",
             "record",
+            "error",
         ]
 
 
@@ -902,10 +903,77 @@ def test_a_failed_result_round_trips_through_its_document(tmp_path):
     assert again.to_dict() == document
     assert (again.outcome, again.error) == (result.outcome, result.error)
     assert again.nodes[MAY_FAIL].record == result.nodes[MAY_FAIL].record
-    # A node has no error of its own in the document: a blocked node is told by its producer.
+    assert again.nodes == result.nodes
     blocked = again.nodes[_NeedsMayFail.name]
     assert blocked.error is not None and blocked.error.code == "producer_failed"
     assert blocked.error.node == _NeedsMayFail.name
+
+
+def _mixed_result(tmp_path: Path) -> Result:
+    """A result with a node of every kind that the document must carry: one with an error and
+    deliveries, one with an error and no record, a blocked one and a skipped one."""
+    failed = dataclasses.replace(
+        _node("f", "failed"),
+        flow="flow_f",
+        run_dir=tmp_path / "run" / "d" / "flow_f",
+        reason="settings changed: seed",
+        elapsed=1.5,
+        deliveries=(DeliveryRecord("netlist", tmp_path / "user" / "net.v", False),),
+    )
+    nodes = _nodes(
+        _node("p", "passed"),
+        failed,
+        _node("b", "blocked", blocked_by="f", code="producer_failed"),
+        _node("s", "skipped"),
+    )
+    return Result("id", Spec("b", _design(tmp_path)), ["b"], "failed", failed.error, nodes)  # type: ignore[arg-type]
+
+
+def test_a_node_document_has_the_fields_of_the_node_result_and_their_meaning(tmp_path):
+    result = _mixed_result(tmp_path)
+    fields = [field.name for field in dataclasses.fields(NodeResult)]
+    assert {"flow", "run_dir", "error"} <= set(fields)
+    documents = result.to_dict()["nodes"]
+    assert [document["name"] for document in documents] == list(result.nodes)
+    for node, document in zip(result.nodes.values(), documents):
+        assert set(document) == set(fields), node.name
+        assert document["name"] == node.name and document["flow"] == node.flow
+        assert document["outcome"] == node.outcome.value
+        assert document["disposition"] == node.disposition.value
+        assert document["reason"] == node.reason and document["blocked_by"] == node.blocked_by
+        assert document["elapsed"] == node.elapsed and document["run_dir"] == str(node.run_dir)
+        assert document["record"] is None and node.record is None
+        assert document["error"] == (None if node.error is None else node.error.as_json_value())
+        assert document["deliveries"] == [
+            {"key": d.key, "destination": str(d.destination), "delivered": d.delivered}
+            for d in node.deliveries
+        ]
+
+
+def test_the_document_of_a_result_has_the_fields_of_the_result(tmp_path):
+    result = _mixed_result(tmp_path)
+    document = result.to_dict()
+    # The document adds its schema version. It holds `nodes` as a list in plan order and `spec` as
+    # the table that `spec_document_of` builds.
+    assert set(document) == {field.name for field in dataclasses.fields(Result)} | {
+        "schema_version"
+    }
+    assert document["launch_id"] == result.launch_id and document["roots"] == list(result.roots)
+    assert document["outcome"] == result.outcome.value
+    assert document["error"] == result.error.as_json_value()  # type: ignore[union-attr]
+    assert document["spec"]["flow"] == result.spec.flow
+
+
+def test_a_document_gives_every_field_of_a_node_back(tmp_path):
+    result = _mixed_result(tmp_path)
+    again = result_from_dict(result.to_dict())
+    assert again.nodes == result.nodes
+    assert (again.launch_id, again.roots, again.outcome, again.error) == (
+        result.launch_id,
+        result.roots,
+        result.outcome,
+        result.error,
+    )
 
 
 @pytest.mark.usefixtures("flows")
