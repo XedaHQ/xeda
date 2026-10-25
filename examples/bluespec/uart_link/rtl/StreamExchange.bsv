@@ -427,7 +427,7 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
    Reg#(UInt#(8)) acceptedCount <- mkReg(0);
    Reg#(UInt#(8)) responseRemaining <- mkReg(0);
    Reg#(Bit#(outWidth)) outputHold <- mkRegU;
-   Reg#(UInt#(TMax#(1, TLog#(TDiv#(TAdd#(outWidth, 7), 8))))) outputByte <- mkReg(0);
+   Reg#(UInt#(TMax#(1, TLog#(TDiv#(outWidth, 8))))) outputByte <- mkReg(0);
 
    Reg#(FastState) state <- mkReg(FastCollect);
 
@@ -550,7 +550,7 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
          for (Integer i = 1; i < outBytes; i = i + 1)
             if (outputByte == fromInteger(i)) b = bits[8 * i + 7 : 8 * i];
       end
-      Bool lastByte = outputByte + 1 == fromInteger(outBytes);
+      Bool lastByte = outputByte == fromInteger(outBytes - 1);
       if (!lastByte) begin
          link.response.put(token(b, False));
          outputByte <= outputByte + 1;
