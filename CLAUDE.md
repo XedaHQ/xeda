@@ -252,8 +252,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   The key hashes the recipe, `design_configuration` (no content), the generator inputs and the
   executable; the inherited environment is freshness evidence, never key. The generator runs in
   the storage with `DESIGN_ROOT` and `XEDA_GENERATED`; flows get `execution_design`, and the plan,
-  the identity and the node configuration use the declared design. The storage lock comes before any
-  run-directory lock, and the shared lease lasts until the last delivery
+  the identity and the node configuration use the declared design. A launch generates before it takes any
+  run-directory lock, and holds the shared lease of the storage until the last delivery
   (`run_lock.storage_lock`, `tests/test_storage_locks.py`). A Git fetch still happens at load and
   is refused by a plan; print a URL only via `design.redacted_url`.
 

@@ -1189,7 +1189,7 @@ def _parameters_form(value: Any) -> Any:
     return _parameters_as_mapping(value) if isinstance(value, list) else None
 
 
-def _already_listed(sources: Iterable[Source], source: Source) -> bool:
+def already_listed(sources: Iterable[Source], source: Source) -> bool:
     """Whether `sources` lists the file of `source` (or, for a declaration, the same declaration)."""
     if source.file is None:
         return any(listed == source for listed in sources)
@@ -1203,7 +1203,7 @@ def _distinct_sources(sources: Iterable[Source]) -> list[Source]:
     """Return `sources` in order, with a file that is listed twice kept once, at its first place."""
     kept: list[Source] = []
     for source in sources:
-        if not _already_listed(kept, source):
+        if not already_listed(kept, source):
             kept.append(source)
     return kept
 
@@ -1416,7 +1416,7 @@ class DesignPart(XedaBaseModel):
         sources: List[Source] = []
 
         def source_already_exists(src: Source) -> bool:
-            return _already_listed(sources, src)
+            return already_listed(sources, src)
 
         if not isinstance(value, (list, tuple, set)):
             raise ValueError(
@@ -3738,6 +3738,24 @@ class Design(XedaBaseModel):
             }
         raise ValueError(f"{part!r} is not a part of a design (its parts are rtl and tb)")
 
+    def _part_fingerprint(
+        self, part: str, source_types: Collection[SourceType] | None = None
+    ) -> Dict[str, Any]:
+        """Return the fingerprint of a part (`rtl` or `tb`), with the sources of `source_types`
+        only if they are given (all of them otherwise).
+
+        A source outside `source_types` is not read, so a generated source that has no file yet
+        is no obstacle to the fingerprint of a flow that does not take its type."""
+        sources = [
+            self._source_fingerprint(src)
+            for src in getattr(self, part).sources
+            if source_types is None or src.type in source_types
+        ]
+        fingerprint = {"sources": sources, **self.part_metadata(part)}
+        if part == "rtl":
+            fingerprint["language"] = thaw(self.language)
+        return fingerprint
+
     @property
     def rtl_fingerprint(self) -> Dict[str, Any]:
         """Location-independent inputs that can change RTL compilation or synthesis.
@@ -3747,19 +3765,12 @@ class Design(XedaBaseModel):
         (`_source_fingerprint`), as does a parameter whose value is a path
         (`_parameters_fingerprint`). Moving the whole design does not change its identity.
         """
-        return {
-            "sources": [self._source_fingerprint(src) for src in self.rtl.sources],
-            **self.part_metadata("rtl"),
-            "language": thaw(self.language),
-        }
+        return self._part_fingerprint("rtl")
 
     @property
     def tb_fingerprint(self) -> Dict[str, Any]:
         """The location-independent testbench inputs that identify a run."""
-        return {
-            "sources": [self._source_fingerprint(src) for src in self.tb.sources],
-            **self.part_metadata("tb"),
-        }
+        return self._part_fingerprint("tb")
 
     def _parameters_fingerprint(self, dv: DesignPart) -> Dict[str, Any]:
         """Return the parameter values as the tool sees them.
@@ -3868,13 +3879,7 @@ class Design(XedaBaseModel):
         def part_hash(part: str) -> str:
             if source_types is None:
                 return getattr(self, f"{part}_hash")
-            fingerprint = dict(getattr(self, f"{part}_fingerprint"))
-            fingerprint["sources"] = [
-                entry
-                for entry, source in zip(fingerprint["sources"], getattr(self, part).sources)
-                if source.type in source_types
-            ]
-            return semantic_hash(fingerprint)[:32]
+            return semantic_hash(self._part_fingerprint(part, source_types))[:32]
 
         return semantic_hash(
             {f"{part}_hash": part_hash(part) for part in _DESIGN_PART_ORDER if part in wanted}

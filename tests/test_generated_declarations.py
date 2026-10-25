@@ -155,3 +155,29 @@ def test_generated_sources_keep_their_place_in_the_order(tmp_path):
     design = _design(tmp_path, ["gen/a.v", "gen/*.sv", "gen/b.v"])
     assert [s.output_name for s in design.rtl.sources] == ["gen/a.v", "gen/*.sv", "gen/b.v"]
     assert design.rtl.sources[1].type is SourceType.SystemVerilog
+
+
+def test_a_flow_that_takes_other_types_hashes_a_design_with_a_declaration(tmp_path):
+    """A declaration has no content, so the whole design has no content hash. A flow that takes
+    only some types is judged on those sources alone, and a generated source of another type is
+    no obstacle."""
+    root = tmp_path / "d"
+    root.mkdir()
+    (root / "gen.py").write_text("")
+    (root / "a.vhd").write_text("entity a is end;\n")
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={
+            "sources": ["a.vhd", "gen/top.v"],
+            "top": "a",
+            "generator": {
+                "executable": sys.executable,
+                "sources": ["gen.py"],
+                "generated_sources": ["gen"],
+            },
+        },
+    )
+    assert design.parts_hash({"rtl"}, {SourceType.Vhdl})
+    with pytest.raises(FileNotFoundError, match="generator has not run"):
+        design.parts_hash({"rtl"})

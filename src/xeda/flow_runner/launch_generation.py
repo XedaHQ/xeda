@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..dataclass import ValidationError
-from ..design import Design, Generator, Source, SourceType, _already_listed, generator_of
+from ..design import Design, Generator, Source, SourceType, already_listed, generator_of
 from ..flow import Flow
 from ..frozen import FrozenDict
 from ..generation import (
@@ -320,7 +320,7 @@ def execution_design(design: Design, generation: Generation | None) -> Design:
                 generated=True,
                 output_name=name,
             )
-            if not _already_listed(listed, located):
+            if not already_listed(listed, located):
                 listed.append(located)
     rtl = design.rtl.model_copy(update={"sources": tuple(listed)})
     rtl.invalidate_cached_properties()

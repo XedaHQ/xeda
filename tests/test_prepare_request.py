@@ -14,7 +14,6 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import PreparedRequest
 from xeda.flow_runner.dse import Dse
 from xeda.flow_runner.settings_layers import HOST_PROFILE_ORIGIN, host_profile_origin
-from xeda.design import DesignValidationError
 
 from .test_dse_run import _DeclaredOptimizer
 from .io_flows import _Maker, _Place, _Taker
@@ -169,23 +168,18 @@ def test_prepare_request_refuses_a_declared_design_before_its_generator_runs(tmp
     assert not (tmp_path / "run").exists(), "nothing was set up"
 
 
-def test_prepare_request_planning_refuses_a_generator(tmp_path):
-    """As `plan()` does: with `planning`, a design that needs a generator is refused, and the
-    generator does not run. Without it, the generator runs."""
+def test_prepare_request_runs_no_generator(tmp_path):
+    """Preparing a request is planning: the generator runs in the launch, not here, with or
+    without `planning`."""
     generated = Generated(tmp_path, ["gen/top.v"])
     runner = _runner(tmp_path)
 
-    with pytest.raises(DesignValidationError, match="Cannot plan a design that needs a generator"):
-        runner.prepare_request(
-            "vivado_synth", str(generated.file), flow_settings=dict(XILINX), planning=True
+    for planning in (True, False):
+        prepared = runner.prepare_request(
+            "vivado_synth", str(generated.file), flow_settings=dict(XILINX), planning=planning
         )
-    assert generated.runs == 0
-
-    prepared = runner.prepare_request(
-        "vivado_synth", str(generated.file), flow_settings=dict(XILINX)
-    )
-    assert prepared.plan.requested == "vivado_synth"
-    assert generated.runs == 1
+        assert prepared.plan.requested == "vivado_synth"
+        assert generated.runs == 0
 
 
 def test_prepare_request_refuses_outputs_to_for_a_programmer(tmp_path):

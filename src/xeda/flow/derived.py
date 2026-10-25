@@ -16,8 +16,7 @@ converted, every other source passes through, and everything else is carried.
   one helper to construct the design from their source entries; the planned source list can differ
   from the recorded one.
 
-The functions are pure. They never validate the design again, so the generator of a design does
-not run twice.
+The functions are pure. They never validate the design again.
 """
 
 from __future__ import annotations
