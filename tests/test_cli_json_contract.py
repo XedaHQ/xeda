@@ -257,7 +257,8 @@ def test_unknown_flow_name_suggests_close_matches():
 # --------------------------------------------------------------- nothing else may reach stdout
 
 GENERATOR_SCRIPT = """
-import json, sys
+import json, os, sys
+from pathlib import Path
 from xeda import proc_utils
 from xeda.cli_utils import machine_readable_mode
 from xeda.design import Generator
@@ -265,7 +266,13 @@ from xeda.design import Generator
 machine_readable_mode()                         # what `--json` mode does
 proc_utils.TOOL_OUTPUT.set("terminal")          # and the command line shows tool output
 gen = Generator(executable=sys.executable)
-gen.run_cmd([sys.executable, "-c", "print('GENERATOR OUTPUT')"])
+here = Path.cwd()
+gen.run_cmd(
+    [sys.executable, "-c", "print('GENERATOR OUTPUT')"],
+    design_root=here,
+    storage=here,
+    environ=os.environ,
+)
 json.dump({"success": True}, sys.stdout)
 """
 
@@ -286,24 +293,30 @@ def test_generator_subprocess_output_does_not_corrupt_stdout(tmp_path):
 
 RAW_GENERATOR_SCRIPT = """
 import json, sys
-from xeda import proc_utils
+from pathlib import Path
+from xeda import Design, proc_utils
 from xeda.cli_utils import machine_readable_mode
-from xeda.design import Design
+from xeda.flow_runner.launch_generation import generate
 
 machine_readable_mode()
 proc_utils.TOOL_OUTPUT.set("terminal")
-Design.process_generation({
-    "design_root": ".",
-    "rtl": {
+root = Path.cwd()
+design = Design(
+    name="raw",
+    design_root=root,
+    rtl={
+        "sources": ["out.v"],
         "generator": [sys.executable, "-c", "print('RAW GENERATOR OUTPUT')"],
     },
-})
+)
+(root / "run_root").mkdir()
+generate(design, run_root=root / "run_root")
 json.dump({"success": True}, sys.stdout)
 """
 
 
 def test_raw_generator_command_output_does_not_corrupt_stdout(tmp_path):
-    """The list form in a design file bypasses ``Generator.run_cmd``."""
+    """The list form in a design file runs through ``Generator.run_cmd`` too."""
     proc = subprocess.run(
         [sys.executable, "-c", RAW_GENERATOR_SCRIPT],
         cwd=str(tmp_path),
@@ -399,7 +412,9 @@ _NOISY_GENERATOR = (
     "import sys\n"
     "sys.stdout.write('generator stdout noise\\n')\n"
     "sys.stderr.write('generator stderr diagnostic\\n')\n"
-    "open('gen_out.vhdl', 'w').write('entity g is end entity;\\n')\n"
+    "import os, pathlib\n"
+    "pathlib.Path(os.environ['XEDA_GENERATED'], 'gen_out.vhdl')"
+    ".write_text('entity g is end entity;\\n')\n"
 )
 
 
@@ -416,8 +431,8 @@ def _noisy_generator_design(tmp_path: Path, generator: str) -> Path:
 @pytest.mark.parametrize(
     "generator",
     [
-        pytest.param('"{python} gen.py"', id="shell-string"),
-        pytest.param('["{python}", "gen.py"]', id="argument-list"),
+        pytest.param('"{python} $DESIGN_ROOT/gen.py"', id="shell-string"),
+        pytest.param('["{python}", "$DESIGN_ROOT/gen.py"]', id="argument-list"),
     ],
 )
 def test_generator_output_never_corrupts_the_json_document(tmp_path, generator):
@@ -436,7 +451,7 @@ def test_generator_object_output_never_corrupts_the_json_document(tmp_path):
     design = tmp_path / "gendes.toml"
     design.write_text(
         'name = "gendes"\n\n[rtl]\ntop = "g"\nsources = ["gen_out.vhdl"]\n\n'
-        f'[rtl.generator]\nexecutable = "{sys.executable}"\nargs = ["gen.py"]\n'
+        f'[rtl.generator]\nexecutable = "{sys.executable}"\nargs = ["$DESIGN_ROOT/gen.py"]\n'
     )
     proc = run_xeda("run", "ghdl_sim", design.name, "--json", cwd=tmp_path)
     document = json_stdout(proc)

@@ -31,7 +31,14 @@ from ..flow.derived import DesignConversion
 from ..frozen import thaw
 from ..utils import plain_json, semantic_hash
 
-__all__ = ["configuration_hash", "conversion_descriptor", "node_configuration", "source_entries"]
+__all__ = [
+    "configuration_hash",
+    "conversion_descriptor",
+    "design_configuration",
+    "design_configuration_hash",
+    "node_configuration",
+    "source_entries",
+]
 
 
 def conversion_descriptor(producer: str, conversion: DesignConversion) -> dict[str, Any]:
@@ -47,19 +54,49 @@ def conversion_descriptor(producer: str, conversion: DesignConversion) -> dict[s
 
 
 def source_entries(
-    design: Design, sources: tuple[Source, ...], scope: Collection[SourceType] | None
-) -> list[dict[str, str]]:
+    design: Design,
+    sources: tuple[Source, ...],
+    scope: Collection[SourceType] | None,
+    *,
+    ownership: bool = False,
+) -> list[dict[str, Any]]:
     """Return the `{path, type}` of each source in `scope` (None: all), in design order.
 
     The path is the place from the design root (`Design.source_place`), and the entry holds no
-    content. A design generator runs when the design is loaded, so the files it wrote are known
-    when a plan is made: the configuration lists them by their place under the design root, as
-    it lists any other source."""
-    return [
-        {"path": design.source_place(source), "type": source.type.name}
-        for source in sources
-        if scope is None or source.type in scope
-    ]
+    content. A generated source is its declaration, as the design states it: a name or a pattern
+    in the output of the generator (`gen/*.v`), never the files that it matches, so the entry is
+    the same before and after the generator has run. With `ownership`, an entry of a generated
+    source also says `generated: true`, so that a written file and a generated one of one name
+    differ."""
+    entries: list[dict[str, Any]] = []
+    for source in sources:
+        if scope is not None and source.type not in scope:
+            continue
+        entry: dict[str, Any] = {"path": design.source_place(source), "type": source.type.name}
+        if ownership:
+            entry["generated"] = source.generated
+        entries.append(entry)
+    return entries
+
+
+def design_configuration(design: Design) -> dict[str, Any]:
+    """Return the whole configuration of a design, without content: the key of a generation.
+
+    It has `rtl` and `tb` (each with its metadata and its ordered `sources`, whose entries say
+    who writes them: the design's author or its generator) and `language`. It is not the
+    projection of one node (`node_configuration`): a generator may use anything of the design, so
+    its storage is named by all of it. Nothing of the target, the design root, the destinations of
+    deliveries or the history of the design is in it. The helpers are those of the node
+    configuration."""
+    configuration: dict[str, Any] = {}
+    for part in ("rtl", "tb"):
+        entry = design.part_metadata(part)
+        entry["sources"] = source_entries(
+            design, getattr(design, part).sources, None, ownership=True
+        )
+        configuration[part] = entry
+    configuration["language"] = thaw(design.language)
+    return plain_json(configuration)
 
 
 def node_configuration(
@@ -97,3 +134,11 @@ def node_configuration(
 def configuration_hash(configuration: Mapping[str, Any]) -> str:
     """Return the hash of a configuration, which `bindings.node_identity` takes."""
     return semantic_hash(thaw(configuration))
+
+
+def design_configuration_hash(design: Design) -> str:
+    """Return the hash of the whole configuration of a design (`design_configuration`).
+
+    A plan holds it to know the design it was made for. It reads no file, so it exists for a
+    design whose generated sources are not generated yet."""
+    return semantic_hash(design_configuration(design))

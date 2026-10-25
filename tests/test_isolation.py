@@ -60,7 +60,7 @@ from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cli import cli
 from xeda.flow import Flow, SimFlow
-from xeda.design import SourceType, loading_in_run_root
+from xeda.design import SourceType
 from xeda.flow_runner import DefaultRunner
 from xeda.proc_utils import run_process
 from xeda.run_root import ensure_run_root
@@ -1683,27 +1683,26 @@ def test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree(tmp_path, mo
     assert flow.succeeded and (flow.run_path / "gcd.vcd").is_file()
 
 
-#: A design generator: it writes the sources the design declares, and counts its runs in the one
-#: place the oracle ignores, the run root. Its job is to write the design's own tree, so the sweep
-#: admits exactly the sources it generates -- and nothing else, xeda's own record of the
-#: generation included, which lies under the run root (`xeda.generation`).
+#: A design generator: it writes the sources the design declares into its storage (`XEDA_GENERATED`,
+#: under the run root), and counts its runs in the one place the oracle ignores, the run root.
 GENERATOR = """\
 import os, sys
 from pathlib import Path
 
-root = Path(os.environ["DESIGN_ROOT"])
-(root / "gen").mkdir(exist_ok=True)
-(root / "gen" / "top.v").write_text("// generated\\n")
+out = Path(os.environ["XEDA_GENERATED"])
+(out / "gen").mkdir(exist_ok=True)
+(out / "gen" / "top.v").write_text("// generated\\n")
 with open(sys.argv[1], "a") as counter:
     counter.write("ran\\n")
 """
 
 
-def test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generates(tmp_path):
-    """A load that runs a generator: a load changes nothing outside the run root but the sources the
-    design declares its generator produces. The generator writes the design's tree because that
-    is what it is for; everything xeda keeps about it goes under the run root, and a second load
-    of the unchanged design generates nothing at all."""
+def test_a_launch_that_runs_a_generator_writes_only_under_the_run_root(tmp_path):
+    """Loading a design runs nothing and writes nothing. The generation of a launch writes its
+    storage and the lock beside it under the run root, and nothing in the design's tree: a
+    second generation of the unchanged design generates nothing at all."""
+    from xeda.flow_runner.launch_generation import generate
+
     world = _world(tmp_path)
     ensure_run_root(world.root)
     counter = world.root / "runs.log"
@@ -1717,21 +1716,25 @@ def test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generate
         "  top: top\n"
         "  generator:\n"
         f"    executable: {sys.executable!r}\n"
-        f"    args: ['gen.py', {str(counter)!r}]\n"
+        f"    args: ['$DESIGN_ROOT/gen.py', {str(counter)!r}]\n"
         "    sources: ['spec.txt', 'gen.py']\n"
     )
     before = _state(world.parent, [world.root])
-    with watching(world) as violations, loading_in_run_root(lambda create: world.root):
+    with watching(world) as violations:
         design = Design.from_file(design_file)
-        Design.from_file(design_file)
-    assert [src.file.name for src in design.rtl.sources] == ["top.v"]
-    assert counter.read_text() == "ran\n", "the second load generated again"
+        generate(design, run_root=world.root, environ=dict(os.environ))
+        generate(design, run_root=world.root, environ=dict(os.environ))
+    assert [src.path for src in design.rtl.sources] == [Path("gen/top.v")]
+    assert counter.read_text() == "ran\n", "the second generation generated again"
     assert violations == []
     after = _state(world.parent, [world.root])
-    changed = {name for name in set(before) | set(after) if before.get(name) != after.get(name)}
-    assert changed == {"work/gen", "work/gen/top.v"}
-    records = sorted(p.name for p in (world.root / ".cache" / "generators").iterdir())
-    assert len(records) == 2 and records[1] == records[0] + ".lock"
+    assert before == after, "something outside the run root changed"
+    (storage,) = (world.root / ".generated" / "generated").glob("*/")
+    assert (storage / "gen" / "top.v").read_text() == "// generated\n"
+    assert sorted(p.name for p in storage.parent.iterdir()) == [
+        storage.name,
+        storage.name + ".lock",
+    ]
 
 
 @pytest.mark.parametrize("flow, require", [("ghdl_sim", require_ghdl), ("nvc", require_nvc)])
@@ -2602,12 +2605,6 @@ REVIEWED_WRITES = [
         "flow_runner/run_lock.py",
         'with open(path, "a") as f:',
         "the lock file beside a run directory, in the run root: opened to be locked, not written",
-    ),
-    (
-        "flow_runner/run_lock.py",
-        "descriptor = os.open(root, os.O_RDONLY)",
-        "a read-only descriptor on the existing design-root directory, used for its POSIX "
-        "generator lease and inode identity check; it creates no file and writes nothing",
     ),
     (
         "flow_runner/trace.py",

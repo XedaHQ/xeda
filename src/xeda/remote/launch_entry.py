@@ -275,15 +275,16 @@ def _record_written(
     document["written"], document["unreadable"] = _written(snapshot, plan, launched)
 
 
-def load_packaged_design(launcher: Any, path: Path, *, rebuild: bool, dry_run: bool) -> Any:
+def load_packaged_design(launcher: Any, path: Path, *, dry_run: bool) -> Any:
     """Load the design document that the local xeda packaged (`Design.from_file(packaged=True)`).
 
     The document is loaded as the launcher loads a design file: where the run root keeps what a
-    load keeps in it, and with no side effect for a dry run."""
+    load keeps in it, and with no side effect for a dry run. The load runs no generator: the
+    launch does."""
     from ..design import Design, loading_in_run_root, refusing_load_side_effects
 
     with (
-        loading_in_run_root(launcher.load_run_root, rebuild),
+        loading_in_run_root(launcher.load_run_root),
         refusing_load_side_effects() if dry_run else nullcontext(),
     ):
         return Design.from_file(path, packaged=True)
@@ -337,9 +338,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             display_results=False,
             debug=debug,
         )
-        loaded = load_packaged_design(
-            launcher, design, rebuild=request.rebuild_all or request.clean, dry_run=request.dry_run
-        )
+        loaded = load_packaged_design(launcher, design, dry_run=request.dry_run)
         arguments: Dict[str, Any] = dict(design=loaded)
         with using_path_identities(request.path_identities):
             if request.dry_run:

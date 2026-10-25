@@ -979,13 +979,13 @@ class Flow(metaclass=ABCMeta):
             kinds = sorted({src.type.name for src in unread})
             raise FlowSettingsException(
                 f"{cls.name} cannot read the design's {' and '.join(kinds)} source(s) "
-                f"{', '.join(str(src.file) for src in unread)}; it reads {reads}"
+                f"{', '.join(str(src.path) for src in unread)}; it reads {reads}"
                 + cls._testbench_hint(unread, by_part)
             )
         if not any(src.type in cls.reads_sources for src in listed):
             has = ", ".join(
                 f"{part}.sources has "
-                + (", ".join(f"{src.file} ({src.type.name})" for src in sources) or "none")
+                + (", ".join(f"{src.path} ({src.type.name})" for src in sources) or "none")
                 for part, sources in by_part.items()
             )
             raise NoReadableSource(

@@ -24,7 +24,7 @@ from typing import Any, Literal
 
 from ..board import WithFpgaBoardSettings
 from ..dataclass import BaseModel, expand_forms
-from ..design import DESIGN_PARTS, LANGUAGE_TYPES, Design
+from ..design import LANGUAGE_TYPES, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
 from ..flow.derived import DesignConversion, planned_design
@@ -56,7 +56,12 @@ from .chains import (
     fitting_outputs,
     request_text,
 )
-from .configuration import configuration_hash, conversion_descriptor, node_configuration
+from .configuration import (
+    configuration_hash,
+    conversion_descriptor,
+    design_configuration_hash,
+    node_configuration,
+)
 from .related_inputs import Node, check_related_inputs
 from .settings_layers import (
     API_ORIGIN,
@@ -170,6 +175,8 @@ def _freeze(value: Any) -> Any:
 class PlanContext:
     """The captured request, including delivery destinations that run hashes leave out."""
 
+    #: The hash of the configuration of the design (`configuration.design_configuration_hash`):
+    #: it holds no content, so a source edit after the plan is no difference.
     design_hash: str
     design_root: Path
     runner_cwd: Path
@@ -987,7 +994,6 @@ def resolve(
     debug: bool = False,
     flow_request: FlowRequest | None = None,
     binding_layers: Sequence[BindingLayer] = (),
-    identify_design: bool = True,
 ) -> Plan:
     """Resolve the graph, agree settings, union the demands on each producer, and freeze the plan.
 
@@ -997,9 +1003,8 @@ def resolve(
     The graph comes from explicit bindings first, then sources, then default producers. The
     plan is validated before it is frozen.
 
-    Without `identify_design`, the plan judges a declared design, whose generated sources may
-    not exist yet (`design.deferring_load_side_effects`). It is not identified by content, and
-    its empty `design_hash` is one that no launch accepts (`FlowLauncher._validate_plan`)."""
+    The plan holds the hash of the configuration of the design (no content), so it exists for a
+    design whose generated sources have not been generated."""
     context = dict(design_root=design.root_path, runner_cwd=runner_cwd)
     if isinstance(settings, Flow.Settings) and settings.context:
         context = {key: settings.context.get(key) or value for key, value in context.items()}
@@ -1558,7 +1563,7 @@ def resolve(
         flow_cls.name,
         tuple(nodes),
         PlanContext(
-            design.parts_hash(DESIGN_PARTS) if identify_design else "",
+            design_configuration_hash(design),
             design.root_path,
             runner_cwd,
             run_root,

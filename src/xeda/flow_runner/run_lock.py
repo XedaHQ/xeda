@@ -46,23 +46,11 @@ class _Hold:
 _held: dict[tuple[int, int, Path], _Hold] = {}
 
 
-@dataclass
-class _DirectoryHold:
-    descriptor: int
-    depth: int = 1
-
-
-_directory_held: dict[tuple[int, int, int, int], _DirectoryHold] = {}
-
-
 def _after_fork() -> None:
     # Closing the inherited copy releases no lock of the parent. LOCK_UN would release it for both.
     for hold in _held.values():
         hold.file.close()
     _held.clear()
-    for directory_hold in _directory_held.values():
-        os.close(directory_hold.descriptor)
-    _directory_held.clear()
 
 
 if sys.platform != "win32":
@@ -189,77 +177,6 @@ def storage_lock(
     A storage that does not lie inside `run_root`, or that is reached through a link out of it,
     is a `RunDirectoryError` before anything is created."""
     return _lock(storage, exclusive=exclusive, run_root=run_root)
-
-
-@contextlib.contextmanager
-def generator_design_lock(design_root: Path) -> Iterator[None]:
-    """Serialize generator loads for one existing design-root directory, without a lock file.
-
-    A lock keyed by the content of a record cannot protect the first generation (there is no
-    record yet), or two different input identities whose generators write the same design tree.
-    POSIX `flock` also works on a read-only directory descriptor, so the existing inode of the
-    tree can serve as a lease, without creating the run root or writing beside the design.
-    Reentering in one thread is safe. Separate threads and processes contend on the descriptor
-    locks as expected.
-
-    Windows has no `fcntl.flock` backend here, matching the existing policy of the run-directory
-    lock.
-    """
-    if sys.platform == "win32":
-        yield
-        return
-    root = design_root.resolve()
-    descriptor: int | None = None
-    try:
-        descriptor = os.open(root, os.O_RDONLY)
-        opened = os.fstat(descriptor)
-    except OSError as error:
-        if descriptor is not None:
-            os.close(descriptor)
-        raise RunDirectoryError(f"Cannot lock generator design root {root}: {error}") from error
-    assert descriptor is not None
-    key = (os.getpid(), threading.get_ident(), opened.st_dev, opened.st_ino)
-    hold = _directory_held.get(key)
-    if hold is not None:
-        os.close(descriptor)
-        hold.depth += 1
-        try:
-            yield
-        finally:
-            hold.depth -= 1
-        return
-    locked = False
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        locked = True
-        current = os.stat(root)
-    except OSError as error:
-        try:
-            if locked:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
-        raise RunDirectoryError(f"Cannot lock generator design root {root}: {error}") from error
-    except BaseException:
-        try:
-            if locked:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
-        raise
-    if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
-        fcntl.flock(descriptor, fcntl.LOCK_UN)
-        os.close(descriptor)
-        raise RunDirectoryError(f"Generator design root {root} changed while locking it")
-    _directory_held[key] = _DirectoryHold(descriptor)
-    try:
-        yield
-    finally:
-        del _directory_held[key]
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
 
 
 @dataclass(frozen=True)

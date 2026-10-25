@@ -18,6 +18,7 @@ import pytest
 from xeda import Design
 from xeda import design as design_module
 from xeda.design import Rtl, Source, SourceType, cocotb_of, generator_of, language_of
+from xeda.flow_runner.configuration import design_configuration_hash
 from xeda.flows import GhdlSim
 from xeda.frozen import FrozenDict
 from xeda.introspect import json_safe
@@ -59,28 +60,9 @@ def _design(root: Path, **extra) -> Design:
 
 
 @pytest.fixture
-def design(tmp_path, monkeypatch) -> Design:
-    # the generator writes `made.v`, so the design loads once the file exists
-    (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "made.v").write_text("module made; endmodule\n")
-    monkeypatch.setattr("xeda.design.judging_generation", _skipping_generation)
+def design(tmp_path) -> Design:
+    # loading runs no generator: `made.v` is a declaration of its output
     return _design(tmp_path / "d")
-
-
-class _skipping_generation:
-    """Stand in for the judgment of a generator: it does not run."""
-
-    def __init__(self, *args, **kwargs):
-        self.reason = None
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def produced(self):
-        pass
 
 
 @pytest.mark.parametrize(
@@ -181,13 +163,13 @@ def test_a_changed_design_is_a_copy(design):
     changed.invalidate_cached_properties()
     assert (changed.rtl.top, dict(changed.rtl.parameters)) == ("other", {})
     assert design.rtl.top == "top" and design.rtl.parameters["W"] == 8
-    assert changed.rtl_hash != design.rtl_hash
+    assert design_configuration_hash(changed) != design_configuration_hash(design)
 
 
 def test_a_design_copies_and_pickles(design):
     for other in (copy.deepcopy(design), pickle.loads(pickle.dumps(design))):
         assert other == design
-        assert other.rtl_hash == design.rtl_hash
+        assert design_configuration_hash(other) == design_configuration_hash(design)
         assert other.rtl.sources[0].type is design.rtl.sources[0].type
 
 
@@ -207,7 +189,8 @@ def test_the_design_loads_again_from_its_own_dump(design):
     again = Design(
         **{**design.model_dump(), "design_root": design.design_root},
     )
-    assert again.rtl_hash == design.rtl_hash and again.tb_hash == design.tb_hash
+    assert design_configuration_hash(again) == design_configuration_hash(design)
+    assert again.rtl.sources == design.rtl.sources
     assert again.rtl.clocks == design.rtl.clocks and again.language == design.language
 
 

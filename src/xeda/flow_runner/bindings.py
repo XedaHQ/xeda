@@ -396,7 +396,7 @@ def input_origins(
     consumers. The order of the references and of the files counts. Where a binding was written
     (chain, file, command line, API) does not.
     """
-    listed = {source.file: source for source in design.rtl.sources}
+    listed = {source.path: source for source in design.rtl.sources}
 
     def origin(resolved: Any) -> Any:
         if resolved.origin == "source":

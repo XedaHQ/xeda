@@ -498,7 +498,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
             if hdl and not cls.runs_without_testbench_top(design, settings):
                 raise FlowSettingsException(
                     f"{cls.name} needs to know which module is the testbench: `tb.sources` "
-                    f"holds {', '.join(src.file.name for src in hdl)} but `tb.top` is not set. "
+                    f"holds {', '.join(src.path.name for src in hdl)} but `tb.top` is not set. "
                     "Set `tb.top` to the testbench's top module."
                 )
         sdf = getattr(settings, "sdf", None)

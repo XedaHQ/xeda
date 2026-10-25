@@ -27,6 +27,7 @@ from ..flow import (
 from ..flow import Flow
 from ..flow.flow import _model_at, registered_flows
 from ..flow.metrics import log_stem
+from ..generation import GenerationError, MissingGenerated
 from ..proc_utils import ProcessTimeout
 from ..run_dir import RunDirectoryError
 from ..records import (
@@ -34,6 +35,7 @@ from ..records import (
     EXECUTABLE_NOT_FOUND,
     INTERNAL_ERROR,
     INVALID_METRIC,
+    MISSING_GENERATED,
     MISSING_OUTPUT,
     MISSING_REPORT,
     NONZERO_EXIT,
@@ -57,6 +59,9 @@ from .chains import ChainRefusal
 #: The code of a launch-level error: the outputs of a launch were not delivered.
 DELIVERY_FAILED = "delivery_failed"
 
+#: The code of a launch-level error: the generator of the design failed, before any node ran.
+GENERATOR_FAILED = "generator_failed"
+
 #: The code of a launch-level error: a clean-up after the run failed, and every root had passed.
 CLEANUP_FAILED = "cleanup_failed"
 
@@ -65,8 +70,10 @@ __all__ = [
     "CLEANUP_FAILED",
     "DELIVERY_FAILED",
     "EXECUTABLE_NOT_FOUND",
+    "GENERATOR_FAILED",
     "INTERNAL_ERROR",
     "INVALID_METRIC",
+    "MISSING_GENERATED",
     "MISSING_OUTPUT",
     "MISSING_REPORT",
     "NONZERO_EXIT",
@@ -142,6 +149,10 @@ def error_info(
         # A hand-over that found an output of a producer missing or changed is a problem with
         # the declared outputs. Any other delivery refusal is the flow's own failure.
         code = MISSING_OUTPUT if exc.output_problem else REPORTED_FAILURE
+    elif isinstance(exc, MissingGenerated):
+        code = MISSING_GENERATED
+    elif isinstance(exc, GenerationError):
+        code = GENERATOR_FAILED
     elif isinstance(exc, (OSError, RunDirectoryError)):
         code = STORAGE_ERROR
     elif isinstance(exc, XedaException):
@@ -301,6 +312,8 @@ def public_error(exc: BaseException) -> errors.XedaError:
         return errors.SettingsError(str(exc), code=exc.code, node=exc.node)
     if isinstance(exc, ConflictingKeys):
         return errors.SettingsError(str(exc), code="conflicting_keys", setting=exc.value_key)
+    if isinstance(exc, GenerationError):
+        return errors.XedaError(str(exc), code=GENERATOR_FAILED)
     if isinstance(exc, DesignValidationError):
         return _design_error(exc)
     if isinstance(exc, DesignFileParseError):

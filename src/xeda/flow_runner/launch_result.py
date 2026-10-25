@@ -19,11 +19,12 @@ from typing import Protocol
 
 from ..deliver import Delivered, Delivery, DeliveryError
 from ..flow import Flow
+from ..generation import GenerationError
 from ..log_context import launch_context, tag_launch_id
 from ..outcomes import DeliveryRecord, Disposition, NodeResult, Outcome, Result, aggregate
 from ..records import CANCELED, INTERNAL_ERROR, PRODUCER_FAILED, ErrorInfo
 from ..spec import Spec
-from .error_codes import CLEANUP_FAILED, DELIVERY_FAILED, error_info
+from .error_codes import CLEANUP_FAILED, DELIVERY_FAILED, GENERATOR_FAILED, error_info
 from .resolver import Plan, PlanNode
 
 log = logging.getLogger(__name__)
@@ -76,6 +77,8 @@ class LaunchCollector:
         self.interrupted: PlanNode | None = None
         #: When each node finished its producers and began its own execution.
         self._own_start: dict[str, float] = {}
+        #: The failure of the generator of the design, which ended the launch before any node ran.
+        self.generation_failed: GenerationError | None = None
         #: The failures of the end of the launch.
         self.finish_failures: list[_FinishFailure] = []
         #: The failure of the end of the launch that the launch raised: the first of them, when
@@ -109,6 +112,11 @@ class LaunchCollector:
         interrupt is no outcome: neither is noted."""
         node = self._attempts[depth] if len(self._attempts) > depth else None
         del self._attempts[depth:]
+        if isinstance(error, GenerationError):
+            # A failure of the whole launch, before any node ran: no node ended with it.
+            if self.generation_failed is None:
+                self.generation_failed = error
+            return
         if node is None:
             return
         if not isinstance(error, Exception):
@@ -158,7 +166,7 @@ class LaunchCollector:
         Any other exception left the launch before it could report: a refusal, or a bug."""
         if self.plan is None:
             return False
-        if self.finish_raised is error:
+        if self.finish_raised is error or self.generation_failed is error:
             return True
         root = self.ended.get(self.plan.nodes[-1].name)
         return root is not None and root.error is error
@@ -340,13 +348,22 @@ def _not_reached(plan: Plan, node: PlanNode, done: Mapping[str, NodeResult]) -> 
 def _launch_error(
     collector: LaunchCollector, nodes: Mapping[str, NodeResult], roots: Sequence[str]
 ) -> ErrorInfo | None:
-    """Return the error of the whole launch, from the failure at its end that it raised, or None.
+    """Return the error of the whole launch, or None: a failed generator, or the failure at the
+    end of the launch that it raised.
 
     A failed delivery is a launch error (`delivery_failed`). So is a failed clean-up
     (`cleanup_failed`), when every root passed. The nodes stay as they were. A failure of the end
     of the launch never takes the place of an earlier cause: when a root did not pass, its own
     error stays, and the clean-up failure is only logged. When a delivery failed first, the
     delivery is the cause."""
+    if collector.generation_failed is not None:
+        return ErrorInfo(
+            code=GENERATOR_FAILED,
+            message=str(collector.generation_failed),
+            node=None,
+            exit_status=None,
+            log=None,
+        )
     found = next(
         (item for item in collector.finish_failures if item.error is collector.finish_raised), None
     )

@@ -133,7 +133,8 @@ def design_files(
 
     def visit(value: Any) -> None:
         if isinstance(value, FileResource):
-            if value.file.is_file():
+            # A declaration of a generated source names no file until the generator has run.
+            if value.file is not None and value.file.is_file():
                 _add(found, value.file)
         elif isinstance(value, BaseModel):
             for name in type(value).model_fields:
