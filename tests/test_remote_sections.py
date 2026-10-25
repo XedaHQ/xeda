@@ -10,16 +10,19 @@ these tests fail.
 """
 
 import json
-from pathlib import Path
+from collections.abc import Sequence
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Any, Iterator
 
 import pytest
 from pydantic import BaseModel
 
-from xeda.flow import Flow, FlowSettingsError
+from xeda.dataclass import is_locator, written_role
+from xeda.flow import Flow, FlowSettingsError, FlowSettingsException
 from xeda.flow.flow import registered_flows
 from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner.bindings import INPUTS_KEY, BindingEntry, BindingLayer, NodeKey
+from xeda.remote.packaging import package_inputs
 
 from . import io_flows
 from .settings_samples import PROBES, flow_classes, minimal_settings
@@ -29,6 +32,7 @@ from .test_remote_packaging import (
     _package,
     _remote_plan,
     _shipped,
+    _sync,
     _wiring,
 )
 
@@ -64,6 +68,28 @@ def _leaves(model: type[BaseModel], prefix: tuple[str, ...] = ()) -> Iterator[tu
             yield (*prefix, name)
 
 
+def _owner(model: type[BaseModel], path: tuple[str, ...]) -> tuple[type[BaseModel], str]:
+    """The class that holds the setting at `path`, and its name there."""
+    for name in path[:-1]:
+        model = model.model_fields[name].annotation  # type: ignore[assignment]
+    return model, path[-1]
+
+
+def _is_written(model: type[BaseModel], path: tuple[str, ...]) -> bool:
+    """Whether the setting at `path` names a file that the run writes (it has a written role)."""
+    owner, name = _owner(model, path)
+    return written_role(owner, name) is not None
+
+
+def _holds_path(value: Any) -> bool:
+    """Whether `value` is a path, or a collection that holds one."""
+    if isinstance(value, PurePath):
+        return True
+    if isinstance(value, dict):
+        value = list(value.values())
+    return isinstance(value, (list, tuple)) and any(_holds_path(item) for item in value)
+
+
 def _at(path: tuple[str, ...], value: Any) -> dict[str, Any]:
     for name in reversed(path):
         value = {name: value}
@@ -93,11 +119,28 @@ def _plain(value: Any) -> Any:
     return str(value)
 
 
-def _sections(cls: type[Flow], design_root: Path) -> Iterator[tuple[tuple[str, ...], dict]]:
+#: The settings for which neither the default nor any probe is a valid input, with the reason.
+#: The sweep below fails for any other setting that it cannot cover.
+UNCOVERED = {
+    ("clocks",): (
+        "the input spelling is the shorthand `clock`, which `minimal_settings` states; every "
+        "section of the sweep holds the stored `clocks` it makes"
+    ),
+}
+
+
+def _sections(
+    cls: type[Flow],
+    design_root: Path,
+    skipped: list[tuple[str, ...]],
+    files: Sequence[Path] = (),
+) -> Iterator[tuple[tuple[str, ...], dict]]:
     """Yield `(path, section)` for each setting of `cls` that has a value its validation takes.
 
     The value is the default of the setting, set on purpose, and then the first of the probes
-    that the validation accepts. So an enumerated setting is covered too."""
+    that the validation accepts. So an enumerated setting is covered too. A setting with no such
+    value is appended to `skipped`. A setting that holds a path also gets each of `files` (a
+    file below the design root, and one outside it), so the sweep compares a path that travels."""
     base = minimal_settings(cls)
     try:
         defaults = cls.Settings.from_input(base, design_root=design_root, runner_cwd=design_root)
@@ -113,32 +156,81 @@ def _sections(cls: type[Flow], design_root: Path) -> Iterator[tuple[tuple[str, .
                 continue
             yield path, section
             break
+        else:
+            skipped.append(path)
+            continue
+        for file in files:
+            section = _merge(base, _at(path, str(file)))
+            try:
+                model = cls.Settings.from_input(
+                    section, design_root=design_root, runner_cwd=design_root
+                )
+            except (FlowSettingsError, ValueError, TypeError):
+                continue
+            value: Any = model
+            for name in path:
+                value = getattr(value, name)
+            # a locator names a place on the machine that reads it, and does not travel
+            if _holds_path(value) and not is_locator(*_owner(cls.Settings, path)):
+                yield path, section
+
+
+def _compared(text: str, stripped: list[str]) -> str:
+    """Return `text` (the JSON of a setting) with each place in `stripped` removed from the
+    paths that start with it, and the `$DESIGN_ROOT` spelling removed too. What is left names a
+    path by its place below the design root."""
+    for place in stripped:
+        text = text.replace(f"{place}/", "")
+    return text.replace("$DESIGN_ROOT/", "")
 
 
 @pytest.mark.parametrize("cls", FLOWS, ids=FLOW_IDS)
 def test_every_setting_of_a_section_reaches_the_remote(tmp_path, cls):
     design = _design(tmp_path)
     root = design.root_path
+    remote_root = tmp_path / "remote_inputs"
+    skipped: list[tuple[str, ...]] = []
+    inside = root / "inside.dat"
+    outside = tmp_path / "elsewhere" / "outside.dat"
+    outside.parent.mkdir()
+    for file in (inside, outside):
+        file.write_text("data\n")
     checked = 0
-    for path, section in _sections(cls, root):
+    for path, section in _sections(cls, root, skipped, (inside, outside)):
         local = cls.Settings.from_input(section, design_root=root, runner_cwd=root)
-        package = _package(design, {cls.name: section}, tmp_path)
+        package = package_inputs(
+            design,
+            {cls.name: section},
+            {cls.name},
+            run_root=tmp_path / "xeda_run",
+            remote_inputs=PurePosixPath(remote_root),
+        )
+        _sync(package, remote_root)
         shipped = _shipped(package)["flow"][cls.name]
         where = f"{cls.name}: {'.'.join(path)}"
         # the section keeps its keys: none is lost, and none is new
         assert set(shipped) == local.model_fields_set, where
-        remote = cls.Settings.from_input(shipped, design_root=root, runner_cwd=root)
+        remote = cls.Settings.from_input(shipped, design_root=remote_root, runner_cwd=remote_root)
         assert remote.model_fields_set == local.model_fields_set, where
+        # A path names the same place on both sides: below the design root here and below the
+        # inputs directory there, or elsewhere here and below `_setting_inputs` there, where
+        # `path_identities` gives the name that this side counts for it.
+        identities = sorted(package.path_identities.items(), key=lambda item: -len(item[0]))
         for key in local.model_fields_set:
             before = json.dumps(getattr(local, key), default=_plain, sort_keys=True)
             after = json.dumps(getattr(remote, key), default=_plain, sort_keys=True)
-            # a path is another path on the remote: the package puts it below the inputs
-            if str(root) not in before and str(root) not in after:
-                assert after == before, f"{where}: {key}"
+            for place, identity in identities:
+                after = after.replace(place, identity)
+            here = sorted({str(root), str(root.resolve())}, key=len, reverse=True)
+            # A setting that names a file the run writes keeps its text: the remote writes below
+            # its own run directory, and the identity counts the name.
+            there = here if key == path[0] and _is_written(cls.Settings, path) else []
+            assert _compared(after, [str(remote_root), *there]) == _compared(
+                before, here
+            ), f"{where}: {key}"
         checked += 1
-    assert (
-        checked or not cls.Settings.model_fields or cls.Settings.model_fields.keys() <= {"debug"}
-    ), f"no setting of {cls.name} had a value its validation took"
+    assert set(skipped) <= UNCOVERED.keys(), f"{cls.name}: no value for {sorted(set(skipped))}"
+    assert checked or not cls.Settings.model_fields, f"nothing of {cls.name} was checked"
 
 
 @pytest.mark.parametrize("cls", FLOWS, ids=FLOW_IDS)
@@ -214,6 +306,8 @@ def _bindings() -> list[tuple[str, str, str, str]]:
 
 
 BINDINGS = _bindings()
+#: How many of `BINDINGS` the planner takes. Raise it when a test flow adds bindings.
+ACCEPTED_BINDINGS = 381
 
 
 def _planned(tmp_path: Path, consumer: str, name: str, producer: str, output: str):
@@ -242,7 +336,7 @@ def _planned(tmp_path: Path, consumer: str, name: str, producer: str, output: st
     launcher = DefaultRunner(local_root, display_results=False)
     try:
         return launcher.prepare_request(consumer, design=root / "d.yaml"), local_root
-    except Exception:  # pylint: disable=broad-except
+    except FlowSettingsException:  # the planner refuses a binding that is not valid
         return None
 
 
@@ -271,5 +365,7 @@ def test_the_remote_plans_every_binding_that_the_local_plan_accepts(tmp_path):
         default = declared_inputs(prepared.plan.node(consumer).flow_class)[name].producer
         if default != producer:
             rebound += 1
-    assert accepted, "the planner took no binding"
+    # A planner bug is no refusal (only `FlowSettingsException` is caught), and a planner that
+    # refuses more than it did shrinks the sweep: this is the number it takes today.
+    assert accepted >= ACCEPTED_BINDINGS, f"the planner took {accepted} bindings"
     assert rebound, "every binding that the planner took names the default producer"
