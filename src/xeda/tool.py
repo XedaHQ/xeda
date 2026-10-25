@@ -46,7 +46,6 @@ __all__ = [
 ]
 
 
-OptionalPath = Union[None, str, os.PathLike]
 OptionalBoolOrPath = Union[None, bool, str, os.PathLike]
 
 
@@ -579,7 +578,7 @@ class Tool(XedaBaseModel):
             )
         return flow.run_path
 
-    def _directory(self, cwd: OptionalPath = None) -> Path:
+    def _directory(self, cwd: Union[None, str, "os.PathLike[str]"] = None) -> Path:
         """Return the absolute directory for one start of the tool: `cwd`, if it is absolute,
         else `cwd` relative to the working directory of the tool, else the working directory."""
         if cwd is not None and os.path.isabs(cwd):

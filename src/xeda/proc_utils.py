@@ -483,7 +483,7 @@ def _copy_from_terminal(
 def _run_in_terminal(
     command: List[str],
     env: Optional[Dict[str, Any]],
-    cwd: Union[None, str, os.PathLike],
+    cwd: Union[None, str, "os.PathLike[str]"],
     check: bool,
     merge_stderr: bool,
     timeout: float | None,
@@ -543,7 +543,7 @@ def proc_output(is_stderr: bool, line):
     )
 
 
-def _pwd(cwd: Union[None, str, os.PathLike]) -> str:
+def _pwd(cwd: Union[None, str, "os.PathLike[str]"]) -> str:
     """Return the `PWD` of a process that starts in `cwd` (Xeda's current directory if None).
 
     `PWD` names that directory for a program that reads it (a shell, a build script), never an
@@ -566,7 +566,7 @@ def run_process(
     env: Optional[Dict[str, Any]] = None,
     stdout: Union[None, bool, str, os.PathLike] = None,
     check: bool = True,
-    cwd: Union[None, str, os.PathLike] = None,
+    cwd: Union[None, str, "os.PathLike[str]"] = None,
     print_command: bool = False,
     highlight_rules: Optional[Dict[str, str]] = None,
     merge_stderr: bool = False,
