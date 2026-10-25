@@ -2466,10 +2466,3 @@ def remove_file_logger(handler: Optional[logging.Handler]) -> None:
     if handler is not None:
         log.root.removeHandler(handler)
         handler.close()
-
-
-class XedaOptions(XedaBaseModel):
-    verbose: bool = False
-    quiet: bool = False
-    debug: bool = False
-    detailed_logs: bool = True

@@ -388,3 +388,81 @@ def test_the_flow_listing_has_no_aliases():
     from xeda.introspect import flows_info
 
     assert all("aliases" not in flow for flow in flows_info())
+
+
+# ------------------------------------------------------------------------------ options
+
+#: A removed option, the arguments to give it with, and the text after "use " in the message.
+REMOVED_OPTIONS = [
+    ("--flow-settings", ["run", "vivado_synth", "d.yaml"], "-s or --settings"),
+    ("--flow-settings", ["dse", "vivado_synth"], "-s or --settings"),
+    ("--design-file", ["run", "vivado_synth"], "the positional DESIGN argument"),
+    ("--design", ["run", "vivado_synth"], "the positional DESIGN argument"),
+    ("--design-file", ["dse", "vivado_synth"], "the positional DESIGN argument"),
+    ("--design", ["dse", "vivado_synth"], "the positional DESIGN argument"),
+    ("--help-settings", ["run", "vivado_synth", "d.yaml"], "`xeda list-settings FLOW`"),
+    ("--list-settings", ["run", "vivado_synth", "d.yaml"], "`xeda list-settings FLOW`"),
+    ("--debug", [], "--log-level 10 and --detailed-logs"),
+    ("-d", [], "--log-level 10 and --detailed-logs"),
+    ("--debug", ["run", "vivado_synth", "d.yaml"], "--log-level 10 and --detailed-logs"),
+    ("-d", ["run", "vivado_synth", "d.yaml"], "--log-level 10 and --detailed-logs"),
+    ("--debug", ["dse", "vivado_synth"], "--log-level 10 and --detailed-logs"),
+    ("-v", [], "--log-level 10 for more log messages"),
+    ("--verbose", [], "--log-level 10 for more log messages"),
+    ("-q", [], "--log-level 30 for fewer log messages"),
+    ("--quiet", [], "--log-level 30 for fewer log messages"),
+    ("--init_freq_low", ["dse", "vivado_synth"], "--init-freq-low"),
+    ("--init_freq_high", ["dse", "vivado_synth"], "--init-freq-high"),
+]
+
+
+@pytest.mark.parametrize(
+    ("option", "command", "successor"),
+    REMOVED_OPTIONS,
+    ids=[f"{' '.join(command[:1])} {option}" for option, command, _ in REMOVED_OPTIONS],
+)
+def test_a_removed_option_names_its_successor(tmp_path, option, command, successor):
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    design = tmp_path / "d.yaml"
+    design.write_text("name: d\n")
+    # The group options come first; the options of a command follow its arguments.
+    args = [option, "list-flows"] if not command else [*command, option]
+    args = [str(design) if arg == "d.yaml" else arg for arg in args]
+    result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code == 2, result.output
+    assert f"`{option}` was removed: use {successor}" in click.unstyle(result.output)
+
+
+def test_the_removed_debug_variable_names_itself(monkeypatch):
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    result = CliRunner().invoke(cli, ["list-flows"], env={"XEDA_DEBUG": "1"})
+
+    assert result.exit_code == 2, result.output
+    assert "`XEDA_DEBUG` was removed: use --log-level 10 and --detailed-logs" in click.unstyle(
+        result.output
+    )
+
+
+def test_the_commands_take_the_design_as_an_argument_and_the_settings_as_dash_s():
+    from xeda.cli import dse, run
+
+    for command in (run, dse):
+        visible = {
+            name: param
+            for param in command.params
+            if not getattr(param, "hidden", False)
+            for name in getattr(param, "opts", [])
+        }
+        assert "-s" in visible and "--settings" in visible
+        assert not {"--flow-settings", "--design", "--design-file", "--debug"} & set(visible)
+        arguments = [param.name for param in command.params if param.param_type_name == "argument"]
+        assert arguments[-1] == ("design_file" if command is run else "design")
+    assert [p.name for p in dse.params if p.param_type_name == "argument"] == ["flow", "design"]
+    assert "--init-freq-low" in {opt for p in dse.params for opt in p.opts}

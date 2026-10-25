@@ -50,7 +50,7 @@ from .cli_types import (
 from .console import console, console_target, redirect_console, restore_console
 from .design import Design
 from .flow import Flow
-from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
+from .flow_runner import FlowNotFoundError, get_flow_class
 from .flow_runner.launch_report import results_of
 from .introspect import settings_info, type_str
 from .outcomes import Result
@@ -627,12 +627,9 @@ def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
     return table
 
 
-def _definitions_tables(definitions: Dict[str, Any], debug: bool = False) -> None:
+def _definitions_tables(definitions: Dict[str, Any]) -> None:
     for type_name, type_def in definitions.items():
         properties = (type_def or {}).get("properties")
-        if debug:
-            console.print(f"Type: {type_name}")
-            console.print_json(data=type_def)
         if not properties:
             enum = (type_def or {}).get("enum")
             if enum:
@@ -666,7 +663,6 @@ def _definitions_tables(definitions: Dict[str, Any], debug: bool = False) -> Non
 
 def print_flow_settings(
     flow: Union[str, Type[Flow]],
-    options: Optional[XedaOptions] = None,
     output_format: str = "table",
     include_common: bool = True,
     tier: Optional[str] = None,
@@ -705,7 +701,7 @@ def print_flow_settings(
             console.print(_settings_table(f"{info['flow']} settings: {name}", in_tier))
     if common:
         console.print(_settings_table("Common settings (accepted by every flow)", common))
-    _definitions_tables(info.get("definitions", {}), debug=bool(options and options.debug))
+    _definitions_tables(info.get("definitions", {}))
 
 
 def discover_flow_class(flow: str) -> Type[Flow]:

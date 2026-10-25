@@ -50,7 +50,6 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .design import DESIGN_NAME, target_name_problem
     from .flow_runner import (
         DefaultRunner,
-        XedaOptions,
         add_file_logger,
         scrub_design,
     )
@@ -157,16 +156,71 @@ def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
         add_file_logger(log_to_file)
 
 
+def _removed_option(replacement: str, false_replacement: Optional[str] = None):
+    """Return the callback of a hidden option that only exists to say what replaced it.
+
+    `replacement` is the text for the option as given (`--foo`). For a pair whose negation
+    (`--no-foo`) needs other text, `false_replacement` gives it. The message has the form of the
+    messages of the launcher settings and the flow settings (`<name>` was removed: use
+    <replacement>), so a removed option, launcher setting and flow setting all read the same
+    way.
+    """
+
+    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
+        if value is not None:
+            given = param.opts[0] if value else param.secondary_opts[0]
+            text = replacement if value or false_replacement is None else false_replacement
+            raise click.UsageError(f"`{given}` was removed: use {text}", ctx=ctx)
+
+    return callback
+
+
+def _removed_debug_option(ctx: click.Context, param: click.Parameter, value: Any) -> None:
+    """Refuse `--debug`, `-d` and `XEDA_DEBUG`, and name the one that was given."""
+    if value is not None:
+        if ctx.get_parameter_source(param.name or "") is ParameterSource.ENVIRONMENT:
+            given = "XEDA_DEBUG"
+        else:
+            given = param.opts[0]
+        raise click.UsageError(
+            f"`{given}` was removed: use --log-level 10 and --detailed-logs", ctx=ctx
+        )
+
+
+def _removed_options(
+    replacement: str | None, *names: str, callback: Any = None, envvar: str | None = None
+):
+    """Return the decorator that adds a hidden option for each of the removed `names`.
+
+    Each option says what replaced it, in the words of `_removed_option`, and names the spelling
+    that was given."""
+
+    def decorator(func):
+        for name in reversed(names):
+            func = click.option(
+                name,
+                "removed_" + name.lstrip("-").replace("-", "_") + "_option",
+                is_flag=True,
+                default=None,
+                hidden=True,
+                expose_value=False,
+                envvar=envvar if name.startswith("--") else None,
+                callback=callback or _removed_option(replacement or ""),
+            )(func)
+        return func
+
+    return decorator
+
+
 # click-extra uses the command name as prog_name, including for Click's completion protocol.
 # Keep it aligned with the console entry point and its _XEDA_COMPLETE environment variable.
 @click.group("xeda", cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
-@click.option("--verbose", "-v", is_flag=True, help="Enable verbose mode.")
-@click.option("--quiet", "-q", is_flag=True, help="Enable quiet mode.")
-@click.option("--debug", "-d", show_envvar=True, is_flag=True)
+@_removed_options("--log-level 10 for more log messages", "--verbose", "-v")
+@_removed_options("--log-level 30 for fewer log messages", "--quiet", "-q")
+@_removed_options(None, "--debug", "-d", callback=_removed_debug_option, envvar="XEDA_DEBUG")
 @click.version_option(message="Xeda v%(version)s")
-@click.pass_context
-def cli(ctx: click.Context, **kwargs):
-    ctx.obj = XedaOptions(**kwargs)
+def cli():
+    pass
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")
@@ -236,16 +290,12 @@ def list_flows(output_format: str, json_flag: bool):
         "The default is every tier."
     ),
 )
-@click.pass_context
-def list_settings(
-    ctx: click.Context, flow, output_format: str, json_flag: bool, common: bool, tier: str | None
-):
+def list_settings(flow, output_format: str, json_flag: bool, common: bool, tier: str | None):
     """Show every setting of FLOW_NAME that can be given as `-s KEY=VALUE` or in a design file.
 
     A setting of a group has a dotted name (`global_placement.timing_driven.enabled`)."""
     print_flow_settings(
         flow,
-        options=ctx.obj,
         output_format=resolve_format(output_format, json_flag),
         include_common=common,
         tier=tier,
@@ -481,25 +531,6 @@ def _error_message(exc: BaseException) -> str:
     if any(text.startswith(f"{name}:") for name in (kind, type(exc).__qualname__)):
         return text
     return f"{kind}: {text}"
-
-
-def _removed_option(replacement: str, false_replacement: Optional[str] = None):
-    """Return the callback of a hidden option that only exists to say what replaced it.
-
-    `replacement` is the text for the option as given (`--foo`). For a pair whose negation
-    (`--no-foo`) needs other text, `false_replacement` gives it. The message has the form of the
-    messages of the launcher settings and the flow settings (`<name>` was removed: use
-    <replacement>), so a removed option, launcher setting and flow setting all read the same
-    way.
-    """
-
-    def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-        if value is not None:
-            given = param.opts[0] if value else param.secondary_opts[0]
-            text = replacement if value or false_replacement is None else false_replacement
-            raise click.UsageError(f"`{given}` was removed: use {text}", ctx=ctx)
-
-    return callback
 
 
 def _removed_run_root_option(ctx: click.Context, param: click.Parameter, value: Any) -> None:
@@ -752,25 +783,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     ),
     help="Path to Xeda project file. By default, discover one xedaproject.yaml, .yml or .toml.",
 )
-@click.option(
-    "--design-file",
-    "--design",
-    # A destination of its own: the positional DESIGN argument is already named `design_file`,
-    # and two parameters that share a name overwrite each other during parsing (click 8.5
-    # warns about it).
-    "design_file_opt",
-    type=click.Path(
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        writable=False,
-        readable=True,
-        resolve_path=True,
-        allow_dash=False,
-        path_type=Path,
-    ),
-    help="Path to the Xeda design file of a single design.",
-)
+@_removed_options("the positional DESIGN argument", "--design-file", "--design")
 @click.option(
     "--design-name",
     help="Specify design.name in case multiple designs are available in a project file.",
@@ -798,10 +811,11 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     default=False,
     help="""Allow extra properties (fields) in the design file.""",
 )
+@_removed_options("-s or --settings", "--flow-settings")
 @click.option(
-    "--flow-settings",
     "--settings",
     "-s",
+    "flow_settings",
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
@@ -861,22 +875,8 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "stops the local follow. `xeda remote attach` follows it again and `xeda remote cancel` "
     "stops it. Running the same request again attaches to the running launch.",
 )
-@click.option(
-    "--debug",
-    "-d",
-    is_flag=True,
-    default=False,
-    envvar="XEDA_DEBUG",
-    show_envvar=True,
-    help="Run in debug mode.",
-)
-@click.option(
-    "--help-settings",
-    "--list-settings",
-    is_flag=True,
-    default=False,
-    help="List flow settings. This option is an alias for `xeda list-settings <flow>`.",
-)
+@_removed_options(None, "--debug", "-d", callback=_removed_debug_option)
+@_removed_options("`xeda list-settings FLOW`", "--help-settings", "--list-settings")
 @click.option(
     "--outputs-to",
     "outputs_to",
@@ -919,7 +919,6 @@ def run(
     ctx: click.Context,
     flow: str,
     design_file: Optional[str] = None,
-    design_file_opt: Optional[str] = None,
     rebuild_all: bool = False,
     hashed_run_dirs: bool = False,
     flow_settings: Union[None, str, Iterable[str]] = None,
@@ -939,8 +938,6 @@ def run(
     remote: Optional[str] = None,
     fetch_all: bool = False,
     keep_running: bool = False,
-    debug: bool = False,
-    help_settings: bool = False,
     outputs_to: Optional[Path] = None,
     overwrite_outputs: bool = False,
     dry_run: bool = False,
@@ -948,7 +945,6 @@ def run(
 ):
     """Run a flow or a chain."""
     assert ctx
-    options: XedaOptions = ctx.obj or XedaOptions()
     # FLOW is the canonical request text. The results, the settings and the exit status are
     # those of its last flow.
     request = parse_request(flow)
@@ -956,28 +952,23 @@ def run(
     if json_flag:
         # From here on, stdout belongs to the JSON document.
         machine_readable_mode()
-    if help_settings:
-        print_flow_settings(flow, options=options, output_format="json" if json_flag else "table")
-        sys.exit(0)
-    debug |= options.debug
     if run_root is None:
         run_root = Path.cwd() / "xeda_run"
 
     if log_level is None:
-        log_level = logging.DEBUG if debug else logging.WARNING if options.quiet else logging.INFO
-    detailed_logs |= debug
+        log_level = logging.INFO
     setup_logger(log_level, detailed_logs)
     if flow_settings is not None:
         flow_settings = list(flow_settings)
     else:
         flow_settings = []
 
-    # The positional DESIGN argument, then --design-file/--design, then --design-name.
-    design = design_file or design_file_opt or design_name
+    # The positional DESIGN argument, then --design-name.
+    design = design_file or design_name
     if not design:
         raise click.UsageError(
             "No design specified. Pass a design file as the DESIGN argument, or name one with "
-            "--design-file / --design-name.",
+            "--design-name.",
             ctx=ctx,
         )
 
@@ -1047,7 +1038,7 @@ def run(
             log.critical("%s", _error_message(outcome.error))
             if json_flag:
                 emit_structured(document, "json")
-            if debug or (not json_flag and not isinstance(outcome.error, XedaException)):
+            if not json_flag and not isinstance(outcome.error, XedaException):
                 raise outcome.error
             sys.exit(outcome.exit_status)
         if dry_run:
@@ -1120,7 +1111,7 @@ def run(
         A request that is invalid started no launch: with `--json`, its document has no
         outcome, and the exit status is 2. Any other exception ends a launch with a failure of
         its own: the nodes keep what they did, and the exit status is 1. The log line keeps the
-        class name of the exception. Raise `error` when debugging."""
+        class name of the exception."""
         public = public_error(error)
         info = request_error_info(error)
         log.critical("%s", _error_message(error))
@@ -1140,7 +1131,7 @@ def run(
                     nodes=(),
                 )
             emit_structured(document, "json")
-        if debug or (not json_flag and not isinstance(error, XedaException)):
+        if not json_flag and not isinstance(error, XedaException):
             raise error
         sys.exit(2 if refused else 1)
 
@@ -1151,7 +1142,6 @@ def run(
                 rebuild_all=rebuild_all,
                 hashed_run_dirs=hashed_run_dirs,
                 clean=clean,
-                debug=debug,
                 outputs_to=outputs_to,
             )
             plan, freshness = launcher.plan_with_freshness(
@@ -1201,7 +1191,6 @@ def run(
         launcher.settings.scrub_old_runs = scrub
         launcher.confirm_scrub = _prompt_scrub
         launcher.scrub_done = _print_scrub_result
-        launcher.settings.debug = debug
         resolved, plan = launcher.resolve_run(
             chain,
             xedaproject=xedaproject,
@@ -1303,9 +1292,24 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     type=FlowChoice(flow_names),
     required=True,
 )
+@click.argument(
+    "design",
+    metavar="DESIGN",
+    type=click.Path(
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        exists=True,
+        path_type=Path,
+    ),
+    default=None,
+    required=False,
+)
+@_removed_options("-s or --settings", "--flow-settings")
 @click.option(
-    "--flow-settings",
     "--settings",
+    "-s",
+    "flow_settings",
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
@@ -1343,21 +1347,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     "value wins over the design's and the project's. The order, lowest first, is defaults < "
     "project < design < target < -s < API.",
 )
-@click.option(
-    "--design",
-    "--design-file",
-    type=click.Path(
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        writable=False,
-        readable=True,
-        resolve_path=True,
-        allow_dash=False,
-        path_type=Path,
-    ),
-    help="Path to Xeda design file containing the description of a single design.",
-)
+@_removed_options("the positional DESIGN argument", "--design", "--design-file")
 @click.option(
     "--design-allow-extra/--no-design-allow-extra",
     type=bool,
@@ -1407,24 +1397,16 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     help="Maximum number of concurrent runs.",
 )
 @click.option(
-    "--init_freq_low",
     "--init-freq-low",
     type=float,
 )
 @click.option(
-    "--init_freq_high",
     "--init-freq-high",
     type=float,
 )
-@click.option(
-    "--debug",
-    "-d",
-    is_flag=True,
-    default=False,
-    envvar="XEDA_DEBUG",
-    show_envvar=True,
-    help="Run in debug mode.",
-)
+@_removed_options("--init-freq-low", "--init_freq_low")
+@_removed_options("--init-freq-high", "--init_freq_high")
+@_removed_options(None, "--debug", "-d", callback=_removed_debug_option)
 @click.option(
     "--json",
     "json_flag",
@@ -1435,10 +1417,9 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
         "logs go to stderr."
     ),
 )
-@click.pass_context
 def dse(
-    ctx: click.Context,
     flow: str,
+    design: Optional[Path],
     flow_settings: Tuple[str, ...],
     optimizer: str,
     optimizer_settings: Tuple[str, ...],
@@ -1448,18 +1429,14 @@ def dse(
     init_freq_high: float,
     run_root: Path,
     xedaproject: Optional[str] = None,
-    design: Optional[str] = None,
     design_name: Optional[str] = None,
     target: str | None = None,
     design_allow_extra: bool = True,
     log_level: Optional[int] = None,
     detailed_logs: bool = True,
-    debug: bool = False,
     json_flag: bool = False,
 ):
     """Run a design-space exploration, for example a search for the maximum frequency."""
-    options: XedaOptions = ctx.obj or XedaOptions()
-    debug |= options.debug
     if json_flag:
         # From here on, stdout belongs to the JSON document.
         machine_readable_mode()
@@ -1483,8 +1460,6 @@ def dse(
                 },
                 "json",
             )
-        if debug and exc is not None:
-            raise exc
         sys.exit(1)
 
     # Resolving the optimizer inside Dse() raises an AttributeError that names nothing useful,
@@ -1498,9 +1473,7 @@ def dse(
         )
 
     if log_level is None:
-        log_level = logging.WARNING if options.quiet else logging.DEBUG if debug else logging.INFO
-    if debug:
-        detailed_logs = True
+        log_level = logging.INFO
     # No log file here. The exploration logs into its run root (`<root>/Logs`), which it makes
     # when it starts, once its settings have validated. There is one log per exploration.
     setup_logger(log_level, detailed_logs)
@@ -1534,7 +1507,6 @@ def dse(
             optimizer_class=optimizer,
             optimizer_settings=opt_settings,
             run_root=run_root,
-            debug=debug,
             **dse_settings_dict,
         )
         # The tables go to stderr with --json (`machine_readable_mode`).
