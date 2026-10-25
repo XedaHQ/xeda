@@ -596,7 +596,7 @@ the cause:
 
 The code of an error of the whole launch (``node`` is ``null``): ``generator_failed``,
 ``delivery_failed`` (Xeda could not deliver an output that a setting or ``--outputs-to`` named),
-``canceled``, and, for ``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
+``cleanup_failed`` (see below), ``canceled``, and, for ``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
 ``remote_detached``. ``no_successful_run`` is the error of ``xeda dse``.
 
 The code of an error of a request that started no launch is the code of the setting, design,
@@ -607,13 +607,12 @@ project, chain or run root problem. For a bad setting: ``unknown_setting``, ``re
 ``design_file_not_found``, ``unknown_target``, ``unknown_design``, ``invalid_project``,
 ``flow_not_found``, ``invalid_run_root``, ``delivery_refused`` and ``usage_error``.
 
-Two more codes belong to the whole launch, not to a node. They are the ``error`` of the result of a
-launch (``xeda.outcomes.Result``), which has no ``node``, and every node keeps the outcome it had. ``delivery_failed``: the launch could not copy
-an output to the destination that a setting names. ``cleanup_failed``: every requested flow passed,
-and then the clean-up after the run (``--post-cleanup`` or ``--post-cleanup-purge``) failed. The
-message names the run directory and the cause. A launch that has another cause already keeps it: a
-failed delivery comes before a failed clean-up, and a requested flow that did not pass keeps its own
-error. Xeda only logs the clean-up failure then.
+With ``delivery_failed`` and ``cleanup_failed``, every node keeps the outcome it had.
+``cleanup_failed`` says that every requested flow passed, and then the clean-up after the run
+(``--post-cleanup`` or ``--post-cleanup-purge``) failed. The message names the run directory and the
+cause. A launch that has another cause already keeps it: a failed delivery comes before a failed
+clean-up, and a requested flow that did not pass keeps its own error. Xeda only logs the clean-up
+failure then.
 
 Other documents of executional commands
 ---------------------------------------
