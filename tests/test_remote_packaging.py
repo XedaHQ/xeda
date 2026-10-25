@@ -985,7 +985,7 @@ def test_a_testbench_with_cocotb_has_the_same_identity_on_the_remote(tmp_path):
         rtl={
             "sources": ["top.v"],
             "top": "top",
-            "clock": "clk",
+            "clocks": ["clk"],
             "defines": {"DUMP": "/not/a/path/here", "FAST": 1},
         },
         tb={

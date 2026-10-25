@@ -70,7 +70,7 @@ def verilog_design(
     return Design(
         name=name,
         design_root=root,
-        rtl={"sources": ["top.v"], "top": top, "clock": "clk", **rtl},
+        rtl={"sources": ["top.v"], "top": top, "clocks": ["clk"], **rtl},
         **({"tb": {"sources": ["tb.v"], "top": "tb", **tb}} if tb is not None else {}),
     )
 
@@ -135,7 +135,7 @@ def bluespec_design(root: Path) -> Design:
     return Design(
         name="d",
         design_root=root,
-        rtl={"sources": ["Top.bsv"], "top": "mkTop", "clock": {"port": "CLK"}},
+        rtl={"sources": ["Top.bsv"], "top": "mkTop", "clocks": [{"port": "CLK"}]},
     )
 
 
@@ -398,7 +398,7 @@ def test_the_cocotb_values_are_the_validated_ones_whatever_the_spelling(tmp_path
     assert node.flowrun_hash != plain.flowrun_hash
 
 
-@pytest.mark.parametrize("vhdl", ["08", {"standard": "08"}, {"version": "08"}])
+@pytest.mark.parametrize("vhdl", ["08", {"standard": "08"}])
 def test_the_language_values_are_the_validated_ones_whatever_the_spelling(tmp_path, vhdl):
     launcher = runner(tmp_path)
     root = tmp_path / "d"
@@ -509,12 +509,12 @@ def test_a_converted_input_has_the_conversion_and_no_sources(tmp_path):
 def test_a_design_with_a_target_and_the_same_design_without_it_have_one_configuration(tmp_path):
     base = {
         "name": "d",
-        "rtl": {"sources": ["top.v"], "top": "top", "clock": {"port": "clk"}},
+        "rtl": {"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     }
     (tmp_path / "d").mkdir()
     (tmp_path / "d" / "top.v").write_text("module top(input clk); endmodule\n")
     (tmp_path / "d" / "alt.v").write_text("module alt(input clk); endmodule\n")
-    folded = {"top": "alt", "defines": {"A": 1}}
+    folded = {"rtl": {"top": "alt", "defines": {"A": 1}}}
     with_target = tmp_path / "d" / "with_target.yaml"
     with_target.write_text(yaml.safe_dump({**base, "targets": {"fast": folded}}, sort_keys=False))
     flat = tmp_path / "d" / "flat.yaml"
