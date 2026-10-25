@@ -23,8 +23,9 @@ from ..run_dir import (
     run_directory_name,
     run_directory_problem,
 )
+from ..generation import GENERATION_DIRECTORY
 from ..utils import unique
-from .run_lock import run_dir_lock
+from .run_lock import run_dir_lock, storage_lock
 
 log = logging.getLogger(__name__)
 
@@ -483,3 +484,46 @@ def scrub_design(
         [s.link for s in skipped],
         {s.link: s.problem for s in skipped},
     )
+
+
+def scrub_generations(
+    design_name: str,
+    *,
+    run_root: Path,
+    confirm: Optional[ScrubConfirmation] = None,
+) -> ScrubResult:
+    """Find the generation storages of a design under `run_root`, and remove them.
+
+    A storage (`<run root>/.generated/<design>/<key>`) holds the output of the generator of the
+    design for one configuration. One confirmation covers all of them; without `confirm`, nothing
+    is removed, because the library never asks. Each storage is removed under its exclusive lock,
+    which a launch holds in the shared mode for as long as it reads the storage. So scrub waits
+    for every launch that reads a storage before it removes that storage. A storage that is gone
+    when its turn comes is reported as `gone`."""
+    base = run_root / GENERATION_DIRECTORY / design_name
+    refuse_link_on_way(base, run_root)
+    found = sorted(p for p in base.glob("*") if p.is_dir() and not p.is_symlink())
+    if not found:
+        return ScrubResult([base], [], [], [], [])
+    if confirm is None:
+        log.warning(
+            "Not removing %d generation storage(s) of %s: nothing confirmed the removal, and only "
+            "the command line asks the user.",
+            len(found),
+            design_name,
+        )
+        return ScrubResult([base], [], [], [], [])
+    if not confirm([ScrubCandidate(path, ()) for path in found]):
+        return ScrubResult([base], [], [], [], [])
+    removed: list[Path] = []
+    gone: list[Path] = []
+    for storage in found:
+        with storage_lock(storage, exclusive=True, run_root=run_root):
+            if not storage.is_dir():
+                gone.append(storage)
+                continue
+            owner = RunDirectory.claimed(storage, run_root)
+            owner.clear()
+            owner.delete()
+        removed.append(storage)
+    return ScrubResult([base], removed, [], gone, [])

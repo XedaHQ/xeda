@@ -62,6 +62,30 @@ def reader_flow() -> type[Flow]:
     return _GenReader
 
 
+def blocking_reader_flow(started: Path, gate: Path) -> type[Flow]:
+    """Define a flow that reads the Verilog sources, tells the test that it holds them, and reads
+    them again after the test opens the gate (`started` and `gate` are named pipes).
+
+    Call it inside `preserved_flow_registry`: the class registers itself."""
+
+    class _GenBlockingReader(Flow):
+        """Holds the generated sources for as long as the test wants, for the tests of leases."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {
+            "seen": MetricSpec("The text of its sources before and after the wait.", "text")
+        }
+        reads_sources = frozenset({SourceType.Verilog})
+
+        def run(self) -> None:
+            first = "".join(src.path.read_text() for src in self.sources_read())
+            open(started, "wb").close()  # blocks until the test reads the pipe
+            open(gate, "rb").read()  # blocks until the test writes the pipe
+            last = "".join(src.path.read_text() for src in self.sources_read())
+            self.results["seen"] = first + "|" + last
+
+    return _GenBlockingReader
+
+
 class World:
     """A design with a generator, in `tmp_path / <directory>`, and the run root beside it."""
 

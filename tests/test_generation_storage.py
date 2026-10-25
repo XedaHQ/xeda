@@ -23,7 +23,7 @@ from xeda.generation import RECORD_NAME
 from xeda.outcomes import Outcome
 
 from .flow_registry import preserved_flow_registry
-from .generation_world import World, reader_flow
+from .generation_world import World, blocking_reader_flow, reader_flow
 from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no storage locks")
@@ -33,6 +33,13 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no storage lock
 def isolate_registration():
     with preserved_flow_registry():
         yield
+
+
+def _probe(storage: Path, mode: str) -> str:
+    """Whether another process could lock `storage` in `mode` now: "free" or "blocked"."""
+    from .test_storage_locks import _probe as probe
+
+    return probe(storage, mode)
 
 
 def _tree(base: Path) -> dict[str, tuple[int, int]]:
@@ -450,3 +457,133 @@ def test_two_launches_generate_one_configuration_once(tmp_path, monkeypatch):
     assert world.runs == 1, "the second launch waited, found the record and reused the storage"
     (storage,) = world.storages()
     assert paths[0] == lock_file(storage.resolve())
+
+
+# ---------------------------------------------------------------- leases
+
+
+def _fifos(tmp_path: Path) -> tuple[Path, Path]:
+    started, gate = tmp_path / "reading", tmp_path / "reading-gate"
+    os.mkfifo(started)
+    os.mkfifo(gate)
+    return started, gate
+
+
+def _counting_generator(world: World) -> None:
+    """Make the generator write the number of its runs into `gen/top.v`."""
+    (world.root / "gen.py").write_text(
+        "import os, sys\n"
+        "from pathlib import Path\n"
+        "with open(sys.argv[1], 'a') as counter:\n"
+        "    counter.write('ran\\n')\n"
+        "count = len(Path(sys.argv[1]).read_text().splitlines())\n"
+        "out = Path(os.environ['XEDA_GENERATED'])\n"
+        "(out / 'gen').mkdir(exist_ok=True)\n"
+        "(out / 'gen' / 'top.v').write_text(f'// run {count}\\n')\n"
+    )
+
+
+def test_a_forced_regeneration_waits_while_a_tool_reads_the_storage(tmp_path, monkeypatch):
+    started, gate = _fifos(tmp_path)
+    flow = blocking_reader_flow(started, gate)
+    world = World(tmp_path)
+    _counting_generator(world)
+    first: dict = {}
+    second: dict = {}
+    waiting = threading.Event()
+
+    def hook(path: Path) -> None:
+        waiting.set()
+
+    def read() -> None:
+        first["result"] = world.launch(flow)
+
+    def force() -> None:
+        second["result"] = world.launch(flow, world.runner(rebuild_all=True))
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    with open(started, "rb"):  # the tool of the first launch holds the storage
+        pass
+    (storage,) = world.storages()
+    assert _probe(storage, "exclusive") == "blocked" and _probe(storage, "shared") == "free"
+    monkeypatch.setattr(run_lock, "wait_hook", hook)
+    forcing = threading.Thread(target=force)
+    forcing.start()
+    try:
+        assert waiting.wait(HANG_GUARD), "the forced launch did not wait for the reader"
+        assert (storage / "gen" / "top.v").read_text() == "// run 1\n"
+        assert world.runs == 1
+    finally:
+        with open(gate, "wb") as opened:
+            opened.write(b"go")
+        reader.join(HANG_GUARD)
+    # the forced launch's own reader waits for the gate too
+    started_again = threading.Thread(target=lambda: open(started, "rb").close())
+    started_again.start()
+    started_again.join(HANG_GUARD)
+    with open(gate, "wb") as opened:
+        opened.write(b"go")
+    forcing.join(HANG_GUARD)
+    assert first["result"].nodes[flow.name].record.metrics["seen"] == "// run 1\n|// run 1\n"
+    assert second["result"].outcome is Outcome.PASSED, second["result"].error
+    assert (storage / "gen" / "top.v").read_text() == "// run 2\n"
+    assert world.runs == 2
+    assert _probe(storage, "exclusive") == "free", "the lease ends with the launch"
+
+
+def test_a_scrub_waits_for_a_reader_of_the_storage(tmp_path, monkeypatch):
+    from xeda.flow_runner.scrub import scrub_generations
+
+    started, gate = _fifos(tmp_path)
+    flow = blocking_reader_flow(started, gate)
+    world = World(tmp_path)
+    launched: dict = {}
+    scrubbed: dict = {}
+    waiting = threading.Event()
+
+    def launch() -> None:
+        launched["result"] = world.launch(flow)
+
+    def scrub() -> None:
+        scrubbed["result"] = scrub_generations(
+            "generated", run_root=world.run_root.resolve(), confirm=lambda candidates: True
+        )
+
+    reader = threading.Thread(target=launch)
+    reader.start()
+    with open(started, "rb"):
+        pass
+    (storage,) = world.storages()
+    monkeypatch.setattr(run_lock, "wait_hook", lambda path: waiting.set())
+    scrubbing = threading.Thread(target=scrub)
+    scrubbing.start()
+    try:
+        assert waiting.wait(HANG_GUARD), "the scrub did not wait for the reader"
+        assert (storage / "gen" / "top.v").is_file(), "the storage went while a tool read it"
+    finally:
+        with open(gate, "wb") as opened:
+            opened.write(b"go")
+        reader.join(HANG_GUARD)
+        scrubbing.join(HANG_GUARD)
+    assert launched["result"].outcome is Outcome.PASSED
+    assert [p.resolve() for p in scrubbed["result"].removed] == [storage.resolve()]
+    assert world.storages() == []
+
+
+def test_a_scrub_of_generations_asks_first_and_removes_only_that_design(tmp_path):
+    from xeda.flow_runner.scrub import scrub_generations
+
+    flow = reader_flow()
+    world = World(tmp_path)
+    assert world.launch(flow).outcome is Outcome.PASSED
+    other = world.run_root / ".generated" / "another" / "0123456789abcdef"
+    other.mkdir(parents=True)
+    root = world.run_root.resolve()
+    assert scrub_generations("generated", run_root=root).removed == []
+    assert scrub_generations("generated", run_root=root, confirm=lambda c: False).removed == []
+    assert len(world.storages()) == 2
+    result = scrub_generations("generated", run_root=root, confirm=lambda c: True)
+    assert len(result.removed) == 1 and result.gone == []
+    assert world.storages() == [other]
+    assert scrub_generations("generated", run_root=root, confirm=lambda c: True).removed == []
