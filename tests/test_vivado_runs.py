@@ -74,9 +74,14 @@ def test_the_reports_and_logs_of_a_run_are_artifacts_whatever_the_working_direct
     assert flow.parse_reports()
     reports = flow.settings.reports_dir
     assert reports.parts and not reports.is_absolute()
-    found = [label for label in flow.artifacts if str(label).startswith(f"{reports}/")]
+    found = [key for key, name in flow.artifacts.items() if str(name).startswith(f"{reports}/")]
     assert found
-    assert all((flow.run_path / flow.artifacts[label]).is_file() for label in found)
+    assert all((flow.run_path / flow.artifacts[key]).is_file() for key in found)
+    # the log of each Vivado run, below the project directory
+    assert {"synth_1_log", "impl_1_log"} <= set(flow.artifacts)
+    assert all(
+        (flow.run_path / flow.artifacts[key]).is_file() for key in ("synth_1_log", "impl_1_log")
+    )
 
 
 @needs_tclsh
