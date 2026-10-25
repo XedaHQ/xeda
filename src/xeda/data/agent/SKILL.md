@@ -354,7 +354,8 @@ file without `schema_version` was written by an older Xeda: a launch runs that f
 
 Runs go to `./xeda_run/<design>/<flow>/` (`<design>/<target>/<flow>/` with a target); `--run-root`
 or `XEDA_RUN_ROOT` moves the root. A dependency's directory is a sibling. `--hashed-run-dirs`
-appends the run hash (`<flow>_<hash>`) so settings variants coexist. A launch holds each finished
+appends the run hash (`<flow>_<hash>`) so variants of the settings or of the design (its top,
+parameters, defines, source places) coexist. A launch holds each finished
 producer for reading until it ends; another Xeda process that would rebuild, clean or scrub that
 directory waits (POSIX).
 

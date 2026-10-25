@@ -480,7 +480,9 @@ of a run under one standard.
 
 A ``file`` must exist, and must be a file and not a directory, when Xeda loads the design. A
 ``path`` is not checked, so it can name a source that a generator produces later. Each source adds
-its content hash and its path relative to the design root to the identity of the design. A tool
+its content hash and its path relative to the design root to the design hash that decides whether a
+result is up to date. The path and the type of the source, but not its content, are also part of
+the identity of a run that reads the source (the run directory name with ``--hashed-run-dirs``). A tool
 can find another file from the location of a source. For example, a Verilog ``include`` searches
 the directory of the including file first, and a TCL script can use ``[file dirname [info
 script]]``. So moving the sources around inside the design makes it a different design. Moving the
@@ -866,7 +868,7 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
 * A selected target yields an ordinary design, with the same hash and results as the file written
   out flat with the keys of the target applied by hand. The name of the target is reported
   (``target`` in the ``--json`` documents, ``null`` without one), and it is no part of the
-  identity of the design.
+  identity of the design or of a run.
 * A selected target has run directories of its own, ``<run root>/<design>/<target>/<flow>``
   (``<flow>_<hash>`` with ``--hashed-run-dirs``). A run without ``--target`` keeps
   ``<design>/<flow>``, whether or not the design has targets. Two targets that

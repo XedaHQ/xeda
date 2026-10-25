@@ -135,8 +135,11 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   allowed and is never a producer of a `design` input. A generated source counts by its content,
   type and name within the converter's output, never by its path
   (`tests/test_design_edges.py`, `tests/test_generated_names.py`).
-- A node's identity is its settings hash plus its ordered input origins
-  (`bindings.node_identity`). A producer's settings never depend on which consumer asked.
+- A node's identity is its settings hash, its design configuration (`flow_runner/configuration.py`)
+  and its ordered input origins (`bindings.node_identity`). A producer's settings never depend on
+  which consumer asked. The configuration holds what the node reads of the design, never content
+  or a target label; the remote host counts a moved path as the client does
+  (`utils.path_identity`, `tests/test_node_configuration.py`).
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`,
   `prjxray_db`, `platform`, `corner`, `dont_use_cells`, `platform_file`, `liberty`, `pdk_provider`,
   `pdk_version`, `pdk_root`, `hierarchical`, `wire_rc` and `out_of_context` (`SHARED_SETTINGS`) must

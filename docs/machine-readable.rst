@@ -324,12 +324,17 @@ The record has these fields:
     The version of Xeda that ran, the name of the flow, the name of the design, and the target (or
     ``null``).
 ``identity``
-    The identity of the run: the hash of its settings and of the origins of its inputs.
+    The identity of the run: the hash of its settings, of its design configuration (see
+    ``configuration`` below) and of the origins of its inputs.
 ``configuration``
     What the flow read of the design: for each part it reads (``rtl``, ``tb``), the ``top``, the
     ``parameters`` and the ``defines``, the ``clocks`` and ``attributes`` (``rtl``) or the ``uut``
-    and ``cocotb`` (``tb``), and ``sources`` as a list of ``{path, type}`` with paths relative to
-    the design root. ``language`` is there for ``rtl``.
+    and ``cocotb`` (``tb``), and ``language`` for ``rtl``. A flow that reads the sources of the
+    design also has ``sources`` for each part, a list of ``{path, type}`` with paths relative to the
+    design root (``../`` outside it). A flow that reads a design that a converter made has no
+    ``sources``. It has ``converted_from`` (the name of the converter), and the sorted
+    ``transforms`` and ``produces`` types of the conversion. The configuration is part of the
+    identity of the run.
 ``outcome``
     ``passed``, ``rejected``, ``failed`` or ``canceled``. It replaces the ``success`` flag of older
     files. Only ``passed`` and ``rejected`` runs are reused.
@@ -818,10 +823,11 @@ top is ``blinky``. It also shows a consumer that switches an optional output of 
 ``nodes`` is ordered with the producers before the consumers and the requested flow last.
 ``run_path`` and ``flowrun_hash`` identify each planned run. ``--hashed-run-dirs`` adds the usual
 16-character hash suffix. ``flowrun_hash`` is the identity of the node. It combines the settings
-(``settings_hash``, the hash of the flow name and the input settings alone) with the origin of each
-input, in order: the identity and output of a producer, or the sources of the design. The same flow
-with the same settings therefore has another identity when another producer, another output or
-another producer configuration feeds it. Where a binding was written (a file, the command line or a
+(``settings_hash``, the hash of the flow name and the input settings alone), the design
+configuration (the ``configuration`` of its record) and the origin of each input, in order: the
+identity and output of a producer, or the sources of the design. The same flow with the same
+settings therefore has another identity when the top or a parameter of the design is another, or
+when another producer, another output or another producer configuration feeds it. Where a binding was written (a file, the command line or a
 chain) changes nothing.
 
 Each input has these keys:
