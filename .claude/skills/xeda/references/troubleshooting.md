@@ -48,7 +48,7 @@
 
 | Message | Fix |
 | --- | --- |
-| `rtl.sources: Value error, source file does not exist: <path>` | Relative paths resolve against the design file's directory. A file a generator writes is `{path: "gen/top.v"}`. |
+| `rtl.sources: Value error, source file does not exist: <path>` | Relative paths resolve against the design file's directory. A file a generator writes is listed in `rtl.sources` as its name in the generator output (`gen/top.v`), and the design needs a `rtl.generator`. |
 | `rtl.<key>: Extra inputs are not permitted` | Unknown design key. |
 | `` `<key>` was removed: use `rtl.<key>` `` | A key of `rtl` (`sources`, `top`, `clocks`, ...) written at the root. The code is `removed_alias`. Put the key under `rtl:`. |
 | `` `.json` names several kinds of file ... give its type `` | Add `type` (`{file: "top.json", type: JsonNetlist}`). |

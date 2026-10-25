@@ -59,15 +59,28 @@ are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` 
 | `clock` | One clock: `clock.port: clk`, or `clock: clk`. |
 | `clocks` | A list of clocks for several clocks. |
 | `attributes` | HDL attributes, `attribute -> (object -> value)`. |
-| `generator` | What writes the sources before the flow runs: a shell command line (`generator: "python soc.py"`, kept as `{shell: ...}`), a list of arguments (`[python3, soc.py]`, kept as `{executable: python3, args: [soc.py]}`), or a table with one of `shell`, `command`, `executable` (two of them, or `shell` with `args`, is an error) and `sources`, `generated_sources`, `always_runs`. |
+| `generator` | What writes the sources, in the launch before the first flow: a shell command line (`generator: "python soc.py"`, kept as `{shell: ...}`), a list of arguments (`[python3, soc.py]`, kept as `{executable: python3, args: [soc.py]}`), or a table with one of `shell`, `command`, `executable` (two of them, or `shell` with `args`, is an error) and `sources`, `generated_sources`, `always_runs`. |
 
-A generator runs again when its executable, its `sources` (a directory counts as every file in
-it) or its produced sources change. `generated_sources` names the files it writes when it writes
-only some; `always_runs` says its inputs cannot be judged. The record lives under
-`<run root>/.cache/generators/`, so a design loaded outside `xeda run` generates on every load.
-A generator may write Bluespec: `bsc` converts the generated files like hand-written ones. Each flow
-after `bsc` runs again only if one of its own inputs changed, such as the Verilog that `bsc` writes
-or a source that `bsc` passes through.
+A generator runs in the launch, never when a design loads, into a storage
+`<run root>/.generated/<design>/<key>/` (with the record `generation.yaml`); the design tree is never
+written. The key hashes the recipe (its `env` too), the design configuration without content, the
+names and digests of the generator's `sources` and its executable. The generator starts in the
+storage (a Chisel generator in the design root; `cwd` below the design root overrides), with
+`DESIGN_ROOT` and `XEDA_GENERATED` in its environment; the words after the executable expand both
+(`args: ["$DESIGN_ROOT/gen.py", "$XEDA_GENERATED/out"]`; a relative executable resolves against the
+design root or `cwd`). It runs again when its executable, its `sources` (a directory counts as
+every file in it), a generated file or the digest of its inherited environment changes
+(`always_runs`, or no `sources`: every launch; `--rebuild-all` forces it). `generated_sources`
+names the entries of `rtl.sources` it writes when it writes only some (an entry is wholly generated
+or wholly written; a pattern matching both is refused); empty, every entry is generated. A generated
+entry is a name or pattern in its output, typed by its extension or by `type:`; one that matches no
+file fails the node that reads it (`missing_generated`). A failing generator is the launch error
+`generator_failed` (every node skipped). A plan runs nothing: a node that reads generated sources is
+`unknown` ("the generator has not run") until the storage is current. `--remote` sends the recipe and
+its declared `sources`; a generator without `sources` is refused. A generator may write Bluespec:
+`bsc` converts the generated files like hand-written ones. Each flow after `bsc` runs again only if
+one of its own inputs changed, such as the Verilog that `bsc` writes or a source that `bsc` passes
+through.
 
 ## `tb`: the testbench
 
@@ -182,8 +195,8 @@ that way: `JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `GenericVerilogNetlist`,
 automatic HDL frontend; a flow or the design can still read it. An invalid `type` is an error
 that names the closest types; type names are case-tolerant, suffixes are not.
 
-A source table has `file` (must exist at load time) or `path` (not checked: for a file a
-generator writes), and `type`. Any other key is an error: a source has no `standard` or
+A source table has `file` (must exist at load time) or `path` (not checked), and `type`; a source a
+generator writes is a name in its output (see `generator`). Any other key is an error: a source has no `standard` or
 `variant`, and `language.vhdl.standard` sets the standard of the whole design.
 
 ```yaml

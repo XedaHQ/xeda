@@ -132,9 +132,9 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   input. Only a flow that defines `design_conversion` (and then declares one design output) is a
   converter: the resolver plans it as the default producer of a flow that cannot read the
   sources, and a binding follows the rule of a chain. A design output without a conversion is
-  allowed and is never a producer of a `design` input. A generated source counts by its content,
-  type and name within the converter's output, never by its path
-  (`tests/test_design_edges.py`, `tests/test_generated_names.py`).
+  allowed and is never a producer of a `design` input. A generated source (`Source.generated`) counts
+  by its content, type and name within the output of its producer (a converter or the design
+  generator), never by its path (`tests/test_design_edges.py`, `tests/test_generated_names.py`).
 - A node's identity is its settings hash, its design configuration (`flow_runner/configuration.py`)
   and its ordered input origins (`bindings.node_identity`). A producer's settings never depend on
   which consumer asked. The configuration holds what the node reads of the design, never content
@@ -239,13 +239,23 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   `writable(path)`, then `utils.replacing_file` / `replacing_copy`; delete with `remove`,
   `clear`, `delete`. Tool logs go through `utils.live_log` only. Never write, delete or follow
   through a symbolic link: a tool may leave links anywhere in its run directory.
-- A launch writes nothing outside the run root but deliveries (a design's generator writes its
-  declared sources itself); caches live under the run root and are named through
-  `RunDirectory.unlinked`. `tests/test_isolation.py` checks it (canary sweep, audit hook,
+- A launch writes nothing outside the run root but deliveries; caches live under the run root and
+  are named through `RunDirectory.unlinked`. `tests/test_isolation.py` checks it (canary sweep, audit hook,
   read-only tree); a new delete or raw write fails until it is added to `REVIEWED_PY_DELETIONS`,
   `REVIEWED_SCRIPT_DELETIONS` or `REVIEWED_WRITES`.
-- Generators and Git fetches run only after the declarative checks pass
-  (`tests/test_checks_before_generation.py`); print a URL only via `design.redacted_url`.
+- Loading a design runs no generator and writes nothing; its generated `rtl.sources` are
+  declarations (`Source.declaration`, a name or pattern in the generator output, never expanded; an
+  entry is wholly generated or wholly written, `tests/test_generated_declarations.py`). A launch
+  generates after the declarative checks and before the first producer
+  (`tests/test_checks_before_generation.py`), into `<run root>/.generated/<design>/<key>/` with the
+  record `generation.yaml` (`flow_runner/launch_generation.py`, `tests/test_generation_storage.py`).
+  The key hashes the recipe, `design_configuration` (no content), the generator inputs and the
+  executable; the inherited environment is freshness evidence, never key. The generator runs in
+  the storage with `DESIGN_ROOT` and `XEDA_GENERATED`; flows get `execution_design`, and the plan,
+  the identity and the node configuration use the declared design. The storage lock comes before any
+  run-directory lock, and the shared lease lasts until the last delivery
+  (`run_lock.storage_lock`, `tests/test_storage_locks.py`). A Git fetch still happens at load and
+  is refused by a plan; print a URL only via `design.redacted_url`.
 
 ### Templates, tools and the CLI
 

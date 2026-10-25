@@ -610,9 +610,10 @@ support, for shared-setting conflicts, and for any configuration that the settin
 the design rule out.
 
 Xeda first refuses a request that the declarations of the design already rule out, before a
-generator runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch
-is refused before those side effects. Materialize the sources first, or pass an already
-materialized ``Design`` to ``DefaultRunner.plan`` of the library (``plan_with_freshness`` adds
+generator runs (see :ref:`generators`). A plan never runs a generator: a node that reads generated
+sources is ``unknown`` until the storage of the generator is current. Loading that needs the fetch
+of a Git dependency is refused before that side effect. Clone the dependency yourself, or pass an
+already loaded ``Design`` to ``DefaultRunner.plan`` of the library (``plan_with_freshness`` adds
 what each node would do). Planning does not call ``init()`` of a flow. With ``--remote``, the
 host makes the plan (see :doc:`remote`).
 

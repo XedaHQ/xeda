@@ -207,25 +207,41 @@ MAKE_SOURCE = """\
 import os
 from pathlib import Path
 
-Path(os.environ["DESIGN_ROOT"], "ran_in.txt").write_text(os.getcwd())
-Path("out").mkdir(exist_ok=True)
-Path("out", "top.v").write_text("module top; endmodule\\n")
+out = Path(os.environ["XEDA_GENERATED"])
+(out / "ran_in.txt").write_text(os.getcwd())
+(out / "out").mkdir(exist_ok=True)
+(out / "out" / "top.v").write_text("module top; endmodule\\n")
 """
 
 #: How a design states a generator that writes `out/top.v` from its own directory.
 GENERATORS = {
-    "command": "generator: {command: '{python} make_src.py', sources: [make_src.py]}",
+    "command": "generator: {command: '{python} $DESIGN_ROOT/make_src.py', sources: [make_src.py]}",
     "executable": (
-        "generator: {executable: '{python}', args: [make_src.py], sources: ['make_src.py', "
-        "'specs/*.txt']}"
+        "generator: {executable: '{python}', args: ['$DESIGN_ROOT/make_src.py'], "
+        "sources: ['make_src.py', 'specs/*.txt']}"
     ),
-    "shell": "generator: \"'{python}' make_src.py\"",
-    "argv": "generator: ['{python}', make_src.py]",
+    "shell": 'generator: "\'{python}\' \\"$DESIGN_ROOT/make_src.py\\""',
+    "argv": "generator: ['{python}', '$DESIGN_ROOT/make_src.py']",
 }
+
+#: Loads the design and runs its generator into a storage under a new run root.
+GENERATE = """
+import os
+from xeda.flow_runner.launch_generation import generate
+
+design = Design.from_file(design_file)
+run_root.mkdir()
+generation = generate(design, run_root=run_root.resolve(), environ=dict(os.environ))
+summary = {
+    "declared": [str(s.path) for s in design.rtl.sources],
+    "storage": str(generation.storage),
+    "matches": {name: list(files) for name, files in generation.matches.items()},
+}
+"""
 
 
 @pytest.mark.parametrize("spelling", GENERATORS)
-def test_a_generator_runs_in_the_design_root(tmp_path, spelling):
+def test_a_generator_runs_in_its_storage_whatever_the_working_directory(tmp_path, spelling):
     root = tmp_path / "design"
     generator = GENERATORS[spelling].replace("{python}", sys.executable)
     design_file = _write(
@@ -243,13 +259,17 @@ def test_a_generator_runs_in_the_design_root(tmp_path, spelling):
     here = _elsewhere(tmp_path, "specs/zero.txt")
     root = root.resolve()
 
-    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
+    summary = _load_in_child(
+        here, GENERATE, design_file=design_file, run_root=tmp_path / "xeda_run"
+    )
 
+    storage = Path(summary["storage"])
     assert summary["chdirs"] == []
-    assert _files(summary["rtl"]) == [root / "out" / "top.v"]
-    assert (root / "out" / "top.v").read_text() == "module top; endmodule\n"
-    assert Path((root / "ran_in.txt").read_text()).resolve() == root
-    assert not (here / "out").exists()
+    assert summary["declared"] == ["out/top.v"]
+    assert summary["matches"] == {"out/top.v": ["out/top.v"]}
+    assert (storage / "out" / "top.v").read_text() == "module top; endmodule\n"
+    assert Path((storage / "ran_in.txt").read_text()).resolve() == storage.resolve()
+    assert not (root / "out").exists() and not (here / "out").exists()
 
 
 def test_a_generator_with_a_relative_cwd_runs_below_the_design_root(tmp_path):
@@ -264,26 +284,34 @@ def test_a_generator_with_a_relative_cwd_runs_below_the_design_root(tmp_path):
           generator:
             executable: '{sys.executable}'
             args: [make.py]
+            sources: [tools/make.py]
             cwd: tools
         """,
     )
     _write(
         root / "tools" / "make.py",
         """\
+        import os
         from pathlib import Path
 
-        Path("../out").mkdir(exist_ok=True)
-        Path("../out/top.v").write_text("module top; endmodule\\n")
+        out = Path(os.environ["XEDA_GENERATED"])
+        (out / "out").mkdir(exist_ok=True)
+        (out / "out" / "top.v").write_text("module top; endmodule\\n")
+        (out / "ran_in.txt").write_text(os.getcwd())
         """,
     )
     here = _elsewhere(tmp_path, "tools/make.py")
     root = root.resolve()
 
-    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
+    summary = _load_in_child(
+        here, GENERATE, design_file=design_file, run_root=tmp_path / "xeda_run"
+    )
 
+    storage = Path(summary["storage"])
     assert summary["chdirs"] == []
-    assert _files(summary["rtl"]) == [root / "out" / "top.v"]
-    assert not (here / "out").exists()
+    assert (storage / "out" / "top.v").is_file()
+    assert Path((storage / "ran_in.txt").read_text()).resolve() == root / "tools"
+    assert not (here / "out").exists() and not (root / "out").exists()
 
 
 def test_a_design_built_from_a_dict_resolves_against_its_design_root(tmp_path):

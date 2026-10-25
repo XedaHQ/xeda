@@ -10,7 +10,8 @@ clocks are optional, and a design can have several clocks.
 
 The file does not say which tools run or how. The flows hold the commands of the tools, and the
 file only gives them settings. One key runs a command of its own: ``rtl.generator`` is a command
-(or a generator table) that produces sources before any flow runs. See :ref:`generators`.
+(or a generator table) that produces sources. Xeda runs it in the launch, before the first flow.
+See :ref:`generators`.
 
 The JSON Schema of the design file is the machine-readable definition. Print it with::
 
@@ -146,9 +147,9 @@ Top level
        object path to value.
    * - ``generator``
      - no
-     - A command or a generator table that produces the sources before any flow runs, for
-       example a Chisel elaboration. The generator runs again only when something it reads or
-       produced has changed. See :ref:`generators`.
+     - A command or a generator table that produces sources, for example a Chisel elaboration.
+       Xeda runs it in the launch, before the first flow, and runs it again only when something
+       it reads or produced has changed. See :ref:`generators`.
 
 A clock in ``rtl`` is logical: it names a clock port of the design. The physical period or
 frequency is a flow setting, because it is a constraint of one build and not a property of the
@@ -479,8 +480,8 @@ one setting of the whole design (see `language`_), because GHDL and NVC compile 
 of a run under one standard.
 
 A ``file`` must exist, and must be a file and not a directory, when Xeda loads the design. A
-``path`` is not checked, so it can name a source that a generator produces later. Each source adds
-its content hash and its path relative to the design root to the design hash that decides whether a
+``path`` is not checked, so it can name a file that a tool writes later. A source that a generator
+writes is listed in ``rtl.sources`` too (see :ref:`generators`). Each source adds its content hash and its path relative to the design root to the design hash that decides whether a
 result is up to date. The path and the type of the source, but not its content, are also part of
 the identity of a run that reads the source (the run directory name with ``--hashed-run-dirs``). A tool
 can find another file from the location of a source. For example, a Verilog ``include`` searches
@@ -495,8 +496,9 @@ the matches of a pattern in sorted order, so the compilation order and the hash 
 not depend on the file system. Only files match: a directory whose name fits the pattern is
 skipped. A variable in a pattern (``$DESIGN_ROOT`` or any environment variable) stands for the
 place it names, so a ``*`` in its value is not pattern syntax. A pattern that matches no file is
-an error, so a mistyped pattern cannot quietly add nothing. The ``sources`` of a generator follow
-the same rules.
+an error, so a mistyped pattern cannot quietly add nothing. A pattern of a source that a generator
+writes is checked after the generator has run (see :ref:`generators`). The ``sources`` of a
+generator follow the same rules.
 
 Xeda gives each tool a file by its real name. Yosys would expand ``fifo[1].v`` as a pattern of its
 own and read ``fifo1.v``, so Xeda escapes the name for it. For TCL-scripted tools, Xeda passes
@@ -512,11 +514,14 @@ Vivado's ``add_files`` refuses a name that contains ``[``, ``]`` or ``$``. ``viv
 Generated sources
 =================
 
-A design can have its sources produced before any flow runs. ``rtl.generator`` has three forms, and
-the design keeps them all as one table:
+A design can have its sources produced by a program, its generator. The generator runs in the
+launch, after Xeda has checked everything that it can check without the sources. Loading a design
+runs nothing and writes nothing.
+
+``rtl.generator`` has three forms, and the design keeps them all as one table:
 
 * A command line for a shell becomes ``{shell: <text>}``. Xeda runs the text with
-  ``/bin/sh -c`` and expands nothing in it.
+  ``/bin/sh -c``, and the shell expands the variables in it.
 * A list of arguments becomes ``{executable: <first item>, args: [<other items>]}``. No shell
   reads it.
 * A table stays as it is.
@@ -527,9 +532,9 @@ the design keeps them all as one table:
     name: generator_shell
     rtl:
       sources:
-        - gen/top.v
+        - top.v
       top: top
-      generator: echo generating gen/top.v
+      generator: printf 'module top; endmodule\n' > top.v
     flows:
       yosys_fpga:
         fpga:
@@ -541,9 +546,9 @@ the design keeps them all as one table:
     name: generator_list
     rtl:
       sources:
-        - gen/top.v
+        - top.v
       top: top
-      generator: [echo, generating, gen/top.v]
+      generator: [touch, top.v]
     flows:
       yosys_fpga:
         fpga:
@@ -553,8 +558,7 @@ The table form has the most options. Its keys ``shell``, ``command`` and ``execu
 runs, and one table has only one of them. ``shell`` is a command line for a shell, ``command`` is
 a program with its arguments in one text, and ``executable`` is a program that takes its
 ``args`` as a list. A table with ``shell`` and another of these keys, or with ``shell`` and
-``args``, is an error that names the keys. Every generator finds ``DESIGN_ROOT`` in its
-environment, one with ``shell`` too:
+``args``, is an error that names the keys.
 
 .. code-block:: yaml
 
@@ -562,10 +566,10 @@ environment, one with ``shell`` too:
     name: generator_table
     rtl:
       sources:
-        - gen/top.v
+        - top.v
       top: top
       generator:
-        shell: echo generating gen/top.v
+        shell: printf 'module top; endmodule\n' > top.v
         always_runs: true
     flows:
       yosys_fpga:
@@ -583,123 +587,196 @@ A table can also say what the generator reads:
       top: top
       generator:
         executable: python3
-        args: ["soc.py", "--build-dir", "gen"]
+        args: ["$DESIGN_ROOT/soc.py", "--build-dir", "$XEDA_GENERATED/gen"]
         sources: ["soc.py", "../litex/litex", "../migen/migen"]
 
-The designs above run ``echo`` when they load. A real generator is the program that writes the
-sources.
+Where the generator runs and what it writes
+-------------------------------------------
 
-The generator runs while Xeda loads the design. It runs again only when something that it reads
-or produced has changed. Xeda judges this by content and never by modification time.
+The generator writes into its storage, a directory under the run root:
+``<run root>/.generated/<design>/<key>/``. It never writes into the tree of the design. The key
+names one configuration (see below), so two variants of a design keep their own generated files
+side by side. Xeda sets two variables in the environment of every generator:
 
-A generator may write sources of any language that a flow reads or converts. If it writes Bluespec,
-``bsc`` converts the generated files as it converts hand-written ones (see
-:ref:`converted-designs`). A change to what the generator reads changes the Bluespec, and
-``bsc`` runs again. Each flow after ``bsc`` runs again only if one of its own inputs changed, such
-as the Verilog that ``bsc`` writes or a source that ``bsc`` passes through.
+``DESIGN_ROOT``
+    The design root.
+
+``XEDA_GENERATED``
+    The absolute path of the storage.
+
+The generator starts in the storage, so a relative path that it writes is a path in its output.
+The words after the executable (``args``, or the words of ``command`` after the first one) expand
+``$DESIGN_ROOT`` and ``$XEDA_GENERATED``. No other variable expands, and the executable does not.
+A shell command line (``shell``) reads both variables from its environment. A relative executable,
+and a relative entry of ``PATH``, resolve against the design root, or against ``cwd`` when the
+recipe has one. A generator that must run in another directory, for example because a build tool
+finds its project there, sets ``cwd`` (a directory below the design root). A Chisel generator starts in the design root unless ``cwd`` says
+otherwise, because ``mill`` and ``bloop`` find their build files in their working directory. Pass
+the storage to it with ``args``:
+
+.. code-block:: yaml
+
+    name: generator_chisel
+    rtl:
+      sources:
+        - top.v
+      top: top
+      generator:
+        class: chisel
+        project: core
+        args: ["--target-dir", "$XEDA_GENERATED"]
+        sources: ["build.sc", "core"]
+
+``env`` is the whole environment of the generator when the recipe has one, and the generator then
+inherits nothing. A recipe may not set ``DESIGN_ROOT`` or ``XEDA_GENERATED`` in ``env``.
+
+The sources that a generator writes
+-----------------------------------
+
+The entries of ``rtl.sources`` that the generator writes are names in its output. A name is
+relative to the output, and may be a pattern: ``gen/top.v``, ``gen/*.v``. Xeda does not expand a
+generated pattern and does not need the file to exist, when it loads the design. A generated
+pattern takes its type from its extension, as every source does (``gen/*.v`` is Verilog). A pattern
+whose extension does not say what its files are needs a ``type``, and the error shows the form:
+
+.. code-block:: yaml
+
+    rtl:
+      sources:
+        - {path: "gen/*", type: Verilog}
+
+An entry is wholly the generator's or wholly written by hand. ``generated_sources`` says which are
+the generator's, when it does not write all of them:
+
+``generated_sources``
+    The entries of ``rtl.sources`` that the generator writes. An item names an entry, a pattern, or
+    a directory that holds some entries. When the list is empty, every entry of ``rtl.sources`` is
+    the generator's. A pattern that would match both a generated and a written file is an error,
+    and so is an item that no entry of ``rtl.sources`` relates to. Only ``rtl.sources`` can be
+    generated: a file of ``tb.sources`` must exist when the design loads.
+
+After a generation, each generated entry must match at least one file in the output. An entry
+that matches none fails the node that reads it, with the code ``missing_generated`` and a message
+that names the entry. The flows see the files that the entries match, in sorted order, in the
+place of the entries. The design that you gave stays as it was.
+
+When the generator runs
+-----------------------
+
+Xeda runs the generator in the launch, after it has refused everything that the declarations
+already rule out: a flow that reads none of the design's sources, a source in a language that the
+flow cannot read, a testbench without its top module, a setting that the flow does not have, and a
+run directory in which the flow cannot work. The generator then runs before the first flow of the
+launch, once for the whole launch.
+
+Xeda runs it only when it must. The record ``generation.yaml`` in the storage holds the digest of
+every generated file that the last generation left. The generator runs again only when:
+
+* the storage has no record of this key, or a generated file is gone or differs from the record;
+* the digest of the environment that the generator inherited differs from the record (below);
+* the generator is one that cannot be judged (``always_runs``, or no ``sources``);
+* the launch rebuilds everything (``--rebuild-all``, or ``--clean``, which implies it).
+
+Xeda judges this by content and never by modification time. A ``touch``, a ``chmod`` or a branch
+round trip of a file is not a change. An edit that restores the old timestamp is a change.
+
+The key is 16 hexadecimal characters of the hash of: the recipe (its ``env`` included), the whole
+configuration of the design without content (``rtl`` and ``tb`` with their metadata and the
+ordered, typed entries of their sources with the owner of each, and the language), the names and
+content digests of the files that the generator reads, and the executable. It does not hold the
+bytes that the generator writes, the files that a pattern matches, a destination, the place of the
+run root, the place of the design, or the target. A change to any part of the key is another
+configuration, and so another storage.
 
 ``sources``
     The files that the generator reads, named as the ``sources`` of a design are (patterns
-    included). Each one must exist, because Xeda reads its content. A ``touch``, a ``chmod`` or a
-    branch round trip of a file is not a change. An edit that restores the old timestamp is a
-    change. A source that names a directory (a Chisel ``src/main/scala``, a directory of
-    templates) counts as every file in it, so a file edited or added there makes the generator
-    run again. A path may lie outside the design root. The example names the library trees of
-    editable ``litex`` and ``migen`` clones next to the design.
+    included). Each one must exist, because Xeda reads its content. A source that names a
+    directory (a Chisel ``src/main/scala``, a directory of templates) counts as every file in it,
+    so a file edited or added there makes the generator run again. A path may lie outside the
+    design root. The example names the library trees of editable ``litex`` and ``migen`` clones
+    next to the design.
+
+``always_runs``
+    Run the generator in every launch. Use it for a generator whose inputs cannot be judged: they
+    are not files, or they cannot be listed. A generator that declares no ``sources`` runs in
+    every launch anyway, because nothing says when it is out of date.
 
 A generator is an external tool, and Xeda assumes nothing about its language or environment. List
 what it reads as ``sources``, including directories outside the design such as an editable LiteX
 clone. Xeda cannot see anything else, for example a package upgrade in a virtual environment. For
 that, use ``--rebuild-all`` or ``always_runs``. Xeda digests a directory as it is on disk. A file
 that the generator writes there while it runs (Python's ``__pycache__``, for one) changes what the
-generator read. The first generation then keeps no record. The next one finds the directory as the
-first run left it, and keeps a record.
+generator read. Xeda then keeps no record of that run and runs the generator again. The second run
+finds the directory as the first run left it, and keeps a record.
 
 Xeda also identifies the selected executable by its content, including the ``mill`` or ``bloop``
 command that a Chisel generator selects. It resolves the executable without running it, and the
 same helper builds the command line that starts it. The generator script itself still belongs in
 ``sources``. The identity does not cover indirect tools and dependencies.
 
-After a successful run, Xeda keeps a record only if the declared file inputs and the executable
-still have the identity they had when the run started. The record holds digests of what the
-generator left. These digests do not prove that an untracked environment, an indirect tool or an
-external input would produce the same bytes in another run. Declare those inputs where you can,
-or use ``always_runs`` or ``--rebuild-all``.
+The inherited environment is evidence
+-------------------------------------
 
-``generated_sources``
-    Which of ``rtl.sources`` the generator writes, when it does not write all of them (or a
-    directory that holds some of them). When it is left out, Xeda judges every declared source,
-    so editing a hand-written source also runs the generator. An entry that is none of
-    ``rtl.sources`` is an error, because the source that the generator really writes would
-    otherwise go unjudged.
+A generator inherits the environment of the launch, unless its recipe has an ``env``. Xeda keeps
+the digest of that environment, and the sorted names of the variables in it, in the record, and
+never a value. A change of the environment makes Xeda run the generator again in the same
+storage, because the key does not hold the environment. The digest leaves out the variables of a
+shell session, a terminal and a login (``PWD``, ``OLDPWD``, ``SHLVL``, ``_``, ``COLUMNS``,
+``LINES``, the session and agent variables of the terminal, ``tmux``, ``screen`` and SSH, and the
+variables of the Xeda command line), and the two variables that Xeda sets. The log says which
+variable was added or removed.
 
-``always_runs``
-    Run the generator on every load. Use it for a generator whose inputs cannot be judged: they
-    are not files, or they cannot be listed. A generator that declares no ``sources`` runs on
-    every load anyway, because nothing says when it is out of date.
+Planning
+--------
 
-Xeda keeps the record of a generation (the digest of every source that the generator left) under
-``<run root>/.cache/generators/``, beside the chip databases and the other files of Xeda. The
-tree of the design holds nothing of Xeda's. A design that is loaded with no run root in sight,
-such as a ``Design`` built by hand outside ``xeda run``, has nowhere to keep the record, so its
-generator runs on every load. Xeda takes this direction wherever it cannot prove that something is
-up to date. Xeda makes the run root only to write the record after a successful generation, and
-never to look one up. A generator that fails therefore leaves no run root behind. ``xeda run
---dry-run`` creates nothing and reads an existing record. It refuses to plan a design that would
-have to generate: a design with a stale record and, with ``--rebuild-all`` or ``--clean``, any
-generated design, because that launch would run its generator.
+``xeda run --dry-run`` and the ``plan`` calls run no generator, create nothing and write nothing,
+also in a design tree that is read-only. They read the record of the storage. A flow that reads
+generated sources is ``unknown`` in a dry run, with the reason "the generator has not run", until
+the storage is current. With ``--rebuild-all`` or ``--clean`` it is ``stale``.
 
-On POSIX, a read-only lock on the resolved design-root directory serializes the generators of that
-directory, including the first run and runs with different input identities. The lock creates no
-extra file and does not create the run root early. A lock on the record of each identity still
-protects that record. These locks do not coordinate different design roots that write to the same
-external output. Windows has no interprocess lock. Planning takes no lock.
+If the generator fails, the launch fails with the error code ``generator_failed``, and every flow
+of the launch is ``skipped``. Xeda leaves no storage behind.
 
-Before a generator runs, Xeda judges the request on the design as the design file declares it. The
-generated sources are in ``rtl.sources`` with their types, whether they exist yet or not. Xeda
-refuses at once, and does not run the generator, what these declarations already rule out: a flow
-that reads none of the design's sources, a source in a language that the flow cannot read, a
-testbench without its top module, a setting that the flow does not have, and a run directory in
-which the flow cannot work. This holds for ``xeda run``, ``--dry-run``, ``--remote`` and ``xeda
-dse``. With ``--remote`` the build happens on the remote host, so Xeda does not judge the run
-directory.
+Concurrency
+-----------
 
-Xeda also checks, at this point, a setting that names a file that Xeda reads to check the setting
-(``custom_boards_file`` or a platform file). That file must exist before the generator runs. The
-generator may rewrite the file, but it cannot be the only step that creates it.
+A launch holds a lock of the storage while it generates, and a shared lease of the storage until
+it has delivered its outputs. A second launch of the same configuration waits, finds the record
+and generates nothing. A launch that regenerates (``--rebuild-all``) waits until no other launch
+reads the storage. On POSIX the locks are file locks beside the storage. Windows has no
+interprocess lock.
 
-Some designs say too little before the generator has run. Xeda then judges the request after the
-generator:
+Xeda keeps the storage until it is removed. The directory ``<run root>/.generated/`` holds nothing
+that a launch needs after it has ended, and may be deleted while no launch runs.
 
-* a design with a pattern in ``rtl.sources`` (such as ``gen/*.v``), because the pattern stands for
-  the files that exist once the generator has run;
-* a design with a Git dependency, because the dependency can bring sources, a top module and a
-  testbench;
-* a design that does not load before its generator runs because files are missing. It lists, as a
-  file that must exist, another file that the generator writes, such as a testbench or the design
-  file of a local dependency.
+``--remote``
+------------
 
-A design that also has any other error, such as a wrong value, is refused at once, and its
-generator does not run.
+The host runs the whole launch, so the host runs the generator, into the storage under its own
+run root. Xeda sends the recipe of the generator, and the files and directories that it declares
+in ``sources``, and nothing else of the design tree. A generator that declares no ``sources`` is
+refused for ``--remote`` at planning, with an error that names the generator and asks you to
+declare its ``sources``. A path inside a word of ``args``, or in an executable, that names a file
+on your machine names nothing on the host: name files through ``$DESIGN_ROOT``, and list them in
+``sources``. ``--rebuild-all`` and ``--clean`` regenerate on the host.
 
-A generator written as a command line or as a list declares nothing that it reads, so it runs on
-every load. Write it as a table with ``sources`` to have it judged. A table with ``shell`` may
+A generator written as a command line or as a list declares nothing that it reads, so it runs in
+every launch. Write it as a table with ``sources`` to have it judged. A table with ``shell`` may
 list ``sources`` too.
 
 ``--rebuild-all`` (and ``--clean``, which implies it) runs the generator whatever its record
 says, as it runs every flow of the launch, and records what that generation leaves. A ``touch``
 does not force a regeneration, and ``--rebuild-all`` does. Use it when something that Xeda cannot
-see has changed, such as an environment variable that the generator reads or anything that its
-``sources`` do not name.
+see has changed, such as anything that the ``sources`` of the generator do not name.
 
-With ``--remote``, the generator runs on your machine, when Xeda loads the design, and Xeda sends
-the generated sources to the host. ``--rebuild-all`` and ``--clean`` force the generator here, and
-they also act on the run directories of the host.
+A generated source is a source of the converted design like any other: if the generator writes
+Bluespec, ``bsc`` converts the generated files as it converts hand-written ones (see
+:ref:`converted-designs`). A change to what the generator reads changes the Bluespec, and ``bsc``
+runs again. Each flow after ``bsc`` runs again only if one of its own inputs changed, such as the
+Verilog that ``bsc`` writes or a source that ``bsc`` passes through.
 
-Writing into the tree of the design is the purpose of a generator, so what it writes there is its
-own business (a LiteX build directory, for example). Xeda itself writes nothing outside its run
-root while it loads a design. The record of the generation is the only thing that Xeda keeps, and
-it keeps it in the run root.
+A design that lists a dependency with a generator of its own is refused: a generator runs only for
+the design that a launch is asked for.
 
 .. _language:
 

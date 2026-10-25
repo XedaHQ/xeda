@@ -79,7 +79,9 @@ These limits apply to every remote run:
 * A flow that programs a board (``openfpgaloader``) cannot run with ``--remote``, because the board
   is on your machine. Run the flows before it with ``--remote``. Then run the programmer locally
   with a binding to the fetched bitstream.
-* A design generator runs on your machine, and Xeda sends the generated sources.
+* A design generator runs on the host, into a storage under the run root of the host. Xeda sends
+  the recipe and the files and directories that it declares in its ``sources``. A generator that
+  declares none is refused (see :ref:`generators`).
 
 The first run
 =============

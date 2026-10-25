@@ -630,6 +630,9 @@ the cause:
 ``missing_output``
     The flow passed its own checks, but an enabled declared output is absent, unreadable, outside
     the run directory or not written by this run.
+``missing_generated``
+    A source that the generator of the design should write, and that the flow reads, matches no file
+    in the output of the generator. The message names the entry of ``rtl.sources``.
 ``invalid_metric``
     A metric is not finite or not of its declared type. The other metrics stay.
 ``rejected``
@@ -659,7 +662,10 @@ project, chain or run root problem. For a bad setting: ``unknown_setting``, ``re
 ``removed_alias`` and ``removed_key`` (a design or project key that Xeda refuses; the message names the key to write),
 ``flow_not_found``, ``invalid_run_root``, ``delivery_refused`` and ``usage_error``.
 
-With ``delivery_failed`` and ``cleanup_failed``, every node keeps the outcome it had.
+``generator_failed`` says that the generator of the design failed or could not be started or
+judged. It comes before any node runs, so every node is ``skipped``, and Xeda leaves no output of
+the generator behind. With ``delivery_failed`` and ``cleanup_failed``, every node keeps the outcome
+it had.
 ``cleanup_failed`` says that every requested flow passed, and then the clean-up after the run
 (``--post-cleanup`` or ``--post-cleanup-purge``) failed. The message names the run directory and the
 cause. A launch that has another cause already keeps it: a failed delivery comes before a failed
@@ -904,9 +910,9 @@ the ``outcome`` ``null`` (no launch started) and an ``error``.
 
 Planning changes no run root, marker, lock, result or delivery. It refreshes no trace, starts no
 process and probes no tool. If the declarations of the design already rule out the request, Xeda
-refuses it first, before a generator runs (see :ref:`generators`). Loading that needs a generator or
-the fetch of a Git dependency is refused before those side effects. Materialize the sources first,
-or pass an already materialized ``Design`` to ``DefaultRunner.plan``. With ``--remote``, the host
+refuses it first, before a generator runs (see :ref:`generators`). Planning never runs a generator.
+Loading that needs the fetch of a Git dependency is refused before that side effect. Clone the
+dependency yourself, or pass an already loaded ``Design`` to ``DefaultRunner.plan``. With ``--remote``, the host
 makes the plan (see :doc:`remote`).
 
 Planning a chain

@@ -209,12 +209,13 @@ def test_gcd_on_ecp5_packs_a_bitstream_through_bsc_yosys_fpga_nextpnr_and_fpga_p
 # ------------------------------------------------------- a generator that writes Bluespec
 
 GENERATOR = """\
-import sys
+import os
 from pathlib import Path
 
-width = int(Path("spec.txt").read_text())
-Path("rtl").mkdir(exist_ok=True)
-Path("rtl/Counter.bsv").write_text(f\"\"\"package Counter;
+width = int((Path(os.environ["DESIGN_ROOT"]) / "spec.txt").read_text())
+out = Path(os.environ["XEDA_GENERATED"])
+(out / "rtl").mkdir(exist_ok=True)
+(out / "rtl/Counter.bsv").write_text(f\"\"\"package Counter;
 
 // Written by gen.py.
 (* synthesize *)
@@ -233,8 +234,8 @@ endpackage
 
 @pytest.mark.real_tool
 def test_a_generator_writes_the_bluespec_that_bsc_converts(tmp_path) -> None:
-    """`rtl.generator` and the conversion compose: the generator writes the Bluespec source while
-    the design loads, `bsc` converts it, and `yosys` reads the Verilog. A second launch runs
+    """`rtl.generator` and the conversion compose: the generator writes the Bluespec source into
+    its storage when the launch starts, `bsc` converts it, and `yosys` reads the Verilog. A second launch runs
     nothing. A change to what the generator reads makes it write another source, and the flows
     after it run again."""
     require_bsc()
@@ -254,7 +255,7 @@ def test_a_generator_writes_the_bluespec_that_bsc_converts(tmp_path) -> None:
                     "clocks": [{"port": "CLK"}],
                     "generator": {
                         "executable": sys.executable,
-                        "args": ["gen.py"],
+                        "args": ["$DESIGN_ROOT/gen.py"],
                         "sources": ["gen.py", "spec.txt"],
                     },
                 },
@@ -270,13 +271,19 @@ def test_a_generator_writes_the_bluespec_that_bsc_converts(tmp_path) -> None:
         assert flow is not None and flow.succeeded, flow and flow.results.get("error")
         return {f.name: f.reused for f in runner.launched}, flow
 
+    def written() -> str:
+        # another input is another configuration, so another storage: the newest is current
+        found = (tmp_path / "run" / ".generated" / "counter").glob("*/rtl/Counter.bsv")
+        return max(found, key=lambda path: path.stat().st_mtime_ns).read_text()
+
     first, _ = launch()
     assert first == {"bsc": False, "yosys": False}
-    assert "UInt#(8)" in (root / "rtl" / "Counter.bsv").read_text()
+    assert "UInt#(8)" in written()
+    assert not (root / "rtl").exists(), "the design tree is not written"
     verilog = tmp_path / "run" / "counter" / "bsc"
     assert any("mkCounter" in path.name for path in verilog.rglob("*.v"))
     assert launch()[0] == {"bsc": True, "yosys": True}
     (root / "spec.txt").write_text("12\n")
     again, _ = launch()
     assert again == {"bsc": False, "yosys": False}
-    assert "UInt#(12)" in (root / "rtl" / "Counter.bsv").read_text()
+    assert "UInt#(12)" in written()

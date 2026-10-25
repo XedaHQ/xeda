@@ -86,8 +86,8 @@ xeda run nextpnr blinky.yaml --dry-run --json
 
 A dry run runs no tool and changes no run root, trace, lock or delivery. It refuses what a run
 would refuse at planning: unknown or conflicting settings, a source type the flow cannot read, a
-missing required setting, a chain that does not fit. It refuses a design that needs a generator
-run or a Git fetch; materialize that design first. With `--remote HOST`, the host makes the plan
+missing required setting, a chain that does not fit. It runs no generator (a node that reads generated
+sources is `unknown`, "the generator has not run") and refuses a design that needs a Git fetch. With `--remote HOST`, the host makes the plan
 and judges freshness; the dry run may install Xeda on the host and sync the inputs, and it reports
 what it uploaded (`uploaded`).
 
@@ -115,7 +115,8 @@ flows:
 - Relative paths resolve against the design file's directory.
 - `rtl.sources` order is compilation order: VHDL packages come before their users.
 - Every source has a type. A suffix gives it; `.json`, `.bin`, `.cfg`, `.config`, `.dcp` need
-  `{file: "top.json", type: JsonNetlist}`. A source a generator writes is `{path: "gen/top.v"}`.
+  `{file: "top.json", type: JsonNetlist}`. A source a generator writes is a name in its output, `gen/top.v` or `gen/*.v`; a pattern with no
+  definite type needs `{path: "gen/*", type: Verilog}`.
 - A non-cocotb HDL testbench needs `tb.top`; simulation flows refuse the design without it
   (`ghdl_sim` finds a VHDL testbench's top itself).
 - Give the clock port in `rtl.clock` and the period in the flow: `clock.period` (`5 ns`) or
