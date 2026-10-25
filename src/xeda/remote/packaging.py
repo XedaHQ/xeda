@@ -16,7 +16,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict
 
 from ..dataclass import AtomicName, BaseModel, is_locator, opaque_key_fields_of, written_role
-from ..design import Design, Source, DesignPart, FileResource
+from ..design import (
+    Design,
+    DesignPart,
+    DesignValidationError,
+    FileResource,
+    Generator,
+    Source,
+    generator_of,
+)
 from ..flow import FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
 from ..flow.flow import map_keyed_path_leaves
@@ -49,6 +57,35 @@ class InputPackage:
     directories: list[str] = field(default_factory=list)
 
 
+def refuse_unsendable_generator(design: Design) -> Generator | None:
+    """Return the generator of `design`, or None if it has none. Refuse a generator that the
+    package cannot carry: one that declares no `sources`.
+
+    The host runs the generator, and only the files and directories that its recipe declares
+    travel with it. A generator that declares none would run on the host without what it reads,
+    and its output would be wrong or fail far from the cause. The refusal names the generator and
+    says what to declare (`DesignValidationError`). It needs no connection, so a request makes it
+    at planning."""
+    generator = generator_of(design.rtl, root=design.root_path)
+    if generator is not None and not generator.sources:
+        raise DesignValidationError(
+            [
+                (
+                    "rtl -> generator",
+                    f"{generator.describe(design.name, design.root_path)} declares no "
+                    "`sources`, so `--remote` cannot know which files to send with it: declare "
+                    "its `sources` (the files and directories it reads) in `rtl.generator`",
+                    "",
+                    "value_error",
+                )
+            ],
+            data=design.model_dump(mode="json"),
+            design_root=design.root_path,
+            design_name=design.name,
+        )
+    return generator
+
+
 def package_inputs(
     design: Design,
     sections: Mapping[str, Any],
@@ -78,8 +115,15 @@ def package_inputs(
     the bindings out of every origin. `bindings` are the binding layers of the local plan
     (`Plan.bindings`). Their winning bindings travel as the `inputs` of the section of their
     flow, so the remote plans the same edges. A binding that the chain `request` makes does not
-    travel, because the remote gets the chain."""
+    travel, because the remote gets the chain.
+
+    The host runs the whole launch, so it runs the generator of the design too. The recipe of the
+    generator travels with the files and directories it declares in `sources`, and nothing else
+    of what it reads: a generator that declares none cannot be sent, and the request is refused
+    (`DesignValidationError`) before anything is read or sent. The sources that the generator
+    writes travel as the declarations the design makes of them."""
     host_flows = host_flows or {}
+    generator = refuse_unsendable_generator(design)
     path_identities: dict[str, dict[str, str]] = {}
     # `mode="json"`: the fields kept as they are (`dependencies` and its `local_cache` /
     # `clone_dir`) hold `Path`s, which a python-mode dump leaves as objects for the encoder
@@ -161,6 +205,10 @@ def package_inputs(
         travels among the flat sources."""
         packaged: list[Dict[str, Any]] = []
         for src in sources:
+            if src.generated and not src.located:
+                # The generator of the host writes it: no file travels, the declaration does.
+                packaged.append({"path": src.output_name, "type": str(src.type)})
+                continue
             relative = design.relative_to_root(src.file)
             if relative is not None and archived_in_place(src.file, relative):
                 place = relative
@@ -213,12 +261,37 @@ def package_inputs(
             identified(seen, "parameter", counted[name])
         return parameters
 
+    def packaged_generator_input(local: Path) -> str:
+        """Package a file or a directory that the generator reads, and return its name for the
+        recipe: relative to the design root where it lies under it, else in a place of its own.
+
+        A directory counts as every file in it, and its empty directories travel too."""
+        relative = design.relative_to_root(local)
+        if relative is None:
+            digest = hashlib.sha256(str(local).encode()).hexdigest()[:16]
+            relative = Path("_generator_inputs") / digest / local.name
+        if local.is_dir():
+            directories.add(relative.as_posix())
+            for entry in directory_files(local, [run_root], VCS_METADATA, follow_links=True):
+                place = relative / entry.relative_to(local)
+                if entry.is_dir():
+                    directories.add(place.as_posix())
+                elif entry.is_file():
+                    places.setdefault(place, entry)
+        elif local.is_file():
+            places.setdefault(relative, local)
+        return relative.as_posix()
+
     rtl["sources"] = packaged_sources(design.rtl.sources)
     rtl["defines"] = thaw(design.rtl.defines)
     rtl["attributes"] = thaw(design.rtl.attributes)
     rtl["parameters"] = packaged_parameters(design.rtl)
     rtl["top"] = design.rtl.top
     rtl["clocks"] = [dict(clk) for clk in design.rtl.clocks]
+    if generator is not None:
+        recipe = thaw(design.rtl.generator)
+        recipe["sources"] = [packaged_generator_input(path) for path in generator.sources]
+        rtl["generator"] = recipe
     tb["sources"] = packaged_sources(design.tb.sources)
     tb["top"] = design.tb.top
     tb["cocotb"] = thaw(design.tb.cocotb)

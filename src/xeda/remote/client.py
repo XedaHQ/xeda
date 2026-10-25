@@ -114,7 +114,7 @@ from .frames import (
 from .launch_entry import LaunchRequest
 from .launch_record import LaunchRecord, write_record
 from .manifest import Entry, build_manifest, write_tar
-from .packaging import InputPackage, package_inputs
+from .packaging import InputPackage, package_inputs, refuse_unsendable_generator
 from .profile import HostProfile, load_host_profile
 from .provision import Probe, Provisioned, agent_command, ensure_environment, probe
 from .ssh import Destination, SshSession, resolve_destination
@@ -661,6 +661,7 @@ def _plan(
     run.local_root = local_root
     run.nodes = [(n.name, n.flow_class.name, Path(n.run_path)) for n in prepared.plan.nodes]
     _refuse_programmers(prepared, destination_text)
+    refuse_unsendable_generator(prepared.design)
     plan = prepared.plan
     node = plan.node(plan.requested)
     _check_deliverables(prepared, prepared.design.name)
