@@ -24,7 +24,6 @@ from typing import Any, BinaryIO, Dict, Optional
 from ..artifacts import (
     ArtifactPath,
     drop_unwritten_artifacts,
-    filter_artifact_paths,
     iter_artifact_paths,
     map_artifact_paths,
 )
@@ -416,7 +415,9 @@ def rewrite_results(
     does), and with none given no artifact survives. A declared output must lie in the run
     directory, and its file in the mirror must have the digest in its record, or
     `DeliveryError`. The artifacts at the places `skipped` lead out of the run directory and were
-    not fetched (`SkippedSource`): they are left out, with a warning."""
+    not fetched (`SkippedSource`). They keep their place in the mirror, where no file lies, so
+    that the next launch asks about a file in the way of their delivery before it runs, as a
+    local launch does; a warning names them."""
     rewritten = copy.deepcopy(results)
     remote_dir = str(remote_run_dir)
     succeeded = bool(rewritten.get("success"))
@@ -436,18 +437,13 @@ def rewrite_results(
                 raise DeliveryError(f"Declared remote output {record[key]} changed during transfer")
             record[key] = str(local)
     artifacts = rewritten.get("artifacts")
-    if artifacts is not None and skipped:
-
-        def fetched(artifact: ArtifactPath) -> bool:
-            return mirror_relative(os.fspath(artifact), remote_dir).as_posix() not in skipped
-
+    if skipped:
         log.warning(
             "On the remote, these artifacts lead out of the run directory %s through a symbolic "
             "link and were not fetched: %s",
             remote_dir,
             ", ".join(sorted(skipped)),
         )
-        artifacts = filter_artifact_paths(artifacts, fetched)
     if artifacts is not None:
         vouched = frozenset(written or ())
 
@@ -460,6 +456,8 @@ def rewrite_results(
 
         def rewrite(artifact: ArtifactPath) -> str:
             local = local_path(os.fspath(artifact))
+            if mirror_relative(os.fspath(artifact), remote_dir).as_posix() in skipped:
+                return str(local)
             if not _is_regular(str(local)):
                 raise RemoteFetchError(f"the artifact {os.fspath(artifact)} is not in the mirror")
             return str(local)

@@ -307,7 +307,9 @@ keeps the files as the host wrote them. Xeda checks each file against its SHA-25
 atomically. A symbolic link at ``@<host>``, at a design or at a target below it makes Xeda
 refuse the run before it writes or deletes anything there, as for a local run root (see
 :doc:`run-directories`). The mirror holds no ``trace.json``, so a local run never reuses a
-mirror directory.
+mirror directory. An artifact that a symbolic link on the host leads out of its run directory
+does not come back: the results name its place in the mirror, where no file lies (see "Outputs
+where you name them" in :doc:`run-directories`).
 
 The records ``results.json`` and ``settings.json`` of each mirror directory are written again with
 the paths of your machine, where Xeda can map a path:

@@ -290,13 +290,25 @@ def test_a_skipped_source_from_the_remote_is_checked():
             SkippedSource.from_json_value(bad)
 
 
-def test_rewritten_results_leave_out_a_skipped_artifact(tmp_path):
+def test_rewritten_results_keep_the_place_of_a_skipped_artifact(tmp_path):
+    """A skipped artifact keeps its place in the mirror, where no file lies: the next launch
+    then asks about a file in the way of its delivery before it runs, as a local launch does."""
+    from xeda.deliver import outputs_to_deliveries
+
     mirror = tmp_path / "mirror"
     mirror.mkdir()
     (mirror / "out.bit").write_text("x\n")
     results = {"success": True, "artifacts": {"bit": "out.bit", "log": "tool.log"}}
     rewritten = rewrite_results(results, PurePosixPath("/r/d/flow"), mirror, skipped={"tool.log"})
-    assert rewritten["artifacts"] == {"bit": str(mirror / "out.bit")}
+    assert rewritten["artifacts"] == {
+        "bit": str(mirror / "out.bit"),
+        "log": str(mirror / "tool.log"),
+    }
+    assert not os.path.lexists(mirror / "tool.log")
+    predicted = outputs_to_deliveries(rewritten["artifacts"], mirror, tmp_path / "out")
+    assert sorted(d.name.as_posix() for d in predicted) == ["out.bit", "tool.log"]
+    with pytest.raises(RemoteFetchError, match="not in the mirror"):
+        rewrite_results(results, PurePosixPath("/r/d/flow"), mirror)
 
 
 def test_an_external_artifact_that_is_a_link_is_not_taken(tmp_path):
@@ -621,3 +633,16 @@ def test_the_client_reads_the_files_and_the_skipped_sources_of_a_fetch():
             _fetch(_StubAgent(bad), False)
     with pytest.raises(RemoteFetchError):
         _fetch(_StubAgent({"files": [], "skipped": [{**skipped, "place": "../x"}]}), False)
+
+
+def test_the_delivered_node_lists_the_deliveries_made_from_the_mirror():
+    """A local run lists its deliveries in its node; so does a remote one, in the node that this
+    side delivered, skipped ones included."""
+    from xeda.remote.client import _deliveries_of_the_node
+
+    made = [{"setting": "--outputs-to", "from": "/r/x", "to": "/o/x", "state": "skipped"}]
+    document = {"nodes": [{"node": "a", "deliveries": []}, {"node": "b", "deliveries": []}]}
+    _deliveries_of_the_node(document, {"deliveries": made}, "b")
+    assert document["nodes"] == [{"node": "a", "deliveries": []}, {"node": "b", "deliveries": made}]
+    _deliveries_of_the_node(document, None, "a")
+    assert document["nodes"][0]["deliveries"] == []

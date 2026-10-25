@@ -1474,10 +1474,20 @@ def _delivery_failure_document(
     document = _mirror_document(
         result, rewritten, host=run.host, mirror_root=mirror_root, remote_run_root=remote_run_root
     )
-    for node in document.get("nodes") or []:
-        if node.get("node") == local.requested:
-            node["deliveries"] = list(rewritten.get("deliveries") or [])
+    _deliveries_of_the_node(document, rewritten, local.requested)
     return _local_design(document, run, local.design_name)
+
+
+def _deliveries_of_the_node(
+    document: Dict[str, Any], rewritten: Optional[Dict[str, Any]], requested: str
+) -> None:
+    """Put the deliveries that this side made from the mirror (`rewritten["deliveries"]`) into
+    the node that was delivered, as a local run has them. The host made none of them."""
+    if rewritten is None or "deliveries" not in rewritten:
+        return
+    for node in document.get("nodes") or []:
+        if node.get("node") == requested:
+            node["deliveries"] = list(rewritten.get("deliveries") or [])
 
 
 def _finish(
@@ -1601,6 +1611,7 @@ def _finish(
     document = _mirror_document(
         result, rewritten, host=run.host, mirror_root=mirror_root, remote_run_root=remote_run_root
     )
+    _deliveries_of_the_node(document, rewritten, local.requested)
     return RemoteOutcome(_local_design(document, run, local.design_name), success)
 
 
