@@ -156,7 +156,7 @@ def _flows() -> dict[str, Any]:
 
         def run(self) -> None:
             assert self.settings.netlist is not None
-            netlist = Path(self.settings.netlist)
+            netlist = self.run_file(self.settings.netlist)
             netlist.parent.mkdir(parents=True, exist_ok=True)
             netlist.write_text("net\n")
             self.artifacts["netlist"] = str(netlist)
