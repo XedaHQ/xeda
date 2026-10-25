@@ -17,6 +17,7 @@ import yaml
 from xeda import Design
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
+from xeda.records import decode_record, encode_record, read_record
 from xeda.run_root import ensure_run_root
 
 from .io_flows import _InputTaker, _Join, _Maker, _PartialMaker, _Place, _Taker
@@ -818,3 +819,37 @@ def test_two_producers_of_a_many_input_run_remotely(tmp_path, remote_host):
     assert document["results"]["more"] == ["made\n", "second\n"]
     assert document["results"]["flow_hash"] == planned.node(_Join.name).flowrun_hash
     assert {node.name for node in planned.nodes} >= {"__maker", "__input_maker"}
+
+
+def test_the_record_of_a_remote_many_input_has_one_row_for_each_producer(tmp_path, remote_host):
+    """The record of a remote run whose `many` input two producers feed has one input row for
+    each binding, in binding order, as a local record does. Each row names its producer, the run
+    id of that producer's record and its run directory in the mirror, and the rows survive the
+    round trip of the record."""
+    remote_host.load_test_flows()
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "input.txt").write_text("second\n")
+    design = _declared_design(
+        root,
+        {
+            "__join": {"inputs": {"more": ["__maker.made", "__input_maker.made"]}},
+            "__input_maker": {"input_file": "input.txt"},
+        },
+    )
+    document = _succeeded(remote_request(tmp_path, design, _Join.name))
+    mirror = Path(document["mirror"])
+    run_dirs = {node["node"]: Path(node["run_path"]) for node in document["nodes"]}
+    record = read_record(run_dirs[_Join.name], run_root=mirror)
+    rows = [row for row in record.inputs if row.name == "more"]
+    assert [(row.origin, row.producer, row.output) for row in rows] == [
+        ("producer", "__maker", "made"),
+        ("producer", "__input_maker", "made"),
+    ]
+    for row in rows:
+        assert row.producer is not None and row.producer_run_dir == run_dirs[row.producer]
+        assert row.producer_run_dir.is_relative_to(mirror)
+        producer = read_record(run_dirs[row.producer], run_root=mirror)
+        assert row.producer_run_id == producer.run_id
+    again = decode_record(encode_record(record), run_dir=record.run_dir, run_root=mirror)
+    assert again.inputs == record.inputs
