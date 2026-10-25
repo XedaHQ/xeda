@@ -200,10 +200,11 @@ class InputSource:
 
 @dataclass(frozen=True)
 class InputRecord:
-    """Where one declared input of a run came from.
+    """Where one declared input of a run came from, through one binding.
 
-    `producer_run_dir` is absolute: the run root of the record joined with the relative text that
-    the document holds."""
+    An input of cardinality `many` that several producer outputs feed has one `InputRecord` for
+    each of them, in binding order, so `name` repeats in `RunRecord.inputs`. `producer_run_dir` is
+    absolute: the run root of the record joined with the relative text that the document holds."""
 
     name: str
     origin: Literal["source", "producer", "none"]
@@ -889,40 +890,58 @@ def _source_digest(flow: Flow, path: Path) -> str:
 
 
 def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
-    """Return where each declared input of `flow` came from."""
+    """Return where each declared input of `flow` came from, as one row for each binding.
+
+    An input that producers provide has one row for each producer reference, in binding order,
+    so an input of cardinality `many` that is bound to several producers repeats its name. Any
+    other input has one row. The resolver gives an input either design sources or producer
+    references, never both, so only a row without a producer holds sources."""
     from .design import root_relative_text
 
     inputs: list[InputRecord] = []
     for declared in flow.declared_input_records:
-        reference = declared.references[0] if declared.references else None
-        handed = {entry.path for ref in declared.references for entry in ref.entries}
-        sources = tuple(
-            InputSource(
-                path=root_relative_text(flow.design.root_path, Path(path)),
-                generated=False,
-                digest=_source_digest(flow, Path(path)),
-                dependency=None,
-            )
-            for path in declared.paths
-            if path not in handed
-        )
-        producer_path = None if reference is None else reference.producer_path
+        if declared.references:
+            for reference in declared.references:
+                producer_path = reference.producer_path
+                inputs.append(
+                    InputRecord(
+                        name=declared.name,
+                        origin=declared.origin,
+                        producer=reference.producer,
+                        output=reference.output,
+                        producer_run_id=(
+                            None
+                            if producer_path is None
+                            else flow.producer_run_ids.get(producer_path)
+                        ),
+                        producer_run_dir=(
+                            None
+                            if producer_path is None
+                            else run_root / _run_dir_text(Path(producer_path), run_root)
+                        ),
+                        generation=None,
+                        sources=(),
+                    )
+                )
+            continue
         inputs.append(
             InputRecord(
                 name=declared.name,
                 origin=declared.origin,
-                producer=declared.producer if reference is None else reference.producer,
-                output=declared.output if reference is None else reference.output,
-                producer_run_id=(
-                    None if producer_path is None else flow.producer_run_ids.get(producer_path)
-                ),
-                producer_run_dir=(
-                    None
-                    if producer_path is None
-                    else run_root / _run_dir_text(Path(producer_path), run_root)
-                ),
+                producer=declared.producer,
+                output=declared.output,
+                producer_run_id=None,
+                producer_run_dir=None,
                 generation=None,
-                sources=sources,
+                sources=tuple(
+                    InputSource(
+                        path=root_relative_text(flow.design.root_path, Path(path)),
+                        generated=False,
+                        digest=_source_digest(flow, Path(path)),
+                        dependency=None,
+                    )
+                    for path in declared.paths
+                ),
             )
         )
     return inputs

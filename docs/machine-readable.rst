@@ -316,10 +316,14 @@ The record has these fields:
 ``settings``
     The effective settings of the node, as ``settings.json`` writes them.
 ``inputs``
-    One entry for each declared input: ``name``, ``origin`` (``source``, ``producer`` or ``none``),
-    ``producer``, ``output``, ``producer_run_id``, ``producer_run_dir`` (relative to the run root),
-    ``generation`` and the ``sources`` that the input read, each as ``{path, generated, digest,
-    dependency}``.
+    One entry for each declared input: ``name``, ``origin`` (``source``,
+    ``producer`` or ``none``), ``producer``, ``output``, ``producer_run_id``, ``producer_run_dir``
+    (relative to the run root), ``generation`` and the ``sources`` that the input read, each as
+    ``{path, generated, digest, dependency}``. An input of cardinality ``many`` that is bound to
+    several producer outputs has one entry for each binding. These entries have the same ``name``,
+    in the order of the bindings. Each entry has its own ``producer``, ``output``, ``producer_run_id`` and
+    ``producer_run_dir``. A binding that repeats gives an entry that repeats. A reader groups the
+    entries by ``name``.
 ``started``, ``finished``, ``runtime``
     Two times in UTC (ISO 8601) and the duration in seconds.
 ``dependencies``, ``inherited_variables``

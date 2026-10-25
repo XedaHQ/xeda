@@ -41,7 +41,7 @@ from xeda.dataclass import Field
 
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
-from .io_flows import _Maker, _Reader, _Taker
+from .io_flows import _Join, _Maker, _Reader, _Taker
 
 KEYS = {
     "schema_version",
@@ -702,3 +702,66 @@ def test_freeze_copies_so_a_later_change_of_the_source_is_not_seen():
     source["a"]["b"].append(3)
     source["a"]["new"] = 1
     assert thaw(value) == {"a": {"b": [1, 2]}}
+
+
+# --- An input with several bindings ---------------------------------------------------------------
+
+JOIN_BINDINGS = {"__join": {"inputs": {"more": ["__right.out", "__left.out", "__right.out"]}}}
+
+
+def _join_design(tmp_path: Path) -> Design:
+    root = tmp_path / "d"
+    root.mkdir(exist_ok=True)
+    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}, flows=JOIN_BINDINGS)
+
+
+def _join_record(tmp_path: Path) -> RunRecord:
+    runner = _runner(tmp_path)
+    flow = runner.run(_Join, _join_design(tmp_path))
+    assert flow is not None and flow.succeeded
+    return read_record(flow.run_path, run_root=flow.record.run_root)
+
+
+def test_an_input_bound_to_several_producers_has_a_row_for_each_binding(tmp_path):
+    record = _join_record(tmp_path)
+    run_root = record.run_root
+    assert [item.name for item in record.inputs] == ["left", "right", "more", "more", "more"]
+    left, right, *rows = record.inputs
+    assert [(item.origin, item.producer, item.output) for item in (left, right)] == [
+        ("producer", "__left", "out"),
+        ("producer", "__right", "out"),
+    ]
+    # the rows follow the bindings, and a binding that repeats gives a row that repeats
+    assert [(item.origin, item.producer, item.output) for item in rows] == [
+        ("producer", "__right", "out"),
+        ("producer", "__left", "out"),
+        ("producer", "__right", "out"),
+    ]
+    for item in rows:
+        directory = run_root / "d" / str(item.producer)
+        assert item.producer_run_dir == directory
+        assert item.producer_run_id == read_record(directory, run_root=run_root).run_id
+        assert item.sources == ()
+    assert rows[0].producer_run_id != rows[1].producer_run_id
+
+
+def test_the_rows_of_an_input_with_several_bindings_survive_the_codec(tmp_path):
+    record = _join_record(tmp_path)
+    document = encode_record(record)
+    assert [item["name"] for item in document["inputs"]].count("more") == 3
+    loaded = decode_record(
+        json.loads(json.dumps(document)), run_dir=record.run_dir, run_root=record.run_root
+    )
+    assert loaded.inputs == record.inputs
+    assert loaded == record
+    assert read_record(record.run_dir, run_root=record.run_root).inputs == record.inputs
+
+
+def test_a_row_of_a_repeated_input_is_still_checked(tmp_path):
+    record = _join_record(tmp_path)
+    document = json.loads(json.dumps(encode_record(record)))
+    document["inputs"][3]["origin"] = "elsewhere"
+    with pytest.raises(RecordError) as caught:
+        decode_record(document, run_dir=record.run_dir, run_root=record.run_root)
+    assert caught.value.code == "corrupt_record"
+    assert "inputs[].origin" in str(caught.value)

@@ -86,6 +86,29 @@ def test_a_named_node_also_fetches_its_outputs_and_artifacts(tmp_path):
     }
 
 
+def _input_row(name: str, producer: str) -> dict:
+    return {
+        "name": name,
+        "origin": "producer",
+        "producer": producer,
+        "output": "out",
+        "producer_run_id": "f" * 32,
+        "producer_run_dir": f"d/{producer}",
+        "generation": None,
+        "sources": [],
+    }
+
+
+def test_a_record_with_several_rows_for_one_input_is_still_a_record(tmp_path):
+    """An input that several producers feed repeats its name in `inputs`: the client reads the
+    record, so the node still comes back with its outputs."""
+    run = _run_dir(tmp_path)
+    rows = [_input_row("more", name) for name in ("right", "left", "right")]
+    node = _node(run, named=True, outputs={"netlist": ["other/x.v"]}, inputs=rows)
+    selected = select_fetch(tmp_path, [node], fetch_all=False)
+    assert "d/flow/other/x.v" in selected
+
+
 def test_a_node_the_request_does_not_name_returns_no_outputs(tmp_path):
     run = _run_dir(tmp_path)
     selected = select_fetch(
