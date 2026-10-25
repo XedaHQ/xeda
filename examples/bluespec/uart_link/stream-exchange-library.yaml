@@ -145,3 +145,28 @@ targets:
       - "tb/TbStreamExchange.bsv"
     rtl.top: mkTbStreamExchangeW13
     tb.sources: []
+  reset_interrupt:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbResetInterrupt
+    tb.sources: []
+  word5_lengths:
+    dependencies:
+      - "leanlink-library.yaml"
+      - uri: "../gcd/gcd-stream-library.yaml"
+        rtl:
+          pos: 2
+    rtl.sources:
+      - "tb/TbStreamExchange.bsv"
+    rtl.top: mkTbStreamExchangeWord5Lengths
+    tb.sources: []
+  output_replacement:
+    rtl.sources:
+      - "tb/TbStreamExchangeOutputReplacement.bsv"
+    rtl.top: mkTbStreamExchangeOutputReplacement
+    tb.sources: []

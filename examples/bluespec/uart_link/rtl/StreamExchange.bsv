@@ -1,12 +1,49 @@
 // Bounded packet-to-word adapter for a stream-processing core.
 package StreamExchange;
 
-import Clocks :: *;
-
 import BRAMCore :: *;
-import FIFOF :: *;
+import Clocks :: *;
+import FIFOF_ :: *;
 import GetPut :: *;
 import LeanLink :: *;
+
+
+// FIFOL1 is the standard one-entry pipeline FIFO. Its FULL_N includes DEQ.
+// The endpoint reset tags differ, but their shared physical reset clears storage.
+import "BVI" FIFOL1 =
+module mkStreamFIFOF1(Reset sRstIn, Reset dRstIn,
+                       Clock realClock, Reset realReset,
+                       FIFOF_#(a) ifc)
+   provisos (Bits#(a, sa));
+   default_clock clk(CLK, (*unused*) CLK_GATE) = realClock;
+   default_reset _rst__(RST) = realReset;
+   input_reset srst() clocked_by(clk) = sRstIn;
+   input_reset drst() clocked_by(clk) = dRstIn;
+   parameter width = valueOf(sa);
+   method enq((* reg *) D_IN) enable(ENQ) clocked_by(clk) reset_by(srst);
+   method deq() enable(DEQ) clocked_by(clk) reset_by(drst);
+   method (* reg *) D_OUT first clocked_by(clk) reset_by(drst);
+   method FULL_N notFull clocked_by(clk) reset_by(srst);
+   method FULL_N i_notFull clocked_by(clk) reset_by(srst);
+   method (* reg *) EMPTY_N notEmpty clocked_by(clk) reset_by(drst);
+   method (* reg *) EMPTY_N i_notEmpty clocked_by(clk) reset_by(drst);
+   method clear() enable(CLR) clocked_by(clk) reset_by(_rst__);
+   schedule i_notEmpty SB (deq, enq, clear);
+   schedule deq SBR i_notFull;
+   schedule i_notFull SB (enq, clear);
+   schedule (i_notEmpty, i_notFull, notEmpty, notFull, first) CF
+            (i_notEmpty, i_notFull, notEmpty, notFull, first);
+   schedule deq SBR enq;
+   schedule (deq, enq, clear) SBR clear;
+   schedule first SB (deq, clear);
+   schedule first CF enq;
+   schedule notEmpty SB (deq, enq, clear);
+   schedule deq SBR notFull;
+   schedule notFull SB (enq, clear);
+   schedule deq C deq;
+   schedule enq C enq;
+   path (DEQ, FULL_N);
+endmodule
 
 export StreamExchange(..);
 export mkStreamExchange;
@@ -34,7 +71,8 @@ interface StreamExchange#(type in_t, type out_t);
    interface Reset coreReset;
 endinterface
 
-typedef enum { FastCollect, FastResetWait, FastReplyEmpty, FastReplyStatus, FastReplyCount,
+typedef enum { FastCollect, FastResetWait,
+                  FastReplyEmpty, FastReplyStatus, FastReplyCount,
                   FastReplyStartOutput, FastReplyOutput } FastState deriving (Bits, Eq);
 
 typedef enum {
@@ -70,9 +108,12 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
    Integer countMask = acceptedCountMask(maxAcceptedWords);
 
    Clock clk <- exposeCurrentClock;
-   MakeResetIfc coreResetIfc <- mkReset(2, False, clk);
-   FIFOF#(in_t) inputQ <- mkSizedFIFOF(1, reset_by coreResetIfc.new_rst);
-   FIFOF#(out_t) outputQ <- mkSizedFIFOF(1, reset_by coreResetIfc.new_rst);
+   Reset parentReset <- exposeCurrentReset;
+   MakeResetIfc coreResetIfc <- mkReset(2, True, clk);
+   Reset appReset <- mkResetEither(parentReset, coreResetIfc.new_rst);
+   ReadOnly#(Bool) coreInReset <- isResetAssertedDirect(reset_by appReset);
+   FIFOF_#(in_t) inputQ <- mkStreamFIFOF1(parentReset, appReset, clk, appReset);
+   FIFOF_#(out_t) outputQ <- mkStreamFIFOF1(appReset, parentReset, clk, appReset);
    BRAM_DUAL_PORT#(Bit#(8), Bit#(8)) scratch <- mkBRAMCore2(256, False);
 
    Reg#(ExchangeState) state <- mkReg(Collect);
@@ -92,12 +133,11 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
    Reg#(out_t) outputHold <- mkRegU;
    Reg#(Bit#(8)) outputByte <- mkReg(0);
    Reg#(Bit#(TMax#(8, outWidth))) outputShift <- mkReg(0);
-   Reg#(UInt#(2)) resetWait <- mkReg(0);
 
    function LinkTok token(Bit#(8) data, Bool last) =
       LinkTok { data: data, last: last, empty: False };
 
-   rule receivePacket (state == Collect);
+   rule receivePacket (state == Collect && !coreInReset);
       let payloadLength = link.requestPayloadLength;
       let item <- link.request.get;
       packetPosition <= (item.empty || item.last) ? 0
@@ -113,14 +153,12 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
                packetEmpty <= False;
                packetTooLong <= False;
                validPacket <= False;
-               responseRemaining <= zeroExtend(link.responseMax) - 2;
                state <= link.responseMax < 2 ? ReplyEmpty : ReplyStatus;
             end else if (item.data == 0 && payloadLength == 1 && link.responseMax >= 2) begin
                packetEmpty <= False;
                packetTooLong <= False;
                validPacket <= True;
                coreResetIfc.assertReset;
-               resetWait <= 2;
                state <= ResetWait;
             end else if (item.data == 1 && payloadLength >= 1
                        && (payloadLength - 1) % fromInteger(inBytes) == 0
@@ -128,12 +166,10 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
                validPacket <= True;
                packetTooLong <= False;
                if (item.last) begin
-                  responseRemaining <= zeroExtend(link.responseMax) - 2;
-                  state <= link.responseMax < 2 ? ReplyEmpty : ReplyStatus;
+                  state <= ReplyStatus;
                end
             end else if (item.last) begin
                validPacket <= False;
-               responseRemaining <= zeroExtend(link.responseMax) - 2;
                state <= link.responseMax < 2 ? ReplyEmpty : ReplyStatus;
             end else begin
                validPacket <= False;
@@ -143,7 +179,6 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
             if (item.last) begin
                packetTooLong <= False;
                acceptedCount <= 0;
-               responseRemaining <= zeroExtend(link.responseMax) - 2;
                state <= link.responseMax < 2 ? ReplyEmpty : ReplyStatus;
             end
          end else begin
@@ -162,8 +197,7 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
                admitByteIndex <= admitByteIndex + 1;
             end
             if (item.last) begin
-               responseRemaining <= zeroExtend(link.responseMax) - 2;
-               state <= link.responseMax < 2 ? ReplyEmpty : ReplyStatus;
+               state <= ReplyStatus;
             end
          end
       end else begin
@@ -196,7 +230,6 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
          else begin
             validPacket <= True;
             coreResetIfc.assertReset;
-            resetWait <= 2;
             state <= ResetWait;
          end
       end else if (op == 1 && packetLength >= 1
@@ -207,7 +240,6 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
          else if (packetLength == 1) begin
             validPacket <= True;
             acceptedCount <= 0;
-            responseRemaining <= zeroExtend(link.responseMax) - 2;
             state <= ReplyStatus;
          end else begin
             scratch.b.put(False, 1, ?);
@@ -216,7 +248,6 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
       end else begin
          validPacket <= False;
          acceptedCount <= 0;
-         responseRemaining <= zeroExtend(link.responseMax) - 2;
          state <= (link.responseMax < 2) ? ReplyEmpty : ReplyStatus;
       end
    endrule
@@ -234,7 +265,6 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
       if (scanPosition + 1 == packetLength) begin
          validPacket <= !(scanBad || badPad || packetTooLong);
          acceptedCount <= 0;
-         responseRemaining <= zeroExtend(link.responseMax) - 2;
          if (scanBad || badPad || packetTooLong) state <= ReplyStatus;
          else begin
             admitPosition <= 1;
@@ -247,7 +277,7 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
       end
    endrule
 
-   rule beginAdmission (state == AdmitStart);
+   rule beginAdmission (state == AdmitStart && !coreInReset);
       if (!inputQ.notFull || admitPosition >= packetLength) begin
          state <= ReplyStatus;
       end else begin
@@ -281,19 +311,15 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
       end
    endrule
 
-   rule waitForReset (state == ResetWait);
-      if (resetWait == 0) begin
-         acceptedCount <= 0;
-         validPacket <= True;
-         responseRemaining <= zeroExtend(link.responseMax) - 2;
-         state <= ReplyStatus;
-      end else resetWait <= resetWait - 1;
+   rule waitForReset (state == ResetWait && !coreInReset);
+      acceptedCount <= 0;
+      validPacket <= True;
+      state <= ReplyStatus;
    endrule
 
    rule rejectPacket (state == ScanOpcode && (packetEmpty || packetTooLong));
       validPacket <= False;
       acceptedCount <= 0;
-      responseRemaining <= zeroExtend(link.responseMax) - 2;
       state <= (link.responseMax < 2) ? ReplyEmpty : ReplyStatus;
    endrule
 
@@ -306,6 +332,7 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
 
    rule replyStatus (state == ReplyStatus && link.responseReady);
       link.response.put(token(validPacket ? 0 : 1, False));
+      responseRemaining <= zeroExtend(link.responseMax) - 2;
       state <= ReplyCount;
    endrule
 
@@ -321,18 +348,11 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
    endrule
 
    rule startOutput (state == ReplyStartOutput);
-      Bool haveOutput = outputQ.notEmpty && responseRemaining >= fromInteger(outBytes);
-      if (haveOutput) begin
-         outputHold <= outputQ.first;
-         outputQ.deq;
-         outputByte <= 0;
-         outputShift <= zeroExtend(pack(outputQ.first));
-         state <= ReplyOutput;
-      end else begin
-         packetEmpty <= False;
-         packetTooLong <= False;
-         state <= Collect;
-      end
+      outputHold <= outputQ.first;
+      outputQ.deq;
+      outputByte <= 0;
+      outputShift <= zeroExtend(pack(outputQ.first));
+      state <= ReplyOutput;
    endrule
 
    rule emitOutput (state == ReplyOutput && link.responseReady);
@@ -376,7 +396,7 @@ module mkStreamExchangeBuffered#(LeanLink#(logW, logP) link)
       endmethod
    endinterface
 
-   interface coreReset = coreResetIfc.new_rst;
+   interface coreReset = appReset;
 endmodule
 
 module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
@@ -392,9 +412,12 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
    Bit#(256) validLengthMask = fromInteger(makeLengthMask(inBytes));
 
    Clock clk <- exposeCurrentClock;
-   MakeResetIfc coreResetIfc <- mkReset(2, False, clk);
-   FIFOF#(in_t) inputQ <- mkSizedFIFOF(1, reset_by coreResetIfc.new_rst);
-   FIFOF#(out_t) outputQ <- mkSizedFIFOF(1, reset_by coreResetIfc.new_rst);
+   Reset parentReset <- exposeCurrentReset;
+   MakeResetIfc coreResetIfc <- mkReset(2, True, clk);
+   Reset appReset <- mkResetEither(parentReset, coreResetIfc.new_rst);
+   ReadOnly#(Bool) coreInReset <- isResetAssertedDirect(reset_by appReset);
+   FIFOF_#(in_t) inputQ <- mkStreamFIFOF1(parentReset, appReset, clk, appReset);
+   FIFOF_#(out_t) outputQ <- mkStreamFIFOF1(appReset, parentReset, clk, appReset);
 
    Reg#(Bool) expectOpcode <- mkReg(True);
    Reg#(Bool) dropping <- mkReg(False);
@@ -406,14 +429,13 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
    Reg#(Bit#(TMax#(8, outWidth))) outputShift <- mkReg(0);
    Reg#(Bit#(outWidth)) outputHold <- mkRegU;
    Reg#(UInt#(TMax#(1, TLog#(TDiv#(TAdd#(outWidth, 7), 8))))) outputByte <- mkReg(0);
-   Reg#(Bool) resetWait <- mkReg(False);
 
    Reg#(FastState) state <- mkReg(FastCollect);
 
    function LinkTok token(Bit#(8) data, Bool last) =
       LinkTok { data: data, last: last, empty: False };
 
-   rule receivePacket (state == FastCollect);
+   rule receivePacket (state == FastCollect && !coreInReset);
       let payloadLength = link.requestPayloadLength;
       let item <- link.request.get;
       Bool validReset = !item.empty && item.data == 0 && payloadLength == 1
@@ -423,41 +445,40 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
           || inBytes == 16 || inBytes == 32 || inBytes == 64)
          validLength = payloadLength >= 1
                        && (payloadLength - 1) % fromInteger(inBytes) == 0;
-      else validLength = validLengthMask[pack(payloadLength)] == 1;
+      // Since 16 mod 5 is 1, the two hexadecimal digits have the same residue.
+      // Their sum is at most 30; these are exactly the sums congruent to 1 mod 5.
+      else if (inBytes == 5) begin
+         Bit#(8) lengthBits = pack(payloadLength);
+         UInt#(5) nibbleSum = zeroExtend(unpack(lengthBits[3:0]))
+                             + zeroExtend(unpack(lengthBits[7:4]));
+         validLength = nibbleSum == 1 || nibbleSum == 6 || nibbleSum == 11
+                       || nibbleSum == 16 || nibbleSum == 21 || nibbleSum == 26;
+      end else validLength = validLengthMask[pack(payloadLength)] == 1;
       Bool validData = !item.empty && item.data == 1 && validLength
                        && link.responseMax >= 2;
-      dropping <= expectOpcode ? (item.empty || (!validReset && !validData))
-                                : (dropping || (!dropping && inputByte == fromInteger(inBytes - 1)
-                                                 && !inputQ.notFull));
+      Bool nextDropping = expectOpcode ? (item.empty || (!validReset && !validData)) : dropping;
       expectOpcode <= item.last;
       if (expectOpcode) begin
          acceptedCount <= 0;
          inputByte <= 0;
          if (item.empty) begin
             commandOK <= False;
-            responseRemaining <= link.responseMax;
             state <= link.responseMax < 2 ? FastReplyEmpty : FastReplyStatus;
          end else if (validReset) begin
             commandOK <= True;
             coreResetIfc.assertReset;
-            resetWait <= True;
             state <= FastResetWait;
          end else if (validData) begin
             commandOK <= True;
-            if (item.last) begin
-                  responseRemaining <= link.responseMax;
-               state <= link.responseMax < 2 ? FastReplyEmpty : FastReplyStatus;
-            end
+            if (item.last) state <= FastReplyStatus;
          end else if (item.last) begin
             commandOK <= False;
-            responseRemaining <= link.responseMax;
             state <= link.responseMax < 2 ? FastReplyEmpty : FastReplyStatus;
          end else begin
             commandOK <= False;
          end
       end else if (dropping) begin
          if (item.last) begin
-            responseRemaining <= link.responseMax;
             state <= link.responseMax < 2 ? FastReplyEmpty : FastReplyStatus;
          end
       end else begin
@@ -467,7 +488,8 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
             if (inputQ.notFull) begin
                inputQ.enq(unpack(truncate(assembled)));
                acceptedCount <= (acceptedCount + 1) & fromInteger(countMask);
-            end else noAction;
+            end else nextDropping = True;
+            if (item.last) state <= FastReplyStatus;
             if (inBytes == 1) inputByte <= 0;
             else if (inBytes == 2 || inBytes == 4 || inBytes == 8
                      || inBytes == 16 || inBytes == 32 || inBytes == 64)
@@ -477,19 +499,13 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
             inputShift <= assembled;
             inputByte <= inputByte + 1;
          end
-         if (item.last) begin
-            responseRemaining <= link.responseMax;
-            state <= link.responseMax < 2 ? FastReplyEmpty : FastReplyStatus;
-         end
       end
+      dropping <= nextDropping;
    endrule
 
-   rule waitForReset (state == FastResetWait);
-      if (!resetWait) begin
-         acceptedCount <= 0;
-         responseRemaining <= link.responseMax;
-         state <= FastReplyStatus;
-      end else resetWait <= False;
+   rule waitForReset (state == FastResetWait && !coreInReset);
+      acceptedCount <= 0;
+      state <= FastReplyStatus;
    endrule
 
    rule replyEmpty (state == FastReplyEmpty && link.responseReady);
@@ -499,6 +515,7 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
 
    rule replyStatus (state == FastReplyStatus && link.responseReady);
       link.response.put(token(commandOK ? 0 : 1, False));
+      responseRemaining <= link.responseMax;
       state <= FastReplyCount;
    endrule
 
@@ -510,16 +527,14 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
    endrule
 
    rule startOutput (state == FastReplyStartOutput);
-      if (outputQ.notEmpty && responseRemaining >= fromInteger(outBytes + 2)) begin
-         outputQ.deq;
-         if (outBytes == 5) outputHold <= pack(outputQ.first);
-         else outputShift <= zeroExtend(pack(outputQ.first));
-         outputByte <= 0;
-         state <= FastReplyOutput;
-      end else state <= FastCollect;
+      outputQ.deq;
+      if (outBytes == 5) outputHold <= pack(outputQ.first);
+      else outputShift <= zeroExtend(pack(outputQ.first));
+      outputByte <= 0;
+      state <= FastReplyOutput;
    endrule
 
-   rule emitOutput (state == FastReplyOutput && link.responseReady);
+   rule emitOutput (state == FastReplyOutput);
       Bit#(8) b;
       if (outBytes == 5) begin
          Bit#(TMax#(40, outWidth)) bits = zeroExtend(pack(outputHold));
@@ -561,7 +576,7 @@ module mkStreamExchangeByteAligned#(LeanLink#(logW, logP) link)
       endmethod
    endinterface
 
-   interface coreReset = coreResetIfc.new_rst;
+   interface coreReset = appReset;
 endmodule
 
 module mkStreamExchange#(LeanLink#(logW, logP) link)
