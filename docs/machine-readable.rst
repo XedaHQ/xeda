@@ -301,8 +301,9 @@ A tool can keep a log of its own, such as the file that ``--log`` gives to nextp
 working file and no artifact: ``log`` already holds the output of the tool.
 
 ``error.log`` names the key of the log to read after a failure. For a program that exited with a
-nonzero status it is the key of that program, so a failure of KLayout points at ``klayout_log``. In
-every other case it is ``log``, if the run wrote one, and ``null`` if not.
+nonzero status it is the key of that program, so a failure of KLayout points at ``klayout_log``.
+After a Vivado run that did not complete its step, it is the log of that run (``synth_1_log`` or
+``impl_1_log``). In every other case it is ``log``, if the run wrote one, and ``null`` if not.
 
 .. _results-json:
 
@@ -339,8 +340,10 @@ The record has these fields:
     The metrics that the flow describes (``xeda list-results``), nested by their dotted path:
     ``sim.ended_by`` is the key ``ended_by`` of the object ``sim``. ``metric_info`` maps each such
     path to its ``description``, ``type`` and ``unit``. A value that is unknown is absent. A
-    value that is not finite, or not of its declared type, is no metric: it fails the node with
-    the error code ``invalid_metric``, and the other metrics stay.
+    value that is not finite, or not of its declared type, is no metric: it fails the node, and
+    the other metrics stay. The error code is ``invalid_metric``, unless the run already has an
+    error, which stays the cause: a rejected run with such a value is ``failed`` with the code
+    ``rejected``.
 ``outputs``
     Every declared output of the flow, by name, as ``{kind, cardinality, names, digests, design}``.
     ``kind`` is the name of the source type, or ``design``. ``cardinality`` is ``one``,
