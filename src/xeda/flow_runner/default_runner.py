@@ -999,7 +999,7 @@ class FlowLauncher:
                 # sees the copies that actually reached disk.
                 flow.deliveries = delivery.delivered
                 log.error("Delivering the outputs of %s failed: %s", flow.name, e)
-                self.collector.finish_failed("delivery", e)
+                self.collector.finish_failed("delivery", e, flow.run_path)
                 first_error = first_error or e
         for (flow, delivery), (_, pending_files) in zip(deliveries, noted):
             self.collector.deliveries_noted(flow, pending_files, delivery.delivered)
@@ -1010,7 +1010,7 @@ class FlowLauncher:
                     self._clean_up(flow, settings_json, results_json, policy)
             except Exception as e:  # noqa: BLE001 - every clean-up gets its turn
                 log.error("Cleaning up %s failed: %s", flow.run_path, e, exc_info=True)
-                self.collector.finish_failed("clean-up", e)
+                self.collector.finish_failed("clean-up", e, flow.run_path)
                 first_error = first_error or e
         return first_error
 

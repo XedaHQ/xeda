@@ -650,39 +650,90 @@ def test_a_failure_before_any_plan_is_raised_not_reported(tmp_path):
     assert not list((tmp_path / "run").glob("**/results.json"))
 
 
-@pytest.mark.parametrize(
-    "failure, code",
-    [(OSError(5, "Input/output error"), "storage_error"), (RuntimeError("bug"), "internal_error")],
-    ids=["an OSError", "another exception"],
-)
-def test_a_failed_clean_up_after_a_passed_root_is_a_failed_launch(
-    tmp_path, monkeypatch, flows, failure, code
-):
+def _fail_removal(monkeypatch, purge: bool, failure: Exception) -> None:
+    """Make the removal that the clean-up after the run makes raise `failure`: the deletion of the
+    run directory (`purge`), or the pruning of its files. The run itself removes files too, so the
+    removal fails only inside the clean-up."""
+    real = DefaultRunner._clean_up
+
     def refuse(self, *args, **kwargs):
         raise failure
 
+    def clean_up(self, *args, **kwargs):
+        with monkeypatch.context() as inside:
+            inside.setattr(RunDirectory, "delete" if purge else "remove", refuse)
+            return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(DefaultRunner, "_clean_up", clean_up)
+
+
+@pytest.mark.parametrize(
+    "purge, failure",
+    [
+        (False, OSError(5, "Input/output error")),
+        (True, OSError(13, "Permission denied")),
+        (True, RunDirectoryError("refused for the test")),
+    ],
+    ids=["pruning", "deleting", "a refusal of the run directory"],
+)
+def test_a_failed_clean_up_after_a_passed_root_is_a_failed_launch(
+    tmp_path, monkeypatch, flows, purge, failure
+):
+    _fail_removal(monkeypatch, purge, failure)
+    runner = _runner(tmp_path, post_cleanup=True, post_cleanup_purge=purge)
+    result = _launch(runner, _MayFail, _design(tmp_path))
+    node = result.nodes[MAY_FAIL]
+    assert result.outcome == "failed" and not result.passed
+    assert result.error is not None and result.error.code == "cleanup_failed"
+    assert result.error.node is None
+    assert str(node.run_dir) in result.error.message and str(failure) in result.error.message
+    # the node passed, and its outcome and record stay as they were
+    assert (node.outcome, node.disposition) == ("passed", "ran")
+    assert node.record is not None and node.record.outcome == "passed" and node.error is None
+
+
+def test_a_clean_up_that_fails_in_another_way_is_a_failed_launch_too(tmp_path, monkeypatch, flows):
+    def refuse(self, *args, **kwargs):
+        raise RuntimeError("bug")
+
     monkeypatch.setattr(DefaultRunner, "_clean_up", refuse)
     result = _launch(_runner(tmp_path, post_cleanup=True), _MayFail, _design(tmp_path))
-    assert result.outcome == "failed" and not result.passed
-    assert result.error is not None and result.error.code == code
-    assert result.error.node is None and result.error.message == str(failure)
     node = result.nodes[MAY_FAIL]
-    assert node.outcome == "passed" and node.record is not None
+    assert result.error is not None and result.error.code == "cleanup_failed"
+    assert str(node.run_dir) in result.error.message and "bug" in result.error.message
+    assert node.outcome == "passed"
 
 
+@pytest.mark.parametrize("purge", [False, True], ids=["pruning", "deleting"])
 def test_a_failed_clean_up_never_replaces_the_error_of_a_root_that_did_not_pass(
-    tmp_path, monkeypatch, flows
+    tmp_path, monkeypatch, flows, purge
 ):
-    def refuse(self, *args, **kwargs):
-        raise OSError(5, "Input/output error")
-
-    monkeypatch.setattr(DefaultRunner, "_clean_up", refuse)
-    runner = _runner(tmp_path, post_cleanup=True)
+    _fail_removal(monkeypatch, purge, OSError(5, "Input/output error"))
+    runner = _runner(tmp_path, post_cleanup=True, post_cleanup_purge=purge)
     result = _launch(runner, _MayFail, _design(tmp_path), {MAY_FAIL: {"report_failure": True}})
     node = result.nodes[MAY_FAIL]
     assert node.outcome == "failed" and node.error is not None
     assert node.error.code == "reported_failure"
     assert result.outcome == "failed" and result.error == node.error
+
+
+def test_a_failed_delivery_keeps_its_error_when_the_clean_up_fails_too(
+    tmp_path, monkeypatch, flows
+):
+    deliverer = flows["_Deliverer"]
+    destination = tmp_path / "user" / "net.v"
+
+    def disk_full(source, target):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(xeda.deliver, "copy_fd", disk_full)
+    _fail_removal(monkeypatch, False, OSError(5, "Input/output error"))
+    runner = _runner(tmp_path, post_cleanup=True)
+    result = _launch(
+        runner, deliverer, _design(tmp_path), {deliverer.name: {"netlist": str(destination)}}
+    )
+    assert result.error is not None and result.error.code == "delivery_failed"
+    assert "No space left" in result.error.message
 
 
 def _refuse_identity_of(monkeypatch, name, failure):

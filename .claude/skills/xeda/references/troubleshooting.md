@@ -109,6 +109,11 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 - `missing_output`: a declared output is absent, unreadable, outside the run directory or not
   written by this run. `nextpnr` reports its own missing configuration as `reported_failure`, naming
   the setting and path.
+- `delivery_failed`, `cleanup_failed`: errors of the whole launch (`error.node` is null); the nodes
+  keep their outcomes. The outputs could not be delivered (`delivery_failed`), or the clean-up
+  after the run failed while every requested flow passed (`cleanup_failed`; the message names the
+  run directory). A requested flow that did not pass, or an earlier failed delivery, keeps its own
+  error; the clean-up failure is only logged.
 
 ### Remote runs
 

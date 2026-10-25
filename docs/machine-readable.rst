@@ -594,6 +594,14 @@ that finished without raising. The top-level document of such a flow says ``Flow
 configuration setting and the path that its tool did not write. This is a raised error with the code
 ``reported_failure``, and not a ``missing_output``.
 
+Two more codes belong to the whole launch, not to a node. The ``error`` of such a launch has no
+``node``, and every node keeps the outcome it had. ``delivery_failed``: the launch could not copy
+an output to the destination that a setting names. ``cleanup_failed``: every requested flow passed,
+and then the clean-up after the run (``--post-cleanup`` or ``--post-cleanup-purge``) failed. The
+message names the run directory and the cause. A launch that has another cause already keeps it: a
+failed delivery comes before a failed clean-up, and a requested flow that did not pass keeps its own
+error. Xeda only logs the clean-up failure then.
+
 Other documents of executional commands
 ---------------------------------------
 

@@ -155,6 +155,26 @@ def test_an_error_record_round_trips_through_json():
             ErrorInfo.from_json(bad)  # type: ignore[arg-type]
 
 
+def test_the_codes_of_a_whole_launch_are_listed_where_a_reader_looks():
+    """A launch-level code is stable text, and the docs and both copies of the skill list it."""
+    from xeda.flow_runner import error_codes
+
+    assert (error_codes.DELIVERY_FAILED, error_codes.CLEANUP_FAILED) == (
+        "delivery_failed",
+        "cleanup_failed",
+    )
+    root = Path(__file__).resolve().parent.parent
+    pages = [
+        root / "docs" / "machine-readable.rst",
+        root / ".claude" / "skills" / "xeda" / "references" / "troubleshooting.md",
+        root / "src" / "xeda" / "data" / "agent" / "references" / "troubleshooting.md",
+    ]
+    for page in pages:
+        text = page.read_text()
+        for code in (error_codes.DELIVERY_FAILED, error_codes.CLEANUP_FAILED):
+            assert code in text, f"{page} does not list {code}"
+
+
 # Each exception has its real constructor.
 @pytest.mark.parametrize(
     "exc, code, exit_status",

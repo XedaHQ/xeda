@@ -22,7 +22,7 @@ from ..flow import Flow
 from ..outcomes import DeliveryRecord, Disposition, NodeResult, Outcome, Result, aggregate
 from ..records import INTERNAL_ERROR, PRODUCER_FAILED, ErrorInfo
 from ..spec import Spec
-from .error_codes import DELIVERY_FAILED, error_info
+from .error_codes import CLEANUP_FAILED, DELIVERY_FAILED, error_info
 from .resolver import Plan, PlanNode
 
 log = logging.getLogger(__name__)
@@ -45,6 +45,16 @@ class _Ended:
     elapsed: float
 
 
+@dataclass(frozen=True)
+class _FinishFailure:
+    """A failure of the end of the launch: its stage (`delivery` or `clean-up`), the exception,
+    and the run directory of the flow that the stage acted on."""
+
+    stage: str
+    error: Exception
+    run_dir: Path
+
+
 class LaunchCollector:
     """What one launch reports while it goes on.
 
@@ -60,9 +70,8 @@ class LaunchCollector:
         self._attempts: list[PlanNode] = []
         #: When each node finished its producers and began its own execution.
         self._own_start: dict[str, float] = {}
-        #: The failures of the end of the launch, each as its stage (`delivery`, `clean-up`) and the
-        #: exception.
-        self.finish_failures: list[tuple[str, Exception]] = []
+        #: The failures of the end of the launch.
+        self.finish_failures: list[_FinishFailure] = []
         #: The failure of the end of the launch that the launch raised: the first of them, when
         #: the requested flow passed.
         self.finish_raised: Exception | None = None
@@ -134,9 +143,10 @@ class LaunchCollector:
         """Return the deliveries noted for `flow`."""
         return self._deliveries.get(id(flow), ())
 
-    def finish_failed(self, stage: str, error: Exception) -> None:
-        """Note a failure of the end of the launch."""
-        self.finish_failures.append((stage, error))
+    def finish_failed(self, stage: str, error: Exception, run_dir: Path) -> None:
+        """Note a failure of the end of the launch, in the stage `stage`, for the flow whose run
+        directory is `run_dir`."""
+        self.finish_failures.append(_FinishFailure(stage, error, run_dir))
 
     def accounts_for(self, error: Exception) -> bool:
         """Return whether `error`, which left the launch, is an outcome of a node of the plan or
@@ -290,23 +300,30 @@ def _launch_error(
 ) -> ErrorInfo | None:
     """Return the error of the whole launch, from the failure at its end that it raised, or None.
 
-    A failed delivery is a launch error. So is a failed clean-up, when every root passed. A
-    clean-up that fails after a root did not pass never takes its place as the cause: the root's
-    own error stays, and the clean-up failure is only logged."""
+    A failed delivery is a launch error (`delivery_failed`). So is a failed clean-up
+    (`cleanup_failed`), when every root passed. The nodes stay as they were. A failure of the end
+    of the launch never takes the place of an earlier cause: when a root did not pass, its own
+    error stays, and the clean-up failure is only logged. When a delivery failed first, the
+    delivery is the cause."""
     found = next(
-        (item for item in collector.finish_failures if item[1] is collector.finish_raised), None
+        (item for item in collector.finish_failures if item.error is collector.finish_raised), None
     )
     if found is None:
         return None
-    stage, error = found
-    if stage == "delivery":
+    if found.stage == "delivery":
         return ErrorInfo(
-            code=DELIVERY_FAILED, message=str(error), node=None, exit_status=None, log=None
+            code=DELIVERY_FAILED, message=str(found.error), node=None, exit_status=None, log=None
         )
     if any(nodes[root].outcome is not Outcome.PASSED for root in roots):
-        log.warning("The clean-up failed, after the launch did not pass: %s", error)
+        log.warning("The clean-up failed, after the launch did not pass: %s", found.error)
         return None
-    return error_info(error, node=None)
+    return ErrorInfo(
+        code=CLEANUP_FAILED,
+        message=f"The clean-up of {found.run_dir} failed: {found.error}",
+        node=None,
+        exit_status=None,
+        log=None,
+    )
 
 
 def launch_result(runner: LaunchRunner, spec: Spec, launch: Callable[[], object]) -> Result:
