@@ -9,8 +9,8 @@ import LeanLink :: *;
 import StmtFSM :: *;
 import StreamExchange :: *;
 
-interface TestLink;
-   interface LeanLink#(0, 8) link;
+interface TestLink#(numeric type logP);
+   interface LeanLink#(0, logP) link;
    interface Put#(LinkTok) hostRequest;
    interface Get#(LinkTok) hostResponse;
    method Action setResponseMax(UInt#(8) n);
@@ -19,7 +19,7 @@ endinterface
 
 // This packet-boundary double keeps the tests focused on the stream protocol. Serial framing,
 // CRC and replay are tested by the LeanLink testbench and the application wire tests.
-module mkTestLink(TestLink);
+module mkTestLink(TestLink#(logP)) provisos (Add#(logP, _pad, 8));
    FIFOF#(LinkTok) requests <- mkSizedFIFOF(256);
    FIFOF#(LinkTok) responses <- mkSizedFIFOF(256);
    FIFOF#(Bit#(8)) unusedRx <- mkFIFOF;
@@ -72,7 +72,7 @@ function LinkTok byteTok(Bit#(8) b, Bool last) =
 
 (* synthesize *)
 module mkTbStreamExchange(Empty);
-   TestLink testLink <- mkTestLink;
+   TestLink#(8) testLink <- mkTestLink;
    StreamExchange#(Bit#(12), Bit#(12)) stream <- mkStreamExchange(testLink.link);
    Reg#(Bool) pauseCore <- mkReg(True);
    Reg#(UInt#(8)) consumed <- mkReg(0, reset_by stream.coreReset);
@@ -217,7 +217,7 @@ endmodule
 
 (* synthesize *)
 module mkTbGcdStream(Empty);
-   TestLink testLink <- mkTestLink;
+   TestLink#(8) testLink <- mkTestLink;
    StreamExchange#(Bit#(64), Bit#(32)) stream <- mkStreamExchange(testLink.link);
    Empty gcd <- mkGcdStream(stream);
    Reg#(UInt#(32)) cycles <- mkReg(0);
@@ -307,7 +307,7 @@ endmodule
 // checks that the core reset is visible before RESET succeeds and that padding bits are rejected.
 module mkTbStreamExchangeNonByte#(Bit#(width) inputWord)(Empty)
    provisos (Add#(widthPad, 1, width));
-   TestLink testLink <- mkTestLink;
+   TestLink#(8) testLink <- mkTestLink;
    StreamExchange#(Bit#(width), Bit#(width)) stream <- mkStreamExchange(testLink.link);
    Reg#(Bool) pauseCore <- mkReg(True);
    Reg#(Bool) outputReady <- mkReg(False, reset_by stream.coreReset);
@@ -413,6 +413,163 @@ module mkTbStreamExchangeNonByte#(Bit#(width) inputWord)(Empty)
       if (outputReady) $fatal(1, "FAIL: RESET did not clear core output state");
       action
          $display("PASS: non-byte width %0d serialization, padding, and reset", valueOf(width));
+         $finish(0);
+      endaction
+   endseq;
+
+   mkAutoFSM(script);
+endmodule
+
+(* synthesize *)
+module mkTbStreamExchangeByteAlignedPage4(Empty);
+   TestLink#(4) testLink <- mkTestLink;
+   StreamExchange#(Bit#(8), Bit#(8)) stream <- mkStreamExchange(testLink.link);
+   Reg#(Bool) pauseCore <- mkReg(True);
+   Reg#(UInt#(32)) consumed <- mkReg(0);
+   Reg#(UInt#(32)) cycles <- mkReg(0);
+   Reg#(Bit#(8)) status <- mkReg(0);
+   Reg#(Bit#(8)) accepted <- mkReg(0);
+   Reg#(Bool) statusLast <- mkReg(False);
+   Reg#(Bool) acceptedLast <- mkReg(False);
+
+   rule drainCore (!pauseCore);
+      let word <- stream.inputWords.get;
+      Bit#(8) expected = consumed < 10
+                         ? 8'h20 + truncate(pack(consumed)) : 8'ha0;
+      if (word != expected)
+         $fatal(1, "FAIL: byte-aligned input order at %0d: got %h expected %h",
+                consumed, word, expected);
+      consumed <= consumed + 1;
+   endrule
+
+   rule watchdog;
+      cycles <= cycles + 1;
+      if (cycles == 10000) $fatal(1, "FAIL: byte-aligned page-4 test timed out");
+   endrule
+
+   Stmt script = seq
+      pauseCore <= False;
+      testLink.hostRequest.put(byteTok(8'h01, False));
+      testLink.hostRequest.put(byteTok(8'h20, False));
+      testLink.hostRequest.put(byteTok(8'h21, False));
+      testLink.hostRequest.put(byteTok(8'h22, False));
+      testLink.hostRequest.put(byteTok(8'h23, False));
+      testLink.hostRequest.put(byteTok(8'h24, False));
+      testLink.hostRequest.put(byteTok(8'h25, False));
+      testLink.hostRequest.put(byteTok(8'h26, False));
+      testLink.hostRequest.put(byteTok(8'h27, False));
+      testLink.hostRequest.put(byteTok(8'h28, False));
+      testLink.hostRequest.put(byteTok(8'h29, True));
+      action let b <- testLink.hostResponse.get; status <= b.data; statusLast <= b.last; endaction
+      action let b <- testLink.hostResponse.get; accepted <= b.data; acceptedLast <= b.last; endaction
+      if (status != 0 || statusLast || accepted != 10 || !acceptedLast)
+         $fatal(1, "FAIL: legal page-4 request admitted %0d of 10 byte words", accepted);
+      while (consumed != 10) action noAction; endaction
+
+      pauseCore <= True;
+      testLink.hostRequest.put(byteTok(8'h01, False));
+      testLink.hostRequest.put(byteTok(8'ha0, False));
+      testLink.hostRequest.put(byteTok(8'ha1, True));
+      action let b <- testLink.hostResponse.get; status <= b.data; statusLast <= b.last; endaction
+      action let b <- testLink.hostResponse.get; accepted <= b.data; acceptedLast <= b.last; endaction
+      if (status != 0 || statusLast || accepted != 1 || !acceptedLast)
+         $fatal(1, "FAIL: partial byte-aligned admission did not report one word");
+      pauseCore <= False;
+      while (consumed != 11) action noAction; endaction
+      action
+         $display("PASS: byte-aligned page-4 full and partial ordered admission");
+         $finish(0);
+      endaction
+   endseq;
+
+   mkAutoFSM(script);
+endmodule
+
+(* synthesize *)
+module mkTbStreamExchangePage8Cap(Empty);
+   TestLink#(8) testLink <- mkTestLink;
+   StreamExchange#(Bit#(8), Bit#(8)) stream <- mkStreamExchange(testLink.link);
+   Reg#(UInt#(9)) consumed <- mkReg(0);
+   Reg#(UInt#(32)) cycles <- mkReg(0);
+   Reg#(Bit#(8)) status <- mkReg(0);
+   Reg#(Bit#(8)) accepted <- mkReg(0);
+   Reg#(Bool) statusLast <- mkReg(False);
+   Reg#(Bool) acceptedLast <- mkReg(False);
+
+   rule drainCore;
+      let word <- stream.inputWords.get;
+      Bit#(8) expected = 8'h40;
+      if (word != expected)
+         $fatal(1, "FAIL: capped page-8 input order at %0d: got %h expected %h",
+                consumed, word, expected);
+      consumed <= consumed + 1;
+   endrule
+
+   rule watchdog;
+      cycles <= cycles + 1;
+      if (cycles == 10000) $fatal(1, "FAIL: capped page-8 request timed out");
+   endrule
+
+   Stmt script = seq
+      testLink.hostRequest.put(byteTok(8'h01, False));
+      repeat (241) action
+         testLink.hostRequest.put(byteTok(8'h40, False));
+      endaction
+      testLink.hostRequest.put(byteTok(8'h40, True));
+      action let b <- testLink.hostResponse.get; status <= b.data; statusLast <= b.last; endaction
+      action let b <- testLink.hostResponse.get; accepted <= b.data; acceptedLast <= b.last; endaction
+      if (status != 0 || statusLast || accepted != 242 || !acceptedLast)
+         $fatal(1, "FAIL: capped page-8 request admitted %0d of 242 byte words", accepted);
+      while (consumed != 242) action noAction; endaction
+      action
+         $display("PASS: page-8 capped frame admits 242 ordered byte words");
+         $finish(0);
+      endaction
+   endseq;
+
+   mkAutoFSM(script);
+endmodule
+
+(* synthesize *)
+module mkTbStreamExchangePage4W12(Empty);
+   TestLink#(4) testLink <- mkTestLink;
+   StreamExchange#(Bit#(12), Bit#(12)) stream <- mkStreamExchange(testLink.link);
+   Reg#(UInt#(8)) consumed <- mkReg(0);
+   Reg#(UInt#(32)) cycles <- mkReg(0);
+   Reg#(Bit#(8)) status <- mkReg(0);
+   Reg#(Bit#(8)) accepted <- mkReg(0);
+   Reg#(Bool) statusLast <- mkReg(False);
+   Reg#(Bool) acceptedLast <- mkReg(False);
+
+   rule drainCore;
+      let word <- stream.inputWords.get;
+      Bit#(12) expected = 12'h120;
+      if (word != expected)
+         $fatal(1, "FAIL: page-4 fallback order at %0d: got %h expected %h",
+                consumed, word, expected);
+      consumed <= consumed + 1;
+   endrule
+
+   rule watchdog;
+      cycles <= cycles + 1;
+      if (cycles == 10000) $fatal(1, "FAIL: page-4 fallback request timed out");
+   endrule
+
+   Stmt script = seq
+      testLink.hostRequest.put(byteTok(8'h01, False));
+      repeat (4) seq
+         testLink.hostRequest.put(byteTok(8'h20, False));
+         testLink.hostRequest.put(byteTok(8'h01, False));
+      endseq
+      testLink.hostRequest.put(byteTok(8'h20, False));
+      testLink.hostRequest.put(byteTok(8'h01, True));
+      action let b <- testLink.hostResponse.get; status <= b.data; statusLast <= b.last; endaction
+      action let b <- testLink.hostResponse.get; accepted <= b.data; acceptedLast <= b.last; endaction
+      if (status != 0 || statusLast || accepted != 1 || !acceptedLast)
+         $fatal(1, "FAIL: page-4 fallback did not report one queued prefix word");
+      while (consumed != 1) action noAction; endaction
+      action
+         $display("PASS: page-4 fallback reports its one-word queued prefix");
          $finish(0);
       endaction
    endseq;

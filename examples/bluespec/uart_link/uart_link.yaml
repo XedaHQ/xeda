@@ -94,12 +94,13 @@ targets:
     rtl:
       sources:
         - "../uart_echo/boards/arty_a7_100t.xdc"
-        - "../uart_echo/boards/arty_a7_100t_sync.xdc"
     flows:
       vivado_synth:
+        xdc_files: ["../uart_echo/boards/arty_a7_100t_sync.xdc"]
         out_of_context: false
         bitstream: uart_link.bit
       openfpgaloader:
+        inputs.bitstream: vivado_synth.bitstream
         board: arty_a7_100t
   # Basys-3 (Artix-7 35T) with Vivado: `xeda run vivado_synth+openfpgaloader uart_link.yaml
   # --target basys3`. The Arty file for the synchronizers applies too.
@@ -107,13 +108,14 @@ targets:
     rtl:
       sources:
         - "boards/basys3.xdc"
-        - "../uart_echo/boards/arty_a7_100t_sync.xdc"
     flows:
       vivado_synth:
+        xdc_files: ["../uart_echo/boards/arty_a7_100t_sync.xdc"]
         fpga.part: xc7a35tcpg236-1
         out_of_context: false
         bitstream: uart_link.bit
       openfpgaloader:
+        inputs.bitstream: vivado_synth.bitstream
         board: basys_3
   # ULX3S 85F (ECP5) at 25 MHz and 3 Mbaud (put the oss-cad-suite bin directory first on PATH):
   # `xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader uart_link.yaml --target ulx3s`
