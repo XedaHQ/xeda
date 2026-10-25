@@ -1013,7 +1013,7 @@ def test_the_cable_setting_chooses_the_probe_without_asking_for_the_boards(
     tmp_path, fake_loader, monkeypatch
 ):
     flow, record = _start(
-        tmp_path, monkeypatch, _two_boards(), {"cable": "digilent", "fpga": ARTY_PART}
+        tmp_path, monkeypatch, _two_boards(), {"cable": "digilent", "fpga": {"part": ARTY_PART}}
     )
     assert flow.succeeded
     assert _argv(tmp_path) == [
@@ -1108,7 +1108,11 @@ def test_a_part_that_cannot_be_matched_warns_and_changes_nothing(
     """iCE40 has no JTAG ID code: `--detect` shows no model, so Xeda does not guess."""
     world = _two_boards()
     flow, record = _start(
-        tmp_path, monkeypatch, world, {"cable": "digilent", "fpga": "iCE40UP5K-SG48"}, caplog
+        tmp_path,
+        monkeypatch,
+        world,
+        {"cable": "digilent", "fpga": {"part": "iCE40UP5K-SG48"}},
+        caplog,
     )
     assert flow.succeeded
     assert "--ftdi-serial" not in _argv(tmp_path)
@@ -1145,13 +1149,15 @@ def test_a_board_the_loader_does_not_list_gets_no_selection(tmp_path, fake_loade
 
 
 def test_a_cable_with_no_usb_id_gets_no_selection(tmp_path, fake_loader, monkeypatch):
-    flow, record = _start(tmp_path, monkeypatch, _two_boards(), {"cable": "dfu", "fpga": ARTY_PART})
+    flow, record = _start(
+        tmp_path, monkeypatch, _two_boards(), {"cable": "dfu", "fpga": {"part": ARTY_PART}}
+    )
     assert flow.succeeded
     assert queries(record) == [["--list-cables"], ["--scan-usb"]]
 
 
 def test_no_cable_and_no_board_name_asks_nothing(tmp_path, fake_loader, monkeypatch):
-    flow, record = _start(tmp_path, monkeypatch, _two_boards(), {"fpga": ARTY_PART})
+    flow, record = _start(tmp_path, monkeypatch, _two_boards(), {"fpga": {"part": ARTY_PART}})
     assert flow.succeeded and queries(record) == []
 
 
@@ -1287,7 +1293,7 @@ def test_a_bit_bang_cable_without_its_board_is_not_read(tmp_path, fake_loader, m
     unrelated FTDI chip. Xeda says it cannot tell, and the command line has no probe option."""
     world = World(probes=[_ft231x("FT00000002", 7), _ft231x("FT00000001", 3)])
     flow, record = _start(
-        tmp_path, monkeypatch, world, {"cable": "ft231X", "fpga": ULX3S_PART}, caplog
+        tmp_path, monkeypatch, world, {"cable": "ft231X", "fpga": {"part": ULX3S_PART}}, caplog
     )
     assert flow.succeeded
     assert _argv(tmp_path) == [
@@ -1317,7 +1323,7 @@ def test_a_cable_whose_probes_cannot_be_named_is_not_chosen_among(
         ]
     )
     flow, record = _start(
-        tmp_path, monkeypatch, world, {"cable": "usb-blaster", "fpga": ARTY_PART}, caplog
+        tmp_path, monkeypatch, world, {"cable": "usb-blaster", "fpga": {"part": ARTY_PART}}, caplog
     )
     assert flow.succeeded and "--busdev-num" not in _argv(tmp_path)
     assert not any("--detect" in q for q in queries(record))
@@ -1334,7 +1340,7 @@ def test_a_ch347_cable_is_not_chosen_among(tmp_path, fake_loader, monkeypatch, c
         ]
     )
     flow, record = _start(
-        tmp_path, monkeypatch, world, {"cable": "ch347_jtag", "fpga": ARTY_PART}, caplog
+        tmp_path, monkeypatch, world, {"cable": "ch347_jtag", "fpga": {"part": ARTY_PART}}, caplog
     )
     assert flow.succeeded and "--busdev-num" not in _argv(tmp_path)
     assert not any("--detect" in q for q in queries(record))

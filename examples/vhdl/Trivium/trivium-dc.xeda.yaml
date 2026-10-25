@@ -5,7 +5,7 @@ rtl:
   sources:
     - "trivium.vhdl"
   top: trivium
-  clock.port: clk
+  clocks: [{port: clk}]
   parameters:
     G_IN_BITS: 64
     G_OUT_BITS: 64
@@ -17,10 +17,10 @@ tb:
 flows:
   vivado_synth:
     fpga.part: xc7a12tcsg325-3
-    clock.freq: 200 MHz
+    clocks.main_clock.freq: 200 MHz
   yosys_fpga:
     fpga.part: xc7a12tcsg325-3
-    clock.freq: 200 MHz
+    clocks.main_clock.freq: 200 MHz
   dc:
     target_libraries:
       - "$PWD/lib/SAED90/saed90nm_typ_ht.db"

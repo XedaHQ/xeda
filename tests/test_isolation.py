@@ -110,7 +110,7 @@ FAKED = {
 } | FPGA_FAKED
 #: the design most flows run: sqrt, with its cocotb testbench
 SQRT_DESIGN = (
-    {"sources": ["sqrt.vhdl"], "top": "sqrt", "clock": {"port": "clk"}},
+    {"sources": ["sqrt.vhdl"], "top": "sqrt", "clocks": [{"port": "clk"}]},
     {"sources": ["tb_sqrt.py"], "cocotb": True},
 )
 #: `gcd` for the flows whose tools read Bluespec: `bsc_sim` simulates its Bluespec testbench
@@ -119,7 +119,7 @@ GCD_DESIGN = (
     {
         "sources": ["rtl/GcdEngine.bsv", "rtl/GcdUnit.bsv"],
         "top": "mkGcdUnit",
-        "clock": {"port": "CLK"},
+        "clocks": [{"port": "CLK"}],
     },
     {"sources": ["tb/TbGcdUnit.bsv"], "top": "mkTbGcdUnit"},
 )
@@ -134,7 +134,7 @@ architecture sim of tb_sqrt_plain is begin end;
 #: simulators that do not read VHDL (they refuse a design with a VHDL source at launch)
 SQRT_VERILOG = "module sqrt_stand_in(input clk); endmodule\n"
 SQRT_VERILOG_DESIGN = (
-    {"sources": ["sqrt_stand_in.v"], "top": "sqrt_stand_in", "clock": {"port": "clk"}},
+    {"sources": ["sqrt_stand_in.v"], "top": "sqrt_stand_in", "clocks": [{"port": "clk"}]},
     SQRT_DESIGN[1],
 )
 #: a gate-level netlist for `openroad_place`, which reads one and runs no synthesis; the flows
@@ -144,7 +144,7 @@ SQRT_NETLIST_DESIGN = (
     {
         "sources": [{"file": "sqrt_stand_in_netlist.v", "type": "VerilogNetlist"}],
         "top": "sqrt_stand_in",
-        "clock": {"port": "clk"},
+        "clocks": [{"port": "clk"}],
     },
     SQRT_DESIGN[1],
 )
@@ -1558,7 +1558,7 @@ def _yosys_on_bluespec(tmp_path: Path, monkeypatch, patch=None):
 
     def launch_it() -> None:
         flow = DefaultRunner(root, display_results=False).run_flow(
-            "yosys", design, {"clock": {"period": "2 ns"}}
+            "yosys", design, {"clocks": {"main_clock": {"period": "2 ns"}}}
         )
         assert flow is not None and flow.succeeded
 
@@ -1809,7 +1809,7 @@ INV_TOML = """name = "inv"
 [rtl]
 sources = ["inv.v"]
 top = "inv"
-clock.port = "clk"
+clocks = ["clk"]
 """
 INV_V = "module inv(input clk, input a, output reg y); always @(posedge clk) y <= ~a; endmodule\n"
 
@@ -1840,8 +1840,8 @@ def test_ise_synth_from_the_design_directory_deletes_none_of_its_files(
             "inv.toml",
             "--clean",
             "-s",
-            "fpga=xc6slx9-2-tqg144",
-            "clock.period=10ns",
+            "fpga.part=xc6slx9-2-tqg144",
+            "clocks.main_clock.period=10ns",
         ],
     )
     assert _state(work, [work / "xeda_run"]) == before, "the design directory changed"

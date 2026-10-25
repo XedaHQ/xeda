@@ -45,9 +45,10 @@ from ..dataclass import (
     model_validator,
     opaque_key_declaration_problems,
     opaque_key_fields_of,
+    removed_setting_error,
 )
 from ..units import Quantity
-from .flow import _is_comma_separated_list, _is_optional_path, removed_setting_error
+from .flow import _is_comma_separated_list, _is_optional_path
 
 __all__ = ["Flag", "SettingsGroup", "group_problems", "render_flags"]
 

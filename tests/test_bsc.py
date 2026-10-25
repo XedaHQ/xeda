@@ -269,7 +269,7 @@ def test_link_flags(tmp_path):
         libraries=["m"],
         include_dirs=["inc"],
         optimization_flags=["-O3"],
-        ncpus=3,
+        nthreads=3,
     )
     bluesim = flow._link_flags(True)
     assert _pairs(bluesim, "-reset-prefix") == ["RST"]

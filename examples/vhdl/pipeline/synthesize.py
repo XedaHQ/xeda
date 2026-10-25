@@ -7,12 +7,11 @@ def quartus_synth():
             "xeda",
             "run",
             "quartus",
-            "--design",
             "pipelined_adder.yaml",
             "--settings",
             "dockerized=true",
             "fpga.part=10CL016YU256C6G",
-            "clock.period=15ns",
+            "clocks.main_clock.period=15ns",
         ]
     )
 

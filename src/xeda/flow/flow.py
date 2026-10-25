@@ -33,7 +33,7 @@ from typing import (
 import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
-from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError
+from pydantic_core import ErrorDetails, InitErrorDetails
 
 from ..dataclass import (
     DELIVERABLE_ROLE,
@@ -42,7 +42,9 @@ from ..dataclass import (
     BaseModel,
     Field,
     ListLiteralText,
+    NoReplacement,
     PrivateAttr,
+    SecondSpelling,
     ValidationError,
     WaveformText,
     XedaBaseModel,
@@ -57,6 +59,7 @@ from ..dataclass import (
     nested_model,
     opaque_key_declaration_problems,
     opaque_key_fields_of,
+    removed_setting_error,
     validation_errors,
     written_always,
     waveform_format,
@@ -739,55 +742,12 @@ def is_unset(value: Any) -> bool:
     return isinstance(value, (str, list, tuple, set, frozenset, dict)) and len(value) == 0
 
 
-class NoReplacement(str):
-    """The reason Xeda refuses a removed setting when nothing replaces it.
-
-    The entry of the setting in `removed_settings` is `NoReplacement("no flow read it")`, and
-    the error says "`<name>` was removed: no flow read it; delete it". Any other entry is what
-    to use instead: "`<name>` was removed: use <entry>"."""
-
-
-def removed_message(name: str, replacement: str, value: Any) -> str:
-    """Return the message that refuses the removed setting `name`."""
-    if isinstance(replacement, NoReplacement):
-        return f"`{name}` was removed: {replacement}; delete it"
-    return f"`{name}` was removed: use {_removed_replacement(replacement, value)}"
-
-
-def removed_setting_error(name: str, replacement: str, value: Any) -> PydanticCustomError:
-    """Return the validation error that refuses the removed setting `name`: its type is
-    `removed_setting`, and its message is `removed_message`."""
-    return PydanticCustomError(
-        "removed_setting", "{message}", {"message": removed_message(name, replacement, value)}
-    )
-
-
-def _removed_replacement(replacement: str, value: Any) -> str:
-    """Return the replacement text for a removed setting.
-
-    A `<key>` in it stands for each key that the removed value gave."""
-    if "<key>" not in replacement or not isinstance(value, Mapping) or not value:
-        return replacement
-
-    def keys(mapping: Mapping, prefix: str = "") -> list[str]:
-        found: list[str] = []
-        for key, item in mapping.items():
-            if isinstance(item, Mapping) and item:
-                found += keys(item, f"{prefix}{key}.")
-            else:
-                found.append(f"{prefix}{key}")
-        return found
-
-    return ", ".join(replacement.replace("<key>", key) for key in keys(value))
-
-
 class Flow(metaclass=ABCMeta):
     """A flow runs one or more tools for one design with one set of settings.
 
     All tool executables should be available on the host or in the same Docker image."""
 
     name: str  # set automatically
-    aliases: List[str] = []  # list of alternative names for the flow
 
     #: The metrics this flow writes to `results` (and therefore to `results.json`), each with a
     #: description, a type and a unit. Reported by `xeda list-results <flow>`. Build it with
@@ -1116,7 +1076,6 @@ class Flow(metaclass=ABCMeta):
         )
         nthreads: Optional[int] = Field(
             None,
-            alias="ncpus",
             description="Maximum number of threads.",
             json_schema_extra=count(),
         )
@@ -1186,6 +1145,7 @@ class Flow(metaclass=ABCMeta):
             "timeout_seconds": "`timeout`, on the flows that have one (the simulators); no other "
             "flow limits a tool's run time",
             "no_console": NoReplacement("no flow read it"),
+            "ncpus": SecondSpelling("`nthreads`"),
         }
 
         @classmethod
@@ -1387,13 +1347,11 @@ class Flow(metaclass=ABCMeta):
         log.info("registering flow %s from %s", cls_name, mod_name)
         cls.name = camelcase_to_snakecase(cls_name)
         if not inspect.isabstract(cls):
-            # Register under the canonical (snake_case) name first, then the class name and any
-            # aliases. `cls.name` is what the CLI and the docs use, so it must be resolvable
-            # without a lossy round trip from snake_case to CamelCase.
-            for name in unique([cls.name, cls_name] + cls.aliases):
-                if name in registered_flows:
-                    log.warning("Duplicate name: %s while registering flow %s", name, cls_name)
-                registered_flows[name] = (mod_name, cls)
+            # A flow has one name, `cls.name`: the only spelling that the CLI, the files and the
+            # docs accept.
+            if cls.name in registered_flows:
+                log.warning("Duplicate name: %s while registering flow %s", cls.name, cls_name)
+            registered_flows[cls.name] = (mod_name, cls)
 
     def init(self) -> None:
         """Run the custom initialization of the flow.

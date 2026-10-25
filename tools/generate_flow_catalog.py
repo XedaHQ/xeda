@@ -60,8 +60,6 @@ def render(classes: Sequence[type[Flow]] | None = None) -> str:
                 if link.through:
                     routes.setdefault(output, {})[follower] = [cls.name for cls in link.through]
         catalog[canonical] = {
-            "aliases": list(flow_class.aliases),
-            "class_name": flow_class.__name__,
             "followers": followers,
             "settings": settings_completion_info(flow_class),
             "default_producers": [

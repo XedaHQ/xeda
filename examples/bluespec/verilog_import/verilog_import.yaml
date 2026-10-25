@@ -10,7 +10,7 @@ rtl:
     - "rtl/pipe_mul.v"
     - "rtl/MulUnit.bsv"
   top: mkMulUnit
-  clock.port: CLK
+  clocks: [{port: CLK}]
 tb:
   sources:
     - "tb/TbMulUnit.bsv"

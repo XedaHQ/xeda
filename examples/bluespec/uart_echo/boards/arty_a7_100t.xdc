@@ -5,7 +5,7 @@
 # src/xeda/data/boards/arty/arty_a7_100t.xdc. Only the port names differ.
 #
 # Clock: there is no create_clock here on purpose. The flow's clock setting (clock.port: CLK and
-# clock.period: 10 ns) writes the constraint, and a clock with two constraints is an error.
+# clocks.main_clock.period: 10 ns) writes the constraint, and a clock with two constraints is an error.
 #
 # Polarity: the Arty buttons and LEDs are active high. The switches are plain levels.
 #

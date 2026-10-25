@@ -67,7 +67,7 @@ def _synth(tmp_path: Path, monkeypatch, design: Optional[Design] = None, **setti
     flow = DefaultRunner(tmp_path / "run").run_flow(
         VivadoSynth,
         design or Design.from_file(SQRT),
-        {"fpga": PART, "clock": {"period": "5.5 ns"}, **settings},
+        {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}, **settings},
     )
     assert isinstance(flow, VivadoSynth) and flow.succeeded
     return flow
@@ -96,7 +96,7 @@ def _sqrt_with_an_hdl_testbench(root: Path) -> Design:
         rtl={
             "sources": [str(SQRT.parent / "sqrt.vhdl")],
             "top": "sqrt",
-            "clock": {"port": "clk"},
+            "clocks": [{"port": "clk"}],
             "parameters": {"G_IN_WIDTH": 32},
         },
         tb={"sources": ["tb_sqrt.vhd"], "top": "tb_sqrt", "uut": "uut"},
@@ -323,7 +323,11 @@ def test_a_bitstream_given_as_a_location_is_registered_in_the_run_directory_and_
     failed = DefaultRunner(tmp_path / "run", rebuild_all=True).run_flow(
         VivadoSynth,
         Design.from_file(SQRT),
-        {"fpga": PART, "clock": {"period": "5.5 ns"}, "bitstream": str(bitstream)},
+        {
+            "fpga": {"part": PART},
+            "clocks": {"main_clock": {"period": "5.5 ns"}},
+            "bitstream": str(bitstream),
+        },
     )
     assert failed is not None and not failed.succeeded
     assert bitstream.stat().st_ino == delivered.st_ino, "the earlier delivery is where it was"
@@ -401,7 +405,9 @@ def test_postsynth_sim_simulates_what_its_synthesis_registered(
         VivadoPostsynthSim,
         design,
         {"timing_sim": timing_sim},
-        all_flows_settings={"vivado_synth": {"fpga": PART, "clock": {"period": "5.5 ns"}}},
+        all_flows_settings={
+            "vivado_synth": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
+        },
     )
     assert sim is not None and sim.succeeded
     synth_dir = sim.run_path.parent / "vivado_synth"
@@ -432,7 +438,11 @@ def test_postsynth_sim_refuses_a_testbench_source_it_cannot_read(tmp_path, monke
     design = Design(
         name="sqrt",
         design_root=root,
-        rtl={"sources": [str(SQRT.parent / "sqrt.vhdl")], "top": "sqrt", "clock": {"port": "clk"}},
+        rtl={
+            "sources": [str(SQRT.parent / "sqrt.vhdl")],
+            "top": "sqrt",
+            "clocks": [{"port": "clk"}],
+        },
         tb={"sources": ["tb_sqrt.vhd", "gen.bsv"], "top": "tb_sqrt", "uut": "uut"},
     )
     with pytest.raises(FlowSettingsException) as raised:
@@ -440,7 +450,12 @@ def test_postsynth_sim_refuses_a_testbench_source_it_cannot_read(tmp_path, monke
             VivadoPostsynthSim,
             design,
             {},
-            all_flows_settings={"vivado_synth": {"fpga": PART, "clock": {"period": "5.5 ns"}}},
+            all_flows_settings={
+                "vivado_synth": {
+                    "fpga": {"part": PART},
+                    "clocks": {"main_clock": {"period": "5.5 ns"}},
+                }
+            },
         )
     message = str(raised.value)
     assert message.startswith("vivado_postsynth_sim cannot read the design's Bluespec source(s) ")
@@ -460,7 +475,9 @@ def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
         VivadoPower,
         design,
         {},
-        all_flows_settings={"vivado_synth": {"fpga": PART, "clock": {"period": "5.5 ns"}}},
+        all_flows_settings={
+            "vivado_synth": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
+        },
     )
     assert power is not None and power.succeeded
     synth_dir = power.run_path.parent / "vivado_synth"
@@ -509,7 +526,7 @@ def _run(flow_class, tmp_path: Path, monkeypatch, **settings):
     flow = DefaultRunner(tmp_path / "run").run_flow(
         flow_class,
         Design.from_file(SQRT),
-        {"fpga": PART, "clock": {"period": "5.5 ns"}, **settings},
+        {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}, **settings},
     )
     assert isinstance(flow, flow_class) and flow.succeeded
     return flow

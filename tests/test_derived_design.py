@@ -77,7 +77,7 @@ def _design(root: Path, vhdl: bool = True, **fields) -> Design:
         "top": "mkTop",
         "defines": {"STEP": "2"},
         "parameters": {"WIDTH": 8},
-        "clock": "CLK",
+        "clocks": ["CLK"],
     }
     return Design(
         name="d",

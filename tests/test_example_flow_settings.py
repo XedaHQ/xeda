@@ -71,9 +71,9 @@ def _flow_sections(path, index, target):
         if target is None:
             yield from (project.flows or {}).items()
         design = project.get_design(index, target=target)
-        yield from ((thaw(design.flow) if design else None) or {}).items()
+        yield from ((thaw(design.flows) if design else None) or {}).items()
     else:
-        yield from thaw(Design.from_file(path, target=target).flow or {}).items()
+        yield from thaw(Design.from_file(path, target=target).flows or {}).items()
 
 
 def _cases():

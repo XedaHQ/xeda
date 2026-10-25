@@ -403,9 +403,7 @@ def test_a_target_that_is_no_name_is_refused_at_the_path_boundary(tmp_path, targ
     assert not (tmp_path / "xeda_run").exists()
 
 
-@pytest.mark.parametrize(
-    "target", ["vivado_synth", "VivadoSynth", "nextpnr", "vivado-synth", "NEXTPNR"]
-)
+@pytest.mark.parametrize("target", ["vivado_synth", "nextpnr", "vivado-synth", "NEXTPNR"])
 def test_a_target_is_not_named_as_a_flow_at_the_path_boundary(tmp_path, target):
     """`<design>/<target>/<flow>` and a flow's own `<design>/<flow>` would be one directory."""
     with pytest.raises(RunDirectoryError, match="name of a flow"):

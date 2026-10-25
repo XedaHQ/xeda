@@ -85,14 +85,13 @@ assert module is expected
     assert result.stdout == ""
 
 
-@pytest.mark.parametrize("name", ["ghdl", "GHDL"])
-def test_builtin_flow_alias_resolves_on_the_first_api_call(name: str) -> None:
-    result = run_python(f"""
+def test_builtin_flow_resolves_on_the_first_api_call() -> None:
+    result = run_python("""
 import sys
 from xeda.flow_runner import get_flow_class
 
 assert "xeda.flows" not in sys.modules
-assert get_flow_class({name!r}).name == "ghdl_sim"
+assert get_flow_class("ghdl_sim").name == "ghdl_sim"
 """)
 
     assert result.stdout == ""

@@ -64,13 +64,17 @@ def test_vivado_synth_runs_in_its_default_image(work_dir) -> None:
     design = _design(
         work_dir / "design",
         "dk",
-        {"sources": ["inv.v"], "top": "inv", "clock": "clk"},
+        {"sources": ["inv.v"], "top": "inv", "clocks": ["clk"]},
         **{"inv.v": INVERTER_V},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
         VivadoSynth,
         design,
-        {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}, "dockerized": True},
+        {
+            "fpga": {"part": "xc7a12tcsg325-1"},
+            "clocks": {"main_clock": {"period": "10 ns"}},
+            "dockerized": True,
+        },
     )
     assert flow is not None and flow.succeeded
     assert flow.results["ff"] >= 1
@@ -104,7 +108,7 @@ def test_yosys_runs_in_its_default_image(work_dir) -> None:
     design = _design(
         work_dir / "design",
         "ys",
-        {"sources": ["inv.v"], "top": "inv", "clock": "clk"},
+        {"sources": ["inv.v"], "top": "inv", "clocks": ["clk"]},
         **{"inv.v": INVERTER_V},
     )
     require_docker_image(_image(Docker(image=YOSYS_DOCKER_IMAGE)))

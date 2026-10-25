@@ -8,7 +8,7 @@ rtl:
   sources: []
   # The package that defines `top` comes last.
   top: mkGcdUnit
-  clock.port: CLK
+  clocks: [{port: CLK}]
 dependencies:
   - "gcd-library.yaml"
 tb:
@@ -23,11 +23,11 @@ flows:
   # four OpenROAD flows along the chain.
   yosys:
     platform: nangate45
-    clock.period: 1.5 ns
+    clocks.main_clock.period: 1.5 ns
   # Vivado synthesis of the module on its own: `xeda run vivado_synth gcd.yaml`.
   vivado_synth:
     fpga.part: xc7a100tcsg324-1
-    clock.period: 10 ns
+    clocks.main_clock.period: 10 ns
     out_of_context: true
 # The FPGA configurations are resource and timing estimates without pins. A board build needs an
 # I/O wrapper and constraints.
@@ -37,7 +37,7 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: LFE5U-85F-6BG381C
-        clock.period: 20 ns
+        clocks.main_clock.period: 20 ns
       nextpnr:
         lpf_allow_unconstrained: true
   # `xeda run yosys_fpga gcd.yaml --target artix7`. Synthesis only: nextpnr-himbaechel of openXC7
@@ -46,4 +46,4 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
-        clock.period: 10 ns
+        clocks.main_clock.period: 10 ns

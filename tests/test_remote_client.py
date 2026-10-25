@@ -67,8 +67,8 @@ def _design(tmp_path: Path, sources: tuple[str, ...] = ("top.v",), freq: str = "
         )
     design = root / "top.yaml"
     design.write_text(
-        f"name: top\nrtl:\n  sources: [{', '.join(sources)}]\n  top: top\n  clock: {{port: clk}}\n"
-        f"flows:\n  nextpnr:\n    fpga.part: {PART}\n    clock.freq: {freq}\n"
+        f"name: top\nrtl:\n  sources: [{', '.join(sources)}]\n  top: top\n  clocks: [{{port: clk}}]\n"
+        f"flows:\n  nextpnr:\n    fpga.part: {PART}\n    clocks.main_clock.freq: {freq}\n"
     )
     return design
 
@@ -102,7 +102,7 @@ def _last(document: dict[str, Any]) -> dict[str, Any]:
 def _cli(tmp_path: Path, design: Path, *arguments: str):
     return CliRunner().invoke(
         cli,
-        ["run", *arguments[:1], "--design", str(design), "--remote", "somewhere"]
+        ["run", *arguments[:1], str(design), "--remote", "somewhere"]
         + ["--run-root", str(tmp_path / "local" / "xeda_run")]
         + list(arguments[1:]),
     )
@@ -115,7 +115,7 @@ def _cli_script(tmp_path: Path, design: Path, remote_host: RemoteHost, signals: 
         f"{DEFAULT_SIGINT if signals else ''}import xeda.remote.environment as environment\n"
         f"environment.UV_RELEASES = {remote_host.remote.releases!r}\n"
         "from xeda.cli import cli\n"
-        f"cli(['run', 'nextpnr', '--design', {str(design)!r}, '--remote', 'somewhere', "
+        f"cli(['run', 'nextpnr', {str(design)!r}, '--remote', 'somewhere', "
         f"'--run-root', {str(tmp_path / 'local' / 'xeda_run')!r}, '--json'], "
         "standalone_mode=True)\n"
     )
@@ -404,7 +404,7 @@ def test_scrub_is_refused_with_remote_before_any_connection(tmp_path, remote_hos
     assert "without --remote" in text.output
     document = CliRunner().invoke(
         cli,
-        ["run", "nextpnr", "--design", str(design), "--remote", "somewhere", "--scrub", "--json"]
+        ["run", "nextpnr", str(design), "--remote", "somewhere", "--scrub", "--json"]
         + ["--run-root", str(tmp_path / "local" / "xeda_run")],
     )
     assert document.exit_code != 0
@@ -419,7 +419,7 @@ def test_scrub_is_refused_with_remote_before_any_connection(tmp_path, remote_hos
 
 def test_fetch_all_needs_remote(tmp_path):
     design = _design(tmp_path)
-    result = CliRunner().invoke(cli, ["run", "nextpnr", "--design", str(design), "--fetch-all"])
+    result = CliRunner().invoke(cli, ["run", "nextpnr", str(design), "--fetch-all"])
     assert result.exit_code == 2
     assert "--fetch-all" in result.output and "--remote" in result.output
 

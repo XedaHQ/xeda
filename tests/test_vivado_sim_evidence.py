@@ -42,7 +42,7 @@ def launch(
         materialize_builds(monkeypatch)
     sections = None
     if flow_class is not VivadoSim:
-        sections = {"vivado_synth": {"fpga": "xc7a12tcsg325-1"}}
+        sections = {"vivado_synth": {"fpga": {"part": "xc7a12tcsg325-1"}}}
     if producers:
         sections["vivado_postsynth_sim"] = dict(producers)
     return DefaultRunner(tmp_path / "run", rebuild_all=True).run_flow(
@@ -234,7 +234,7 @@ def test_vivado_power_reports_after_fresh_and_reused_producer_evidence(
         flow.design,
         {"power_report_xml": "second.xml"},
         all_flows_settings={
-            "vivado_synth": {"fpga": "xc7a12tcsg325-1"},
+            "vivado_synth": {"fpga": {"part": "xc7a12tcsg325-1"}},
             "vivado_postsynth_sim": producers,
         },
     )
@@ -385,7 +385,7 @@ def test_vivado_sim_reads_what_bsc_converted_in_the_chain_bsc_vivado_sim(tmp_pat
     design = Design(
         name="sim",
         design_root=root,
-        rtl={"sources": ["Counter.bsv"], "top": "mkCounter", "clock": "CLK"},
+        rtl={"sources": ["Counter.bsv"], "top": "mkCounter", "clocks": [{"port": "CLK"}]},
         tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
     )
     runner = DefaultRunner(tmp_path / "run")

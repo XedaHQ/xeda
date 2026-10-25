@@ -52,7 +52,7 @@ document:
 .. code-block:: bash
 
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
-    xeda dse vivado_synth --design examples/vhdl/sqrt/sqrt.yaml --json
+    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
     xeda scrub vivado_synth sqrt --json
 
 .. note::
@@ -68,7 +68,6 @@ Discovering what to run
 
     {
       "name": "vivado_postsynth_sim",
-      "aliases": [],
       "class": "VivadoPostsynthSim",
       "module": "xeda.flows.vivado.vivado_postsynthsim",
       "qualified_name": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim",
@@ -82,7 +81,7 @@ Discovering what to run
       "settings_class": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim.Settings"
     }
 
-``name`` is the canonical name, and ``aliases`` are the other accepted names. ``dependencies`` are
+``name`` is the name of the flow, the only name that Xeda accepts for it. ``dependencies`` are
 the default producers of the declared inputs of the flow. A design source or a binding can replace a
 default producer, so use the resolved plan to see the producers that a request needs.
 
@@ -160,7 +159,6 @@ under the name that you can type as ``-s <name>=<value>``:
       "fields": [
         {
           "name": "nthreads",
-          "alias": "ncpus",
           "type": "integer",
           "required": false,
           "default": null,
@@ -187,7 +185,6 @@ under the name that you can type as ``-s <name>=<value>``:
 * ``common`` marks the settings that every flow accepts. ``--no-common`` leaves them out.
   The tier ``"common"`` (see ``tier``) is a different thing: it says how often a user needs
   the setting.
-* ``alias`` is a second accepted name. Both names work.
 * ``writes`` says whether the flow writes to the path that the setting names. The value
   ``"working"`` is an intermediate location, which the flow always uses as a bare name inside the
   run directory, whatever the value is (``sim_dir`` or a log path). The value ``"deliverable"`` is
@@ -987,7 +984,7 @@ To run a flow:
 
     design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
     runner = DefaultRunner("xeda_run")
-    flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5ns"])
+    flow = runner.run("vivado_synth", design, flow_settings=["clocks.main_clock.period=5ns"])
     if flow and flow.record and flow.record.passed:
         print(flow.record.metric("fmax"))
 
@@ -1014,8 +1011,8 @@ Notes for coding agents
 * Prefer ``--json`` to parsing the tables. Table output wraps to the terminal width.
 * Discover the settings and do not guess them. ``xeda list-settings <flow> --json`` lists every
   accepted setting. An unknown setting is a hard error, not a warning.
-* Setting names are exact. Flow names are forgiving: dashes, underscores and the CamelCase class
-  name all resolve, and a near miss suggests alternatives.
+* Setting names and flow names are exact. A second spelling or a near miss is an error that
+  suggests the right name.
 * ``xeda run --json`` gives both the record of each run (its metrics are in
   ``.nodes[-1].record.metrics``) and the run directory of each node, so you never need to guess
   where the output landed.

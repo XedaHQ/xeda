@@ -31,7 +31,7 @@ COUNTER = (
     "  always @(posedge clk) if (rst) q <= 0; else q <= q + a;\n"
     "endmodule\n"
 )
-CLOCK = {"clock": {"period": "2 ns"}}
+CLOCK = {"clocks": {"main_clock": {"period": "2 ns"}}}
 
 
 def _design(root: Path) -> Design:
@@ -40,7 +40,7 @@ def _design(root: Path) -> Design:
     return Design(
         name="top",
         design_root=root,
-        rtl={"sources": ["top.v"], "top": "top", "clock": {"port": "clk"}},
+        rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
 
 

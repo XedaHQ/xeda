@@ -98,6 +98,7 @@ _SETTINGS_CODES = {
     "conflicting_bindings": "conflicting_keys",
     "conflicting_keys": "conflicting_keys",
     "removed_setting": "removed_setting",
+    "removed_alias": "removed_alias",
     "settings_group": "unsupported_setting",
     "unsupported_setting": "unsupported_setting",
 }
@@ -233,11 +234,20 @@ def _chain_refusal(exc: ChainRefusal) -> errors.ChainError:
     return errors.ChainError(str(exc), code=exc.code, chain=exc.chain or "", problem=str(exc))
 
 
+#: The code of a design error, by the type of its first finding. Any other type is an invalid
+#: design.
+_DESIGN_CODES = {"removed_alias": "removed_alias", "removed_key": "removed_key"}
+
+
 def _design_error(exc: DesignValidationError) -> errors.DesignError:
     location = exc.errors[0][0] if exc.errors else None
     return errors.DesignError(
         str(exc),
-        code="invalid_design",
+        code=(
+            _DESIGN_CODES.get(exc.errors[0][3] or "", "invalid_design")
+            if exc.errors
+            else "invalid_design"
+        ),
         field=".".join(location.split(" -> ")) if location else None,
         problem=exc.errors[0][1] if exc.errors and exc.errors[0][1] else None,
         path=Path(exc.file) if exc.file else None,

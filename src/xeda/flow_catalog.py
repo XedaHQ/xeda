@@ -10,8 +10,6 @@ from typing import Any, NotRequired, TypedDict
 
 
 class _FlowRecord(TypedDict):
-    aliases: list[str]
-    class_name: str
     #: The flows that can follow the flow, by the output the request names ("" for none), in the
     #: order the runtime offers them: the direct followers, then the ones reached through a route.
     followers: dict[str, list[str]]
@@ -34,38 +32,22 @@ def _builtin_flows() -> list[tuple[str, _FlowRecord]]:
 
 
 def flow_names() -> list[str]:
-    """Return canonical flow names and aliases without importing flow models."""
-    names = {
-        name for canonical, record in _builtin_flows() for name in (canonical, *record["aliases"])
-    }
+    """Return the names of the flows without importing flow models."""
+    names = {canonical for canonical, _ in _builtin_flows()}
 
     flow_module = sys.modules.get("xeda.flow.flow")
     registered_flows = getattr(flow_module, "registered_flows", {})
     for _, flow_class in registered_flows.values():
         names.add(flow_class.name)
-        names.update(flow_class.aliases)
 
     return sorted(names)
 
 
 def _resolve_builtin(token: str) -> tuple[str, _FlowRecord] | None:
-    """Resolve a complete token as the runtime flow resolver does for built-ins."""
-    wanted = token.strip().replace("-", "_")
-    lowered = wanted.lower()
-    records = _builtin_flows()
-    for canonical, record in records:
-        if lowered in {
-            name.lower() for name in (canonical, record["class_name"], *record["aliases"])
-        }:
-            return canonical, record
-    class_name = "".join(word.title() for word in wanted.split("_"))
+    """Resolve a complete token as the runtime flow resolver does for built-ins: by the name of
+    the flow."""
     return next(
-        (
-            (canonical, record)
-            for canonical, record in records
-            if record["class_name"] == class_name
-        ),
-        None,
+        ((canonical, record) for canonical, record in _builtin_flows() if canonical == token), None
     )
 
 
@@ -149,17 +131,8 @@ def complete_builtin_request(incomplete: str) -> list[str]:
             if key and key.startswith(output) and _eligible_followers(records, canonical, key, used)
         ]
 
-    wanted = name.lower().replace("-", "_")
-
     def spelled(canonical: str) -> str | None:
-        spellings = [
-            spelling
-            for spelling in (canonical, *records[canonical]["aliases"])
-            if spelling.lower().startswith(wanted)
-        ]
-        if not spellings:
-            return None
-        return typed + (canonical if canonical in spellings else spellings[0])
+        return typed + canonical if canonical.startswith(name) else None
 
     if head:
         producer, selected = head[-1]

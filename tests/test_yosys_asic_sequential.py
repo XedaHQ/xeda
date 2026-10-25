@@ -86,7 +86,7 @@ def _enable_design(root: Path) -> Design:
     return Design(
         name="en",
         design_root=root,
-        rtl={"sources": ["en.v"], "top": "en", "clock": {"port": "clk"}},
+        rtl={"sources": ["en.v"], "top": "en", "clocks": [{"port": "clk"}]},
     )
 
 
@@ -562,7 +562,7 @@ def _run_real(tmp_path: Path, script_format: str, **given: Any):
     """Run `yosys` on the `en` design and the `tiny` platform with a clock-gating cell."""
     store = _store_with_clock_gate(tmp_path)
     design = _enable_design(tmp_path / "design")
-    settings = tiny_settings(store, clock={"period": "2 ns"}, **given)
+    settings = tiny_settings(store, clocks={"main_clock": {"period": "2 ns"}}, **given)
     with contextlib.suppress(FlowException), forced_script_format(script_format):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/en/yosys/results.json")
@@ -699,7 +699,9 @@ def test_real_yosys_reads_a_dff_map_at_a_path_with_a_space_and_pattern_character
 def _run_mac(tmp_path: Path, script_format: str, **given: Any):
     """Run `yosys` on the `mac` design, whose module `mul8` the flattening dissolves."""
     design = _design(tmp_path / "design")
-    settings = tiny_settings(tiny_store(tmp_path), clock={"period": "2 ns"}, **given)
+    settings = tiny_settings(
+        tiny_store(tmp_path), clocks={"main_clock": {"period": "2 ns"}}, **given
+    )
     with contextlib.suppress(FlowException), forced_script_format(script_format):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")

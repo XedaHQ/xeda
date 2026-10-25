@@ -584,7 +584,7 @@
   "flow": "yosys",
   "settings": [
    "platform_file=tiny.yaml",
-   "clock.period=2.0",
+   "clocks.main_clock.period=2.0",
    "abc.strategy=speed_roundtrip",
    "pdk_root=<WORK>/pdks"
   ]

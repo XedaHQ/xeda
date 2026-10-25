@@ -195,8 +195,7 @@ def flows(producer_registered):  # noqa: F811
     found = _flows()
     yield found
     for cls in found.values():
-        for name in (cls.name, cls.__name__):
-            registered_flows.pop(name, None)
+        registered_flows.pop(cls.name, None)
 
 
 def _design(tmp_path: Path) -> Design:

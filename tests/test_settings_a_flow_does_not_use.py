@@ -13,7 +13,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowSettingsError, FlowSettingsException, NoReplacement, SimFlow
-from xeda.dataclass import input_names
+from xeda.dataclass import SecondSpelling, input_names
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import (
@@ -33,7 +33,7 @@ needs_tclsh = pytest.mark.skipif(
     not shutil.which("tclsh"), reason="the fake Vivado runs the TCL it is handed under tclsh"
 )
 
-SYNTHESIS = {"fpga": PART, "clock": {"period": "5.5 ns"}}
+SYNTHESIS = {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
 PRODUCT_NAMES = {name for cls, name in flow_classes() if cls.__module__.startswith("xeda.")} & {
     cls.name for _, cls in registered_flows.values()
 }
@@ -57,7 +57,7 @@ REFUSED = [
     ("vivado_postsynth_sim", "read_oneshot", True, "delete it"),
     ("vivado_postsynth_sim", "suppress_msgs", [], "delete it"),
     ("vivado_power", "suppress_msgs", [], "delete it"),
-    ("yosys_sim", "netlist", "out.v", "delete it"),
+    ("yosys_sim", "netlist_verilog", "out.v", "delete it"),
     ("yosys_sim", "netlist_json", "out.json", "delete it"),
     ("yosys_sim", "splitnets", True, "delete it"),
     ("yosys_sim", "abc_script", "+strash", "delete it"),
@@ -355,7 +355,7 @@ FORMER_FIELDS = {
     },
     "yosys_fpga": {"netlist_verilog_extmem", "nosynth", "script_format"},
     "yosys_sim": {
-        *("abc_constr", "abc_dff", "abc_flags", "abc_script", "json_netlist", "ltp", "netlist"),
+        *("abc_constr", "abc_dff", "abc_flags", "abc_script", "ltp"),
         *("netlist_attrs", "netlist_blackboxes", "netlist_dec", "netlist_expr", "netlist_graph"),
         *("netlist_graph_flags", "netlist_hex", "netlist_json", "netlist_simple_lhs"),
         *("netlist_src_attrs", "netlist_unset_attributes", "netlist_verilog"),
@@ -432,7 +432,13 @@ def test_a_removal_entry_is_on_a_flow_that_had_the_setting(flow) -> None:
     known = EVERYWHERE | FORMER_FIELDS.get(flow, set()) | EARLIER_REMOVALS.get(flow, set())
     if issubclass(cls, SimFlow):
         known |= SIMULATORS
-    removed = set(cls.Settings.removed_setting_replacements())
+    # A second spelling of a setting that stays is not a lost setting: `test_removed_spellings.py`
+    # lists it.
+    removed = {
+        name
+        for name, replacement in cls.Settings.removed_setting_replacements().items()
+        if not isinstance(replacement, SecondSpelling)
+    }
     assert removed == known, f"{flow}: {sorted(removed ^ known)}"
 
 
@@ -480,7 +486,11 @@ def test_yosys_passes_dff_to_abc_by_abc_dff_and_has_no_dff_for_synth(tmp_path) -
 
 def test_yosys_fpga_stops_after_the_rtl_stage_when_no_netlist_is_asked_for() -> None:
     """The message of the removed `nosynth` names `stop_after: rtl` with the netlist off."""
-    base = {"fpga": {"part": "xc7a100tcsg324-1"}, "clock": {"period": "5 ns"}, "stop_after": "rtl"}
+    base = {
+        "fpga": {"part": "xc7a100tcsg324-1"},
+        "clocks": {"main_clock": {"period": "5 ns"}},
+        "stop_after": "rtl",
+    }
     with pytest.raises(FlowSettingsException, match="netlist_json"):
         YosysFpga.check_settings_supported(YosysFpga.Settings.from_input(base))
     YosysFpga.check_settings_supported(

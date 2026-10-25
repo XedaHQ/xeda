@@ -1,7 +1,6 @@
 """The shorthand forms of a key that takes a table, found from the models, not listed by hand.
 
-A key may take a table and other forms that each stand for one table (`fpga` as a part number,
-`vhdl` as a standard, `cocotb: true`, `parameters` as a list of objects). The merge of two layers
+A key may take a table and other forms that each stand for one table (`vhdl` as a standard, `cocotb: true`, `parameters` as a list of objects). The merge of two layers
 reads both sides as tables, so every form a field accepts has to be one the merge knows: a model's
 `as_mapping`, or its `field_shorthands` entry. The sweep walks every field that takes a table, of
 the design and of every flow's settings, through nested models. It pairs each with a value of
@@ -179,22 +178,22 @@ def test_every_form_a_field_accepts_stands_for_a_table_and_validates_as_it():
 
 
 def test_the_sweep_finds_a_form_that_has_no_table(monkeypatch):
-    """The mutation check: when the merge cannot read the part number as a table, the sweep
-    names the field that still accepts it."""
+    """The mutation check: when the merge cannot read a standard as a table, the sweep names the
+    field that still accepts it."""
     import xeda.dataclass as dataclass_module
 
     read = dataclass_module.mapping_form
 
-    def forgetting_the_part_number(owner, field, value):
+    def forgetting_the_standard(owner, field, value):
         return (
             value
             if isinstance(value, Mapping)
-            else None if field == "fpga" else read(owner, field, value)
+            else None if field == "vhdl" else read(owner, field, value)
         )
 
-    monkeypatch.setattr(dataclass_module, "mapping_form", forgetting_the_part_number)
-    monkeypatch.setattr(sys.modules[__name__], "mapping_form", forgetting_the_part_number)
-    assert any("fpga" in problem and "accepts" in problem for problem in problems_of_the_forms())
+    monkeypatch.setattr(dataclass_module, "mapping_form", forgetting_the_standard)
+    monkeypatch.setattr(sys.modules[__name__], "mapping_form", forgetting_the_standard)
+    assert any("vhdl" in problem and "accepts" in problem for problem in problems_of_the_forms())
 
 
 def test_the_sweep_finds_a_null_that_is_declared_valid_and_refused(monkeypatch):
@@ -316,8 +315,7 @@ def test_the_sweep_walks_the_dictionaries_of_tables():
 
 def test_the_forms_that_stand_for_a_table():
     """The forms themselves, one by one."""
-    assert FPGA.as_mapping("xc7a35tcpg236-1") == {"part": "xc7a35tcpg236-1"}
-    assert FPGA.as_mapping(5) is None
+    assert FPGA.as_mapping("xc7a35tcpg236-1") is None, "a part number is no form of `fpga`"
     from xeda.design import Clock, CocotbTestbench, LanguageSettings, VhdlSettings
 
     assert Clock.as_mapping("CLK") == {"port": "CLK"}

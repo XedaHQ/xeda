@@ -8,7 +8,7 @@ from typing import Annotated, Any, ClassVar, Dict, Optional, Union
 
 from pydantic import TypeAdapter
 
-from ..dataclass import Field, XedaBaseModel, field_validator, model_validator
+from ..dataclass import Field, SecondSpelling, XedaBaseModel, field_validator, model_validator
 from ..design import Design
 from ..units import Bounds, Frequency, QuantityError, Time, ratio
 from ..utils import first_key, first_value
@@ -194,45 +194,13 @@ class SynthFlow(Flow, metaclass=ABCMeta):
 
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,
-            "clock_period": "`clock.period` or `clock.freq`",
+            "clock": SecondSpelling("`clocks.<name>`"),
+            "clock_period": "`clocks.<name>.period` or `clocks.<name>.freq`",
         }
 
         clocks: Dict[str, PhysicalClock] = Field(
             {}, description="Clock constraints of the design, by clock name."
         )
-
-        @classmethod
-        def __get_pydantic_json_schema__(cls, core_schema, handler):
-            """Advertise the single-clock input shorthand that normalizes into `clocks`."""
-            schema = handler(core_schema)
-            properties = schema.setdefault("properties", {})
-            clock_schema = PhysicalClock.model_json_schema()
-            clock_schema["description"] = "Single design clock. Use `clock.period` or `clock.freq`."
-            clock_schema["x-xeda-input-only"] = True
-            properties["clock"] = clock_schema
-            return schema
-
-        @model_validator(mode="before")
-        @classmethod
-        def _synthflow_settings_root_validator(cls, values, info):
-            """Normalize the single-clock input into the one stored `clocks` value."""
-            if info.field_name is not None and info.data is None:
-                return values  # assignment to a real field; do not rebuild unrelated containers
-
-            has_clock = "clock" in values
-            has_clocks = "clocks" in values
-            clock = values.pop("clock", None)
-            if has_clock and has_clocks:
-                raise ValueError("Specify `clock` for one clock or `clocks` for several, not both")
-            if clock is not None:
-                if isinstance(clock, PhysicalClock):
-                    clock = clock.model_copy(deep=True)
-                else:
-                    clock = PhysicalClock.model_validate(clock)
-                if not clock.name:
-                    clock.name = "main_clock"
-                values["clocks"] = {clock.name: clock}
-            return values
 
         @property
         def main_clock(self) -> Optional[PhysicalClock]:
@@ -243,24 +211,6 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             # This is deterministic, and it serves the consumers that support one clock only
             # (Yosys, nextpnr). A clock named `main_clock` is the explicit way to choose one.
             return first_value(self.clocks)
-
-        @property
-        def clock(self) -> Optional[PhysicalClock]:
-            """The single-clock shorthand: the main clock, derived from the stored `clocks`."""
-            return self.main_clock
-
-        @clock.setter
-        def clock(self, value: PhysicalClock | Dict[str, Any] | None) -> None:
-            if value is None:
-                self.clocks = {}
-                return
-            if not isinstance(value, PhysicalClock):
-                value = PhysicalClock.model_validate(value)
-            else:
-                value = value.model_copy(deep=True)
-            if not value.name:
-                value.name = "main_clock"
-            self.clocks = {value.name: value}
 
     @staticmethod
     def reconcile_clocks(
@@ -300,11 +250,11 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                             f"design. Existing clocks: {existing}"
                         )
                     else:
-                        described = f"'{clock_name}'" if clock_name else "set by `clock`"
+                        described = f"'{clock_name}'" if clock_name else "set by `clocks`"
                         msg = (
                             f"No clock ports specified in `rtl`, while the physical clock "
                             f"{described} is set in the flow settings. Set the design clocks with "
-                            "`rtl.clocks` (several clocks) or `rtl.clock.port` (one clock)"
+                            "`rtl.clocks`"
                         )
                     raise FlowSettingsError([(None, msg, None, None)], settings_class)
                 matched_clock = find_matching_clock(design.rtl.clocks, clock_name)
@@ -361,11 +311,8 @@ class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):
 
         fpga: Optional[FPGA] = Field(
             None,
-            description="FPGA device. Accepts a full part identifier as a string "
-            '(e.g. "xc7a100tftg256-2L") or a mapping of the FPGA fields. A part identifier '
-            "alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes "
-            "the part and keeps the other fields that the mapping wrote (a speed grade, for "
-            "example).",
+            description="FPGA device: a mapping of the FPGA fields, such as `fpga.part: "
+            "xc7a100tftg256-2L`.",
         )
 
 

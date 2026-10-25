@@ -97,9 +97,7 @@ class _NeedsJudged(Flow):
 # Test-only flows, launched by class: out of the registry at once, so that no sweep over every
 # registered flow collected after this module finds them.
 _REGISTERED = {
-    _name: registered_flows[_name]
-    for _cls in (_Judged, _NeedsJudged)
-    for _name in (_cls.name, _cls.__name__)
+    _name: registered_flows[_name] for _cls in (_Judged, _NeedsJudged) for _name in (_cls.name,)
 }
 for _name in _REGISTERED:
     registered_flows.pop(_name, None)

@@ -11,14 +11,14 @@ designs:
         - "top_vgatest.vhd"
         - {file: "dvi_test.lpf", type: Lpf}
       top: top_vgatest
-      clock.port: clk_25mhz
+      clocks: [{port: clk_25mhz}]
 flows:
   nextpnr:
     board: ulx3s_85f
-    clock.freq: 25 MHz
+    clocks.main_clock.freq: 25 MHz
     # Without this setting, nextpnr crashes.
     detailed_timing_report: false
     timing_allow_fail: true
   openfpgaloader:
     board: ulx3s_85f
-    clock.freq: 25 MHz
+    clocks.main_clock.freq: 25 MHz

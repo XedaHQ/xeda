@@ -79,7 +79,9 @@ def _flow(tmp_path, monkeypatch, prefix, part=A100T, *, pins=PINS, sdc=None, **s
     design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=root)
     flow = Nextpnr(
         Nextpnr.Settings.from_input(
-            {"fpga": part, "chipdb": chipdb, **settings}, design_root=root, runner_cwd=root
+            {"fpga": {"part": part}, "chipdb": chipdb, **settings},
+            design_root=root,
+            runner_cwd=root,
         ),
         design,
         tmp_path / "pnr",
@@ -179,8 +181,8 @@ def test_hold_fix_is_a_switch_or_a_pass_limit(tmp_path, monkeypatch, prefix, val
 @pytest.mark.parametrize("value", [0, -1, 2.5, "x"])
 def test_hold_fix_rejects_what_is_neither(value):
     with pytest.raises(ValidationError):
-        Nextpnr.Settings(fpga=A100T, hold_fix=value)
-    settings = Nextpnr.Settings(fpga=A100T)
+        Nextpnr.Settings(fpga={"part": A100T}, hold_fix=value)
+    settings = Nextpnr.Settings(fpga={"part": A100T})
     with pytest.raises(ValidationError):
         settings.hold_fix = value
 
@@ -188,13 +190,25 @@ def test_hold_fix_rejects_what_is_neither(value):
 @pytest.mark.parametrize(
     "settings,message",
     [
-        ({"fpga": A100T, "lpf_allow_unconstrained": True}, "does not take lpf_allow_unconstrained"),
-        ({"fpga": A100T, "opt_timing": True}, "nextpnr-himbaechel does not take opt_timing"),
-        ({"fpga": "LFE5U-25F-6BG381C", "hold_fix": True}, "nextpnr-ecp5 does not take hold_fix"),
-        ({"fpga": "iCE40HX1K-TQ144", "delay_matrix": "off"}, "does not take delay_matrix"),
-        ({"fpga": "LFE5U-25F-6BG381C", "chipdb": "chip.bin"}, "does not take chipdb"),
-        ({"fpga": "LIFCL-40-9BG400C", "placement": "p.json"}, "does not take placement"),
-        ({"fpga": "xc7a35tcsg324"}, "full part"),
+        (
+            {"fpga": {"part": A100T}, "lpf_allow_unconstrained": True},
+            "does not take lpf_allow_unconstrained",
+        ),
+        (
+            {"fpga": {"part": A100T}, "opt_timing": True},
+            "nextpnr-himbaechel does not take opt_timing",
+        ),
+        (
+            {"fpga": {"part": "LFE5U-25F-6BG381C"}, "hold_fix": True},
+            "nextpnr-ecp5 does not take hold_fix",
+        ),
+        (
+            {"fpga": {"part": "iCE40HX1K-TQ144"}, "delay_matrix": "off"},
+            "does not take delay_matrix",
+        ),
+        ({"fpga": {"part": "LFE5U-25F-6BG381C"}, "chipdb": "chip.bin"}, "does not take chipdb"),
+        ({"fpga": {"part": "LIFCL-40-9BG400C"}, "placement": "p.json"}, "does not take placement"),
+        ({"fpga": {"part": "xc7a35tcsg324"}}, "full part"),
         ({"fpga": {"family": "artix-7", "device": "xc7a35t"}}, "full part"),
         ({"fpga": {"vendor": "gowin", "family": "gowin", "device": "GW1N-9"}}, "xilinx"),
     ],
@@ -206,7 +220,7 @@ def test_a_setting_of_another_backend_or_a_partial_part_is_rejected(settings, me
 
 def test_the_xilinx_defaults_are_no_setting_of_another_family():
     for part in ("LFE5U-25F-6BG381C", "iCE40HX1K-TQ144", "LIFCL-40-9BG400C"):
-        Nextpnr.check_settings_supported(Nextpnr.Settings(fpga=part))
+        Nextpnr.check_settings_supported(Nextpnr.Settings(fpga={"part": part}))
 
 
 @pytest.mark.parametrize(
@@ -483,7 +497,7 @@ def _project(tmp_path, monkeypatch, sdc=None):
 
 def test_a_launch_places_a_7_series_design_and_the_next_reuses_it(tmp_path, monkeypatch):
     design, runner = _project(tmp_path, monkeypatch, sdc="create_clock -period 8 [get_ports clk]\n")
-    first = runner.run("nextpnr", design, flow_settings={"fpga": A100T})
+    first = runner.run("nextpnr", design, flow_settings={"fpga": {"part": A100T}})
     assert first is not None and first.succeeded
     (call,) = _calls(first.run_path)
     argv = call["argv"]
@@ -504,7 +518,7 @@ def test_a_launch_places_a_7_series_design_and_the_next_reuses_it(tmp_path, monk
     assert first.results["outputs"]["config"]["path"] == str(first.outputs.config)
     assert first.results["lut"] == 1 and first.results["ff"] == 1
     assert first.results["fabric"] == "xc7a100t"
-    again = runner.run("nextpnr", design, flow_settings={"fpga": A100T})
+    again = runner.run("nextpnr", design, flow_settings={"fpga": {"part": A100T}})
     assert again is not None and again.reused and tool_utils.producers_of(runner, again)[0].reused
     assert len(_calls(first.run_path)) == 1
 
@@ -513,7 +527,7 @@ def test_a_launch_with_a_clock_in_the_sdc_and_the_settings_names_both(tmp_path, 
     design, runner = _project(
         tmp_path, monkeypatch, sdc="\ncreate_clock -period 8 [get_ports clk]\n"
     )
-    settings = {"fpga": A100T, "clocks": {"main": {"port": "clk", "period": "10 ns"}}}
+    settings = {"fpga": {"part": A100T}, "clocks": {"main": {"port": "clk", "period": "10 ns"}}}
     with pytest.raises(FlowFatalError, match="Duplicate clock") as error:
         runner.run("nextpnr", design, flow_settings=settings)
     assert f"{tmp_path / 'timing.sdc'}:2" in str(error.value)

@@ -33,7 +33,10 @@ def test_before_validator_does_not_mutate_the_caller_mapping():
 def test_before_validator_still_normalizes_its_own_copy():
     """The copy must not defeat the normalization it protects."""
     clock = PhysicalClock(freq="200 MHz")
-    assert (clock.freq, clock.period) == (Frequency("200 MHz"), Time("5 ns"))
+    assert (clock.freq, clock.period) == (
+        Frequency("200 MHz"),
+        Time("5 ns"),
+    )
 
 
 def test_shim_copies_before_validator_input():
@@ -140,8 +143,8 @@ def test_rtl_parameters_given_to_a_constructor_are_not_the_ones_it_holds(tmp_pat
     assert "other" not in rtl.parameters
 
 
-def test_clock_shorthand_normalization_does_not_mutate_input():
-    payload = {"clock": {"name": "c", "freq": "100 MHz"}}
+def test_clock_normalization_does_not_mutate_input():
+    payload = {"clocks": {"main_clock": {"name": "c", "freq": "100 MHz"}}}
     before = copy.deepcopy(payload)
 
     settings = YosysFpga.Settings(**payload)
@@ -150,13 +153,14 @@ def test_clock_shorthand_normalization_does_not_mutate_input():
 
 
 def test_the_removed_clock_period_fails_without_mutating_input():
-    payload = {"clock": {"name": "c", "freq": "100 MHz"}, "clock_period": 5.0}
+    payload = {"clocks": {"main_clock": {"name": "c", "freq": "100 MHz"}}, "clock_period": 5.0}
     before = copy.deepcopy(payload)
 
     from xeda.dataclass import ValidationError
 
     with pytest.raises(
-        ValidationError, match="`clock_period` was removed: use `clock.period` or `clock.freq`"
+        ValidationError,
+        match="`clock_period` was removed: use `clocks.<name>.period` or `clocks.<name>.freq`",
     ):
         YosysFpga.Settings(**payload)
     assert payload == before
@@ -166,7 +170,7 @@ def test_unrelated_assignment_preserves_nested_field_identities():
     """Revalidating one field must not replace unrelated models or containers."""
     settings = YosysFpga.Settings(
         fpga={"part": "LFE5U-25F-6BG381C"},
-        clock={"period": "10 ns"},
+        clocks={"main_clock": {"period": "10 ns"}},
     )
     fpga = settings.fpga
     clock = settings.main_clock
@@ -202,7 +206,9 @@ def test_run_options_steps_are_not_expanded_in_the_caller_object():
     before = dict(run_options.steps)
 
     settings = VivadoAltSynth.Settings(
-        fpga="xc7a100tftg256-2L", synth=run_options, clock={"period": "5 ns"}
+        fpga={"part": "xc7a100tftg256-2L"},
+        synth=run_options,
+        clocks={"main_clock": {"period": "5 ns"}},
     )
 
     assert dict(run_options.steps) == before, "caller's RunOptions.steps was expanded in place"

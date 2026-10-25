@@ -64,14 +64,6 @@ def test_a_run_reports_the_design_s_name_and_the_file_it_was_read_from(world):
     assert _is(document["spec"]["design_file"], world / "sqrt.yaml")
 
 
-def test_the_design_file_option_names_the_file_the_same_way(world):
-    status, document = _json("run", "vivado_synth", "--design-file", "sqrt.yaml", *SQRT_SETTINGS)
-
-    assert status == 0, document
-    assert document["spec"]["design"] == "sqrt"
-    assert _is(document["spec"]["design_file"], world / "sqrt.yaml")
-
-
 def test_a_failure_after_the_design_loaded_still_names_it(world):
     status, document = _json("run", "vivado_synth", "sqrt.yaml", "-s", "no_such_setting=1")
 
@@ -161,7 +153,6 @@ def test_an_exploration_that_fails_after_loading_its_design_names_it(world):
     status, document = _json(
         "dse",
         "vivado_synth",
-        "--design",
         "blink.toml",
         "--init-freq-low",
         "100",
@@ -176,9 +167,7 @@ def test_an_exploration_that_fails_after_loading_its_design_names_it(world):
 
 
 def test_an_exploration_that_fails_before_loading_its_design_has_no_name(world):
-    status, document = _json(
-        "dse", "vivado_synth", "--design", "sqrt.yaml", "--optimizer", "no_such_optimizer"
-    )
+    status, document = _json("dse", "vivado_synth", "sqrt.yaml", "--optimizer", "no_such_optimizer")
 
     assert status == 1 and document["error"]["type"] == "OptimizerNotFound"
     assert document["design"] is None

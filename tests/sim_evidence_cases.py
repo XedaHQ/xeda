@@ -98,7 +98,7 @@ def launch_case(
     design = Design(
         name="oracle",
         design_root=work,
-        rtl={"sources": [source], "top": top, "clock": {"port": "clk"}},
+        rtl={"sources": [source], "top": top, "clocks": [{"port": "clk"}]},
         tb={"sources": [source], "top": top, "uut": "dut"},
         language={"vhdl": {"standard": "2008"}},
     )
@@ -323,7 +323,12 @@ def launch_case(
     if case.flow == "vivado_postsynth_sim":
         design = with_updates(
             design,
-            flow={"vivado_synth": {"fpga": "xc7a100tcsg324-1", "clock": {"period": "5 ns"}}},
+            flows={
+                "vivado_synth": {
+                    "fpga": {"part": "xc7a100tcsg324-1"},
+                    "clocks": {"main_clock": {"period": "5 ns"}},
+                }
+            },
         )
     flow = DefaultRunner(work / "runs", display_results=False, rebuild_all=True).run_flow(
         flow_class, design, settings

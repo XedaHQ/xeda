@@ -6,7 +6,7 @@ designs:
         - "blinky.v"
         - {file: "blinky.lpf", type: Lpf}
       top: blinky
-      clock.port: clk_25mhz
+      clocks: [{port: clk_25mhz}]
   - name: blinky-vhdl
     description: LED chaser on the ULX3S board, in VHDL
     language.vhdl.standard: 2008
@@ -16,16 +16,16 @@ designs:
         - "blinky.vhdl"
         - {file: "blinky-vhdl.lpf", type: Lpf}
       top: blinky
-      clock.port: clk_25mhz
+      clocks: [{port: clk_25mhz}]
 flows:
   openfpgaloader:
     board: ulx3s_85f
-    clock.freq: 25 MHz
+    clocks.main_clock.freq: 25 MHz
   nextpnr:
     board: ulx3s_85f
-    clock.freq: 25 MHz
+    clocks.main_clock.freq: 25 MHz
     detailed_timing_report: false
     timing_allow_fail: true
   yosys_fpga:
     fpga.family: ecp5
-    clock.freq: 25 MHz
+    clocks.main_clock.freq: 25 MHz

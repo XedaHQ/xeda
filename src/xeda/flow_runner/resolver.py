@@ -23,7 +23,7 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from ..board import WithFpgaBoardSettings
-from ..dataclass import BaseModel, expand_forms, field_type, nested_model
+from ..dataclass import BaseModel, expand_forms
 from ..design import DESIGN_PARTS, LANGUAGE_TYPES, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
@@ -398,93 +398,21 @@ class _Location:
 class _Located:
     values: dict[str, Any] = field(default_factory=dict)
     locations: dict[tuple[str, ...], _Location] = field(default_factory=dict)
-    clock_inputs: dict[tuple[str, ...], dict[str, Any]] = field(default_factory=dict)
-
-
-def _at(values: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
-    for key in path:
-        values = values.setdefault(key, {})
-    return values
 
 
 def _overlay(base: _Located, layer: _Located, cls: type[Flow]) -> _Located:
-    """Merge as `settings_layers` does, keeping single-clock spellings.
-
-    A single-clock spelling stays as written until the lower layer is known."""
-    values = deepcopy(layer.values)
-    incoming = dict(layer.locations)
-    clock_inputs = dict(base.clock_inputs)
-    retained = dict(base.locations)
-    for path, clock_input in layer.clock_inputs.items():
-        subtree = _at(values, path)
-        subtree.pop("clocks", None)
-        subtree.update(clock_input)
-        existing = _at(deepcopy(base.values), path).get("clocks", {})
-        clock = clock_input.get("clock", {})
-        name = clock.get("name") or "main_clock"
-        destination = name
-        if existing and name not in existing:
-            if name == "main_clock":
-                destination = next(iter(existing))
-            elif len(existing) == 1:
-                old_name = next(iter(existing))
-                retained = {
-                    (
-                        (*path, "clocks", name, *key[len(path) + 2 :])
-                        if key[: len(path) + 2] == (*path, "clocks", old_name)
-                        else key
-                    ): loc
-                    for key, loc in retained.items()
-                }
-        incoming = {
-            (
-                (*path, "clocks", destination, *key[len(path) + 2 :])
-                if key[: len(path) + 2] == (*path, "clocks", name)
-                else key
-            ): loc
-            for key, loc in incoming.items()
-        }
-        if existing:
-            clock_inputs.pop(path, None)
-        else:
-            clock_inputs[path] = clock_input
-    merged = merge_layers(base.values, values, settings_cls=cls.Settings)
+    """Merge as `settings_layers` does, keeping where each leaf came from."""
+    merged = merge_layers(base.values, layer.values, settings_cls=cls.Settings)
     leaves = _leaves(merged)
-    locations = {path: loc for path, loc in retained.items() if path in leaves}
-    locations.update({path: loc for path, loc in incoming.items() if path in leaves})
-    return _Located(merged, locations, clock_inputs)
-
-
-def _clock_inputs(
-    values: dict[str, Any], model: type[BaseModel], prefix: tuple[str, ...] = ()
-) -> dict[tuple[str, ...], dict[str, Any]]:
-    result: dict[tuple[str, ...], dict[str, Any]] = {}
-    if "clock" in values and "clocks" not in values and "clocks" in model.model_fields:
-        raw = values["clock"]
-        if isinstance(raw, Mapping):
-            result[prefix] = {"clock": deepcopy(raw)}
-    for key, value in values.items():
-        info = model.model_fields.get(key)
-        child = nested_model(field_type(info)) if info else None
-        if child and isinstance(value, dict):
-            result.update(_clock_inputs(value, child, (*prefix, key)))
-    return result
+    locations = {path: loc for path, loc in base.locations.items() if path in leaves}
+    locations.update({path: loc for path, loc in layer.locations.items() if path in leaves})
+    return _Located(merged, locations)
 
 
 def _located(raw: Mapping[str, Any], cls: type[Flow], label: str, kind: str) -> _Located:
     values = expand_forms(cls.Settings, merge_layers(_explicit(raw), settings_cls=cls.Settings))
     locations = {path: _Location(label, kind) for path in _leaves(values)}
-    # `settings_layers` synthesizes a name when a singular spelling creates a clock. That name is
-    # not input from the caller.
-    original = merge_layers(_explicit(raw))
-    singular = original.get("clock", {})
-    if "clock" in original and isinstance(singular, Mapping) and not singular.get("name"):
-        locations = {
-            path: loc
-            for path, loc in locations.items()
-            if not (path[0] == "clocks" and path[-1] == "name")
-        }
-    return _Located(values, locations, _clock_inputs(original, cls.Settings))
+    return _Located(values, locations)
 
 
 def _compose(cls: type[Flow], sections: Mapping[str, Any], origin: str, kind: str) -> _Located:
@@ -780,8 +708,6 @@ def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, An
     for shared in SHARED_SETTINGS:
         if shared in cls.Settings.model_fields:
             ordinary.pop(shared, None)
-    if "clocks" in cls.Settings.model_fields:
-        ordinary.pop("clock", None)
     return ordinary
 
 

@@ -250,7 +250,7 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
         """Build the device named by a board entry, if it provides one."""
         if not board_data or not (value := board_data.get("fpga")):
             return None
-        return FPGA(**(FPGA.as_mapping(value) or value))
+        return FPGA.model_validate(value)
 
     @staticmethod
     def _resolve_boards_path(value: Any, context: dict[str, Any]) -> Any:

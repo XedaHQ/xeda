@@ -197,10 +197,10 @@ def _launch(tmp_path: Path, database: Path | None = None, part: str = PART):
         name="top",
         design_root=root,
         rtl={"sources": ["routed.fasm"], "top": "top"},
-        flow=flows,
+        flows=flows,
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    return runner.run("fpga_pack", design, flow_settings={"fpga": part})
+    return runner.run("fpga_pack", design, flow_settings={"fpga": {"part": part}})
 
 
 def _argv(flow) -> list[str]:
@@ -237,7 +237,7 @@ def test_a_part_without_data_fails_before_any_tool_runs_and_the_failure_is_recor
     database = _other_database(tmp_path, toolchain)
     shutil.rmtree(database / "artix7" / A100T)
     with pytest.raises(FlowFatalError, match=f"no part data for {A100T}") as raised:
-        _runner(tmp_path).run("fpga_pack", design, flow_settings={"fpga": A100T})
+        _runner(tmp_path).run("fpga_pack", design, flow_settings={"fpga": {"part": A100T}})
     assert str(database / "artix7") in str(raised.value)
     assert _tools(tmp_path) == []
     results = json.loads((tmp_path / "run/top/fpga_pack/results.json").read_text())
@@ -251,7 +251,7 @@ def test_a_missing_packer_fails_before_any_tool_runs(tmp_path, toolchain, monkey
     monkeypatch.setattr("xeda.flows.fpga_pack.which", lambda name: None)
     design = _design(tmp_path, A100T)
     with pytest.raises(FlowFatalError, match="fpga-as is missing on PATH"):
-        _runner(tmp_path).run("fpga_pack", design, flow_settings={"fpga": A100T})
+        _runner(tmp_path).run("fpga_pack", design, flow_settings={"fpga": {"part": A100T}})
     assert _tools(tmp_path) == []
 
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from collections.abc import Mapping
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple
 
-from ...dataclass import WORKING, Field, deliverable, field_validator
+from ...dataclass import WORKING, Field, SecondSpelling, deliverable, field_validator
 from ...design import LANGUAGE_TYPES, Design, SourceType
 from ...flow import (
     ArtifactSpec,
@@ -760,6 +760,11 @@ class YosysSynthesisBase(YosysBase):
     artifacts_description = describe_artifacts("log", **RTL_ARTIFACTS, **REPORT_ARTIFACTS)
 
     class Settings(YosysBase.Settings):
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **YosysBase.Settings.removed_settings,
+            "netlist": SecondSpelling("`netlist_verilog`"),
+            "json_netlist": SecondSpelling("`netlist_json`"),
+        }
         splitnets: bool = Field(
             False, description="Run `splitnets`, splitting multi-bit nets into individual bits."
         )
@@ -816,7 +821,6 @@ class YosysSynthesisBase(YosysBase):
 
         netlist_verilog: Optional[Path] = Field(
             Path("netlist.v"),
-            alias="netlist",
             description="Write the synthesized gate-level netlist to this Verilog file. Set to "
             "null to skip.",
             json_schema_extra=deliverable(),
@@ -869,7 +873,6 @@ class YosysSynthesisBase(YosysBase):
 
         netlist_json: Optional[Path] = Field(
             Path("netlist.json"),
-            alias="json_netlist",
             description="Write the synthesized netlist to this JSON file. Consumers such as "
             "`nextpnr` need it.",
             json_schema_extra=deliverable(),

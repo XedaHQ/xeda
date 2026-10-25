@@ -70,7 +70,7 @@ def write_design(
             )
     document: dict[str, Any] = {
         "name": name,
-        "rtl": {"sources": list(sources), "top": "mkTop", "clock": {"port": "CLK"}},
+        "rtl": {"sources": list(sources), "top": "mkTop", "clocks": [{"port": "CLK"}]},
     }
     if tb is not None:
         document["tb"] = tb
@@ -119,11 +119,17 @@ def shape(plan: Plan) -> list[tuple[Any, ...]]:
 
 # ------------------------------------------------------------------------------ plan equality
 
-ECP5 = {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock": {"period": "10 ns"}}
+ECP5 = {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clocks": {"main_clock": {"period": "10 ns"}}}
 #: (the bare flow, the chain, the flow whose `design` a saved binding names, settings by flow, and
 #: whether the design has a Verilog testbench)
 CASES = [
-    ("yosys", "bsc+yosys", "yosys", {"yosys": {"clock": {"period": "5 ns"}}}, False),
+    (
+        "yosys",
+        "bsc+yosys",
+        "yosys",
+        {"yosys": {"clocks": {"main_clock": {"period": "5 ns"}}}},
+        False,
+    ),
     ("yosys_fpga", "bsc+yosys_fpga", "yosys_fpga", {"yosys_fpga": ECP5}, False),
     (
         "fpga_pack",
@@ -137,14 +143,22 @@ CASES = [
         "vivado_synth",
         "bsc+vivado_synth",
         "vivado_synth",
-        {"vivado_synth": {"fpga": {"part": "xc7a100tcsg324-1"}, "clock": {"period": "5 ns"}}},
+        {
+            "vivado_synth": {
+                "fpga": {"part": "xc7a100tcsg324-1"},
+                "clocks": {"main_clock": {"period": "5 ns"}},
+            }
+        },
         False,
     ),
     (
         "openroad",
         "bsc+openroad",
         "yosys",
-        {"openroad": {"platform": "nangate45"}, "yosys": {"clock": {"period": "5 ns"}}},
+        {
+            "openroad": {"platform": "nangate45"},
+            "yosys": {"clocks": {"main_clock": {"period": "5 ns"}}},
+        },
         False,
     ),
 ]

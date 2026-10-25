@@ -50,7 +50,7 @@ class _Reads(Flow):
 def _unregister_probe():
     yield
     for cls in (_Probe, _Reads):
-        for name in (cls.name, cls.__name__):
+        for name in (cls.name,):
             registered_flows.pop(name, None)
 
 

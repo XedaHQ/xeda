@@ -13,9 +13,19 @@ and write nothing, so planning and `--dry-run` can use them.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Literal, Mapping, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Mapping,
+    Optional,
+)
 
-from ..dataclass import LOCATOR, Field, field_validator
+from ..dataclass import LOCATOR, Field, SecondSpelling, field_validator
 from ..utils import unique
 from .flow import Flow, FlowFatalError, FlowSettingsException
 
@@ -121,6 +131,10 @@ def check_platform_settings(settings: "AsicPlatformSettings") -> None:
 class AsicPlatformSettings(Flow.Settings):
     """The settings that select the platform and the PDK of an ASIC flow."""
 
+    removed_settings: ClassVar[Dict[str, str]] = {
+        **Flow.Settings.removed_settings,
+        "library": SecondSpelling("`liberty`"),
+    }
     platform: Optional[str] = Field(
         None,
         description="Name of a bundled ASIC platform (see `xeda list-platforms`). It names the "
@@ -142,7 +156,6 @@ class AsicPlatformSettings(Flow.Settings):
     )
     liberty: List[Path] = Field(
         [],
-        alias="library",
         description="Standard cell (Liberty) libraries that the flow reads for mapping and timing, "
         "instead of the Liberty files of the corner of the platform. Xeda reads each file as it "
         "is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the "

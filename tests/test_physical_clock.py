@@ -1,8 +1,8 @@
 """Clock specification: a period and a frequency are quantities with units.
 
-`clock.period: 10` means nothing without a unit, so the clock settings that every synthesis flow
+`clocks.main_clock.period: 10` means nothing without a unit, so the clock settings that every synthesis flow
 shares take text such as `10 ns` or `100 MHz`, and a bare number is refused. This includes the
-command line's `-s clock.period=5.5` path, which hands the model raw text.
+command line's `-s clocks.main_clock.period=5.5` path, which hands the model raw text.
 """
 
 import json
@@ -232,21 +232,23 @@ def test_neither_period_nor_freq_is_rejected():
 )
 def test_a_flow_refuses_a_bad_clock(clock, problem):
     with pytest.raises(REFUSED, match=f"(?s){problem}"):
-        VivadoSynth.Settings(fpga=FPGA("xc7a12tcsg325-1"), clock=clock)
+        VivadoSynth.Settings(fpga=FPGA("xc7a12tcsg325-1"), clocks={"main_clock": clock})
 
 
 @pytest.mark.parametrize("value", ["5.5", "5", "0"])
 def test_a_bare_number_from_the_command_line_names_the_missing_unit(value):
-    """`-s clock.period=5.5` hands the model the text `5.5`."""
+    """`-s clocks.main_clock.period=5.5` hands the model the text `5.5`."""
     with pytest.raises(REFUSED, match="needs a unit, such as `10 ns`"):
-        VivadoSynth.Settings(fpga="xc7a100tftg256-2L", clock={"period": value})  # type: ignore[arg-type]
+        VivadoSynth.Settings(
+            fpga={"part": "xc7a100tftg256-2L"}, clocks={"main_clock": {"period": value}}
+        )
 
 
 @pytest.mark.parametrize("extra", [{}, {"clocks": {"main_clock": {"period": "5 ns"}}}])
 def test_clock_period_was_removed(extra):
     with pytest.raises(
         REFUSED,
-        match="`clock_period` was removed: use `clock.period` or `clock.freq`",
+        match="`clock_period` was removed: use `clocks.<name>.period` or `clocks.<name>.freq`",
     ):
         VivadoSynth.Settings(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.0, **extra)
 
@@ -261,21 +263,21 @@ def test_duty_cycle_rejects_units_and_non_numeric_values(value):
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"clock": {"period": "5.5 ns"}},
+        {"clocks": {"main_clock": {"period": "5.5 ns"}}},
         {"clocks": {"main_clock": {"period": "5.5ns"}}},
         {"clocks": {"main_clock": {"freq": "181.818 MHz"}}},
     ],
 )
 def test_synth_flow_settings_accept_string_clock_overrides(overrides):
-    """`xeda run vivado_synth <design> -s clock.period=5.5ns` hands settings raw strings."""
-    settings = VivadoSynth.Settings(fpga="xc7a100tftg256-2L", **overrides)  # type: ignore[arg-type]
+    """`xeda run vivado_synth <design> -s clocks.main_clock.period=5.5ns` hands settings raw strings."""
+    settings = VivadoSynth.Settings(fpga={"part": "xc7a100tftg256-2L"}, **overrides)
     assert settings.main_clock is not None
     assert settings.main_clock.period.to("ns") == pytest.approx(5.5, abs=1e-3)
 
 
 def test_settings_json_writes_a_period_as_text_and_reads_it_back_with_the_same_identity():
     settings = VivadoSynth.Settings(
-        fpga="xc7a100tftg256-2L", clock={"period": "5000 ps"}  # type: ignore[arg-type]
+        fpga={"part": "xc7a100tftg256-2L"}, clocks={"main_clock": {"period": "5000 ps"}}
     )
     document = json.loads(settings.model_dump_json())
     assert document["clocks"]["main_clock"]["period"] == "5 ns"
@@ -295,15 +297,23 @@ IDENTITY_PINS = [
     pytest.param(
         VivadoSynth,
         "vivado_synth",
-        {"fpga.part": "xc7a100tcsg324-1", "clock.period": "10 ns"},
+        {
+            "fpga.part": "xc7a100tcsg324-1",
+            "clocks.main_clock.name": "main_clock",
+            "clocks.main_clock.period": "10 ns",
+        },
         "d60eef71efbb6f3c35f9d8a3a1da122533ac16cc058b732c930fc5904db22db9",
         id="vivado_synth",
     ),
     pytest.param(
         YosysFpga,
         "yosys_fpga",
-        {"fpga.part": "xc7a100tcsg324-1", "clock.freq": "125 MHz"},
-        "ac970556706d61384cbdac6fdaca090a23e14a438d38695f21a5065fe01cdf47",
+        {
+            "fpga.part": "xc7a100tcsg324-1",
+            "clocks.main_clock.name": "main_clock",
+            "clocks.main_clock.freq": "125 MHz",
+        },
+        "c198e8be903e03680398ca23e735a956546cbfe08c9468011859086839b1a3a2",
         id="yosys_fpga",
     ),
     pytest.param(
@@ -318,11 +328,14 @@ IDENTITY_PINS = [
         "quartus",
         {
             "fpga.part": "10CL016YU256C8G",
-            "clock": {
-                "period": "4 ns",
-                "uncertainty": "0.1 ns",
-                "skew": "0.05 ns",
-                "rise": "0.5 ns",
+            "clocks": {
+                "main_clock": {
+                    "name": "main_clock",
+                    "period": "4 ns",
+                    "uncertainty": "0.1 ns",
+                    "skew": "0.05 ns",
+                    "rise": "0.5 ns",
+                }
             },
         },
         "0ed7b7739b3b7a683651aff88f2bfc6d6ff99604596cdcca970a0aa2195743f8",
@@ -331,7 +344,11 @@ IDENTITY_PINS = [
     pytest.param(
         Yosys,
         "yosys",
-        {"platform": "nangate45", "clock.period": "2.5 ns"},
+        {
+            "platform": "nangate45",
+            "clocks.main_clock.name": "main_clock",
+            "clocks.main_clock.period": "2.5 ns",
+        },
         "76cdee59359d9b28d4c40942d1202c60304e297b9ed8341d37db1e383ff762c3",
         id="yosys",
     ),
@@ -353,8 +370,12 @@ def test_a_clock_keeps_the_run_identity_it_had_as_a_plain_number(cls, name, flat
 
 
 def test_the_same_clock_in_another_unit_has_the_same_identity():
-    in_ns = Yosys.Settings(platform="nangate45", clock={"period": "2.5 ns"})  # type: ignore[arg-type]
-    in_ps = Yosys.Settings(platform="nangate45", clock={"period": "2500 ps"})  # type: ignore[arg-type]
+    in_ns = Yosys.Settings(
+        platform="nangate45", clocks={"main_clock": {"name": "main_clock", "period": "2.5 ns"}}
+    )
+    in_ps = Yosys.Settings(
+        platform="nangate45", clocks={"main_clock": {"name": "main_clock", "period": "2500 ps"}}
+    )
     assert (
         flowrun_hash("yosys", in_ps, "pin")
         == flowrun_hash("yosys", in_ns, "pin")
@@ -368,11 +389,16 @@ def test_the_same_clock_in_another_unit_has_the_same_identity():
 def test_a_bare_period_on_the_command_line_fails_with_the_unit_message_in_json(tmp_path):
     (tmp_path / "top.v").write_text("module top(input clk); endmodule\n")
     (tmp_path / "d.yaml").write_text(
-        'name: d\nrtl:\n  sources: ["top.v"]\n  top: top\n  clock:\n    port: clk\n'
+        'name: d\nrtl:\n  sources: ["top.v"]\n  top: top\n  clocks: [{port: clk}]\n'
     )
     proc = subprocess.run(
         [sys.executable, "-m", "xeda", "run", "vivado_synth", "d.yaml", "--run-root"]
-        + [str(tmp_path / "xeda_run"), "-s", "fpga.part=xc7a12tcsg325-1", "clock.period=5.5"]
+        + [
+            str(tmp_path / "xeda_run"),
+            "-s",
+            "fpga.part=xc7a12tcsg325-1",
+            "clocks.main_clock.period=5.5",
+        ]
         + ["--json"],
         cwd=tmp_path,
         capture_output=True,
@@ -383,4 +409,4 @@ def test_a_bare_period_on_the_command_line_fails_with_the_unit_message_in_json(t
     assert proc.returncode == 2
     assert document["outcome"] is None and document["nodes"] == []
     assert "needs a unit" in json.dumps(document["error"])
-    assert "clock" in json.dumps(document["error"])
+    assert "clocks" in json.dumps(document["error"])

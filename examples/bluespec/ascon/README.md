@@ -104,7 +104,7 @@ Add `--dry-run` to see the plan without starting a tool. The ASIC chain needs th
 platform, because Yosys uses its Liberty cell library. The FPGA configurations are resource and
 timing estimates without pins. A board build needs an I/O wrapper and constraints. Every flow
 writes under `./xeda_run`, or under the directory of `--run-root`. Change a setting for one run
-with `-s`, for example `-s flows.yosys.clock.period=3ns` for the ASIC chain.
+with `-s`, for example `-s flows.yosys.clocks.main_clock.period=3ns` for the ASIC chain.
 
 ## Generated Verilog interface
 

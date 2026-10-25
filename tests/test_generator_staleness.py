@@ -940,9 +940,14 @@ def test_a_launcher_generates_once_across_two_launches(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     world = World(tmp_path)
     world.design_file.write_text(
-        world.design_file.read_text().replace("  top: top\n", "  top: top\n  clock: {port: clk}\n")
+        world.design_file.read_text().replace(
+            "  top: top\n", "  top: top\n  clocks: [{port: clk}]\n"
+        )
     )
-    settings = {"fpga": {"part": "xc7a35ticsg324-1L"}, "clock": {"period": "10 ns"}}
+    settings = {
+        "fpga": {"part": "xc7a35ticsg324-1L"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+    }
     for _ in range(2):
         flow = DefaultRunner(world.run_root, display_results=False).run(
             "vivado_synth", world.design_file, flow_settings=settings
@@ -961,7 +966,9 @@ def _planned_world(tmp_path, monkeypatch) -> World:
     monkeypatch.chdir(tmp_path)
     world = World(tmp_path)
     world.design_file.write_text(
-        world.design_file.read_text().replace("  top: top\n", "  top: top\n  clock: {port: clk}\n")
+        world.design_file.read_text().replace(
+            "  top: top\n", "  top: top\n  clocks: [{port: clk}]\n"
+        )
     )
     world.load()
     assert world.runs == 1 and len(world.records()) == 1
@@ -1055,9 +1062,14 @@ def test_rebuild_all_runs_the_generator_and_records_what_it_leaves(tmp_path, mon
     monkeypatch.chdir(tmp_path)
     world = World(tmp_path)
     world.design_file.write_text(
-        world.design_file.read_text().replace("  top: top\n", "  top: top\n  clock: {port: clk}\n")
+        world.design_file.read_text().replace(
+            "  top: top\n", "  top: top\n  clocks: [{port: clk}]\n"
+        )
     )
-    settings = {"fpga": {"part": "xc7a35ticsg324-1L"}, "clock": {"period": "10 ns"}}
+    settings = {
+        "fpga": {"part": "xc7a35ticsg324-1L"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+    }
 
     def launch(**launcher) -> None:
         runner = DefaultRunner(world.run_root, display_results=False, **launcher)

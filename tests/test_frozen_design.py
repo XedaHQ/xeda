@@ -53,7 +53,7 @@ def _design(root: Path, **extra) -> Design:
             },
         },
         tb={"sources": ["tb.py"], "top": "top", "defines": {"X": 0}, "cocotb": {"module": "tb"}},
-        hdl={"vhdl": "08"},
+        language={"vhdl": "08"},
         **extra,
     )
 
@@ -107,7 +107,7 @@ class _skipping_generation:
         lambda d: d.tb.cocotb["testcase"].append("x"),
         lambda d: d.language.__setitem__("vhdl", {}),
         lambda d: d.language["vhdl"].__setitem__("standard", "93"),
-        lambda d: d.flow.__setitem__("ghdl_sim", {}),
+        lambda d: d.flows.__setitem__("ghdl_sim", {}),
         lambda d: setattr(d, "authors", ("x",)),
     ],
 )
@@ -278,7 +278,7 @@ def test_a_vhdl_source_is_assigned_as_vhdl_to_quartus(tmp_path, monkeypatch):
     root.mkdir()
     (root / "top.vhd").write_text("entity top is end entity;\n")
     design = Design(
-        name="d", design_root=root, rtl={"sources": ["top.vhd"], "top": "top", "clock": "clk"}
+        name="d", design_root=root, rtl={"sources": ["top.vhd"], "top": "top", "clocks": ["clk"]}
     )
     calls = _calls("quartus", design, _settings(root, "quartus"), tmp_path, monkeypatch)
     assert ["set_global_assignment", "-name", "VHDL_FILE", str(root / "top.vhd")] in calls

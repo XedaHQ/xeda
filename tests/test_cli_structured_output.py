@@ -111,14 +111,14 @@ def test_query_command_yaml_is_parseable(command: List[str]):
     yaml.safe_load(proc.stdout)
 
 
-def test_list_flows_json_reports_canonical_names_and_aliases():
+def test_list_flows_json_reports_the_name_of_each_flow():
     flows = json.loads(run_xeda("list-flows", "--json").stdout)
     by_name = {f["name"]: f for f in flows}
-    for required in ("name", "aliases", "class", "category", "dependencies", "description"):
+    for required in ("name", "class", "category", "dependencies", "description"):
         assert all(required in f for f in flows)
-    # aliases are folded into their flow rather than listed as separate flows
-    assert "ghdl" not in by_name
-    assert "ghdl" in by_name["ghdl_sim"]["aliases"]
+    # a flow has one name
+    assert "ghdl" not in by_name and "ghdl_sim" in by_name
+    assert not any("aliases" in f for f in flows)
     # statically-detected dependencies
     assert by_name["vivado_postsynth_sim"]["dependencies"] == ["vivado_synth"]
 
@@ -132,15 +132,16 @@ def test_list_settings_json_never_truncates_identifiers():
     assert not any("…" in n for n in names)
 
 
-def test_list_settings_includes_common_settings_and_aliases():
+def test_list_settings_includes_common_settings():
     info = json.loads(run_xeda("list-settings", "vivado_synth", "--json").stdout)
     by_name = {f["name"]: f for f in info["fields"]}
     # settings shared by every flow are listed too
     assert by_name["nthreads"]["common"] is True
-    assert by_name["nthreads"]["alias"] == "ncpus"
+    assert not any("alias" in f for f in info["fields"])
+    assert "ncpus" not in by_name
     assert by_name["dockerized"]["common"] is True
-    assert by_name["clock"]["common"] is False
-    assert "clock_period" not in by_name  # removed
+    assert by_name["clocks"]["common"] is False
+    assert "clock" not in by_name and "clock_period" not in by_name  # removed
 
 
 def test_list_settings_preserves_optional_literal_choices():
@@ -244,7 +245,7 @@ def test_run_json_stdout_carries_only_the_json_document(tmp_path):
         "vivado_synth",
         str(SQRT_DESIGN),
         "-s",
-        "clock.period=5.5ns",
+        "clocks.main_clock.period=5.5ns",
         "--json",
         cwd=tmp_path,
         fake_tools=True,
@@ -263,14 +264,13 @@ def test_run_json_stdout_carries_only_the_json_document(tmp_path):
     assert "Running `vivado" in proc.stderr
 
 
-def test_run_design_file_option_selects_the_design(tmp_path):
+def test_run_takes_the_design_as_an_argument(tmp_path):
     proc = run_xeda(
         "run",
         "vivado_synth",
-        "--design-file",
         str(SQRT_DESIGN),
         "-s",
-        "clock.period=5.5ns",
+        "clocks.main_clock.period=5.5ns",
         "--json",
         cwd=tmp_path,
         fake_tools=True,
@@ -316,7 +316,14 @@ def test_help_does_not_require_a_terminal():
 def test_clean_empties_the_run_directory_before_running(tmp_path):
     """`--clean` empties the run directory before running: the CLI never asks the launcher for
     backups -- the previous run's own files are simply gone."""
-    args = ("run", "vivado_synth", str(SQRT_DESIGN), "-s", "clock.period=5.5ns", "--json")
+    args = (
+        "run",
+        "vivado_synth",
+        str(SQRT_DESIGN),
+        "-s",
+        "clocks.main_clock.period=5.5ns",
+        "--json",
+    )
     first = json.loads(run_xeda(*args, cwd=tmp_path, fake_tools=True).stdout)
     run_path = Path(first["nodes"][0]["run_dir"])
     (run_path / "MARKER").write_text("from the previous run\n")

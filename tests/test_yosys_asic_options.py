@@ -616,7 +616,7 @@ def _design_from(root: Path, top: str) -> Design:
     return Design(
         name=top,
         design_root=root,
-        rtl={"sources": ["ram.v"], "top": top, "clock": {"port": "clk"}},
+        rtl={"sources": ["ram.v"], "top": top, "clocks": [{"port": "clk"}]},
     )
 
 

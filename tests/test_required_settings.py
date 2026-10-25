@@ -42,7 +42,7 @@ def design(tmp_path):
     return Design(
         name="sqrt",
         design_root=root,
-        rtl={"sources": ["sqrt.vhdl"], "top": "sqrt", "clock": {"port": "clk"}},
+        rtl={"sources": ["sqrt.vhdl"], "top": "sqrt", "clocks": [{"port": "clk"}]},
     )
 
 
@@ -65,7 +65,10 @@ def test_an_fpga_flow_launched_without_a_device_names_the_setting(
     monkeypatch.setenv("PATH", "")  # a tool that ran would be `ExecutableNotFound`, not this
     monkeypatch.chdir(tmp_path)
     run_dir = tmp_path / "xeda_run"
-    settings = {"clock": {"period": "10 ns"}, **NEEDS_THE_DEVICE_FOR.get(flow_class.name, {})}
+    settings = {
+        "clocks": {"main_clock": {"period": "10 ns"}},
+        **NEEDS_THE_DEVICE_FOR.get(flow_class.name, {}),
+    }
 
     with pytest.raises(FlowSettingsException) as raised:
         DefaultRunner(run_dir, display_results=False).run_flow(flow_class, design, settings)
@@ -85,11 +88,16 @@ def test_a_device_supplied_through_a_producer_section_counts(design, tmp_path, m
     monkeypatch.chdir(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     sections = {"yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}}}
-    plan = runner.resolve(Nextpnr, design, {"clock": {"period": "10 ns"}}, sections)
+    plan = runner.resolve(
+        Nextpnr, design, {"clocks": {"main_clock": {"period": "10 ns"}}}, sections
+    )
     assert plan.node("nextpnr").settings.fpga.part == "LFE5U-25F-6BG381C"
     with pytest.raises(Exception) as raised:
         runner.run_flow(
-            Nextpnr, design, {"clock": {"period": "10 ns"}}, all_flows_settings=sections
+            Nextpnr,
+            design,
+            {"clocks": {"main_clock": {"period": "10 ns"}}},
+            all_flows_settings=sections,
         )
     assert "`fpga`" not in str(raised.value), "it got past the check, to the missing tool"
     assert "was removed" not in str(raised.value)
@@ -118,10 +126,10 @@ def test_a_device_given_only_for_the_synthesis_dependency_is_enough(design, tmp_
 
     monkeypatch.setenv("PATH", "")
     monkeypatch.chdir(tmp_path)
-    design = with_updates(design, flow={"yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}}})
+    design = with_updates(design, flows={"yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}}})
     with pytest.raises(Exception) as raised:
         DefaultRunner(tmp_path / "xeda_run", display_results=False).run(
-            Nextpnr, design, flow_overrides={"clock": {"period": "10 ns"}}
+            Nextpnr, design, flow_overrides={"clocks": {"main_clock": {"period": "10 ns"}}}
         )
     assert "`fpga`" not in str(raised.value), "it got past the check, to the missing tool"
 

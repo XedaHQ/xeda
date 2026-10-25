@@ -14,8 +14,8 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 
 | Need | Command |
 | --- | --- |
-| Flows, with aliases, default producers, declared I/O and chain relations | `xeda list-flows --json` |
-| Settings of a flow (name, alias, type, default, enum, `writes`, `common`, `tier`, `group`) | `xeda list-settings <flow> --json` (`--no-common` omits the settings every flow has; `--tier common` keeps the most used) |
+| Flows, with default producers, declared I/O and chain relations | `xeda list-flows --json` |
+| Settings of a flow (name, type, default, enum, `writes`, `common`, `tier`, `group`) | `xeda list-settings <flow> --json` (`--no-common` omits the settings every flow has; `--tier common` keeps the most used) |
 | Result keys of a flow | `xeda list-results <flow> --json` |
 | Design file schema | `xeda design-schema` |
 | Boards, ASIC platforms, DSE optimizers | `xeda list-boards --json`, `xeda list-platforms --json`, `xeda list-optimizers --json` |
@@ -23,7 +23,7 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 | Install the PDK files of a platform (downloads and writes the PDK store; propose it to the user first) | `xeda pdk install <platform> --json` (installs without asking; reports `already_installed` when the files are there; `--provider lambdapdk` installs `sky130hd` from lambdapdk, which `-s pdk_provider=lambdapdk` then selects) |
 | What a run would do | `xeda run <flow> <design> --dry-run --json` |
 | Run | `xeda run <flow> <design> -s KEY=VALUE --json` |
-| Search for the highest clock frequency | `xeda dse <flow> --design <design> --json` |
+| Search for the highest clock frequency | `xeda dse <flow> <design> --json` |
 | Remove a flow's old run directories | `xeda scrub <flow> <design> [--target NAME] --json` |
 
 Query commands take `--format {table,json,jsonl,yaml}` (`design-schema`: `json`, `yaml`); `--json` is
@@ -37,7 +37,7 @@ and `skipped` paths. The Python API never prompts: `scrub_design` and a launch w
 `scrub_old_runs` remove nothing unless the caller passes `confirm` / sets `confirm_scrub`.
 
 ```bash
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5ns --json | jq '.nodes[-1].record.metrics.fmax'
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clocks.main_clock.period=5ns --json | jq '.nodes[-1].record.metrics.fmax'
 ```
 
 The exit status of `run` is 0 for the outcome `passed`, 1 for any other outcome and 2 for a request
@@ -102,14 +102,14 @@ language.vhdl.standard: 2008
 rtl:
   sources: ["pkg.vhdl", "sqrt.vhdl"] # in compilation order
   top: sqrt
-  clock.port: clk # names the clock port; the period is a flow setting
+  clocks: [{port: clk}] # names the clock port; the period is a flow setting
   parameters.G_IN_WIDTH: 32
 tb:
   sources: ["tb_sqrt.py"] # a .py source is a cocotb testbench
 flows:
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clock.period: 5 ns
+    clocks.main_clock.period: 5 ns
 ```
 
 - Relative paths resolve against the design file's directory.
@@ -118,9 +118,9 @@ flows:
   `{file: "top.json", type: JsonNetlist}`. A source a generator writes is `{path: "gen/top.v"}`.
 - A non-cocotb HDL testbench needs `tb.top`; simulation flows refuse the design without it
   (`ghdl_sim` finds a VHDL testbench's top itself).
-- Give the clock port in `rtl.clock.port` and the period in the flow: `clock.period` (`5 ns`) or
-  `clock.freq` (`200 MHz`). For several clocks, use `rtl.clocks` and the flow's `clocks.<name>`.
-- A physical setting needs a unit: `clock.period: 5 ns`, `-s clock.period=5ns` (no space, so no
+- Give the clock port in `rtl.clocks` and the period in the flow: `clocks.main_clock.period` (`5 ns`) or
+  `clocks.main_clock.freq` (`200 MHz`). For several clocks, use `rtl.clocks` and the flow's `clocks.<name>`.
+- A physical setting needs a unit: `clocks.main_clock.period: 5 ns`, `-s clocks.main_clock.period=5ns` (no space, so no
   quotes), `abc.load: 3.9 fF`. A bare number fails with `` `5` needs a unit, such as `10 ns` ``.
   `list-settings` shows the kind (`time`, `frequency`, `capacitance`, ...) as the `type` of a
   setting that takes a unit. Units are case-sensitive (`MHz`, `fF`). See "Units" in
@@ -135,11 +135,11 @@ flows:
 ## Settings
 
 Layers, lowest to highest: flow defaults, project `flows.<flow>`, design `flows.<flow>`, selected
-target's `flows.<flow>`, `-s`, API. They merge key by key, so `-s clock.freq=100MHz` refines a
+target's `flows.<flow>`, `-s`, API. They merge key by key, so `-s clocks.main_clock.freq=100MHz` refines a
 nested section. Write a flow's settings under its own `flows.<flow>` only.
 
 ```bash
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clocks.main_clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
 xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
 ```
 
@@ -164,9 +164,9 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   `ndr.assignments`) takes a dotted name as one key:
   `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0` or
   `-s ir_drop.instance_power.u_core.reg_1=1mW`. Quote a name with a space.
-- Settings every flow accepts (`"common": true`) include `nthreads` (alias `ncpus`), `dockerized`
+- Settings every flow accepts (`"common": true`) include `nthreads`, `dockerized`
   (run the tools from their Docker image), `docker`, `quiet`, `verbose`, `debug`,
-  `redirect_stdout` and `lib_paths`. A setting with an `alias` accepts both names. A flow whose
+  `redirect_stdout` and `lib_paths`. A flow whose
   tool has no matching option accepts `nthreads`, `redirect_stdout` or `lib_paths` and ignores it:
   only the Vivado flows redirect output, and only GHDL, ModelSim, NVC and the Vivado simulation
   flows read `lib_paths`. `ghdl_sim`, `ghdl_synth` and `nvc` take a relative path as relative to the
@@ -212,7 +212,7 @@ no flow takes). A listed netlist is your claim: Xeda does not parse it or compar
 `platform`, `liberty` or `fpga`, and the tool that reads it reports unknown cells.
 
 A chain runs flows in order and binds each output to the next flow's required input; the last flow
-is the one requested (its record in the run document, `--help-settings` and exit status):
+is the one requested (its record in the run document and exit status):
 
 ```bash
 xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
@@ -318,13 +318,13 @@ Every flow needs `platform`, and the PDK files must be installed (`xeda pdk path
 --json`). A changed setting of a late flow reruns only that flow and the ones after it; a shared
 setting (`wire_rc`, `platform`) reruns every flow. The database carries the routing layers, the
 layer adjustments, `resize.opt_config`, `resize.global_sizing` and `design.dont_touch`: set them
-under `flows.openroad_place` only. Physical settings take units (`clock.period: 0.65 ns`,
+under `flows.openroad_place` only. Physical settings take units (`clocks.main_clock.period: 0.65 ns`,
 `floorplan.core_margin: 2 um`). `openroad` rejects a negative slack (`fail_timing`), design rule
 violations (`fail_drc`) and antenna violations left after the repair (`fail_antenna`), all on by
 default: outcome `rejected`, reported again without a tool run until something
 changes. A failed stage leaves `<flow>-failed.odb` in its run directory.
 `examples/bluespec/gcd/gcd.yaml` is a working design file for nangate45: its `flows.yosys` section
-sets `platform` and `clock.period`, and `bsc` converts the design first.
+sets `platform` and `clocks.main_clock.period`, and `bsc` converts the design first.
 
 ## Results
 
@@ -552,8 +552,8 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `storage_error` | A file or directory error of the operating system, or a path that leaves the run directory, ended the node (the record may be missing). Check the disk and permissions. |
 | `internal_error` | A bug of Xeda. Report it with the message. |
 
-Add `--debug` for verbose logs and a traceback. Flow names accept `vivado_synth`, `vivado-synth`
-and `VivadoSynth`; setting names are exact.
+Add `--log-level 10 --detailed-logs` for debug logs. Flow names and setting names are exact: a
+second spelling is refused, and the error names the right one.
 
 ## References
 
@@ -562,7 +562,7 @@ and `VivadoSynth`; setting names are exact.
 | `references/design-file.md` | Writing or fixing a design or project file; source types; clocks; targets; dotted keys |
 | `references/fpga-flows.md` | yosys_fpga, nextpnr, fpga_pack, openfpgaloader, openXC7, boards, pin constraints, `vivado_impl` |
 | `references/troubleshooting.md` | A failure, a simulation verdict, a waveform setting, a number that looks wrong |
-| `references/flows.md` | A flow's category, aliases, producers and result keys (generated by `xeda skill install`) |
+| `references/flows.md` | A flow's category, producers and result keys (generated by `xeda skill install`) |
 
 ## Library
 
@@ -571,7 +571,7 @@ from xeda import Design, DefaultRunner
 from xeda.introspect import flows_info, settings_info, results_info, design_schema
 
 design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
-flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock.period=5ns"])
+flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clocks.main_clock.period=5ns"])
 if flow and flow.results.success:
     print(flow.results.fmax)
 ```

@@ -213,7 +213,7 @@ _EXTRA_ARGUMENT = "Got unexpected extra argument ("
 def unit_after_space_hint(message: str, args: Sequence[str]) -> Optional[str]:
     """Return the hint for a unit that a user wrote after a space, or None.
 
-    `-s clock.period=5.5 ns` ends the list of `KEY=VALUE` items at `ns`, and click reports `ns` as
+    `-s clocks.main_clock.period=5.5 ns` ends the list of `KEY=VALUE` items at `ns`, and click reports `ns` as
     an extra argument. `message` is the text of that error and `args` the command line. The hint
     applies when the first extra argument is exactly a unit of a quantity and the token before it
     is an item whose value is a number.
@@ -614,8 +614,6 @@ def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
     table.add_column("Description", overflow="fold")
     for field in fields:
         name = escape(field["name"])
-        if field.get("alias"):
-            name += f"\n[dim](alias: {escape(str(field['alias']))})[/dim]"
         description = field.get("description") or ""
         if field.get("enum"):
             choices = ", ".join(str(c) for c in field["enum"])

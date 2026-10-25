@@ -5,7 +5,7 @@ rtl:
     - "../rtl/LeanLinkTestTop.bsv"
     - "../rtl/LeanLinkBoard.bsv"
   top: mkLeanLinkBoard
-  clock.port: CLK
+  clocks: [{port: CLK}]
   defines:
     CLK_HZ: 100000000
     BAUD: 12000000
@@ -35,11 +35,11 @@ tb:
 flows:
   vivado_synth:
     fpga.part: xc7a100tcsg324-1
-    clock.period: 10 ns
+    clocks.main_clock.period: 10 ns
     out_of_context: true
   yosys_fpga:
     fpga.part: xc7a100tcsg324-1
-    clock.period: 10 ns
+    clocks.main_clock.period: 10 ns
 targets:
   sim_bytes:
     rtl:
@@ -83,10 +83,10 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: LFE5U-85F-6BG381C
-        clock.period: 40 ns
+        clocks.main_clock.period: 40 ns
       nextpnr:
         board: ulx3s_85f
-        clock.freq: 25 MHz
+        clocks.main_clock.freq: 25 MHz
       openfpgaloader:
         board: ulx3s_85f
   stlv7325:
@@ -96,16 +96,16 @@ targets:
         - "../boards/StlvClock50.v"
         - "../boards/stlv50.sdc"
       top: mkStlvLeanLink50
-      clock.port: clk_p
+      clocks: [{port: clk_p}]
       defines:
         CLK_HZ: 50000000
         BAUD: 3000000
     flows:
       yosys_fpga:
         fpga.part: xc7k325tffg676-2
-        clock.period: 5 ns
+        clocks.main_clock.period: 5 ns
       nextpnr:
         board: stlv7325_v2
-        clock.freq: 200 MHz
+        clocks.main_clock.freq: 200 MHz
       openfpgaloader:
         board: stlv7325_v2

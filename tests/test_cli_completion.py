@@ -244,10 +244,16 @@ def only_the_product_and_chain_fixture_flows():
             "xeda run __chain_producer+__chain_a",
             ["__chain_producer+__chain_action", "__chain_producer+__chain_ambiguous_default"],
         ),
-        # an alias prefix completes to the alias; the prefix typed before is kept verbatim
-        ("xeda run __chain_simple_producer+sink", ["__chain_simple_producer+sink_alias"]),
-        ("xeda run chain-source+sink", []),  # json_a/json_b is ambiguous: qualify first
-        ("xeda run chain-source.json_a+sink", ["chain-source.json_a+sink_alias"]),
+        # the prefix typed before is kept verbatim
+        (
+            "xeda run __chain_simple_producer+__chain_al",
+            ["__chain_simple_producer+__chain_aliased"],
+        ),
+        ("xeda run __chain_producer+__chain_al", []),  # json_a/json_b is ambiguous: qualify first
+        (
+            "xeda run __chain_producer.json_a+__chain_al",
+            ["__chain_producer.json_a+__chain_aliased"],
+        ),
         # a flow cannot repeat, an action ends a chain, an undeclared flow runs alone
         ("xeda run __chain_simple_producer+__chain_simple_p", []),
         ("xeda run __chain_simple_producer+__chain_action+", []),

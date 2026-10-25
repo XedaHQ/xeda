@@ -5,7 +5,7 @@
 # match src/xeda/data/boards/ulx3s/board.lpf, which the bundled file uses for clk_25mhz.
 #
 # Clock: 25 MHz oscillator on G2. There is no FREQUENCY line on purpose: the flow's clock setting
-# (nextpnr clock.freq: 25 MHz in uart_echo.yaml) gives the period, and a clock with two
+# (nextpnr clocks.main_clock.freq: 25 MHz in uart_echo.yaml) gives the period, and a clock with two
 # constraints is an error. With another tool flow, add `FREQUENCY PORT "CLK" 25 MHZ;`.
 #
 # The asynchronous inputs (rxd, sw, btn) go through two flops each inside the design, so they need

@@ -20,8 +20,8 @@
    a `nextpnr` timing miss without `timing_allow_fail` (nextpnr stops itself).
 3. `settings.json` in `run_dir`: `flow_settings` is what you asked for, `effective_flow_settings`
    is what the flow made of it.
-4. The tool log and the generated scripts in `run_dir`. Add `--debug` for verbose logs and a
-   traceback.
+4. The tool log and the generated scripts in `run_dir`. Add `--log-level 10 --detailed-logs` for
+   debug logs.
 
 ## Messages and fixes
 
@@ -34,7 +34,7 @@
 | `` `-s flows.<name>.*` names no flow of this run (<flow>) `` | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
 | `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says; when nothing replaces the setting, it says so (`` `no_console` was removed: no flow read it; delete it ``). For example, use `timeout` (on the simulators) for `timeout_seconds`. For `open_xc7`, use `fpga_pack` to build and `openfpgaloader` to program: move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga` and its pin files to `rtl.sources`. |
 | `` `yes` is text, not a boolean: write `true` `` | A boolean takes `true` or `false` only. |
-| `` `10` needs a unit, such as `10 ns`: a bare number does not mean anything `` | A setting of a kind (`time`, `frequency`, `capacitance`, ...) needs a unit: `clock.period: 10 ns`, `-s clock.period=10ns`. `list-settings` shows the kind as the `type`. See "Units" in `design-file.md`. |
+| `` `10` needs a unit, such as `10 ns`: a bare number does not mean anything `` | A setting of a kind (`time`, `frequency`, `capacitance`, ...) needs a unit: `clocks.main_clock.period: 10 ns`, `-s clocks.main_clock.period=10ns`. `list-settings` shows the kind as the `type`. See "Units" in `design-file.md`. |
 | `` `5 MHz` is a frequency, not a time `` | The unit is of another kind. Use a unit of the kind that the message names. |
 | `` unit `ff` in `3.9 ff`: units are case-sensitive, did you mean `fF`? `` | Write the unit as the message says (`MHz`, not `mhz`). |
 | `` unknown unit `nanoseconds` in `10 nanoseconds`: a time takes one of fs, ps, ns, us, µs, ms, s, min, h `` | Use one of the units listed. A spelled-out name is refused. |
@@ -91,7 +91,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 ### Tools
 
 - `ExecutableNotFound`: `Executable 'ghdl' was not found in PATH. flow:ghdl_sim, tool:GhdlTool`
-  (`--debug` appends `, PATH:...`). Install the tool, or run it from a container with `-s dockerized=true`. For a node that ran in this
+  Install the tool, or run it from a container with `-s dockerized=true`. For a node that ran in this
   launch, the log shows the executable that Xeda found.
 - `nonzero_exit` (`timeout` for a time limit): `Command '...' exited with code 1!` in the failed node's `record.error`. The
   generated script and the tool's log are in its `run_dir`.
@@ -119,7 +119,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 
 `--remote` failures have their own types, which start the log line (`RemoteConnectionError: ...`); the document has the code `remote_failed`, `remote_fetch_failed`, `delivery_failed`, `remote_detached` or `canceled`, and the message without the type. The message names the step and the cause. Test the
 destination with `ssh HOST true` first; `xeda remote check HOST --json` is the first diagnostic
-(connection, environment, disk, tools on the login `PATH`); add `--debug` for the commands and the
+(connection, environment, disk, tools on the login `PATH`); add `--log-level 10` for the commands and the
 output of the host. A login profile that prints text does no harm (up to 1 MiB before the agent).
 
 | Type (start of the log line) | Fix |

@@ -298,7 +298,7 @@ def test_yosys_fpga_json_netlist_follows_netlist_src_attrs(keep_src, script_form
         YosysFpga,
         script_format,
         tmp_path,
-        fpga="iCE40HX1K-TQ144",
+        fpga={"part": "iCE40HX1K-TQ144"},
         flatten=False,
         netlist_src_attrs=keep_src,
     )
@@ -581,7 +581,7 @@ def test_yosys_fpga_default_flags_drop_noautowire_only_for_fpga():
 
 
 def test_yosys_fpga_does_not_register_disabled_timing_report(tmp_path):
-    flow = _synthesize_src_design(YosysFpga, "ys", tmp_path, fpga="iCE40HX1K-TQ144")
+    flow = _synthesize_src_design(YosysFpga, "ys", tmp_path, fpga={"part": "iCE40HX1K-TQ144"})
     assert flow.settings.sta is False
     assert flow.artifacts.timing_report is None
 
@@ -942,7 +942,9 @@ def test_yosys_fpga_hands_ghdl_each_vhdl_file_once(tmp_path):
     analyzed each twice (`ghdl ... sqrt.vhdl sqrt.vhdl -e sqrt`)."""
     require_yosys_ghdl_plugin()
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
-    flow = DefaultRunner(tmp_path).run_flow(YosysFpga, design, {"fpga": "LFE5U-25F-6BG381C"})
+    flow = DefaultRunner(tmp_path).run_flow(
+        YosysFpga, design, {"fpga": {"part": "LFE5U-25F-6BG381C"}}
+    )
     assert flow is not None and flow.succeeded
     ghdl_line = next(
         line
@@ -1078,7 +1080,7 @@ def test_the_map_files_resolve_against_the_design_root(tmp_path):
     flow = Yosys(
         Yosys.Settings(
             liberty=["lib/cells.lib"],
-            clock={"period": "5 ns"},
+            clocks={"main_clock": {"period": "5 ns"}},
             arithmetic={"adder_map_file": "maps/add.v"},
             sequential={"clockgate_map_file": "maps/cg.v", "latch_map_file": "maps/latch.v"},
             techmap_files=["maps/a.v", "maps/b.v"],
@@ -1100,7 +1102,9 @@ def test_the_map_files_resolve_against_the_design_root(tmp_path):
     ]
     fpga = YosysFpga(
         YosysFpga.Settings(
-            fpga={"part": "xc7a12tcsg325-1"}, clock={"period": "5 ns"}, clockgate_map="maps/cg.v"
+            fpga={"part": "xc7a12tcsg325-1"},
+            clocks={"main_clock": {"period": "5 ns"}},
+            clockgate_map="maps/cg.v",
         ),
         design,
         tmp_path / "yosys_fpga",

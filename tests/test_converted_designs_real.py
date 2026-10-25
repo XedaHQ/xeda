@@ -37,7 +37,7 @@ class Gcd:
         (self.root / "rtl" / "pins.xdc").write_text(CONSTRAINTS)
         document: dict[str, Any] = yaml.safe_load((self.root / "gcd.yaml").read_text())
         document["rtl"]["sources"] += ["rtl/spare.v", "rtl/pins.xdc"]
-        document["flows"] = {"yosys": {"clock": {"period": "2 ns"}}}
+        document["flows"] = {"yosys": {"clocks": {"main_clock": {"period": "2 ns"}}}}
         self.file = self.root / "gcd.yaml"
         self.file.write_text(yaml.safe_dump(document, sort_keys=False))
         self.runner = DefaultRunner(tmp_path / "run", display_results=False)
@@ -114,12 +114,12 @@ def test_a_small_design_with_a_verilog_module_beside_the_bluespec_runs_on_yosys(
     require_yosys()
     design = _design(tmp_path / "d", vhdl=False)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow("yosys", design, {"clock": {"period": "5 ns"}})
+    flow = runner.run_flow("yosys", design, {"clocks": {"main_clock": {"period": "5 ns"}}})
     assert flow is not None and flow.succeeded
     assert [f.name for f in runner.launched] == ["bsc", "yosys"]
     assert [f.reused for f in runner.launched] == [False, False]
     again = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = again.run_flow("yosys", design, {"clock": {"period": "5 ns"}})
+    flow = again.run_flow("yosys", design, {"clocks": {"main_clock": {"period": "5 ns"}}})
     assert flow is not None and [f.reused for f in again.launched] == [True, True]
 
 
@@ -251,14 +251,14 @@ def test_a_generator_writes_the_bluespec_that_bsc_converts(tmp_path) -> None:
                 "rtl": {
                     "sources": ["rtl/Counter.bsv"],
                     "top": "mkCounter",
-                    "clock": {"port": "CLK"},
+                    "clocks": [{"port": "CLK"}],
                     "generator": {
                         "executable": sys.executable,
                         "args": ["gen.py"],
                         "sources": ["gen.py", "spec.txt"],
                     },
                 },
-                "flows": {"yosys": {"clock": {"period": "5 ns"}}},
+                "flows": {"yosys": {"clocks": {"main_clock": {"period": "5 ns"}}}},
             },
             sort_keys=False,
         )

@@ -189,16 +189,16 @@ def _design_for(flow_name: str, tmp_path: Path) -> Design:
 #: Settings that switch the optional files of a flow on, for the fake runs.
 FULL = {
     "vivado_synth": {
-        "fpga": "xc7a12tcsg325-1",
-        "clock": {"period": "10 ns"},
+        "fpga": {"part": "xc7a12tcsg325-1"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
         "bitstream": "o/top.bit",
         "write_netlist": True,
         "write_timing_netlist": True,
         "write_checkpoint": True,
     },
     "vivado_alt_synth": {
-        "fpga": "xc7a12tcsg325-1",
-        "clock": {"period": "10 ns"},
+        "fpga": {"part": "xc7a12tcsg325-1"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
         "write_netlist": True,
         "write_timing_netlist": True,
         "write_checkpoint": True,
@@ -245,7 +245,7 @@ def test_a_run_writes_only_documented_artifacts(part, placer, packer, tmp_path, 
     flow = runner.run(
         "fpga_pack",
         design,
-        flow_settings={"fpga": part, "flows.nextpnr.placed_svg": "placed.svg"},
+        flow_settings={"fpga": {"part": part}, "flows.nextpnr.placed_svg": "placed.svg"},
     )
 
     assert flow is not None and flow.succeeded
@@ -427,10 +427,14 @@ def test_a_reused_run_keeps_the_artifacts_of_its_record(tmp_path, monkeypatch):
     design = Design.from_file(EXAMPLE)
 
     first = runner.launch_flow(
-        "quartus", design, {"fpga": "10CL016YU256C6G", "clock": {"period": "10 ns"}}
+        "quartus",
+        design,
+        {"fpga": {"part": "10CL016YU256C6G"}, "clocks": {"main_clock": {"period": "10 ns"}}},
     )
     again = runner.launch_flow(
-        "quartus", design, {"fpga": "10CL016YU256C6G", "clock": {"period": "10 ns"}}
+        "quartus",
+        design,
+        {"fpga": {"part": "10CL016YU256C6G"}, "clocks": {"main_clock": {"period": "10 ns"}}},
     )
 
     assert first.succeeded and again.reused

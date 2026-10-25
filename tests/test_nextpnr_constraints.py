@@ -19,7 +19,7 @@ def make_flow(tmp_path, monkeypatch, *, sources=(), settings=None, top="d"):
     design = Design(name="d", design_root=tmp_path, rtl={"sources": list(sources), "top": top})
     flow = Nextpnr(
         Nextpnr.Settings.from_input(
-            settings or {"fpga": "LFE5U-25F-6BG381C"}, design_root=tmp_path
+            settings or {"fpga": {"part": "LFE5U-25F-6BG381C"}}, design_root=tmp_path
         ),
         design,
         tmp_path / "pnr",
@@ -75,7 +75,7 @@ def test_ordered_pin_sources_and_sdc_setting_reach_tool_once(
         tmp_path,
         monkeypatch,
         sources=[a.name, {"file": b.name, "type": kind}, timing.name],
-        settings={"fpga": part, "sdc": extra.name},
+        settings={"fpga": {"part": part}, "sdc": extra.name},
     )
     flow.prepare_inputs()
     flow.run()
@@ -106,7 +106,7 @@ def test_file_clock_and_setting_duplicate_names_both_origins(tmp_path, monkeypat
         monkeypatch,
         sources=[source.name],
         settings={
-            "fpga": "LFE5U-25F-6BG381C",
+            "fpga": {"part": "LFE5U-25F-6BG381C"},
             "clocks": {"main": {"port": "clk", "period": "10 ns"}},
         },
     )
@@ -125,7 +125,7 @@ def test_duplicate_clocks_across_typed_sdc_and_setting(tmp_path, monkeypatch):
         tmp_path,
         monkeypatch,
         sources=["first.sdc"],
-        settings={"fpga": "LFE5U-25F-6BG381C", "sdc": "last.sdc"},
+        settings={"fpga": {"part": "LFE5U-25F-6BG381C"}, "sdc": "last.sdc"},
     )
     flow.prepare_inputs()
     with pytest.raises(FlowFatalError) as exc:
@@ -179,7 +179,7 @@ def test_xilinx_clocks_are_literal_and_merged_line_errors_keep_origins(tmp_path,
         monkeypatch,
         sources=["one.xdc", "two.xdc"],
         settings={
-            "fpga": "xc7a35tcsg324-1",
+            "fpga": {"part": "xc7a35tcsg324-1"},
             "clocks": {
                 "main": {"port": "clk[0]", "period": "10 ns"},
                 "aux": {"port": "clk with space[1]", "period": "20 ns"},
@@ -228,7 +228,7 @@ def test_unresolved_or_ambiguous_clock_selectors_are_honest(tmp_path, monkeypatc
         monkeypatch,
         sources=["timing.sdc"],
         settings={
-            "fpga": "LFE5U-25F-6BG381C",
+            "fpga": {"part": "LFE5U-25F-6BG381C"},
             "clocks": {"main": {"port": "clk", "period": "40 ns"}},
         },
     )
@@ -259,7 +259,7 @@ def test_settings_clock_ignores_comment_clocks_and_port_only_design_warns(
         monkeypatch,
         sources=["pins.lpf"],
         settings={
-            "fpga": "LFE5U-25F-6BG381C",
+            "fpga": {"part": "LFE5U-25F-6BG381C"},
             "clocks": {"main": {"port": "clk", "period": "40 ns"}},
         },
     )
@@ -292,7 +292,7 @@ def test_typed_sources_displace_board_fallback_and_foreign_sources_do_not(tmp_pa
 
 
 def test_xilinx_missing_pins_names_typed_source_remedy(tmp_path, monkeypatch):
-    flow, _ = make_flow(tmp_path, monkeypatch, settings={"fpga": "xc7a35tcsg324-1"})
+    flow, _ = make_flow(tmp_path, monkeypatch, settings={"fpga": {"part": "xc7a35tcsg324-1"}})
     with pytest.raises(FlowFatalError, match="typed Xdc.*rtl.sources"):
         flow.prepare_inputs()
 
@@ -601,7 +601,7 @@ def test_ordered_sdc_sources_alone_keep_explicit_types_and_line_map(tmp_path, mo
 def test_sdc_setting_alone_remains_tracked_and_applied(tmp_path, monkeypatch):
     (tmp_path / "timing.sdc").write_text("create_clock -period 40 [get_ports clk]\n")
     flow, calls = make_flow(
-        tmp_path, monkeypatch, settings={"fpga": "LFE5U-25F-6BG381C", "sdc": "timing.sdc"}
+        tmp_path, monkeypatch, settings={"fpga": {"part": "LFE5U-25F-6BG381C"}, "sdc": "timing.sdc"}
     )
     flow.prepare_inputs()
     flow.run()
@@ -626,7 +626,7 @@ def test_timing_file_edit_invalidates_the_next_launch(tmp_path, monkeypatch, cha
         rtl={"sources": [{"file": netlist.name, "type": "JsonNetlist"}, source.name], "top": "d"},
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    settings = {"fpga": "LFE5U-25F-6BG381C", "sdc": setting}
+    settings = {"fpga": {"part": "LFE5U-25F-6BG381C"}, "sdc": setting}
     assert runner.launch_flow(Nextpnr, design, settings).succeeded
     assert runner.launch_flow(Nextpnr, design, settings).reused
     (source if changed == "source" else setting).write_text("# edited\n")

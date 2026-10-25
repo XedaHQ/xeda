@@ -174,13 +174,13 @@ def _settings(root: Path, flow: str) -> dict:
         lib = root / "pdk" / "cells.db"
         lib.parent.mkdir(parents=True, exist_ok=True)
         lib.write_text("")
-        return {"target_libraries": [str(lib)], "clock": {"period": "10 ns"}}
+        return {"target_libraries": [str(lib)], "clocks": {"main_clock": {"period": "10 ns"}}}
     fpga = {
         "quartus": "10CL016YU256C6G",
         "ise_synth": "xc6slx9-2-tqg144",
         "diamond_synth": "LFE5U-25F-6BG256C",
     }.get(flow, "xc7a12tcsg325-1")
-    return {"fpga": fpga, "clock": {"period": "10 ns"}}
+    return {"fpga": {"part": fpga}, "clocks": {"main_clock": {"period": "10 ns"}}}
 
 
 def _every_type(
@@ -208,7 +208,7 @@ def _every_type(
         rtl={
             "sources": [{"file": str(p), "type": m.name} for m, p in files.items()],
             "top": "top",
-            "clock": "clk",
+            "clocks": ["clk"],
         },
     )
     return design, files
@@ -492,7 +492,7 @@ def test_a_producer_that_another_input_binds_is_not_said_to_leave_the_plan(
     monkeypatch.chdir(tmp_path)
     taker = _reads_nextpnr_and_the_netlist()
     design = _edif_only(tmp_path / "design")
-    design = with_updates(design, flow={taker.name: {"inputs": {"netlist": "yosys_fpga.netlist"}}})
+    design = with_updates(design, flows={taker.name: {"inputs": {"netlist": "yosys_fpga.netlist"}}})
     with pytest.raises(FlowSettingsException) as raised:
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
             taker, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
@@ -515,14 +515,17 @@ def test_a_producer_that_several_inputs_reach_by_default_is_not_said_to_leave_wi
     design = Design(
         name="d",
         design_root=root,
-        rtl={"sources": ["top.edf"], "top": "top", "clock": "clk"},
+        rtl={"sources": ["top.edf"], "top": "top", "clocks": ["clk"]},
         tb={"sources": ["tb.v"], "top": "tb", "uut": "dut"},
     )
     with pytest.raises(FlowSettingsException) as raised:
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
             "vivado_power",
             design,
-            flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}},
+            flow_settings={
+                "fpga": {"part": "xc7a12tcsg325-1"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
+            },
         )
     assert str(raised.value) == _own_refusal("vivado_synth", design)
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
@@ -556,7 +559,7 @@ def test_quartus_assigns_each_source_it_reads_by_the_assignment_quartus_has(tmp_
     for name in names:
         (root / name).write_text("# a source\n")
     design = Design(
-        name="d", design_root=root, rtl={"sources": names, "top": "top", "clock": "clk"}
+        name="d", design_root=root, rtl={"sources": names, "top": "top", "clocks": ["clk"]}
     )
     calls = _calls("quartus", design, _settings(root, "quartus"), tmp_path, monkeypatch)
     assert ["set_global_assignment", "-name", "VERILOG_FILE", str(root / "top.v")] in calls
@@ -583,7 +586,7 @@ def test_ise_preserves_each_header_search_directory_as_a_list_element(
     design = Design(
         name="d",
         design_root=root,
-        rtl={"sources": ["top.v", *headers], "top": "top", "clock": "clk"},
+        rtl={"sources": ["top.v", *headers], "top": "top", "clocks": ["clk"]},
     )
     calls = _calls("ise_synth", design, _settings(root, "ise_synth"), tmp_path, monkeypatch)
     (setting,) = [
@@ -697,7 +700,7 @@ def test_vivado_project_filters_testbench_sources_in_design_order(tmp_path, monk
     design = Design(
         name="d",
         design_root=root,
-        rtl={"sources": [], "top": "top", "clock": "clk"},
+        rtl={"sources": [], "top": "top", "clocks": ["clk"]},
         tb={"sources": entries, "top": "tb"},
     )
     calls = _calls(
@@ -752,7 +755,7 @@ def test_explicit_language_reaches_the_tool_command(flow, member, suffix, tmp_pa
         rtl={
             "sources": [{"file": str(path), "type": member.name}],
             "top": "top",
-            "clock": "clk",
+            "clocks": ["clk"],
         },
     )
     if flow == "yosys_fpga":
@@ -1362,7 +1365,7 @@ def _example_requests(path: Path):
         designs, shared = [Design.from_file(path)], {}
     for design in designs:
         assert design is not None
-        for flow in sorted(set(design.flow or {}) | set(shared)):
+        for flow in sorted(set(design.flows or {}) | set(shared)):
             yield design, flow, shared.get(flow, {})
 
 

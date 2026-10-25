@@ -23,7 +23,7 @@ EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 
 def test_vivado_synth_template(tmp_path: Path) -> None:
     design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
-    settings = VivadoSynth.Settings(fpga=FPGA(part="abcd"), clock={"period": "5.5 ns"})  # type: ignore
+    settings = VivadoSynth.Settings(fpga=FPGA(part="abcd"), clocks={"main_clock": {"period": "5.5 ns"}})  # type: ignore
     run_dir = tmp_path / "vivado_synth_run"
     run_dir.mkdir()
     flow = VivadoSynth(settings, design, run_dir)  # type: ignore
@@ -52,7 +52,7 @@ def test_vivado_synth_template(tmp_path: Path) -> None:
 def test_vivado_synth_py(tmp_path: Path, monkeypatch) -> None:
     use_fake_tools(monkeypatch)
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
-    settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock={"period": "5.5 ns"})
+    settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clocks={"main_clock": {"period": "5.5 ns"}})
     xeda_runner = DefaultRunner(tmp_path / "xeda_run", debug=True)
     flow = xeda_runner.run_flow(VivadoSynth, design, settings)
     assert flow is not None, "run_flow returned None"
@@ -98,7 +98,7 @@ def _run_report(
     registered path."""
     assert TCLSH
     design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
-    settings = VivadoSynth.Settings(fpga=FPGA(part="abcd"), clock={"period": "5.5 ns"})  # type: ignore
+    settings = VivadoSynth.Settings(fpga=FPGA(part="abcd"), clocks={"main_clock": {"period": "5.5 ns"}})  # type: ignore
     flow = VivadoSynth(settings, design, tmp_dir)  # type: ignore
     util_tcl = tmp_dir / flow.copy_from_template("util.tcl")
 
@@ -146,7 +146,7 @@ def test_vivado_s_version_probe_does_not_make_vivado_synth_stale(tmp_path, monke
 
     use_fake_tools(monkeypatch)
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
-    settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock=dict(period="5.5 ns"))
+    settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clocks={"main_clock": dict(period="5.5 ns")})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     first = runner.launch_flow(VivadoSynth, design, settings)
     assert first.succeeded
@@ -224,12 +224,14 @@ def test_num_critical_paths_setting_reaches_the_templates() -> None:
     from xeda.flows.vivado.vivado_alt_synth import flatten_options, synth_design_options
 
     design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
-    assert VivadoSynth.Settings(fpga=FPGA(part="abcd"), clock={"period": "5.5 ns"}).num_critical_paths == 100  # type: ignore
+    assert VivadoSynth.Settings(fpga=FPGA(part="abcd"), clocks={"main_clock": {"period": "5.5 ns"}}).num_critical_paths == 100  # type: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp).resolve()
         settings = VivadoSynth.Settings(  # type: ignore
-            fpga=FPGA(part="abcd"), clock={"period": "5.5 ns"}, num_critical_paths=7
+            fpga=FPGA(part="abcd"),
+            clocks={"main_clock": {"period": "5.5 ns"}},
+            num_critical_paths=7,
         )
         flow = VivadoSynth(settings, design, tmp_dir)  # type: ignore
         hook = tmp_dir / flow.copy_from_template(
@@ -244,7 +246,9 @@ def test_num_critical_paths_setting_reaches_the_templates() -> None:
         )
 
         alt_settings = VivadoAltSynth.Settings(  # type: ignore
-            fpga=FPGA(part="abcd"), clock={"period": "5.5 ns"}, num_critical_paths=7
+            fpga=FPGA(part="abcd"),
+            clocks={"main_clock": {"period": "5.5 ns"}},
+            num_critical_paths=7,
         )
         alt_flow = VivadoAltSynth(alt_settings, design, tmp_dir)  # type: ignore
         alt_flow.init()  # registers the vivado_generics / vivado_defines filters
@@ -296,8 +300,8 @@ def test_vivado_alt_synth_records_the_checkpoints_and_netlists_it_writes(
     use_fake_tools(monkeypatch)
     design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
     settings = {
-        "fpga": "xc7a12tcsg325-1",
-        "clock": {"period": "5.5 ns"},
+        "fpga": {"part": "xc7a12tcsg325-1"},
+        "clocks": {"main_clock": {"period": "5.5 ns"}},
         "write_checkpoint": enabled,
         "write_netlist": enabled,
         "write_timing_netlist": enabled,

@@ -66,7 +66,10 @@ READERS = {
 
 #: settings with which each flow whose fake tool writes its reports runs through to success
 SUCCEEDING = {
-    "vivado_synth": {"fpga": {"part": "xc7a12tcsg325-1"}, "clock": {"period": "10 ns"}},
+    "vivado_synth": {
+        "fpga": {"part": "xc7a12tcsg325-1"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+    },
 }
 
 
@@ -122,7 +125,7 @@ def _launch(flow_class, work: Path, run_root: Path, **launcher):
     design = Design(
         name="sqrt",
         design_root=work,
-        rtl={"sources": sources, "top": top, "clock": {"port": "clk"}},
+        rtl={"sources": sources, "top": top, "clocks": [{"port": "clk"}]},
         tb={"sources": ["tb_sqrt.py"], "cocotb": True},
         language={"vhdl": {"standard": "2008"}},
     )

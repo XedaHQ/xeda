@@ -7,7 +7,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import ClassVar, List, Literal, Optional, Union
 
-from ...dataclass import Field, XedaBaseModel, field_validator, waveform
+from ...dataclass import Field, SecondSpelling, XedaBaseModel, field_validator, waveform
 from ...design import Source, SourceType, VhdlSettings, language_of
 from ...flow import (
     Flow,
@@ -78,6 +78,7 @@ class Nvc(SimFlow):
             "exit_severity": "fail_severity",
             "wave": "`fst`",
             "wave_format": "`fst` or `vcd`",
+            "warn_error": SecondSpelling("`werror`"),
             "optimization_flags": "`optimization_level` (`nvc -e -O`), or `elab_flags` for other options of "
             "`nvc -e`",
         }
@@ -111,7 +112,6 @@ class Nvc(SimFlow):
         )
         werror: bool = Field(
             False,
-            alias="warn_error",
             description="Treat the warnings of the analysis as errors (`-Werror`).",
         )
         work: Optional[str] = Field(None, description="Name of the WORK library.")

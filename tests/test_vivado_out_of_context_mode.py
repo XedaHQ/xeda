@@ -17,7 +17,7 @@ from xeda.flows import VivadoAltSynth, VivadoProject, VivadoSynth
 from .test_vivado_step_tables import PART, _design, _run, _script, needs_tclsh
 from .tool_utils import use_fake_tools
 
-SETTINGS = {"fpga": PART, "clock": {"period": "5.5 ns"}}
+SETTINGS = {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
 
 #: Where each flow takes the options of `synth_design`, and how its script shows them.
 MORE_OPTIONS = "synth.steps.SYNTH_DESIGN.ARGS.MORE.OPTIONS"

@@ -54,8 +54,11 @@ pytestmark = pytest.mark.python_compat
 
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 
-XILINX = ["-s", "fpga.part=xc7a12tcsg325-1", "clock.period=10ns"]
-XILINX_SETTINGS = {"fpga": {"part": "xc7a12tcsg325-1"}, "clock": {"period": "10 ns"}}
+XILINX = ["-s", "fpga.part=xc7a12tcsg325-1", "clocks.main_clock.period=10ns"]
+XILINX_SETTINGS = {
+    "fpga": {"part": "xc7a12tcsg325-1"},
+    "clocks": {"main_clock": {"period": "10 ns"}},
+}
 PRECIOUS = "the user's own file, at the path they named\n"
 
 
@@ -158,7 +161,7 @@ def toy_flows():
 
     yield ToyDep, ToyTop
     for cls in (ToyDep, ToyTop):
-        for name in (cls.name, cls.__name__):
+        for name in (cls.name,):
             registered_flows.pop(name, None)
 
 
@@ -309,7 +312,7 @@ def _dotdot_design(start: Path) -> Path:
         "[rtl]\n"
         'sources = ["sqrt.vhdl"]\n'
         'top = "sqrt"\n'
-        'clock.port = "clk"\n'
+        'clocks = ["clk"]\n'
     )
     return design_file
 
@@ -724,7 +727,10 @@ def test_a_diamond_impl_folder_outside_the_run_directory_is_refused(tmp_path, mo
     launcher = _launcher(tmp_path)
     outside = _outside(tmp_path, "impl")
     before = _tree(outside)
-    settings = {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock": {"period": "10 ns"}}
+    settings = {
+        "fpga": {"part": "LFE5U-25F-6BG381C"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+    }
 
     with pytest.raises(FlowSettingsError) as refused:
         launcher.launch_flow(
@@ -752,7 +758,10 @@ def test_a_diamond_impl_folder_is_deleted_exactly_as_checked(tmp_path, monkeypat
     run_dir = launcher.get_flow_run_path("sqrt", "diamond_synth")
     (run_dir / impl_folder).mkdir(parents=True)
     (run_dir / impl_folder / "old.txt").write_text("an earlier run's\n")
-    settings = {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clock": {"period": "10 ns"}}
+    settings = {
+        "fpga": {"part": "LFE5U-25F-6BG381C"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+    }
 
     try:
         launcher.launch_flow(

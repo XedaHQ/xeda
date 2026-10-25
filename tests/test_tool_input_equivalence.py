@@ -301,8 +301,8 @@ CLOCK_TIME_FIELDS = ("period", "rise", "uncertainty", "skew")
 #: The same clocks, spelled on the command line with a unit where the goldens' requests have a
 #: bare number of nanoseconds (the request records how it was spelled).
 REVIEWED_REQUEST_SPELLINGS = {
-    "flows.vivado_synth.clock.period=5ns": "flows.vivado_synth.clock.period=5.0",
-    "clock.period=2ns": "clock.period=2.0",
+    "flows.vivado_synth.clocks.main_clock.period=5ns": "flows.vivado_synth.clocks.main_clock.period=5.0",
+    "clocks.main_clock.period=2ns": "clocks.main_clock.period=2.0",
 }
 
 
@@ -347,8 +347,8 @@ def activity_recording_delta(record: dict, name: str, *, baseline: bool = False)
 
 
 VIVADO_SETTINGS = (
-    "flows.vivado_synth.fpga=xc7a12tcsg325-1",
-    "flows.vivado_synth.clock.period=5ns",
+    "flows.vivado_synth.fpga.part=xc7a12tcsg325-1",
+    "flows.vivado_synth.clocks.main_clock.period=5ns",
 )
 
 
@@ -368,7 +368,7 @@ REQUESTS: dict[str, Request] = {
     "vivado_power": Request("vivado_power", VIVADO_SETTINGS),
     "yosys_asic": Request(
         "yosys",
-        ("platform_file=tiny.yaml", "clock.period=2ns", "abc.strategy=speed_roundtrip"),
+        ("platform_file=tiny.yaml", "clocks.main_clock.period=2ns", "abc.strategy=speed_roundtrip"),
         kind="yosys",
     ),
 }
@@ -385,8 +385,7 @@ def write_vivado_design(root: Path) -> None:
         "rtl:\n"
         '  sources: ["top.v"]\n'
         "  top: top\n"
-        "  clock:\n"
-        "    port: a\n"
+        "  clocks: [{port: a}]\n"
         "tb:\n"
         '  sources: ["tb.sv"]\n'
         "  top: tb\n"
@@ -403,7 +402,7 @@ def write_yosys_asic_design(root: Path, work: Path) -> list[str]:
         "endmodule\n"
     )
     (root / "design.yaml").write_text(
-        'name: counter\nrtl:\n  sources: ["top.v"]\n  top: top\n  clock:\n    port: clk\n'
+        'name: counter\nrtl:\n  sources: ["top.v"]\n  top: top\n  clocks: [{port: clk}]\n'
     )
     shutil.copy(TINY_RESIDUE, root / "tiny.yaml")
     return [f"pdk_root={tiny_store(work, 'pdks')}"]

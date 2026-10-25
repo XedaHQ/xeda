@@ -46,8 +46,8 @@ def test_the_helper_keeps_the_built_in_flows_of_a_registry_that_was_not_loaded()
                 results_description = {}
                 def run(self): pass
                 def parse_reports(self): return True
-            assert "_Probe" in registered_flows
-        print("_Probe" in registered_flows, "nextpnr" in registered_flows,
+            assert _Probe.name in registered_flows
+        print(_Probe.name in registered_flows, "nextpnr" in registered_flows,
               "openfpgaloader" in registered_flows)
         """)
     assert out == "False True True"

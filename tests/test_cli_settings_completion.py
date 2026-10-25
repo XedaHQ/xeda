@@ -77,8 +77,8 @@ def test_unqualified_settings_target_the_final_chain_flow(shell: str) -> None:
     assert _complete(
         shell,
         ["run", "yosys_fpga+nextpnr", "design.yaml", "--settings", "debug=false"],
-        "ncp",
-    ) == ["ncpus="]
+        "nthr",
+    ) == ["nthreads="]
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
@@ -88,17 +88,8 @@ def test_finite_setting_values_are_completed(shell: str) -> None:
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
-def test_setting_alias_and_class_flow_spelling_are_resolved(shell: str) -> None:
-    assert _complete(
-        shell,
-        ["run", "YosysFpga+nextpnr", "design.yaml", "-s"],
-        "debug",
-    ) == ["debug="]
-
-
-@pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
 def test_omitted_design_keeps_a_later_path_prefix_ambiguous(shell: str) -> None:
-    assert "fpga=" not in _complete(shell, ["run", "vivado_synth", "-s", "ncpus=2"], "fpga")
+    assert "fpga=" not in _complete(shell, ["run", "vivado_synth", "-s", "nthreads=2"], "fpga")
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
@@ -149,8 +140,8 @@ def test_scoped_setting_candidates_keep_the_typed_flow_prefix(shell: str) -> Non
     assert _complete(
         shell,
         ["run", "yosys_fpga+nextpnr", "design.yaml", "-s"],
-        "flows.Nextpnr.deb",
-    ) == ["flows.Nextpnr.debug="]
+        "flows.nextpnr.deb",
+    ) == ["flows.nextpnr.debug="]
 
 
 def test_opaque_setting_before_omitted_design_is_counted_as_a_setting() -> None:
@@ -163,7 +154,7 @@ def test_opaque_setting_before_omitted_design_is_counted_as_a_setting() -> None:
 
 
 def test_attached_setting_before_omitted_design_is_counted_as_a_setting() -> None:
-    state = _parse_request_words(cli, ["run", "vivado_synth", "-sncpus=2"], "")
+    state = _parse_request_words(cli, ["run", "vivado_synth", "-snthreads=2"], "")
 
     assert state is not None
     assert state.completed_setting_count == 1
@@ -182,7 +173,7 @@ def test_active_option_terminator_disables_setting_completion(shell: str) -> Non
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
 def test_design_name_option_keeps_settings_completion_context(shell: str) -> None:
-    args = ["run", "vivado_synth", "-s", "ncpus=2", "--design-name", "ascon"]
+    args = ["run", "vivado_synth", "-s", "nthreads=2", "--design-name", "ascon"]
     state = _parse_request_words(cli, args, "fpga.p")
 
     assert state is not None
@@ -198,10 +189,10 @@ def test_scope_candidates_are_shell_setting_completions() -> None:
     items = _settings_candidates(
         "nextpnr",
         ["yosys_fpga", "nextpnr"],
-        "flows.Nextp",
+        "flows.nextp",
         _completion_records(),
     )
-    assert [item.value for item in items] == ["flows.Nextpnr."]
+    assert [item.value for item in items] == ["flows.nextpnr."]
     assert items[0].type == "setting"
 
 
@@ -232,8 +223,8 @@ def test_scoped_finite_value_keeps_setting_key(shell: str) -> None:
     assert _complete(
         shell,
         ["run", "yosys_fpga+nextpnr", "DESIGN", "-s"],
-        "flows.Nextpnr.debug=tr",
-    ) == ["flows.Nextpnr.debug=true"]
+        "flows.nextpnr.debug=tr",
+    ) == ["flows.nextpnr.debug=true"]
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
@@ -256,14 +247,14 @@ def test_empty_attached_option_value_keeps_path_completion(shell: str, tmp_path)
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
 def test_current_option_name_overrides_prior_settings_context(shell: str) -> None:
-    assert "--debug" in _complete(
+    assert "--dry-run" in _complete(
         shell,
-        ["run", "nextpnr", "DESIGN", "-s", "ncpus=2"],
-        "--debug",
+        ["run", "nextpnr", "DESIGN", "-s", "nthreads=2"],
+        "--dry-run",
     )
     assert "--settings" in _complete(
         shell,
-        ["run", "nextpnr", "DESIGN", "-s", "ncpus=2"],
+        ["run", "nextpnr", "DESIGN", "-s", "nthreads=2"],
         "--settings",
     )
 
@@ -287,7 +278,7 @@ def test_first_setting_value_completes_when_design_is_omitted(shell: str) -> Non
 def test_repeated_settings_options_keep_the_latest_key_context(shell: str) -> None:
     assert _complete(
         shell,
-        ["run", "vivado_synth", "design.yaml", "-s", "ncpus=2", "--settings"],
+        ["run", "vivado_synth", "design.yaml", "-s", "nthreads=2", "--settings"],
         "fpga.p",
     ) == ["fpga.package=", "fpga.part=", "fpga.pins="]
 
@@ -410,16 +401,12 @@ def test_runtime_completion_does_not_mutate_cached_builtin_records(monkeypatch) 
         registered_flows={
             "vivado_synth": (
                 None,
-                SimpleNamespace(
-                    name="vivado_synth",
-                    aliases=("temporary_alias",),
-                    __name__="TemporaryVivadoSynth",
-                ),
+                SimpleNamespace(name="vivado_synth", __name__="TemporaryVivadoSynth"),
             )
         }
     )
     monkeypatch.setitem(sys.modules, "xeda.flow.flow", runtime)
-    assert _completion_records()["vivado_synth"]["aliases"] == ["temporary_alias"]
+    assert _completion_records()["vivado_synth"]["settings"] == {"temporary": {}}
     assert dict(_builtin_flows())["vivado_synth"] == before
 
 
@@ -636,16 +623,16 @@ def _interactive_shell(
     + [
         (
             shell,
-            "xeda run yosys_fpga+nextpnr DESIGN -s flows.Nextp",
-            "xeda run yosys_fpga+nextpnr DESIGN -s flows.Nextpnr.ZZ",
+            "xeda run yosys_fpga+nextpnr DESIGN -s flows.nextp",
+            "xeda run yosys_fpga+nextpnr DESIGN -s flows.nextpnr.ZZ",
         )
         for shell in ("bash", "zsh")
     ]
     + [
         (
             "bash",
-            "xeda run yosys_fpga+nextpnr DESIGN -s flows.Nextpnr.debug=tr",
-            "xeda run yosys_fpga+nextpnr DESIGN -s flows.Nextpnr.debug=trueZZ",
+            "xeda run yosys_fpga+nextpnr DESIGN -s flows.nextpnr.debug=tr",
+            "xeda run yosys_fpga+nextpnr DESIGN -s flows.nextpnr.debug=trueZZ",
         )
     ],
 )

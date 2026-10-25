@@ -15,7 +15,7 @@ from xeda.flows import VivadoPostsynthSim, VivadoSynth
 from .design_edits import with_updates
 
 RESOURCES = Path(__file__).parent / "resources"
-SETTINGS = {"fpga": "xc7a12tcsg325-1", "clock": {"period": "5.5 ns"}}
+SETTINGS = {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
 
 
 def _design() -> Design:
@@ -47,13 +47,13 @@ def test_a_flow_built_from_mappings_leaves_the_mappings_as_they_were(tmp_path) -
     (tmp_path / "a.v").write_text("module a(input clk); endmodule\n")
     settings = {
         "fpga": {"part": "xc7a12tcsg325-1"},
-        "clock": {"period": "5.5 ns"},
+        "clocks": {"main_clock": {"period": "5.5 ns"}},
         "suppress_msgs": [],
     }
     design = {
         "name": "d",
         "design_root": tmp_path,
-        "rtl": {"sources": ["a.v"], "top": "a", "clock": "clk"},
+        "rtl": {"sources": ["a.v"], "top": "a", "clocks": ["clk"]},
     }
     asked = copy.deepcopy((settings, design))
     flow = VivadoSynth(settings, design, tmp_path / "run")  # type: ignore[arg-type]

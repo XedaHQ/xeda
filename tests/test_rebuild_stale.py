@@ -87,7 +87,7 @@ def toys():
 
     yield ToyProducer, ToyConsumer
     for cls in (ToyProducer, ToyConsumer):
-        for name in (cls.name, cls.__name__):
+        for name in (cls.name,):
             registered_flows.pop(name, None)
 
 
@@ -109,7 +109,7 @@ def _run(tmp_path, cls, design, sections=None, settings=None, **launcher):
 
 def _unregister(*classes):
     for cls in classes:
-        for name in (cls.name, cls.__name__):
+        for name in (cls.name,):
             registered_flows.pop(name, None)
 
 

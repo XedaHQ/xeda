@@ -42,7 +42,7 @@ PART = "xc7a12tcsg325-1"
 SYNTH_NAME = "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM"
 IMPL_NAME = "STEPS.OPT_DESIGN.ARGS.DIRECTIVE"
 SPACED_NAME = "STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS"
-BASE = {"fpga": PART, "clock": {"period": "5.5 ns"}}
+BASE = {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
 
 OPAQUE = ("set_synth_properties", "set_impl_properties")
 ISE_STEPS = ("synthesis", "map", "pnr", "translate", "trace")
@@ -57,7 +57,11 @@ def start_in_tmp_path(tmp_path, monkeypatch):
 
 
 def design_data(flows=None, **more) -> dict:
-    data: dict = {"name": "d", "rtl": {"sources": ["top.v"], "top": "top", "clock": "clk"}, **more}
+    data: dict = {
+        "name": "d",
+        "rtl": {"sources": ["top.v"], "top": "top", "clocks": ["clk"]},
+        **more,
+    }
     if flows is not None:
         data["flows"] = flows
     return data
@@ -89,7 +93,7 @@ WANTED = ({SYNTH_NAME: "0"}, {IMPL_NAME: "Explore"})
 # ------------------------------------------------------------------------------------ origins
 
 
-BASE_ITEMS = [("fpga", PART), ("clock.period", "5.5 ns")]
+BASE_ITEMS = [("fpga.part", PART), ("clocks.main_clock.period", "5.5 ns")]
 
 
 def design_from(tmp_path: Path, data: dict) -> Design:
@@ -176,8 +180,8 @@ def origin_design_file_as_tables(tmp_path):
 
 def origin_design_file_dotted_section(tmp_path):
     text = (
-        "name: d\nrtl: {sources: [top.v], top: top, clock: clk}\nflows:\n  vivado_synth:\n"
-        f"    fpga: {PART}\n    clock.period: 5.5 ns\n"
+        "name: d\nrtl: {sources: [top.v], top: top, clocks: [clk]}\nflows:\n  vivado_synth:\n"
+        f"    fpga.part: {PART}\n    clocks.main_clock.period: 5.5 ns\n"
         f"    set_synth_properties.{SYNTH_NAME}: 0\n"
         f"    set_impl_properties:\n      {IMPL_NAME}: Explore\n"
     )
@@ -186,8 +190,8 @@ def origin_design_file_dotted_section(tmp_path):
 
 def origin_design_file_dotted_flows_key(tmp_path):
     text = (
-        "name: d\nrtl: {sources: [top.v], top: top, clock: clk}\n"
-        f"flows.vivado_synth.fpga: {PART}\nflows.vivado_synth.clock.period: 5.5 ns\n"
+        "name: d\nrtl: {sources: [top.v], top: top, clocks: [clk]}\n"
+        f"flows.vivado_synth.fpga.part: {PART}\nflows.vivado_synth.clocks.main_clock.period: 5.5 ns\n"
         f"flows.vivado_synth.set_synth_properties.{SYNTH_NAME}: 0\n"
         f"flows.vivado_synth.set_impl_properties.{IMPL_NAME}: Explore\n"
     )
@@ -228,7 +232,7 @@ def origin_project_file_text(tmp_path):
     project = tmp_path / "xedaproject.yaml"
     project.write_text(
         "flows:\n  vivado_synth:\n"
-        f"    fpga: {PART}\n    clock.period: 5.5 ns\n"
+        f"    fpga.part: {PART}\n    clocks.main_clock.period: 5.5 ns\n"
         f"    set_synth_properties.{SYNTH_NAME}: 0\n"
         f"    set_impl_properties.{IMPL_NAME}: Explore\n"
     )
@@ -253,8 +257,8 @@ def origin_design_object(tmp_path):
     design = Design(
         name="d",
         design_root=tmp_path,
-        rtl={"sources": ["top.v"], "top": "top", "clock": "clk"},
-        flow=flows_section({SYNTH_NAME: 0}, {IMPL_NAME: "Explore"}),
+        rtl={"sources": ["top.v"], "top": "top", "clocks": ["clk"]},
+        flows=flows_section({SYNTH_NAME: 0}, {IMPL_NAME: "Explore"}),
     )
     return planned(tmp_path, design)
 
@@ -311,7 +315,7 @@ def test_every_vivado_flow_with_the_dictionaries_declares_them_opaque(flow_class
 
 def test_the_declaration_is_what_makes_the_difference(monkeypatch):
     """The mutation check: without it a dotted key stays the nested table it was expanded to."""
-    settings = settings_to_dict([f"set_synth_properties.{SYNTH_NAME}=0", f"fpga={PART}"])
+    settings = settings_to_dict([f"set_synth_properties.{SYNTH_NAME}=0", f"fpga.part={PART}"])
     assert VivadoSynth.Settings.from_input(settings).set_synth_properties == {SYNTH_NAME: "0"}
     monkeypatch.setattr(VivadoSynth.Settings, "opaque_key_fields", ())
     with pytest.raises(FlowSettingsException, match="set_synth_properties"):
@@ -366,8 +370,13 @@ def test_the_command_line_refuses_the_two_spellings_with_a_name_inside_a_name(tm
         yaml.safe_dump(
             {
                 "name": "d",
-                "rtl": {"sources": ["top.v"], "top": "top", "clock": "clk"},
-                "flows": {"vivado_synth": {"fpga": PART, "clock": {"period": "5.5 ns"}}},
+                "rtl": {"sources": ["top.v"], "top": "top", "clocks": ["clk"]},
+                "flows": {
+                    "vivado_synth": {
+                        "fpga": {"part": PART},
+                        "clocks": {"main_clock": {"period": "5.5 ns"}},
+                    }
+                },
             }
         )
     )
@@ -536,8 +545,13 @@ def test_the_command_line_reports_a_name_with_an_escaped_dot(tmp_path):
         yaml.safe_dump(
             {
                 "name": "d",
-                "rtl": {"sources": ["top.v"], "top": "top", "clock": "clk"},
-                "flows": {"vivado_synth": {"fpga": PART, "clock": {"period": "5.5 ns"}}},
+                "rtl": {"sources": ["top.v"], "top": "top", "clocks": ["clk"]},
+                "flows": {
+                    "vivado_synth": {
+                        "fpga": {"part": PART},
+                        "clocks": {"main_clock": {"period": "5.5 ns"}},
+                    }
+                },
             }
         )
     )
@@ -849,8 +863,8 @@ def test_the_command_line_runs_vivado_with_the_property(tmp_path, monkeypatch):
         yaml.safe_dump(
             {
                 "name": "d",
-                "rtl": {"sources": ["top.v"], "top": "top", "clock": "clk"},
-                "flows": {"vivado_synth": {"fpga": PART}},
+                "rtl": {"sources": ["top.v"], "top": "top", "clocks": ["clk"]},
+                "flows": {"vivado_synth": {"fpga": {"part": PART}}},
             }
         )
     )
@@ -863,7 +877,7 @@ def test_the_command_line_runs_vivado_with_the_property(tmp_path, monkeypatch):
             "vivado_synth",
             str(design),
             "-s",
-            "clock.period=5.5ns",
+            "clocks.main_clock.period=5.5ns",
             f"set_synth_properties.{SYNTH_NAME}=0",
             f"flows.vivado_synth.set_impl_properties.{IMPL_NAME}=Explore",
             "--json",
@@ -901,8 +915,13 @@ def test_the_command_line_takes_a_name_with_a_space(tmp_path, monkeypatch, desig
         yaml.safe_dump(
             {
                 "name": "d",
-                "rtl": {"sources": ["top.v"], "top": "top", "clock": "clk"},
-                "flows": {"vivado_synth": {"fpga": PART, "clock": {"period": "5.5 ns"}}},
+                "rtl": {"sources": ["top.v"], "top": "top", "clocks": ["clk"]},
+                "flows": {
+                    "vivado_synth": {
+                        "fpga": {"part": PART},
+                        "clocks": {"main_clock": {"period": "5.5 ns"}},
+                    }
+                },
             }
         )
     )

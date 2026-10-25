@@ -44,7 +44,9 @@ def _design_copy(where: Path) -> Path:
 
 def _hash(design_root: Path, runner_cwd: Path, **settings) -> str:
     validated = VivadoSynth.Settings.from_input(
-        {"fpga": "xc7a100tftg256-2L", **settings}, design_root=design_root, runner_cwd=runner_cwd
+        {"fpga": {"part": "xc7a100tftg256-2L"}, **settings},
+        design_root=design_root,
+        runner_cwd=runner_cwd,
     )
     return flowrun_hash("vivado_synth", validated)
 
@@ -52,7 +54,7 @@ def _hash(design_root: Path, runner_cwd: Path, **settings) -> str:
 def _design(root: Path) -> Design:
     return Design(
         name="sqrt",
-        rtl={"sources": ["sqrt.vhdl"], "top": "sqrt", "clock": "clk"},
+        rtl={"sources": ["sqrt.vhdl"], "top": "sqrt", "clocks": ["clk"]},
         design_root=root,
     )
 
@@ -82,8 +84,8 @@ def test_an_identical_copy_of_the_design_elsewhere_hashes_the_same(tmp_path, xdc
 
 def test_a_different_setting_is_a_different_run(tmp_path):
     design = _design_copy(tmp_path / "d")
-    assert _hash(design, tmp_path, clock={"period": "5 ns"}) != _hash(
-        design, tmp_path, clock={"period": "4 ns"}
+    assert _hash(design, tmp_path, clocks={"main_clock": {"period": "5 ns"}}) != _hash(
+        design, tmp_path, clocks={"main_clock": {"period": "4 ns"}}
     )
     assert _hash(design, tmp_path, xdc_files=["c.xdc"]) != _hash(design, tmp_path)
 
@@ -240,16 +242,16 @@ def test_behavior_affecting_design_metadata_is_part_of_the_hash(tmp_path):
             rtl={"sources": ["top.v"], "top": "top", **rtl},
         )
 
-    original = design(clock="clk")
-    assert original.rtl_hash != design(clock="other_clk").rtl_hash
+    original = design(clocks=["clk"])
+    assert original.rtl_hash != design(clocks=["other_clk"]).rtl_hash
     assert original.rtl_hash != design(attributes={"keep": {"top": True}}).rtl_hash
     assert (
         original.rtl_hash
         != Design(
             name="d",
             design_root=root,
-            rtl={"sources": ["top.v"], "top": "top", "clock": "clk"},
-            hdl={"verilog": "2005"},
+            rtl={"sources": ["top.v"], "top": "top", "clocks": ["clk"]},
+            language={"verilog": "2005"},
         ).rtl_hash
     )
 
@@ -257,7 +259,7 @@ def test_behavior_affecting_design_metadata_is_part_of_the_hash(tmp_path):
 def test_where_settings_were_given_is_not_part_of_them(tmp_path):
     design = _design_copy(tmp_path / "d")
     settings = VivadoSynth.Settings.from_input(
-        {"fpga": "xc7a100tftg256-2L"}, design_root=design, runner_cwd=tmp_path
+        {"fpga": {"part": "xc7a100tftg256-2L"}}, design_root=design, runner_cwd=tmp_path
     )
 
     dumped = str(settings.model_dump())
@@ -276,7 +278,7 @@ def test_an_unchanged_rerun_reuses_the_previous_run_from_any_directory(
     """A run whose inputs did not change is reused, not repeated -- also when xeda is started
     from another directory, which used to change the settings' hash."""
     design = Design.from_file(SQRT / "sqrt.yaml")
-    settings = {"fpga": "xc7a12tcsg325-1", "clock": {"period": "5.5 ns"}}
+    settings = {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
     runner = DefaultRunner(tmp_path / "xeda_run")
 
     def run_id(flow) -> str:
@@ -295,7 +297,9 @@ def test_an_unchanged_rerun_reuses_the_previous_run_from_any_directory(
     second = runner.run_flow(VivadoSynth, design, dict(settings))
 
     assert run_id(second) == first_run, "the second run was repeated"
-    changed = runner.run_flow(VivadoSynth, design, {**settings, "clock": {"period": "4.5 ns"}})
+    changed = runner.run_flow(
+        VivadoSynth, design, {**settings, "clocks": {"main_clock": {"period": "4.5 ns"}}}
+    )
     assert run_id(changed) != first_run, "the changed run was reused"
 
 
@@ -304,7 +308,11 @@ def test_a_run_never_modifies_its_input_settings(tmp_path, fake_tools):
     and records the run -- is never modified, whatever the flow does to its copy."""
     design = Design.from_file(SQRT / "sqrt.yaml")
     given = VivadoSynth.Settings.from_input(
-        {"fpga": "xc7a12tcsg325-1", "clock": {"period": "5.5 ns"}, "bitstream": "sqrt.bit"},
+        {
+            "fpga": {"part": "xc7a12tcsg325-1"},
+            "clocks": {"main_clock": {"period": "5.5 ns"}},
+            "bitstream": "sqrt.bit",
+        },
         design_root=design.root_path,
     )
     before = given.model_dump()
@@ -322,7 +330,9 @@ def test_a_run_never_modifies_its_input_settings(tmp_path, fake_tools):
 def test_a_recorded_settings_json_is_a_rerunnable_input(tmp_path, fake_tools):
     design = Design.from_file(SQRT / "sqrt.yaml")
     flow = DefaultRunner(tmp_path / "xeda_run").run_flow(
-        VivadoSynth, design, {"fpga": "xc7a12tcsg325-1", "clock": {"period": "5.5 ns"}}
+        VivadoSynth,
+        design,
+        {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "5.5 ns"}}},
     )
     assert flow is not None
     recorded = json.loads((flow.run_path / "settings.json").read_text())
@@ -591,7 +601,7 @@ def test_a_parameter_is_counted_by_its_one_value(tmp_path):
     same = with_updates(design, rtl={"parameters": design.rtl.parameters})
     assert same.rtl_hash == before, "giving the parameters again changes nothing"
 
-    other = with_updates(design, rtl={"parameters": {**design.rtl.generics, "W": 16}})
+    other = with_updates(design, rtl={"parameters": {**design.rtl.parameters, "W": 16}})
     assert other.rtl_hash != before
     assert other.rtl_fingerprint["parameters"]["ROM"] == "$DESIGN_ROOT/rom.mem"
 
@@ -673,7 +683,7 @@ def _platform_settings(tmp_path: Path, flow_name="yosys", **given):
     root.mkdir(exist_ok=True)
     start.mkdir(exist_ok=True)
     return get_flow_class(flow_name).Settings.from_input(
-        {"clock": {"period": "2 ns"}, **given}, design_root=root, runner_cwd=start
+        {"clocks": {"main_clock": {"period": "2 ns"}}, **given}, design_root=root, runner_cwd=start
     )
 
 
@@ -735,7 +745,7 @@ def test_a_root_counts_however_its_path_is_spelled(tmp_path, flow_name):
         runner_cwd = start or tmp_path / "start"
         if flow_name is None:
             settings = VivadoSynth.Settings.from_input(
-                {"fpga": "xc7a100tftg256-2L", "xdc_files": [str(root / name)]},
+                {"fpga": {"part": "xc7a100tftg256-2L"}, "xdc_files": [str(root / name)]},
                 design_root=root,
                 runner_cwd=runner_cwd,
             )

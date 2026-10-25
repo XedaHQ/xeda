@@ -79,7 +79,7 @@ def test_identity_is_the_settings_hash_and_the_ordered_input_origins(tmp_path):
         assert node.flowrun_hash != node.settings_hash
 
 
-@pytest.mark.parametrize("reference", ["__maker", "__maker.made", "_Maker", "__MAKER"])
+@pytest.mark.parametrize("reference", ["__maker", "__maker.made"])
 def test_a_restated_default_under_any_spelling_is_the_bare_request_s_identity(tmp_path, reference):
     bare = _plan(tmp_path, _Taker)
     restated = _plan(tmp_path, _Taker, {"__taker": {"inputs": {"made": reference}}})

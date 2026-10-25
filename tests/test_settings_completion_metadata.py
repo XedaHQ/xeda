@@ -106,13 +106,13 @@ def completion_flow():
         yield CompletionFlow
 
 
-def test_fpga_completion_exposes_nested_fields_and_string_shorthand() -> None:
+def test_fpga_completion_exposes_nested_fields_and_no_string_form() -> None:
     from xeda.flows.fpga_pack import FpgaPack
 
     info = settings_completion_info(FpgaPack)
 
     assert info["fpga"]["children"] is True
-    assert info["fpga"]["assignable"] is True
+    assert info["fpga"]["assignable"] is False
     assert info["fpga.part"]["assignable"] is True
     assert info["fpga.family"]["assignable"] is True
 
@@ -136,18 +136,16 @@ def test_pure_maps_and_model_or_map_fields_are_hierarchical_only(completion_flow
         Nextpnr.Settings.from_input({"clocks": "foo"})
 
 
-def test_validation_schema_synthetic_paths_are_indexed_recursively() -> None:
+def test_the_clock_table_of_a_synthesis_flow_is_indexed_by_a_wildcard_name() -> None:
     from xeda.flows.fpga_pack import FpgaPack
     from xeda.flows.yosys.yosys_fpga import YosysFpga
 
     fpga = settings_completion_info(FpgaPack)
-    assert fpga["clock"]["children"] is True
-    assert fpga["clock"]["assignable"] is False
-    assert fpga["clock.freq"]["assignable"] is True
+    assert fpga["clocks"]["children"] is True
+    assert fpga["clocks"]["assignable"] is False
     assert fpga["clocks.*.freq"]["assignable"] is True
 
     yosys = settings_completion_info(YosysFpga)
-    assert yosys["ghdl.clock.freq"]["assignable"] is True
     assert yosys["ghdl.clocks.*.freq"]["assignable"] is True
 
 
@@ -297,7 +295,7 @@ def test_catalog_generator_records_settings_and_default_producers() -> None:
 
     fpga_pack = catalog["fpga_pack"]
     assert fpga_pack["settings"]["fpga"]["children"] is True
-    assert fpga_pack["settings"]["fpga"]["assignable"] is True
+    assert fpga_pack["settings"]["fpga"]["assignable"] is False
     assert "default_producers" in fpga_pack
     assert "nextpnr" in fpga_pack["default_producers"]
 

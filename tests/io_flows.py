@@ -187,7 +187,6 @@ class _Place(FpgaSynthFlow):
 class _ChainProducer(Flow):
     """Test producer with compatible, ambiguous, optional and many outputs."""
 
-    aliases = ["chain_source"]
     results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Settings(Flow.Settings):
@@ -482,9 +481,8 @@ class _LoopB(Flow):
 
 
 class _ChainAliased(Flow):
-    """A consumer with an alias, for completion."""
+    """A consumer, for completion."""
 
-    aliases = ["sink_alias"]
     results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):

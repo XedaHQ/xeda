@@ -70,15 +70,8 @@ def _completion_records() -> dict[str, dict[str, Any]]:
         canonical = flow_class.name
         runtime_record = records.setdefault(
             canonical,
-            {
-                "aliases": [],
-                "class_name": flow_class.__name__,
-                "followers": {},
-                "default_producers": [],
-            },
+            {"followers": {}, "default_producers": []},
         )
-        runtime_record["aliases"] = list(flow_class.aliases)
-        runtime_record["class_name"] = flow_class.__name__
         runtime_record["settings"] = info(flow_class)
     return records
 
@@ -97,20 +90,8 @@ def _opaque_setting_paths() -> set[str]:
 def _resolve_record(
     token: str, records: dict[str, dict[str, Any]]
 ) -> tuple[str, dict[str, Any]] | None:
-    wanted = token.strip().replace("-", "_").lower()
-    class_wanted = "".join(word.title() for word in wanted.split("_"))
-    for canonical, record in records.items():
-        if (
-            wanted
-            in {
-                canonical.lower(),
-                record.get("class_name", "").lower(),
-                *(alias.lower() for alias in record.get("aliases", [])),
-            }
-            or record.get("class_name") == class_wanted
-        ):
-            return canonical, record
-    return None
+    record = records.get(token)
+    return None if record is None else (token, record)
 
 
 def _run_command(cli: click.Command) -> click.Command | None:
@@ -401,15 +382,7 @@ def _parse_request_words(
 def _flow_candidates(
     chain: list[str], prefix: str, records: dict[str, dict[str, Any]]
 ) -> list[str]:
-    candidates = set(chain)
-    shown: list[str] = []
-    for canonical in candidates:
-        record = records.get(canonical)
-        spellings = [canonical]
-        if record:
-            spellings.extend([record["class_name"], *record["aliases"]])
-        shown.extend(value for value in spellings if value.startswith(prefix))
-    return sorted(set(shown))
+    return sorted(name for name in set(chain) if name.startswith(prefix))
 
 
 def _settings_candidates(

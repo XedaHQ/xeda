@@ -13,8 +13,8 @@ The settings of a flow are assembled from these layers, lowest precedence first:
 6. the command line (`-s KEY=VALUE`, or the `flow_settings` of `run` and `plan`), then the
    overrides given through the API (`flow_overrides`)
 
-The layers are merged deeply. A nested section such as `clock` combines key by key, so
-`-s clock.freq=100MHz` changes that one setting of the `clock` section of the design instead of
+The layers are merged deeply. A nested section such as `clocks.main_clock` combines key by key, so
+`-s clocks.main_clock.freq=100MHz` changes that one setting of the clock in the design instead of
 replacing the whole section. Any other value, a list included, is replaced whole by a higher
 layer. Local and remote runs, and the settings of every producer, all go through
 `merge_layers`, so they cannot disagree about precedence.
@@ -27,6 +27,7 @@ layer 2.
 """
 
 import difflib
+import importlib
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
@@ -39,7 +40,6 @@ from ..dataclass import (
     annotation_mistake,
     appended_fields_of,
     atomic_keys,
-    canonical_names,
     field_type,
     fold_dotted_keys,
     input_names,
@@ -58,6 +58,7 @@ from ..utils import (
     ConflictingKeys,
     EscapedName,
     as_list,
+    camelcase_to_snakecase,
     flows_table_problems,
     hierarchical_merge,
     settings_to_dict,
@@ -71,7 +72,7 @@ __all__ = [
     "SUPPLIED_SECTIONS_ORIGIN",
     "FlowNotFoundError",
     "FlowRemovedError",
-    "check_not_removed",
+    "check_flow_name",
     "host_profile_origin",
     "carry_diagnostics",
     "settings_in_context",
@@ -118,53 +119,86 @@ class FlowNotFoundError(PublicFlowNotFoundError):
 
 
 #: Flow names that Xeda refuses, by every normalized spelling (lower case, `-` as `_`) of each
-#: name, with the flow's canonical name and what to use instead. `get_flow_class` says
-#: so, in the words a removed setting or option uses.
+#: name, with the flow's name, what to use instead, and the names of the flows that replace it.
+#: `get_flow_class` says so, in the words a removed setting or option uses.
 REMOVED_FLOWS = {
-    name: ("open_xc7", "fpga_pack to build, openfpgaloader to program")
+    name: (
+        "open_xc7",
+        "fpga_pack to build, openfpgaloader to program",
+        ("fpga_pack", "openfpgaloader"),
+    )
     for name in ("open_xc7", "openxc7")
 }
+
+#: Other names that a flow had, with its name. A flow has one name; `ghdl` was a second name of
+#: `ghdl_sim`.
+RENAMED_FLOWS = {"ghdl": "ghdl_sim"}
 
 
 class FlowRemovedError(FlowNotFoundError):
     """A flow name that Xeda refuses. The message names what to use instead."""
 
-    def __init__(self, flow_name: str, replacement: str) -> None:
+    def __init__(self, flow_name: str, replacement: str, suggestions: Iterable[str] = ()) -> None:
         PublicFlowNotFoundError.__init__(
             self,
             f"`{flow_name}` was removed: use {replacement}",
             code="flow_not_found",
             name=flow_name,
+            suggestions=suggestions,
         )
         self.flow_name = flow_name
 
 
-def check_not_removed(flow_name: str) -> None:
-    """Refuse the name of a removed flow, in any spelling, wherever a flow is named.
+def spelling_of_flow(flow_name: str) -> str | None:
+    """Return the name of the registered flow that `flow_name` is a different spelling of, or None.
 
-    That is when the user runs the flow and when its name is a section of a `flows` table. A
+    A flow has one name, `Flow.name`. Another letter case, dashes for underscores and the name of
+    the class (`GhdlSim`) are spellings of it that Xeda does not accept."""
+    importlib.import_module("xeda.flows")  # the built-in flows register themselves
+    if flow_name in registered_flows:
+        return None
+    if flow_name in RENAMED_FLOWS:
+        return RENAMED_FLOWS[flow_name]
+    wanted = flow_name.strip().replace("-", "_")
+    names = {cls.name for _, cls in registered_flows.values()}
+    return next(
+        (
+            form
+            for form in (wanted, wanted.lower(), camelcase_to_snakecase(wanted))
+            if form in names
+        ),
+        None,
+    )
+
+
+def check_flow_name(flow_name: str) -> None:
+    """Refuse a name that is not the name of a flow but stands for one, wherever a flow is named.
+
+    That is when the user runs the flow and when its name is a section of a `flows` table. The
+    name of a removed flow is refused in any spelling, and the error says what replaced it. A
     removed flow is not an unknown one (a plugin that is not installed, whose section is left
     alone): its settings configure nothing any more, and saying nothing would leave them
-    silently unused."""
+    silently unused. A spelling of a flow other than its name is refused too, with the name as
+    the suggestion."""
     removed = REMOVED_FLOWS.get(str(flow_name).strip().replace("-", "_").lower())
     if removed is not None:
         raise FlowRemovedError(*removed)
+    canonical = spelling_of_flow(str(flow_name))
+    if canonical is not None:
+        raise FlowNotFoundError(str(flow_name), [canonical])
 
 
 #: One layer: a (possibly nested, possibly dotted-key) mapping, or `KEY=VALUE` strings.
 Layer = None | Mapping[str, Any] | Sequence[str]
 
 
-def _has_clock_inputs(settings_cls: type[XedaBaseModel]) -> bool:
-    """Return whether this settings model has the clock contract of `SynthFlow`.
+def _has_clock_table(settings_cls: type[XedaBaseModel]) -> bool:
+    """Return whether this settings model has the clock table of `SynthFlow`.
 
-    `clocks` is a table of named clocks, and `clock` and `main_clock` are properties of it.
-    (`Rtl` of the design has `clocks` and `clock` too, but as a list of ports, merged by
-    `Rtl.merge_inputs`.)"""
-    return (
-        "clocks" in settings_cls.model_fields
-        and isinstance(getattr(settings_cls, "clock", None), property)
-        and isinstance(getattr(settings_cls, "main_clock", None), property)
+    `clocks` is a table of named clocks, and `main_clock` is a property of it. (`Rtl` of the
+    design has `clocks` too, but as a list of ports, merged by `Rtl.merge_inputs`.)"""
+    return "clocks" in settings_cls.model_fields and isinstance(
+        getattr(settings_cls, "main_clock", None), property
     )
 
 
@@ -174,37 +208,6 @@ def _clock_mapping(value: Any) -> Mapping[str, Any] | None:
     if isinstance(value, XedaBaseModel):
         return value.model_dump()
     return None
-
-
-def _canonicalize_clock_input(
-    values: dict[str, Any], settings_cls: type[XedaBaseModel]
-) -> tuple[dict[str, Any], str | None]:
-    """Normalize the single-clock spelling of one layer to `clocks`.
-
-    The returned name marks a singular override. It lets the merge apply `clock` to an existing
-    sole or named main clock, rather than adding a second clock. Giving both spellings in the
-    same layer is left unchanged on purpose, so validation still rejects the ambiguity.
-    """
-    if not _has_clock_inputs(settings_cls):
-        return values, None
-    present = [name for name in ("clock", "clocks") if name in values]
-    if len(present) != 1 or present[0] == "clocks":
-        return values, None
-
-    spelling = present[0]
-    raw = values.pop(spelling)
-    if raw is None:
-        # `None` means "not specified". It must not erase the clocks of a lower layer.
-        return values, None
-    mapped = _clock_mapping(raw)
-    if mapped is None:
-        # Preserve invalid input under its original name for pydantic's field-specific error.
-        values[spelling] = raw
-        return values, None
-    clock = dict(mapped)
-    name = str(clock.get("name") or "main_clock")
-    values["clocks"] = {name: dict(clock)}
-    return values, name
 
 
 def _merge_clock_values(base: Any, override: Any) -> Any:
@@ -264,7 +267,7 @@ def _merge_settings_layer(
     settings_cls: type[XedaBaseModel],
     append: bool = False,
 ) -> dict[str, Any]:
-    """Merge one parsed layer into `base`, with model-aware aliases and nested settings.
+    """Merge one parsed layer into `base`, with its nested settings.
 
     A value that is a shorthand form of a table (`fpga` as a part number) means exactly that
     table. Where it meets a table, from below or above, the two merge key by key. Where it
@@ -272,8 +275,7 @@ def _merge_settings_layer(
     no form at all, replace what is below them. So does a list, unless `append` is set and the
     model names the field in its `appended_fields`: the items of the layer then follow those
     below."""
-    canonical = canonical_names(values, settings_cls)
-    canonical, singular_clock = _canonicalize_clock_input(canonical, settings_cls)
+    canonical = dict(values)
     merged = deepcopy(dict(base))
     settings_cls.merge_inputs(merged, canonical)
 
@@ -301,39 +303,8 @@ def _merge_settings_layer(
             and isinstance(old_form, Mapping)
         ):
             merged[key] = _merge_settings_layer(old_form, new_form, child_cls, append)
-        elif key == "clocks" and _has_clock_inputs(settings_cls) and isinstance(value, Mapping):
-            clock_values = dict(value)
-            existing_before = merged.get("clocks")
-            existing_before = existing_before if isinstance(existing_before, Mapping) else {}
-            if singular_clock is not None:
-                existing = merged.get("clocks")
-                if isinstance(existing, Mapping) and singular_clock not in existing:
-                    if singular_clock == "main_clock" and existing:
-                        # An unnamed single-clock shorthand targets the same deterministic
-                        # main clock that SynthFlow.Settings.main_clock uses: a clock named
-                        # `main_clock` first, otherwise the first declared clock.
-                        old_name = next(iter(existing))
-                        clock_values = {old_name: next(iter(clock_values.values()))}
-                    elif len(existing) == 1:
-                        # An explicitly named higher `clock` replaces the identity of the sole
-                        # lower clock instead of leaving two clocks behind.
-                        old_name = next(iter(existing))
-                        merged["clocks"] = {singular_clock: existing[old_name]}
-                # A singular `clock` without an explicit `name` names its clock `"main_clock"`,
-                # matching the default of direct construction
-                # (`SynthFlow.Settings._synthflow_settings_root_validator`), but only when it
-                # creates a genuinely new clock entry. When it instead refines an existing
-                # clock (the redirects above, or a layer that already has a clock of the same
-                # name), the identity of the existing clock, its own `name` whatever it is,
-                # must win and not be overwritten by the synthesized default.
-                for cname, cval in clock_values.items():
-                    if (
-                        cname not in existing_before
-                        and isinstance(cval, Mapping)
-                        and not cval.get("name")
-                    ):
-                        clock_values[cname] = {**cval, "name": cname}
-            merged[key] = _merge_clock_values(merged.get(key, {}), clock_values)
+        elif key == "clocks" and _has_clock_table(settings_cls) and isinstance(value, Mapping):
+            merged[key] = _merge_clock_values(merged.get(key, {}), value)
         elif isinstance(old_form, Mapping) and isinstance(new_form, Mapping):
             entries = table_entries(field_type(info)) if info is not None else None
             merged[key] = (
@@ -394,9 +365,6 @@ def merge_layers(
 ) -> dict[str, Any]:
     """Deep-merge `layers`, each one taking precedence over those before it.
 
-    When `settings_cls` is known, accepted aliases are normalized within each layer before the
-    merge. So differently spelled names for one setting still obey layer precedence, while two
-    names in the same layer remain a validation error.
 
     A list replaces the list below it, as every layer does. `append` makes the lists that
     `settings_cls` names in its `appended_fields` (the `sources` of a design) the one
@@ -450,8 +418,7 @@ def _leaves(
 ) -> dict[tuple[str, ...], tuple[str, Any]]:
     """Return every leaf of a nested mapping.
 
-    The result maps the canonical path of a leaf (each name as the model spells it, so an alias
-    and its setting are one leaf) to a pair: the path as written, and the value. The names of a
+    The result maps the canonical path of a leaf (each name as the model spells it) to a pair: the path as written, and the value. The names of a
     setting in `opaque_key_fields` are split at their dots, as the expansion of a dotted key
     would split them."""
     leaves: dict[tuple[str, ...], tuple[str, Any]] = {}
@@ -503,8 +470,7 @@ def split_flow_sections(
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """Split a command-line layer into `flows.<node>.*` sections and the requested flow's own.
 
-    `-s key` and `-s flows.<requested>.key` name one leaf (an alias of a setting is that
-    setting). The same value twice is accepted. Two different values are an error that names
+    `-s key` and `-s flows.<requested>.key` name one leaf (one setting). The same value twice is accepted. Two different values are an error that names
     both spellings. The two spellings are one origin for the rule of `utils.set_hierarchy` as
     well: a key is a value or a table, so a value in one spelling and a key inside it in the
     other (`A` and `A.B`) are an error that names both."""
@@ -622,12 +588,9 @@ def command_line_sections(
 
 
 def registered_flow(name: str) -> type[Flow] | None:
-    """Resolve a registered canonical name, class name or alias, without importing the runner."""
-    normalized = name.strip().replace("-", "_").lower()
-    return next(
-        (cls for key, (_module, cls) in registered_flows.items() if key.lower() == normalized),
-        None,
-    )
+    """Resolve the name of a registered flow, without importing the runner."""
+    found = registered_flows.get(name)
+    return None if found is None else found[1]
 
 
 def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
@@ -677,11 +640,11 @@ def merge_flow_sections(
     """Merge `flows` sections (flow name to settings) flow by flow, later sections winning.
 
     The `flows.nextpnr` section of a design file refines the `flows.nextpnr` section of the
-    project instead of replacing it. When `flow_class_for` is supplied, aliases such as `ghdl`
-    are normalized to the canonical flow name. Spelling the same flow twice in one section is
-    an error. So is a section for a removed flow (`check_not_removed`), wherever it was
-    written: every `flows` table (a design's, a project's, the command line's, the API's) is
-    merged here.
+    project instead of replacing it. When `flow_class_for` is supplied, it finds the flow of each
+    section, to merge its settings by the rules of the flow. A section for a removed flow, and
+    one for a spelling of a flow other than its name, is an error (`check_flow_name`), wherever
+    it was written: every `flows` table (a design's, a project's, the command line's, the
+    API's) is merged here.
 
     Every table is also judged for its shape here (`flows_table_problems`): the table and the
     section of each flow are mappings, or a section is `KEY=VALUE` text, which is how code
@@ -696,31 +659,12 @@ def merge_flow_sections(
         if problems:
             raise _flows_error(problems, location, "dict_type")
         normalized: dict[str, dict[str, Any]] = {}
-        original_names: dict[str, str] = {}
         for name, values in (section or {}).items():
-            check_not_removed(name)
+            check_flow_name(name)
             flow_cls = flow_class_for(name) if flow_class_for is not None else None
-            canonical_name = flow_cls.name if flow_cls is not None else name
-            if canonical_name in normalized:
-                raise _flows_error(
-                    [
-                        (
-                            f"flows.{canonical_name}",
-                            f"is given twice in one `flows` section, as "
-                            f"{original_names[canonical_name]!r} and {name!r}: keep one",
-                        )
-                    ],
-                    location,
-                    "duplicate_flow",
-                )
-            # Keep this section as one distinct precedence layer. Canonicalizing it here would
-            # erase the fact that `clock` was a single-clock shorthand before it
-            # is compared with the lower section (and could incorrectly add a second clock
-            # instead of refining the lower section's sole named clock).
-            normalized[canonical_name] = settings_to_dict(values)
-            original_names[canonical_name] = name
+            normalized[name] = settings_to_dict(values)
             if flow_cls is not None:
-                classes[canonical_name] = flow_cls
+                classes[name] = flow_cls
         normalized_sections.append(normalized)
 
     names = [name for section in normalized_sections for name in section]

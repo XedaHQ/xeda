@@ -832,7 +832,7 @@ def test_a_comment_edit_of_a_bluespec_source_reruns_bsc_and_nothing_after_it(tmp
     source.parent.mkdir()
     source.write_text(COUNTER_BSV)
     (tmp_path / "design" / "design.yaml").write_text(
-        "name: counter\nrtl:\n  sources: [Counter.bsv]\n  top: mkCounter\n  clock.port: CLK\n"
+        "name: counter\nrtl:\n  sources: [Counter.bsv]\n  top: mkCounter\n  clocks: [{port: CLK}]\n"
     )
     design = tmp_path / "design" / "design.yaml"
     given = dict(text.split("=", 1) for text in chain_settings(tmp_path, "fail_timing=false"))

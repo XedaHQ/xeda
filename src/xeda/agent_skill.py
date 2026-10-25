@@ -97,9 +97,6 @@ def _flow_section(flow: Dict[str, object]) -> str:
     lines = [f"### `{name}`", ""]
 
     facts: List[str] = []
-    aliases = flow.get("aliases") or []
-    if isinstance(aliases, list) and aliases:
-        facts.append("aliases: " + ", ".join(f"`{a}`" for a in aliases))
     deps = flow.get("dependencies") or []
     if isinstance(deps, list) and deps:
         facts.append("runs first: " + " -> ".join(f"`{d}`" for d in deps))

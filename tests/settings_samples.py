@@ -21,7 +21,7 @@ assert __builtin_flows__, "importing `xeda.flows` is what populates `registered_
 #: sweeps until its minimal valid value is added here, never silently reduce their coverage.
 MINIMAL_SETTINGS: Dict[str, Any] = {
     "fpga": {"part": "xc7a100tcsg324-1"},
-    "clock": {"period": "5 ns"},
+    "clocks": {"main_clock": {"period": "5 ns"}},
     "platform": "nangate45",
     "target_libraries": ["nangate45.lib"],
 }
@@ -44,13 +44,12 @@ def flow_classes() -> List[Tuple[Type[Flow], str]]:
 
 
 def minimal_settings(cls: Type[Flow], clock: bool = True) -> Dict[str, Any]:
-    """Minimal settings for `cls`. `clock` is input-only syntax for the one stored `clocks`
-    value, so it is included for synthesis settings although it is no model field."""
+    """Minimal settings for `cls`. `clock` says whether a synthesis flow gets its `clocks`."""
     fields = cls.Settings.model_fields
     settings = {
         key: value
         for key, value in MINIMAL_SETTINGS.items()
-        if (key in fields and key != "clock") or (key == "clock" and clock and "clocks" in fields)
+        if key in fields and (key != "clocks" or clock)
     }
     settings.update(MINIMAL_SETTINGS_BY_FLOW.get(cls.name, {}))
     return settings

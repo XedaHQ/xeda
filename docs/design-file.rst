@@ -29,7 +29,7 @@ A boolean setting accepts only ``true`` and ``false``, in every format. On the c
 ``-s key=true`` does the same. ``yes`` and ``1`` are errors. For example, ``debug: yes`` and
 ``-s debug=on`` fail with a message that ``yes`` (or ``on``) is text and not a boolean, and that
 you should write ``true``. A field that is not a boolean gives the same advice for a word that
-YAML 1.1 reads as a boolean (``ncpus: on``).
+YAML 1.1 reads as a boolean (``nthreads: on``).
 
 Mapping keys must be strings. A duplicate key is an error that names the file, the key and both
 lines. Xeda accepts ordinary aliases and the explicit tags of the core schema. It rejects merge
@@ -43,7 +43,7 @@ work in a design file, in a design entry and in the ``flows`` table of a project
 and in design overrides. A key cannot be both a value and a table. ``tb: 3`` together with
 ``tb.top: x`` is an error that names both keys.
 
-Write one table in one spelling inside a mapping. ``clock.port: clk`` together with a ``clock:``
+Write one table in one spelling inside a mapping. ``fpga.part: P`` together with an ``fpga:``
 block in the same mapping is an error that names both spellings, in whichever order they come.
 Two dotted keys under one table (``fpga.part`` and ``fpga.speed``) are fine, and so is one block
 (``fpga: {part: P, speed: -6}``). Settings from separate origins, such as the design file and
@@ -78,10 +78,10 @@ Top level
    * - ``description``
      - no
      - A one-line description.
-   * - ``authors`` (``author``)
+   * - ``authors``
      - no
      - One ``"Name <email>"`` string or a list of them.
-   * - ``language`` (``hdl``)
+   * - ``language``
      - no
      - Language standards. See `language`_.
    * - ``flows``
@@ -103,9 +103,9 @@ Top level
      - no
      - Overlays for individual boards. See :ref:`targets`.
 
-.. [1] The loader also accepts ``sources``, ``top``, ``clock``, ``clocks``, ``parameters``,
-   ``generics``, ``defines`` and ``generator`` at the top level. It folds them into ``rtl``
-   before validation. Do not mix this flat form with an ``rtl`` section.
+.. [1] A design without ``rtl`` has no RTL sources. The keys of ``rtl`` (``sources``, ``top``,
+   ``clocks``, ``parameters``, ``defines`` and ``generator``) belong in the ``rtl`` section, not
+   at the top level: Xeda refuses them there and names the key to use.
 
 .. _rtl:
 
@@ -126,20 +126,17 @@ Top level
    * - ``top``
      - no
      - The RTL top module (a Verilog module or a VHDL entity). Synthesis flows need it.
-   * - ``parameters`` / ``generics``
+   * - ``parameters``
      - no
      - Parameters of the top module (Verilog parameters or VHDL generics), as a mapping or a
-       list of ``{name, value}`` objects. The two names are the same setting. Giving both is an
-       error.
+       list of ``{name, value}`` objects.
    * - ``defines``
      - no
      - Verilog preprocessor macros, as a mapping.
-   * - ``clock``
-     - no
-     - A single clock: a port name, or a table with ``port`` and, optionally, ``name``.
    * - ``clocks``
      - no
-     - A list of clocks, for designs with more than one clock.
+     - A list of clocks. Each clock is a port name, or a table with ``port`` and, optionally,
+       ``name``. A clock without a ``name`` is named by its port.
    * - ``attributes``
      - no
      - HDL attributes for objects of the design, as a mapping of attribute name to a mapping of
@@ -157,22 +154,22 @@ design. A design with one clock usually needs only this:
 .. code-block:: yaml
 
     rtl:
-      clock.port: clk
+      clocks: [{port: clk}]
 
-In each flow, set ``clock.period`` or ``clock.freq`` with a unit: ``clock.period: 5.5 ns`` or
-``clock.freq: 200 MHz``. A number without a unit is an error. Units are case-sensitive, as in SI:
+In each flow, set ``clocks.main_clock.period`` or ``clocks.main_clock.freq`` with a unit: ``clocks.main_clock.period: 5.5 ns`` or
+``clocks.main_clock.freq: 200 MHz``. A number without a unit is an error. Units are case-sensitive, as in SI:
 ``200 mhz`` is an error that names ``MHz``. See :ref:`quantities` for the kinds and the units.
 
 Xeda refuses the design key ``clock_port`` and the flow setting ``clock_period``, and names the
-replacement: write ``clock: <port>`` in the design and ``clock.period`` in a flow.
+replacement: write ``clocks: [{port: <port>}]`` in ``rtl`` and ``clocks.<name>.period`` in a flow.
 
 .. _tb:
 
 ``tb``: the testbench
 =====================
 
-The section is also accepted as ``test`` or ``tests``. It takes the same ``sources``,
-``parameters`` (``generics``) and ``defines`` keys as ``rtl``, and these keys:
+The section takes the same ``sources``, ``parameters`` and ``defines`` keys as ``rtl``, and these
+keys:
 
 .. list-table::
    :header-rows: 1
@@ -711,7 +708,7 @@ it keeps it in the run root.
     language.vhdl.standard: 2008   # or 93, 2019, ...
     language.verilog.standard: 2005
 
-``version`` is accepted as an alias of ``standard``. A flow accepts a two-digit standard (``08``)
+A flow accepts a two-digit standard (``08``)
 and a four-digit standard (``2008``). The standard applies to every source of the language. A
 source cannot have another standard.
 
@@ -728,10 +725,10 @@ design file can carry the settings of several flows:
     flows:
       vivado_synth:
         fpga.part: xc7a100tftg256-2L
-        clock.period: 5 ns
+        clocks.main_clock.period: 5 ns
       yosys:
         platform: nangate45
-        clock.period: 10 ns
+        clocks.main_clock.period: 10 ns
       ghdl_sim:
         stop_time: 100us
 
@@ -785,17 +782,17 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
         - "Knight.bsv"
         - "por_sync.v"
       top: mkKnight
-      clock.port: CLK
+      clocks: [{port: CLK}]
     targets:
       arty:
-        sources: ["arty.xdc"]
-        defines.CLK_HZ: 100000000
+        rtl.sources: ["arty.xdc"]
+        rtl.defines.CLK_HZ: 100000000
         flows:
           nextpnr:
             board: arty_a7_100t
       ulx3s:
-        sources: ["ulx3s.lpf"]
-        defines.CLK_HZ: 25000000
+        rtl.sources: ["ulx3s.lpf"]
+        rtl.defines.CLK_HZ: 25000000
         flows:
           nextpnr:
             board: ulx3s_85f
@@ -805,35 +802,27 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
     xeda run bsc_sim knight.yaml                   # the design itself, with no target
     xeda run nextpnr knight.yaml --target ulx3s    # the design with the target ulx3s
 
-* A target takes ``rtl``, ``tb``, ``flows`` and every other key of a design file, including
-  the flat forms (``sources``, ``defines``, ``top``, ``clock``, ...). In a target they mean
-  exactly what they mean at the top of the file. ``name``, ``targets`` and ``design_root`` belong
-  to the design alone. An unknown key is an error, as it is in the design.
+* A target takes ``rtl``, ``tb``, ``flows`` and every other key of a design file. In a target
+  they mean exactly what they mean at the top of the file. ``name``, ``targets`` and
+  ``design_root`` belong to the design alone. An unknown key is an error, as it is in the design.
 * Mappings merge key by key, at every depth (``defines``, ``parameters`` and each
   ``flows.<flow>`` section). The ``sources`` of ``rtl`` and ``tb`` are appended after the
   design's, in order. Any other list replaces the design's. Xeda merges each ``flows.<flow>``
-  section by the rules of the settings layers of that flow (see :doc:`flows`), so the aliases of a
-  setting and the clock spellings of the flow are read as they are there. A null or empty ``flows``
+  section by the rules of the settings layers of that flow (see :doc:`flows`). A null or empty ``flows``
   table, or flow section, adds nothing: the design's section stays as it is. Set a key to change
   it.
 * A short form means the table it stands for. When the design and the target write one key in
-  different forms, Xeda reads each as that table before they merge. ``clock: CLK`` is ``clock:
-  {port: CLK}``. ``parameters`` as a list of ``{name, value}`` objects is the mapping they give.
-  ``language.vhdl: "08"`` is ``language.vhdl: {version: "08"}``. ``tb.cocotb: true`` is
-  ``tb.cocotb: {}``, so it keeps the ``module`` of the design, and ``false`` means no cocotb,
-  which replaces the table of the design. A flow's ``fpga: <part>`` is ``fpga: {part: <part>}``.
-  Aliases (``generics`` for ``parameters``, ``version`` for ``standard``) are read the same way, at
-  every depth.
-* The clock of the design is ``clock`` or ``clocks``, two spellings of one list of clocks. The
-  ``clocks`` of a target, in any form, replace the list of the design. The ``clock`` of a target
-  names the first clock of the design and changes it key by key (``clock: {name: sys}`` keeps the
-  port of the design). ``clock: null`` and an empty table (``clock: {}``) mean no clock, in the
-  design and in a target. A clock that is neither text nor a table (``clock: 0`` or
-  ``clock: false``) is an error at the key as written, in a target as well (at
-  ``targets.<name>.rtl.clock``). Two spellings of the clock in the design, or in the selected
-  target, are an error. Xeda checks a target that is not selected only for the form of its values.
-  ``clock_port`` is an error in the design, in a target (selected or not) and in
-  ``--design-overrides``. The error says to write ``clock: <port>``.
+  different forms, Xeda reads each as that table before they merge. ``parameters`` as a list of
+  ``{name, value}`` objects is the mapping they give. ``language.vhdl: "08"`` is
+  ``language.vhdl: {standard: "08"}``. ``tb.cocotb: true`` is ``tb.cocotb: {}``, so it keeps the
+  ``module`` of the design, and ``false`` means no cocotb, which replaces the table of the design.
+* The ``rtl.clocks`` of a target, in any form, replace the list of clocks of the design.
+  ``clocks: null`` and an empty table in the list mean no clock, in the design and in a target. A
+  clock that is neither text nor a table (``clocks: [0]``) is an error at the key as written, in a
+  target as well (at ``targets.<name>.rtl.clocks``). Xeda checks a target that is not selected
+  only for the form of its values. A removed key (``clock_port``, or a key of ``rtl`` written at
+  the top level) is an error in the design, in a target (selected or not) and in
+  ``--design-overrides``. The error names the key to write.
 * A value that is no table, and no short form of one, where a table is expected is an error,
   whichever target you select. Examples are ``tb: 3`` and ``keep: 3`` in ``rtl.attributes``,
   whose entries are tables. A table that a target writes over the value does not hide the error.
@@ -912,5 +901,5 @@ discovery needs exactly one of these names in the directory. Select a design wit
 ``--design-name``. When the project has several designs and you give no name, Xeda asks you to
 choose one.
 
-A project file has the keys ``designs`` (or ``design``) and ``flows`` (or ``flow``). Any other key
-at its root is an error that names the accepted keys.
+A project file has the keys ``designs`` and ``flows``. Any other key at its root is an error that
+names the accepted keys.

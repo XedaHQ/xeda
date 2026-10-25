@@ -55,8 +55,8 @@ def make_inputs(tmp_path: Path, frequency: str = "100 MHz") -> Path:
     design = inputs / "top.yaml"
     design.write_text(
         "name: top\n"
-        "rtl:\n  sources: [top.v]\n  top: top\n  clock.port: clk\n"
-        f"flows:\n  nextpnr:\n    fpga.part: {PART}\n    clock.freq: {frequency}\n"
+        "rtl:\n  sources: [top.v]\n  top: top\n  clocks: [{port: clk}]\n"
+        f"flows:\n  nextpnr:\n    fpga.part: {PART}\n    clocks.main_clock.freq: {frequency}\n"
     )
     return design
 

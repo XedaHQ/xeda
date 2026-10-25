@@ -44,7 +44,7 @@ def _run(tmp_path: Path, monkeypatch, fail: list[str] | None = None, **settings)
     flow = DefaultRunner(tmp_path / "run").run_flow(
         VivadoSynth,
         Design.from_file(SQRT),
-        {"fpga": PART, "clock": {"period": "5.5 ns"}, **settings},
+        {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}, **settings},
     )
     assert isinstance(flow, VivadoSynth)
     return flow

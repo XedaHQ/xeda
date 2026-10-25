@@ -17,7 +17,7 @@ rtl:
   sources:
     - "rtl/UartEcho.bsv"
   top: mkUartEcho
-  clock.port: CLK
+  clocks: [{port: CLK}]
   # Preprocessor macros (the values here are the defaults, see UartEcho.bsv for all of them).
   # Use `defines`, not `parameters`: mkUartEcho has no Verilog parameters.
   # FIXED_BAUD and ECHO_TRANSFORM take 0 or 1 and nothing else. Write the number: a `false`
@@ -46,7 +46,7 @@ flows:
   # Vivado synthesis of the echo on its own: `xeda run vivado_synth uart_echo.yaml`.
   vivado_synth:
     fpga.part: xc7a100tcsg324-1
-    clock.period: 10 ns
+    clocks.main_clock.period: 10 ns
     out_of_context: true
 # The targets with a board build for it: the pin files are in boards/, and the chain with
 # `+openfpgaloader` programs it (see README.md). A pin file does not give the clock period: the
@@ -79,7 +79,7 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
-        clock.period: 10 ns
+        clocks.main_clock.period: 10 ns
   # Arty A7-100T with Vivado: `xeda run vivado_synth uart_echo.yaml --target arty`. The bitstream
   # has a bare name, so it stays in the run directory (outputs/); add `--outputs-to DIR` to copy
   # it. Programming: `xeda run vivado_synth+openfpgaloader uart_echo.yaml --target arty`.
@@ -114,7 +114,7 @@ targets:
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
       nextpnr:
-        clock.freq: 100 MHz
+        clocks.main_clock.freq: 100 MHz
       openfpgaloader:
         board: arty_a7_100t
   # ULX3S 85F (put the oss-cad-suite bin directory first on PATH):
@@ -135,7 +135,7 @@ targets:
         fpga.part: LFE5U-85F-6BG381C
       nextpnr:
         board: ulx3s_85f
-        clock.freq: 25 MHz
+        clocks.main_clock.freq: 25 MHz
   # SITLINV STLV7325 v2 (Kintex-7 xc7k325t) with openXC7 (put the openXC7 bin directory first on
   # PATH): `xeda run yosys_fpga+nextpnr+fpga_pack uart_echo.yaml --target stlv7325`
   # The top is the Bluespec wrapper boards/Stlv7325V2.bsv: the 200 MHz differential clock needs an
@@ -153,7 +153,7 @@ targets:
       sources:
         - "boards/Stlv7325V2.bsv"
       top: mkStlv7325V2
-      clock.port: clk_p
+      clocks: [{port: clk_p}]
       defines:
         FIXED_BAUD: 1
         ECHO_TRANSFORM: 0
@@ -164,6 +164,6 @@ targets:
         fpga.part: xc7k325tffg676-2
       nextpnr:
         board: stlv7325_v2
-        clock.freq: 200 MHz
+        clocks.main_clock.freq: 200 MHz
       openfpgaloader:
         board: stlv7325_v2

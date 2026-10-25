@@ -32,14 +32,14 @@ FIXTURES = (fake_ssh, fake_remote, remote_host)
 pytestmark = [pytest.mark.skipif(os.name != "posix", reason="POSIX")]
 
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
-SQRT_SETTINGS = ["fpga.part=xc7a12tcsg325-1", "clock.period=5ns"]
+SQRT_SETTINGS = ["fpga.part=xc7a12tcsg325-1", "clocks.main_clock.period=5ns"]
 
 
 def _sqrt_design(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     shutil.copy(SQRT / "sqrt.vhdl", root)
     (root / "sqrt.yaml").write_text(
-        "name: sqrt\nrtl:\n  sources: [sqrt.vhdl]\n  top: sqrt\n  clock: {port: clk}\n"
+        "name: sqrt\nrtl:\n  sources: [sqrt.vhdl]\n  top: sqrt\n  clocks: [{port: clk}]\n"
     )
     return root / "sqrt.yaml"
 

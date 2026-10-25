@@ -10,7 +10,7 @@ description: >-
 rtl:
   sources: []
   top: mkUart
-  clock.port: CLK
+  clocks: [{port: CLK}]
   # Preprocessor macros that size mkUart; the values here are the defaults (see Uart.bsv for all
   # of them). Use `defines`, not `parameters`: mkUart has no Verilog parameters.
   defines.CLK_HZ: 100000000
@@ -29,11 +29,11 @@ flows:
   # ASIC synthesis on nangate45: `xeda run yosys uart.yaml`.
   yosys:
     platform: nangate45
-    clock.period: 1.5 ns
+    clocks.main_clock.period: 1.5 ns
   # Vivado synthesis of the UART on its own: `xeda run vivado_synth uart.yaml`.
   vivado_synth:
     fpga.part: xc7a100tcsg324-1
-    clock.period: 10 ns
+    clocks.main_clock.period: 10 ns
     out_of_context: true
 # The FPGA configurations are resource and timing estimates without pins.
 targets:
@@ -42,7 +42,7 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: LFE5U-85F-6BG381C
-        clock.period: 20 ns
+        clocks.main_clock.period: 20 ns
       nextpnr:
         lpf_allow_unconstrained: true
   # `xeda run yosys_fpga uart.yaml --target artix7`. Synthesis only: nextpnr-himbaechel of openXC7
@@ -51,4 +51,4 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
-        clock.period: 10 ns
+        clocks.main_clock.period: 10 ns

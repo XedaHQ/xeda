@@ -172,7 +172,7 @@ def cli(ctx: click.Context, **kwargs):
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")
 @output_format_option()
 def list_flows(output_format: str, json_flag: bool):
-    """List every flow Xeda can run, with its aliases, category, default producers and declared
+    """List every flow Xeda can run, with its category, default producers and declared
     inputs and outputs.
 
     The "Depends on" column lists the default producers of a flow. "Takes" and "Makes" list the
@@ -202,11 +202,8 @@ def list_flows(output_format: str, json_flag: bool):
         ],
     )
     for flow in info:
-        name = escape(flow["name"])
-        if flow["aliases"]:
-            name += "\n[dim]aka " + escape(", ".join(flow["aliases"])) + "[/dim]"
         table.add_row(
-            name,
+            escape(flow["name"]),
             flow["category"].replace("_", " "),
             escape(flow["description"]) if flow["description"] else "[red]<no description>[/red]",
             escape(", ".join(flow["dependencies"])) or "-",
@@ -228,7 +225,7 @@ def list_flows(output_format: str, json_flag: bool):
     "--common/--no-common",
     default=True,
     show_default=True,
-    help="Include the settings accepted by every flow (ncpus, dockerized, lib_paths, ...).",
+    help="Include the settings accepted by every flow (nthreads, dockerized, lib_paths, ...).",
 )
 @click.option(
     "--tier",
@@ -547,7 +544,7 @@ def _run_root_options(func):
 
 RUN_HELP = """Run a flow, or the last flow of a chain.
 
-FLOW names one flow (ghdl_sim, GhdlSim and ghdl-sim name the same flow). The producers of the
+FLOW names one flow (for example ghdl_sim). The producers of the
 flow run first. A chain such as `yosys_fpga+nextpnr+fpga_pack` runs its last flow, binding each
 preceding flow's declared output to the compatible required inputs of the next flow.
 `FLOW.OUTPUT` names the output when several fit. Unbound inputs come from the sources of the
@@ -810,7 +807,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     cls=OptionEatAll,
     default=tuple(),
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE items with spaces; the list ends at the next option or the first token that is not KEY=VALUE (use -- before a design path that looks like one). KEY can be a hierarchical name using dot notation.
-    Example: --settings clock.period=2.345ns impl.strategy=Debug
+    Example: --settings clocks.main_clock.period=2.345ns impl.strategy=Debug
     flows.<flow>.KEY=VALUE sets a setting of another flow of the run, e.g. -s flows.yosys_fpga.flatten=true.
     """,
 )
@@ -1314,7 +1311,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     cls=OptionEatAll,
     default=tuple(),
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE items with spaces; the list ends at the next option or the first token that is not KEY=VALUE (use -- before a design path that looks like one). KEY can be a hierarchical name using dot notation.
-    Example: --settings clock.period=2.345ns impl.strategy=Debug
+    Example: --settings clocks.main_clock.period=2.345ns impl.strategy=Debug
     """,
 )
 @_run_root_options

@@ -83,7 +83,7 @@ def _design(root: Path) -> Design:
     return Design(
         name="d",
         design_root=root,
-        rtl={"sources": rtl, "top": "top", "clock": "clk"},
+        rtl={"sources": rtl, "top": "top", "clocks": [{"port": "clk"}]},
         tb={"sources": tb, "top": "tb", "uut": "dut"},
     )
 
@@ -106,29 +106,35 @@ def _cases(root: Path) -> dict[str, tuple[dict, list[str]]]:
     lib = root / "pdk" / "cells.db"  # a PDK file: out of scope, so an ordinary name
     lib.parent.mkdir(parents=True, exist_ok=True)
     lib.write_text("")
-    fpga = {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}}
+    fpga = {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "10 ns"}}}
     return {
         "vivado_synth": ({**fpga, "xdc_files": [xdc], "tcl_files": [hook]}, [xdc, hook]),
         "vivado_alt_synth": ({**fpga, "xdc_files": [xdc]}, [xdc]),
         "vivado_project": ({**fpga, "xdc_files": [xdc], "tcl_files": [hook]}, [xdc, hook]),
         "vivado_sim": ({}, []),
-        "quartus": ({"fpga": "10CL016YU256C6G", "clock": {"period": "10 ns"}}, []),
+        "quartus": (
+            {"fpga": {"part": "10CL016YU256C6G"}, "clocks": {"main_clock": {"period": "10 ns"}}},
+            [],
+        ),
         "ise_synth": (
             {
-                "fpga": "xc6slx9-2-tqg144",
-                "clock": {"period": "10 ns"},
+                "fpga": {"part": "xc6slx9-2-tqg144"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
                 "ucf_files": [ucf],
                 "xcf_file": xcf,
             },
             [ucf, xcf],
         ),
-        "diamond_synth": ({"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}}, []),
+        "diamond_synth": (
+            {"fpga": {"part": "LFE5U-25F-6BG256C"}, "clocks": {"main_clock": {"period": "10 ns"}}},
+            [],
+        ),
         "dc": (
             {
                 "sdc_files": [sdc],
                 "hooks": {"post_link": hook},
                 "target_libraries": [str(lib)],
-                "clock": {"period": "10 ns"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
             },
             [sdc, hook],
         ),
@@ -251,7 +257,7 @@ def test_vivado_alt_synth_rejects_tcl_files() -> None:
     """Non-project mode has no fileset for TCL hooks: the setting was accepted and ignored."""
     with pytest.raises(FlowSettingsError, match="`tcl_files` is a setting of vivado_synth"):
         registered_flows["vivado_alt_synth"][1].Settings.from_input(
-            {"fpga": "xc7a12tcsg325-1", "tcl_files": ["h.tcl"]}
+            {"fpga": {"part": "xc7a12tcsg325-1"}, "tcl_files": ["h.tcl"]}
         )
 
 
@@ -263,8 +269,8 @@ def test_diamond_allows_or_forbids_dsps_and_brams(allowed, engine, tmp_path, mon
     on its own: `allow_brams` also turned off LSE's DSPs."""
     use_fake_tools(monkeypatch)
     settings = {
-        "fpga": "LFE5U-25F-6BG256C",
-        "clock": {"period": "10 ns"},
+        "fpga": {"part": "LFE5U-25F-6BG256C"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
         "synthesis_engine": engine,
         "allow_dsps": allowed,
         "allow_brams": allowed,
@@ -442,7 +448,7 @@ def _named_outputs(root: Path) -> dict[str, tuple[dict, list[tuple[str, ...]]]]:
     each whole: a call's leading words, then the argument)."""
     tluplus = [_file(root, n) for n in ("max.tluplus", "min.tluplus", "map.txt")]
     lib = _file(root, "cells.db")
-    fpga = {"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}}
+    fpga = {"fpga": {"part": "LFE5U-25F-6BG256C"}, "clocks": {"main_clock": {"period": "10 ns"}}}
     return {
         "diamond_synth": (
             {**fpga, "impl_folder": f"{ODD} impl", "impl_name": f"{ODD} name"},
@@ -453,13 +459,17 @@ def _named_outputs(root: Path) -> dict[str, tuple[dict, list[tuple[str, ...]]]]:
             [("open_saif", f"{ODD}.saif"), ("open_vcd", f"{ODD}.vcd")],
         ),
         "vivado_alt_synth": (
-            {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}, "bitstream": f"{ODD}.bit"},
+            {
+                "fpga": {"part": "xc7a12tcsg325-1"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
+                "bitstream": f"{ODD}.bit",
+            },
             [("write_bitstream", "-force", f"{ODD}.bit")],
         ),
         "dc": (
             {
                 "target_libraries": [lib],
-                "clock": {"period": "10 ns"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
                 "max_tluplus": tluplus[0],
                 "min_tluplus": tluplus[1],
                 "tluplus_map": tluplus[2],
@@ -514,7 +524,7 @@ def _evil_design(root: Path) -> Design:
         rtl={
             "sources": ["top.vhd"],
             "top": f"top {EVIL}",
-            "clock": {"port": f"clk {EVIL}"},
+            "clocks": [{"port": f"clk {EVIL}"}],
             "parameters": {"G_STR": f"s {EVIL}", "G_N": 8},
             "defines": {"D": f"v {EVIL}"},
         },
@@ -537,14 +547,29 @@ def _fake_tool_module():
 
 #: The flows the fake tools run, with the settings each needs.
 EVIL_FLOWS = {
-    "vivado_synth": {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}},
-    "vivado_alt_synth": {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}},
-    "vivado_project": {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}},
+    "vivado_synth": {
+        "fpga": {"part": "xc7a12tcsg325-1"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+    },
+    "vivado_alt_synth": {
+        "fpga": {"part": "xc7a12tcsg325-1"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+    },
+    "vivado_project": {
+        "fpga": {"part": "xc7a12tcsg325-1"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+    },
     "vivado_sim": {},
-    "quartus": {"fpga": "10CL016YU256C6G", "clock": {"period": "10 ns"}},
-    "ise_synth": {"fpga": "xc6slx9-2-tqg144", "clock": {"period": "10 ns"}},
-    "diamond_synth": {"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}},
-    "dc": {"target_libraries": ["cells.db"], "clock": {"period": "10 ns"}},
+    "quartus": {"fpga": {"part": "10CL016YU256C6G"}, "clocks": {"main_clock": {"period": "10 ns"}}},
+    "ise_synth": {
+        "fpga": {"part": "xc6slx9-2-tqg144"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+    },
+    "diamond_synth": {
+        "fpga": {"part": "LFE5U-25F-6BG256C"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+    },
+    "dc": {"target_libraries": ["cells.db"], "clocks": {"main_clock": {"period": "10 ns"}}},
     "modelsim": {},
 }
 
@@ -624,7 +649,7 @@ def test_a_valid_design_name_reaches_the_tool_whole(tmp_path, monkeypatch):
         DefaultRunner(run_dir).run_flow(
             registered_flows["vivado_synth"][1],
             design,
-            {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}},
+            {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "10 ns"}}},
         )
     except Exception:  # pylint: disable=broad-except
         pass

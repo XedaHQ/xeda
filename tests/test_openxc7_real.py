@@ -133,7 +133,7 @@ def _design(directory: Path, top: str, verilog: str) -> Design:
         design_root=directory,
         rtl={"sources": [f"{top}.v", f"{top}.xdc"], "top": top},
         # the upstream Makefile's `synth_xilinx -flatten -abc9 -arch xc7`
-        flow={"yosys_fpga": {"fpga": {"part": PART}, "flatten": True}},
+        flows={"yosys_fpga": {"fpga": {"part": PART}, "flatten": True}},
     )
 
 

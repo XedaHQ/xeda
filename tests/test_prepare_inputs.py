@@ -504,7 +504,7 @@ def test_a_launch_forms_the_identity_of_the_installation_once(tmp_path, monkeypa
     )
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
     settings = module.Nextpnr.Settings.from_input(
-        {"fpga": "xc7a100tcsg324-1"}, design_root=tmp_path, runner_cwd=tmp_path
+        {"fpga": {"part": "xc7a100tcsg324-1"}}, design_root=tmp_path, runner_cwd=tmp_path
     )
     run_path = tmp_path / "run" / "d" / "nextpnr"
     flow = module.Nextpnr(

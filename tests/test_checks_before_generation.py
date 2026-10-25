@@ -71,7 +71,7 @@ for name in sys.argv[2:]:
     path.write_text(CONTENTS[path.suffix])
 """
 
-XILINX = {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}}
+XILINX = {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "10 ns"}}}
 
 
 class Generated:
@@ -87,7 +87,7 @@ class Generated:
             "rtl": {
                 "sources": writes if sources is None else sources,
                 "top": "top",
-                "clock": "clk",
+                "clocks": ["clk"],
                 "generator": {
                     "executable": sys.executable,
                     "args": ["gen.py", str(self.counter), *writes],
@@ -181,7 +181,7 @@ def test_the_command_line_reports_the_refusal_and_runs_no_generator(tmp_path, mo
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.edf"])
     result = CliRunner().invoke(
-        cli, ["run", "yosys_fpga", str(generated.file), "-s", "fpga=xc7a12tcsg325-1", "--json"]
+        cli, ["run", "yosys_fpga", str(generated.file), "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
     )
     document = json.loads(result.stdout)
     assert result.exit_code == 2 and document["outcome"] is None, result.output
@@ -194,7 +194,7 @@ def test_a_remote_launch_refuses_before_the_generator_runs(tmp_path, monkeypatch
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.edf"])
     outcome = remote_request(
-        tmp_path, generated.file, "yosys_fpga", flow_settings=["fpga=xc7a12tcsg325-1"]
+        tmp_path, generated.file, "yosys_fpga", flow_settings=["fpga.part=xc7a12tcsg325-1"]
     )
     assert isinstance(outcome.error, FlowSettingsException)
     assert "yosys_fpga reads none of the design's" in str(outcome.error)

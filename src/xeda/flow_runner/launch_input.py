@@ -55,7 +55,7 @@ def input_settings(
             flow_class.name,
             settings.model_dump_json(exclude_unset=True, indent=2),
         )
-        settings.debug = True  # the launcher's `--debug` is part of the input
+        settings.debug = True  # the launcher's `debug` is part of the input
     # A path the flow writes that leads out of its run directory, a setting the
     # flow cannot run without, and a design it cannot run are reported now, before anything
     # is set up for the run.

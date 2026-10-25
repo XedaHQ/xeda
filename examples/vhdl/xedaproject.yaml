@@ -12,7 +12,7 @@ designs:
       top: full_adder_tb
 flows:
   ghdl_sim:
-    warn_error: true
+    werror: true
   vivado_synth:
     fpga.part: xc7a12tcsg325-1
   ise_synth:

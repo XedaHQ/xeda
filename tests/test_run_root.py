@@ -197,7 +197,6 @@ def test_an_unmarked_run_root_is_refused_with_a_json_document(sqrt, tmp_path, co
         "dse": [
             "dse",
             "vivado_synth",
-            "--design",
             "sqrt.yaml",
             "--init-freq-low",
             "100",

@@ -75,7 +75,9 @@ def test_a_number_for_a_text_field_says_to_quote_it(tmp_path):
 )
 def test_a_flow_boolean_given_a_yaml_11_word_is_a_settings_error(word, fix):
     with pytest.raises(FlowSettingsError) as raised:
-        VivadoSynth.Settings.from_input({"fpga": "xc7a12tcsg325-1", "print_commands": word})
+        VivadoSynth.Settings.from_input(
+            {"fpga": {"part": "xc7a12tcsg325-1"}, "print_commands": word}
+        )
     assert f"`{word}` is text, not a boolean: write `{fix}`" in str(raised.value)
     assert "print_commands" in str(raised.value)
 
@@ -100,7 +102,7 @@ def test_every_boolean_setting_of_every_flow_refuses_text(flow, name):
 
 
 def test_assigning_a_boolean_word_fails_as_constructing_does():
-    settings = VivadoSynth.Settings.from_input({"fpga": "xc7a12tcsg325-1"})
+    settings = VivadoSynth.Settings.from_input({"fpga": {"part": "xc7a12tcsg325-1"}})
     with pytest.raises(ValidationError) as raised:
         settings.debug = "on"
     assert validation_errors(raised.value.errors())[0][1] == (
@@ -111,7 +113,7 @@ def test_assigning_a_boolean_word_fails_as_constructing_does():
 
 def test_a_yaml_11_word_for_a_non_boolean_flow_setting_says_what_to_write():
     with pytest.raises(FlowSettingsError) as raised:
-        VivadoSynth.Settings.from_input({"fpga": "xc7a12tcsg325-1", "nthreads": "on"})
+        VivadoSynth.Settings.from_input({"fpga": {"part": "xc7a12tcsg325-1"}, "nthreads": "on"})
     assert "`on` is text in Xeda YAML (YAML 1.2): write `true`" in str(raised.value)
 
 
@@ -156,8 +158,8 @@ def test_dash_s_true_and_false_set_a_boolean(tmp_path, monkeypatch, setting):
 def test_a_number_is_not_a_boolean_anywhere(tmp_path, number):
     message = f"`{number}` is a number, not a boolean: write `true` or `false`"
     with pytest.raises(FlowSettingsError, match=re.escape(message)):
-        VivadoSynth.Settings.from_input({"fpga": "xc7a12tcsg325-1", "debug": number})
-    settings = VivadoSynth.Settings.from_input({"fpga": "xc7a12tcsg325-1"})
+        VivadoSynth.Settings.from_input({"fpga": {"part": "xc7a12tcsg325-1"}, "debug": number})
+    settings = VivadoSynth.Settings.from_input({"fpga": {"part": "xc7a12tcsg325-1"}})
     with pytest.raises(ValidationError, match=re.escape(message)):
         settings.dockerized = number
     with pytest.raises(DesignValidationError, match=re.escape(message)):

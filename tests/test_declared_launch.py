@@ -90,7 +90,7 @@ def test_run_composes_a_producer_s_own_section_and_plan_launches_nothing(tmp_pat
         name="d",
         design_root=design.root_path,
         rtl={"sources": [], "top": "t"},
-        flow={"__maker": {"text": "from its section\n"}},
+        flows={"__maker": {"text": "from its section\n"}},
     )
     plan = _runner(tmp_path).plan(_Taker, with_section)
     assert [node.name for node in plan.nodes] == ["__maker", "__taker"]

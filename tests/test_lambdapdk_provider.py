@@ -901,7 +901,7 @@ def test_a_user_file_that_is_invalid_for_its_provider_is_a_settings_error_at_pla
     its document, whichever provider's view is invalid."""
     (tmp_path / "top.v").write_text("module top(input clk, output reg q);\nendmodule\n")
     (tmp_path / "d.yaml").write_text(
-        "name: top\nrtl: {sources: [top.v], top: top, clock.port: clk}\n", encoding="utf-8"
+        "name: top\nrtl: {sources: [top.v], top: top, clocks: [{port: clk}]}\n", encoding="utf-8"
     )
     (tmp_path / "mine.yaml").write_text(BAD_FILE, encoding="utf-8")
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -909,7 +909,12 @@ def test_a_user_file_that_is_invalid_for_its_provider_is_a_settings_error_at_pla
         cli,
         [
             *["run", "--json", "--dry-run", "yosys", str(tmp_path / "d.yaml")],
-            *["-s", f"platform_file={tmp_path / 'mine.yaml'}", "-s", "clock.period=10ns"],
+            *[
+                "-s",
+                f"platform_file={tmp_path / 'mine.yaml'}",
+                "-s",
+                "clocks.main_clock.period=10ns",
+            ],
             *["-s", f"pdk_provider={provider}"],
         ],
     )

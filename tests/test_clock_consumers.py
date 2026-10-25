@@ -12,7 +12,7 @@ from .test_nextpnr import write_nextpnr_config
 def _design() -> Design:
     return Design(
         name="dummy",
-        rtl={"sources": [], "top": "dummy", "clock": {"port": "clk_a"}},
+        rtl={"sources": [], "top": "dummy", "clocks": [{"port": "clk_a"}]},
     )
 
 

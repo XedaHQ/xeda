@@ -83,6 +83,7 @@ class VivadoProject(Vivado, FpgaSynthFlow):
                 spelling: _in_vivado_sim(text)
                 for spelling, text in VivadoSim.Settings.removed_setting_replacements().items()
                 if spelling not in VivadoSynth.Settings.model_fields
+                and spelling not in VivadoSynth.Settings.removed_setting_replacements()
             },
         }
 

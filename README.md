@@ -54,7 +54,7 @@ rtl:
   sources:
     - "sqrt.vhdl"
   top: sqrt
-  clock.port: clk
+  clocks: [{port: clk}]
   parameters.G_IN_WIDTH: 32
 tb:
   sources:
@@ -62,19 +62,19 @@ tb:
 flows:
   yosys_fpga:
     fpga.part: xc7a100tftg256-2L
-    clock.freq: 100 MHz
+    clocks.main_clock.freq: 100 MHz
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clock.period: 5 ns
+    clocks.main_clock.period: 5 ns
   vivado_alt_synth:
     fpga.part: xc7a100tftg256-2L
     synth.strategy: ExtraTiming
     impl.strategy: ExtraTimingCongestion
-    clock.period: 5 ns
+    clocks.main_clock.period: 5 ns
 ```
 
-A dotted key stands for a nested table: `clock.period: 5 ns` is a `clock` table with the key
-`period`. The command line uses the same keys, for example `-s clock.period=4.5ns`.
+A dotted key stands for a nested table: `clocks.main_clock.period: 5 ns` is a `clock` table with the key
+`period`. The command line uses the same keys, for example `-s clocks.main_clock.period=4.5ns`.
 
 A `.py` testbench source makes the testbench a cocotb one. The clock period is a setting of each
 flow, because it constrains one build.
@@ -92,8 +92,8 @@ The same design file serves every flow:
 xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml          # simulate with GHDL and run the cocotb tests
 xeda run nvc examples/vhdl/sqrt/sqrt.yaml               # the same design and testbench with NVC
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml      # synthesize and implement with Vivado
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns   # change one setting
-xeda dse vivado_synth --design examples/vhdl/sqrt/sqrt.yaml   # search for the highest clock frequency
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clocks.main_clock.period=4.5ns   # change one setting
+xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml   # search for the highest clock frequency
 ```
 
 A flow whose inputs and outputs are declared can follow another flow. A chain joins them with
@@ -104,8 +104,8 @@ the ULX3S example, in `examples/boards/ulx3s/blinky`, and programs no hardware:
 xeda run yosys_fpga+nextpnr+fpga_pack examples/boards/ulx3s/blinky/blinky.xeda.yaml --dry-run
 ```
 
-Flow names accept snake case, dashes, CamelCase class names and the documented aliases. Setting
-names are exact: an unknown setting is an error.
+Flow names and setting names are exact: a second spelling or an unknown name is an error that
+suggests the right one.
 
 ### Remote runs
 
@@ -177,7 +177,7 @@ generated scripts, reports and the effective settings are in the run root, `xeda
   - `bsc_sim`: compiles a Bluespec testbench and simulates it with Bluesim, or with Verilator,
     Icarus Verilog or another Verilog simulator through bsc's own Verilog link step
 - [GHDL](https://github.com/ghdl/ghdl) VHDL simulator
-  - `ghdl_sim` (alias: `ghdl`): VHDL simulation
+  - `ghdl_sim`: VHDL simulation
   - `ghdl_synth`: VHDL elaboration through `ghdl --synth`; for general-purpose synthesis prefer
     `yosys`, which handles VHDL, Verilog and mixed-language designs
 - Intel [Quartus Prime](https://www.intel.com/content/www/us/en/software/programmable/quartus-prime/overview.html) (Lite/Pro Editions)

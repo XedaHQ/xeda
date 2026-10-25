@@ -3,18 +3,18 @@ name: knight
 rtl:
   top: knight
   sources: [knight.v, por_sync.v]
-  clock: {port: CLK}
+  clocks: [{port: CLK}]
   parameters: {WIDTH: 8}
 tb:
   top: knight_tb
   sources: [knight_tb.v]
 flows:
   nextpnr: {seed: 3}
-  vivado_synth: {clock: {period: 10 ns}}
+  vivado_synth: {clocks: {main_clock: {period: 10 ns}}}
 targets:
   arty:
-    sources: [arty.xdc]
-    defines: {CLK_HZ: 100000000}
+    rtl.sources: [arty.xdc]
+    rtl.defines: {CLK_HZ: 100000000}
     flows:
       vivado_synth: {fpga: {part: xc7a100tcsg324-1}}
   ulx3s:

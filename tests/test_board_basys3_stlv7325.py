@@ -378,7 +378,7 @@ def test_the_board_builds_a_bitstream_with_openxc7(tmp_path, tmp_path_factory, b
         name=f"{board.id.lower()}_{worker}",
         design_root=root,
         rtl={"sources": ["top.v"], "top": "top"},
-        flow={"fpga_pack": {"board": board.id}, "yosys_fpga": {"flatten": True}},
+        flows={"fpga_pack": {"board": board.id}, "yosys_fpga": {"flatten": True}},
     )
     run_root = common / "openxc7-run-root"
     flow = DefaultRunner(run_root, display_results=False).run(FpgaPack, design)

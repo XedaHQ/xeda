@@ -69,8 +69,7 @@ def toy_flows():
 
     yield DesignEditor, seen
     for cls in (DesignDep, DesignEditor):
-        for name in (cls.name, cls.__name__):
-            registered_flows.pop(name, None)
+        registered_flows.pop(cls.name, None)
 
 
 def test_a_flow_editing_its_design_changes_nobody_else_s(toy_flows, tmp_path):

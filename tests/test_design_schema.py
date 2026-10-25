@@ -110,15 +110,10 @@ INPUT_SHORTHANDS = {
         "rtl": {"sources": [], "top": "t"},
         "tb": {"sources": [], "cocotb": True},
     },
-    "language (field name)": {
+    "language": {
         "name": "d",
         "rtl": {"sources": [], "top": "t"},
         "language": {"vhdl": {"standard": "2008"}},
-    },
-    "hdl (alias)": {
-        "name": "d",
-        "rtl": {"sources": [], "top": "t"},
-        "hdl": {"vhdl": {"standard": "2008"}},
     },
     "language.vhdl as a string": {
         "name": "d",
@@ -135,8 +130,14 @@ INPUT_SHORTHANDS = {
         "rtl": {"sources": [], "top": "t"},
         "authors": "Jane Doe <jane@example.com>",
     },
-    "flat top-level form": {"name": "d", "sources": [], "top": "t", "clock": {"port": "clk"}},
-    "test as a tb alias": {"name": "d", "sources": [], "top": "t", "test": {"sources": []}},
+    "rtl.clocks as a port name": {
+        "name": "d",
+        "rtl": {"sources": [], "top": "t", "clocks": ["clk"]},
+    },
+    "rtl.clocks as a table": {
+        "name": "d",
+        "rtl": {"sources": [], "top": "t", "clocks": [{"port": "clk"}]},
+    },
 }
 
 
@@ -201,46 +202,35 @@ def test_generator_args_may_be_one_string_or_a_list_in_the_schema_and_the_loader
         Generator(executable="py", args=3)  # type: ignore[arg-type]
 
 
-def test_the_clock_shorthand_is_in_the_input_schema_and_the_removed_clock_port_is_not():
-    """The derived `clock` alias is documented without becoming a stored model field."""
+def test_the_schema_has_no_single_clock_key_and_no_flat_rtl_key():
+    """A design takes its clocks as `rtl.clocks`; `clock` and the flat keys of `rtl` are gone."""
     schema = design_schema()
     rtl = schema["$defs"]["Rtl"]["properties"]
     root = schema["properties"]
 
-    for properties in (rtl, root):
-        assert {"clock", "clocks"} <= set(properties)
-        assert properties["clock"].get("x-xeda-input-only") is True
-        assert "clock_port" not in properties
-
-
-def test_flat_clock_is_accepted_by_the_loader_and_schema():
-    data = {"name": "d", "sources": [], "top": "t", "clock": "clk"}
-
-    Design(**data)
-    assert validator().is_valid(data)
+    assert "clocks" in rtl and "clock" not in rtl and "clock_port" not in rtl
+    assert not {"sources", "top", "clock", "clocks", "parameters", "generics", "defines"} & set(
+        root
+    )
+    assert not {"generator", "author", "hdl", "flow", "test", "tests"} & set(root)
 
 
 @pytest.mark.parametrize(
     "data",
     [
-        {"name": "d", "sources": [], "top": "t", "clock_port": "clk"},
         {"name": "d", "rtl": {"sources": [], "top": "t", "clock_port": "clk"}},
+        {"name": "d", "clock_port": "clk"},
     ],
 )
 def test_clock_port_was_removed(data):
-    with pytest.raises(Exception, match="`clock_port` was removed: use `clock: <port>`"):
+    with pytest.raises(Exception, match="`clock_port` was removed: use `rtl.clocks`"):
         Design(**data)
 
 
-def test_mixed_flat_clock_spellings_are_rejected_loudly():
-    data = {
-        "name": "d",
-        "sources": [],
-        "top": "t",
-        "clock": {"port": "a"},
-        "clocks": [{"port": "b"}],
-    }
-    with pytest.raises(Exception, match="Specify only one"):
+def test_a_flat_clock_is_refused_with_the_key_to_use():
+    data = {"name": "d", "sources": [], "top": "t", "clocks": [{"port": "a"}]}
+
+    with pytest.raises(Exception, match="`sources` was removed: use `rtl.sources`"):
         Design(**data)
 
 
@@ -322,7 +312,7 @@ def test_model_schema_is_still_available():
 def test_embedded_example_designs_validate_against_the_published_schema(path):
     project = XedaProject.from_file(path)
     raw = load_design_file(path)
-    designs = raw.get("design", raw.get("designs", []))
+    designs = raw.get("designs", [])
     if isinstance(designs, dict):
         designs = [designs]
     assert designs
@@ -342,10 +332,9 @@ def test_targets_are_published_in_the_input_schema_only():
     targets = schema["properties"]["targets"]
     assert targets["description"]
     overlay = targets["additionalProperties"]["properties"]
-    # the design's own keys, in every form a design file takes them...
-    assert {"rtl", "tb", "flows", "flow", "sources", "defines", "top", "clock", "test"} <= set(
-        overlay
-    )
+    # the design's own keys...
+    assert {"rtl", "tb", "flows", "language", "authors"} <= set(overlay)
+    assert not {"flow", "sources", "defines", "top", "clock", "test"} & set(overlay)
     # ...but for the ones that are the design's alone
     for name in ("name", "targets", "target", "design_root"):
         assert overlay[name] is False, name
@@ -391,7 +380,7 @@ def test_the_schema_refuses_what_the_loader_refuses_in_targets(targets, tmp_path
         Design(design_root=tmp_path, **Design.select_target(data, selected))
 
 
-@pytest.mark.parametrize("spelling", ["parameters", "generics"])
+@pytest.mark.parametrize("spelling", ["parameters"])
 @pytest.mark.parametrize(
     "entry",
     [{"name": "", "value": 1}, {"name": "W", "value": None}, {"name": "W"}, {"value": 1}],
@@ -511,11 +500,9 @@ def test_every_declared_single_item_field_is_one_the_loader_takes():
         assert loader_takes_a_bare_string(model, name), f"{model.__name__}.{name}"
 
 
-@pytest.mark.parametrize(
-    "section", ["", "rtl", "tb", "rtl.generator"], ids=["flat", "rtl", "tb", "generator"]
-)
+@pytest.mark.parametrize("section", ["rtl", "tb", "rtl.generator"], ids=["rtl", "tb", "generator"])
 def test_sources_given_as_one_path_or_one_table_load_and_validate(tmp_path, section):
-    """The same forms at the root, in `rtl`, in `tb` and in a generator: the loader and the
+    """The same forms in `rtl`, in `tb` and in a generator: the loader and the
     schema agree for a path and (not for a generator) a table."""
     (tmp_path / "a.v").write_text("module a; endmodule\n")
     forms = ["a.v", {"file": "a.v"}, {"path": "a.v", "type": "Verilog"}]
@@ -523,9 +510,7 @@ def test_sources_given_as_one_path_or_one_table_load_and_validate(tmp_path, sect
         forms = ["a.v"]
     for form in forms:
         data: dict = {"name": "d", "rtl": {"top": "a", "sources": []}, "tb": {"sources": []}}
-        if section == "":
-            data = {"name": "d", "top": "a", "sources": form}
-        elif section == "rtl.generator":
+        if section == "rtl.generator":
             data["rtl"]["generator"] = {
                 "executable": sys.executable,
                 "args": ["-c", "pass"],
@@ -562,18 +547,6 @@ def test_every_form_of_clocks_the_loader_reads_is_in_the_schema(clocks, count):
     data = {"name": "d", "rtl": {"sources": [], "top": "t", "clocks": clocks}}
     assert len(Design(**data).rtl.clocks) == count
     assert list(validator().iter_errors(data)) == []
-
-
-@pytest.mark.parametrize("clock", [None, "", "clk", {}, {"port": "clk"}], ids=repr)
-def test_every_form_of_clock_the_loader_reads_is_in_the_schema(clock):
-    """`clock` takes a port name, a table, and `null`, `""` or an empty table for no clock, in
-    `rtl` and in the flat form."""
-    for data in (
-        {"name": "d", "rtl": {"sources": [], "top": "t", "clock": clock}},
-        {"name": "d", "sources": [], "top": "t", "clock": clock},
-    ):
-        Design(**data)
-        assert list(validator().iter_errors(data)) == []
 
 
 def test_a_returned_schema_shares_nothing_with_the_next_one():

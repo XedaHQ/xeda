@@ -46,13 +46,15 @@ def layer(cls, inputs, location="the design file"):
 
 
 def test_split_copies_settings_and_captures_immutable_binding_data():
-    sections = {_ChainConsumer.name: {"quiet": True, "inputs": {"files": ["chain_source.files"]}}}
+    sections = {
+        _ChainConsumer.name: {"quiet": True, "inputs": {"files": ["__chain_producer.files"]}}
+    }
     before = deepcopy(sections)
     settings, bindings = split_bindings(sections, location="project.yaml")
     sections[_ChainConsumer.name]["inputs"]["files"].append("__maker.made")
 
     assert settings == {_ChainConsumer.name: {"quiet": True}}
-    assert before[_ChainConsumer.name]["inputs"]["files"] == ["chain_source.files"]
+    assert before[_ChainConsumer.name]["inputs"]["files"] == ["__chain_producer.files"]
     selected = effective_bindings([bindings], default_nodes([_ChainConsumer]))
     binding = selected[NodeKey(_ChainConsumer.name)]["files"]
     assert binding.references == (ProducerRef(NodeKey(_ChainProducer.name), "files"),)
@@ -66,15 +68,19 @@ def test_split_copies_settings_and_captures_immutable_binding_data():
 def test_binding_precedence_merges_input_names_and_replaces_ordered_lists():
     layers = [
         layer(
-            _ChainConsumer, {"left": "chain_source.json_a", "files": ["__maker.made"]}, "project"
+            _ChainConsumer,
+            {"left": "__chain_producer.json_a", "files": ["__maker.made"]},
+            "project",
         ),
         layer(
             _ChainConsumer,
-            {"right": "chain_source.json_b", "files": ["chain_source.files"]},
+            {"right": "__chain_producer.json_b", "files": ["__chain_producer.files"]},
             "design",
         ),
-        layer(_ChainConsumer, {"left": "chain_source.json_b"}, "CLI"),
-        layer(_ChainConsumer, {"files": ["chain_source.data", "chain_source.files"]}, "API"),
+        layer(_ChainConsumer, {"left": "__chain_producer.json_b"}, "CLI"),
+        layer(
+            _ChainConsumer, {"files": ["__chain_producer.data", "__chain_producer.files"]}, "API"
+        ),
     ]
     bindings = effective_bindings(layers, default_nodes([_ChainConsumer]))[
         NodeKey(_ChainConsumer.name)
@@ -171,7 +177,9 @@ CHAIN_EDGE = (ProducerRef(NodeKey("__chain_simple_producer"), "netlist"),)
 
 
 @pytest.mark.parametrize("origin", ["CLI", "API"])
-@pytest.mark.parametrize("reference", ["__chain_simple_producer.netlist", "chain_source.json_a"])
+@pytest.mark.parametrize(
+    "reference", ["__chain_simple_producer.netlist", "__chain_producer.json_a"]
+)
 def test_command_line_and_api_collisions_precede_precedence(origin, reference):
     """A chain collides with a command-line or API binding of the same
     input, equal or not, before layer precedence or value validation."""
@@ -188,7 +196,9 @@ def test_command_line_and_api_collisions_precede_precedence(origin, reference):
 
 
 @pytest.mark.parametrize("origin", ["design.yaml", "project.yaml"])
-@pytest.mark.parametrize("reference", ["__chain_simple_producer.netlist", "chain_source.json_a"])
+@pytest.mark.parametrize(
+    "reference", ["__chain_simple_producer.netlist", "__chain_producer.json_a"]
+)
 def test_pc1_a_chain_overrides_a_file_binding_of_the_same_input(origin, reference):
     """A chain is command-line data: it wins over a saved binding, which is reported as
     overridden; a file binding of another input still applies, and a replaced value is not
@@ -206,16 +216,6 @@ def test_pc1_a_chain_overrides_a_file_binding_of_the_same_input(origin, referenc
     assert all("inputs.netlist" in location for location in netlist.overridden)
     data = bound[NodeKey(_ChainSimpleConsumer.name)]["data"]
     assert data.origin == "chain" and data.overridden == ()
-
-
-def test_aliases_are_canonicalized_and_duplicate_sections_still_fail():
-    settings, bindings = split_bindings(
-        {"_Taker": {"inputs": {"made": "__maker.made"}}}, location="API"
-    )
-    assert settings == {_Taker.name: {}}
-    assert NodeKey(_Taker.name) in effective_bindings([bindings], default_nodes([_Taker]))
-    with pytest.raises(FlowSettingsError, match="design.yaml.*twice"):
-        split_bindings({"chain_source": {}, "_ChainProducer": {}}, location="design.yaml")
 
 
 def test_same_cli_input_in_unqualified_and_qualified_forms_is_an_error_even_when_equal():
@@ -259,7 +259,9 @@ def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(
 
 
 @pytest.mark.parametrize("origin", ["CLI", "design", "project", "API"])
-@pytest.mark.parametrize("reference", ["__chain_simple_producer.netlist", "chain_source.json_a"])
+@pytest.mark.parametrize(
+    "reference", ["__chain_simple_producer.netlist", "__chain_producer.json_a"]
+)
 def test_pc1_is_checked_at_the_request_boundary(tmp_path, origin, reference):
     bindings = {_ChainSimpleConsumer.name: {"inputs": {"netlist": reference}}}
     design = Design(name="d", rtl={"sources": []}, flows=bindings if origin == "design" else {})

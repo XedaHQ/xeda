@@ -3,7 +3,7 @@ rtl:
   sources:
     - "blink.sv"
   top: blink
-  clock.port: clk
+  clocks: [{port: clk}]
 tb:
   sources:
     - "blink_tb.cpp"
@@ -13,7 +13,7 @@ flows:
   yosys_fpga:
     fpga.vendor: xilinx
     fpga.family: xc7
-    clock.period: 5 ns
+    clocks.main_clock.period: 5 ns
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clock.period: 5 ns
+    clocks.main_clock.period: 5 ns

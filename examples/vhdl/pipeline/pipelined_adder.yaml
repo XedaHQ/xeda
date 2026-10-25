@@ -5,7 +5,7 @@ rtl:
   sources:
     - "pipelined_adder.vhdl"
   top: pipelined_adder
-  clock.port: clock
+  clocks: [{port: clock}]
 tb:
   sources:
     - "pipelined_adder_tb.vhdl"

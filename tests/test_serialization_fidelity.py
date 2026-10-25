@@ -148,7 +148,7 @@ def test_remote_design_package_preserves_source_compilation_metadata(tmp_path):
     assert rtl_sources[0]["file"] != rtl_sources[1]["file"]
     assert all(source["file"] in package.files for source in rtl_sources)
     assert shipped["tb"]["cocotb"]["module"] == "test"
-    assert shipped["flow"] == {"yosys_fpga": {"flatten": False}}
+    assert shipped["flows"] == {"yosys_fpga": {"flatten": False}}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -291,7 +291,7 @@ def test_recording_a_design_is_a_fixed_point(tmp_path):
                 {"path": "gen/later.v", "type": "Verilog"},
             ],
             "top": "top",
-            "clock": {"port": "clk"},
+            "clocks": [{"port": "clk"}],
             "parameters": {"ROM": {"file": "rom.mem"}, "LOG": {"path": "out/log.txt"}, "W": 8},
             "defines": {"SYNTH": True},
         },

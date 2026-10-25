@@ -178,7 +178,7 @@ def test_the_functional_and_the_timing_netlist_cannot_be_crossed(
             flow_settings=[
                 *VIVADO_SETTINGS,
                 *(
-                    ["flows.vivado_alt_synth.fpga=xc7a12tcsg325-1"]
+                    ["flows.vivado_alt_synth.fpga.part=xc7a12tcsg325-1"]
                     if producer == "vivado_alt_synth"
                     else []
                 ),

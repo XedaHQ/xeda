@@ -274,7 +274,6 @@ def test_a_run_directory_holding_no_documents_is_still_no_target(tmp_path, confi
         "..",
         ".",
         FLOW,
-        "VivadoSynth",
         "vivado-synth",
         "open_xc7",
         "OpenXC7",

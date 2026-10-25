@@ -20,7 +20,7 @@ from .test_vivado_step_tables import PART, _design
 from .tool_utils import use_fake_tools
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
-SETTINGS = {"fpga": PART, "clock": {"period": "5.5 ns"}}
+SETTINGS = {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
 NAMES = ("", "xeda", "xeda.flow_runner", "xeda.flows.vivado", "not.xeda")
 
 
@@ -144,7 +144,7 @@ def test_a_direct_search_launch_leaves_the_level_alone_when_asked_for_debug(
     from xeda.design import Design
 
     design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clock": "clk"}
+        name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clocks": ["clk"]}
     )
     runner = Dse(
         Watching,
@@ -156,7 +156,10 @@ def test_a_direct_search_launch_leaves_the_level_alone_when_asked_for_debug(
     runner.run_flow(
         "vivado_alt_synth",
         design,
-        flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": "5 ns"}},
+        flow_settings={
+            "fpga": {"part": "xc7a12tcsg325-1"},
+            "clocks": {"main_clock": {"period": "5 ns"}},
+        },
     )
     assert seen == [False]
     assert logging.getLogger("xeda").level == logging.NOTSET
@@ -197,24 +200,7 @@ def test_a_remote_launch_changes_no_logger(tmp_path, remote_host) -> None:
     assert levels() == before
 
 
-class _RecordingLauncher:
-    """Stands in for a launcher the command line builds: it records the settings it is given."""
-
-    given: list = []
-    target = None
-    design_name = None
-
-    def __init__(self, *args, **settings):
-        self.given.append(settings)
-
-    def run(self, *args, **kwargs):
-        return None
-
-
-@pytest.mark.parametrize("where", ["command", "group"])
-def test_the_command_line_hands_its_debug_option_to_the_remote_run(
-    where, tmp_path, monkeypatch
-) -> None:
+def test_the_command_line_hands_its_log_level_to_the_remote_run(tmp_path, monkeypatch) -> None:
     from click.testing import CliRunner
 
     from xeda.cli import cli
@@ -229,25 +215,6 @@ def test_the_command_line_hands_its_debug_option_to_the_remote_run(
     sqrt = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(client, "run_remote", recorded)
-    args = ["run", "vivado_synth", str(sqrt), "--remote", "host", "--json"]
-    args = ["--debug", *args] if where == "group" else [*args, "--debug"]
+    args = ["run", "vivado_synth", str(sqrt), "--remote", "host", "--json", "--log-level", "10"]
     CliRunner().invoke(cli, args, catch_exceptions=False)
     assert [arguments["log_level"] for arguments in given] == [logging.DEBUG]
-
-
-@pytest.mark.parametrize("where", ["command", "group"])
-def test_the_command_line_hands_its_debug_option_to_the_search(
-    where, tmp_path, monkeypatch
-) -> None:
-    from click.testing import CliRunner
-
-    from xeda import cli as cli_module
-
-    sqrt = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(cli_module, "Dse", _RecordingLauncher)
-    _RecordingLauncher.given = []
-    args = ["dse", "vivado_synth", "--design", str(sqrt), "--json"]
-    args = ["--debug", *args] if where == "group" else [*args, "--debug"]
-    CliRunner().invoke(cli_module.cli, args, catch_exceptions=False)
-    assert [given.get("debug") for given in _RecordingLauncher.given] == [True]

@@ -24,7 +24,7 @@ xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml          # simulate with GHDL and
 xeda run nvc examples/vhdl/sqrt/sqrt.yaml               # the same design and testbench with NVC
 xeda run yosys_fpga examples/vhdl/sqrt/sqrt.yaml        # synthesize with Yosys
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml      # synthesize with Vivado
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4ns   # change one setting
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clocks.main_clock.period=4ns   # change one setting
 ```
 
 Other VHDL examples:

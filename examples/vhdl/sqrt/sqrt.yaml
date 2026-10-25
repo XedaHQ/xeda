@@ -5,7 +5,7 @@ rtl:
   sources:
     - "sqrt.vhdl"
   top: sqrt
-  clock.port: clk
+  clocks: [{port: clk}]
   parameters.G_IN_WIDTH: 32
 tb:
   sources:
@@ -13,12 +13,12 @@ tb:
 flows:
   yosys_fpga:
     fpga.part: xc7a100tftg256-2L
-    clock.freq: 100 MHz
+    clocks.main_clock.freq: 100 MHz
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clock.period: 5 ns
+    clocks.main_clock.period: 5 ns
   vivado_alt_synth:
     fpga.part: xc7a100tftg256-2L
     synth.strategy: ExtraTiming
     impl.strategy: ExtraTimingCongestion
-    clock.period: 5 ns
+    clocks.main_clock.period: 5 ns

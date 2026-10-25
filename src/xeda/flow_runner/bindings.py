@@ -126,9 +126,8 @@ def split_bindings(
 ) -> tuple[dict[str, Any], BindingLayer]:
     """Copy and canonicalize an origin, removing `inputs` before the settings model sees it.
 
-    Unknown plugin sections stay opaque until reached. Flow aliases are normalized per origin,
-    with the existing checks for duplicates within one origin and for the ordinary spellings of
-    settings.
+    Unknown plugin sections stay opaque until reached. Each origin is
+    normalized on its own.
     """
     # Reuse the resolver's contribution recovery: exclude model defaults but retain edits
     # made to a default-created nested Settings instance, even under an unset parent field.

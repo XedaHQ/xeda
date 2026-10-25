@@ -163,7 +163,7 @@ class _Simulator(SimFlow):
 # Test-only flows, launched by class: out of the registry at once, so that no sweep over every
 # registered flow collected after this module finds them.
 for _cls in (_Counts, _Lists, _Netlister, _Simulator):
-    for _name in (_cls.name, _cls.__name__):
+    for _name in (_cls.name,):
         registered_flows.pop(_name, None)
 
 

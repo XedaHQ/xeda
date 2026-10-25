@@ -362,12 +362,12 @@ def _synthesize(
     design = Design(
         name="top",
         design_root=design_root,
-        rtl={"sources": ["top.v"], "top": "top", "clock": {"port": "clk"}},
+        rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     settings: dict[str, Any] = {
         "platform": name,
         "pdk_root": str(store),
-        "clock": {"period": "10 ns"},
+        "clocks": {"main_clock": {"period": "10 ns"}},
         **(given or {}),
     }
     if provider is not None:

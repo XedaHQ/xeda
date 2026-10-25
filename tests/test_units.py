@@ -209,7 +209,7 @@ def test_a_non_finite_value_is_a_value_error(value, to_unit):
 @pytest.mark.parametrize("value", [True, False], ids=repr)
 @pytest.mark.parametrize("from_unit", [None, "picosecond"])
 def test_a_bool_is_not_a_quantity(value, from_unit):
-    """`clock.period = true` was a 1 ns clock: `float(True)` is 1.0."""
+    """`clocks.main_clock.period = true` was a 1 ns clock: `float(True)` is 1.0."""
     with pytest.raises(ValueError, match="cannot interpret"):
         convert_unit(value, "nanosecond", from_unit=from_unit)
 
@@ -324,7 +324,7 @@ FPGA_PART = {"part": "xc7a12tcpg238-1"}
 def test_a_bad_clock_setting_is_a_flow_settings_error(clock):
     """A bad clock setting is a flow settings error."""
     with pytest.raises(FlowSettingsError):
-        VivadoSynth.Settings.from_input({"fpga": FPGA_PART, "clock": clock})
+        VivadoSynth.Settings.from_input({"fpga": FPGA_PART, "clocks": {"main_clock": clock}})
 
 
 @pytest.mark.parametrize(
@@ -342,5 +342,5 @@ def test_a_bad_clock_setting_is_a_flow_settings_error(clock):
 )
 def test_every_documented_clock_spelling_still_works(clock, period):
     """Every documented clock spelling still works."""
-    settings = VivadoSynth.Settings.from_input({"fpga": FPGA_PART, "clock": clock})
+    settings = VivadoSynth.Settings.from_input({"fpga": FPGA_PART, "clocks": {"main_clock": clock}})
     assert settings.clocks["main_clock"].period.to("ns") == pytest.approx(period)

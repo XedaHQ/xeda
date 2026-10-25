@@ -116,11 +116,11 @@ _FLOWS = (_Producer, _Consumer, _Alone)
 _REGISTERED = {
     name: registered_flows[name]
     for cls in _FLOWS
-    for name in (cls.name, cls.__name__)
+    for name in (cls.name,)
     if name in registered_flows
 }
 for _cls in _FLOWS:
-    for _name in (_cls.name, _cls.__name__):
+    for _name in (_cls.name,):
         registered_flows.pop(_name, None)
 
 

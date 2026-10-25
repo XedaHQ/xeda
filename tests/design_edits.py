@@ -19,6 +19,9 @@ def with_updates(
 
     A value is frozen like the one a design holds (a list becomes a tuple, a table a read-only
     table). Nothing is validated: give the value in its final form."""
+    unknown = set(fields) - set(Design.model_fields)
+    if unknown:
+        raise ValueError(f"not fields of a design: {sorted(unknown)}")
     update: dict[str, Any] = {name: freeze(value) for name, value in fields.items()}
     for name, part in (("rtl", rtl), ("tb", tb)):
         if part is not None:

@@ -101,7 +101,7 @@ def test_every_example_with_a_testbench_is_simulated_by_the_oracle(relative, nam
 def test_a_simulator_an_example_names_is_in_the_table(relative, name, design):
     named = {
         get_flow_class(flow).name
-        for flow in design.flow or {}
+        for flow in design.flows or {}
         if issubclass(get_flow_class(flow), SimFlow)
     }
     assert named <= set(SIMULATED[(relative, name)]), (relative, named)

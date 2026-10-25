@@ -980,7 +980,7 @@ def test_the_new_commands_report_a_failure_as_one_json_document(tmp_path, remote
 def test_a_run_that_keeps_running_prints_the_launch_in_its_json_document(tmp_path, remote_host):
     result = CliRunner().invoke(
         cli,
-        ["run", "nextpnr", "--design", str(_design(tmp_path)), "--remote", "somewhere"]
+        ["run", "nextpnr", str(_design(tmp_path)), "--remote", "somewhere"]
         + ["--run-root", _run_root(tmp_path), "--keep-running", "--json"],
     )
     assert result.exit_code == 0, result.output

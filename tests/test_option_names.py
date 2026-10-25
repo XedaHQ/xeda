@@ -27,7 +27,7 @@ FAKE_TOOLS = Path(__file__).parent / "fake_tools"
 #: what each command's arguments are, apart from the options under test
 COMMANDS = {
     "run": ["run", "vivado_synth", str(SQRT)],
-    "dse": ["dse", "vivado_synth", "--design", str(SQRT)],
+    "dse": ["dse", "vivado_synth", str(SQRT)],
     "scrub": ["scrub", "vivado_synth", "sqrt"],
 }
 
@@ -112,8 +112,9 @@ def test_names_that_never_shipped_get_click_s_suggestion(start, given, suggested
     """`--rebuild` and `--run-dirs` never shipped: no removal message, click's own answer."""
     result, document = _invoke([*COMMANDS["run"], *given])
     assert result.exit_code == 2 and document["error"]["code"] == "usage_error"
-    assert document["error"]["message"].startswith(f"No such option '{given[0]}'. (Did you mean")
-    assert suggested in document["error"]["message"]
+    message = document["error"]["message"]
+    assert message.startswith(f"No such option '{given[0]}'.") and "Did you mean" in message
+    assert suggested in message
 
 
 @pytest.mark.parametrize("given", [dict(rebuild="all"), dict(run_dirs="hashed")], ids=str)
@@ -147,13 +148,12 @@ LAUNCHER_NAME_EXCEPTIONS = {
     "--cwd": {"run_path", "dump_settings_json"},
 }
 #: options with which `xeda run` launches nothing locally
-NOT_A_LOCAL_LAUNCH = {"--remote", "--fetch-all", "--keep-running", "--help-settings", "--dry-run"}
+NOT_A_LOCAL_LAUNCH = {"--remote", "--fetch-all", "--keep-running", "--dry-run"}
 #: the environment variables each command reads; `XEDA_RUN_DIR` only to refuse it
 DECLARED_ENVVARS = {
     "run": {
         "XEDA_RUN_ROOT",
         "XEDA_RUN_DIR",
-        "XEDA_DEBUG",
         "XEDA_REMOTE",
         "XEDA_LOG_LEVEL",
         "XEDA_DETAILED_LOGS",
@@ -161,7 +161,6 @@ DECLARED_ENVVARS = {
     "dse": {
         "XEDA_RUN_ROOT",
         "XEDA_RUN_DIR",
-        "XEDA_DEBUG",
         "XEDA_LOG_LEVEL",
         "XEDA_DETAILED_LOGS",
         "XEDA_XEDAPROJECT",

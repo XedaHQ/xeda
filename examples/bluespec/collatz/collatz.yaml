@@ -7,7 +7,7 @@ rtl:
   sources:
     - "rtl/Collatz.bs"
   top: mkCollatz
-  clock.port: CLK
+  clocks: [{port: CLK}]
 tb:
   # bsc's preprocessor does not read BH sources, so the testbench gets the XEDA_INJECT_BUG
   # macro through a small BSV package. The package that defines `top` comes last.

@@ -4,13 +4,13 @@ rtl:
   sources:
     - "StreamAreaTops.bsv"
   top: mkAreaGcdW8P256
-  clock.port: CLK
+  clocks: [{port: CLK}]
 dependencies:
   - "../stream-exchange-library.yaml"
 flows:
   yosys_fpga:
     fpga.part: xc7a100tcsg324-1
-    clock.period: 10 ns
+    clocks.main_clock.period: 10 ns
 targets:
   gcd_w8: {rtl.top: mkAreaGcdW8P256}
   gcd_w1: {rtl.top: mkAreaGcdW1P64}

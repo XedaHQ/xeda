@@ -342,7 +342,7 @@ NETLIST_AND_RTL = [("blink.v", SourceType.Verilog), ("net.json", SourceType.Json
 
 def test_a_netlist_source_skips_yosys_unless_a_binding_or_chain_selects_it(tmp_path):
     runner = _runner(tmp_path)
-    settings = [f"fpga={PART}"]
+    settings = [f"fpga.part={PART}"]
     bare = runner.plan(Nextpnr, _design(tmp_path, NETLIST_AND_RTL), flow_settings=settings)
     assert [node.name for node in bare.nodes] == ["nextpnr"]
     saved = runner.plan(
@@ -351,7 +351,7 @@ def test_a_netlist_source_skips_yosys_unless_a_binding_or_chain_selects_it(tmp_p
         flow_settings=settings,
     )
     chain = runner.plan(
-        parse_request("yosys-fpga+nextpnr"),
+        parse_request("yosys_fpga+nextpnr"),
         _design(tmp_path, NETLIST_AND_RTL),
         flow_settings=settings,
     )
@@ -407,7 +407,10 @@ def test_a_binding_and_a_chain_judge_an_edge_by_the_same_predicate(tmp_path):
     design = _design(
         tmp_path,
         [("blink.v", SourceType.Verilog)],
-        {"__ecp_taker": {"inputs": {"config": "nextpnr.config"}}, "nextpnr": {"fpga": PART}},
+        {
+            "__ecp_taker": {"inputs": {"config": "nextpnr.config"}},
+            "nextpnr": {"fpga": {"part": PART}},
+        },
     )
     with pytest.raises(FlowSettingsException) as raised:
         _runner(tmp_path).plan(_EcpTaker, design)

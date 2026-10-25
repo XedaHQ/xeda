@@ -68,11 +68,11 @@ def test_locator_setting_comes_only_from_the_host_profile(tmp_path, place):
     design = _design(tmp_path)
 
     local_only = _package(design, {key: local}, tmp_path)
-    assert _shipped(local_only)["flow"][key] == expected(None)
+    assert _shipped(local_only)["flows"][key] == expected(None)
 
     # both set: the host profile wins on the remote, the local value never travels
     with_host = _package(design, {key: local}, tmp_path, host_flows={key: host})
-    assert _shipped(with_host)["flow"][key] == expected("/opt/pdk")
+    assert _shipped(with_host)["flows"][key] == expected("/opt/pdk")
     for package in (local_only, with_host):
         assert not package.files and not package.path_identities
         assert list(package.generated) == [package.design_file]
@@ -87,7 +87,7 @@ def test_host_value_of_another_flow_is_not_used(tmp_path):
         tmp_path,
         host_flows={NESTED_KEY: {"where": {"store": "/opt/pdk"}}},
     )
-    assert _shipped(package)["flow"][STORE_KEY] == {"store": None}
+    assert _shipped(package)["flows"][STORE_KEY] == {"store": None}
 
 
 def _liberty_chain(tmp_path: Path) -> Path:
@@ -112,7 +112,7 @@ def test_liberty_rewrite_names_the_remote_inputs_path(tmp_path):
     library = _liberty_chain(tmp_path)
     package = _package(_design(tmp_path), _openroad_sections(library), tmp_path)
 
-    (shipped,) = _shipped(package)["flow"]["openroad_place"]["liberty"]
+    (shipped,) = _shipped(package)["flows"]["openroad_place"]["liberty"]
     assert shipped.startswith("$DESIGN_ROOT/_liberty_inputs/")
     copy = package.generated[shipped.removeprefix("$DESIGN_ROOT/")].decode()
     include = copy.split("include_file(")[1].split(")")[0]
@@ -243,7 +243,10 @@ def test_the_package_lists_only_regular_files_that_exist(tmp_path):
 TARGETS = Path(__file__).parent / "resources" / "targets"
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 PROJECT = {
-    "flows": {"vivado_synth": {"clock": {"period": "5 ns"}}, "nextpnr": {"seed": 9}},
+    "flows": {
+        "vivado_synth": {"clocks": {"main_clock": {"period": "5 ns"}}},
+        "nextpnr": {"seed": 9},
+    },
 }
 
 
@@ -324,12 +327,17 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
     "case",
     [
         dict(flow="vivado_synth", target="arty", settings=[]),
-        dict(flow="vivado_synth", target="arty", settings=["clock.period=8 ns"]),
+        dict(flow="vivado_synth", target="arty", settings=["clocks.main_clock.period=8 ns"]),
         dict(flow="vivado_synth", target=None, settings=["fpga.part=xc7a100tcsg324-1"]),
         dict(flow="nextpnr", target="ulx3s", settings=["seed=4"]),
         dict(flow="yosys_fpga+nextpnr", target="ulx3s", settings=["seed=4"]),
         dict(flow="nextpnr", target="ulx3s", settings=[], project=True),
-        dict(flow="vivado_synth", target="arty", settings=["clock.period=8 ns"], project=True),
+        dict(
+            flow="vivado_synth",
+            target="arty",
+            settings=["clocks.main_clock.period=8 ns"],
+            project=True,
+        ),
         dict(flow="__input_maker", target=None, settings=["input_file=@data"], directory=True),
         dict(flow="__input_maker", target=None, settings=["input_file=@data"], directory="inside"),
     ],
@@ -390,7 +398,7 @@ def test_a_directory_setting_reaches_the_remote_as_it_is(tmp_path):
     design = _design(tmp_path)
     package = _package(design, {"__input_maker": {"input_file": str(data)}}, tmp_path)
     assert all(path.is_file() for path in package.files.values())
-    (setting,) = _shipped(package)["flow"]["__input_maker"].values()
+    (setting,) = _shipped(package)["flows"]["__input_maker"].values()
     relative = setting.removeprefix("$DESIGN_ROOT/")
     assert set(package.files) >= {f"{relative}/top.txt", f"{relative}/deep/deeper/x.txt"}
     assert package.directories == [f"{relative}/empty/inner"]
@@ -433,8 +441,8 @@ def test_a_vivado_table_that_holds_a_name_inside_another_reaches_the_remote_whol
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)
     (design_root / "sqrt.yaml").write_text(
-        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
-        "flows:\n  vivado_synth:\n    fpga.part: xc7a12tcsg325-1\n    clock.period: 5ns\n"
+        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clocks: [{port: clk}]}\n"
+        "flows:\n  vivado_synth:\n    fpga.part: xc7a12tcsg325-1\n    clocks.main_clock.period: 5ns\n"
         "    set_synth_properties: {A: 1}\n"
     )
     local_root = tmp_path / "local" / "xeda_run"
@@ -451,7 +459,7 @@ def test_a_vivado_table_that_holds_a_name_inside_another_reaches_the_remote_whol
         "set_synth_properties",
         expected={"A": "1", "A.B": "2"},
     )
-    shipped = _shipped(package)["flow"]["vivado_synth"]["set_synth_properties"]
+    shipped = _shipped(package)["flows"]["vivado_synth"]["set_synth_properties"]
     assert shipped == {"A": 1, "A\\.B": "2"}, "the document writes the names with escaped dots"
 
 
@@ -462,7 +470,7 @@ def test_dotted_names_of_a_vivado_table_reach_the_remote_whole(tmp_path):
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)
     (design_root / "sqrt.yaml").write_text(
-        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
+        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clocks: [{port: clk}]}\n"
     )
     local_root = tmp_path / "local" / "xeda_run"
     prepared = DefaultRunner(local_root, display_results=False).prepare_request(
@@ -470,7 +478,7 @@ def test_dotted_names_of_a_vivado_table_reach_the_remote_whole(tmp_path):
         design=design_root / "sqrt.yaml",
         flow_settings=[
             "fpga.part=xc7a12tcsg325-1",
-            "clock.period=5ns",
+            "clocks.main_clock.period=5ns",
             "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0",
             "set_synth_properties.A.B=2",
             "set_synth_properties.A.C=3",
@@ -534,10 +542,10 @@ def test_only_a_packaged_document_takes_escaped_names_in_a_flow_table(tmp_path):
     document = {
         "name": "d",
         "rtl": {"sources": [], "top": "t"},
-        "flow": {"vivado_synth": {"set_synth_properties": {"A": 1, "A\\.B": 2}}},
+        "flows": {"vivado_synth": {"set_synth_properties": {"A": 1, "A\\.B": 2}}},
     }
     path.write_text(json.dumps(document))
-    table = Design.from_file(path, packaged=True).flow["vivado_synth"]["set_synth_properties"]
+    table = Design.from_file(path, packaged=True).flows["vivado_synth"]["set_synth_properties"]
     assert {type(key) for key in table} == {str, AtomicName}
     assert {
         key.name if isinstance(key, AtomicName) else key: item for key, item in table.items()
@@ -546,7 +554,7 @@ def test_only_a_packaged_document_takes_escaped_names_in_a_flow_table(tmp_path):
         "A.B": 2,
     }
     # A user's design file gets no such key: the setting refuses the name when it is read.
-    plain = Design.from_file(path).flow["vivado_synth"]["set_synth_properties"]
+    plain = Design.from_file(path).flows["vivado_synth"]["set_synth_properties"]
     assert not any(isinstance(key, AtomicName) for key in plain)
 
 

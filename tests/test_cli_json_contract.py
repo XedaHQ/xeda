@@ -144,7 +144,7 @@ def test_the_public_error_of_an_invalid_setting_names_the_setting_and_the_right_
 
 
 def test_dse_unknown_optimizer_reports_json_and_fails():
-    proc = run_xeda("dse", "vivado_synth", "--design", str(SQRT), "--optimizer", "nope", "--json")
+    proc = run_xeda("dse", "vivado_synth", str(SQRT), "--optimizer", "nope", "--json")
     document = json_stdout(proc)
     assert proc.returncode != 0
     assert document["success"] is False
@@ -210,22 +210,27 @@ def test_a_failed_pdk_command_reports_json_and_fails(command, error_type, tmp_pa
 # --------------------------------------------------------------- flow-name resolution at the CLI
 
 
+@pytest.mark.parametrize("name", ["vivado_synth", "fpga_pack", "yosys_fpga", "ghdl_sim"])
+def test_cli_accepts_the_name_of_a_flow(name):
+    proc = run_xeda("list-settings", name, "--json")
+    assert proc.returncode == 0, proc.stderr
+    assert json_stdout(proc)["flow"] == name
+
+
 @pytest.mark.parametrize(
     "name,canonical",
     [
-        ("vivado_synth", "vivado_synth"),
         ("vivado-synth", "vivado_synth"),
         ("VivadoSynth", "vivado_synth"),  # the CamelCase class name
-        ("ghdl", "ghdl_sim"),  # an alias
+        ("ghdl", "ghdl_sim"),  # the name that `ghdl_sim` had
         ("FpgaPack", "fpga_pack"),
-        ("fpga-pack", "fpga_pack"),
         ("YosysFpga", "yosys_fpga"),
     ],
 )
-def test_cli_accepts_every_name_the_resolver_accepts(name, canonical):
+def test_cli_refuses_every_other_spelling_of_a_flow_and_suggests_its_name(name, canonical):
     proc = run_xeda("list-settings", name, "--json")
-    assert proc.returncode == 0, proc.stderr
-    assert json_stdout(proc)["flow"] == canonical
+    assert proc.returncode != 0
+    assert f"Did you mean: {canonical}?" in json_stdout(proc)["error"]["message"]
 
 
 @pytest.mark.parametrize("name", ["open_xc7", "openxc7", "OpenXC7", "open-xc7"])
@@ -239,7 +244,7 @@ def test_the_removed_open_xc7_is_refused_by_name_with_its_replacements(name):
     assert proc.returncode != 0
     assert message in json_stdout(proc)["error"]["message"]
     listed = json_stdout(run_xeda("list-flows", "--json"))
-    names = [name for flow in listed for name in (flow["name"], *flow.get("aliases", []))]
+    names = [flow["name"] for flow in listed]
     assert "fpga_pack" in names and not [name for name in names if "xc7" in name.lower()]
 
 

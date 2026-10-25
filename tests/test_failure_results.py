@@ -72,9 +72,7 @@ class _ExitsNonZero(Flow):
 # Test-only flows, launched by class: out of the registry at once, so that no sweep over every
 # registered flow collected after this module finds them.
 _REGISTERED = {
-    _name: registered_flows[_name]
-    for _cls in (_MayFail, _NeedsMayFail, _ExitsNonZero)
-    for _name in (_cls.name, _cls.__name__)
+    _cls.name: registered_flows[_cls.name] for _cls in (_MayFail, _NeedsMayFail, _ExitsNonZero)
 }
 for _name in _REGISTERED:
     registered_flows.pop(_name, None)

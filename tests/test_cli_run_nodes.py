@@ -97,7 +97,7 @@ def toys():
     classes = (ToyNodeProducer, ToyNodeFailing, ToyNodeTwice, ToyNodeInterrupted)
     yield classes
     for cls in classes:
-        for name in (cls.name, cls.__name__):
+        for name in (cls.name,):
             registered_flows.pop(name, None)
 
 

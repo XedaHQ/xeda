@@ -380,7 +380,7 @@ def package_inputs(
             }
     for name, inputs in written_bindings(bindings, request).items():
         shipped_sections[name] = {**shipped_sections.get(name, {}), INPUTS_KEY: inputs}
-    new_design["flow"] = shipped_sections
+    new_design["flows"] = shipped_sections
     # The encoder that `settings.json` uses: a pydantic model serializes through pydantic,
     # so the serializers of its fields run.
     document = json.dumps(new_design, default=json_encodable).encode("utf-8")

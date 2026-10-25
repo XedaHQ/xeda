@@ -14,7 +14,9 @@ from .tool_utils import fake_calls, use_fake_tools
 @pytest.mark.parametrize("template", ["constraints.sdc", "constraints.ldc"])
 def test_diamond_clock_constraint_uses_settings_clock(tmp_path: Path, template: str) -> None:
     design = Design.from_file(Path(__file__).parent / "resources/design0/design0.toml")
-    flow = DiamondSynth(DiamondSynth.Settings(clock={"period": "5.5 ns"}), design, tmp_path)
+    flow = DiamondSynth(
+        DiamondSynth.Settings(clocks={"main_clock": {"period": "5.5 ns"}}), design, tmp_path
+    )
 
     generated = flow.copy_from_template(template)
 
@@ -44,7 +46,9 @@ def _diamond(tmp_path: Path, monkeypatch) -> DiamondSynth:
     use_fake_tools(monkeypatch)
     design = Design.from_file(Path(__file__).parent / "resources/design0/design0.toml")
     return DiamondSynth(
-        DiamondSynth.Settings(fpga=FPGA("LFE5U-25F-6BG256C"), clock={"period": "5.5 ns"}),
+        DiamondSynth.Settings(
+            fpga=FPGA("LFE5U-25F-6BG256C"), clocks={"main_clock": {"period": "5.5 ns"}}
+        ),
         design,
         tmp_path,
     )

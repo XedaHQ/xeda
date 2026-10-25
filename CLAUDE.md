@@ -203,6 +203,10 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - A removed setting fails with "`<name>` was removed:" and either the setting to use or, for
   `NoReplacement`, why there is none ("...; delete it"). The entry is in `removed_settings` of the
   class that had the field (`tests/test_settings_a_flow_does_not_use.py`).
+- Every name has one spelling: no field has an alias, and a flow has one name. Another spelling
+  that is refused is a `SecondSpelling` entry (`removed_settings` of a flow, `removed_inputs` of a
+  design model; code `removed_alias`), and a row of `REMOVED_SPELLINGS`
+  (`tests/test_removed_spellings.py`).
 - A setting accepts exactly its type; never add an implicit conversion. A boolean takes only
   `true`/`false`; list text is comma-separated and `[...]` text is refused; `Code` is for
   number-like text (`tests/test_settings_input.py`, `tests/test_malformed_input.py`).

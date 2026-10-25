@@ -67,8 +67,8 @@ endmodule
 
 #: `flatten` so the pass gets `-flatten`, as openXC7's own Makefile passes it
 SETTINGS: dict[str, Any] = {
-    "fpga": PART,
-    "clock": {"period": "5 ns"},
+    "fpga": {"part": PART},
+    "clocks": {"main_clock": {"period": "5 ns"}},
     "flatten": True,
     # Plain `yosys file.v` uses its Verilog reader without xeda's default `-sv`, and its own
     # front end rather than xeda's default slang plugin.
@@ -84,7 +84,7 @@ def _design(tmp_path: Path, source: str = "hier.v", text: str = SOURCE) -> Desig
     return Design(
         name="top",
         design_root=root,
-        rtl={"sources": [source], "top": "top", "clock": {"port": "clk"}},
+        rtl={"sources": [source], "top": "top", "clocks": [{"port": "clk"}]},
     )
 
 
@@ -288,7 +288,11 @@ def _keyword_launch(tmp_path: Path, name: str, **settings: Any) -> Any:
     return runner.run(
         YosysFpga,
         _design(tmp_path, "kw.v", KEYWORD_SOURCE),
-        flow_settings={"fpga": PART, "clock": {"period": "5 ns"}, **settings},
+        flow_settings={
+            "fpga": {"part": PART},
+            "clocks": {"main_clock": {"period": "5 ns"}},
+            **settings,
+        },
     )
 
 
@@ -343,7 +347,11 @@ def test_the_mode_reads_a_systemverilog_source_as_yosys_does(tmp_path):
         return DefaultRunner(tmp_path / name, display_results=False).run(
             YosysFpga,
             design,
-            flow_settings={"fpga": PART, "clock": {"period": "5 ns"}, **settings},
+            flow_settings={
+                "fpga": {"part": PART},
+                "clocks": {"main_clock": {"period": "5 ns"}},
+                **settings,
+            },
         )
 
     with pytest.raises(FlowSettingsError, match=r"systemverilog: default"):

@@ -199,7 +199,7 @@ def forever_design(tmp_path: Path, token: str) -> Path:
     design.write_text(
         f"name: forever_{token}\n"
         "language.vhdl.standard: 2008\n"
-        f"rtl: {{sources: [dut.vhd], top: dut_{token}, clock.port: clk}}\n"
+        f"rtl: {{sources: [dut.vhd], top: dut_{token}, clocks: [{{port: clk}}]}}\n"
         f"tb: {{sources: [tb.vhd], top: tb_{token}, uut: uut}}\n"
     )
     return design
@@ -324,7 +324,7 @@ def test_ctrl_c_through_openssh_stops_the_simulator_on_the_host(
     design = forever_design(tmp_path, token)
     script = (
         f"{DEFAULT_SIGINT}from xeda.cli import cli\n"
-        f"cli(['run', 'ghdl_sim', '--design', {str(design)!r}, '--remote', {HOST!r}, "
+        f"cli(['run', 'ghdl_sim', {str(design)!r}, '--remote', {HOST!r}, "
         f"'--run-root', {str(tmp_path / 'local' / 'xeda_run')!r}, '--json'], "
         "standalone_mode=True)\n"
     )

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import logging
 import os
-from collections import Counter
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from functools import cache, cached_property, wraps
@@ -60,7 +59,9 @@ __all__ = [
     "Field",
     "FieldInfo",
     "PrivateAttr",
+    "NoReplacement",
     "PydanticUndefined",
+    "SecondSpelling",
     "SerializeAsAny",
     "ValidationError",
     "WHOLE",
@@ -68,8 +69,6 @@ __all__ = [
     "XedaBaseModel",
     "accepts_non_mapping",
     "annotation_args",
-    "canonical_names",
-    "canonical_tree",
     "appended_fields_of",
     "annotation_form",
     "annotation_mistake",
@@ -79,6 +78,10 @@ __all__ = [
     "is_mistake",
     "mapping_form",
     "nested_model",
+    "removed_error",
+    "removed_inputs_in",
+    "removed_message",
+    "removed_setting_error",
     "opaque_key_fields_of",
     "opaque_key_declaration_problems",
     "opaque_key_paths",
@@ -351,18 +354,9 @@ def field_annotation(model: Any, name: Optional[str]) -> Any:
 
 @cache
 def input_names(model: Type[BaseModel]) -> Dict[str, str]:
-    """Return the field that each simple key in the input of a model stands for: every field
-    name, every `alias` and every text choice of a `validation_alias`. The name of a field wins a
-    clash."""
+    """Return the field that each simple key in the input of a model stands for. A key is the name
+    of a field: no field has another spelling."""
     names: Dict[str, str] = {}
-    for name, info in model.model_fields.items():
-        spellings = [
-            info.alias,
-            *getattr(info.validation_alias, "choices", [info.validation_alias]),
-        ]
-        for spelling in spellings:
-            if isinstance(spelling, str):
-                names.setdefault(spelling, name)
     names.update((name, name) for name in model.model_fields)
     return names
 
@@ -648,28 +642,25 @@ def table_entries(annotation: Any) -> Any:
     return arguments[1] if annotation_kind(arguments[1])[0] in ("model", "dict") else None
 
 
-def canonical_names(values: Mapping[str, Any], model: Type[BaseModel]) -> Dict[str, Any]:
-    """Return `values` with each key at one level of `model` spelled as the model spells the
-    field (an alias and its field are one setting). A field given under two spellings keeps
-    both, as written, so validation reports the ambiguity and one spelling does not win
-    silently."""
+def removed_inputs_in(
+    model: Type[BaseModel], values: Mapping[str, Any], prefix: Tuple[str, ...] = ()
+) -> List[Tuple[Tuple[str, ...], str, str]]:
+    """Return where `values` (a table written for `model`) gives a removed key
+    (`XedaBaseModel.removed_inputs`), through every level of nested models, as `(key path,
+    message, error type)` triples. The keys are as they are written. This looks at the keys and
+    does not validate."""
+    problems: List[Tuple[Tuple[str, ...], str, str]] = [
+        ((*prefix, key), message, kind)
+        for key, message, kind in getattr(model, "removed_input_problems", lambda _: [])(values)
+    ]
     names = input_names(model)
-    targets = [names.get(key, key) for key in values]
-    duplicates = {target for target, count in Counter(targets).items() if count > 1}
-    canonical: Dict[str, Any] = {}
-    for (key, value), target in zip(values.items(), targets):
-        canonical[key if target in duplicates else target] = value
-    return canonical
-
-
-def canonical_tree(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str, Any]:
-    """Return `values` with `canonical_names` applied at every level of nested models."""
-    tree = canonical_names(values, model)
-    for key, value in tree.items():
-        child = nested_model(_field_type_named(model, input_names(model).get(key)))
-        if child is not None and isinstance(value, Mapping):
-            tree[key] = canonical_tree(child, value)
-    return tree
+    for key, value in values.items():
+        field = names.get(key)
+        child = nested_model(_field_type_named(model, field))
+        form = mapping_form(model, field, value)
+        if child is not None and isinstance(form, Mapping):
+            problems += removed_inputs_in(child, form, (*prefix, key))
+    return problems
 
 
 def annotation_form(
@@ -1102,6 +1093,69 @@ def yaml11_hint(value: Any) -> Optional[str]:
     return None
 
 
+class NoReplacement(str):
+    """The reason Xeda refuses a removed setting when nothing replaces it.
+
+    The entry of the setting in `removed_settings` is `NoReplacement("no flow read it")`, and
+    the error says "`<name>` was removed: no flow read it; delete it". Any other entry is what
+    to use instead: "`<name>` was removed: use <entry>"."""
+
+
+class SecondSpelling(str):
+    """What to use instead of a second spelling of a name that stays.
+
+    A removed name is either gone (its entry is the text that replaces it, or a `NoReplacement`)
+    or only another spelling of a name that stays. The entry of a second spelling is
+    `SecondSpelling("`nthreads`")`. The error code of its refusal is `removed_alias`, in place of
+    `removed_setting` or `removed_key`. The message is the same: "`<name>` was removed: use
+    <entry>"."""
+
+
+def removed_message(name: str, replacement: str, value: Any) -> str:
+    """Return the message that refuses the removed name `name`."""
+    if isinstance(replacement, NoReplacement):
+        return f"`{name}` was removed: {replacement}; delete it"
+    return f"`{name}` was removed: use {_removed_replacement(replacement, value)}"
+
+
+def removed_error(
+    name: str, replacement: str, value: Any, gone: str = "removed_setting"
+) -> PydanticCustomError:
+    """Return the validation error that refuses the removed name `name`.
+
+    Its message is `removed_message`. Its type is `removed_alias` for a `SecondSpelling`, and
+    `gone` for any other entry."""
+    kind = "removed_alias" if isinstance(replacement, SecondSpelling) else gone
+    return PydanticCustomError(
+        kind, "{message}", {"message": removed_message(name, replacement, value)}
+    )
+
+
+def removed_setting_error(name: str, replacement: str, value: Any) -> PydanticCustomError:
+    """Return the validation error that refuses the removed setting `name`: its type is
+    `removed_setting` (`removed_alias` for a `SecondSpelling`)."""
+    return removed_error(name, replacement, value, "removed_setting")
+
+
+def _removed_replacement(replacement: str, value: Any) -> str:
+    """Return the replacement text for a removed name.
+
+    A `<key>` in it stands for each key that the removed value gave."""
+    if "<key>" not in replacement or not isinstance(value, Mapping) or not value:
+        return replacement
+
+    def keys(mapping: Mapping, prefix: str = "") -> list[str]:
+        found: list[str] = []
+        for key, item in mapping.items():
+            if isinstance(item, Mapping) and item:
+                found += keys(item, f"{prefix}{key}.")
+            else:
+                found.append(f"{prefix}{key}")
+        return found
+
+    return ", ".join(replacement.replace("<key>", key) for key in keys(value))
+
+
 class XedaBaseModel(BaseModel):
     model_config = ConfigDict(
         validate_assignment=True,
@@ -1137,6 +1191,47 @@ class XedaBaseModel(BaseModel):
     #: the fields of the group. A subclass adds to those of its bases (`opaque_key_fields_of`).
     opaque_key_fields: ClassVar[Tuple[str, ...]] = ()
 
+    #: Keys of the input that Xeda refuses, with what to use instead for each (the design's
+    #: equivalent of `Flow.Settings.removed_settings`). Giving one is an error that says so, in
+    #: place of "extra inputs are not permitted". An entry is a `SecondSpelling` for another
+    #: name of a key that stays (`removed_alias`), a `NoReplacement`, or the text that replaces
+    #: a key that is gone (`removed_key`). A subclass lists the entries of its bases again.
+    removed_inputs: ClassVar[Mapping[str, str]] = {}
+
+    @classmethod
+    def removed_input_problems(cls, values: Mapping[str, Any]) -> List[Tuple[str, str, str]]:
+        """Return the removed keys that `values` (a table written for this model) gives, as
+        `(key, message, error type)` triples, in the order of `removed_inputs`."""
+        return [
+            (
+                name,
+                removed_message(name, replacement, values[name]),
+                "removed_alias" if isinstance(replacement, SecondSpelling) else "removed_key",
+            )
+            for name, replacement in cls.removed_inputs.items()
+            if name in values
+        ]
+
+    @_pydantic_model_validator(mode="before")
+    @classmethod
+    def _removed_inputs_are_refused(cls, values: Any, info: Any) -> Any:
+        """Refuse a removed key, at the key as written, and say what to use instead."""
+        if not isinstance(values, Mapping) or not cls.removed_inputs:
+            return values
+        if info.field_name is not None and info.data is None:
+            return values  # an assignment: the values are those of the model
+        problems = [
+            InitErrorDetails(
+                type=removed_error(name, cls.removed_inputs[name], values[name], "removed_key"),
+                loc=(name,),
+                input=values[name],
+            )
+            for name, _, _ in cls.removed_input_problems(values)
+        ]
+        if problems:
+            raise ValidationError.from_exception_data(cls.__name__, problems)
+        return values
+
     @classmethod
     def as_mapping(cls, value: Any) -> Any:
         """Return the table that `value`, a form other than a table, stands for as this model.
@@ -1148,9 +1243,9 @@ class XedaBaseModel(BaseModel):
     @classmethod
     def form_problems(cls, values: Mapping[str, Any]) -> List[Tuple[str, Any]]:
         """Return the keys of `values` (a table written for this model) that hold a mistake though
-        they are no fields, as `(key, value)` pairs. A model with input-only spellings (the
-        `clock` of a design) overrides this, so that `shape_problems` judges them too. The
-        default judges none."""
+        they are no fields, as `(key, value)` pairs. A model with a key that is no field but has
+        a shape (the `clocks` list of a design) overrides this, so that `shape_problems` judges it
+        too. The default judges none."""
         return []
 
     @classmethod
@@ -1309,7 +1404,7 @@ def _list_text_message(error: ErrorDetails) -> Optional[str]:
 
 def _with_yaml_hint(error: ErrorDetails) -> str:
     """Return the message of one error, with what to write when YAML 1.2 changed the input: a
-    word that YAML 1.1 read as a boolean (`ncpus: on`), or a number where text is needed
+    word that YAML 1.1 read as a boolean (`nthreads: on`), or a number where text is needed
     (`top: 010`)."""
     msg = str(error.get("msg"))
     if error.get("type") in ("boolean_text", "extra_forbidden"):
