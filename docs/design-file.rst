@@ -513,8 +513,8 @@ Generated sources
 A design can have its sources produced before any flow runs. ``rtl.generator`` has three forms, and
 the design keeps them all as one table:
 
-* A command line for a shell becomes ``{shell: <text>}``. Xeda runs the text through the shell
-  of the platform and expands nothing in it.
+* A command line for a shell becomes ``{shell: <text>}``. Xeda runs the text with
+  ``/bin/sh -c`` and expands nothing in it.
 * A list of arguments becomes ``{executable: <first item>, args: [<other items>]}``. No shell
   reads it.
 * A table stays as it is.

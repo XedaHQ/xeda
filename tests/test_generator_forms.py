@@ -7,6 +7,7 @@ derived (the cocotb settings of the testbench).
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -15,7 +16,7 @@ import pydantic
 import pytest
 
 from xeda import Design
-from xeda.design import DesignValidationError, Rtl, generator_of
+from xeda.design import POSIX_SHELL, DesignValidationError, Rtl, generator_of
 from xeda.utils import NonZeroExitCode
 
 
@@ -100,6 +101,25 @@ def test_the_model_of_a_shell_recipe_runs_the_text_in_a_shell(tmp_path):
     generator = generator_of(design.rtl, root=root)
     assert generator is not None and generator.shell is not None
     assert generator.describe() == f"the generator ({generator.shell})"
+
+
+def test_a_shell_recipe_runs_and_is_identified_by_one_shell(tmp_path, monkeypatch):
+    """The freshness identity of a shell recipe names the shell that runs it, `/bin/sh`, and not
+    an `sh` that comes first on `PATH`."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    other_sh = bin_dir / "sh"
+    other_sh.write_text('#!/bin/sh\ntouch "$0.ran"\n')
+    other_sh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    design = _load(tmp_path / "design", "printf 'module top; endmodule\\n' > made.v")
+    root = design.root_path
+    assert (root / "made.v").read_text() == "module top; endmodule\n"
+    assert not (bin_dir / "sh.ran").exists()
+    generator = generator_of(design.rtl, root=root)
+    assert generator is not None
+    assert generator.execution_command(root)[:2] == [POSIX_SHELL, "-c"]
+    assert generator.execution_executable_path(root) == Path(POSIX_SHELL)
 
 
 def test_an_argument_list_runs_without_a_shell(tmp_path):

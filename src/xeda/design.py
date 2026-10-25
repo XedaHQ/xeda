@@ -1286,6 +1286,11 @@ class Clock(XedaBaseModel):
         return values.get("port", None) if value is None or value == "" else value
 
 
+#: The shell that runs the text of a `shell` generator. It is the shell that runs a command line
+#: on a POSIX system (`subprocess` with `shell=True` runs it too).
+POSIX_SHELL = "/bin/sh"
+
+
 class Generator(XedaBaseModel):
     cwd: Optional[str] = None
     executable: Optional[str] = None
@@ -1440,9 +1445,10 @@ class Generator(XedaBaseModel):
     def execution_command(self, design_root: Optional[Path] = None) -> List[str]:
         """Return the argv that this generator runs, for execution and the freshness identity.
 
-        A `shell` generator runs through `sh -c`, which is how its text reaches a shell."""
+        A `shell` generator runs as `/bin/sh -c <text>`, the shell that runs a command line on a
+        POSIX system. The freshness identity names that same shell, not an `sh` on `PATH`."""
         if self.shell:
-            return ["sh", "-c", self.shell]
+            return [POSIX_SHELL, "-c", self.shell]
         if self.command:
             return self.command.split()
         elif not self.executable:
@@ -1498,21 +1504,7 @@ class Generator(XedaBaseModel):
         )
 
     def run(self):
-        if self.shell:
-            return self.run_shell()
         self.run_cmd(self.execution_command())
-
-    def run_shell(self):
-        """Run the `shell` text through the shell of the platform, in the working directory and
-        the environment of the generator."""
-        assert self.shell
-        log.info("Running shell command: %s", self.shell)
-        done = run_child(
-            self.shell, source="generator", shell=True, cwd=self.cwd, env=self.env, check=False
-        )
-        if self.check and done.returncode:
-            raise NonZeroExitCode(self.shell, done.returncode)
-        return done
 
     def run_cmd(self, cmd, check=None, stdout=None, stderr=None):
         cmd = list(cmd)
