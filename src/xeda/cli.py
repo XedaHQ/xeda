@@ -1507,6 +1507,10 @@ def dse(
             debug=debug,
             **dse_settings_dict,
         )
+        # The tables go to stderr with --json (`machine_readable_mode`).
+        dse.best_so_far = lambda best: print_results(
+            best.results, title="Best so far", subset=RESULTS_SHOWN, skip_if_false=True
+        )
         best = dse.run(
             flow,
             xedaproject=xedaproject,
@@ -1521,7 +1525,7 @@ def dse(
     except BaseException as e:
         dse_failure(type(e).__name__, _error_message(e), e)
         raise  # unreachable: dse_failure exits
-    if best is not None and not json_flag:
+    if best is not None:
         print_results(best.results, title="Best results", subset=RESULTS_SHOWN)
     if json_flag:
         document = {

@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import datetime
 from inspect import isclass
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import Any, Callable, ClassVar, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import psutil
 from attrs import define
@@ -328,6 +328,9 @@ class Dse(FlowLauncher):
         self.optimizer: Optimizer = optimizer_class(
             max_workers=self.settings.max_workers, settings=optimizer_settings
         )
+        #: Called after each iteration that has a best run, with that run's outcome. The library
+        #: prints nothing: the command line passes a callback that shows the results.
+        self.best_so_far: Optional[Callable[[FlowOutcome], None]] = None
 
     def _refuse_unaccepted_request(self, flow, flow_settings, flow_overrides, xedaproject) -> None:
         """Refuse a clock-writing optimizer on an OpenROAD flow or a chain that ends in one, then
@@ -684,10 +687,12 @@ class Dse(FlowLauncher):
                         f"End of iteration #{num_iterations}. Execution time: {timer.timedelta}"
                     )
                     if optimizer.best:
-                        log.info(
+                        log.debug(
                             "Best so far: %s",
                             {k: optimizer.best.results.get(k) for k in results_sub},
                         )
+                        if self.best_so_far is not None:
+                            self.best_so_far(optimizer.best)
                     else:
                         log.info("No results to report.")
 
