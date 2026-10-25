@@ -949,7 +949,7 @@ class FlowLauncher:
             if (
                 self.settings.outputs_to is not None
                 and flow.succeeded
-                and not any(d.key == OUTPUTS_TO for d in flow.deliveries)
+                and not any(d.key == OUTPUTS_TO and d.state != "skipped" for d in flow.deliveries)
             ):
                 warn_outputs_to_delivered_nothing(flow, self.settings.outputs_to)
         return flow
@@ -1553,7 +1553,7 @@ class FlowLauncher:
             declared_output_files(flow.results),
         ]
         delivery.collect(flow.run_path, outputs_to_deliveries(artifacts, flow.run_path, outputs_to))
-        if not delivery.pending:
+        if not delivery.pending and not delivery.skipped:
             return
         # What only a run reveals (the artifacts for `--outputs-to`, the files of a directory
         # output) is compared with every copy noted so far, before any copy is made.

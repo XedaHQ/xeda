@@ -719,7 +719,8 @@ link as itself and never follows it.
 
 A tool may leave symbolic links in its run directory. A link at the name of a place where a flow
 works (the build directory of a simulator, for example) is removed as a link before the next run if
-it leads out of the directory. Xeda never delivers a link to a directory outside the run directory.
+it leads out of the directory. Xeda never delivers what a link leads to outside the run directory
+(see `Outputs where you name them`_).
 The same holds for every file that Xeda itself writes where a flow runs (``settings.json``,
 ``results.json``, a rendered template). Xeda writes the whole file and then renames it into place,
 so an interrupted write leaves the earlier file. It never writes through a link at the name of the
@@ -790,6 +791,18 @@ copies the file to the location you named. ``--outputs-to DIR`` works the same w
 of the requested flow, each at its path relative to the run directory. Renaming or moving the
 destination of a delivery therefore never runs the flow again and never changes what the tools do.
 It changes only where the copy lands.
+
+Xeda delivers only what the run directory holds. A tool may leave a symbolic link there, at the
+output or on the way to it. A link that leads to a file or a directory inside the run directory
+delivers what it leads to. What a link leads to outside the run directory is not an output of the
+run, whether it is a file or a directory. ``--outputs-to`` skips such an artifact: the log names the
+link and where it leads, the ``deliveries`` of the node list it as ``"skipped"``, and the launch
+still succeeds. A location that a setting names is refused instead, because you asked for that file
+there. A link that leads nowhere, or into a cycle, is refused in both cases. Before the launch,
+Xeda still asks about a file in the way of every artifact that the last run reported, because the
+next run may leave a regular file at that name. With ``--remote``, Xeda
+brings back no link at all: an artifact that the run names and that is a symbolic link, or lies
+through one, fails the fetch.
 
 A run is identified by what it writes: whether it writes the output, and the name it writes the
 output under in the run directory. A location is not part of that. A run that passed and is up to
@@ -872,11 +885,10 @@ wrong or the run directory stays:
 
 * The file is a symbolic link, or has another hard link. The delivered file would be a link that
   dangles after the purge, or would share its content with the other name.
-* The file is in a directory outside the run directory, which a link inside the run directory leads
-  to. A move would remove a file outside the run directory.
 * Two outputs reach the same file, for example a setting and ``--outputs-to``, or a file and a link
-  to it. Xeda copies the file for each of them. This holds for the whole launch. When an output of
-  one flow is a link to a file that another flow delivers, both are copies.
+  to it in the same run directory. Xeda copies the file for each of them. This holds for the whole
+  launch. A link in the run directory of one flow to a file that another flow delivers leads out of
+  its own run directory, so it is not delivered, and that file can move.
 * The flow was found up to date. Its run directory is not deleted, and its trace still names the
   output there.
 

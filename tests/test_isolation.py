@@ -2784,9 +2784,9 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
     it and out of it, dangling, in a cycle, and at the name of a working location. A launch in
     that directory again, `--clean`, post-cleanup, a purge and `xeda scrub` all succeed and leave
     what the links lead to outside unchanged; a link at a working location's name that leads out
-    is removed as a link before the run, never what it leads to; and a delivery never expands a
-    link to a directory outside, nor copies from a link that leads nowhere -- each is a
-    `DeliveryError` naming it -- while a link to a file delivers that file's content."""
+    is removed as a link before the run, never what it leads to; and `--outputs-to` skips a link
+    that leads out, to a file or a directory, and refuses one that leads nowhere with a
+    `DeliveryError` naming it, while a link inside delivers what it leads to."""
     from xeda.dataclass import WORKING, Field
     from xeda.deliver import DeliveryError
     from xeda.flow import Flow, registered_flows
@@ -2842,15 +2842,17 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
             assert again.launch_flow(LinkLeaver, design, {}).succeeded, launcher
             assert not (run_dir / "work").is_symlink(), launcher
             assert _outside_tree(outside) == before, launcher
-        # deliveries: a link to a file delivers its content; a directory link inside, its tree
+        # deliveries: a link inside delivers what it leads to; a link out, to a file or a
+        # directory, is skipped
         delivered = tmp_path / "delivered"
-        deliver.update(a="link_in_file", b="link_out_file", c="link_in_dir")
+        deliver.update(a="link_in_file", b="link_out_file", c="link_in_dir", d="link_out_dir")
         runner = DefaultRunner(root, display_results=False, rebuild_all=True, outputs_to=delivered)
         assert runner.launch_flow(LinkLeaver, design, {}).succeeded
         assert (delivered / "link_in_file").read_text() == "inside\n"
-        assert (delivered / "link_out_file").read_text() == "outside\n"
+        assert not os.path.lexists(delivered / "link_out_file")
         assert (delivered / "link_in_dir" / "f.txt").read_text() == "in sub\n"
-        for artifact in ("link_out_dir", "dangling", "cycle_a"):
+        assert not os.path.lexists(delivered / "link_out_dir")
+        for artifact in ("dangling", "cycle_a"):
             deliver.clear()
             deliver["x"] = artifact
             runner = DefaultRunner(
