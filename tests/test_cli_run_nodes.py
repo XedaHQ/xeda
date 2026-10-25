@@ -78,7 +78,23 @@ def toys():
         def run(self) -> None:
             pass
 
-    classes = (ToyNodeProducer, ToyNodeFailing, ToyNodeTwice)
+    class ToyNodeInterrupted(Flow):
+        """Reads the producer's file, then is interrupted by Ctrl-C."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        class Inputs(Flow.Inputs):
+            out: Path = In(
+                SourceType.Data,
+                producer="toy_node_producer",
+                output="out",
+                description="The producer's file.",
+            )
+
+        def run(self) -> None:
+            raise KeyboardInterrupt
+
+    classes = (ToyNodeProducer, ToyNodeFailing, ToyNodeTwice, ToyNodeInterrupted)
     yield classes
     for cls in classes:
         for name in (cls.name, cls.__name__):
@@ -118,6 +134,20 @@ def test_a_failed_launch_reports_the_nodes_that_ran(toys, design):
         ("toy_node_producer", "passed", "reused"),
         ("toy_node_failing", "failed", "ran"),
     ]
+
+
+def test_an_interrupted_launch_prints_the_run_document_of_a_canceled_launch(toys, design):
+    """Ctrl-C ends the launch, and `--json` still prints one run document: the launch is
+    canceled, the producer that passed keeps its record, and the node that was running is
+    canceled."""
+    result, document = _run("toy_node_interrupted", str(design))
+    assert result.exit_code == 1 and document["outcome"] == "canceled"
+    assert document["error"]["code"] == "canceled" and document["error"]["node"] is None
+    assert [(node["flow"], node["outcome"]) for node in document["nodes"]] == [
+        ("toy_node_producer", "passed"),
+        ("toy_node_interrupted", "canceled"),
+    ]
+    assert document["nodes"][0]["record"] is not None
 
 
 def test_a_producer_reached_twice_within_a_launch_is_one_node(toys, design):

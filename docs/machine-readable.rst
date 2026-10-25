@@ -473,7 +473,9 @@ name and meaning:
 The ``outcome`` of the document is the outcome of the cause of the launch, in this order:
 
 1. A node that is ``detached`` makes the outcome ``detached``.
-2. A node that is ``canceled``, or the launch error ``canceled``, makes it ``canceled``.
+2. A node that is ``canceled``, or the launch error ``canceled``, makes it ``canceled``. Ctrl-C
+   cancels a launch: the document still lists every node, a node that ended keeps its outcome,
+   and the node that was running is ``canceled``.
 3. A launch-level error (a failed delivery, a failed fetch of a remote launch) makes it ``failed``.
 4. Otherwise each root has a cause: the root itself, or, for a blocked root, the producer that failed
    or was rejected. The outcome is the worst of the causes, in the order ``failed``, ``rejected``,

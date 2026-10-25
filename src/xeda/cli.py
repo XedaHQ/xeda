@@ -56,6 +56,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .flow_runner.dse import Dse
     from .flow_runner.error_codes import public_error, request_error_info
     from .flow_runner.launch_result import failed_result, launch_result
+    from .records import CANCELED, ErrorInfo
     from .flow_runner.resolver import Plan
     from .flow_runner.settings_layers import command_line_table
     from .introspect import (
@@ -1115,6 +1116,17 @@ def run(
     spec = Spec(chain, resolved.design, settings=table)
     try:
         result = launch_result(launcher, spec, lambda: launcher.run_resolved(resolved, plan))
+    except KeyboardInterrupt:
+        if not json_flag:
+            raise
+        # The launch is canceled, and `--json` still prints its one run document: the nodes that
+        # ended keep their outcomes, and the node that was running is canceled.
+        canceled = ErrorInfo(CANCELED, "The launch was canceled by Ctrl-C.", None, None, None)
+        log.critical("%s", canceled.message)
+        emit_structured(
+            failed_result(launcher, spec, plan, canceled, interrupted=True).to_dict(), "json"
+        )
+        sys.exit(1)
     except Exception as e:
         not_started(e, spec, plan)
     if not result.passed and result.error is not None:
