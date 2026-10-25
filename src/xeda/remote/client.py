@@ -1350,6 +1350,8 @@ def _run(
                 run_root=local_root,
                 remote_inputs=inputs_dir,
                 host_flows=profile.flows,
+                bindings=plan.bindings,
+                request=plan.request,
             )
             launch = LaunchRequest(
                 chain=run.chain,

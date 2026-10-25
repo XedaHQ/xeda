@@ -10,7 +10,7 @@ import gzip
 import hashlib
 import json
 import os
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict
@@ -20,6 +20,8 @@ from ..design import Design, DesignSource, DVSettings, FileResource
 from ..flow import FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
 from ..flow.flow import map_keyed_path_leaves
+from ..flow_runner.bindings import INPUTS_KEY, BindingLayer, written_bindings
+from ..flow_runner.chains import FlowRequest
 from ..flow_runner.default_runner import _get_flow_class_if_known
 from ..listing import VCS_METADATA, directory_files
 from ..utils import json_encodable, location_free, location_roots
@@ -53,6 +55,8 @@ def package_inputs(
     run_root: Path,
     remote_inputs: PurePosixPath,
     host_flows: Mapping[str, Mapping[str, Any]] | None = None,
+    bindings: Sequence[BindingLayer] = (),
+    request: FlowRequest | None = None,
 ) -> InputPackage:
     """Return the files and the design document that the remote needs for this request.
 
@@ -66,7 +70,13 @@ def package_inputs(
 
     A locator setting (`pdk_root`) names a place on the machine that reads it. It travels as
     `None`, unless the host profile gives it (`host_flows`, by flow): then the remote gets that
-    value as it is."""
+    value as it is.
+
+    The sections hold settings only: a section does not hold `inputs`, since the planner took
+    the bindings out of every origin. `bindings` are the binding layers of the local plan
+    (`Plan.bindings`). Their winning bindings travel as the `inputs` of the section of their
+    flow, so the remote plans the same edges. A binding that the chain `request` makes does not
+    travel, because the remote gets the chain."""
     host_flows = host_flows or {}
     path_identities: dict[str, str] = {}
     # `mode="json"`: the fields kept as they are (`dependencies` and its `local_cache` /
@@ -317,8 +327,12 @@ def package_inputs(
             return [packaged_value(item) for item in value]
         return value
 
-    shipped_sections = {}
+    shipped_sections: Dict[str, Any] = {}
     for name, section in sections.items():
+        if isinstance(section, Mapping) and INPUTS_KEY in section:
+            raise ValueError(
+                f"The section of {name!r} holds {INPUTS_KEY!r}: bindings travel in `bindings`."
+            )
         cls = _get_flow_class_if_known(name)
         if cls is None:
             shipped_sections[name] = section
@@ -337,6 +351,8 @@ def package_inputs(
             shipped_sections[name] = {
                 key: rewritten[key] for key in type(model).model_fields if key in rewritten
             }
+    for name, inputs in written_bindings(bindings, request).items():
+        shipped_sections[name] = {**shipped_sections.get(name, {}), INPUTS_KEY: inputs}
     new_design["flow"] = shipped_sections
     # The encoder that `settings.json` uses: a pydantic model serializes through pydantic,
     # so the serializers of its fields run.

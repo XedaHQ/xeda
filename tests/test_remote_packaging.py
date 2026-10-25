@@ -305,6 +305,8 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
         {node.name for node in prepared.plan.nodes},
         run_root=local_root,
         remote_inputs=PurePosixPath(remote_dir),
+        bindings=prepared.plan.bindings,
+        request=prepared.plan.request,
     )
     _sync(package, remote_dir)
     remote_root = tmp_path / "remote" / "xeda_run"
@@ -623,3 +625,166 @@ def test_every_example_design_unpacks_with_the_same_sources(design_file, tmp_pat
     for part in ("rtl", "tb"):
         assert sources(restored, part) == sources(design, part)
     assert (restored.rtl.top, restored.rtl.defines) == (design.rtl.top, design.rtl.defines)
+
+
+# ------------------------------------------------------------------ input bindings
+#
+# A binding (`flows.<flow>.inputs.<input>`) is wiring and not a setting: the planner takes it out
+# of every origin before it merges the sections. The remote plans the packaged document alone, so
+# the package has to carry the bindings that won, and the remote has to plan the edges that the
+# local plan has.
+
+
+def _wiring(plan, run_root: Path) -> list[tuple]:
+    """The nodes of `plan` with their identities, places and edges: for each input, where it
+    comes from and the ordered producer outputs. (The place where a binding was written is no
+    part of the identity of a run, and the remote reads every binding from one file.)"""
+    return [
+        (
+            node.name,
+            node.flowrun_hash,
+            node.run_path.relative_to(run_root).as_posix(),
+            [
+                (
+                    declared.name,
+                    declared.origin,
+                    [(reference.node, reference.output) for reference in declared.references],
+                )
+                for declared in node.inputs
+            ],
+        )
+        for node in plan.nodes
+    ]
+
+
+def _bound_root(tmp_path: Path) -> Path:
+    root = tmp_path / "design"
+    root.mkdir(exist_ok=True)
+    (root / "input.txt").write_text("from the bound producer\n")
+    return root
+
+
+def _write_design(root: Path, flows: dict | None) -> Path:
+    import yaml
+
+    document = {"name": "d", "rtl": {"sources": [], "top": "t"}}
+    if flows:
+        document["flows"] = flows
+    (root / "d.yaml").write_text(yaml.safe_dump(document))
+    return root / "d.yaml"
+
+
+def _write_project(root: Path, flows: dict, design_flows: dict | None) -> str:
+    import yaml
+
+    design = {"name": "d", "design_root": str(root), "rtl": {"sources": [], "top": "t"}}
+    if design_flows:
+        design["flows"] = design_flows
+    path = root / "xedaproject.yaml"
+    path.write_text(yaml.safe_dump({"flows": flows, "designs": [design]}))
+    return str(path)
+
+
+MADE_BY_INPUT_MAKER = {"made": "__input_maker.made"}
+BOUND_PRODUCER = {"__input_maker": {"input_file": "input.txt"}}
+
+#: name -> (flow, settings of the design file, settings of the project file, `-s` items,
+#: nodes that the plan has, as `(node, input, producers of it)`).
+BINDING_CASES = {
+    "design-file": dict(
+        flow="__taker",
+        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("__taker", "made", [("__input_maker", "made")])],
+    ),
+    "project-file": dict(
+        flow="__taker",
+        project={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("__taker", "made", [("__input_maker", "made")])],
+    ),
+    "command-line": dict(
+        flow="__taker",
+        design=BOUND_PRODUCER,
+        settings=["flows.__taker.inputs.made=__input_maker.made"],
+        edges=[("__taker", "made", [("__input_maker", "made")])],
+    ),
+    "command-line-over-file": dict(
+        flow="__taker",
+        design={"__taker": {"inputs": {"made": "__maker.made"}}, **BOUND_PRODUCER},
+        settings=["flows.__taker.inputs.made=__input_maker.made"],
+        edges=[("__taker", "made", [("__input_maker", "made")])],
+    ),
+    "file-over-project": dict(
+        flow="__taker",
+        project={"__taker": {"inputs": {"made": "__maker.made"}}},
+        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("__taker", "made", [("__input_maker", "made")])],
+    ),
+    "chain-over-file": dict(
+        flow="__maker+__taker",
+        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("__taker", "made", [("__maker", "made")])],
+        shipped_inputs=False,
+    ),
+    "inputs-of-a-producer": dict(
+        flow="__left",
+        design={
+            "__left": {"inputs": {"json_netlist": "__relay.netlist"}},
+            "__relay": {"inputs": {"data": "__maker.made"}},
+            "__fork": {"first": True},
+        },
+        edges=[
+            ("__left", "json_netlist", [("__relay", "netlist")]),
+            ("__relay", "data", [("__maker", "made")]),
+        ],
+    ),
+    "two-producers-of-a-many-input": dict(
+        flow="__join",
+        design={"__join": {"inputs": {"more": ["__maker.made", "__input_maker.made"]}}}
+        | BOUND_PRODUCER,
+        edges=[("__join", "more", [("__maker", "made"), ("__input_maker", "made")])],
+    ),
+    "many-input-in-the-other-order": dict(
+        flow="__join",
+        design={"__join": {"inputs": {"more": ["__input_maker.made", "__maker.made"]}}}
+        | BOUND_PRODUCER,
+        edges=[("__join", "more", [("__input_maker", "made"), ("__maker", "made")])],
+    ),
+    "binding-of-a-flow-the-plan-leaves-out": dict(
+        flow="__maker",
+        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}},
+        edges=[],
+        shipped_inputs=True,
+    ),
+}
+
+
+@pytest.mark.parametrize("hashed", [False, True])
+@pytest.mark.parametrize("case", BINDING_CASES.values(), ids=list(BINDING_CASES))
+def test_the_remote_plans_the_edges_of_the_local_plan(tmp_path, case, hashed):
+    from xeda.flow_runner import DefaultRunner
+
+    root = _bound_root(tmp_path)
+    request: dict = {"design": _write_design(root, case.get("design"))}
+    if case.get("project"):
+        request = dict(
+            design="d", xedaproject=_write_project(root, case["project"], case.get("design"))
+        )
+    local_root = tmp_path / "local" / "xeda_run"
+    local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=hashed)
+    prepared = local.prepare_request(
+        case["flow"], flow_settings=case.get("settings", []), **request
+    )
+    for node, name, producers in case["edges"]:
+        declared = next(i for i in prepared.plan.node(node).inputs if i.name == name)
+        assert [(r.node, r.output) for r in declared.references] == producers
+
+    package, remote_plan, remote_root, _ = _remote_plan(
+        tmp_path, prepared, local_root, case["flow"], hashed
+    )
+    assert _wiring(remote_plan, remote_root) == _wiring(prepared.plan, local_root)
+    shipped = _shipped(package)["flow"]
+    holding = {name for name, section in shipped.items() if "inputs" in section}
+    if case.get("shipped_inputs") is False:
+        assert not holding  # the chain binds the input, and the remote gets the chain
+    else:
+        assert holding and all(name not in ("__maker",) for name in holding)
