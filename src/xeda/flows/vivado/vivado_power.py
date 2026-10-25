@@ -137,10 +137,11 @@ class VivadoPower(Vivado, FpgaSynthFlow):
     def parse_power_report(self, report_xml) -> Dict[str, Any]:
         """Return the values of the report by metric.
 
-        The labels in `SUMMARY_METRICS` give the `power.*` metrics. The power of the components
-        is the table `power.components`. A label that names a unit (`Dynamic (W)`) gives a
-        number. A value that is no number, such as the bound `<0.001`, is left out. Any other
-        value stays the text of the report, under its label."""
+        The labels in `SUMMARY_METRICS` give the `power.*` metrics, and a summary row with any
+        other label gives none. The power of the components is the table `power.components`. A
+        label that names a unit (`Dynamic (W)`) gives a number. A value that is no number, such
+        as the bound `<0.001`, is left out. The value of any other label is the text of the
+        report."""
         tree = ElementTree.parse(report_xml)
         results: Dict[str, Any] = {}
         components: Dict[str, float] = {}
@@ -155,7 +156,10 @@ class VivadoPower(Vivado, FpgaSynthFlow):
         for tablerow in tree.findall("./section[@title='Summary']/table/tablerow"):
             tablecells = tablerow.findall("tablecell")
             label, value = (html.unescape(x.attrib["contents"]).strip() for x in tablecells)
-            key = SUMMARY_METRICS.get(label, label)
+            key = SUMMARY_METRICS.get(label)
+            if key is None:
+                logger.debug("The power report has the summary row %r, which is no metric.", label)
+                continue
             if NUMERIC_LABEL.search(label):
                 parsed = number(label, value)
                 if parsed is not None:

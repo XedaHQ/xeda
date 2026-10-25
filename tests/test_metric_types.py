@@ -172,6 +172,32 @@ def test_vivado_power_writes_the_declared_types(tmp_path):
     assert "power.static" not in results
 
 
+def test_vivado_power_writes_no_metric_for_a_summary_row_it_does_not_know(tmp_path):
+    """A summary row that another device or Vivado release adds names no documented metric, so
+    it gives none: no key of the report's own spelling reaches the results."""
+    report = tmp_path / "power.xml"
+    report.write_text(
+        POWER_REPORT.replace(
+            "</table>\n<section",
+            '<tablerow><tablecell contents="Foo (W)"/><tablecell contents="0.1"/></tablerow>\n'
+            '<tablerow><tablecell contents="Design Nets Matched"/><tablecell contents="95%"/>'
+            "</tablerow>\n</table>\n<section",
+            1,
+        )
+    )
+    flow = VivadoPower.__new__(VivadoPower)
+    results = flow.parse_power_report(report)
+    assert set(results) == {
+        "power.total",
+        "power.dynamic",
+        "power.effective_tja",
+        "power.junction_temperature",
+        "power.thermal_margin",
+        "power.confidence",
+        "power.components",
+    }
+
+
 def test_quartus_reports_the_frequency_of_each_clock_as_one_table(tmp_path):
     design = Design(
         name="top",
