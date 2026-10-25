@@ -374,15 +374,17 @@ every node ``"fresh"``. See :doc:`run-directories` for what makes a node stale. 
 runs is never ``"fresh"``. Its ``reason`` says why. ``openfpgaloader``, which programs a device, is
 one such flow, and so is a flow that is asked for a fresh random seed.
 
-``deliveries`` lists every output that the flow of the node copied to a location that the settings
-or ``--outputs-to`` named, once the whole launch finished (see "Outputs where you name them" in
+``deliveries`` lists every output that the flow of the node copied, or skipped, to a location that
+the settings or ``--outputs-to`` named, once the whole launch finished (see "Outputs where you name them" in
 :doc:`run-directories`). Each entry has these keys:
 
 - ``setting`` is the setting (or ``--outputs-to``) that asked for the delivery.
 - ``from`` is the file in the run directory.
 - ``to`` is the place where Xeda copied the file, or moved it (see :doc:`run-directories`).
-- ``state`` is ``"delivered"`` (Xeda wrote the file at the destination, as a new copy or by a move)
-  or ``"unchanged"`` (the destination already held exactly that file).
+- ``state`` is ``"delivered"`` (Xeda wrote the file at the destination, as a new copy or by a move),
+  ``"unchanged"`` (the destination already held exactly that file) or ``"skipped"`` (an artifact of
+  ``--outputs-to`` that a symbolic link leads out of the run directory: Xeda wrote nothing; see
+  :doc:`run-directories`).
 
 The list is ``[]`` for a node with nothing to deliver. A node that is up to date still lists its
 deliveries, because delivery depends on the outcome of the node, whether or not its tool ran.

@@ -155,9 +155,10 @@ class Conflict:
 
 @dataclass(frozen=True)
 class Delivered:
-    """A delivery that was made.
+    """A delivery that was made, or skipped.
 
-    `state` is "delivered" (written) or "unchanged" (the destination held the output already).
+    `state` is "delivered" (written), "unchanged" (the destination held the output already) or
+    "skipped" (the output of `--outputs-to` leads out of the run directory: `_outside`).
     """
 
     key: str
@@ -656,31 +657,35 @@ def _files_under(directory: Path) -> list[Path]:
     )
 
 
-def _check_link(delivery: Delivery, source: Path, run_dir: Path) -> None:
-    """Refuse a delivery whose source is a symbolic link that cannot be delivered.
+def _outside(delivery: Delivery, source: Path, run_dir: Path) -> Optional[Path]:
+    """Return where `source` leads, if that is outside the run directory, else None.
 
-    A tool may leave a link. A link to a file, inside the run directory or out of it, delivers
-    the content of that file. A link to a directory inside the run directory delivers its tree.
-    A link to a directory outside the run directory is never expanded, because it may lead to a
-    whole installation tree. A link that leads nowhere, or into a cycle, has nothing to deliver.
-    The last two cases raise a `DeliveryError` that names the link.
+    A tool may leave a symbolic link in its run directory, at the source or on the way to it.
+    What a link leads to outside the run directory is not an output of the run, so Xeda never
+    delivers it, a file or a directory alike. For `--outputs-to`, which delivers the artifacts
+    in bulk, the caller skips such a source. A delivery that a setting names raises a
+    `DeliveryError`, because the user asked for that output at that location. A link that leads
+    to a file or a directory inside the run directory delivers what it leads to. A link that
+    leads nowhere, or into a cycle, has nothing to deliver and raises a `DeliveryError` too.
     """
-    if not source.is_symlink():
-        return
+    what = f"`{delivery.key}` names {delivery.destination}, but {source}"
+    if source.is_symlink() and not Path(os.path.realpath(source)).exists():
+        raise DeliveryError(
+            f"{what} is a symbolic link that leads nowhere (to {os.readlink(source)}), or in a "
+            "cycle",
+            output_problem=True,
+        )
     target = Path(os.path.realpath(source))
-    what = f"`{delivery.key}` names {delivery.destination}, but {source} is a symbolic link"
-    if not target.exists():
-        raise DeliveryError(
-            f"{what} that leads nowhere (to {os.readlink(source)}), or in a cycle",
-            output_problem=True,
-        )
     root = Path(os.path.realpath(run_dir))
-    if target.is_dir() and not (target == root or target.is_relative_to(root)):
-        raise DeliveryError(
-            f"{what} to {target}, a directory outside the run directory, which Xeda does not "
-            "copy: name the files to deliver instead",
-            output_problem=True,
-        )
+    if target == root or target.is_relative_to(root):
+        return None
+    if delivery.key == OUTPUTS_TO:
+        return target
+    raise DeliveryError(
+        f"{what} leads to {target}, outside the run directory, through a symbolic link that the "
+        "tool left: Xeda delivers only what the run directory holds",
+        output_problem=True,
+    )
 
 
 def _read_record(path: Path) -> dict[str, Any]:
@@ -802,6 +807,9 @@ class Deliveries:
         #: What `deliver` has copied so far in this call, even one that raises. An `OSError`
         #: partway through must not leave the copies already made unreported.
         self.delivered: list[Delivered] = []
+        #: The outputs of `--outputs-to` that `collect` left out, because they lead out of the run
+        #: directory (`_outside`). `deliver` reports them first, as "skipped".
+        self.skipped: list[Delivered] = []
 
     def reread_record(self) -> None:
         """Read the delivery record again if its file changed since it was read.
@@ -1068,6 +1076,7 @@ class Deliveries:
         wrote no file that a delivery names.
         """
         self.pending = []
+        self.skipped = []
         for delivery in [*self.named, *extra]:
             source = Path(source_root) / delivery.name
             if not os.path.lexists(source):
@@ -1076,7 +1085,19 @@ class Deliveries:
                     f"{delivery.name} in {source_root}",
                     output_problem=True,
                 )
-            _check_link(delivery, source, Path(source_root))
+            outside = _outside(delivery, source, Path(source_root))
+            if outside is not None:
+                log.warning(
+                    "%s leads to %s, outside the run directory, through a symbolic link that the "
+                    "tool left: not copied to %s",
+                    source,
+                    outside,
+                    delivery.destination,
+                )
+                self.skipped.append(
+                    Delivered(delivery.key, source, delivery.destination, "skipped")
+                )
+                continue
             if source.is_dir():
                 pairs = [
                     (file, delivery.destination / file.relative_to(source))
@@ -1129,7 +1150,7 @@ class Deliveries:
         the delivery of another flow reaches, for example a link to it in the run directory of
         that flow, is copied. Without `reached`, only the deliveries of this node are counted.
         """
-        self.delivered = []
+        self.delivered = list(self.skipped)
         movable = self._movable(reached) if move else set()
         changed: list[str] = []
         shared: list[str] = []

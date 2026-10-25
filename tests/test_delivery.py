@@ -1432,13 +1432,10 @@ def test_a_file_delivered_twice_is_copied_each_time(world):
 
 
 @pytest.mark.parametrize("link", ["absolute", "relative"])
-def test_a_file_that_a_later_flow_s_delivery_reaches_is_copied_by_the_flow_that_made_it(
-    world, link
-):
-    """A move is allowed only for a file that exactly one delivery of the whole launch reaches.
-    The consumer's artifact is a link to the file its producer delivers to a located destination.
-    The producer is delivered first, so moving its file would leave the consumer's delivery
-    nothing to read."""
+def test_a_link_to_the_file_of_another_flow_is_not_delivered_and_that_file_still_moves(world, link):
+    """The consumer's artifact is a link to the file that its producer delivers to a located
+    destination. The link leads out of the consumer's run directory, so `--outputs-to` skips it.
+    The producer's file is then reached by one delivery only, and moves."""
 
     def link_to_the_producer_s_file(wrapper):
         produced = Path(os.path.abspath(wrapper.inputs.netlist))
@@ -1449,10 +1446,10 @@ def test_a_file_that_a_later_flow_s_delivery_reaches_is_copied_by_the_flow_that_
     DURING_WRAPPER.append(link_to_the_producer_s_file)
     launcher = _purging(world, outputs_to=world.user / "got")
     flow = _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v"})
-    reached = world.user / "got" / "link.v"
     assert (world.user / "net.v").read_text() == "net\n"
-    assert reached.read_text() == "net\n" and not reached.is_symlink()
-    assert {d.state for d in flow.deliveries} == {"delivered"}
+    assert not os.path.lexists(world.user / "got" / "link.v")
+    assert {d.destination.name: d.state for d in flow.deliveries}["link.v"] == "skipped"
+    assert [d.state for d in flow.producers[0].deliveries] == ["delivered"]
     assert not flow.run_path.exists() and not flow.producers[0].run_path.exists()
 
 
@@ -1583,17 +1580,57 @@ def test_a_directory_and_a_link_to_it_that_are_both_delivered_are_copies(unit):
     assert (unit.out / "alias" / "a.txt").read_text() == "A\n"
 
 
-def test_a_file_reached_through_a_link_out_of_the_run_directory_is_copied(unit):
-    """The run directory holds a link to a directory elsewhere, and the output is a file in it.
-    Moving it would delete a file outside the run directory."""
+@pytest.mark.parametrize("where", ["the output", "a directory on the way"])
+def test_a_named_output_that_leads_out_of_the_run_directory_is_refused(unit, where):
+    """A tool left a link, at the output or on the way to it, to a file elsewhere. That file is
+    not an output of the run: the delivery that a setting names is refused, and nothing outside
+    the run directory is read into the destination or removed."""
     outside = unit.tmp / "outside"
     outside.mkdir()
     (outside / "a.txt").write_text("A\n")
-    (unit.run_path / "outputs").symlink_to(outside, target_is_directory=True)
-    _noted(unit, ("outputs/a.txt", unit.out / "a.txt")).deliver(move=True)
+    if where == "the output":
+        name = "a.txt"
+        (unit.run_path / name).symlink_to(outside / "a.txt")
+    else:
+        name = "outputs/a.txt"
+        (unit.run_path / "outputs").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(DeliveryError, match="outside the run directory") as refused:
+        _noted(unit, (name, unit.out / "a.txt")).deliver(move=True)
+    assert refused.value.output_problem
+    assert str(outside / "a.txt") in str(refused.value)
     assert (outside / "a.txt").read_text() == "A\n", "nothing outside the run directory is removed"
-    assert (unit.out / "a.txt").read_text() == "A\n"
-    assert os.stat(unit.out / "a.txt").st_ino != os.stat(outside / "a.txt").st_ino
+    assert list(unit.out.iterdir()) == []
+
+
+@pytest.mark.parametrize("kind", ["file", "directory"])
+def test_outputs_to_skips_an_artifact_that_leads_out_of_the_run_directory(unit, kind, caplog):
+    """`--outputs-to` delivers the artifacts in bulk. One that a tool left as a link out of the
+    run directory is skipped with a warning that names the link and where it leads, and the
+    other artifacts are delivered."""
+    outside = unit.tmp / "outside"
+    outside.mkdir()
+    (outside / "a.txt").write_text("not the run's\n")
+    target = outside / "a.txt" if kind == "file" else outside
+    (unit.run_path / "link").symlink_to(target, target_is_directory=kind == "directory")
+    (unit.run_path / "own.txt").write_text("own\n")
+    deliveries = deliver.Deliveries(
+        unit.run_path, unit.root, [], inputs=deliver.ReadInputs(), owner="f"
+    )
+    extra = [
+        Delivery(deliver.OUTPUTS_TO, PurePath(name), unit.out / name)
+        for name in ("link", "own.txt")
+    ]
+    with caplog.at_level(logging.WARNING, logger="xeda.deliver"):
+        deliveries.collect(unit.run_path, extra)
+        made = deliveries.deliver(move=True)
+    assert [(d.destination.name, d.state) for d in made] == [
+        ("link", "skipped"),
+        ("own.txt", "delivered"),
+    ]
+    assert [p.name for p in unit.out.iterdir()] == ["own.txt"]
+    assert (outside / "a.txt").read_text() == "not the run's\n"
+    (warning,) = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert str(unit.run_path / "link") in warning and str(target.resolve()) in warning
 
 
 def test_a_file_reached_through_a_link_inside_the_run_directory_is_moved(unit):
@@ -1988,3 +2025,46 @@ def test_the_prompt_lists_what_it_would_replace_and_defaults_to_no(monkeypatch, 
     monkeypatch.setattr("click.confirm", lambda text, default, err: default)
     assert _prompt_overwrite([conflict]) is False
     assert "/u/sqrt.bit" in capsys.readouterr().err
+
+
+#: what `_Linker`'s log leads to, outside its run directory
+LINKED_OUT: dict[str, Path] = {}
+
+
+class _Linker(Flow):
+    """Leaves its log as a link to a file outside the run directory, as a tool may."""
+
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+    def run(self) -> None:
+        os.symlink(LINKED_OUT["file"], self.run_file("tool.log"))
+        self.artifacts["log"] = "tool.log"
+
+    def parse_reports(self) -> bool:
+        return True
+
+
+def test_outputs_to_never_copies_the_file_that_a_link_out_of_the_run_directory_leads_to(
+    tmp_path, monkeypatch
+):
+    """What a link that the tool left leads to outside its run directory is not an output of the
+    run: its content never reaches a destination, and the launch reports the skip."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("not the run's\n")
+    monkeypatch.setitem(LINKED_OUT, "file", outside / "secret.txt")
+    (tmp_path / "design").mkdir()
+    (tmp_path / "design" / "top.v").write_text("module top; endmodule\n")
+    design = Design(
+        name="d", design_root=tmp_path / "design", rtl={"sources": ["top.v"], "top": "top"}
+    )
+    got = tmp_path / "got"
+    flow = DefaultRunner(tmp_path / "xeda_run", display_results=False, outputs_to=got).launch_flow(
+        _Linker, design, {}
+    )
+    assert flow.succeeded
+    assert not os.path.lexists(got / "tool.log")
+    assert [(d.key, d.destination, d.state) for d in flow.deliveries] == [
+        (deliver.OUTPUTS_TO, got / "tool.log", "skipped")
+    ]
+    assert (outside / "secret.txt").read_text() == "not the run's\n"
