@@ -282,3 +282,33 @@ def test_a_vhdl_source_is_assigned_as_vhdl_to_quartus(tmp_path, monkeypatch):
     )
     calls = _calls("quartus", design, _settings(root, "quartus"), tmp_path, monkeypatch)
     assert ["set_global_assignment", "-name", "VHDL_FILE", str(root / "top.vhd")] in calls
+
+
+def test_a_frozen_flows_section_goes_straight_to_the_settings(tmp_path):
+    """Every model reads a read-only table as it reads a `dict`: the clock converts `freq`, the
+    FPGA reads its part, and a removed spelling or a boolean given as text is still refused."""
+    from xeda.flow import FlowSettingsError
+    from xeda.flows import VivadoSynth
+
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": [], "clocks": [{"port": "clk"}]},
+        flows={
+            "vivado_synth": {
+                "fpga": {"part": "xc7a100tcsg324-1"},
+                "clocks": {"main_clock": {"freq": "200 MHz"}},
+                "nthreads": 2,
+            }
+        },
+    )
+    section = design.flows["vivado_synth"]
+    assert isinstance(section, FrozenDict)
+
+    settings = VivadoSynth.Settings.from_input(section)
+
+    assert settings.main_clock is not None and settings.main_clock.period.to("ns") == 5.0
+    assert settings.fpga is not None and settings.fpga.part == "xc7a100tcsg324-1"
+    for refused in ({"ncpus": 1}, {"quiet": "yes"}):
+        with pytest.raises(FlowSettingsError):
+            VivadoSynth.Settings.from_input(FrozenDict({**section, **refused}))

@@ -44,7 +44,7 @@ from pydantic import model_validator as _pydantic_model_validator
 from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, PydanticUndefined
 
-from .frozen import FrozenModel
+from .frozen import FrozenModel, thaw
 
 __all__ = [
     "AliasChoices",
@@ -227,6 +227,9 @@ def _guarded_before_model(fn: Any) -> Any:
     accepts_non_mapping = getattr(unwrapped, "__xeda_accepts_non_mapping__", False)
 
     def wrapper(cls: Any, value: Any, info: Any) -> Any:
+        if isinstance(value, Mapping) and not isinstance(value, dict):
+            # A read-only table (a `flows` section of a design) is input like any other table.
+            value = thaw(value)
         if not isinstance(value, dict) and not accepts_non_mapping:
             # pydantic hands a `mode="before"` model validator the raw input, whatever it is,
             # and these bodies are written against a mapping (`values.get(...)`): `fpga: ["x"]`
@@ -1265,7 +1268,7 @@ class XedaBaseModel(BaseModel):
         (`Union[bool, str]`). There is one more exception: `true` and `false` given to a deliverable
         that is no waveform are refused too. Every model of Xeda shares this rule: flow settings,
         the design and nested models. The input is only read and never rewritten."""
-        if not isinstance(values, dict):
+        if not isinstance(values, Mapping):
             return values
         names = input_names(cls)
         problems = []
