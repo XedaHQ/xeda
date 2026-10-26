@@ -863,3 +863,15 @@ def test_a_request_that_is_wrong_in_itself_reads_no_dependency(tmp_path, remote,
             "yosys_fpga", str(design_file), flow_settings={**XILINX, "no_such_setting": 1}
         )
     assert git_log() == []
+
+
+def test_the_debug_log_of_a_request_shows_no_credential(tmp_path, caplog, git_log):
+    """With the debug setting of the launcher, a request logs the design it loaded. That design
+    still holds its dependencies as written, so the log passes them through `redacted_url`."""
+    dependency = f"git+file://user:{SECRET}@/does/not/exist.git?commit={'a' * 40}#dep.yaml"
+    design_file = _design_file(tmp_path, dependency)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, debug=True)
+    with caplog.at_level(logging.DEBUG), pytest.raises(DesignError):
+        runner.plan("yosys_fpga", str(design_file), flow_settings=dict(XILINX))
+    assert "design:" in caplog.text and "does/not/exist.git" in caplog.text
+    assert SECRET not in caplog.text

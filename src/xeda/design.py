@@ -212,7 +212,7 @@ class DesignValidationError(AnyDesignValidationException):
             f' in "{self.file}"' if self.file else "",
             "\n".join(f"{fmt_loc(loc)}{msg}\n" for loc, msg, _, _ in self.errors),
         ) + (
-            f"\nDesign:\n{pformat(_shown_dependencies(self.data))}\n"
+            f"\nDesign:\n{pformat(shown_dependencies(self.data))}\n"
             if self.data and self.design_in_msg
             else ""
         )
@@ -2557,7 +2557,7 @@ def redacted_url(url: str) -> str:
     return _URL_USERINFO.sub("***", url)
 
 
-def _shown_dependencies(data: Mapping[str, Any]) -> Mapping[str, Any]:
+def shown_dependencies(data: Mapping[str, Any]) -> Mapping[str, Any]:
     """Return `data`, a design's mapping, as a log line may show it.
 
     The URL of each dependency (a string, or the `uri` or `repo_url` of a mapping) has no
@@ -3241,7 +3241,7 @@ class Design(XedaBaseModel):
     @classmethod
     def process_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         data = cls.with_default_rtl(data)
-        log.debug("Design data: %s", _shown_dependencies(data))
+        log.debug("Design data: %s", shown_dependencies(data))
         return data
 
     def __init__(

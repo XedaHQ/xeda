@@ -50,7 +50,7 @@ from ..deliver import (
     refuse_shared_destinations,
     split_deliveries,
 )
-from ..design import Design, GitReference, names_a_design_file
+from ..design import Design, GitReference, names_a_design_file, shown_dependencies
 from ..flow import (
     Flow,
     FlowDependencyFailure,
@@ -2489,7 +2489,9 @@ class FlowLauncher:
                 api_sections[flow_class.name],
             )
         if self.settings.debug:
-            log.info("design: %s" % PrettyPrinter().pformat(design.model_dump()))
+            log.info(
+                "design: %s" % PrettyPrinter().pformat(shown_dependencies(design.model_dump()))
+            )
         # The files that this launch was given: never the destination of an output.
         self._launch_inputs = [
             path.resolve()
