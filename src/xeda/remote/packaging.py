@@ -100,6 +100,21 @@ def refuse_unsendable_generator(design: Design) -> Generator | None:
     return generator_of(design.rtl, root=design.root_path)
 
 
+def refuse_unsendable_declared(design: Design) -> None:
+    """Refuse a generator that the package cannot carry (`refuse_unsendable_generator`), in the
+    design and in its local dependencies, with no Git dependency read.
+
+    A request makes this check at planning before any Git dependency is resolved or fetched: it
+    needs no value that such a dependency supplies. The generator of a Git dependency is judged
+    after the fetch, on the merged design. A local dependency whose file is missing is left to the
+    merge, which reports it."""
+    refuse_unsendable_generator(design)
+    for ref in design.dependencies:
+        path = design.root_path / ref.uri
+        if not isinstance(ref, GitReference) and path.is_file():
+            refuse_unsendable_declared(Design.from_file(path))
+
+
 def package_inputs(
     design: Design,
     sections: Mapping[str, Any],

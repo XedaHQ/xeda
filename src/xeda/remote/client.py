@@ -114,7 +114,12 @@ from .frames import (
 from .launch_entry import LaunchRequest
 from .launch_record import LaunchRecord, write_record
 from .manifest import Entry, build_manifest, write_tar
-from .packaging import InputPackage, package_inputs, refuse_unsendable_generator
+from .packaging import (
+    InputPackage,
+    package_inputs,
+    refuse_unsendable_declared,
+    refuse_unsendable_generator,
+)
 from .profile import HostProfile, load_host_profile
 from .provision import Probe, Provisioned, agent_command, ensure_environment, probe
 from .ssh import Destination, SshSession, resolve_destination
@@ -653,6 +658,8 @@ def _plan(
         target=run.target,
         host_flows=profile.flows,
         host=destination_text,
+        # Refused before a Git dependency is fetched: it needs nothing that one supplies.
+        before_fetch=refuse_unsendable_declared,
     )
     run.target = prepared.target
     run.design_name = prepared.design.name

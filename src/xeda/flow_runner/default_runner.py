@@ -2081,6 +2081,7 @@ class FlowLauncher:
         *,
         host_flows: Mapping[str, Mapping[str, Any]] | None = None,
         host: str | None = None,
+        before_fetch: Callable[[Design], None] | None = None,
     ) -> PreparedRequest:
         """Load, resolve and check a request as `run()` does before it launches, and launch nothing.
 
@@ -2092,7 +2093,11 @@ class FlowLauncher:
         `host_flows` is the `flows` table of a host profile (flow name to settings), and `host`
         names that profile in messages ("the host profile of <host>"). The table is the lowest
         layer of the settings of every flow, below the `flows` section of the project file. Only
-        this method takes it."""
+        this method takes it.
+
+        `before_fetch` is a check of the design as the caller gave it. It runs after the checks of
+        the settings and before any dependency is read, so before a Git dependency is resolved or
+        fetched. A remote request refuses here what needs no value of a dependency."""
         if not self.accepts_bindings:
             self._refuse_unaccepted_request(flow, flow_settings, [], xedaproject)
         request, plan = self._judged_request(
@@ -2106,6 +2111,7 @@ class FlowLauncher:
             design_allow_extra,
             [],
             target=target,
+            before_fetch=before_fetch,
             host_layer=(host_profile_origin(host), host_flows) if host_flows is not None else None,
         )
         self._refuse_unaccepted_plan(request, plan)
@@ -2229,6 +2235,7 @@ class FlowLauncher:
         design_remove_fields: list[str],
         *,
         target: str | None,
+        before_fetch: Callable[[Design], None] | None = None,
         host_layer: tuple[str, Mapping[str, Any]] | None = None,
     ) -> tuple[_Request, Plan]:
         """Load and resolve a request.
@@ -2267,6 +2274,8 @@ class FlowLauncher:
                 design_root=request.design.root_path,
                 runner_cwd=self._start,
             )
+        if before_fetch is not None:
+            before_fetch(request.design)
         request = self._with_dependencies(request)
         return request, self._resolve_request(request)
 

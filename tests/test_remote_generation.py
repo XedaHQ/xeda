@@ -7,8 +7,8 @@ generator that declares no `sources` cannot be sent and is refused before any co
 """
 
 import json
-import sys
 import os
+import sys
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -21,8 +21,9 @@ from xeda.remote.packaging import package_inputs
 
 from .generation_world import World
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
+from .test_git_dependencies import git_log, remote
 
-FIXTURES = (fake_ssh, fake_remote, remote_host)
+FIXTURES = (fake_ssh, fake_remote, remote_host, git_log, remote)
 
 pytestmark = [pytest.mark.skipif(os.name != "posix", reason="POSIX")]
 
@@ -438,3 +439,47 @@ def test_a_working_directory_that_is_a_link_is_made_under_its_own_name_on_the_ho
     assert outcome.success, outcome.document
     cwd, _design_root, _storage = world.where
     assert cwd.endswith("/link")
+
+
+# ----------------------------------------- what is refused before a Git dependency is fetched
+
+
+def _with_a_git_dependency_first(tmp_path: Path, remote, local: bool, sources: list[str]) -> World:
+    """A design whose first dependency is a Git repository over `file://`. With `local`, its
+    second dependency is a local design whose generator declares `sources`. Without it, the
+    generator of the design declares them."""
+    git = f"git+{remote.url}?commit={remote.first}#dep.yaml"
+    extra = f"dependencies:\n  - {git}\n" + ("  - dep/dep.yaml\n" if local else "")
+    world = _world(tmp_path, extra=extra, **({} if local else {"generator": {"sources": sources}}))
+    # the file that `../lib/tool.py` names, from the root of the design and from that of `dep`
+    for library in (tmp_path / "lib", world.root / "lib"):
+        library.mkdir()
+        (library / "tool.py").write_text("# tool\n")
+    if local:
+        (world.root / "dep").mkdir()
+        (world.root / "dep" / "dep.yaml").write_text(
+            "name: dep\nrtl:\n  sources: []\n  generator:\n"
+            f"    executable: {sys.executable!r}\n    args: ['-c', 'pass']\n"
+            f"    sources: {json.dumps(sources)}\n"
+        )
+    return world
+
+
+@pytest.mark.parametrize("local", [False, True], ids=["own generator", "local dependency"])
+@pytest.mark.parametrize(
+    "sources, said",
+    [([], "declares no `sources`"), (["../lib/tool.py"], "below the design root")],
+    ids=["no sources", "input outside the root"],
+)
+def test_a_generator_that_cannot_be_sent_is_refused_before_any_git_process(
+    tmp_path, remote_host, remote, git_log, local, sources, said
+):
+    """The refusal needs no value that a Git dependency supplies, so nothing is resolved or
+    fetched first. The request starts no generator and makes no connection either."""
+    world = _with_a_git_dependency_first(tmp_path, remote, local, sources)
+    started = len(git_log())
+    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    assert isinstance(outcome.error, DesignValidationError)
+    assert said in str(outcome.error)
+    assert len(git_log()) == started, "a Git command was started"
+    assert world.runs == 0 and not connected(remote_host)
