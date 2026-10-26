@@ -561,8 +561,10 @@ is a settings error. It names the input and the place where the binding was writ
 
 .. _error-codes:
 
-The ``results.json`` of every node that ran and did not pass is a failure document too. Its
-``outcome`` is not ``passed`` and its ``error`` has a stable ``code``,
+The ``results.json`` of every node that ran and did not pass is a failure document too, unless
+its record could not be stored (``storage_error``): such a node has no ``results.json``, and its
+outcome and error are only in the result of the launch. A failure document's ``outcome`` is not
+``passed`` and its ``error`` has a stable ``code``,
 a ``message``, the ``node``, the ``exit_status`` of the tool (for ``nonzero_exit``) and a ``log``
 (the artifact to read, or ``null``). The ``code`` is lower snake case and never the name of a
 class. The top-level ``FlowFailed`` is the verdict of the run, and a node names the cause. A
