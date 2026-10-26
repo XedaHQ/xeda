@@ -474,3 +474,36 @@ def test_a_copy_of_a_generated_source_and_a_named_output_never_share_a_destinati
         world.runner().launch_flow(_Reports, world.design(), {"report": str(shared)})
     assert "rtl.generator.outputs_to" in str(refused.value) and "report" in str(refused.value)
     assert world.runs == 0
+
+
+def test_a_copy_that_a_pattern_reveals_is_compared_with_the_files_of_outputs_to(tmp_path):
+    """The last run of the flow reported `outputs/d.v`, so `--outputs-to` expects to deliver it
+    again. A copy of a generated source to that destination is refused after the generator ran,
+    and before the flow does."""
+    runs: list[str] = []
+
+    class _Writer(Flow):
+        """Reads the Verilog sources and reports a file."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+        reads_sources = frozenset({SourceType.Verilog})
+
+        def run(self) -> None:
+            runs.append(self.name)
+            report = self.run_file(Path("outputs") / "d.v")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text("// report\n")
+            self.artifacts["report"] = "outputs/d.v"
+
+    world = Delivering(tmp_path, ["outputs/d.v"], outputs_to=None, sources=["outputs/*.v"])
+    destination = tmp_path / "got"
+    assert world.runner(outputs_to=destination).launch_flow(_Writer, world.design(), {}).succeeded
+    assert len(runs) == 1
+    document = json.loads(world.file.read_text())
+    document["rtl"]["generator"]["outputs_to"] = str(destination)
+    world.file.write_text(json.dumps(document))
+    runs.clear()
+    runner = world.runner(outputs_to=destination, rebuild_all=True)
+    with pytest.raises(DeliveryError, match="both name"):
+        runner.launch_flow(_Writer, world.design(), {})
+    assert not runs, "the flow did not run"

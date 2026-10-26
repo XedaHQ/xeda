@@ -512,6 +512,9 @@ class FlowLauncher:
         #: The deliveries of the current launch's producers, checked when it started, by node:
         #: each producer checks again, at its turn, with its own.
         self._deliveries_ahead: dict[NodeKey, Deliveries] = {}
+        #: The files that `--outputs-to` expects to deliver from the last run of the requested
+        #: flow, as `(flow, delivery, destination)`, kept from the check ahead.
+        self._predicted_copies: list[tuple[str, Delivery, Path]] = []
         #: Asked, at an interactive terminal, whether to replace files in the way of named
         #: outputs (`xeda.deliver.Deliveries.check`); None: only `overwrite_outputs` counts.
         self.confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]] = None
@@ -901,6 +904,7 @@ class FlowLauncher:
             self._launched_before = len(self.launched)
             self._confirmed_replacements = ConfirmedReplacements()
             self._deliveries_ahead = {}
+            self._predicted_copies = []
             self._planned_completed = {}
             self._completed_runs = {}
             # Every file that the flows of this launch read: the requested flow registers the
@@ -1010,6 +1014,7 @@ class FlowLauncher:
         logged and the next goes on."""
         self._claims = set()
         self._deliveries_ahead = {}
+        self._predicted_copies = []
         deliveries, self._pending_deliveries = self._pending_deliveries, []
         # A flow whose run directory the clean-ups below delete gives its files away by rename. A
         # flow found up to date has no clean-up pending, so it is copied from and keeps its files.
@@ -1119,6 +1124,8 @@ class FlowLauncher:
             else []
         )
         own.refuse(predicted)
+        #: Kept for the check after the generator ran (`_place_generated_deliveries`).
+        self._predicted_copies = [(requested.name, d, d.destination) for d in predicted]
         ahead: dict[NodeKey, Deliveries] = {}
         copies: list[tuple[str, Delivery, Path]] = []  # in the order the flows run
         for planned in plan.nodes:
@@ -1191,11 +1198,14 @@ class FlowLauncher:
         if not touched:
             return
         refuse_shared_destinations(
-            (
-                (other.owner, copy, copy.destination)
-                for other in self._deliveries_ahead.values()
-                for copy in [*other.named, *other.generated]
-            ),
+            [
+                *(
+                    (other.owner, copy, copy.destination)
+                    for other in self._deliveries_ahead.values()
+                    for copy in [*other.named, *other.generated]
+                ),
+                *self._predicted_copies,
+            ],
             before_run=True,
         )
         for ahead in touched:
