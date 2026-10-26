@@ -1162,9 +1162,9 @@ A project file has these keys. Any other key at its root is an error that names 
   ``--no-target``. A design that has no such target is an error: select a target, or pass
   ``--no-target``.
 
-Select a design of the project with ``--design-name NAME``. This is the only way to run a design
-of a project. If you give neither ``--design-name`` nor ``DESIGN``, Xeda selects the only design of
-the project; a project with several designs is an error that lists them. Give ``DESIGN`` or
+A design of the project is reached by its name: ``--design-name NAME``. When you give no design
+at all, Xeda selects the design of a project that has only one; a project with several designs is an
+error that lists them. A positional ``DESIGN`` never reaches a project design. Give ``DESIGN`` or
 ``--design-name``, not both.
 
 The ``DESIGN`` argument is always the path of a design file, with or without a suffix. If no such

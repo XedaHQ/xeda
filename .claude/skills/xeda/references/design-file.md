@@ -416,14 +416,14 @@ flows:
 - Xeda finds the file as `--xedaproject FILE`, else the one `xedaproject.yaml`, `.yml` or `.toml`
   in the start directory. Two of these names in one directory is a `ProjectError`
   (`several_project_files`).
-- Select a design of the project with `--design-name sqrt`: the only way. `DESIGN` is always a file
+- A project design is reached by its name, `--design-name sqrt`; with no design given, a project
+  with one design is selected (`design_name_required` if there are several). `DESIGN` is always a file
   path; a name there that is a design of the project is refused (`use_design_name`). A design file
   given by path: (1) a `file` entry lists it, by a relative path, an absolute path or a symbolic
   link: refused, `use_design_name`, "use --design-name <name>"; (2) the project does not list it:
   it gets no layer from the project (not its `flows`, no settings file of the project), and the
   user's layers still apply; (3) the project, given or found, still supplies the run root
-  (`--run-root`, `XEDA_RUN_ROOT`, the project's, then `./xeda_run` with no project). With neither `DESIGN` nor `--design-name`, the only
-  design of the project is selected (`design_name_required` if there are several). Both together
+  (`--run-root`, `XEDA_RUN_ROOT`, the project's, then `./xeda_run` with no project). Both `DESIGN` and `--design-name` together
   are a usage error.
 - `--target T` selects a target, `--no-target` selects none, and neither selects the project's
   `default_target` for a design of the project (`target_required` if the design lacks it).
