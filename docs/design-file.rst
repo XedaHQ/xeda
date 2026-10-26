@@ -92,6 +92,8 @@ Top level
      - no
      - Other designs that this design needs: the path of a design file, or a Git repository
        written ``git+<url>#<design file in the repository>``. A URL without ``git+`` is refused.
+       Planning reads them, and it fetches a Git repository into the run root. See
+       `Git dependencies`_.
    * - ``license``, ``version``, ``url``
      - no
      - Metadata. No flow uses it.
@@ -801,6 +803,58 @@ so the flows read them from its storage. A pattern or a name that matches nothin
 that reads it with ``missing_generated``, and the message names the generator of the dependency.
 ``--remote`` refuses a dependency generator that declares no ``sources``, as it refuses the
 generator of the design. A design and its dependencies may not declare the same generated name.
+
+.. _git-dependencies:
+
+Git dependencies
+----------------
+
+A dependency supplies sources and metadata to the design: its ``rtl.sources`` and ``tb.sources``
+join those of the design, and its ``rtl.top``, ``rtl.parameters``, ``rtl.clocks`` and ``tb.top``
+fill the ones that the design leaves out. Loading a design reads no dependency and starts no Git
+command. Planning reads them: ``xeda run`` (also with ``--dry-run``), ``xeda dse`` and the Python
+calls that plan fetch a Git dependency into the run root first, and then merge it. With ``--remote``
+the host plans, so the host fetches the dependency into its own run root. This is the one case in
+which planning writes to the run root.
+
+.. code-block:: yaml
+
+    dependencies:
+      - uri: git+https://github.com/example/lib.git?commit=0123456789abcdef0123456789abcdef01234567#lib.yaml
+        rtl:
+          pos: -1
+
+A reference can say ``branch`` (a branch or a tag) or ``commit``. Without one, it names the
+``HEAD`` of the repository. A ``commit`` is a full hash (40 hexadecimal digits, or 64 in a SHA-256
+repository). An abbreviated hash is refused when the design loads.
+
+Xeda keeps the files of a commit in ``<run root>/.dependencies/<key>/``, with the record
+``dependency.yaml``. The key names the repository and the commit, so a storage never changes after
+Xeda has written it. A fetch writes into a temporary directory and renames it into place, so a
+storage is complete or absent. Two launches that need one commit fetch it once.
+
+- A pinned ``commit`` whose storage is there needs no network. To work offline, pin the commit.
+- A ``branch``, a tag or the ``HEAD`` is resolved with ``git ls-remote`` at every planning, so a
+  branch that has moved is seen. Offline, that fails with ``fetch_failed``, and the message says to
+  pin a commit.
+- A failed resolution or fetch (an unreachable host, an unknown branch or commit, a design file
+  that the repository lacks) stops the request before any tool runs. The error has the code
+  ``fetch_failed`` and names the dependency, for example ``dependencies[0]``. Neither the message
+  nor any log line or path shows a user name or a password of the URL.
+- The commit is no part of the identity of a run. The identity holds the sources of a dependency by
+  their path in its checkout. Another commit makes the runs that used the dependency stale: the
+  reason is ``dependency <repository> now at <commit>``. The record of a run lists the Git
+  dependencies (``repository``, ``reference``, ``commit`` and ``design_file``), and a source from a
+  dependency names the dependency it came from.
+
+Xeda never removes dependency storage. It is a cache of fixed content. You can delete
+``<run root>/.dependencies/`` by hand while no launch runs. The keys ``clone_dir`` and
+``local_cache`` were removed: to use a checkout that you manage, name its design file as a local
+dependency.
+
+A local dependency, the path of a design file, is relative to the design that lists it. The file
+must exist when planning starts. A generator runs after planning, so it cannot write the design
+file of a dependency: list the files that the generator writes as sources of the design instead.
 
 .. _language:
 

@@ -908,12 +908,11 @@ them. Invalid settings, conflicts between shared settings, missing required inpu
 targets and any other combination that these hooks refuse produce the usual run document, with
 the ``outcome`` ``null`` (no launch started) and an ``error``.
 
-Planning changes no run root, marker, lock, result or delivery. It refreshes no trace, starts no
-process and probes no tool. If the declarations of the design already rule out the request, Xeda
+Planning changes no marker, lock, result or delivery, and it writes to the run root only the
+storage of the Git dependencies that it fetches (see :ref:`git-dependencies`). It refreshes no
+trace, starts no process and probes no tool. If the declarations of the design already rule out the request, Xeda
 refuses it first, before a generator runs (see :ref:`generators`). Planning never runs a generator.
-Loading that needs the fetch of a Git dependency is refused before that side effect. Clone the
-dependency yourself, or pass an already loaded ``Design`` to ``DefaultRunner.plan``. With ``--remote``, the host
-makes the plan (see :doc:`remote`).
+With ``--remote``, the host makes the plan (see :doc:`remote`).
 
 Planning a chain
 ----------------

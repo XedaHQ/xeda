@@ -605,16 +605,17 @@ Planning without running
 execute: the producers first, the directories, the hashes, the source or producer of each declared
 input, and the optional outputs that are switched on for consumers. Add ``--json`` for a document
 (see :doc:`machine-readable`). A dry run starts no tool and changes no run root, marker, lock or
-delivery. Planning fails for invalid settings, for a device or family that a flow does not
-support, for shared-setting conflicts, and for any configuration that the settings of a flow and
-the design rule out.
+delivery, except that it fetches the Git dependencies of the design (see
+:ref:`git-dependencies`). Planning fails for invalid settings, for a device or family that a flow
+does not support, for shared-setting conflicts, and for any configuration that the settings of a
+flow and the design rule out.
 
 Xeda first refuses a request that the declarations of the design already rule out, before a
 generator runs (see :ref:`generators`). A plan never runs a generator: a node that reads generated
-sources is ``unknown`` until the storage of the generator is current. Loading that needs the fetch
-of a Git dependency is refused before that side effect. Clone the dependency yourself, or pass an
-already loaded ``Design`` to ``DefaultRunner.plan`` of the library (``plan_with_freshness`` adds
-what each node would do). Planning does not call ``init()`` of a flow. With ``--remote``, the
+sources is ``unknown`` until the storage of the generator is current. A plan fetches the Git
+dependencies of the design into the run root, after the checks that need no value of a dependency
+(see :ref:`git-dependencies`). It is the one case in which a plan writes (``plan_with_freshness`` of
+the library adds what each node would do). Planning does not call ``init()`` of a flow. With ``--remote``, the
 host makes the plan (see :doc:`remote`).
 
 The plan also says what a run would do with each flow. The state is ``fresh`` (Xeda reuses the

@@ -505,6 +505,13 @@ the run directories lie beside them. ``--rebuild-all`` and ``--clean`` regenerat
 flow again. ``--clean``, post-cleanup and ``xeda scrub`` leave the storage alone. See
 :ref:`generators`.
 
+A Git dependency of a design is kept in the run root too, in ``.dependencies/<key>/``. The files of
+one commit of one repository are in one storage, and a storage never changes after Xeda has
+written it. Planning fetches it (see ``Git dependencies`` in the design file reference). A launch
+holds a shared lease of each storage that it reads until it has made its last delivery. No
+command of Xeda removes dependency storage, ``xeda scrub`` included. Delete ``.dependencies/`` by
+hand while no launch runs.
+
 A run that its checks rejected
 ------------------------------
 
@@ -806,14 +813,9 @@ A dockerized flow therefore reads the files of its producers and the files that 
 without a ``Docker.mounts`` entry. A directory is not mounted again when another mount holds it at
 the same path.
 
-Two more exceptions exist, and you configure both explicitly. Xeda does not decide them on its own:
-
-- The ``clone_dir`` or ``local_cache`` of a Git dependency. Without them, the clone goes to the
-  ``.dependencies`` directory of the run root.
-- A writable entry of ``Docker.mounts`` that you add yourself.
-
-In both cases Xeda writes there as you told it and guards nothing about what it finds. That
-directory is yours to manage.
+One more exception exists, and you configure it explicitly. Xeda does not decide it on its own: a
+writable entry of ``Docker.mounts`` that you add yourself. Xeda writes there as you told it and
+guards nothing about what it finds. That directory is yours to manage.
 
 Outputs where you name them
 ============================

@@ -45,7 +45,7 @@ are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` 
 | `language` | Language standards. |
 | `flows` | Per-flow settings. |
 | `targets` | One overlay per board. |
-| `dependencies` | Other designs: a design file path, or `git+<url>#<design file in the repository>`. A URL without `git+` is refused. |
+| `dependencies` | Other designs: a design file path, or `git+<url>#<design file in the repository>`. A URL without `git+` is refused. Planning reads them; see below. |
 | `design_root` | Base for relative paths. Defaults to the design file's directory. |
 
 ## `rtl`: the design
@@ -351,6 +351,15 @@ targets:
   target too.
 - `board`, `fpga` and `custom_boards_file` go under the target's `flows.<flow>`; at the target's
   top level they are refused, naming that.
+
+## `dependencies`: other designs
+
+A dependency adds its `rtl.sources` and `tb.sources` to the design's, and fills the `rtl.top`, `rtl.parameters`, `rtl.clocks` and `tb.top` that the design leaves out, but only with `rtl: {pos: -1}` in the reference (the default `pos: 0` adds sources only). Loading reads none of them. Planning (`xeda run`, `--dry-run` too, `xeda dse`) does.
+
+- Local: the path of a design file, relative to the design. It must exist when planning starts: a generator cannot write it (`design_file_not_found`).
+- Git: `git+<url>[?branch=<name>|commit=<hash>]#<design file>`, or a table with `repo_url`, `design_file`, `branch`, `commit`. `commit` is a full hash; an abbreviated one is refused. Planning fetches it into `<run root>/.dependencies/<key>/`, which is never changed or removed by Xeda (delete it by hand while no launch runs). `clone_dir` and `local_cache` were removed (`removed_key`).
+- A pinned `commit` already fetched needs no network. A branch, a tag or no reference is resolved by `git ls-remote` at every planning; a failure is `fetch_failed` (field `dependencies[<n>]`). Pin a commit to work offline.
+- The commit is no part of the identity, but another commit makes the run stale ("dependency <repository> now at <commit>"). `results.json` has `dependencies` (`repository`, `reference`, `commit`, `design_file`).
 
 ## Paths and environment variables
 

@@ -257,8 +257,11 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   (`run_lock.storage_lock`, `tests/test_storage_locks.py`). A dependency with a generator is a unit
   of generation (`Design.generation_units`, `Source.owner`) with a storage of its own, dependencies
   first; a generation holds one exclusive lock and waits for no other, and the shared leases of all
-  storages come after all generations (`tests/test_dependency_generation.py`). A Git fetch still
-  happens at load and is refused by a plan; print a URL only via `design.redacted_url`.
+  storages come after all generations (`tests/test_dependency_generation.py`). Loading reads no
+  dependency. Planning merges them (`flow_runner/dependencies.py`): a Git fetch runs after every
+  check that reads no value a dependency supplies, into `<run root>/.dependencies/<key>/` (the one
+  write of a plan, never removed by Xeda), and a local dependency must exist then
+  (`tests/test_git_dependencies.py`). Print a URL only via `design.redacted_url`.
 
 ### Templates, tools and the CLI
 
