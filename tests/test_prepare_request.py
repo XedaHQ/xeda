@@ -169,17 +169,13 @@ def test_prepare_request_refuses_a_declared_design_before_its_generator_runs(tmp
 
 
 def test_prepare_request_runs_no_generator(tmp_path):
-    """Preparing a request is planning: the generator runs in the launch, not here, with or
-    without `planning`."""
+    """Preparing a request is planning: the generator runs in the launch, not here."""
     generated = Generated(tmp_path, ["gen/top.v"])
-    runner = _runner(tmp_path)
-
-    for planning in (True, False):
-        prepared = runner.prepare_request(
-            "vivado_synth", str(generated.file), flow_settings=dict(XILINX), planning=planning
-        )
-        assert prepared.plan.requested == "vivado_synth"
-        assert generated.runs == 0
+    prepared = _runner(tmp_path).prepare_request(
+        "vivado_synth", str(generated.file), flow_settings=dict(XILINX)
+    )
+    assert prepared.plan.requested == "vivado_synth"
+    assert generated.runs == 0
 
 
 def test_prepare_request_refuses_outputs_to_for_a_programmer(tmp_path):
