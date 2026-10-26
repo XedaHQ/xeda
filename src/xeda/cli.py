@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import sys
@@ -679,45 +680,35 @@ def _refuse_both_config_options(config: Path | None, no_config: bool) -> None:
 
 
 def _cli_local_settings(
-    project: Project | None,
-    design: Any,
-    config: Path | None,
-    no_config: bool,
+    project: Project | None, design: Any, config: Path | None, no_config: bool
 ) -> LocalSettings:
     """Return the private settings of this command: the user file (or the file of `--config`,
-    or none with `--no-config`) and, for a design of the project, the project-local file.
+    or none with `--no-config`) and, with a project, the project-local file.
 
-    A design file given on the command line never gets the project-local file."""
-    return local_settings(
-        _project_for_local(project, design), config=None if no_config else config or UNSET
-    )
-
-
-def _project_for_local(project: Project | None, design: Any) -> Project | None:
-    """Return the project whose project-local file the command reads: only a design that the
-    project holds gets it."""
-    return None if design is not None else project
+    A design file given on the command line gets the user file, and no layer from the project or
+    from the project-local file. The project-local `run_root` still counts for the run root,
+    since the run root is a fact of the machine and not a setting of the design."""
+    settings = local_settings(project, config=None if no_config else config or UNSET)
+    if design is not None:
+        settings = dataclasses.replace(settings, local={}, local_file=None)
+    return settings
 
 
-def _cli_run_root(run_root: Path, local: LocalSettings, project: Project | None) -> Path:
+def _cli_run_root(run_root: Path, local: LocalSettings) -> Path:
     """Return the run root of this command, highest first: `--run-root`, `XEDA_RUN_ROOT`, the
-    `run_root` of the project-local file, that of the user file, that of the project file, then
-    `./xeda_run` (the default of `run_root`).
+    `run_root` of the project-local file, that of the user file, that of the project (its
+    `run_root` key, else `xeda_run` beside the project file), then `./xeda_run` when no project is
+    used.
 
     A run root is a fact of the machine, not a setting of the design. A choice on the command
     line or in the environment wins, and so does the choice of this user for this machine over the
-    suggestion that the project file checks in. `local.run_root` holds the first three that the
-    files give. A design file given on its own has no project-local file, and the project file
-    still gives its run root."""
+    suggestion that the project file checks in. `local.run_root` holds the last three that the
+    files give, whichever design the command runs."""
     source = click.get_current_context().get_parameter_source("run_root")
     chosen = source not in (None, ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP)
-    if chosen:
+    if chosen or local.run_root is None:
         return run_root
-    if local.run_root is not None:
-        return local.run_root
-    if project is not None:
-        return project.run_root
-    return run_root
+    return local.run_root
 
 
 def _interactive(json_flag: bool) -> bool:
@@ -1205,7 +1196,7 @@ def run(
             ctx=ctx,
         )
     project_for_launcher = _project_for_launcher(project)
-    run_root = _cli_run_root(run_root, local, project)
+    run_root = _cli_run_root(run_root, local)
     if fetch_all and not remote:
         raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
     if keep_running and not remote:
@@ -1680,7 +1671,7 @@ def dse(
         dse = Dse(
             optimizer_class=optimizer,
             optimizer_settings=opt_settings,
-            run_root=_cli_run_root(run_root, local, project),
+            run_root=_cli_run_root(run_root, local),
             **dse_settings_dict,
         )
         # The tables go to stderr with --json (`machine_readable_mode`).

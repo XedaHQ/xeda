@@ -145,9 +145,10 @@ project-local file is `xedaproject.local.yaml` beside the project file. Both are
 the second out of Git), have the keys `flows`, `env` and `run_root`, and are read by `xeda run` and
 `xeda dse` only. A `designs` key or any unknown key is `invalid_local_settings`; a flow name that is no flow is `flow_not_found`. `--config FILE` (must exist)
 replaces the user file; `--no-config` reads neither file. A design file given as `DESIGN` gets the
-user file and no project-local file. Run root, highest first: `--run-root`, `XEDA_RUN_ROOT`,
-project-local `run_root`, user `run_root`, project `run_root`, `./xeda_run`. They merge key by key, so `-s clock.freq=100MHz` refines a nested
-section. Write a flow's settings under its own `flows.<flow>` only.
+user file and no layer from the project or the project-local file, and its run root follows the
+same order. Run root, highest first: `--run-root`, `XEDA_RUN_ROOT`,
+project-local `run_root`, user `run_root`, project `run_root`, `./xeda_run`. They merge key by key, so `-s clock.freq=100MHz` refines a
+nested section. Write a flow's settings under its own `flows.<flow>` only.
 
 ```bash
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high

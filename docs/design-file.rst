@@ -1228,7 +1228,9 @@ is an error: a private file never declares a design.
 The run root of a command is, from the highest source to the lowest: ``--run-root``,
 ``XEDA_RUN_ROOT``, the ``run_root`` of the project-local file, that of the user file, that of the
 project file, and ``./xeda_run``. The place where you keep your runs is a fact of your machine, so
-your choice wins over the one that the project file checks in.
+your choice wins over the one that the project file checks in. This order holds for a design file
+that you give by path too, although that file gets no ``flows`` from the project file and none from
+the project-local file. It gets the ``flows`` of your user file.
 
 ``--config PATH`` reads the file ``PATH`` in place of the user file. A ``PATH`` that does not exist
 is an error (``invalid_local_settings``). The user file and the project-local file may be missing:

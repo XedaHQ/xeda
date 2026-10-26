@@ -575,21 +575,6 @@ def test_the_project_local_file_overrides_the_project_and_the_user_file_is_below
     assert hash_of(local_wins) == hash_of(nine)
 
 
-def test_a_design_file_gets_the_user_file_and_no_project_local_file(tmp_path, private_home):
-    repo = tmp_path / "repo"
-    path = write_project(repo, {"designs": [{"name": "d", "rtl": rtl()}], "run_root": "project"})
-    other = design_file(repo, "other.yaml")
-    write(repo / "xedaproject.local.yaml", "colour: 1\n")  # would not load: never read here
-    user_file(private_home, {"flows": {"vivado_synth": {"nthreads": 3}}})
-    arguments = ("run", "vivado_synth", "--xedaproject", str(path), str(other), "--dry-run", *PART)
-    _, document = invoke(*arguments)
-    _, expected = invoke(*arguments, "--no-config", "-s", "nthreads=3")
-    assert hash_of(document) == hash_of(expected)
-    assert run_path_of(document).is_relative_to(
-        (repo / "project").resolve()
-    ), "the project run root still applies to a design file"
-
-
 def test_a_malformed_private_file_fails_the_command(tmp_path, private_home):
     path = write_project(tmp_path / "repo", {"designs": [{"name": "d", "rtl": rtl()}]})
     user_file(private_home, "colour: 1\n")
@@ -775,3 +760,65 @@ def test_a_flow_name_that_is_no_flow_in_the_other_layers_is_still_left_alone(tmp
     )
     plan = DefaultRunner(tmp_path / "run").plan(_ReadsInstalled, design)
     assert plan.requested == _ReadsInstalled.name
+
+
+def test_a_design_file_gets_the_user_file_and_no_project_or_project_local_layer(
+    tmp_path, private_home
+):
+    repo = tmp_path / "repo"
+    path = write_project(
+        repo,
+        {
+            "designs": [{"name": "d", "rtl": rtl()}],
+            "run_root": "project",
+            "flows": {"vivado_synth": {"nthreads": 2}},
+        },
+    )
+    other = design_file(repo, "other.yaml")
+    write(repo / "xedaproject.local.yaml", {"flows": {"vivado_synth": {"nthreads": 9}}})
+    user_file(private_home, {"flows": {"vivado_synth": {"nthreads": 3}}})
+    arguments = ("run", "vivado_synth", "--xedaproject", str(path), str(other), "--dry-run", *PART)
+    _, document = invoke(*arguments)
+    _, expected = invoke(*arguments, "--no-config", "-s", "nthreads=3")
+    assert hash_of(document) == hash_of(expected)
+    assert run_path_of(document).is_relative_to((repo / "project").resolve())
+
+
+def test_the_run_root_of_a_design_file_follows_the_order_with_the_project_local_one(
+    tmp_path, private_home
+):
+    repo = tmp_path / "repo"
+    path = write_project(repo, {"designs": [{"name": "d", "rtl": rtl()}], "run_root": "project"})
+    other = design_file(repo, "other.yaml")
+    arguments = ("run", "vivado_synth", "--xedaproject", str(path), str(other), "--dry-run", *PART)
+    local = write(repo / "xedaproject.local.yaml", {"run_root": "local"})
+    user_file(private_home, {"run_root": "user"})
+    _, document = invoke(*arguments)
+    assert run_path_of(document).is_relative_to((repo / "local").resolve())
+    local.unlink()
+    _, document = invoke(*arguments)
+    assert run_path_of(document).is_relative_to(private_home / "user")
+    _, document = invoke(*arguments, "--no-config")
+    assert run_path_of(document).is_relative_to((repo / "project").resolve())
+
+
+def test_dse_of_a_design_file_follows_the_same_run_root_order(tmp_path, private_home, monkeypatch):
+    from xeda.flow_runner.dse import Dse
+
+    repo = tmp_path / "repo"
+    path = write_project(repo, {"designs": [{"name": "d", "rtl": rtl()}]})
+    other = design_file(repo, "other.yaml")
+    write(repo / "xedaproject.local.yaml", {"run_root": "local"})
+    seen = {}
+
+    def fake_init(self, *args, **kwargs):
+        seen["run_root"] = kwargs["run_root"]
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(Dse, "__init__", fake_init)
+    CliRunner().invoke(
+        cli,
+        ["dse", "vivado_synth", str(other), "--xedaproject", str(path),
+         "--optimizer", "fmax_optimizer", *PART],
+    )  # fmt: skip
+    assert Path(seen["run_root"]) == (repo / "local").resolve()
