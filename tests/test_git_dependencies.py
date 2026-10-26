@@ -702,12 +702,11 @@ def test_the_command_line_reports_a_failed_fetch_as_a_spec_that_never_started(tm
 def test_a_remote_package_carries_the_references_and_no_fetched_file(tmp_path, remote):
     from pathlib import PurePosixPath
 
-    from xeda.flow_runner.dependencies import merged_design
     from xeda.remote.packaging import package_inputs
 
     design = Design.from_file(_design_file(tmp_path, _pinned(remote)))
     package = package_inputs(
-        merged_design(design, run_root=None, git=False),
+        design,
         {},
         {"yosys_fpga"},
         run_root=tmp_path / "run_root",
@@ -788,11 +787,12 @@ def _names(plan) -> list[str]:
 
 
 def test_an_index_is_the_position_in_the_dependencies_of_the_design(tmp_path, remote):
-    """The Git dependency is the second entry, so it is dependency 1 in the configuration."""
+    """The Git dependency is the second entry, so it is dependency 1 in the configuration. A file of
+    the local dependency is counted by its path in the root of that dependency."""
     plan = _plan(tmp_path, _mixed(tmp_path, remote, "local first"))
     sources = _configuration(plan)["rtl"]["sources"]
     assert {"dependency": 1, "path": "src/a.v", "type": "Verilog"} in sources
-    assert {"path": "lib/b.v", "type": "Verilog"} in sources
+    assert {"dependency": 0, "path": "b.v", "type": "Verilog"} in sources
 
 
 def test_dependencies_merge_in_the_order_they_are_listed(tmp_path, remote):
@@ -823,7 +823,7 @@ def test_the_record_lists_every_entry_at_its_index(tmp_path, remote, toy):
         {"repository": None, "reference": None, "commit": None, "design_file": "lib/lib.yaml"},
     ]
     sources = {s.path: s.dependency for item in record.inputs for s in item.sources}
-    assert sources == {"top.v": None, "src/a.v": 0, "lib/b.v": None}
+    assert sources == {"top.v": None, "src/a.v": 0, "b.v": 1}
 
 
 def test_a_failed_fetch_names_the_entry_in_the_dependencies(tmp_path, remote):

@@ -971,9 +971,9 @@ class Source(FileResource):
     #: merges a dependency lists the dependency's generated sources with the owner set, and the
     #: execution copy names their files in the storage of that owner. None: the design's own.
     owner: str | None
-    #: The index of the Git dependency (`DependencyRecord`) whose checkout holds a written source,
-    #: and its path relative to that checkout. Both are None for any other source. The identity
-    #: of a run counts such a source by these two, since its place in the run root holds the
+    #: The index of the dependency (`DependencyRecord`) whose root holds a written source, and its
+    #: path relative to that root. Both are None for any other source. The identity of a run counts
+    #: such a source by these two, since the place of a Git checkout in the run root holds the
     #: commit.
     dependency: int | None
     dependency_place: str | None
@@ -2718,8 +2718,8 @@ class DependencyRecord:
 @dataclass(frozen=True)
 class MergedDependency:
     """A dependency of a design, as `Design.merged_with` takes it: the reference, the design that
-    it names (with the dependencies of that design merged), and, for a Git dependency, the index
-    of its `DependencyRecord` and its checkout (resolved)."""
+    it names (with the dependencies of that design merged), the index of its entry, and its root
+    (the resolved checkout of a Git dependency, the design root of a local one)."""
 
     reference: DesignReference
     design: Design
@@ -2728,7 +2728,7 @@ class MergedDependency:
 
     def placed(self, source: Source) -> Source:
         """Return `source`, a source of the design of this dependency, as the merged design lists
-        it: a written file in the checkout of a Git dependency is counted by its place there."""
+        it: a written file in the root of the dependency is counted by its place there."""
         if (
             self.index is None
             or self.checkout is None
@@ -3312,18 +3312,15 @@ class Design(XedaBaseModel):
     def merged_with(
         self,
         merged: Sequence[MergedDependency],
-        remaining: Sequence[DesignReference] = (),
         resolved: Sequence[DependencyRecord] = (),
     ) -> Design:
         """Return this design with the designs of `merged`, its dependencies, merged in.
 
         The result lists the sources, top module, parameters and clocks of the dependencies, and
-        keeps the dependencies that have generators as units of generation. `remaining` are the
-        references that stay to be merged later (a Git dependency before its fetch), and
-        `resolved` the Git dependencies that the sources of the result come from, in the order of
-        their index (`Source.dependency`). A record that kept merged dependencies as well would
-        merge them again when it is read back (a `settings.json`, the package of a remote run) and
-        duplicate sources. The sources of the result are checked as a design's own are: a file
+        keeps the dependencies that have generators as units of generation. `resolved` lists the
+        dependencies, at their indexes (`Source.dependency`). The result has no `dependencies`: a
+        record that kept them as well would merge them again when it is read back (a
+        `settings.json`) and duplicate sources. The sources of the result are checked as a design's own are: a file
         that the design and a dependency both list is listed once.
 
         This design is not changed. `DesignValidationError` says what is wrong."""
@@ -3409,7 +3406,7 @@ class Design(XedaBaseModel):
             update={
                 "rtl": checked_rtl,
                 "tb": checked_tb,
-                "dependencies": tuple(remaining),
+                "dependencies": (),
                 "generation_units": tuple(units.values()),
                 "resolved_dependencies": tuple(resolved),
             }
@@ -3515,9 +3512,7 @@ class Design(XedaBaseModel):
             cls = model_with_allow_extra(cls)
         try:
             recorded_target = None
-            units: tuple[Design, ...] = ()
             if packaged:
-                units = cls._packaged_units(design_dict, design_file.parent)
                 recorded_target = design_dict.pop("target", None)
                 problem = None if recorded_target is None else target_name_problem(recorded_target)
                 if problem:
@@ -3550,8 +3545,6 @@ class Design(XedaBaseModel):
                 design_root = dr
             if design_root is None:
                 design_root = design_file.parent
-            if units:
-                design_dict["generation_units"] = units
             design = cls(design_root=design_root, **design_dict)
             design._source_file = design_file.absolute()
             return design
@@ -3566,39 +3559,6 @@ class Design(XedaBaseModel):
         except Exception as e:
             log.error("Error processing design file: %s", absolute_file)
             raise e
-
-    @classmethod
-    def _packaged_units(cls, document: dict[str, Any], base: Path) -> tuple[Design, ...]:
-        """Take the dependencies whose generators the host runs out of a packaged `document`, and
-        build them, each with its root below `base`; dependencies come first.
-
-        A source that a dependency's generator writes is `{path, type, generated_by: <index>}` in
-        a document of the design or of a later unit: the index is that of the unit. It becomes a
-        declaration owned by that unit."""
-        built: list[Design] = []
-
-        def owned(rtl: dict[str, Any]) -> None:
-            rtl["sources"] = [
-                (
-                    Source.declaration(
-                        entry["path"],
-                        source_type_named(entry["type"]),
-                        owner=built[entry["generated_by"]].generation_label,
-                    )
-                    if isinstance(entry, dict) and "generated_by" in entry
-                    else entry
-                )
-                for entry in rtl.get("sources", [])
-            ]
-
-        for unit in document.pop("generation_units", []):
-            unit = dict(unit)
-            root = base / unit.pop("design_root")
-            owned(unit["rtl"])
-            built.append(cls(design_root=root, **unit))
-        if built:
-            owned(document["rtl"])
-        return tuple(built)
 
     @classmethod
     def expanded(cls, data: Mapping[str, Any]) -> dict[str, Any]:
@@ -3834,9 +3794,17 @@ class Design(XedaBaseModel):
             # A generated file: where it sits in the output of its producer.
             fingerprint["generated"] = source.output_name
         else:
-            fingerprint["path"] = self.source_place(source)
-            if source.dependency is not None:
-                fingerprint["dependency"] = source.dependency
+            index = source.dependency
+            if index is not None and self.resolved_dependencies[index].checkout is not None:
+                # A file in a Git checkout: its place in the run root holds the commit, so the
+                # fingerprint counts its path in the checkout.
+                fingerprint["path"] = self.source_place(source)
+                fingerprint["dependency"] = index
+            else:
+                known = path_identity(source.file, "source")
+                fingerprint["path"] = (
+                    known if known is not None else root_relative_text(self.root_path, source.file)
+                )
         return fingerprint
 
     def source_place(self, source: Source) -> str:
@@ -3846,16 +3814,18 @@ class Design(XedaBaseModel):
         A remote launch moves the sources outside the design root. Then the host counts the
         place as the client does (`path_identity`, role `source`). A generated source has no path
         from the design root: its place is its name in the output of its producer (the name or
-        pattern that a design file declares). A file of a Git dependency has its path in the
-        checkout of the dependency (`Source.dependency_place`): the place of the checkout in the
-        run root holds the commit, which the identity of a run does not count."""
+        pattern that a design file declares). A file of a dependency has its path in the root of the
+        dependency (`Source.dependency_place`): the place of a Git checkout in the run root holds
+        the commit, which the identity of a run does not count."""
         if source.generated:
             assert source.output_name is not None
             return source.output_name
+        known = path_identity(source.file, "source")
+        if known is not None:
+            return known
         if source.dependency_place is not None:
             return source.dependency_place
-        known = path_identity(source.file, "source")
-        return known if known is not None else root_relative_text(self.root_path, source.file)
+        return root_relative_text(self.root_path, source.file)
 
     @property
     def rtl_hash(self) -> str:

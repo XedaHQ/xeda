@@ -82,7 +82,11 @@ These limits apply to every remote run:
 * A design generator runs on the host, into a storage under the run root of the host. Xeda sends
   the recipe and the files and directories that it declares in its ``sources``. A generator that
   declares none, or one whose input lies outside its design root, is refused (see
-  :ref:`generators`).
+  :ref:`generators`). The generator of a dependency travels the same way.
+* The dependencies of the design (see :ref:`git-dependencies`) keep their order. The host merges
+  them once, as Xeda does on your machine, so both plans have the same indexes and the same
+  hashes. A Git dependency travels as its reference, and the host fetches it into its own run
+  root. A local dependency travels as a design document and the files it declares.
 
 The first run
 =============

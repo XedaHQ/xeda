@@ -39,9 +39,8 @@ def _world(tmp_path: Path, **options) -> World:
 
 
 def _document(tmp_path: Path, design: Design) -> dict:
-    # The design as a remote request packages it: local dependencies merged, Git ones as references.
     package = package_inputs(
-        merged_design(design, run_root=None, git=False),
+        design,
         {},
         {"vivado_synth"},
         run_root=tmp_path / "run_root",
@@ -183,14 +182,17 @@ def _world_with_a_dependency(tmp_path: Path) -> World:
 
 def test_the_package_says_what_is_written_and_what_is_generated(tmp_path):
     world = _world_with_a_dependency(tmp_path)
-    design = merged_design(world.load(), run_root=None, git=False)
+    design = merged_design(world.load(), run_root=None)
     assert [s.generated for s in design.rtl.sources] == [False, True]
-    document, package = _document(tmp_path, design)
-    assert document["rtl"]["sources"] == [
-        {"file": "dep/lib.v", "type": "Verilog"},
-        {"path": "gen/top.v", "type": "Verilog"},
-    ]
-    assert "dep/lib.v" in package.files
+    document, package = _document(tmp_path, world.load())
+    # the design as it was given: its own source is a declaration, and the dependency is a
+    # design document of its own with the file it declares
+    assert document["rtl"]["sources"] == [{"path": "gen/top.v", "type": "Verilog"}]
+    (entry,) = document["dependencies"]
+    assert entry["uri"] == "_dependencies/0/dep.xeda.json"
+    dependency = json.loads(package.generated[entry["uri"]])
+    assert dependency["rtl"]["sources"] == [{"file": "lib.v", "type": "Verilog"}]
+    assert "_dependencies/0/lib.v" in package.files
 
 
 def test_a_written_source_of_a_dependency_travels_beside_a_generated_one(tmp_path, remote_host):
@@ -216,28 +218,30 @@ def _chain_document(tmp_path: Path, chain) -> tuple[dict, object]:
     return _document(tmp_path, chain.load())
 
 
-def test_the_package_carries_each_unit_with_its_recipe_and_inputs(tmp_path):
+def test_the_package_carries_each_dependency_with_its_recipe_and_inputs(tmp_path):
     chain = _chain(tmp_path)
     document, package = _chain_document(tmp_path, chain)
-    units = document["generation_units"]
-    assert [u["name"] for u in units] == ["lib2", "lib1"]
-    assert [u["design_root"] for u in units] == ["_units/0", "_units/1"]
-    assert all(u["rtl"]["generator"]["sources"] == ["gen.py", "spec.txt"] for u in units)
+    assert "generation_units" not in document
     assert sorted(package.files) == sorted(
-        ["top.v", *(f"_units/{i}/{name}" for i in (0, 1) for name in ("gen.py", "spec.txt"))]
+        [
+            "top.v",
+            *(
+                f"{base}/{name}"
+                for base in ("_dependencies/0", "_dependencies/1")
+                for name in ("gen.py", "spec.txt")
+            ),
+        ]
     )
-    # the design lists the generated sources of its dependencies, each with its unit
-    sources = document["rtl"]["sources"]
-    assert {(e["path"], e.get("generated_by")) for e in sources if "path" in e} == {
-        ("gen/lib1.v", 1),
-        ("gen/lib2.v", 0),
-    }
-    assert {"file": "top.v", "type": "Verilog"} in sources
-    assert units[1]["rtl"]["sources"] == [
-        {"path": "gen/lib2.v", "type": "Verilog", "generated_by": 0},
-        {"path": "gen/lib1.v", "type": "Verilog"},
-    ]
-    assert units[0]["rtl"]["sources"] == [{"path": "gen/lib2.v", "type": "Verilog"}]
+    (entry,) = document["dependencies"]
+    lib1 = json.loads(package.generated[entry["uri"]])
+    assert lib1["name"] == "lib1"
+    assert lib1["rtl"]["generator"]["sources"] == ["gen.py", "spec.txt"]
+    assert lib1["rtl"]["sources"] == [{"path": "gen/lib1.v", "type": "Verilog"}]
+    (nested,) = lib1["dependencies"]
+    lib2 = json.loads(package.generated[os.path.normpath(f"_dependencies/0/{nested['uri']}")])
+    assert lib2["name"] == "lib2"
+    assert lib2["rtl"]["generator"]["sources"] == ["gen.py", "spec.txt"]
+    assert {"file": "top.v", "type": "Verilog"} in document["rtl"]["sources"]
 
 
 def test_a_dependency_generator_without_sources_cannot_be_sent(tmp_path):
@@ -300,7 +304,14 @@ def test_two_dependency_designs_in_one_directory_are_two_units_on_the_host(tmp_p
     )
     design_file.write_text(text)
     document, package = _document(tmp_path, Design.from_file(design_file))
-    assert [u["name"] for u in document["generation_units"]] == ["a", "b"]
+    assert [e["uri"] for e in document["dependencies"]] == [
+        "_dependencies/0/a.xeda.json",
+        "_dependencies/0/b.xeda.json",
+    ], "two designs in one directory share one root on the host"
+    assert [json.loads(package.generated[e["uri"]])["name"] for e in document["dependencies"]] == [
+        "a",
+        "b",
+    ]
     outcome = remote_request(tmp_path, design_file, "vivado_synth", flow_settings=SETTINGS)
     if outcome.error is not None:
         raise outcome.error
@@ -351,14 +362,15 @@ def test_a_unit_carries_its_whole_configuration_to_the_host(tmp_path, remote_hos
     from xeda.flow_runner.launch_generation import generating_units, generation_key
 
     design_file = _rich_dependency(tmp_path)
-    design = Design.from_file(design_file)
-    document, package = _document(tmp_path, design)
-    unit = document["generation_units"][0]
+    design = merged_design(Design.from_file(design_file), run_root=None)
+    document, package = _document(tmp_path, Design.from_file(design_file))
+    assert "generation_units" not in document
+    unit = json.loads(package.generated[document["dependencies"][0]["uri"]])
     assert unit["rtl"]["parameters"] == {"W": 1} and unit["rtl"]["defines"] == {"FAST": 1}
     assert unit["rtl"]["clocks"] == [{"port": "clk", "name": "clk"}]
     assert unit["rtl"]["sources"][0] == {"file": "extra.v", "type": "Verilog"}
     assert unit["language"]["vhdl"]["standard"] == "08"
-    assert "_units/0/extra.v" in package.files
+    assert "_dependencies/0/extra.v" in package.files
 
     outcome = remote_request(tmp_path, design_file, "vivado_synth", flow_settings=SETTINGS)
     if outcome.error is not None:

@@ -845,8 +845,8 @@ storage is complete or absent. Two launches that need one commit fetch it once.
   their path in its checkout. Another commit makes the runs that used the dependency stale: the
   reason is ``dependency <repository> now at <commit>``. The record of a run lists every entry of
   ``dependencies`` at its position (``repository``, ``reference``, ``commit`` and ``design_file``;
-  a local entry has a ``design_file`` only), and a source from a Git dependency names the entry it
-  came from.
+  a local entry has a ``design_file`` only), and a written source from a dependency names the
+  entry it came from.
 
 Xeda never removes dependency storage. It is a cache of fixed content. You can delete
 ``<run root>/.dependencies/`` by hand while no launch runs. The keys ``clone_dir`` and

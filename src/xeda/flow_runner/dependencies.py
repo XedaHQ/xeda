@@ -334,7 +334,6 @@ def _git_design(ref: GitReference, storage: Path, field: str) -> Design:
 def _merge(
     design: Design,
     run_root: Path | None,
-    git: bool,
     slots: list[DependencyRecord | None],
     first: int | None,
 ) -> Design:
@@ -344,17 +343,13 @@ def _merge(
     started from take the slots `0..n-1` at their positions (`first` is `None`). The entries of
     a dependency come after, in the order they are met (`first` is `len(slots)` then)."""
     merged: list[MergedDependency] = []
-    remaining: list[DesignReference] = []
     for position, ref in enumerate(design.dependencies):
         field = f"dependencies[{position}]"
         index = position if first is None else len(slots)
         if first is not None:
             slots.append(None)
         if isinstance(ref, GitReference):
-            if not git:
-                remaining.append(ref)
-                continue
-            assert run_root is not None
+            assert run_root is not None, "a Git dependency is fetched into a run root"
             commit = resolve_reference(ref, run_root=run_root, field=field)
             storage = fetch(ref, commit, run_root=run_root, field=field)
             loaded = _git_design(ref, storage, field)
@@ -366,15 +361,15 @@ def _merge(
         else:
             loaded = _local_design(design, ref, field)
             slots[index] = DependencyRecord(None, None, None, str(ref.uri), None)
-            marked = (None, None)
-        loaded = _merge(loaded, run_root, git, slots, len(slots))
-        remaining.extend(loaded.dependencies)
+            # its written files count by their path in its own root
+            marked = (index, loaded.root_path)
+        loaded = _merge(loaded, run_root, slots, len(slots))
         merged.append(MergedDependency(ref, loaded, *marked))
     resolved = tuple(slot for slot in slots if slot is not None) if first is None else ()
-    return design.merged_with(merged, remaining, resolved if git else ())
+    return design.merged_with(merged, resolved)
 
 
-def merged_design(design: Design, *, run_root: Path | None, git: bool = True) -> Design:
+def merged_design(design: Design, *, run_root: Path | None) -> Design:
     """Return `design` with the sources and the metadata of its dependencies merged in.
 
     The entries of `design.dependencies` merge in the order they are listed. A local dependency
@@ -387,10 +382,8 @@ def merged_design(design: Design, *, run_root: Path | None, git: bool = True) ->
     `design.dependencies`. The sources of a Git dependency carry that index. The entries of a
     dependency come after those of the design.
 
-    With `git=False` the Git dependencies are left as references: nothing is fetched, `run_root`
-    can be `None`, and the result lists no resolved dependency. A remote request uses it to
-    package the design, since the host fetches. `design` itself does not change, and a design
-    without dependencies is returned as it is."""
+    `run_root` can be `None` for a design that has no Git dependency. `design` itself does not
+    change, and a design without dependencies is returned as it is."""
     if not design.dependencies:
         return design
-    return _merge(design, run_root, git, [None] * len(design.dependencies), None)
+    return _merge(design, run_root, [None] * len(design.dependencies), None)
