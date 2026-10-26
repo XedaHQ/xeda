@@ -117,6 +117,9 @@ def _jq_filter(text: str) -> str | None:
 
 JQ_PATH = re.compile(r"(?<![\w\]])((?:\.[A-Za-z_]\w*|\[-?\d*\])+)")
 JQ_STEP = re.compile(r"\.([A-Za-z_]\w*)|\[(-?\d*)\]")
+#: a key of an object that `jq` builds without a value, as `fmax` in `{fmax, luts: .lut}`: it
+#: stands for `.fmax`
+JQ_SHORTHAND = re.compile(r"[{,]\s*([A-Za-z_]\w*)\s*(?=[,}])")
 #: a path to a metric of the requested node: the metric names are the dotted keys that
 #: `xeda list-results` documents, and they nest in the record
 JQ_METRIC = re.compile(r"(\.nodes\[-1\]\.record\.metrics)((?:\.[A-Za-z_]\w*)+)")
@@ -151,11 +154,13 @@ def _missing_in(document: Any, path: str) -> str | None:
 
 def _jq_paths(filter_text: str) -> list[str]:
     """The paths of a `jq` filter, each from the root of the document. After a `|`, a path starts
-    at the value of the plain path before the pipe, as in `.a.b | {c: .c}`."""
+    at the value of the plain path before the pipe, as in `.a.b | {c: .c}`. A key of an object
+    without a value is a path too: `{fmax}` reads `.fmax`."""
     paths = []
     base = ""
     for segment in filter_text.split("|"):
         found = JQ_PATH.findall(segment)
+        found += ["." + key for key in JQ_SHORTHAND.findall(segment)]
         paths += [base + path if base else path for path in found]
         if len(found) == 1 and segment.strip() == found[0]:
             base = base + found[0]
@@ -257,3 +262,8 @@ def test_the_path_checker_reads_the_last_element_and_the_paths_after_a_pipe():
         ".nodes[-1].record.metrics.fmax",
     ]
     assert _jq_paths(".a, .b | .c") == [".a", ".b", ".c"]
+    assert _jq_paths(".nodes[-1].record.metrics | {fmax, luts: .lut}") == [
+        ".nodes[-1].record.metrics",
+        ".nodes[-1].record.metrics.lut",
+        ".nodes[-1].record.metrics.fmax",
+    ]
