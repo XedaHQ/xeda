@@ -335,6 +335,16 @@ def test_outputs_to_delivers_from_the_mirror(tmp_path, remote_host):
     assert _last(again)["deliveries"]
 
 
+def test_a_deliverable_location_is_refused_before_a_connection(tmp_path, remote_host):
+    """A deliverable setting with a location is a refusal of the request: no launch starts."""
+    design = _design(tmp_path)
+    outcome = _request(tmp_path, design, flow_settings=[f"textcfg={tmp_path / 'config.txt'}"])
+    assert outcome.exit_status == 2 and outcome.document["outcome"] is None
+    assert outcome.document["error"]["code"] == "delivery_refused"
+    assert "names a location" in outcome.document["error"]["message"]
+    assert not any("-M" in call for call in remote_host.remote.calls("ssh"))
+
+
 def test_outputs_to_is_checked_before_a_connection(tmp_path, remote_host):
     design = _design(tmp_path)
     run_root = tmp_path / "local" / "xeda_run"

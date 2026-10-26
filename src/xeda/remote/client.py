@@ -590,7 +590,8 @@ def _check_deliverables(prepared: PreparedRequest, design_name: str) -> None:
             raise DeliveryError(
                 f"`{key}` of {node.name} names a location ({path}): with --remote, leave it a "
                 "name in the run directory (or unset) and receive the outputs with "
-                "--outputs-to DIR"
+                "--outputs-to DIR",
+                before_run=True,
             )
     # The output names, checked as a local launch checks them.
     split_deliveries(plan.node(plan.requested).settings, design_name)
