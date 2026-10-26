@@ -132,7 +132,7 @@ output of the host. A login profile that prints text does no harm (up to 1 MiB b
 | `RemoteInterrupted` | Ctrl-C came after the launch had finished, while Xeda fetched or delivered. The results are on the host, or in the mirror if it came during `--outputs-to` (the delivered files can be incomplete): run the command again. |
 | `RemoteDetached` | A `--keep-running` launch keeps running; the document has `launch.id`. Use `xeda remote attach HOST ID` or `xeda remote cancel HOST ID` with the `--run-root` of the run (attach needs the record in `<run root>/@<host>/.launches/`). |
 | `RemoteFetchError` | A file did not come back whole, or a declared output is missing. Run the command again: the finished run is reused and only the fetch repeats. |
-| `RemoteConfigError` | `remotes.yaml` or one of its entries is invalid (the message names the host and field), or the `--remote` text is empty, starts with `-` or has a space, or the remote root has a character that cannot go in a command line (`"`, `\`, `$`, a backquote, `!`): set `root` in the profile to another path. |
+| `RemoteConfigError` | `remotes.yaml` or one of its entries is invalid (the message names the host and field), or the host text starts with `-` or has a space (or is empty, for `xeda remote check|attach|cancel`; an empty `--remote` of `xeda run` runs locally), or the remote root has a character that cannot go in a command line (`"`, `\`, `$`, a backquote, `!`): set `root` in the profile to another path. |
 | `RemoteProtocolError` | The agent on the host did not start or sent data that Xeda cannot read: the stream ended before the agent marker, or more than 1 MiB of text came before it. Ordinary login text is skipped. The message has the output of the host. |
 | `RemoteError` | A plain remote failure; the message says what to do: no `bash` on the host (install it), a programmer flow in the chain (`openfpgaloader`; run it locally with a binding to the fetched file), or native Windows (use WSL). |
 
@@ -254,6 +254,18 @@ PULLUP`.
   estimates from mapped primitives (`lut_use.logic`, `lut_use.ram`, `lut_use.srl`). Neither is
   certified comparable with Vivado's count: compare one toolchain with itself. `fabric` names the
   die whose `available` totals are shown (an `xc7a35t` is routed as an `xc7a50t`).
+- `yosys_fpga`'s 7-series `lut` is a footprint estimate, not a cell count: `LUT1`-`LUT6`,
+  `CFGLUT5` and `INV` count 1 each, `LUT6_2` counts 2, a shift register (`SRL16E`, `SRLC32E`) 1,
+  and a distributed RAM or ROM the LUTs its bits need (`RAM32M`/`RAM64M` 4; a ROM counts as logic).
+  So it differs from the sum of the `LUT<n>` entries of `cell_types`, which has the raw cell
+  counts. Vivado's `opt_design` can merge an `INV` into the LUT or the invertible pin that it
+  drives, so for a design with many `INV` cells the estimate is high.
+- For the estimate of a block that a larger design instantiates, add
+  `synth_flags: [-noiopad, -noclkbuf]` (Xilinx; `[-noiopad]` for ECP5 and Nexus): the synthesis
+  then puts no IO buffers (`IBUF`, `OBUF`) on the ports and no `BUFG` on the clock.
+- No Yosys FPGA flow reports a delay. `sta: true` writes `reports/timing.rpt` (yosys `ltp` and
+  `sta`), but the cell models of 7-series have no timing arcs for flip-flops and carry chains, so
+  its number is no usable delay. `nextpnr` reports `fmax` after placement and routing.
 - `nextpnr` parses timing and utilization from the JSON report named by its `report` setting. Its
   `lut`, `ff`, `bram`, `dsp` and `io` are given for ECP5 and Xilinx 7-series; other families get
   the bel-type counts in `cell_types` (`ICESTORM_LC`, `OXIDE_COMB`) plus timing.

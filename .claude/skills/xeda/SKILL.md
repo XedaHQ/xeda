@@ -131,6 +131,12 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   Put the design before `-s`, or end the options with `--`.
 - A dotted key reaches a nested setting. `-s flows.<flow>.<key>=<value>` sets any flow of the run (a
   producer too); `-s <key>` and `-s flows.<requested>.<key>` are one setting.
+- Sections for flows outside the run differ by layer. A file (design, target, project) may keep a
+  `flows.<flow>` for any flow: it is ignored, with the INFO line `<flow> is not part of this run:
+  its settings are unused` for a default producer that a source or binding displaced and no line for
+  other flows. `-s flows.<flow>.*` must name the requested flow or one of its default producers,
+  else `unknown_flow`. A converter counts as a default producer (`bsc` for any flow that reads
+  Verilog), so `-s flows.bsc.<key>` passes a run of a SystemVerilog design, checked but unused.
 - A setting of a settings group has a dotted name, such as `abc.strategy` or
   `sequential.clock_gating.enabled` for `yosys`. Its `tier` (`common`, `advanced` or
   `expert`) says how often a user needs it; it affects the listing, never what Xeda
@@ -396,7 +402,10 @@ root `${XDG_CACHE_HOME:-~/.cache}/xeda/v1`, without administrator rights.
 Access:
 
 - `HOST` is an OpenSSH destination: an alias of `~/.ssh/config`, `user@host` or
-  `ssh://user@host:port`. Text that is empty, starts with `-` or has a space is `RemoteConfigError`.
+  `ssh://user@host:port`. Text that starts with `-` or has a space is `RemoteConfigError`.
+- `xeda run` with `--remote ''`, or with `XEDA_REMOTE` unset or empty, runs locally. A program that
+  must run locally, whatever the environment, runs `env -u XEDA_REMOTE xeda run ...`. An empty
+  `HOST` of `xeda remote check|attach|cancel` is `RemoteConfigError`.
 - The local client must be OpenSSH `ssh` (Xeda uses `ssh -G`, ControlMaster, `ssh -O check|exit`)
   on Linux or macOS. Native Windows is refused (use WSL). The local Python must be CPython.
 - Authentication is the user's `ssh` configuration: keys, agent, `ProxyJump`, certificates. Xeda

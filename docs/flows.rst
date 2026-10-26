@@ -122,7 +122,12 @@ refuses its removed settings. Each error names the setting to use, or says why t
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its producers. When ``nextpnr`` is the requested flow, ``-s flows.nextpnr.seed=2`` and
 ``-s seed=2`` are the same setting, and giving both different values is an error. A flow that is
-not part of the run is an error too, with a list of close matches.
+not part of the run is an error too, with a list of close matches. ``-s`` can also name a default
+producer of the requested flow that a source or a binding of the design displaces, and a converter
+that could feed it. Xeda checks those settings and then does not use them: it logs ``<flow> is not
+part of this run: its settings are unused``. So ``-s flows.bsc.<key>`` is accepted in a run of a
+design that has no Bluespec source. A design, target or project file can keep a ``flows.<flow>``
+section for any flow, and Xeda ignores the sections of the flows that do not run.
 
 A ``flows`` table maps flow names to mappings of settings, wherever it is written: in a design
 file, a target, a project file, on the command line or through the API. ``flows`` is a mapping,
@@ -1275,7 +1280,12 @@ generator keeps its raw name alone. A run that misses its timing constraint fail
 site and one of A-D) that the placement occupies. A location whose two outputs are both used counts
 once, and LUTs used as distributed RAM or shift registers are included. ``yosys_fpga`` estimates it
 from the mapped primitives (``lut_use.logic``, ``lut_use.ram``, ``lut_use.srl``) before packing.
-The two numbers differ for one design, and neither is certified comparable with the utilization
+The estimate counts the LUTs that each primitive takes, not the cells. ``LUT1`` to ``LUT6``,
+``CFGLUT5`` and ``INV`` count one each, and ``LUT6_2`` counts two. A shift register counts one. A
+distributed RAM or ROM counts the LUTs that its bits need, for example four for ``RAM64M``. So
+``lut`` is not the sum of the ``LUT1`` to ``LUT6`` entries of ``cell_types``, which holds the
+number of cells of each type. Vivado can merge an ``INV`` into the LUT or the invertible pin that it
+drives, so for a design with many ``INV`` cells the estimate is high. The two numbers differ for one design, and neither is certified comparable with the utilization
 report of Vivado. Compare a design against itself across settings or seeds with one toolchain, and
 not across toolchains. The same holds for ``fmax``: the timing model of nextpnr is not the model of
 Vivado (see :ref:`flow-results`).
@@ -1629,7 +1639,10 @@ When these sources include a SystemVerilog source and ``systemverilog`` is ``sla
 ``read_slang`` reads all their Verilog and SystemVerilog sources together, in design order, as
 OpenROAD-flow-scripts does. The sources are then one compilation. A module or a package that one
 file declares is known in all the others. ``read_systemverilog_flags`` apply to that command, and
-``read_verilog_flags`` do not apply to the Verilog sources it reads. The ``yosys_sim`` flow reads
+``read_verilog_flags`` do not apply to the Verilog sources it reads. The command always has
+``--extern-modules`` and ``--best-effort-hierarchy``. Xeda refuses these two flags in
+``read_systemverilog_flags``, and also the flags that the script sets itself (``--top``, ``-D``,
+``-I``, ``-G`` and ``--blackboxed-module``). The ``yosys_sim`` flow reads
 SystemVerilog with the built-in reader unless ``systemverilog`` says otherwise.
 
 When ``read_slang`` reads the design and its top module is not VHDL, the command also sets the
