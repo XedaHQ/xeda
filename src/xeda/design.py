@@ -441,10 +441,12 @@ class FileResource:
     _specified_path: Path
     _checked: bool
     #: The entry of a design file that named this file, as written: a name or a pattern
-    #: (`src/*.v`). `entry_root` is the directory it resolves against. A generated source
-    #: belongs to the output of a producer, so it has neither (None).
-    entry: str | None
-    entry_root: Path | None
+    #: (`src/*.v`). `_entry_root` is the directory it resolves against. A generated source
+    #: belongs to the output of a producer, so it has neither (None). They are private: they
+    #: are no part of the equality, the hash, the JSON value or any identity of a source, and
+    #: `Design.source_entries` is the only reader.
+    _entry: str | None
+    _entry_root: Path | None
 
     def __setattr__(self, name: str, value: Any) -> None:
         raise AttributeError(f"a {type(self).__name__} is read-only: cannot set `{name}`")
@@ -458,7 +460,7 @@ class FileResource:
         _root_path: Optional[Path] = None,
         resolve=True,
         *,
-        entry: str | None = None,
+        _entry: str | None = None,
     ) -> None:
         """Create a resource for a file of the design.
 
@@ -502,8 +504,8 @@ class FileResource:
         #: True for a file that must exist (`file`), false for one that need not exist yet (`path`).
         attributes["_checked"] = bool(resolve)
         # The entry that named the file: the pattern that matched it, else the path as written.
-        attributes["entry"] = entry if entry is not None else str(specified_path)
-        attributes["entry_root"] = root
+        attributes["_entry"] = _entry if _entry is not None else str(specified_path)
+        attributes["_entry_root"] = root
 
     @property
     def path(self) -> Path:
@@ -1039,7 +1041,7 @@ class Source(FileResource):
         attributes["dependency"] = None
         attributes["dependency_place"] = None
         if generated:
-            attributes["entry"] = attributes["entry_root"] = None
+            attributes["_entry"] = attributes["_entry_root"] = None
 
     @classmethod
     def declaration(
@@ -1055,8 +1057,8 @@ class Source(FileResource):
         attributes["file"] = None
         attributes["_specified_path"] = Path(name)
         attributes["_checked"] = False
-        attributes["entry"] = None
-        attributes["entry_root"] = None
+        attributes["_entry"] = None
+        attributes["_entry_root"] = None
         attributes["type"] = typ
         attributes["_stated"] = {"type": str(typ)} if stated else {}
         attributes["generated"] = True
@@ -1533,7 +1535,7 @@ class DesignPart(XedaBaseModel):
                 src_type = None
                 if _is_source_pattern(src):
                     glob_sources = _expand_source_glob(src, design_relative_root())
-                    srcs = [Source(s, typ=src_type, entry=src) for s in glob_sources]
+                    srcs = [Source(s, typ=src_type, _entry=src) for s in glob_sources]
                     sources.extend(s for s in srcs if not source_already_exists(s))
                     continue  # skip the append at the bottom
                 src = src_with_type(src, src_type)
@@ -3806,8 +3808,8 @@ class Design(XedaBaseModel):
         found: dict[tuple[str, str, Path], None] = {}
         for part in _DESIGN_PART_ORDER:
             for source in getattr(self, part).sources:
-                if source.entry is not None and source.entry_root is not None:
-                    found[(f"{part}.sources", source.entry, source.entry_root)] = None
+                if source._entry is not None and source._entry_root is not None:
+                    found[(f"{part}.sources", source._entry, source._entry_root)] = None
         for unit in (*self.generation_units, self):
             recipe = unit.rtl.generator
             if recipe is None:

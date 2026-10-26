@@ -215,3 +215,32 @@ def test_outputs_to_of_a_launch_is_judged_by_the_same_rule(tmp_path, deliverer):
     with pytest.raises(DeliveryError, match=r"`outputs/\*.v` entry of `rtl.sources`"):
         runner.launch_flow(deliverer, design, {"netlist": "outputs/d.v"})
     assert not (design.root_path / "outputs" / "d.v").exists()
+
+
+# ---------------------------------------------------------------- the entry is no identity
+
+
+def test_the_entry_of_a_source_is_private_and_no_part_of_its_identity(tmp_path):
+    """One file listed by name and through a pattern is one source: equal, equal in hash and in
+    JSON value, and the designs have one configuration and one node identity."""
+    from xeda.flow_runner.configuration import design_configuration_hash
+
+    from .generation_world import reader_flow
+
+    root = tmp_path / "design"
+    _tree(root)
+    by_name = Design(name="d", design_root=root, rtl={"sources": ["src/a.v"], "top": "a"})
+    by_pattern = Design(name="d", design_root=root, rtl={"sources": ["src/*.v"], "top": "a"})
+    (named,), (matched,) = by_name.rtl.sources, by_pattern.rtl.sources
+    assert named == matched and hash(named) == hash(matched)
+    assert named.as_json_value() == matched.as_json_value()
+    assert not hasattr(named, "entry") and not hasattr(named, "entry_root")
+    assert design_configuration_hash(by_name) == design_configuration_hash(by_pattern)
+    assert by_name.source_entries() != by_pattern.source_entries(), "only the reader sees them"
+    with preserved_flow_registry():
+        flow = reader_flow()
+        hashes = [
+            {n.name: n.flowrun_hash for n in DefaultRunner(tmp_path / "run").plan(flow, d).nodes}
+            for d in (by_name, by_pattern)
+        ]
+    assert hashes[0] == hashes[1]
