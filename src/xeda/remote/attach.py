@@ -33,7 +33,7 @@ from .client import (
 from .environment import code_snapshot, dependency_spec
 from .errors import RemoteCanceled, RemoteError, RemoteInterrupted, RemoteProtocolError
 from .launch_record import LaunchRecord, read_record
-from .profile import load_host_profile
+from .profile import HostProfile
 from .ssh import SshSession, resolve_destination
 
 log = logging.getLogger(__name__)
@@ -55,11 +55,14 @@ def attach_launch(
     *,
     run_root: Path,
     ssh_options: Sequence[str] = (),
+    profile: HostProfile | None = None,
 ) -> RemoteOutcome:
-    """Follow a launch on `host` and fetch its result. Return the outcome as `run_remote` does."""
+    """Follow a launch on `host` and fetch its result. Return the outcome as `run_remote` does.
+
+    `profile` is the profile of the host, the default profile without it."""
     run = _Run(chain="", flow="", design=None, target=None, host=host, debug=False)
     try:
-        return _attach(run, host, launch_id, run_root, ssh_options)
+        return _attach(run, host, launch_id, run_root, ssh_options, profile or HostProfile())
     except Exception as error:  # pylint: disable=broad-except
         return _failed(run, error)
     except KeyboardInterrupt:
@@ -78,10 +81,14 @@ def attach_launch(
 
 
 def _attach(
-    run: _Run, host: str, launch_id: Optional[str], run_root: Path, ssh_options: Sequence[str]
+    run: _Run,
+    host: str,
+    launch_id: Optional[str],
+    run_root: Path,
+    ssh_options: Sequence[str],
+    profile: HostProfile,
 ) -> RemoteOutcome:
     _check_platform()
-    profile = load_host_profile(host)
     destination = resolve_destination(host, ssh_options)
     local_root = _local_run_root(run_root)
     mirror_root = local_root / f"@{destination.label()}"
@@ -187,10 +194,13 @@ def cancel_launch(
     *,
     run_root: Path,
     ssh_options: Sequence[str] = (),
+    profile: HostProfile | None = None,
 ) -> Dict[str, Any]:
-    """Cancel a running launch on `host`. Return the document of `xeda remote cancel`."""
+    """Cancel a running launch on `host`. Return the document of `xeda remote cancel`.
+
+    `profile` is the profile of the host, the default profile without it."""
     _check_platform()
-    profile = load_host_profile(host)
+    profile = profile or HostProfile()
     destination = resolve_destination(host, ssh_options)
     key = workspace_key(_local_run_root(run_root), destination)
     log.info("Connecting to %s...", host)

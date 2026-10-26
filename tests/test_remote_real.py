@@ -34,11 +34,10 @@ from click.testing import CliRunner
 from xeda.cli import cli
 from xeda.remote.constants import UV_VERSION
 from xeda.remote.errors import RemoteCanceled
-from xeda.remote.profile import load_host_profile
 from xeda.remote.provision import env_file_text
 from xeda.remote.ssh import SshSession
 
-from .remote_fixtures import remote_request
+from .remote_fixtures import host_profile_of, remote_request
 from .test_proc_utils import DEFAULT_SIGINT
 from .test_remote_client import TIMEOUT, Program
 
@@ -117,7 +116,7 @@ def own_token(host_reachable) -> Iterator[str]:
 def use_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, token: str) -> None:
     """Make the profile of the host (the entry the user has, if any) use the remote root of
     `token`. The user-level directories of this machine are below `tmp_path`."""
-    entry = load_host_profile(HOST).model_dump(mode="json", exclude_defaults=True)
+    entry = host_profile_of(HOST).model_dump(mode="json", exclude_defaults=True)
     entry["root"] = f"~/{ROOT_PREFIX}{token}"
     config = tmp_path / "config"
     (config / "xeda").mkdir(parents=True)
@@ -145,7 +144,7 @@ def ssh_with_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def require_ghdl() -> None:
     """Skip unless `ghdl` runs on the host as a launch would start it: in the login shell, with
     the `env` table and after the `setup` lines of the host profile."""
-    profile = load_host_profile(HOST)
+    profile = host_profile_of(HOST)
     setup = "".join(f"{line}\n" for line in profile.setup)
     found = remote(f"{env_file_text(profile.env)}{setup}ghdl --version")
     if found.returncode != 0:

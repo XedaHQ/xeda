@@ -33,7 +33,14 @@ from xeda.remote.frames import CANCEL
 from xeda.remote.errors import RemoteCanceled, RemoteDetached, RemoteError
 from xeda.remote.ssh import SshSession
 
-from .remote_fixtures import RemoteHost, fake_remote, fake_ssh, remote_host, remote_request
+from .remote_fixtures import (
+    RemoteHost,
+    fake_remote,
+    fake_ssh,
+    host_profile_of,
+    remote_host,
+    remote_request,
+)
 from .test_remote_agent import (
     DESIGN,
     USE_LOCK,
@@ -252,7 +259,12 @@ def _keep_running(tmp_path: Path, design: Path, **overrides: Any):
 
 
 def _attach(tmp_path: Path, launch_id: Optional[str] = None):
-    return attach_launch("somewhere", launch_id, run_root=tmp_path / "local" / "xeda_run")
+    return attach_launch(
+        "somewhere",
+        launch_id,
+        run_root=tmp_path / "local" / "xeda_run",
+        profile=host_profile_of("somewhere"),
+    )
 
 
 def _cut_while_running(
@@ -870,7 +882,12 @@ def test_cancel_stops_the_launch_and_its_descendants(tmp_path, remote_host, monk
     launch = psutil.Process(_launch_state(directory)["pid"])
     assert tool in [child.pid for child in launch.children(recursive=True)]
 
-    document = cancel_launch("somewhere", None, run_root=tmp_path / "local" / "xeda_run")
+    document = cancel_launch(
+        "somewhere",
+        None,
+        run_root=tmp_path / "local" / "xeda_run",
+        profile=host_profile_of("somewhere"),
+    )
 
     assert document == {
         "success": True,
@@ -892,7 +909,12 @@ def test_cancel_reaches_a_session_that_still_follows(tmp_path, remote_host, clea
     thread, following = _run_in_thread(lambda: _keep_running(tmp_path, _design(tmp_path)))
     tool = gate.pid()
     cleanup.append(tool)
-    document = cancel_launch("somewhere", None, run_root=tmp_path / "local" / "xeda_run")
+    document = cancel_launch(
+        "somewhere",
+        None,
+        run_root=tmp_path / "local" / "xeda_run",
+        profile=host_profile_of("somewhere"),
+    )
     assert document["success"] is True
     thread.join(TIMEOUT)
     outcome = following.get(timeout=TIMEOUT)

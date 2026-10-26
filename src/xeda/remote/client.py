@@ -120,7 +120,7 @@ from .packaging import (
     refuse_unsendable_declared,
     refuse_unsendable_generator,
 )
-from .profile import HostProfile, load_host_profile
+from .profile import HostProfile
 from .provision import Probe, Provisioned, agent_command, ensure_environment, probe
 from .ssh import Destination, SshSession, resolve_destination
 
@@ -644,9 +644,9 @@ def _plan(
     overwrite_outputs: bool,
     confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
     ssh_options: Sequence[str],
+    profile: HostProfile,
 ) -> _Prepared:
     """Step 1: the checks that need no connection."""
-    profile = load_host_profile(destination_text)
     destination = resolve_destination(destination_text, ssh_options)
     run.mirror_root = local_root / f"@{destination.label()}"
     launcher = DefaultRunner(
@@ -1280,10 +1280,12 @@ def run_remote(
     detailed_logs: bool,
     ssh_options: Sequence[str] = (),
     keep_running: bool = False,
+    profile: HostProfile | None = None,
 ) -> RemoteOutcome:
     """Run the request `chain` on the host `destination_text` and return its outcome.
 
-    The arguments are those of the command `xeda run`. The outcome holds the document that
+    The arguments are those of the command `xeda run`. `profile` is the profile of the host (the
+    default profile without it): this function reads no file. The outcome holds the document that
     `--json` prints. A failure of any step is an outcome too, with `success` false, the exception
     in `error` and a failure document that names it. Ctrl-C during the launch is an outcome with
     the error `RemoteCanceled`. Ctrl-C while this side loads the design or plans the request is
@@ -1323,6 +1325,7 @@ def run_remote(
             detailed_logs=detailed_logs,
             ssh_options=ssh_options,
             keep_running=keep_running,
+            profile=profile or HostProfile(),
         )
     except Exception as error:  # pylint: disable=broad-except
         return _failed(run, error)
@@ -1473,6 +1476,7 @@ def _run(
     log_level: int,
     detailed_logs: bool,
     ssh_options: Sequence[str],
+    profile: HostProfile,
     keep_running: bool = False,
 ) -> RemoteOutcome:
     if _is_windows():
@@ -1498,6 +1502,7 @@ def _run(
             overwrite_outputs=overwrite_outputs,
             confirm_overwrite=confirm_overwrite,
             ssh_options=ssh_options,
+            profile=profile,
         )
     except KeyboardInterrupt:
         raise _CanceledBeforeStart(_CANCELED_BEFORE_START) from None

@@ -1173,6 +1173,7 @@ def run(
                 ctx=ctx,
             )
         from .remote import client as remote_client
+        from .remote.profile import host_profile, read_host_profiles, remotes_file
 
         outcome = remote_client.run_remote(
             chain,
@@ -1196,6 +1197,7 @@ def run(
             log_level=log_level,
             detailed_logs=detailed_logs,
             keep_running=keep_running,
+            profile=host_profile(remote, read_host_profiles(remotes_file())),
         )
         document = outcome.document
         if outcome.error is not None:

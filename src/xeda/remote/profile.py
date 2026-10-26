@@ -2,12 +2,14 @@
 
 The profile file is a user-level file, `$XDG_CONFIG_HOME/xeda/remotes.yaml` (default
 `~/.config/xeda/remotes.yaml`). Its `hosts` table is keyed by the text of `--remote`. SSH facts
-stay in `~/.ssh/config`. A host without an entry has the default profile.
+stay in `~/.ssh/config`. A host without an entry has the default profile. The command line and
+`local_settings()` read the file; the remote client is given the profile of its host.
 """
 
 import os
 import re
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 
 import yaml
@@ -51,17 +53,25 @@ def env_name_problem(name: str) -> Optional[str]:
     return None
 
 
-def remotes_file() -> Path:
-    """Return the path of the host profile file.
+def config_directory() -> Path:
+    """Return the directory of the user-level files of Xeda: `$XDG_CONFIG_HOME/xeda`.
 
     An empty or relative `XDG_CONFIG_HOME` is ignored, as the XDG Base Directory specification
-    requires.
+    requires. The directory is then `~/.config/xeda`.
     """
     config_home = os.environ.get("XDG_CONFIG_HOME", "")
     base = Path(config_home) if config_home and os.path.isabs(config_home) else None
     if base is None:
         base = Path.home() / ".config"
-    return base / "xeda" / "remotes.yaml"
+    return base / "xeda"
+
+
+def remotes_file() -> Path:
+    """Return the path of the host profile file, beside the user config file.
+
+    Only the command line and `local_settings()` look for it: the rest of the library is given
+    the profile it uses."""
+    return config_directory() / "remotes.yaml"
 
 
 class HostProfile(XedaBaseModel):
@@ -146,7 +156,12 @@ def _problems(path: Path, error: ValidationError) -> str:
     return f'Invalid host profiles in "{path}": ' + "; ".join(parts)
 
 
-def _read_hosts(path: Path) -> Dict[str, HostProfile]:
+def read_host_profiles(path: Path) -> Dict[str, Dict[str, Any]]:
+    """Read the host profile file `path` and return its profiles by host, as plain data.
+
+    A file that does not exist, or is empty, holds no host. The whole file is checked, so an
+    invalid entry fails the read for every host. Raises `RemoteConfigError`. Make a `HostProfile`
+    of an entry with `HostProfile.model_validate`."""
     try:
         data = load_yaml(path)
     except FileNotFoundError:
@@ -165,15 +180,15 @@ def _read_hosts(path: Path) -> Dict[str, HostProfile]:
             f"table, not a {type(data).__name__}"
         )
     try:
-        return RemotesFile.model_validate(data).hosts
+        hosts = RemotesFile.model_validate(data).hosts
     except ValidationError as e:
         raise RemoteConfigError(_problems(path, e)) from e
+    return {name: profile.model_dump(mode="python") for name, profile in hosts.items()}
 
 
-def load_host_profile(destination: str) -> HostProfile:
-    """Return the profile of the host named by `destination` (the text of `--remote`).
-
-    The whole file is checked, so an invalid entry fails the load for every host.
-    """
-    hosts = _read_hosts(remotes_file())
-    return hosts.get(destination, HostProfile())
+def host_profile(destination: str, profiles: Mapping[str, Mapping[str, Any]] | None) -> HostProfile:
+    """Return the profile of the host named by `destination` (the text of `--remote`) among
+    `profiles`, as `read_host_profiles` returns them. A host without an entry has the default
+    profile."""
+    entry = (profiles or {}).get(destination)
+    return HostProfile() if entry is None else HostProfile.model_validate(entry)

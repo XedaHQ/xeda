@@ -18,6 +18,7 @@ import yaml
 
 from xeda.remote import client
 from xeda.remote.environment import CodeSnapshot
+from xeda.remote.profile import HostProfile
 
 from .tool_utils import FAKE_TOOLS_DIR, use_fake_fpga_tools, use_fake_tools
 
@@ -324,6 +325,14 @@ def remote_host(
     yield host
 
 
+def host_profile_of(destination: str) -> HostProfile:
+    """The profile of `destination` in the profile file of the user, as the command line reads
+    it (`XDG_CONFIG_HOME` points to the file of the test)."""
+    from xeda.remote.profile import host_profile, read_host_profiles, remotes_file
+
+    return host_profile(destination, read_host_profiles(remotes_file()))
+
+
 def remote_request(tmp_path: Path, design: Any, chain: str = "nextpnr", **overrides: Any):
     """Run `chain` for `design` on the host `somewhere` with `run_remote`, and return its
     `RemoteOutcome`. The run root is `tmp_path/local/xeda_run`. `overrides` replace the arguments
@@ -352,6 +361,7 @@ def remote_request(tmp_path: Path, design: Any, chain: str = "nextpnr", **overri
         detailed_logs=False,
     )
     arguments.update(overrides)
+    arguments.setdefault("profile", host_profile_of(arguments["destination_text"]))
     return run_remote(chain, **arguments)
 
 
