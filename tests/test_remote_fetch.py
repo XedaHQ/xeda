@@ -582,23 +582,29 @@ def test_the_client_reads_the_files_and_the_skipped_sources_of_a_fetch():
 
 
 def test_the_delivered_node_lists_its_deliveries_and_a_skipped_one_as_not_delivered():
-    """A local launch lists the deliveries of a node, a skipped one as not delivered; so does a
-    remote launch, in the node that this side delivered."""
+    """A local launch lists the deliveries of a node: every planned one, delivered or not (a
+    copy that failed or never started), and a skipped one as not delivered. So does a remote
+    launch, in the node that this side delivered."""
+    from types import SimpleNamespace
+
     from xeda.deliver import Delivered
     from xeda.remote.client import _note_deliveries
 
+    key = SimpleNamespace(key="--outputs-to")
+    planned = [(key, Path("/m/x"), Path("/o/x"), "0"), (key, Path("/m/z"), Path("/o/z"), "0")]
     made = [
-        Delivered("--outputs-to", Path("/m/x"), Path("/o/x"), "delivered"),
         Delivered("--outputs-to", Path("/m/y"), Path("/o/y"), "skipped"),
+        Delivered("--outputs-to", Path("/m/x"), Path("/o/x"), "delivered"),
     ]
     document = {"nodes": [{"name": "a", "deliveries": []}, {"name": "b", "deliveries": []}]}
-    _note_deliveries(document, "b", made)
+    _note_deliveries(document, "b", planned, made)
     assert document["nodes"] == [
         {"name": "a", "deliveries": []},
         {
             "name": "b",
             "deliveries": [
                 {"key": "--outputs-to", "destination": "/o/x", "delivered": True},
+                {"key": "--outputs-to", "destination": "/o/z", "delivered": False},
                 {"key": "--outputs-to", "destination": "/o/y", "delivered": False},
             ],
         },

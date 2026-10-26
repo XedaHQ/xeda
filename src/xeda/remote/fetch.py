@@ -467,6 +467,7 @@ def deliver_fetched(
     *,
     outputs_to: Optional[Path],
     skipped: Sequence[SkippedSource] = (),
+    planned: Optional[list[Any]] = None,
 ) -> list[Delivered]:
     """Deliver `--outputs-to` (`outputs_to`) from the files of the mirror directory of `record`
     (`record.run_dir`) and return what was delivered.
@@ -474,7 +475,9 @@ def deliver_fetched(
     Only a run that passed delivers: the files of a failed run never replace earlier copies made
     by Xeda. If the delivery raises, `delivery.delivered` holds what it copied before. An
     artifact in `skipped` leads out of the run directory on the remote, and the mirror holds no
-    file of it: its delivery is skipped, as a local one is."""
+    file of it: its delivery is skipped, as a local one is. `planned`, when given, receives the
+    deliveries to make (`Deliveries.pending`) before the first copy, so that a caller can note
+    them when the delivery raises."""
     if outputs_to is None:
         return []
     if not record.passed:
@@ -486,4 +489,6 @@ def deliver_fetched(
     outside = {PurePath(source.place): (source.source, source.target) for source in skipped}
     extra = outputs_to_deliveries(named, record.run_dir, outputs_to)
     delivery.collect(record.run_dir, extra, outside)
+    if planned is not None:
+        planned[:] = delivery.pending
     return list(delivery.deliver())

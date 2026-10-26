@@ -1607,18 +1607,25 @@ def _run(
 
 
 def _note_deliveries(
-    document: Dict[str, Any], requested: str, delivered: Sequence[Delivered]
+    document: Dict[str, Any],
+    requested: str,
+    planned: Sequence[Any],
+    delivered: Sequence[Delivered],
 ) -> None:
-    """Put the deliveries of the requested node into `document`, as a local launch reports them."""
+    """Put the deliveries of the requested node into `document`, as a local launch reports them
+    (`launch_result.delivery_records`): every planned one, delivered or not, and the skipped
+    ones."""
+    from ..flow_runner.launch_result import delivery_records
+
     for node in document.get("nodes") or []:
         if node["name"] == requested:
             node["deliveries"] = [
                 {
                     "key": one.key,
                     "destination": str(one.destination),
-                    "delivered": one.state != "skipped",
+                    "delivered": one.delivered,
                 }
-                for one in delivered
+                for one in delivery_records(planned, delivered)
             ]
 
 
@@ -1716,15 +1723,21 @@ def _finish(
         if record is not None:
             if outputs_to is not None and local.deliveries is not None:
                 run.phase = _DELIVERING
+                planned: list[Any] = []
                 try:
                     delivered = deliver_fetched(
-                        local.deliveries, record, outputs_to=outputs_to, skipped=requested_skips
+                        local.deliveries,
+                        record,
+                        outputs_to=outputs_to,
+                        skipped=requested_skips,
+                        planned=planned,
                     )
-                except Exception:
-                    _note_deliveries(document, local.requested, local.deliveries.delivered)
+                except BaseException:
+                    # Ctrl-C too: the document of the launch lists what reached its destination.
+                    _note_deliveries(document, local.requested, planned, local.deliveries.delivered)
                     run.localize = lambda: document
                     raise
-                _note_deliveries(document, local.requested, delivered)
+                _note_deliveries(document, local.requested, planned, delivered)
             print_results(
                 results=results_of(record),
                 title=f"Results of flow:{run.flow} design:{local.design_name}",

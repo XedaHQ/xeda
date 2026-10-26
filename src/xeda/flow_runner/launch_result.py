@@ -138,23 +138,8 @@ class LaunchCollector:
         pending: Sequence[tuple[Delivery, Path, Path, str]],
         delivered: Sequence[Delivered],
     ) -> None:
-        """Note the deliveries of `flow`: `pending` is what its launch had to deliver, and
-        `delivered` is what reached its destination, with the deliveries that Xeda skipped (an
-        artifact of `--outputs-to` that a link leads out of the run directory). A skipped
-        delivery is noted as not delivered."""
-        made = {(done.key, done.destination) for done in delivered if done.state != "skipped"}
-        self._deliveries[id(flow)] = tuple(
-            DeliveryRecord(
-                key=named.key,
-                destination=destination,
-                delivered=(named.key, _located(destination)) in made,
-            )
-            for named, _source, destination, _digest in pending
-        ) + tuple(
-            DeliveryRecord(key=done.key, destination=done.destination, delivered=False)
-            for done in delivered
-            if done.state == "skipped"
-        )
+        """Note the deliveries of `flow` (`delivery_records`)."""
+        self._deliveries[id(flow)] = delivery_records(pending, delivered)
 
     def deliveries_of(self, flow: Flow) -> tuple[DeliveryRecord, ...]:
         """Return the deliveries noted for `flow`."""
@@ -194,6 +179,28 @@ class LaunchRunner(Protocol):
     """The part of the launcher that `launch_result` reads: the collector of the current launch."""
 
     collector: LaunchCollector
+
+
+def delivery_records(
+    pending: Sequence[tuple[Delivery, Path, Path, str]], delivered: Sequence[Delivered]
+) -> tuple[DeliveryRecord, ...]:
+    """Return the deliveries of a node. `pending` is what its launch had to deliver, and
+    `delivered` is what reached its destination, with the deliveries that Xeda skipped (an
+    artifact of `--outputs-to` that a link leads out of the run directory). A pending delivery
+    that did not reach its destination, and a skipped one, are not delivered."""
+    made = {(done.key, done.destination) for done in delivered if done.state != "skipped"}
+    return tuple(
+        DeliveryRecord(
+            key=named.key,
+            destination=destination,
+            delivered=(named.key, _located(destination)) in made,
+        )
+        for named, _source, destination, _digest in pending
+    ) + tuple(
+        DeliveryRecord(key=done.key, destination=done.destination, delivered=False)
+        for done in delivered
+        if done.state == "skipped"
+    )
 
 
 def _located(path: Path) -> Path:
