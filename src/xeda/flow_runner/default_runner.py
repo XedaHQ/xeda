@@ -920,16 +920,20 @@ class FlowLauncher:
             if top_level:
                 # A launch that failed delivers nothing. The failures of its clean-ups are
                 # logged, and the error of the launch propagates.
-                self._finish_launch(deliver=False)
-                self._release_generation()
+                try:
+                    self._finish_launch(deliver=False)
+                finally:
+                    self._release_generation()
             raise
         self._launch_depth -= 1
         if top_level:
             # Only a requested flow that succeeded, or was found up to date, delivers. One whose
             # results report failure returns here, and delivers nothing, not even what its
             # producers noted.
-            error = self._finish_launch(deliver=flow.succeeded)
-            self._release_generation()
+            try:
+                error = self._finish_launch(deliver=flow.succeeded)
+            finally:
+                self._release_generation()
             if error is not None:
                 self.collector.finish_raised = error
                 raise error

@@ -721,3 +721,27 @@ def test_a_scrub_does_not_delete_through_a_link_to_another_storage(tmp_path):
     with pytest.raises(RunDirectoryError, match="link"):
         scrub_generations("generated", run_root=world.run_root.resolve(), confirm=swap)
     assert (other / "keep.v").is_file()
+
+
+@pytest.mark.parametrize("failure", [KeyboardInterrupt(), RuntimeError("delivery broke")])
+@pytest.mark.parametrize("passed", [True, False])
+def test_the_lease_ends_when_the_end_of_a_launch_is_interrupted(
+    tmp_path, monkeypatch, failure, passed
+):
+    """An interrupt or an error while the launch delivers or cleans up must not keep the lease
+    of the storage, whether the launch passed or failed."""
+    from xeda.flow_runner import DefaultRunner
+
+    flow = reader_flow()
+    world = World(tmp_path)
+    if not passed:
+        monkeypatch.setattr(flow, "run", lambda self: (_ for _ in ()).throw(ValueError("no")))
+    monkeypatch.setattr(
+        DefaultRunner, "_finish_launch", lambda self, deliver: (_ for _ in ()).throw(failure)
+    )
+    runner = world.runner()
+    with pytest.raises(type(failure)):
+        runner.run_flow(flow, world.load(), {})
+    (storage,) = world.storages()
+    assert _probe(storage, "exclusive") == "free"
+    assert runner._generation is None
