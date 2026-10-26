@@ -319,8 +319,9 @@ def test_a_run_with_a_library_records_the_mapped_netlist(tmp_path):
     results, run_dir = run_yosys(
         tmp_path, f"platform_file={TINY_RESIDUE}", f"pdk_root={store}", "clock.period=2ns"
     )
-    assert "netlist_generic" not in results["outputs"]
-    assert Path(results["outputs"]["netlist"]["path"]) == run_dir / "netlist.v"
+    # the record lists every declared output, and the generic netlist was not written
+    assert results["outputs"]["netlist_generic"]["names"] == []
+    assert results["outputs"]["netlist"]["names"] == ["netlist.v"]
     assert "_X1 " in (run_dir / "netlist.v").read_text()
 
 
