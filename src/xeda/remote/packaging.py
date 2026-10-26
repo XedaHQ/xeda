@@ -125,7 +125,7 @@ def package_inputs(
     (`DesignValidationError`) before anything is read or sent. The sources that the generator
     writes travel as the declarations the design makes of them."""
     host_flows = host_flows or {}
-    generator = refuse_unsendable_generator(design)
+    refuse_unsendable_generator(design)
     path_identities: dict[str, dict[str, str]] = {}
     # `mode="json"`: the fields kept as they are (`dependencies` and its `local_cache` /
     # `clone_dir`) hold `Path`s, which a python-mode dump leaves as objects for the encoder
@@ -139,16 +139,13 @@ def package_inputs(
     }
     if design.target is not None:
         new_design["target"] = design.target
-    rtl: Dict[str, Any] = {}
-    tb: Dict[str, Any] = {}
-    remote_sources_path = Path(design.name) / "sources"
     design_file = f"{design.name}.xeda.json"
     # Every place below the inputs directory, and what goes there: a local file, or content made
     # here. One table for both kinds of place (flat among the sources, or where a file lies under
     # the design root), so neither can be handed a place the other already holds. The design
     # document takes its place first.
     places: Dict[Path, Path | bytes] = {Path(design_file): b""}
-    flat_places: Dict[Path, Path] = {}
+    flat_places: Dict[tuple[Path, Path], Path] = {}
     directories: set[str] = set()  # the directories of directory settings
 
     def identified(remote: str | Path, role: str, text: str) -> None:
@@ -167,17 +164,18 @@ def package_inputs(
                 f"({role}) of the request, and the remote host counts it once: name it one way"
             )
 
-    def archived(resource: FileResource) -> Path:
-        """Return where `resource` lands among the packaged sources.
+    def archived(resource: FileResource, unit: Design, base: Path) -> Path:
+        """Return where `resource` lands among the packaged sources of `unit`, below `base`.
 
         The first time a resource is seen, add it. Two files may share a name under
         different directories, and this part of the inputs is flat, so a repeated name is
         made unique by content. The same file listed twice still travels once.
         """
         local = resource.file.resolve()
-        place = flat_places.get(local)
+        place = flat_places.get((base, local))
         if place is not None:
             return place
+        remote_sources_path = base / unit.name / "sources"
         place = remote_sources_path / local.name
         if place in places:
             digest = resource.content_hash[:8]
@@ -187,17 +185,19 @@ def package_inputs(
                 place = remote_sources_path / f"{local.stem}_{digest}_{suffix}{local.suffix}"
                 suffix += 1
         places[place] = local
-        flat_places[local] = place
+        flat_places[(base, local)] = place
         return place
 
-    def archived_in_place(local: Path, relative: Path) -> bool:
-        """Package `local` at `relative`, where it lies under the design root.
+    def archived_in_place(local: Path, relative: Path, base: Path) -> bool:
+        """Package `local` at `relative` below `base`, where it lies under the design root.
 
         Then the remote finds it where this side does. Return False when that place holds
         another file."""
-        return places.setdefault(relative, local.resolve()) == local.resolve()
+        return places.setdefault(base / relative, local.resolve()) == local.resolve()
 
-    def packaged_sources(sources: Iterable[Source]) -> list[Dict[str, Any]]:
+    def packaged_sources(
+        sources: Iterable[Source], unit: Design, base: Path
+    ) -> list[Dict[str, Any]]:
         """Return the sources as the remote has to see them.
 
         A source under the design root keeps its own place relative to the root, as it has
@@ -214,18 +214,19 @@ def package_inputs(
                     declared["generated_by"] = unit_index(src.owner)
                 packaged.append(declared)
                 continue
-            relative = design.relative_to_root(src.file)
-            if relative is not None and archived_in_place(src.file, relative):
-                place = relative
+            relative = unit.relative_to_root(src.file)
+            if relative is not None and archived_in_place(src.file, relative, base):
+                place = base / relative
             else:
-                place = archived(src)
-                identified(place, "source", design.source_place(src))
-            spec: Dict[str, Any] = {"file": place.as_posix()}
+                place = archived(src, unit, base)
+                identified(place, "source", unit.source_place(src))
+            # a path of the document is relative to the root of the unit
+            spec: Dict[str, Any] = {"file": place.relative_to(base).as_posix()}
             spec["type"] = str(src.type)
             packaged.append(spec)
         return packaged
 
-    def packaged_parameters(dv: DesignPart) -> Dict[str, Any]:
+    def packaged_parameters(dv: DesignPart, unit: Design, base: Path) -> Dict[str, Any]:
         """Return the parameters as the remote has to see them.
 
         A parameter is text to the tool, but text that names a path on this machine names
@@ -246,23 +247,25 @@ def package_inputs(
         value itself when it travels as it is.
         """
         parameters: Dict[str, Any] = {}
-        counted = design.part_metadata("rtl" if dv is design.rtl else "tb")["parameters"]
+        counted = unit.part_metadata("rtl" if dv is unit.rtl else "tb")["parameters"]
         for name, value in dv.parameters.items():
             parameters[name] = thaw(value)
             if not (isinstance(value, str) and os.path.isabs(value)):
                 continue
             path = Path(value)
-            relative = design.relative_to_root(path)
+            relative = unit.relative_to_root(path)
             seen: str | Path = value
             if relative is not None and not path.exists():
                 parameters[name] = {"path": relative.as_posix()}
-                seen = relative
-            elif relative is not None and path.is_file() and archived_in_place(path, relative):
+                seen = base / relative
+            elif (
+                relative is not None and path.is_file() and archived_in_place(path, relative, base)
+            ):
                 parameters[name] = {"file": relative.as_posix()}
-                seen = relative
+                seen = base / relative
             elif path.is_file():
-                seen = archived(FileResource(path))
-                parameters[name] = {"file": seen.as_posix()}
+                seen = archived(FileResource(path), unit, base)
+                parameters[name] = {"file": seen.relative_to(base).as_posix()}
             identified(seen, "parameter", counted[name])
         return parameters
 
@@ -292,50 +295,53 @@ def package_inputs(
             places.setdefault(base / relative, local)
         return relative.as_posix()
 
-    def packaged_unit(index: int, unit: Design) -> Dict[str, Any]:
-        """The document of a dependency whose generator the host runs, with its inputs packaged
-        below `_units/<index>`, which is its design root there."""
-        base = Path("_units") / str(index)
+    def packaged_parts(unit: Design, base: Path) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        """The `rtl` and `tb` of `unit` as the remote has to see them, with their files packaged
+        below `base`: the one packaging of a design's parts, for the design and for a dependency
+        whose generator the host runs."""
+        rtl: Dict[str, Any] = {}
+        tb: Dict[str, Any] = {}
+        rtl["sources"] = packaged_sources(unit.rtl.sources, unit, base)
+        rtl["defines"] = thaw(unit.rtl.defines)
+        rtl["attributes"] = thaw(unit.rtl.attributes)
+        rtl["parameters"] = packaged_parameters(unit.rtl, unit, base)
+        rtl["top"] = unit.rtl.top
+        rtl["clocks"] = [dict(clk) for clk in unit.rtl.clocks]
         recipe_of = generator_of(unit.rtl, root=unit.root_path)
-        assert recipe_of is not None
-        recipe = thaw(unit.rtl.generator)
-        recipe["sources"] = [packaged_generator_input(p, unit, base) for p in recipe_of.sources]
-        declared = []
-        for src in unit.rtl.sources:
-            if src.generated and not src.located:
-                entry: Dict[str, Any] = {"path": src.output_name, "type": str(src.type)}
-                if src.owner is not None:
-                    entry["generated_by"] = unit_index(src.owner)
-                declared.append(entry)
+        if recipe_of is not None:
+            recipe = thaw(unit.rtl.generator)
+            recipe["sources"] = [
+                packaged_generator_input(path, unit, base) for path in recipe_of.sources
+            ]
+            rtl["generator"] = recipe
+        tb["sources"] = packaged_sources(unit.tb.sources, unit, base)
+        tb["top"] = unit.tb.top
+        tb["cocotb"] = thaw(unit.tb.cocotb)
+        if unit.tb.uut:
+            tb["uut"] = unit.tb.uut
+        if unit.tb.parameters:
+            tb["parameters"] = packaged_parameters(unit.tb, unit, base)
+        if unit.tb.defines:
+            tb["defines"] = thaw(unit.tb.defines)
+        if unit.tb.python_packages:
+            tb["python_packages"] = list(unit.tb.python_packages)
+        return rtl, tb
+
+    def packaged_unit(index: int, unit: Design) -> Dict[str, Any]:
+        """The document of a dependency whose generator the host runs, with its content packaged
+        below `_units/<index>`, which is its design root there. The host rebuilds the design from
+        it and computes the key of its generation from the same configuration."""
+        base = Path("_units") / str(index)
+        unit_rtl, unit_tb = packaged_parts(unit, base)
         return {
             "name": unit.name,
             "design_root": base.as_posix(),
-            "rtl": {"sources": declared, "top": unit.rtl.top, "generator": recipe},
+            "rtl": unit_rtl,
+            "tb": unit_tb,
+            "language": thaw(unit.language),
         }
 
-    rtl["sources"] = packaged_sources(design.rtl.sources)
-    rtl["defines"] = thaw(design.rtl.defines)
-    rtl["attributes"] = thaw(design.rtl.attributes)
-    rtl["parameters"] = packaged_parameters(design.rtl)
-    rtl["top"] = design.rtl.top
-    rtl["clocks"] = [dict(clk) for clk in design.rtl.clocks]
-    if generator is not None:
-        recipe = thaw(design.rtl.generator)
-        recipe["sources"] = [
-            packaged_generator_input(path, design, Path(".")) for path in generator.sources
-        ]
-        rtl["generator"] = recipe
-    tb["sources"] = packaged_sources(design.tb.sources)
-    tb["top"] = design.tb.top
-    tb["cocotb"] = thaw(design.tb.cocotb)
-    if design.tb.uut:
-        tb["uut"] = design.tb.uut
-    if design.tb.parameters:
-        tb["parameters"] = packaged_parameters(design.tb)
-    if design.tb.defines:
-        tb["defines"] = thaw(design.tb.defines)
-    if design.tb.python_packages:
-        tb["python_packages"] = list(design.tb.python_packages)
+    rtl, tb = packaged_parts(design, Path("."))
     new_design["rtl"] = rtl
     new_design["tb"] = tb
     if design.generation_units:

@@ -7,6 +7,7 @@ generator that declares no `sources` cannot be sent and is refused before any co
 """
 
 import json
+import sys
 import os
 from pathlib import Path, PurePosixPath
 
@@ -280,3 +281,64 @@ def test_two_dependency_designs_in_one_directory_are_two_units_on_the_host(tmp_p
     assert sorted(log.read_text().split()) == ["a", "b"]
     host_root = remote_host.workspace() / "xeda_run" / ".generated"
     assert {p.name for p in host_root.iterdir() if p.is_dir()} == {"a", "b"}
+
+
+def _rich_dependency(tmp_path: Path) -> Path:
+    """A design that merges two dependencies of one name that differ in a parameter and in the
+    name of the module they generate. Each has a written source, a define, a clock and a
+    testbench top beside its generator."""
+    from .test_dependency_generation import SCRIPT
+
+    library = tmp_path / "lib"
+    library.mkdir()
+    (library / "gen.py").write_text(SCRIPT)
+    (library / "spec.txt").write_text("one\n")
+    (library / "extra.v").write_text("module extra; endmodule\n")
+    for name, width in (("a", 1), ("b", 2)):
+        (library / f"{name}.yaml").write_text(
+            "name: lib\n"
+            "rtl:\n"
+            f"  sources: [extra.v, gen/{name}.v]\n"
+            f"  top: {name}\n"
+            f"  parameters: {{W: {width}}}\n"
+            "  defines: {FAST: 1}\n"
+            "  clocks: [{port: clk}]\n"
+            "  generator:\n"
+            f"    executable: {sys.executable!r}\n"
+            f"    args: ['$DESIGN_ROOT/gen.py', {name!r}, {str(tmp_path / 'order.log')!r}]\n"
+            "    sources: [gen.py, spec.txt]\n"
+            "    generated_sources: [gen]\n"
+            "language:\n  vhdl:\n    standard: '08'\n"
+        )
+    top = tmp_path / "top"
+    top.mkdir()
+    (top / "top.v").write_text("module top; endmodule\n")
+    (top / "top.yaml").write_text(
+        "name: top\ndependencies: [../lib/a.yaml, ../lib/b.yaml]\nrtl:\n  sources: [top.v]\n"
+        "  top: top\n  clocks: [{port: clk}]\n"
+    )
+    return top / "top.yaml"
+
+
+def test_a_unit_carries_its_whole_configuration_to_the_host(tmp_path, remote_host):
+    from xeda.flow_runner.launch_generation import generating_units, generation_key
+
+    design_file = _rich_dependency(tmp_path)
+    design = Design.from_file(design_file)
+    document, package = _document(tmp_path, design)
+    unit = document["generation_units"][0]
+    assert unit["rtl"]["parameters"] == {"W": 1} and unit["rtl"]["defines"] == {"FAST": 1}
+    assert unit["rtl"]["clocks"] == [{"port": "clk", "name": "clk"}]
+    assert unit["rtl"]["sources"][0] == {"file": "extra.v", "type": "Verilog"}
+    assert unit["language"]["vhdl"]["standard"] == "08"
+    assert "_units/0/extra.v" in package.files
+
+    outcome = remote_request(tmp_path, design_file, "vivado_synth", flow_settings=SETTINGS)
+    if outcome.error is not None:
+        raise outcome.error
+    assert outcome.success, outcome.document
+    host = remote_host.workspace() / "xeda_run" / ".generated" / "lib"
+    on_host = {p.name for p in host.iterdir() if p.is_dir()}
+    here = {generation_key(unit)[0] for _owner, unit in generating_units(design)}
+    assert len(here) == 2, "two units that differ in a parameter have two keys"
+    assert on_host == here, "the host computes the keys of this side"
