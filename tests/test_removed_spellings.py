@@ -534,3 +534,22 @@ def test_a_unit_that_si_reads_as_another_unit_is_refused_and_the_right_one_named
     kind = next(cls for cls in _quantity_classes() if right in cls.units)
     with pytest.raises(ValueError, match=f"did you mean `{right}`"):
         kind(f"5 {wrong}")
+
+
+@pytest.mark.parametrize(
+    ("text", "key", "successor"),
+    [
+        ("flow.yosys_fpga.flatten: true\n", "flow", "`flows`"),
+        ("design.name: d\n", "design", "`designs`"),
+    ],
+)
+def test_a_dotted_removed_project_key_is_refused_as_the_key_it_expands_to(
+    tmp_path, text, key, successor
+):
+    file = tmp_path / "xedaproject.yaml"
+    file.write_text(text)
+
+    with pytest.raises(ProjectFileError, match=f"`{key}` was removed: use {successor}") as bad:
+        XedaProject.from_file(file)
+
+    assert public_error(bad.value).code == "removed_alias"

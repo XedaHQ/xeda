@@ -137,12 +137,6 @@ class XedaProject:
                     data = json.load(f)
         if not isinstance(data, dict) or not data:
             raise ValueError(f"Invalid project file {file}: it must hold a nonempty mapping")
-        for key, replacement in REMOVED_PROJECT_KEYS.items():
-            if key in data:
-                raise ProjectFileError(
-                    f"project file {file}: {removed_message(key, replacement, None)}",
-                    code="removed_alias",
-                )
         # The design entries are expanded where they are used, one by one, whether `design` is a
         # table or a list of tables.
         entries = {key: data.pop(key) for key in DESIGN_KEYS if key in data}
@@ -150,6 +144,13 @@ class XedaProject:
             data = expand_hierarchy(data)
         except ConflictingKeys as e:
             raise ValueError(f"project file {file}: {e}") from e
+        # After the expansion: `flow.yosys_fpga.flatten: true` is a `flow` key too.
+        for key, replacement in REMOVED_PROJECT_KEYS.items():
+            if key in data:
+                raise ProjectFileError(
+                    f"project file {file}: {removed_message(key, replacement, None)}",
+                    code="removed_alias",
+                )
         if any(key in data for key in DESIGN_KEYS):
             raise ValueError(
                 f"project file {file}: a dotted key cannot reach into the design entries: "
