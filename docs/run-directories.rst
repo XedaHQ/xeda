@@ -151,7 +151,7 @@ what the inputs mean, not on where they are:
   (``$DESIGN_ROOT/c.xdc``). It also covers where each declared input of the flow comes from, in
   order: the producing flow's own ``flowrun_hash`` and output, or the design's sources. The settings
   of a producer therefore count for its consumers. ``settings_hash`` covers the settings alone.
-  ``results.json`` records it too.
+  ``results.json`` records the ``flowrun_hash`` as its ``identity``.
 
 Moving a whole design keeps both hashes, unless a parameter names a file outside the design.
 Starting Xeda from another directory keeps them too. The hashes never read a file that a setting
@@ -173,20 +173,16 @@ directory and the trace gives the reason for the new run: ``declared input bindi
 
 This file is the record of the run: one JSON object with a ``schema_version``. It holds what the
 flow parsed out of the tool's reports (``metrics``), the ``outcome`` of the run, and what the run
-used and wrote. :ref:`results-json` lists every field. A run that fails after it has started still
-writes the file. Its ``outcome`` is ``failed``, and ``error.code`` and ``error.message`` say what
-failed. The ``code`` is a stable text, never a class name. A flow whose reports or checks failed
-without a tool error and without a rejection says ``reported_failure``. A flow that rejected its
-results says ``rejected``. A consumer of a failed producer says ``producer_failed`` and quotes the
-cause. Xeda removes the previous ``results.json`` before a run starts, so an earlier success never
-stands for a run that failed.
+used and wrote. :ref:`results-json` lists every field.
 
-A run that fails after it has started still writes the file, as a failure document. This covers a
-failing tool and a failing producer. The ``outcome`` is ``failed``, and ``error.code`` and
-``error.message`` say what failed. The ``code`` is a stable text, never a class name. A flow whose
-reports or checks failed without a tool error says ``reported_failure``. A consumer of a failed
-producer says ``producer_failed`` and quotes the cause. A run that its checks rejected has the
-outcome ``rejected``. Only a ``passed`` and a ``rejected`` run are reused.
+A run that fails after it has started still writes the file. This covers a failing tool and a
+failing producer. Its ``outcome`` is ``failed``, and ``error.code`` and ``error.message`` say what
+failed. The ``code`` is a stable text, never a class name. A flow whose reports or checks failed
+without a tool error and without a rejection says ``reported_failure``. A consumer of a failed
+producer says ``producer_failed`` and quotes the cause. A flow that rejected its results has the
+``outcome`` ``rejected``, and its error code is ``rejected`` too. Only a ``passed`` and a
+``rejected`` run are reused. Xeda removes the previous ``results.json`` before a run starts, so an
+earlier success never stands for a run that failed.
 
 A file that an older Xeda wrote has no ``schema_version``. Xeda treats such a directory as a run
 that never finished, and runs the flow again.

@@ -471,8 +471,8 @@ directory of the producer. ``sha`` is the 32-character content digest, not a tim
 of a type that defines one also has ``equivalence``. This is the digest of the file without what
 its type calls insignificant (for a JSON netlist, the ``src`` attributes). An input that asks for
 it compares this digest when ``sha`` differs. Disabled outputs are omitted. The ``outputs`` of
-``results.json`` hold the same facts with names relative to the run directory (see
-:ref:`results-json`).
+``results.json`` hold the names, relative to the run directory, and the content digests (see
+:ref:`results-json`). The equivalence digests are in ``trace.json`` only.
 
 Xeda checks the output records at two points:
 
@@ -574,7 +574,7 @@ failure: ``nonzero_exit``, ``timeout``, ``executable_not_found``, ``reported_fai
 ``FlowFatalError``, and for a design, a project or a setting that Xeda refuses while it launches the
 flow), ``storage_error`` (a file or directory error of the operating system, or a path that leaves
 the run directory), ``producer_failed`` or ``internal_error`` (a bug of Xeda). A run that was
-judged negative after its reports were read says ``rejected``. Three more causes belong to a flow
+judged negative after its reports were read says ``rejected``. Four more causes belong to a flow
 that finished without raising. The top-level document of such a flow says ``FlowFailed``:
 
 * ``reported_failure``: ``"`<flow>` reported failure: its reports or checks did not pass (see the log
@@ -587,6 +587,8 @@ that finished without raising. The top-level document of such a flow says ``Flow
   report that the flow reads but can do without never gives this code.
 * ``missing_output``: the flow passed its own checks, but an enabled declared output is absent,
   unreadable, outside the run directory or not written by this run (see ``outputs`` above).
+* ``invalid_metric``: a value that the flow reported for a described metric is not finite, or not
+  of the metric's declared type. The message names the metric. The record keeps the other metrics.
 
 ``nextpnr`` can catch a missing enabled output earlier. It raises an error that names the
 configuration setting and the path that its tool did not write. This is a raised error with the code

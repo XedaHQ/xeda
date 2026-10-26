@@ -45,7 +45,7 @@ The exit status is 0 on success, 1 on a failed run and 2 on a usage error. The `
 | Key | Value |
 | --- | --- |
 | `flow`, `design`, `design_file`, `target` | requested flow; the design's name; the design file you named (absolute, or `null`); the selected target (or `null`) |
-| `success`, `results` | verdict; the flow's results (metric keys: `xeda list-results`); the file `results_json` holds the run's record |
+| `success`, `results` | verdict; the flow's results (metric keys: `xeda list-results`); `results_json` is the path of the run's record, `results.json` |
 | `run_path`, `results_json`, `settings_json` | the run directory and two of its files |
 | `request`, `nodes` | the flows asked for; every run directory touched, with `state` (`fresh`, `ran`, `failed`, `rejected again`, `blocked`, `not run`), `reason`, `deliveries`, `inputs` |
 | `error` | on failure only: `{type, message}`; see "When a run fails" |
