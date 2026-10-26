@@ -26,7 +26,7 @@ from ..design import (
     GitReference,
     Source,
     generator_of,
-    redacted_url,
+    dependency_pin,
 )
 from ..flow import FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
@@ -328,7 +328,6 @@ def package_inputs(
             places.setdefault(base / relative, local)
         return relative.as_posix()
 
-    pinned = {(d.repository, d.reference, d.design_file): d.commit for d in resolved if d.commit}
     dependency_bases: Dict[Path, Path] = {}
     dependency_documents: Dict[str, str] = {}
 
@@ -347,8 +346,7 @@ def package_inputs(
         dumped = unit.model_dump(mode="json")["dependencies"]
         for ref, entry in zip(unit.dependencies, dumped):
             if isinstance(ref, GitReference):
-                commit = pinned.get((redacted_url(ref.repo_url), ref.branch, ref.design_file))
-                entries.append({**entry, "commit": ref.commit or commit})
+                entries.append(entry)
                 continue
             dependency = Design.from_file(unit.root_path / ref.uri)
             file = dependency.generation_label
@@ -411,6 +409,13 @@ def package_inputs(
         }
 
     new_design.update(packaged_document(design, Path(".")))
+    commits = {
+        dependency_pin(d.repository, d.reference, d.design_file): d.commit
+        for d in resolved
+        if d.repository is not None and d.commit
+    }
+    if commits:
+        new_design["dependency_commits"] = commits
 
     def packaged_path(value: Any) -> Any:
         if not isinstance(value, (str, os.PathLike)) or not os.fspath(value):

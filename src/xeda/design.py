@@ -2715,6 +2715,14 @@ class DependencyRecord:
         }
 
 
+def dependency_pin(repository: str, branch: str | None, design_file: str) -> str:
+    """Return the name of a Git reference in `Design.dependency_commits`: its repository (as
+    `redacted_url` shows it), its branch or tag as written, and its design file. The name is a
+    digest, since a dot in a key of a design document would expand to a table."""
+    text = json.dumps([repository, branch, design_file])
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
 @dataclass(frozen=True)
 class MergedDependency:
     """A dependency of a design, as `Design.merged_with` takes it: the reference, the design that
@@ -2931,6 +2939,14 @@ class Design(XedaBaseModel):
     # design.
     resolved_dependencies: Tuple[Any, ...] = Field(
         (), exclude=True, json_schema_extra={"hidden_from_schema": True}
+    )
+
+    # The commits that a remote host fetches, by `dependency_pin` of the Git reference. This side
+    # resolved them when it planned, and writes them in the package, so that the host fetches the
+    # same commits, also for the Git dependencies of a Git dependency, which the package does not
+    # list. Xeda writes it; a design file does not (`Design.from_file`).
+    dependency_commits: Annotated[Mapping[str, str], Frozen()] = Field(
+        default_factory=dict, exclude=True, json_schema_extra={"hidden_from_schema": True}
     )
 
     @field_validator("resolved_dependencies")
@@ -3512,6 +3528,19 @@ class Design(XedaBaseModel):
             cls = model_with_allow_extra(cls)
         try:
             recorded_target = None
+            if not packaged and "dependency_commits" in design_dict:
+                raise DesignValidationError(
+                    [
+                        (
+                            "dependency_commits",
+                            "Xeda writes `dependency_commits` for a remote host; a design file "
+                            "does not have it: delete it, and pin a Git dependency with `commit`",
+                            "",
+                            "value_error",
+                        )
+                    ],
+                    data=dict(design_dict),
+                )
             if packaged:
                 recorded_target = design_dict.pop("target", None)
                 problem = None if recorded_target is None else target_name_problem(recorded_target)

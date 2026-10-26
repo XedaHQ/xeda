@@ -31,7 +31,7 @@ import logging
 import os
 import re
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import yaml
@@ -42,6 +42,7 @@ from ..design import (
     DesignReference,
     GitReference,
     MergedDependency,
+    dependency_pin,
     generator_of,
     redacted_url,
 )
@@ -342,6 +343,7 @@ def _merge(
     run_root: RunRoot,
     slots: list[DependencyRecord | None],
     first: int | None,
+    pins: Mapping[str, str],
 ) -> Design:
     """Merge the dependencies of `design`, in the order they are listed.
 
@@ -357,7 +359,10 @@ def _merge(
         if isinstance(ref, GitReference):
             assert run_root is not None, "a Git dependency is fetched into a run root"
             root = run_root() if callable(run_root) else run_root
-            commit = resolve_reference(ref, run_root=root, field=field)
+            pinned = pins.get(
+                dependency_pin(redacted_url(ref.repo_url), ref.branch, ref.design_file)
+            )
+            commit = pinned or resolve_reference(ref, run_root=root, field=field)
             storage = fetch(ref, commit, run_root=root, field=field)
             loaded = _git_design(ref, storage, field)
             checkout = Path(os.path.realpath(storage))
@@ -370,7 +375,7 @@ def _merge(
             slots[index] = DependencyRecord(None, None, None, str(ref.uri), None)
             # its written files count by their path in its own root
             marked = (index, loaded.root_path)
-        loaded = _merge(loaded, run_root, slots, len(slots))
+        loaded = _merge(loaded, run_root, slots, len(slots), pins)
         merged.append(MergedDependency(ref, loaded, *marked))
     resolved = tuple(slot for slot in slots if slot is not None) if first is None else ()
     return design.merged_with(merged, resolved)
@@ -379,7 +384,9 @@ def _merge(
 def merged_design(design: Design, *, run_root: RunRoot) -> Design:
     """Return `design` with the sources and the metadata of its dependencies merged in.
 
-    The entries of `design.dependencies` merge in the order they are listed. A local dependency
+    The entries of `design.dependencies` merge in the order they are listed. A Git reference that
+    `design.dependency_commits` names is fetched at that commit, at any depth, and is not resolved
+    again (a remote host gets the commits that the client resolved). A local dependency
     is a design file on disk, relative to the root of the design that lists it. It must exist
     now. A Git dependency is resolved to a commit (`resolve_reference`) and fetched (`fetch`), and
     its design file is read from the storage. The dependencies of a dependency merge before it
@@ -394,4 +401,6 @@ def merged_design(design: Design, *, run_root: RunRoot) -> Design:
     change, and a design without dependencies is returned as it is."""
     if not design.dependencies:
         return design
-    return _merge(design, run_root, [None] * len(design.dependencies), None)
+    return _merge(
+        design, run_root, [None] * len(design.dependencies), None, design.dependency_commits
+    )

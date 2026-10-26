@@ -895,3 +895,14 @@ def test_a_git_dependency_of_a_local_dependency_is_fetched(tmp_path, remote):
     # the local entry is dependency 0, and the entry it lists comes after the entries of the design
     assert {"dependency": 1, "path": "src/a.v", "type": "Verilog"} in sources
     assert (tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY).is_dir()
+
+
+def test_a_design_file_does_not_write_the_commits_of_a_remote_package(tmp_path):
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    (tmp_path / "d.yaml").write_text(
+        yaml.safe_dump(
+            {"name": "d", "rtl": {"sources": ["top.v"]}, "dependency_commits": {"abc": "a" * 40}}
+        )
+    )
+    with pytest.raises(DesignValidationError, match="Xeda writes `dependency_commits`"):
+        Design.from_file(tmp_path / "d.yaml")

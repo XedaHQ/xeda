@@ -8,6 +8,7 @@ generator that declares no `sources` cannot be sent and is refused before any co
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
@@ -520,3 +521,44 @@ def test_the_host_fetches_the_commit_the_client_resolved(
     # the provenance is the same on both sides: the branch as written, and the commit it ran with
     (record,) = outcome.document["nodes"][-1]["record"]["dependencies"]
     assert (record["reference"], record["commit"]) == ("main", first)
+
+
+def test_the_host_fetches_the_commit_of_a_dependency_of_a_git_dependency(
+    tmp_path, remote_host, remote, git_log, monkeypatch
+):
+    """The design lists repository A by commit, and A lists repository B by branch. The branch of
+    B moves after the client resolved it, and the host still fetches the commit of the client."""
+    import yaml
+
+    import xeda.flow_runner.dependencies as dependencies
+    from xeda.flow_runner.dependencies import dependency_key
+
+    from .test_git_dependencies import Remote
+
+    (tmp_path / "other").mkdir()
+    outer = Remote(tmp_path / "other")
+    spec = yaml.safe_load((outer.work / "dep.yaml").read_text())
+    spec["dependencies"] = [{"uri": f"git+{remote.url}?branch=main#dep.yaml"}]
+    (outer.work / "dep.yaml").write_text(yaml.safe_dump(spec))
+    outer_commit = outer.commit("lists the other repository")
+    subprocess.run(["git", "push", "--quiet", "origin", "HEAD:main"], cwd=outer.work, check=True)
+    world = _world(
+        tmp_path, extra=f"dependencies:\n  - git+{outer.url}?commit={outer_commit}#dep.yaml\n"
+    )
+    first, fetched, moved = remote.first, dependencies.fetch, []
+
+    def fetch_then_move_the_branch(ref, *args, **kwargs):
+        storage = fetched(ref, *args, **kwargs)
+        if ref.repo_url == remote.url and not moved:  # the client has fetched the nested one
+            moved.append(remote.advance())
+        return storage
+
+    monkeypatch.setattr(dependencies, "fetch", fetch_then_move_the_branch)
+    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    if outcome.error is not None:
+        raise outcome.error
+    assert outcome.success, outcome.document
+    (second,) = moved
+    stored = {p.name for p in (remote_host.workspace() / "xeda_run" / ".dependencies").iterdir()}
+    assert dependency_key(remote.url, first) in stored
+    assert dependency_key(remote.url, second) not in stored, "the host fetched the moved branch"
