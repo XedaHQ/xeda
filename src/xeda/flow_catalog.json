@@ -15559,6 +15559,15 @@
         ],
         "help": "Do not use LUT RAM cells."
       },
+      "out_of_context": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Synthesize the design as a block that a larger design instantiates: the netlist has no IO buffers and no clock buffer that the synthesis inserted. Xilinx gets `-noiopad -noclkbuf`, Gowin `-noiopads` and Nexus `-noiopad`. ECP5 and iCE40 insert no such buffers, so the setting changes nothing there. Use it for utilization estimates and block netlists, not for a netlist that `nextpnr` places on its own: `nextpnr` for Nexus refuses it. `synth_flags` must not repeat these flags, and for Lattice it must not give `-iopad`. The pass for Xilinx stops with an error on a top module with tri-state buffers."
+      },
       "nowidelut": {
         "children": false,
         "assignable": true,

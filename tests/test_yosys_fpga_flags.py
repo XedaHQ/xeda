@@ -35,18 +35,23 @@ from .tool_utils import _command_succeeds, require_yosys, require_yosys_config
 
 # `synth_ecp5` runs `synth_lattice -family ecp5`, so the two take the same options.
 LATTICE_0_63 = frozenset(
-    "-noabc9 -abc2 -retime -dff -nobram -nolutram -nodsp -nowidelut -noflatten -family".split()
+    "-noabc9 -abc2 -retime -dff -nobram -nolutram -nodsp -nowidelut -noflatten -family -iopad"
+    " -noiopad".split()
 )
-LATTICE_0_69 = frozenset("-dff -nobram -nolutram -nodsp -nowidelut -noflatten -family".split())
+LATTICE_0_69 = frozenset(
+    "-dff -nobram -nolutram -nodsp -nowidelut -noflatten -family -iopad -noiopad".split()
+)
 
 #: pass -> {release that changed its options: the options it has from then on}.
 PASS_OPTIONS: Dict[str, Dict[YosysRelease, FrozenSet[str]]] = {
     "synth_xilinx": {
         (0, 63): frozenset(
-            "-abc9 -retime -dff -nobram -nolutram -nodsp -nowidelut -flatten -widemux -family".split()
+            "-abc9 -retime -dff -nobram -nolutram -nodsp -nowidelut -flatten -widemux -family"
+            " -noiopad -noclkbuf".split()
         ),
         (0, 69): frozenset(
-            "-dff -nobram -nolutram -nodsp -nowidelut -flatten -widemux -family".split()
+            "-dff -nobram -nolutram -nodsp -nowidelut -flatten -widemux -family"
+            " -noiopad -noclkbuf".split()
         ),
     },
     "synth_ecp5": {(0, 63): LATTICE_0_63, (0, 69): LATTICE_0_69},
@@ -59,9 +64,11 @@ PASS_OPTIONS: Dict[str, Dict[YosysRelease, FrozenSet[str]]] = {
     },
     "synth_gowin": {
         (0, 63): frozenset(
-            "-noabc9 -retime -nobram -nolutram -nodsp -nowidelut -noflatten -family".split()
+            "-noabc9 -retime -nobram -nolutram -nodsp -nowidelut -noflatten -family -noiopads".split()
         ),
-        (0, 69): frozenset("-nobram -nolutram -nodsp -nowidelut -noflatten -family".split()),
+        (0, 69): frozenset(
+            "-nobram -nolutram -nodsp -nowidelut -noflatten -family -noiopads".split()
+        ),
     },
 }
 
@@ -118,6 +125,7 @@ TOGGLES: List[Dict[str, Any]] = [
     {"ice40_device": "lp"},
     {"ice40_dsp": True},
     {"ice40_spram": True},
+    {"out_of_context": True},
 ]
 
 REJECT = object()
@@ -156,6 +164,12 @@ def expected(target: str, name: str, release: YosysRelease, toggle: Dict[str, An
         return option if option in options else None
     if key == "nodsp":  # a pass without -nodsp maps no DSPs unless asked (`synth_ice40 -dsp`)
         return "-nodsp" if "-nodsp" in options else None
+    if key == "out_of_context":  # a flag only where the pass inserts buffers by default
+        return {
+            "synth_xilinx": "-noiopad",
+            "synth_gowin": "-noiopads",
+            "synth_lattice": "-noiopad",
+        }.get(name)
     if key == "widemux":
         return "-widemux" if "-widemux" in options and target != "xilinx-lut4" else REJECT
     if key in ("ice40_dsp", "ice40_spram"):  # UltraPlus resources

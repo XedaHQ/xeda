@@ -37,6 +37,25 @@ log = logging.getLogger(__name__)
 
 GOWIN_FAMILIES = ("gw1n", "gw2a", "gw5a")
 
+#: The flags that `out_of_context` gives to each synthesis pass. They stop the IO buffers on the
+#: ports of the top module (`iopadmap`) and the global buffer on the clock (`clkbufmap`). The
+#: Lattice pass inserts IO buffers only with `-iopad`, which Nexus has by default. `synth_ecp5`
+#: (`synth_lattice -family ecp5`) and `synth_ice40` insert no buffer, so they need no flag.
+OUT_OF_CONTEXT_FLAGS: Dict[str, Tuple[str, ...]] = {
+    "synth_xilinx": ("-noiopad", "-noclkbuf"),
+    "synth_gowin": ("-noiopads",),
+    "synth_ecp5": (),
+    "synth_lattice": ("-noiopad",),
+    "synth_ice40": (),
+}
+
+#: The flags of each pass that ask for what `out_of_context` turns off. `synth_xilinx` takes
+#: `-iopad` and ignores it, so it has none.
+OUT_OF_CONTEXT_CONTRADICTIONS: Dict[str, Tuple[str, ...]] = {
+    "synth_ecp5": ("-iopad",),
+    "synth_lattice": ("-iopad",),
+}
+
 
 class PrimitiveLibrary(NamedTuple):
     """A primitive library file, with the `read_verilog` flags that the family's pass reads it with.
@@ -291,6 +310,17 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         sta: bool = Field(
             False,
             description="Run a simple static timing analysis (requires `flatten`).",
+        )
+        out_of_context: bool = Field(
+            False,
+            description="Synthesize the design as a block that a larger design instantiates: the "
+            "netlist has no IO buffers and no clock buffer that the synthesis inserted. Xilinx "
+            "gets `-noiopad -noclkbuf`, Gowin `-noiopads` and Nexus `-noiopad`. ECP5 and iCE40 "
+            "insert no such buffers, so the setting changes nothing there. Use it for "
+            "utilization estimates and block netlists, not for a netlist that `nextpnr` places "
+            "on its own: `nextpnr` for Nexus refuses it. `synth_flags` must not repeat these "
+            "flags, and for Lattice it must not give `-iopad`. The pass for Xilinx stops with an "
+            "error on a top module with tri-state buffers.",
         )
         nowidelut: bool = Field(
             False,
@@ -583,7 +613,54 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                     f"ice40_device, ice40_dsp and ice40_spram are for iCE40 only; {name} takes "
                     "none of them."
                 )
+            if self.out_of_context:
+                command += OUT_OF_CONTEXT_FLAGS[name]
             return command + list(self.synth_flags)
+
+        def out_of_context_pass(self) -> Optional[str]:
+            """Return the name of the synthesis pass that `out_of_context` gives flags to, or None.
+
+            The result is None when the setting is off, when no device is given, and when the
+            device has no synthesis (the launch names that problem).
+            """
+            if not self.out_of_context or self.fpga is None:
+                return None
+            try:
+                target = self.synthesis_target()
+            except FlowSettingsException:
+                return None
+            return "synth_lattice" if target == "nexus" else f"synth_{target}"
+
+        def out_of_context_conflicts(self) -> List[Tuple[str, str]]:
+            """Return each word of `synth_flags` that repeats or contradicts `out_of_context`.
+
+            A flag that the setting adds is the setting's job, so it is not repeated. A flag that
+            asks for the IO buffers that the setting turns off contradicts it. The result is
+            empty when the setting is off, because the setting adds nothing then. The method is
+            pure, so planning can report the conflicts. It reads whole words, as the checks of
+            the other flag lists do.
+            """
+            name = self.out_of_context_pass()
+            if name is None:
+                return []
+            repeated = OUT_OF_CONTEXT_FLAGS[name]
+            contradicting = OUT_OF_CONTEXT_CONTRADICTIONS.get(name, ())
+            conflicts: List[Tuple[str, str]] = []
+            for word in (word for item in self.synth_flags for word in item.split()):
+                if word in repeated:
+                    why = (
+                        f"`{word}` in `synth_flags` is added by `out_of_context` to `{name}`. "
+                        "Delete it"
+                    )
+                elif word in contradicting:
+                    why = (
+                        f"`{word}` in `synth_flags` contradicts `out_of_context`, which turns "
+                        f"the IO buffers of `{name}` off. Delete it, or turn `out_of_context` off"
+                    )
+                else:
+                    continue
+                conflicts.append(("synth_flags", why))
+            return conflicts
 
         @model_validator(mode="after")
         def _one_abc9_script_choice(self):
@@ -913,15 +990,20 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         """Refuse settings that the run cannot honor, before any producer runs.
 
         The refused settings are: a step that `synth_pass_only` does not run; a result of a later
-        stage when the run stops after the RTL (`stop_after_conflicts`); and an EDIF file name
-        for a synthesis that writes no EDIF netlist. The method is class-level and pure, so the
+        stage when the run stops after the RTL (`stop_after_conflicts`); a flag in `synth_flags`
+        that repeats or contradicts `out_of_context`; and an EDIF file name for a synthesis that
+        writes no EDIF netlist. The method is class-level and pure, so the
         refusal comes at planning time, also under `xeda run --dry-run`. `run()` checks the
         pass-only conflicts again after `init()` has merged the attributes of the design, which
         this method cannot see.
         """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
-        cls._refuse(settings.synth_pass_only_conflicts() + stop_after_conflicts(settings))
+        cls._refuse(
+            settings.synth_pass_only_conflicts()
+            + stop_after_conflicts(settings)
+            + settings.out_of_context_conflicts()
+        )
         # judged by value, as every setting is: a file name other than the default asks for one
         if settings.netlist_edif != cls.Settings.model_fields["netlist_edif"].get_default():
             problem = settings.edif_problem()

@@ -990,6 +990,16 @@ resources, and its effect on area and timing differs from design to design. iCE4
 and SPRAM inference are available as the ``ice40_dsp`` and ``ice40_spram`` settings of
 ``yosys_fpga``.
 
+``out_of_context: true`` synthesizes the design as a block that a larger design instantiates. The
+netlist has no IO buffers and no clock buffer that the synthesis inserted. Xilinx gets
+``-noiopad -noclkbuf``, Gowin gets ``-noiopads``, and Nexus gets ``-noiopad``. The ECP5 and iCE40
+passes insert no such buffers, so the setting changes nothing there. ``synth_flags`` must not
+repeat these flags, and for Lattice it must not give ``-iopad``. Xeda refuses either one before
+anything runs. Use the setting for utilization estimates and block netlists. A Nexus netlist
+without IO buffers is no input for ``nextpnr``, which refuses it. ``vivado_impl`` implements a
+Xilinx netlist without them, and Vivado inserts the IO buffers itself. The Xilinx pass stops with an
+error on a top module that has tri-state buffers.
+
 ``yosys_fpga`` removes the formal cells (``$check``, ``$assert``, ``$assume`` and ``$cover``) and
 the ``$print`` cells that an immediate ``assert`` or a ``$display`` makes, after it writes the RTL
 outputs and before synthesis. No FPGA tool reads them, so the netlists, the utilization report and

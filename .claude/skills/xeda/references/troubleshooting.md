@@ -260,9 +260,9 @@ PULLUP`.
   So it differs from the sum of the `LUT<n>` entries of `cell_types`, which has the raw cell
   counts. Vivado's `opt_design` can merge an `INV` into the LUT or the invertible pin that it
   drives, so for a design with many `INV` cells the estimate is high.
-- For the estimate of a block that a larger design instantiates, add
-  `synth_flags: [-noiopad, -noclkbuf]` (Xilinx; `[-noiopad]` for ECP5 and Nexus): the synthesis
-  then puts no IO buffers (`IBUF`, `OBUF`) on the ports and no `BUFG` on the clock.
+- For the estimate of a block that a larger design instantiates, add `out_of_context: true` to
+  `yosys_fpga`: the synthesis then puts no IO buffers (`IBUF`, `OBUF`) on the ports and no `BUFG`
+  on the clock. Do not repeat its flags in `synth_flags`.
 - No Yosys FPGA flow reports a delay. `sta: true` writes `reports/timing.rpt` (yosys `ltp` and
   `sta`), but the cell models of 7-series have no timing arcs for flip-flops and carry chains, so
   its number is no usable delay. `nextpnr` reports `fmax` after placement and routing.
