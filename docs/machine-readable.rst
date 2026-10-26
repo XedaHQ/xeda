@@ -660,6 +660,7 @@ project, chain or run root problem. For a bad setting: ``unknown_setting``, ``re
 ``repeated_flow``, ``no_edge``, ``unknown_output`` and others. Others are ``invalid_design``,
 ``design_file_not_found``, ``unknown_target``, ``unknown_design``, ``invalid_project``,
 ``removed_alias`` and ``removed_key`` (a design or project key that Xeda refuses; the message names the key to write),
+``fetch_failed`` (planning could not resolve or fetch a Git dependency; ``field`` names it),
 ``flow_not_found``, ``invalid_run_root``, ``delivery_refused`` and ``usage_error``.
 
 ``generator_failed`` says that the generator of the design failed or could not be started or
