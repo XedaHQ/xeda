@@ -81,7 +81,7 @@ from ..version import __version__
 from ..errors import ProjectError
 from ..project import Project
 from ..types import UNSET, Unset
-from ..xedaproject import PROJECT_FILE_NAMES, resolve_project_file
+from ..xedaproject import PROJECT_FILE_NAMES
 from .bindings import (
     LOCAL_REQUESTS_ONLY,
     BindingLayer,
@@ -1922,7 +1922,7 @@ class FlowLauncher:
             isinstance(design, (Design, dict, Path))
             or (isinstance(design, str) and names_a_design_file(design))
         )
-        project_path = resolve_project_file(xedaproject, self._start)
+        project_path = Path(xedaproject) if xedaproject else None
         if project_path is not None and from_project:
             try:
                 project: Project | None = Project.load(project_path)
@@ -2349,10 +2349,11 @@ class FlowLauncher:
         if not isinstance(design_updates, dict):
             design_updates = list(design_updates)
             design_updates = settings_to_dict(design_updates)
-        # A project is read to select a design from it, or to tell a design file that it
-        # references from one that it does not. A design that is not selected from the project
-        # (a file, a table, a built design) never gets the project layer.
-        project_path = resolve_project_file(xedaproject, self._start)
+        # The project is the file that the caller names, read to select a design from it. The
+        # launcher looks for no file: the command line discovers the project file. A design that
+        # is not selected from the project (a file, a table, a built design) never gets the
+        # project layer.
+        project_path = Path(xedaproject) if xedaproject else None
         given_file = (
             Path(design)
             if isinstance(design, (str, Path))
@@ -2361,18 +2362,6 @@ class FlowLauncher:
         )
         if given_file is not None or isinstance(design, dict):
             if given_file is not None:
-                if project_path is not None:
-                    referenced = Project.load(project_path).referenced_name(
-                        self._start / given_file
-                    )
-                    if referenced is not None:
-                        raise ProjectError(
-                            f'The design file "{given_file}" is the design {referenced!r} of the '
-                            f'project file "{project_path}". Select a design of a project with '
-                            f"--design-name {referenced}.",
-                            code="use_design_name",
-                            path=project_path,
-                        )
                 # An invalid design file raises, as a design from a project does: the caller
                 # reports it (`xeda run --json` names the error instead of "did not complete").
                 design = Design._load_file(
@@ -2408,9 +2397,10 @@ class FlowLauncher:
                     else "No design was given, and"
                 )
                 raise ProjectError(
-                    f"{given} there is no project file ({', '.join(PROJECT_FILE_NAMES)}) in "
-                    f"{self._start} to take a design from. Give a design file (.yaml, .yml, "
-                    ".toml or .json).",
+                    f"{given} there is no project file to take a design from. Give one with "
+                    f"--xedaproject, or keep one ({', '.join(PROJECT_FILE_NAMES)}) in the "
+                    f"directory where you start Xeda ({self._start}). Or give a design file "
+                    "(.yaml, .yml, .toml or .json).",
                     code="project_file_not_found",
                 )
             design = Project.load(project_path).design(

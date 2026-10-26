@@ -232,8 +232,8 @@ def _plan_with_flows(directory: Path, origin: str, shape: str, value: Any):
     assert origin == "project file"
     design = _write_design(directory)
     project = directory / PROJECT_FILE
-    project.write_text(json.dumps({"flows": flows}))
-    return runner.plan("verilator", design, xedaproject=str(project))
+    project.write_text(json.dumps({"designs": [{"file": design.name}], "flows": flows}))
+    return runner.plan("verilator", "top", xedaproject=str(project))
 
 
 @pytest.mark.parametrize("shape", ["table", "section"])
@@ -509,8 +509,10 @@ def _plan_with_keys(
     if origin == "flows table of a project":
         design = _write_design(directory)
         project = directory / PROJECT_FILE
-        project.write_text(json.dumps({"flows": dict(flow_items)}))
-        return runner.plan("verilator", design, xedaproject=str(project))
+        project.write_text(
+            json.dumps({"designs": [{"file": design.name}], "flows": dict(flow_items)})
+        )
+        return runner.plan("verilator", "top", xedaproject=str(project))
     if origin == "project design entry":
         _write_design(directory)
         entry = {"name": "top", "rtl": {"sources": ["top.v"], "top": "top"}, **dict(items)}

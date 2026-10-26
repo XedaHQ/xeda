@@ -47,7 +47,10 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     )
     from .console import console
     from .deliver import Conflict
-    from .design import DESIGN_NAME, target_name_problem
+    from .design import DESIGN_NAME, names_a_design_file, target_name_problem
+    from .errors import ProjectError
+    from .project import Project
+    from .xedaproject import resolve_project_file
     from .flow_runner import (
         DefaultRunner,
         add_file_logger,
@@ -613,6 +616,40 @@ def _selected_target(target: str | None, no_target: bool) -> str | None | Unset:
     return None if no_target else UNSET if target is None else target
 
 
+def _is_design_file(design: Any) -> bool:
+    """Return whether the `DESIGN` argument names a design file and not a project design."""
+    return design is not None and (isinstance(design, Path) or names_a_design_file(design))
+
+
+def _selected_project(xedaproject: Any, design: Any) -> Project | None:
+    """Return the project of this command, or None: the file of `--xedaproject`, else the one
+    project file in the current directory. Only the command line looks there; the library reads
+    the project file it is given and nothing else.
+
+    A design file that the project lists is refused: select its design with `--design-name`, so
+    that one design never has two identities."""
+    path = resolve_project_file(xedaproject)
+    if path is None:
+        return None
+    project = Project.load(path)
+    if _is_design_file(design):
+        referenced = project.referenced_name(design)
+        if referenced is not None:
+            raise ProjectError(
+                f'The design file "{design}" is the design {referenced!r} of the project file '
+                f'"{project.path}". Select a design of a project with --design-name {referenced}.',
+                code="use_design_name",
+                path=project.path,
+            )
+    return project
+
+
+def _project_for_launcher(project: Project | None, design: Any) -> str | None:
+    """Return the project file that the launcher reads: only a design that the project holds
+    comes from it. A design file given on its own gets no project layer."""
+    return None if project is None or _is_design_file(design) else str(project.path)
+
+
 def _interactive(json_flag: bool) -> bool:
     """Return whether a question may be asked: stdin and stderr are terminals, and the output is
     not machine-readable."""
@@ -1017,88 +1054,6 @@ def run(
             )
         remote = None
     selected_target = _selected_target(target, no_target)
-    if fetch_all and not remote:
-        raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
-    if keep_running and not remote:
-        raise click.UsageError("`--keep-running` needs --remote", ctx=ctx)
-    if keep_running and dry_run:
-        raise click.UsageError(
-            "`--keep-running` has no launch to keep running in a dry run", ctx=ctx
-        )
-    if remote:
-        for name, given in (
-            ("--post-cleanup", post_cleanup),
-            ("--post-cleanup-purge", post_cleanup_purge),
-        ):
-            if given:
-                raise click.UsageError(
-                    f"`{name}` removes run directories after delivery; with --remote, the run "
-                    "directories are on the remote: use `xeda remote clean`",
-                    ctx=ctx,
-                )
-        if scrub:
-            raise click.UsageError(
-                "`--scrub` asks you to confirm the removal of run directories, and a remote "
-                "launch cannot ask: run without --remote, or free the space on the host with "
-                "`xeda remote clean`",
-                ctx=ctx,
-            )
-        from .remote import client as remote_client
-
-        outcome = remote_client.run_remote(
-            chain,
-            design=design,
-            destination_text=remote,
-            run_root=run_root,
-            flow_settings=flow_settings,
-            xedaproject=xedaproject,
-            design_updates=design_updates,
-            design_allow_extra=False,
-            target=selected_target,
-            hashed_run_dirs=hashed_run_dirs,
-            clean=clean,
-            rebuild_all=rebuild_all,
-            scrub=scrub,
-            dry_run=dry_run,
-            fetch_all=fetch_all,
-            outputs_to=outputs_to,
-            overwrite_outputs=overwrite_outputs,
-            confirm_overwrite=_prompt_overwrite if _interactive(json_flag) else None,
-            log_level=log_level,
-            detailed_logs=detailed_logs,
-            keep_running=keep_running,
-        )
-        document = outcome.document
-        if outcome.error is not None:
-            log.critical("%s", _error_message(outcome.error))
-            if json_flag:
-                emit_structured(document, "json")
-            if not json_flag and not isinstance(outcome.error, XedaException):
-                raise outcome.error
-            sys.exit(outcome.exit_status)
-        if dry_run:
-            if json_flag:
-                emit_structured(document, "json")
-            else:
-                _print_remote_plan(document)
-            if not outcome.success:
-                error = document.get("error") or {}
-                if error.get("message"):
-                    log.critical("%s", error["message"])
-                log.critical("Remote dry run of flow '%s' on '%s' failed.", flow, remote)
-            sys.exit(outcome.exit_status)
-        if outcome.record is not None and not json_flag:
-            print_results(
-                results_of(outcome.record),
-                title=f"Results of flow:{flow} design:{document['spec']['design']}",
-                skip_if_false={"artifacts", "reports"},
-            )
-        if not outcome.success:
-            log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
-        if json_flag:
-            emit_structured(document, "json")
-        sys.exit(outcome.exit_status)
-
     launcher: Optional[DefaultRunner] = None
     table = command_line_table(flow, flow_settings)
 
@@ -1170,6 +1125,95 @@ def run(
             raise error
         sys.exit(2 if refused else 1)
 
+    # The command line finds the project file (`--xedaproject`, else the one in the current
+    # directory), and the launcher gets that path. The library discovers nothing.
+    try:
+        project = _selected_project(xedaproject, design_file)
+    except Exception as e:
+        not_started(e)
+    project_for_launcher = _project_for_launcher(project, design_file)
+    if fetch_all and not remote:
+        raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
+    if keep_running and not remote:
+        raise click.UsageError("`--keep-running` needs --remote", ctx=ctx)
+    if keep_running and dry_run:
+        raise click.UsageError(
+            "`--keep-running` has no launch to keep running in a dry run", ctx=ctx
+        )
+    if remote:
+        for name, given in (
+            ("--post-cleanup", post_cleanup),
+            ("--post-cleanup-purge", post_cleanup_purge),
+        ):
+            if given:
+                raise click.UsageError(
+                    f"`{name}` removes run directories after delivery; with --remote, the run "
+                    "directories are on the remote: use `xeda remote clean`",
+                    ctx=ctx,
+                )
+        if scrub:
+            raise click.UsageError(
+                "`--scrub` asks you to confirm the removal of run directories, and a remote "
+                "launch cannot ask: run without --remote, or free the space on the host with "
+                "`xeda remote clean`",
+                ctx=ctx,
+            )
+        from .remote import client as remote_client
+
+        outcome = remote_client.run_remote(
+            chain,
+            design=design,
+            destination_text=remote,
+            run_root=run_root,
+            flow_settings=flow_settings,
+            xedaproject=project_for_launcher,
+            design_updates=design_updates,
+            design_allow_extra=False,
+            target=selected_target,
+            hashed_run_dirs=hashed_run_dirs,
+            clean=clean,
+            rebuild_all=rebuild_all,
+            scrub=scrub,
+            dry_run=dry_run,
+            fetch_all=fetch_all,
+            outputs_to=outputs_to,
+            overwrite_outputs=overwrite_outputs,
+            confirm_overwrite=_prompt_overwrite if _interactive(json_flag) else None,
+            log_level=log_level,
+            detailed_logs=detailed_logs,
+            keep_running=keep_running,
+        )
+        document = outcome.document
+        if outcome.error is not None:
+            log.critical("%s", _error_message(outcome.error))
+            if json_flag:
+                emit_structured(document, "json")
+            if not json_flag and not isinstance(outcome.error, XedaException):
+                raise outcome.error
+            sys.exit(outcome.exit_status)
+        if dry_run:
+            if json_flag:
+                emit_structured(document, "json")
+            else:
+                _print_remote_plan(document)
+            if not outcome.success:
+                error = document.get("error") or {}
+                if error.get("message"):
+                    log.critical("%s", error["message"])
+                log.critical("Remote dry run of flow '%s' on '%s' failed.", flow, remote)
+            sys.exit(outcome.exit_status)
+        if outcome.record is not None and not json_flag:
+            print_results(
+                results_of(outcome.record),
+                title=f"Results of flow:{flow} design:{document['spec']['design']}",
+                skip_if_false={"artifacts", "reports"},
+            )
+        if not outcome.success:
+            log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
+        if json_flag:
+            emit_structured(document, "json")
+        sys.exit(outcome.exit_status)
+
     if dry_run:
         try:
             launcher = DefaultRunner(
@@ -1181,7 +1225,7 @@ def run(
             )
             plan, freshness = launcher.plan_with_freshness(
                 chain,
-                xedaproject=xedaproject,
+                xedaproject=project_for_launcher,
                 design=design,
                 flow_settings=flow_settings,
                 design_updates=design_updates,
@@ -1226,7 +1270,7 @@ def run(
         launcher.scrub_done = _print_scrub_result
         resolved, plan = launcher.resolve_run(
             chain,
-            xedaproject=xedaproject,
+            xedaproject=project_for_launcher,
             design=design or design_name,
             flow_settings=flow_settings,
             design_updates=design_updates,
@@ -1546,6 +1590,7 @@ def dse(
     }
 
     try:
+        project = _selected_project(xedaproject, design)
         dse = Dse(
             optimizer_class=optimizer,
             optimizer_settings=opt_settings,
@@ -1558,7 +1603,7 @@ def dse(
         )
         best = dse.run(
             flow,
-            xedaproject=xedaproject,
+            xedaproject=_project_for_launcher(project, design),
             design=design or design_name,
             flow_settings=list(flow_settings),
             target=selected_target,

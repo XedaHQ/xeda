@@ -22,9 +22,7 @@ from xeda.flow_runner.run_lock import lock_file
 from xeda.remote import client
 from xeda.remote.errors import RemoteConnectionError
 from xeda.run_root import RunRootError, is_run_root
-from xeda.xedaproject import PROJECT_FILE_NAMES
 
-from .project_files import PROJECT_FILE, TOML_PROJECT_FILE
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
@@ -84,28 +82,12 @@ def test_a_remote_run_takes_dash_s_flows_node_key_as_a_local_run_does(
     assert isinstance(outcome.error, RemoteConnectionError)
 
 
-def test_a_remote_run_refuses_a_directory_with_two_project_files_as_a_local_run_does(
-    tmp_path, remote_host, monkeypatch
-):
-    """One discovery rule for both: more than one project file is a `ProjectError` naming
-    them, before anything connects."""
-    monkeypatch.chdir(tmp_path)
-    design = _nextpnr_design(tmp_path)
-    (tmp_path / PROJECT_FILE).write_text("flows: {}\n")
-    (tmp_path / TOML_PROJECT_FILE).write_text("[flows]\n")
-    for request in (design, "d"):
-        outcome = remote_request(tmp_path, request, "nextpnr")
-        assert isinstance(outcome.error, ProjectError)
-        assert re.search(rf"{PROJECT_FILE}.*{TOML_PROJECT_FILE}.*keep one", str(outcome.error))
-    assert not connected(remote_host)
-
-
 @pytest.mark.parametrize("given", ["missing.yaml", Path("missing.toml")])
 def test_a_remote_run_reports_a_missing_project_file_as_a_local_run_does(
     tmp_path, remote_host, monkeypatch, given
 ):
     monkeypatch.chdir(tmp_path)
-    outcome = remote_request(tmp_path, _nextpnr_design(tmp_path), "nextpnr", xedaproject=given)
+    outcome = remote_request(tmp_path, "d", "nextpnr", xedaproject=given)
     assert isinstance(outcome.error, ProjectError)
     assert re.search(r"Cannot open project file .*missing.*no such file", str(outcome.error))
     assert not connected(remote_host)
@@ -117,29 +99,6 @@ def test_a_remote_run_treats_an_empty_project_name_as_none_given(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
     outcome = remote_request(tmp_path, _nextpnr_design(tmp_path), "nextpnr", xedaproject="")
-    assert isinstance(outcome.error, RemoteConnectionError)
-
-
-@pytest.mark.parametrize("name", PROJECT_FILE_NAMES)
-def test_a_remote_run_finds_a_lone_project_file_by_any_accepted_name(
-    tmp_path, remote_host, monkeypatch, name
-):
-    """The project is found (a broken one is reported, not skipped), whichever of the accepted
-    names it has."""
-    monkeypatch.chdir(tmp_path)
-    design = _nextpnr_design(tmp_path)
-    (tmp_path / name).write_text(
-        "flows: {nextpnr: {flatten: 1, flatten: 2}}\n"
-        if not name.endswith(".toml")
-        else "[flows.nextpnr\nflatten = 1\n"
-    )
-    outcome = remote_request(tmp_path, design, "nextpnr")
-    assert outcome.error is not None and re.search(r"flatten|line 1", str(outcome.error))
-    assert not connected(remote_host)
-
-    (tmp_path / name).write_text("flows: {}\n" if not name.endswith(".toml") else "[flows]\n")
-    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
-    outcome = remote_request(tmp_path, design, "nextpnr")
     assert isinstance(outcome.error, RemoteConnectionError)
 
 

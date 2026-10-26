@@ -3,9 +3,6 @@
 `tests/test_project.py` holds the tests of reading it.
 """
 
-import pytest
-
-from xeda.errors import ProjectError
 from xeda.project import Project
 from xeda.xedaproject import PROJECT_FILE_NAMES, find_default_xedaproject
 
@@ -48,22 +45,3 @@ def test_the_yaml_spelling_is_what_discovery_finds_first(tmp_path):
     assert PROJECT_FILE_NAMES[0] == PROJECT_FILE == "xedaproject.yaml"
     (tmp_path / PROJECT_FILE).write_text(DESIGN)
     assert find_default_xedaproject(tmp_path) == tmp_path / "xedaproject.yaml"
-
-
-def test_default_project_discovery_rejects_multiple_formats(tmp_path, monkeypatch):
-    from xeda.design import Design
-    from xeda.flow_runner import DefaultRunner
-
-    (tmp_path / PROJECT_FILE).write_text("flows: {}\n")
-    (tmp_path / TOML_PROJECT_FILE).write_text("[flows]\n")
-    monkeypatch.chdir(tmp_path)
-    runner = DefaultRunner(tmp_path / "run")
-
-    with pytest.raises(ProjectError) as raised:
-        runner._request("ghdl_sim", Design(name="d", root=tmp_path, rtl={"sources": []}))
-
-    message = str(raised.value)
-    assert PROJECT_FILE in message
-    assert TOML_PROJECT_FILE in message
-    assert "keep one" in message
-    assert raised.value.code == "several_project_files"

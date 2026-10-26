@@ -438,10 +438,10 @@ def test_a_project_file_refuses_it_naming_the_file(tmp_path, dotted_first):
     both_ways = BOTH_WAYS.format(dotted=table + r"\.fpga\.part", table=table)
     with pytest.raises(ProjectError, match=rf"{re.escape(str(path))}.*{both_ways}"):
         Project.load(path)
-    design = _yaml_design(tmp_path / "design")
+    # The launcher reads a project to select a design from it.
     with pytest.raises(ProjectError, match=rf"{re.escape(str(path))}.*{both_ways}"):
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
-            "vivado_synth", design, xedaproject=str(path)
+            "vivado_synth", "d", xedaproject=str(path)
         )
 
 

@@ -467,13 +467,63 @@ def test_a_positional_file_that_the_project_references_is_refused(tmp_path, monk
     assert not (tmp_path / "xeda_run").exists()
 
 
-def test_the_same_refusal_comes_from_the_launcher(tmp_path, monkeypatch):
+def test_the_launcher_does_not_look_for_a_project_or_check_a_listed_file(tmp_path, monkeypatch):
+    """Only the command line discovers the project file and refuses a listed design file. The
+    launcher reads the files it is given."""
     path = cli_project(tmp_path, monkeypatch)
+    (tmp_path / "xedaproject.toml").write_text("[flows]\n")  # two project files here now
     runner = DefaultRunner(tmp_path / "run")
-    for given in ("hw/fifo.yaml", str(tmp_path / "hw" / "fifo.yaml"), Path("hw/../hw/fifo.yaml")):
-        with pytest.raises(errors.ProjectError, match="--design-name fifo") as raised:
-            runner._request("vivado_synth", given, xedaproject=str(path))
-        assert raised.value.code == "use_design_name"
+    request = runner._request("vivado_synth", "hw/fifo.yaml", xedaproject=str(path))
+    assert str(path) not in dict(request.origins)
+    # no project is given, so a design name has no project to come from
+    with pytest.raises(errors.ProjectError, match="no project file") as raised:
+        runner._request("vivado_synth", "fifo")
+    assert raised.value.code == "project_file_not_found"
+
+
+def test_a_library_launch_of_a_project_design_ignores_the_files_of_the_start_directory(
+    tmp_path, monkeypatch
+):
+    path = cli_project(tmp_path, monkeypatch)
+    (tmp_path / "xedaproject.toml").write_text("[flows]\n")
+    design = Project.load(path).design("fifo")
+    request = DefaultRunner(tmp_path / "run")._request("vivado_synth", design)
+    assert str(path) in dict(request.origins)
+    plan = DefaultRunner(tmp_path / "run").plan("vivado_synth", design)
+    assert plan.node("vivado_synth").settings.fpga.part == "xc7a100tcsg324-1"
+
+
+def test_the_command_line_finds_one_project_file_and_refuses_two(tmp_path, monkeypatch):
+    cli_project(tmp_path, monkeypatch)
+    (tmp_path / "xedaproject.toml").write_text("[flows]\n")
+    for arguments in (("--design-name", "fifo"), ("other.yaml",)):
+        result, document = invoke("run", "vivado_synth", *arguments, "--dry-run", *PART)
+        assert result.exit_code == 2 and document["outcome"] is None, document
+        assert document["error"]["code"] == "several_project_files"
+        assert "keep one project file" in document["error"]["message"]
+    result, document = invoke(
+        "run",
+        "vivado_synth",
+        "--design-name",
+        "fifo",
+        "--dry-run",
+        "--xedaproject",
+        "xedaproject.yaml",
+    )
+    assert result.exit_code == 0, document
+
+
+@pytest.mark.parametrize("name", PROJECT_FILE_NAMES)
+def test_the_command_line_finds_a_lone_project_file_by_any_accepted_name(
+    tmp_path, monkeypatch, name
+):
+    """A broken project file is reported, not skipped, whichever name it has."""
+    monkeypatch.chdir(tmp_path)
+    design_file(tmp_path, "other.yaml")
+    (tmp_path / name).write_text("[flows\n" if name.endswith(".toml") else "flows: [a\n")
+    result, document = invoke("run", "vivado_synth", "other.yaml", "--dry-run", *PART)
+    assert result.exit_code == 2 and document["error"]["code"] == "invalid_project"
+    assert name in document["error"]["message"]
 
 
 def test_a_positional_file_the_project_does_not_reference_gets_no_project_layer(

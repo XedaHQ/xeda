@@ -209,6 +209,10 @@ def test_nextpnr_switches_on_the_netlist_it_reads(tmp_path, monkeypatch, tools):
     assert producers_of(runner, nextpnr)[0].settings.netlist_json == Path("netlist.json")
 
 
+def _project(tmp_path: Path) -> str:
+    return str(tmp_path / PROJECT_FILE)
+
+
 def _files(tmp_path: Path, nextpnr_part: str, yosys_part: str) -> Path:
     """Write the design file `d/blink.toml` and the project that lists it as the design `blink`."""
     root = tmp_path / "d"
@@ -231,7 +235,7 @@ def test_devices_that_differ_in_two_files_are_an_error_naming_both(tmp_path, mon
     `[flows.yosys_fpga] fpga`."""
     design_file = _files(tmp_path, OTHER_PART, PART)
     with pytest.raises(FlowSettingsError) as raised:
-        _runner(tmp_path, monkeypatch).run("nextpnr", "blink")
+        _runner(tmp_path, monkeypatch).run("nextpnr", "blink", xedaproject=_project(tmp_path))
     message = str(raised.value)
     for text in (PART, OTHER_PART, str(tmp_path / PROJECT_FILE), str(design_file)):
         assert text in message, text
@@ -241,7 +245,9 @@ def test_devices_that_differ_in_two_files_are_an_error_naming_both(tmp_path, mon
 def test_a_device_given_on_the_command_line_is_the_whole_run_s(tmp_path, monkeypatch, tools):
     _files(tmp_path, OTHER_PART, PART)
     runner = _runner(tmp_path, monkeypatch)
-    nextpnr = runner.run("nextpnr", "blink", flow_settings=[f"fpga.part={PART}"])
+    nextpnr = runner.run(
+        "nextpnr", "blink", xedaproject=_project(tmp_path), flow_settings=[f"fpga.part={PART}"]
+    )
     assert nextpnr is not None and nextpnr.succeeded
     assert nextpnr.settings.fpga.part == PART
     assert producers_of(runner, nextpnr)[0].settings.fpga.part == PART
@@ -371,8 +377,12 @@ def test_cli_device_leaf_preserves_section_origins(tmp_path, monkeypatch, tools,
         design_file.read_text() + 'clocks.main_clock.uncertainty = "0.3 ns"\nflatten = false\n'
     )
     runner = _runner(tmp_path, monkeypatch)
-    plan = runner.plan("nextpnr", "blink", flow_settings=[f"{cli_leaf}={PART}"])
-    flow = runner.run("nextpnr", "blink", flow_settings=[f"{cli_leaf}={PART}"])
+    plan = runner.plan(
+        "nextpnr", "blink", xedaproject=_project(tmp_path), flow_settings=[f"{cli_leaf}={PART}"]
+    )
+    flow = runner.run(
+        "nextpnr", "blink", xedaproject=_project(tmp_path), flow_settings=[f"{cli_leaf}={PART}"]
+    )
     assert flow.succeeded
     (producer,) = producers_of(runner, flow)
     assert flow.settings.fpga.part == producer.settings.fpga.part == PART

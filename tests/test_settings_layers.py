@@ -280,6 +280,7 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
         DefaultRunner(tmp_path / "run").run(
             "vivado_postsynth_sim",
             "d",
+            xedaproject=str(tmp_path / PROJECT_FILE),
             flow_settings=["nthreads=5", "flows.vivado_synth.fail_timing=false"],
         )
     assert launched["settings"] == {"timeout": 1, "nthreads": "5"}
@@ -856,7 +857,12 @@ def test_an_unknown_setting_in_a_lower_layer_is_still_reported(tmp_path, monkeyp
         f"designs: [{{file: {design.name}}}]\nflows:\n  nextpnr:\n    no_such_setting: 1\n",
     )
     with pytest.raises(FlowSettingsError, match="no_such_setting"):
-        DefaultRunner(tmp_path / "run").run("nextpnr", design.stem, flow_settings=["seed=3"])
+        DefaultRunner(tmp_path / "run").run(
+            "nextpnr",
+            design.stem,
+            xedaproject=str(tmp_path / PROJECT_FILE),
+            flow_settings=["seed=3"],
+        )
 
 
 def test_a_misdirected_setting_suggests_the_node_it_belongs_to(tmp_path, monkeypatch):

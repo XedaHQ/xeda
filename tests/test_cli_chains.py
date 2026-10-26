@@ -262,7 +262,7 @@ def test_a_project_binding_of_the_requested_node_given_to_dse_fetches_no_git_dep
         )
     )
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
-        _dse_runner(tmp_path).run("__taker", "d")
+        _dse_runner(tmp_path).run("__taker", "d", xedaproject=str(tmp_path / "xedaproject.yaml"))
     assert not fetched and not (tmp_path / "mirror").exists()
 
 
