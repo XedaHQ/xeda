@@ -2688,19 +2688,22 @@ class GitReference(DesignReference):
 
 @dataclass(frozen=True)
 class DependencyRecord:
-    """A Git dependency as planning resolved it: the repository, the reference as written, the
-    commit that the reference named, and where the checkout of that commit is.
+    """A dependency of a design as planning resolved it, at the index of its entry in
+    `Design.dependencies`.
 
-    `repository` has no user name and no password (`redacted_url`). `reference` is the branch or
-    tag as written, and `None` for a pinned commit or the `HEAD` of the repository.
-    `design_file` is the path of the design file in the repository. `checkout` is the resolved
-    directory of the checkout in the dependency storage."""
+    A Git dependency has its repository, the reference as written, the commit that the reference
+    named, and where the checkout of that commit is. `repository` has no user name and no
+    password (`redacted_url`). `reference` is the branch or tag as written, and `None` for a
+    pinned commit or the `HEAD` of the repository. `design_file` is the path of the design file in
+    the repository, and `checkout` is the resolved directory of the checkout in the dependency
+    storage. A local dependency has only its `design_file`, as written, and no repository, no
+    commit and no checkout."""
 
-    repository: str
+    repository: str | None
     reference: str | None
-    commit: str
+    commit: str | None
     design_file: str
-    checkout: Path
+    checkout: Path | None
 
     def as_mapping(self) -> dict[str, str | None]:
         """The record as a run record holds it (`RunRecord.dependencies`): no checkout."""
@@ -3787,6 +3790,7 @@ class Design(XedaBaseModel):
         roots = [
             (f"DEPENDENCY_{index}", record.checkout)
             for index, record in enumerate(self.resolved_dependencies)
+            if record.checkout is not None
         ]
         roots += [("DESIGN_ROOT", self.root_path)] if self.design_root else []
 

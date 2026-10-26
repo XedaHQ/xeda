@@ -760,3 +760,50 @@ def test_an_unknown_branch_is_fetch_failed_without_the_offline_advice(tmp_path, 
         resolve_reference(reference, run_root=run_root, field="dependencies[2]")
     assert failed.value.code == "fetch_failed" and failed.value.field == "dependencies[2]"
     assert "pin" not in str(failed.value)
+
+
+# ---------------------------------------------- local and Git dependencies in one design
+
+
+def _mixed(root: Path, remote: Remote, order: str = "local first") -> Path:
+    """A design with a local dependency and a Git dependency, in the order given."""
+    lib = root / "lib"
+    lib.mkdir()
+    (lib / "b.v").write_text("module b; endmodule\n")
+    (lib / "lib.yaml").write_text(yaml.safe_dump({"name": "lib", "rtl": {"sources": ["b.v"]}}))
+    local = {"uri": "lib/lib.yaml"}
+    git = {"uri": f"git+{remote.url}?commit={remote.first}#dep.yaml"}
+    (root / "top.v").write_text("module top; endmodule\n")
+    spec = {
+        "name": "d",
+        "rtl": {"sources": ["top.v"], "clocks": ["clk"]},
+        "dependencies": [local, git] if order == "local first" else [git, local],
+    }
+    (root / "d.yaml").write_text(yaml.safe_dump(spec))
+    return root / "d.yaml"
+
+
+def _names(plan) -> list[str]:
+    return [Path(s["path"]).name for s in _configuration(plan)["rtl"]["sources"]]
+
+
+def _dir(path: Path) -> Path:
+    path.mkdir()
+    return path
+
+
+def test_a_path_in_a_checkout_counts_under_the_index_of_its_entry(tmp_path):
+    from xeda.design import DependencyRecord
+
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    checkout = tmp_path / "xeda_run" / ".dependencies" / "k"
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": ["top.v"], "parameters": {"ROM": str(checkout / "rom.mem")}},
+    )
+    local = DependencyRecord(None, None, None, "lib/lib.yaml", None)
+    git = DependencyRecord("https://h/u/l.git", None, "a" * 40, "dep.yaml", checkout)
+    design = design.model_copy(update={"resolved_dependencies": (local, git)})
+    design.invalidate_cached_properties()
+    assert design.part_metadata("rtl")["parameters"] == {"ROM": "$DEPENDENCY_1/rom.mem"}

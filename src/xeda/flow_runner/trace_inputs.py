@@ -672,7 +672,9 @@ def expected_run(
         dependency_runs=dict(dependency_run_ids),
         declared_inputs=tuple(declared),
         settings_hash=settings_hash,
-        dependencies=tuple((d.repository, d.commit) for d in design.resolved_dependencies),
+        dependencies=tuple(
+            (d.repository, d.commit) for d in design.resolved_dependencies if d.commit is not None
+        ),
     )
 
 

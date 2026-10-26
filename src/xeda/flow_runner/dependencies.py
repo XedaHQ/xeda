@@ -219,7 +219,7 @@ def fetch(ref: GitReference, commit: str, *, run_root: Path, field: str = "depen
         )
         owner.writable(partial).mkdir(parents=True)
         try:
-            _clone(ref, commit, partial, owner)
+            _clone(ref, commit, partial, owner, field)
             record = {
                 "repository": redacted_url(ref.repo_url),
                 "commit": commit,
@@ -235,13 +235,12 @@ def fetch(ref: GitReference, commit: str, *, run_root: Path, field: str = "depen
     return storage
 
 
-def _clone(ref: GitReference, commit: str, into: Path, owner: RunDirectory) -> None:
+def _clone(ref: GitReference, commit: str, into: Path, owner: RunDirectory, field: str) -> None:
     """Put the files of `commit` into the empty directory `into`.
 
     The commit is fetched alone, as shallow as the server allows, and falls back to every branch
     and tag. The directory of Git is removed afterwards: the files are the content, and the
     directory could hold the URL."""
-    field = "dependencies"
     try:
         _git(["init", "--quiet", "."], repository=ref.repo_url, cwd=into)
         try:
@@ -316,10 +315,8 @@ def _local_design(design: Design, ref: DesignReference, field: str) -> Design:
     return Design.from_file(path)
 
 
-def _git_design(
-    ref: GitReference, storage: Path, field: str, records: list[DependencyRecord], commit: str
-) -> tuple[Design, int]:
-    """Load the design file of a Git dependency from its storage, and note the dependency."""
+def _git_design(ref: GitReference, storage: Path, field: str) -> Design:
+    """Load the design file of a Git dependency from its storage."""
     path = _within(storage, ref.design_file)
     if path is None or not path.is_file():
         raise _failure(
@@ -331,26 +328,28 @@ def _git_design(
                 else f"`{ref.design_file}` is not a file"
             ),
         )
-    index = len(records)
-    records.append(
-        DependencyRecord(
-            repository=redacted_url(ref.repo_url),
-            reference=ref.branch,
-            commit=commit,
-            design_file=ref.design_file,
-            checkout=Path(os.path.realpath(storage)),
-        )
-    )
-    return Design.from_file(path), index
+    return Design.from_file(path)
 
 
 def _merge(
-    design: Design, run_root: Path | None, git: bool, records: list[DependencyRecord]
+    design: Design,
+    run_root: Path | None,
+    git: bool,
+    slots: list[DependencyRecord | None],
+    first: int | None,
 ) -> Design:
+    """Merge the dependencies of `design`, in the order they are listed.
+
+    Each entry has a slot in `slots`, its index. The entries of the design that planning
+    started from take the slots `0..n-1` at their positions (`first` is `None`). The entries of
+    a dependency come after, in the order they are met (`first` is `len(slots)` then)."""
     merged: list[MergedDependency] = []
     remaining: list[DesignReference] = []
     for position, ref in enumerate(design.dependencies):
         field = f"dependencies[{position}]"
+        index = position if first is None else len(slots)
+        if first is not None:
+            slots.append(None)
         if isinstance(ref, GitReference):
             if not git:
                 remaining.append(ref)
@@ -358,30 +357,40 @@ def _merge(
             assert run_root is not None
             commit = resolve_reference(ref, run_root=run_root, field=field)
             storage = fetch(ref, commit, run_root=run_root, field=field)
-            loaded, index = _git_design(ref, storage, field, records, commit)
-            checkout = records[index].checkout
+            loaded = _git_design(ref, storage, field)
+            checkout = Path(os.path.realpath(storage))
+            slots[index] = DependencyRecord(
+                redacted_url(ref.repo_url), ref.branch, commit, ref.design_file, checkout
+            )
+            marked: tuple[int | None, Path | None] = (index, checkout)
         else:
-            loaded, index, checkout = _local_design(design, ref, field), None, None
-        loaded = _merge(loaded, run_root, git, records)
+            loaded = _local_design(design, ref, field)
+            slots[index] = DependencyRecord(None, None, None, str(ref.uri), None)
+            marked = (None, None)
+        loaded = _merge(loaded, run_root, git, slots, len(slots))
         remaining.extend(loaded.dependencies)
-        merged.append(MergedDependency(ref, loaded, index, checkout))
-    return design.merged_with(merged, remaining, records)
+        merged.append(MergedDependency(ref, loaded, *marked))
+    resolved = tuple(slot for slot in slots if slot is not None) if first is None else ()
+    return design.merged_with(merged, remaining, resolved if git else ())
 
 
 def merged_design(design: Design, *, run_root: Path | None, git: bool = True) -> Design:
     """Return `design` with the sources and the metadata of its dependencies merged in.
 
-    A local dependency is a design file on disk, relative to the root of the design that lists
-    it. It must exist now. A Git dependency is resolved to a commit (`resolve_reference`) and
-    fetched (`fetch`), and its design file is read from the storage. With `git=False` the Git
-    dependencies are left as references, so nothing is fetched and `run_root` can be `None`
-    (a remote launch packs the result and the host fetches). The dependencies of a dependency
-    merge first. The result lists the Git dependencies that it merged
-    (`Design.resolved_dependencies`) and the sources of each one carry its index. `design` itself
-    does not change, and a design without dependencies is returned as it is."""
-    if not design.dependencies or not (
-        git or any(not isinstance(ref, GitReference) for ref in design.dependencies)
-    ):
+    The entries of `design.dependencies` merge in the order they are listed. A local dependency
+    is a design file on disk, relative to the root of the design that lists it. It must exist
+    now. A Git dependency is resolved to a commit (`resolve_reference`) and fetched (`fetch`), and
+    its design file is read from the storage. The dependencies of a dependency merge before it
+    does.
+
+    The result lists every entry in `Design.resolved_dependencies` at its index, its position in
+    `design.dependencies`. The sources of a Git dependency carry that index. The entries of a
+    dependency come after those of the design.
+
+    With `git=False` the Git dependencies are left as references: nothing is fetched, `run_root`
+    can be `None`, and the result lists no resolved dependency. A remote request uses it to
+    package the design, since the host fetches. `design` itself does not change, and a design
+    without dependencies is returned as it is."""
+    if not design.dependencies:
         return design
-    records = list(design.resolved_dependencies)
-    return _merge(design, run_root, git, records)
+    return _merge(design, run_root, git, [None] * len(design.dependencies), None)
