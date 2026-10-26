@@ -93,6 +93,7 @@ __all__ = [
     "compose_flow_settings",
     "merge_flow_sections",
     "merge_layers",
+    "read_command_line_text",
     "check_run_flows",
     "command_line_sections",
     "split_flow_sections",
@@ -450,22 +451,25 @@ def _atomic_table(key: str, value: Any) -> Any:
     return atoms
 
 
-def _read_command_line_text(
-    values: dict[str, Any], settings_cls: type[XedaBaseModel]
+def read_command_line_text(
+    values: dict[str, Any], settings_cls: type[XedaBaseModel], *, settings_error: bool = True
 ) -> dict[str, Any]:
     """Return `values` with each leaf of command-line text read as the type of its setting.
 
     Only the text of a `KEY=VALUE` item is read (`SettingText`). A value from Python or from a
-    file is never converted. The settings of a flow report a leaf that is no value of its type as
-    a `FlowSettingsError`. Other models let the `SettingTextError` through for their loader to
-    report."""
+    file is never converted. A leaf that is no value of its type is a `FlowSettingsError`, or with
+    `settings_error` false, a `SettingTextError` for a loader that reports it in its own way (the
+    design)."""
     try:
         return parse_text_leaves(values, settings_cls)
     except SettingTextError as error:
-        if not issubclass(settings_cls, Flow.Settings):
+        if not settings_error:
             raise
         raise FlowSettingsError(
-            [(address, message, None, kind) for address, message, kind in error.problems],
+            [
+                (address.replace(".", " -> "), message, None, kind)
+                for address, message, kind in error.problems
+            ],
             settings_cls,
         ) from error
 
@@ -485,7 +489,9 @@ def merge_layers(
         if layer:
             values = settings_to_dict(layer)  # type: ignore[arg-type]
             if settings_cls is not None:
-                values = _read_command_line_text(values, settings_cls)
+                values = read_command_line_text(
+                    values, settings_cls, settings_error=issubclass(settings_cls, Flow.Settings)
+                )
                 values = _with_atomic_names(values, settings_cls)
                 merged = _merge_settings_layer(merged, values, settings_cls, append)
             else:

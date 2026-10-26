@@ -74,9 +74,105 @@ def test_verbose_takes_a_whole_number_and_refuses_everything_else(given):
     assert settings.verbose == 2, "a refused assignment changes nothing"
 
 
-@pytest.mark.parametrize("given", [2, "2"], ids=repr)
-def test_verbose_takes_a_number_as_it_is_written_in_a_file_or_on_the_command_line(given):
-    assert Flow.Settings.from_input({"verbose": given}).verbose == 2
+def test_verbose_takes_a_number_and_not_its_text():
+    assert Flow.Settings.from_input({"verbose": 2}).verbose == 2
+    with pytest.raises(FlowSettingsError, match="verbose"):
+        Flow.Settings.from_input({"verbose": "2"})
+
+
+def _codes(build) -> list[str]:
+    """The codes of the errors that `build` raises as a refusal of settings or of a model."""
+    from xeda.flow_runner.error_codes import settings_codes
+
+    with pytest.raises((FlowSettingsError, ValidationError)) as error:
+        build()
+    if isinstance(error.value, FlowSettingsError):
+        return settings_codes(error.value)
+    return [
+        "boolean_text" if e["type"] == "boolean_text" else "invalid_value"
+        for e in error.value.errors()
+    ]
+
+
+@pytest.mark.parametrize("value", ["1", 1.0, True])
+def test_an_int_setting_takes_only_an_int(value):
+    assert _codes(lambda: _flow("nextpnr").Settings(seed=value)) == ["invalid_value"]
+    assert _flow("nextpnr").Settings(seed=1).seed == 1
+
+
+@pytest.mark.parametrize(("value", "ok"), [(3, True), (3.5, True), (True, False), ("3", False)])
+def test_a_float_setting_takes_an_int_or_a_float(value, ok):
+    from xeda.flow.synth import PhysicalClock
+
+    if ok:
+        assert PhysicalClock(period="1 ns", duty_cycle=value if value < 1 else 0.5)
+    assert ok or _codes(lambda: PhysicalClock(period="1 ns", duty_cycle=value)) == ["invalid_value"]
+
+
+@pytest.mark.parametrize(
+    ("value", "ok"),
+    [("random", True), (5, True), ("5", False), (True, False), (5.0, False)],
+    ids=repr,
+)
+def test_a_union_branch_is_strict_too(value, ok):
+    settings = _flow("verilator").Settings
+    if ok:
+        assert settings(random_seed=value).random_seed == value
+    else:
+        assert _codes(lambda: settings(random_seed=value)) == ["invalid_value"]
+
+
+@pytest.mark.parametrize("value", [[10, 20], ["10"], [True]], ids=repr)
+def test_a_list_item_is_strict_too(value):
+    from .settings_samples import minimal_settings
+
+    cls = _flow("openroad_place")
+    base = minimal_settings(cls)
+    key = {"global_placement": {"timing_driven": {"reweight_overflow_percent": value}}}
+    if value == [10, 20]:
+        assert cls.Settings(**base, **key)
+    else:
+        assert _codes(lambda: cls.Settings(**base, **key)) == ["invalid_value"]
+
+
+def test_the_items_of_comma_separated_text_are_text():
+    from .settings_samples import minimal_settings
+
+    cls = _flow("openroad_place")
+    key = {"global_placement": {"timing_driven": {"reweight_overflow_percent": "10,20"}}}
+    assert _codes(lambda: cls.Settings(**minimal_settings(cls), **key)) == ["invalid_value"]
+
+
+def test_a_nested_group_leaf_is_strict_too():
+    from .settings_samples import minimal_settings
+
+    cls = _flow("openroad_grt")
+    base = minimal_settings(cls)
+    assert cls.Settings(**base, antenna={"iterations": 2}).antenna.iterations == 2
+    assert _codes(lambda: cls.Settings(**base, antenna={"iterations": "2"})) == ["invalid_value"]
+
+
+def test_an_assignment_is_strict_too():
+    settings = _flow("nextpnr").Settings(seed=1)
+    with pytest.raises(ValidationError, match="seed"):
+        settings.seed = "2"
+    assert settings.seed == 1
+
+
+def test_a_python_string_for_an_int_setting_stays_refused():
+    assert _codes(lambda: _flow("nextpnr").Settings.from_input({"seed": "4"})) == ["invalid_value"]
+
+
+@pytest.mark.parametrize("value", ["true", "false", "yes", 1], ids=repr)
+def test_a_boolean_setting_takes_only_a_boolean(value):
+    assert _codes(lambda: _flow("nextpnr").Settings(timing_allow_fail=value)) == ["boolean_text"]
+
+
+def test_code_keeps_its_two_forms():
+    from xeda.flow.fpga import FPGA
+
+    assert FPGA(part="xc7a100t", speed="1").speed == "1"
+    assert FPGA(part="xc7a100t", speed=1).speed == "1"
 
 
 def test_a_code_may_be_written_as_a_number():
@@ -567,6 +663,12 @@ def _values_of_another_type(kinds: "set[str]", literals: "set[object]") -> list:
         wrong.append(2.5)
     if not kinds & {"int", "float", "bool", "literal"}:
         wrong += [True, False]
+    if not text:
+        wrong += ["1", "true"]  # a number or a switch is never taken from its text
+    if "int" in kinds and "float" not in kinds:
+        wrong.append(1.0)
+    if kinds & {"int", "float"} and "bool" not in kinds and "literal" not in kinds:
+        wrong += [True, False]  # a switch is no number
     if not kinds & {"int", "float"}:
         # A switch takes `true` and `false` only, never the numbers 0 and 1.
         wrong += [number for number in (0, 1, 2) if number not in literals]
@@ -662,7 +764,12 @@ def test_a_scalar_setting_refuses_a_value_of_another_type_naming_the_setting(mod
         if kinds is None:
             continue
         wrong = _values_of_another_type(*kinds)
-        wrong = [bad for bad in wrong if type(bad) not in taken_types]
+        wrong = [
+            bad
+            for bad in wrong
+            if type(bad) not in taken_types
+            and not any(bad == one and type(bad) is type(one) for one in kinds[1])
+        ]
         if waveform_format_of(model, name):
             wrong = [bad for bad in wrong if not isinstance(bad, bool)]
         for bad in wrong:

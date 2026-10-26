@@ -1235,7 +1235,7 @@ class Flow(metaclass=ABCMeta):
                 return cls.model_validate(dict(data), context=context)
             except ValidationError as e:
                 debug = data.get("debug")
-                if debug is True or (isinstance(debug, str) and debug.lower() == "true"):
+                if debug is True:
                     raise e
                 raise FlowSettingsError(_with_case_hints(cls, e.errors()), cls, e.json()) from e
 

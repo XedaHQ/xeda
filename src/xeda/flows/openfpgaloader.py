@@ -487,17 +487,15 @@ class OpenfpgaloaderTool(Tool):
 def _switched_on(value: Any) -> bool:
     """Tell whether the input of a Boolean setting, as given, turns it on.
 
-    The function reads the input the way the setting does. A boolean turns it on, and so does
-    `true` as text (how a command line writes one). `yes`, `on` and numbers are no booleans, so
-    they are off here. The validation of the setting refuses them and says what to write."""
-    return value is True or (isinstance(value, str) and value.lower() == "true")
+    The function reads the input the way the setting does. Only `True` turns it on. Text and
+    numbers are no booleans, so they are off here. The validation of the setting refuses them and
+    says what to write."""
+    return value is True
 
 
 def _is_boolean(value: Any) -> bool:
     """Tell whether the input of a Boolean setting, as given, is a boolean it accepts."""
-    return isinstance(value, bool) or (
-        isinstance(value, str) and value.lower() in ("true", "false")
-    )
+    return isinstance(value, bool)
 
 
 class Openfpgaloader(FpgaSynthFlow):
@@ -655,8 +653,8 @@ class Openfpgaloader(FpgaSynthFlow):
             the whole state with the assigned value, before the settings store anything. The
             order in which the two settings are given or assigned therefore does not matter, and
             a refused assignment leaves the settings as they were. The check reads each value as
-            its field will read it (`true` as text is true; `1` and `"yes"` are no booleans, and
-            the field refuses them). It rewrites nothing."""
+            its field will read it (text and numbers are no booleans, and the field refuses
+            them). It rewrites nothing."""
             flash = values.get("write_flash")
             if (
                 _switched_on(values.get("verify"))

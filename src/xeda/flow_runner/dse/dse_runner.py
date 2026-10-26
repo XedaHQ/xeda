@@ -35,7 +35,7 @@ from ..default_runner import (
     remove_file_logger,
 )
 from ..scrub import run_directory_names
-from ..settings_layers import merge_layers
+from ..settings_layers import merge_layers, read_command_line_text
 from ..resolver import Plan, planned_design_of
 from ..run_lock import run_dir_lock
 from ..trace import as_recorded
@@ -300,8 +300,11 @@ class Dse(FlowLauncher):
         run_root: Union[str, Path, None] = None,
         **kwargs,
     ) -> None:
-        """Configure the optimizer and the run root (default `./xeda_run`) of a DSE launcher."""
-        super().__init__(run_root, **kwargs)
+        """Configure the optimizer and the run root (default `./xeda_run`) of a DSE launcher.
+
+        The text of `KEY=VALUE` items in `kwargs` and in `optimizer_settings` (as the command line
+        gives them) is read as the type of each setting."""
+        super().__init__(run_root, **read_command_line_text(kwargs, self.Settings))
         assert isinstance(self.settings, self.Settings)
 
         # update settings
@@ -316,6 +319,9 @@ class Dse(FlowLauncher):
             optimizer_class = cls
         if not isinstance(optimizer_settings, Optimizer.Settings):
             assert isinstance(optimizer_settings, dict)
+            optimizer_settings = read_command_line_text(
+                optimizer_settings, optimizer_class.Settings
+            )
             try:
                 optimizer_settings = optimizer_class.Settings(**optimizer_settings)
             except ValidationError as e:

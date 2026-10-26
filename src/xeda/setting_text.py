@@ -81,11 +81,12 @@ def _is_text(annotation: Any) -> bool:
 
 
 def _is_sequence(annotation: Any) -> bool:
-    origin = get_origin(annotation)
-    if origin in (list, set, frozenset):
-        return True
+    return get_origin(annotation) in (list, set, frozenset, tuple)
+
+
+def _is_fixed_tuple(annotation: Any) -> bool:
     args = get_args(annotation)
-    return origin is tuple and len(args) == 2 and args[1] is Ellipsis
+    return get_origin(annotation) is tuple and not (len(args) == 2 and args[1] is Ellipsis)
 
 
 def _items_type(annotation: Any) -> Any:
@@ -104,8 +105,9 @@ def parse_setting_text(annotation: Any, text: str, *, address: str) -> Any:
       text, for the validation of the setting to judge;
     - `Literal[...]`: the text when it is a member, else the text read as the type of the members
       (`Literal[1, 2]`);
-    - a list or `tuple[X, ...]`: the items at the commas, each read as `X`. Text spelled `[...]`
-      is refused (`list_text`);
+    - a list or `tuple[X, ...]`: the items at the commas, each read as `X`. A tuple of fixed
+      length takes that many items, each read as its own type. Text spelled `[...]` is refused
+      (`list_text`);
     - a union: the first branch, in the order of the declaration, that reads the text. Branches
       that take any text come last.
 
@@ -145,6 +147,11 @@ def _parse(annotation: Any, text: str, address: str, *, in_union: bool) -> Any:
                 LIST_TEXT_MESSAGE.format(shown=error.shown, key=address),
                 "list_text",
             ) from None
+        if _is_fixed_tuple(annotation):
+            kinds = get_args(annotation)
+            if len(items) != len(kinds):
+                raise _problem(address, f"`{text}` needs {len(kinds)} values, separated by commas")
+            return tuple(_parse(k, one, address, in_union=False) for k, one in zip(kinds, items))
         item = _items_type(annotation)
         values = [_parse(item, one, address, in_union=False) for one in items]
         return tuple(values) if origin is tuple else values

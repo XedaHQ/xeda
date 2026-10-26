@@ -23,10 +23,7 @@ from typing import Annotated, Any, ClassVar, Dict, List, Optional, Sequence, Typ
 
 from ...dataclass import (
     Field,
-    ListLiteralText,
     XedaBaseModel,
-    comma_separated_items,
-    field_validator,
 )
 from ...design import Design
 from ...flow import (
@@ -266,9 +263,9 @@ Finite = Annotated[float, Field(allow_inf_nan=False)]
 
 class WireRcSettings(XedaBaseModel):
     """The setting `wire_rc`: the wire resistance and capacitance that replace the values of the
-    platform. It has the fields of the platform's `WireRc`, but it reads its numbers as every
-    number setting does, so the command line can give them (`-s wire_rc.vias.v1=0.5`). The
-    platform model keeps its strict numbers for the typed files of a platform."""
+    platform. It has the fields of the platform's `WireRc`. The command line gives the numbers as
+    text (`-s wire_rc.vias.v1=0.5`, `-s wire_rc.layers.metal1=0.4,0.2`), which is read as numbers
+    before the model sees it."""
 
     signal_layer: Optional[str] = Field(
         None, description="Layer whose resistance and capacitance estimate a signal net."
@@ -289,22 +286,6 @@ class WireRcSettings(XedaBaseModel):
         "resistance unit of the Liberty file.",
         json_schema_extra=library_units(),
     )
-
-    @field_validator("layers", mode="before")
-    @classmethod
-    def _pair_as_text(cls, value: Any) -> Any:
-        """Read a pair given as text by the rule that every list given as text uses."""
-        if not isinstance(value, dict):
-            return value
-        pairs = {}
-        for layer, pair in value.items():
-            if isinstance(pair, str):
-                try:
-                    pair = comma_separated_items(f"layers.{layer}", pair)
-                except ListLiteralText as error:
-                    raise error.validation_error() from None
-            pairs[layer] = pair
-        return pairs
 
 
 def merge_wire_rc(platform: WireRc, given: Optional[WireRcSettings]) -> WireRc:

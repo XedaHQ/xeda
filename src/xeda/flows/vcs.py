@@ -6,7 +6,7 @@ from typing import ClassVar, Dict, List, Literal, Optional, Union
 from colorama import Fore as fg
 from colorama import Style as style
 
-from ..dataclass import WORKING, Field, field_validator, waveform
+from ..dataclass import WORKING, Field, waveform
 from ..design import SourceType, language_of
 from ..flow import (
     Flow,
@@ -276,14 +276,6 @@ class Vcs(SimFlow):
             "limit, it overwrites older history. Needs `vpd`.",
             json_schema_extra=data_size(),
         )
-
-        @field_validator("gui", "debug_access", mode="before")
-        @classmethod
-        def _switch_text_is_a_switch(cls, value):
-            """Read `true` and `false` text (how a command line writes a boolean) as a boolean."""
-            if isinstance(value, str) and value.lower() in ("true", "false"):
-                return value.lower() == "true"
-            return value
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:

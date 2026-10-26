@@ -14,6 +14,7 @@ import pytest
 
 from xeda.dataclass import ValidationError
 from xeda.flow import FPGA, FlowSettingsError
+from xeda.flow_runner.settings_layers import merge_layers
 from xeda.flow.flow import flowrun_hash
 from xeda.flow.synth import PhysicalClock
 from xeda.flows import Nextpnr, Quartus, VivadoSynth, Yosys, YosysFpga
@@ -93,12 +94,17 @@ def test_the_fall_time_is_a_time_and_stays_inside_the_period():
         PhysicalClock(period="10 ns", rise="9 ns").fall  # type: ignore[call-arg]
 
 
-@pytest.mark.parametrize("value", [0.5, "0.5", " 0.5 ", Decimal("0.5")])
+@pytest.mark.parametrize("value", [0.5, 0.50])
 def test_duty_cycle_accepts_unitless_numeric_values(value):
-    """The command line form `-s clock.duty_cycle=0.5` arrives as the text `"0.5"`."""
     clock = PhysicalClock(period="5 ns", duty_cycle=value)  # type: ignore[call-arg]
     assert clock.duty_cycle == 0.5
     assert clock.fall == Time("2.5 ns")
+
+
+def test_the_command_line_text_of_a_duty_cycle_is_a_number():
+    """`-s clocks.main_clock.duty_cycle=0.5` is read as the number before the model sees it."""
+    merged = merge_layers(["clocks.main_clock.duty_cycle=0.5"], settings_cls=VivadoSynth.Settings)
+    assert merged == {"clocks": {"main_clock": {"duty_cycle": 0.5}}}
 
 
 def test_the_duty_cycle_is_a_marked_fraction():
@@ -253,10 +259,10 @@ def test_clock_period_was_removed(extra):
         VivadoSynth.Settings(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.0, **extra)
 
 
-@pytest.mark.parametrize("value", ["0.5ns", "50%", "half"])
-def test_duty_cycle_rejects_units_and_non_numeric_values(value):
+@pytest.mark.parametrize("value", ["0.5", "0.5ns", "50%", "half", True, Decimal("0.5")])
+def test_duty_cycle_takes_only_a_number(value):
     """Duty cycle is a unitless ratio, unlike the clock timing fields."""
-    with pytest.raises(ValidationError, match="unitless number"):
+    with pytest.raises(ValidationError, match="duty_cycle"):
         PhysicalClock(period="5 ns", duty_cycle=value)  # type: ignore[call-arg]
 
 

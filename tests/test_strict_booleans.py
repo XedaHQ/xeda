@@ -39,14 +39,21 @@ def test_a_design_boolean_given_a_yaml_11_word_says_what_to_write(tmp_path, word
     assert "language.vhdl.synopsys" in str(raised.value)
 
 
-@pytest.mark.parametrize("value", ['"true"', "true", "false"])
-def test_text_true_and_false_are_still_a_boolean(tmp_path, value):
-    # a command line has no other way to write one
-    expected = value.strip('"') == "true"
+@pytest.mark.parametrize("value", ["true", "false"])
+def test_a_design_boolean_is_true_or_false(tmp_path, value):
+    expected = value == "true"
     assert (
         _design(tmp_path, f"language: {{vhdl: {{synopsys: {value}}}}}").language["vhdl"]["synopsys"]
         is expected
     )
+
+
+@pytest.mark.parametrize("value", ['"true"', '"false"'])
+def test_quoted_true_and_false_are_text_and_no_boolean(tmp_path, value):
+    with pytest.raises(DesignValidationError) as raised:
+        _design(tmp_path, f"language: {{vhdl: {{synopsys: {value}}}}}")
+    assert "is text, not a boolean" in str(raised.value)
+    assert "language.vhdl.synopsys" in str(raised.value)
 
 
 def test_a_design_text_that_is_not_a_boolean_names_both_spellings(tmp_path):

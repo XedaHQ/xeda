@@ -163,6 +163,14 @@ def test_a_list_is_split_at_commas_and_each_item_is_read_as_its_own_type(
     assert result == expected and type(result) is type(expected)
 
 
+def test_a_tuple_of_fixed_length_takes_that_many_items_of_their_own_types():
+    pair = tuple[float, float]
+    assert parsed(pair, "0.5, 2") == (0.5, 2.0)
+    assert [problem[2] for problem in refusal(pair, "0.5")] == ["invalid_value"]
+    assert [problem[2] for problem in refusal(pair, "0.5,1,2")] == ["invalid_value"]
+    assert [problem[2] for problem in refusal(pair, "0.5,x")] == ["invalid_value"]
+
+
 @pytest.mark.parametrize("text", ["[]", "[a,b]", " [x] "])
 def test_text_spelled_as_a_list_is_refused(text):
     (problem,) = refusal(list[str], text)
@@ -346,3 +354,20 @@ def test_a_design_update_that_is_no_number_names_the_setting(tmp_path):
     with pytest.raises(DesignValidationError) as error:
         design.with_updates(settings_to_dict(["language.vhdl.synopsys=maybe"]))
     assert [item[0] for item in error.value.errors] == ["language.vhdl.synopsys"]
+
+
+def test_the_text_of_the_exploration_settings_is_read_as_their_types():
+    from xeda.flow_runner.dse.dse_runner import Dse
+
+    optimizer = settings_to_dict(["init_freq_low=50", "init_freq_high=100"])
+    explorer = Dse(
+        "fmax_optimizer",
+        optimizer_settings=optimizer,
+        **settings_to_dict(["max_failed_iters=2", "keep_optimal_run_dirs=true"]),
+    )
+    assert explorer.settings.max_failed_iters == 2
+    assert explorer.settings.keep_optimal_run_dirs is True
+    with pytest.raises(FlowSettingsError) as error:
+        Dse("fmax_optimizer", optimizer_settings=optimizer, **settings_to_dict(["timeout=soon"]))
+    assert settings_codes(error.value) == ["invalid_value"]
+    assert error.value.errors[0][0] == "timeout"
