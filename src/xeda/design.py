@@ -33,6 +33,7 @@ from typing import (
     ClassVar,
     Dict,
     List,
+    Literal,
     Optional,
     NamedTuple,
     NotRequired,
@@ -3649,7 +3650,7 @@ class Design(XedaBaseModel):
         the updates of this design (`updates`). No generator runs.
 
         Raises `DesignValidationError` for a key that a design does not have."""
-        data = self.to_dict()
+        data = self._document("json")
         if self.target is not None:
             data["target"] = self.target
         data = self._updated(data, updates)
@@ -3680,7 +3681,22 @@ class Design(XedaBaseModel):
 
         `Design(root=d.root, **d.to_dict())` is a design with the configuration of `d` and no
         target."""
-        return self.model_dump(mode="json", exclude={"root", "target", "targets", "updates"})
+        return self._document("json")
+
+    def _document(self, mode: Literal["json", "python"]) -> dict[str, Any]:
+        """Return the effective design as a table of a design file, in the `mode` of a dump.
+
+        A testbench with a `Cocotb` source and no cocotb table has said `cocotb: false`: a design
+        derives the table from the source when `cocotb` is missing, so the refusal is written."""
+        document = self.model_dump(mode=mode, exclude={"root", "target", "targets", "updates"})
+        tb = document.get("tb")
+        if (
+            isinstance(tb, dict)
+            and tb.get("cocotb") is None
+            and any(source.type is SourceType.Cocotb for source in self.tb.sources)
+        ):
+            tb["cocotb"] = False
+        return document
 
     @property
     def generation_label(self) -> str:

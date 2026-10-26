@@ -350,3 +350,40 @@ def test_a_design_cannot_be_built_without_a_root(tmp_path):
         Design.model_validate_json('{"name": "a", "rtl": {"sources": []}}')
     design = Design(root=tmp_path, **keys)  # type: ignore[arg-type]
     assert design.model_copy(update={"description": "d"}).root == tmp_path.resolve()
+
+
+def _cocotb_design(root: Path, **tb: object) -> Design:
+    (root / "test_a.py").write_text("")
+    return Design(
+        name="a",
+        root=root,
+        rtl={"sources": [], "top": "a"},
+        tb={"sources": [{"file": "test_a.py", "type": "Cocotb"}], "top": "a", **tb},
+    )
+
+
+def test_an_explicit_cocotb_refusal_survives_an_update_and_a_reload(tmp_path):
+    from xeda.flow_runner.configuration import design_configuration
+
+    refused = _cocotb_design(tmp_path, cocotb=False)
+    derived = _cocotb_design(tmp_path)
+    assert refused.tb.cocotb is None and derived.tb.cocotb is not None
+    for design in (refused, derived):
+        for same in (
+            design.with_updates({}),
+            design.with_updates({"rtl.top": "a"}),
+            Design(root=design.root, **design.to_dict()),
+        ):
+            assert same == design
+            assert same.tb.cocotb == design.tb.cocotb
+            assert design_configuration(same) == design_configuration(design)
+    assert refused.to_dict()["tb"]["cocotb"] is False
+    assert isinstance(derived.to_dict()["tb"]["cocotb"], dict)
+
+
+def test_a_new_cocotb_source_after_an_update_still_turns_cocotb_on(tmp_path):
+    (tmp_path / "test_b.py").write_text("")
+    plain = Design(name="a", root=tmp_path, rtl={"sources": []}, tb={"sources": [], "top": "a"})
+    assert plain.tb.cocotb is None
+    changed = plain.with_updates({"tb.sources": [{"file": "test_b.py", "type": "Cocotb"}]})
+    assert changed.tb.cocotb is not None
