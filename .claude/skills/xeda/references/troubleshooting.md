@@ -4,8 +4,10 @@
 
 1. `outcome`, `error.code` and `error.message` of the `run --json` document. A request that starts no
    launch has `outcome: null` and exit status 2 (a usage error has the code `usage_error` and
-   `spec: null`).
-2. `error.node` names the node that decides the outcome, and its `record.error` has the same error.
+   `spec: null`). A Ctrl-C before the launch started has `outcome: null`, the code `canceled` and
+   exit status 1.
+2. `error.node` names the node that decides the outcome, or is `null` for an error of the whole
+   launch. When that node has a record, its `record.error` has the same error.
    `nodes` lists every planned node; a node that a failed producer stopped is `blocked` (its
    `blocked_by` names the producer), and one the launch never reached is `skipped`.
    A run whose checks rejected the results is reported again, unchanged, on the next launch with

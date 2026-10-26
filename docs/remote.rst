@@ -360,8 +360,9 @@ not be delivered has ``delivery_failed``: in both, the nodes keep their records.
 outcome ``canceled`` and the code ``canceled``. A launch that Xeda stopped following has the outcome
 ``detached`` and the error code ``remote_detached``. A request that Xeda refuses before it connects
 (a bad setting, design or chain, or a refused ``--outputs-to``) starts no launch: the outcome is
-``null`` and the exit status is 2. A dry run adds ``remote``, ``mirror`` and ``uploaded``. :doc:`machine-readable` lists all keys. The output of
-the tools goes to stderr.
+``null`` and the exit status is 2. A dry run prints the dry-run document, which has a layout of its
+own, and adds ``remote``, ``mirror`` and ``uploaded`` to it. :doc:`machine-readable` lists all
+keys. The output of the tools goes to stderr.
 
 Dry runs
 ========
@@ -466,9 +467,9 @@ between them (NFS may not). The options are:
 Troubleshooting
 ===============
 
-Every failure of a remote run is an error with a type. A text run shows the message. With
-``--json``, the document has an ``outcome`` other than ``passed`` and an ``error`` with a ``code``
-and a ``message`` (see :doc:`machine-readable`). The messages name the step that failed and the cause. Run with ``-d`` to
+A text run shows the message of a failure of a remote run. With ``--json``, the document has an
+``outcome`` other than ``passed`` and an ``error`` with a ``code`` and a ``message`` (see
+:doc:`machine-readable`). The messages name the step that failed and the cause. Run with ``-d`` to
 see the commands and the output of the host.
 
 Common problems

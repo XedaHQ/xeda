@@ -95,7 +95,8 @@ output of that kind and nothing else. An input also says:
 
 - whether it is ``required`` (the flow cannot run without it);
 - whether it is ``optional`` (an optional list, which may be empty);
-- whether it compares ``equivalence`` (see ``record.outputs`` above);
+- whether it compares ``equivalence`` digests, which only ``trace.json`` holds (see
+  ``record.outputs`` below);
 - which ``producer`` and ``output`` are its default.
 
 An output names the setting that enables it in ``enabled_by``.
@@ -411,7 +412,8 @@ location, so Xeda delivered the file there once the run finished:
     }
 
 The exit status follows ``outcome``: 0 for ``passed``, 1 for every other outcome, and 2 for a request
-that started no launch.
+that started no launch. A Ctrl-C before the launch started also has no outcome, and its exit status
+is 1.
 
 ``xeda run`` also takes a chain, such as ``xeda run yosys_fpga+nextpnr+fpga_pack design.yaml``. The
 last flow of a chain is the requested flow: it is the only entry of ``roots``, and the outcome is
@@ -493,8 +495,8 @@ fresh random seed. A node that failed is not reused: the next launch runs it aga
 
 The declared outputs of a run are in ``record.outputs``. Each declared output maps its name to
 ``{kind, cardinality, names, digests, design}``. ``names`` are the files of the output, relative to
-the run directory, and ``digests`` are their content digests in the same order. The equivalence digests that a
-consumer compares are in ``trace.json`` only.
+the run directory, and ``digests`` are their content digests in the same order. The equivalence
+digests that a consumer compares are in ``trace.json`` only.
 
 Xeda checks the output records at two points:
 
@@ -600,9 +602,9 @@ the cause:
 ``internal_error``
     A bug of Xeda.
 
-The code of an error of the whole launch (``node`` is ``null``): ``generator_failed``,
-``delivery_failed`` (Xeda could not deliver an output that a setting or ``--outputs-to`` named),
-``cleanup_failed`` (see below), ``canceled``, and, for ``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
+The code of an error of the whole launch (``node`` is ``null``): ``delivery_failed`` (Xeda could
+not deliver an output that a setting or ``--outputs-to`` named), ``cleanup_failed`` (see below),
+``canceled``, and, for ``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
 ``remote_detached``. ``no_successful_run`` is the error of ``xeda dse``.
 
 The code of an error of a request that started no launch is the code of the setting, design,
@@ -725,9 +727,11 @@ A usage error of any other command exits with status 2.
 Planning a run
 ==============
 
-``xeda run <flow> <design> --dry-run --json`` prints the resolved plan and runs nothing. The next
-command is for a design named ``blinky`` whose RTL top is ``blinky``. It also shows a consumer that
-switches an optional output of its producer on:
+``xeda run <flow> <design> --dry-run --json`` prints the resolved plan and runs nothing. Its
+document is not the run document. It has the keys ``flow``, ``design``, ``design_file``,
+``target``, ``success``, ``dry_run`` (``true``), ``request`` and ``plan``, and each plan node names
+its run directory with ``run_path``. The next command is for a design named ``blinky`` whose RTL
+top is ``blinky``. It also shows a consumer that switches an optional output of its producer on:
 
 .. code-block:: bash
 

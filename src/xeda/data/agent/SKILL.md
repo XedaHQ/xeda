@@ -41,36 +41,42 @@ xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5ns --json | 
 ```
 
 The exit status of `run` is 0 for the outcome `passed`, 1 for any other outcome and 2 for a request
-that started no launch (an invalid setting, design, project or chain, or a usage error). Other
-commands exit 0 or 1, and 2 for a usage error. The `run` document has exactly these keys:
+that started no launch (an invalid setting, design, project or chain, or a usage error). A Ctrl-C
+before the launch started gives `outcome: null` too, with the code `canceled` and exit status 1.
+Other commands exit 0 or 1, and 2 for a usage error. The `run` document has exactly these keys:
 
 | Key | Value |
 | --- | --- |
 | `schema_version` | 1 |
-| `outcome` | `passed`, `rejected`, `failed`, `canceled` or `detached`; `null` when no launch started |
+| `outcome` | `passed`, `rejected`, `failed`, `canceled`, `skipped` or `detached`; `null` when no launch started |
 | `error` | `null`, or the cause: `{code, message, node, exit_status, log}`; see "When a run fails" |
 | `launch_id` | the id of the launch; `null` when no launch started |
 | `spec` | `{flow, design, design_file, target, settings}`: the request text, the design's name, the design file you named (absolute, or `null`), the selected target (or `null`), and `-s` as a table of settings by flow name; `null` for a usage error |
 | `roots`, `nodes` | the requested node (the last flow of a chain); every planned node, producers first |
 
 A node has `name`, `flow`, `outcome`, `disposition`, `reason`, `blocked_by`, `elapsed`, `run_dir`,
-`deliveries` (`{key, destination, delivered}`) and `record`, the `results.json` object (`null` for a
-node that did not run). The metrics are in `record.metrics`; metric keys: `xeda list-results`.
+`deliveries` (`{key, destination, delivered}`), `error` (why the node did not pass, or `null`) and
+`record`, the `results.json` object (`null` for a node that did not run or whose record could not be
+stored). The metrics are in `record.metrics`; metric keys: `xeda list-results`.
 
 Node `outcome`: `passed`, `rejected` (the checks rejected the results), `failed`, `canceled`,
 `blocked` (a producer did not pass, so the flow did not run; `blocked_by` names it), `skipped` (the
 launch stopped before its turn) and `detached` (a remote launch that keeps running). `disposition`:
 `ran`, `reused` (an up to date `passed` or `rejected` run, reported without running the tool),
-`shared` or `not_run`. The `outcome` of the document is that of the cause: the root, or the producer
+`shared` or `not_run`. The `outcome` of the document is `detached` if a node is detached, else
+`canceled` after a cancel, else `failed` for an error of the whole launch (`delivery_failed`,
+`cleanup_failed`, a remote failure). Otherwise it is that of the cause: the root, or the producer
 that failed or was rejected.
 
-A dry run adds `dry_run: true` and `plan` (`requested`, `target`, `nodes`). A plan node has `name`,
-`flow`, `run_path`, `flowrun_hash`, `settings_hash`, `inputs` (`origin`: `producer`, `source` or
-`none`; `binding_origin`), `switched_on`, `state`, `reason`, `action_reason`, `input_types` and
-`output_types`. `state` is `fresh` (reused), `stale` (runs; `reason` is the one the log gives),
-`unknown` (`reason` says why, for example `depends on yosys_fpga`), `rejected again` (the
-checks rejected the last run and nothing it consumes changed; `reason` is the recorded message, and
-the flow does not run) or `blocked` (a producer is `rejected again` or blocked; `reason` names it).
+`--dry-run --json` prints a document of its own, not the `run` document. Its keys are `flow`,
+`design`, `design_file`, `target`, `success`, `dry_run` (true), `request` and `plan` (`requested`,
+`target`, `nodes`). A plan node has `name`, `flow`, `run_path`, `flowrun_hash`, `settings_hash`,
+`inputs` (`origin`: `producer`, `source` or `none`; `binding_origin`), `switched_on`, `state`,
+`reason`, `action_reason`, `input_types` and `output_types`. `state` is `fresh` (reused), `stale`
+(runs; `reason` is the one the log gives), `unknown` (`reason` says why, for example `depends on
+yosys_fpga`), `rejected again` (the checks rejected the last run and nothing it consumes changed;
+`reason` is the recorded message, and the flow does not run) or `blocked` (a producer is `rejected
+again` or blocked; `reason` names it).
 
 ## Plan before you run
 
@@ -475,7 +481,7 @@ Behavior:
   A failed remote step has the outcome `failed` and the code `remote_failed`; a launch that ended
   but could not be fetched or delivered has `remote_fetch_failed` or `delivery_failed` and keeps its
   records; Ctrl-C gives `canceled`; `--keep-running` then Ctrl-C gives the outcome `detached` and
-  `remote_detached`. A remote dry run keeps the dry-run document and adds `remote`, `mirror` and
+  `remote_detached`. A remote dry run prints the dry-run document and adds `remote`, `mirror` and
   `uploaded` (the input files it sent), and each `plan` node has `run_path` (in the mirror) and
   `remote_run_path`. Tool output goes to stderr.
 - `--dry-run --remote HOST` plans and judges freshness on the host. It may install Xeda there and
@@ -484,8 +490,8 @@ Behavior:
   launch and its descendants). A second Ctrl-C closes the connection, and the host cancels. A lost
   connection cancels too (heartbeat every 5 s, 30 s lease). Recovery is the same command again:
   a finished run is reused and only the fetch repeats; a canceled run starts over.
-- `--keep-running` keeps the launch on the host when the connection ends or Ctrl-C stops the
-  follow. The failure is `RemoteDetached` and the document has `launch` (`id`, `host`). Then
+- `--keep-running` keeps the launch on the host when the connection ends or Ctrl-C stops the follow.
+  The document has the outcome `detached`, the code `remote_detached` and the `launch_id`. Then
   `xeda remote attach HOST [LAUNCH_ID] [--run-root DIR] [--json]` shows the log from its start and
   fetches the result into the mirror (exit 0 on success; it delivers nothing, so run the original
   command again to deliver), and `xeda remote cancel HOST [LAUNCH_ID] [--run-root DIR] [--json]`
@@ -503,7 +509,8 @@ Behavior:
 ## When a run fails
 
 A launch that does not pass exits 1 with `outcome` and `error`. A request that starts no launch has
-`outcome: null`, exits 2 and has the `spec` it could read (`null` for a usage error). Branch on
+`outcome: null`, exits 2 and has the `spec` it could read (`null` for a usage error); a Ctrl-C
+before the launch started exits 1 with the code `canceled`. Branch on
 `error.code`, a stable lower snake case text (the set is open: keep an unknown code as text).
 `references/troubleshooting.md` has the messages and fixes. `dse`, `scrub`, `pdk`, `remote check`
 and `list-*` keep their own documents: on failure they have `success: false` and
@@ -515,7 +522,7 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `invalid_design`, `design_file_not_found`, `unknown_target`, `unknown_design`, `invalid_project` | The message names the key (`rtl.sources:`) or the file. Check the file against `xeda design-schema`. |
 | `flow_not_found`, `design_file_not_found`, `project_file_not_found`, `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, unknown option, removed option. The message suggests close matches. |
 | `invalid_chain`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
-| `invalid_run_root`, `delivery_refused`, `delivery_failed` | The message names the directory or setting and the fix. |
+| `invalid_run_root`, `delivery_refused`, `delivery_failed`, `cleanup_failed` | The message names the directory or setting and the fix. |
 | `nonzero_exit` | The tool exited non-zero; read its log in `run_dir` of the node `error.node`. |
 | `timeout`, `executable_not_found` | Raise the limit. Install the tool, or add `-s dockerized=true`. |
 | `reported_failure` | The tool exited 0 and its reports or checks say it failed, or the flow raised its own error. |

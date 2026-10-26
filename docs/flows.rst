@@ -724,7 +724,9 @@ neither node. Write the device for a flow of the chain (``flows.vivado_synth.fpg
 ``board`` for ``openfpgaloader``), or give ``-s fpga.part=<part>``. The error that a flow needs
 ``fpga`` names each section that gives it without reaching the flow.
 
-``--help-settings`` and the exit status are those of the last flow. ``--json`` lists every flow of
+``--help-settings`` is that of the last flow. The exit status follows the ``outcome`` of the launch,
+which an error of the whole launch, such as a failed delivery, can make ``failed`` after the last
+flow passed. ``--json`` lists every flow of
 the plan in ``nodes``, with its record and its ``outcome`` (``roots`` names the last flow). A flow
 that Xeda planned but never started after a failure is ``blocked`` or ``skipped`` (see
 :doc:`machine-readable`). ``--outputs-to`` delivers the outputs of the last flow, and
