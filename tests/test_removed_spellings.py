@@ -15,6 +15,9 @@ from pydantic import BaseModel
 
 import xeda.flows  # noqa: F401  (registers the built-in flows)
 from xeda.cli_types import ChainChoice, FlowChoice
+from xeda.flow.fpga import FPGA_PART_TEXT
+from xeda.flow_runner.settings_layers import RENAMED_FLOWS
+from xeda.xedaproject import REMOVED_PROJECT_KEYS
 from xeda.dataclass import SecondSpelling, XedaBaseModel, field_type
 from xeda.design import (
     Clock,
@@ -249,6 +252,46 @@ def test_the_table_covers_every_second_spelling_in_the_code():
             if isinstance(replacement, SecondSpelling):
                 dotted = f"{path}.{name}" if path else name
                 assert ("design", dotted) in in_table, f"design: `{dotted}` has no row"
+    for key, replacement in REMOVED_PROJECT_KEYS.items():
+        assert isinstance(replacement, SecondSpelling)
+        assert ("project", key) in in_table, f"project: `{key}` has no row"
+    # The text of `fpga` is refused where the setting is declared, not in a table of names.
+    assert FPGA_PART_TEXT[0] == "fpga: <part>" and "fpga" in of_flows
+    for given in RENAMED_FLOWS:
+        assert given in {name for name, _ in REMOVED_FLOW_NAMES}, f"flow `{given}` has no row"
+
+
+#: The hidden options that failed before the options of this table were removed.
+EARLIER_REMOVED_OPTIONS = {
+    "--xeda-run-dir",
+    "--cwd",
+    "--cached-dependencies",
+    "--no-cached-dependencies",
+    "--incremental",
+    "--no-incremental",
+}
+
+
+def test_every_hidden_option_of_the_cli_has_a_row():
+    import click as click_module
+
+    from xeda.cli import cli
+
+    rows = {option for option, _, _ in REMOVED_OPTIONS} | {
+        "--design-allow-extra",
+        "--no-design-allow-extra",
+    }
+
+    def hidden(command, path=()):
+        for param in getattr(command, "params", []):
+            if getattr(param, "hidden", False):
+                yield from (name for name in (*param.opts, *param.secondary_opts))
+        if isinstance(command, click_module.Group):
+            for name, sub in command.commands.items():
+                yield from hidden(sub, (*path, name))
+
+    unknown = set(hidden(cli)) - rows - EARLIER_REMOVED_OPTIONS
+    assert not unknown, f"hidden options with no row: {sorted(unknown)}"
 
 
 @pytest.mark.parametrize(
