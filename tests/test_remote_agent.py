@@ -1817,3 +1817,24 @@ def test_clean_prints_its_document_for_a_relative_root(tmp_path):
     skip_to_magic(stream)
     document = json.loads(stream.read())
     assert done.returncode == 2 and document["removed"] == [] and "absolute" in str(document)
+
+
+def test_a_node_that_the_launch_did_not_run_brings_back_no_earlier_record(tmp_path):
+    """A blocked node keeps the record of an earlier run that passed. The fetch takes it as a node
+    of this launch that did not pass, so that record does not come back as this launch's."""
+    from xeda.remote.agent import _launch_nodes
+
+    for name in ("a", "b", "c"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "results.json").write_text(json.dumps({"outcome": "passed"}))
+    document = {
+        "request": [{"node": "b"}],
+        "nodes": [
+            {"node": "a", "run_path": str(tmp_path / "a"), "state": "failed"},
+            {"node": "b", "run_path": str(tmp_path / "b"), "state": "blocked"},
+            {"node": "c", "run_path": str(tmp_path / "c"), "state": "not run"},
+        ],
+    }
+    a, b, c = _launch_nodes(document)
+    assert a.results == {"outcome": "passed"} and not a.named
+    assert b.results == {} and b.named and c.results == {}

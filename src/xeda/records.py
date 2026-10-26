@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from .errors import RecordError
 from .frozen import freeze, thaw
+from .outcomes import Outcome
 
 if TYPE_CHECKING:
     from .flow.flow import Flow
@@ -242,7 +243,7 @@ class RunRecord:
     configuration: Mapping[str, Any]
     run_root: Path
     run_dir: Path
-    outcome: Literal["passed", "rejected", "failed", "canceled"]
+    outcome: Outcome
     error: ErrorInfo | None
     metrics: Mapping[str, Any]
     metric_info: Mapping[str, MetricInfo]
@@ -257,6 +258,10 @@ class RunRecord:
     dependencies: tuple[Mapping[str, str | None], ...] = field(default=())
 
     def __post_init__(self) -> None:
+        outcome = Outcome(self.outcome)
+        if outcome not in OUTCOMES:
+            raise ValueError(f"a record cannot hold the outcome `{outcome}`")
+        object.__setattr__(self, "outcome", outcome)
         for name in (
             "configuration",
             "metrics",
@@ -273,7 +278,7 @@ class RunRecord:
     @property
     def passed(self) -> bool:
         """Whether the run passed."""
-        return self.outcome == "passed"
+        return self.outcome is Outcome.PASSED
 
     def metric(self, path: str) -> Any:
         """Return the metric at the dotted `path` (`sim.ended_by`).
@@ -429,7 +434,7 @@ def encode_record(record: RunRecord) -> dict[str, Any]:
         "target": record.target,
         "identity": record.identity,
         "configuration": thaw(record.configuration),
-        "outcome": record.outcome,
+        "outcome": record.outcome.value,
         "error": None if record.error is None else record.error.as_json_value(),
         "metrics": thaw(record.metrics),
         "metric_info": {
@@ -1051,7 +1056,7 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
         configuration=_configuration_of(flow),
         run_root=run_root,
         run_dir=flow.run_path,
-        outcome=cast(Any, outcome),
+        outcome=Outcome(outcome),
         error=error,
         metrics=_plain(metrics),
         metric_info=info,

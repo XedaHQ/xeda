@@ -802,8 +802,9 @@ def test_an_upstream_output_that_was_never_written_never_reaches_the_programmer(
     maker = _results(tmp_path, "top", "__asc_maker")
     assert maker["outcome"] == "failed" and maker["error"]["code"] == "missing_output"
     assert "did not produce its output `config`" in maker["error"]["message"]
-    for consumer in ("fpga_pack", "openfpgaloader"):
-        assert _results(tmp_path, "top", consumer)["error"]["code"] == "producer_failed"
+    for consumer in ("fpga_pack", "openfpgaloader"):  # blocked: they did not run
+        assert not (tmp_path / "xeda_run" / "top" / consumer / "results.json").exists()
+    assert "producer __asc_maker failed (missing_output)" in document["error"]["message"]
     assert not _every_call(tmp_path), "a tool started"
     _assert_never_programmed(tmp_path, "top")
 
@@ -829,8 +830,9 @@ def test_a_packer_that_makes_no_whole_bitstream_never_reaches_the_programmer(
         assert "wrote no bitstream" in pack["error"]["message"]
     published = tmp_path / "xeda_run" / board.design / "fpga_pack" / board.bitstream
     assert not published.exists()
-    loader = _results(tmp_path, board.design, "openfpgaloader")
-    assert loader["outcome"] == "failed" and loader["error"]["code"] == "producer_failed"
+    # the programmer was blocked: it did not run, so it wrote no record
+    assert not (tmp_path / "xeda_run" / board.design / "openfpgaloader/results.json").exists()
+    assert "producer fpga_pack failed" in document["error"]["message"]
     _assert_never_programmed(tmp_path, board.design)
     # the control: the same root, the same chain, the packer well -- programs, with the fake
     monkeypatch.delenv("XEDA_FAKE_FPGA_TOOL")
@@ -882,11 +884,12 @@ def test_an_upstream_failure_stops_the_chain_before_the_programmer(
         ("nextpnr", "fail"): "exited with code 1",
         ("nextpnr", "no-output"): "did not write enabled",
     }
-    for name in downstream:
-        error = _results(tmp_path, board.design, name)["error"]
-        assert error["code"] == "producer_failed", (name, error)
-        assert f"producer {stage} failed" in error["message"], (name, error)
-        assert quoted[stage, mode] in error["message"], (name, error)
+    for name in downstream:  # blocked: they did not run, so they wrote no record
+        assert not (tmp_path / "xeda_run" / board.design / name / "results.json").exists(), name
+    # the verdict of the launch quotes the stage that failed, its code and its message
+    message = document["error"]["message"]
+    assert f"producer {stage} failed ({expected})" in message
+    assert quoted[stage, mode] in message
     _assert_never_programmed(tmp_path, board.design)
 
 

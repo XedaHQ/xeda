@@ -155,6 +155,26 @@ def test_an_error_record_round_trips_through_json():
             ErrorInfo.from_json(bad)  # type: ignore[arg-type]
 
 
+def test_the_codes_of_a_whole_launch_are_listed_where_a_reader_looks():
+    """A launch-level code is stable text, and the docs and both copies of the skill list it."""
+    from xeda.flow_runner import error_codes
+
+    assert (error_codes.DELIVERY_FAILED, error_codes.CLEANUP_FAILED) == (
+        "delivery_failed",
+        "cleanup_failed",
+    )
+    root = Path(__file__).resolve().parent.parent
+    pages = [
+        root / "docs" / "machine-readable.rst",
+        root / ".claude" / "skills" / "xeda" / "references" / "troubleshooting.md",
+        root / "src" / "xeda" / "data" / "agent" / "references" / "troubleshooting.md",
+    ]
+    for page in pages:
+        text = page.read_text(encoding="utf-8")
+        for code in (error_codes.DELIVERY_FAILED, error_codes.CLEANUP_FAILED):
+            assert code in text, f"{page} does not list {code}"
+
+
 # Each exception has its real constructor.
 @pytest.mark.parametrize(
     "exc, code, exit_status",
@@ -396,12 +416,12 @@ def test_a_consumer_message_names_the_producer_code_not_a_dict(
     message = str(refused.value)
     assert "__may_fail" in message and "(reported_failure)" in message and reason in message
     assert "{" not in message and "'type'" not in message
-    document = json.loads(
-        (tmp_path / "run" / "d" / failing._NeedsMayFail.name / "results.json").read_text()
-    )
-    assert document["error"]["code"] == "producer_failed"
-    assert document["error"]["message"] == message
-    assert document["error"]["node"] == failing._NeedsMayFail.name
+    # the consumer is blocked: it writes no document, and its error carries the same message
+    consumer = runner.launched[-1]
+    assert not (consumer.run_path / "results.json").exists()
+    error = consumer.results["error"]
+    assert error["code"] == "producer_failed" and error["message"] == message
+    assert error["node"] == failing._NeedsMayFail.name
 
 
 def test_a_run_that_lacks_a_report_it_asked_for_has_the_missing_report_code(tmp_path):

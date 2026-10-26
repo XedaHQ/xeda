@@ -1,4 +1,5 @@
-"""A run that fails leaves a failure document, never an earlier run's success."""
+"""A run that fails leaves a failure document, never an earlier run's success. A node that a
+failed producer blocks does not run, so it leaves nothing."""
 
 import json
 import sys
@@ -149,9 +150,11 @@ def test_a_failure_the_reports_show_is_a_failure_document_with_an_error(tmp_path
     ],
     ids=["reports failure", "raises"],
 )
-def test_a_failing_producer_replaces_the_consumer_s_previous_success(
+def test_a_failing_producer_blocks_the_consumer_and_leaves_its_earlier_record(
     tmp_path, producer_registered, producer, reason
 ):
+    """The consumer does not run, so it writes nothing: its directory keeps the record and the
+    trace of its last success."""
     design = _design(tmp_path)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     first = runner.run_flow(_NeedsMayFail, design, {})
@@ -160,14 +163,14 @@ def test_a_failing_producer_replaces_the_consumer_s_previous_success(
     assert (first.run_path / "trace.json").exists()
     (done,) = producers_of(runner, first)
 
-    with pytest.raises(FlowDependencyFailure, match=reason):
+    with pytest.raises(FlowDependencyFailure, match=reason) as raised:
         runner.run_flow(_NeedsMayFail, design, {}, all_flows_settings={"__may_fail": producer})
-    document = json.loads(results_json.read_text())
-    assert document["outcome"] == "failed"
-    assert document["error"]["code"] == "producer_failed"
-    assert document["flow"] == first.name and document["design"] == "d"
-    assert not (first.run_path / "trace.json").exists()
-    # the consumer's document says which producer failed, and where its own document is
-    message = document["error"]["message"]
+    kept = json.loads(results_json.read_text())
+    assert kept["outcome"] == "passed" and kept["run_id"] == first.run_id
+    assert (first.run_path / "trace.json").exists()
+    consumer = runner.launched[-1]
+    assert consumer.name == first.name and consumer.blocked_by == done.name
+    # the failure names the producer, and where its own document is
+    message = str(raised.value)
     assert done.name in message
     assert str(done.run_path / "results.json") in message

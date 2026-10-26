@@ -59,6 +59,12 @@ class ReadLease(Protocol):
     def __call__(self, producer: Flow) -> AbstractContextManager[Flow]: ...
 
 
+def _is_blocked(error: Exception) -> bool:
+    """Return whether `error` ended a flow that did not run because a producer did not pass: that
+    flow wrote no document."""
+    return isinstance(error, FlowDependencyFailure) and error.producer is not None
+
+
 def recorded_error(flow: Flow) -> ErrorInfo:
     """Return the error that the run of `flow` recorded, which a consumer quotes.
 
@@ -160,7 +166,7 @@ def _produced(
                 f"producer {producer_node.name} failed ({cause.code}): {cause.message}"
                 + (
                     f"; see {producer_node.run_path / 'results.json'}"
-                    if entered(producer_node.run_path)
+                    if entered(producer_node.run_path) and not _is_blocked(error)
                     else ""
                 )
                 + (f" ({note})" if note else ""),

@@ -140,8 +140,8 @@ def test_a_rejected_flow_is_failed_and_then_rejected_again(toys, design):
 
 
 def test_the_consumer_of_a_rejected_flow_is_blocked(toys, design):
-    """The consumer does not run: it is `blocked`, and the document names a dependency failure,
-    on the first launch and when the rejection is reported again."""
+    """The consumer does not run: it is `blocked` and writes nothing, and the document names a
+    dependency failure, on the first launch and when the rejection is reported again."""
     args = (
         "toy_node_producer+toy_node_twice",
         str(design),
@@ -153,6 +153,7 @@ def test_the_consumer_of_a_rejected_flow_is_blocked(toys, design):
     assert document["error"]["type"] == "FlowDependencyFailure"
     assert _states(document) == [("toy_node_producer", "failed"), ("toy_node_twice", "blocked")]
     assert document["nodes"][1]["reason"] == "toy_node_producer did not succeed"
+    assert not Path(document["nodes"][1]["run_path"], "results.json").exists()
     result, document = _run(*args)
     assert document["error"]["type"] == "FlowDependencyFailure"
     assert _states(document) == [
@@ -160,3 +161,4 @@ def test_the_consumer_of_a_rejected_flow_is_blocked(toys, design):
         ("toy_node_twice", "blocked"),
     ]
     assert document["nodes"][1]["reason"] == "toy_node_producer did not succeed"
+    assert not Path(document["nodes"][1]["run_path"], "results.json").exists()

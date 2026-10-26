@@ -171,7 +171,7 @@ def test_a_malformed_chain_is_one_json_error_document_and_plans_nothing(tmp_path
 
 
 def test_a_failed_run_reports_the_nodes_that_did_not_run(tmp_path, monkeypatch):
-    """`__left` fails (it writes no output): `__join` reports the failed dependency, and the
+    """`__left` fails (it writes no output): `__join` is blocked and writes nothing, and the
     planned node never entered, `__right`, is listed as not run."""
     design = _design(tmp_path)
     from .io_flows import _Left
@@ -196,8 +196,7 @@ def test_a_failed_run_reports_the_nodes_that_did_not_run(tmp_path, monkeypatch):
     }
     not_run = next(n for n in document["nodes"] if n["node"] == "__right")
     assert not_run["run_path"].endswith("__right") and not_run["inputs"][0]["producer"] == "__fork"
-    joined = json.loads((tmp_path / "xeda_run/demo/__join/results.json").read_text())
-    assert joined["outcome"] == "failed"
+    assert not (tmp_path / "xeda_run/demo/__join/results.json").exists()
     assert result.stdout.count('"success"') == 1, "one document"
 
 

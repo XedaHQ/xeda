@@ -706,8 +706,8 @@ def test_a_generated_file_that_changed_before_the_hand_over_fails_the_flow(
 def test_a_converter_that_fails_fails_the_flow_with_the_reason_it_was_needed(
     tmp_path, monkeypatch
 ) -> None:
-    """The flow is built on the planned design and not initialized; its results say why it did
-    not run, and name the converter."""
+    """The flow is built on the planned design and not initialized. It is blocked by the converter:
+    it does not run and writes no record."""
     events = Events()
     converter, reader = classes = consumer_flows(events)
 
@@ -723,9 +723,8 @@ def test_a_converter_that_fails_fails_the_flow_with_the_reason_it_was_needed(
     assert "construct" in events and "init" not in events
     assert [f.name for f in the_runner.launched] == [converter.name, reader.name]
     assert the_runner.launched[-1].blocked_by == converter.name
-    results = results_of(tmp_path, reader.name)
-    assert results["outcome"] == "failed" and results["error"]["code"] == "producer_failed"
-    assert results["identity"]
+    # the flow is blocked: it did not run and wrote no record
+    assert not (tmp_path / "run" / "d" / reader.name / "results.json").exists()
     assert classes  # both registered for the test only
 
 
@@ -734,7 +733,7 @@ def test_a_failing_converter_leaves_a_real_flow_built_on_the_planned_design_unto
 ) -> None:
     """The flow that waits for the converter is built on the planned design, whose generated
     source does not exist. Nothing reads or hashes it: the flow has no design hash, its run
-    directory holds the failure, and the planned file is not created."""
+    directory holds no record, and the planned file is not created."""
     fake, _rival, _to_vhdl = converter_flows()
 
     def fails(self) -> None:
@@ -749,8 +748,7 @@ def test_a_failing_converter_leaves_a_real_flow_built_on_the_planned_design_unto
     assert consumer.name == "yosys" and consumer.blocked_by == fake.name
     planned = [s.file for s in consumer.design.rtl.sources]
     assert [f.name for f in planned] == ["mkTop.v"] and not planned[0].exists()
-    results = results_of(tmp_path, "yosys")
-    assert results["outcome"] == "failed"
+    assert not (consumer.run_path / "results.json").exists()  # blocked: it did not run
     assert "mkTop.v" not in {f.name for f in consumer.run_path.iterdir()}
 
 

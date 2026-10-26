@@ -561,15 +561,17 @@ is a settings error. It names the input and the place where the binding was writ
 
 .. _error-codes:
 
-The ``results.json`` of every node is a failure document too. Its ``outcome`` is not ``passed`` and
-its ``error`` has a stable ``code``,
+The ``results.json`` of every node that ran and did not pass is a failure document too, unless
+its record could not be stored (``storage_error``): such a node has no ``results.json``, and its
+outcome and error are only in the result of the launch. A failure document's ``outcome`` is not
+``passed`` and its ``error`` has a stable ``code``,
 a ``message``, the ``node``, the ``exit_status`` of the tool (for ``nonzero_exit``) and a ``log``
 (the artifact to read, or ``null``). The ``code`` is lower snake case and never the name of a
 class. The top-level ``FlowFailed`` is the verdict of the run, and a node names the cause. A
 failure of a producer is never ``FlowFailed``. The ``results.json`` of the producer names its
-cause, and the flows after it say ``producer_failed`` and quote the producer, its code and its
-message (``producer yosys_fpga failed (nonzero_exit): ...``). The top-level ``error`` of a chain
-whose last flow was never reached says the same. A flow that raises has a code for the kind of
+cause. The flows after it are blocked: they do not run and write no ``results.json``. The
+top-level ``error`` of such a chain quotes the producer, its code and its message (``producer
+yosys_fpga failed (nonzero_exit): ...``). A flow that raises has a code for the kind of
 failure: ``nonzero_exit``, ``timeout``, ``executable_not_found``, ``reported_failure`` (also for
 ``FlowFatalError``, and for a design, a project or a setting that Xeda refuses while it launches the
 flow), ``storage_error`` (a file or directory error of the operating system, or a path that leaves
@@ -593,6 +595,14 @@ that finished without raising. The top-level document of such a flow says ``Flow
 ``nextpnr`` can catch a missing enabled output earlier. It raises an error that names the
 configuration setting and the path that its tool did not write. This is a raised error with the code
 ``reported_failure``, and not a ``missing_output``.
+
+Two more codes belong to the whole launch, not to a node. They are the ``error`` of the result of a
+launch (``xeda.outcomes.Result``), which has no ``node``, and every node keeps the outcome it had. ``delivery_failed``: the launch could not copy
+an output to the destination that a setting names. ``cleanup_failed``: every requested flow passed,
+and then the clean-up after the run (``--post-cleanup`` or ``--post-cleanup-purge``) failed. The
+message names the run directory and the cause. A launch that has another cause already keeps it: a
+failed delivery comes before a failed clean-up, and a requested flow that did not pass keeps its own
+error. Xeda only logs the clean-up failure then.
 
 Other documents of executional commands
 ---------------------------------------

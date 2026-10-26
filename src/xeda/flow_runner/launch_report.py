@@ -152,7 +152,8 @@ def report(
     """Show the results and, for a run that just executed (`record`), record the run.
 
     The record of the run (`records.record_of`) is then `flow.record`, and `results.json` holds
-    it. The directory of a reused run is left exactly as it was."""
+    it. If `results.json` cannot be written, the error propagates and `flow.record` stays unset.
+    The directory of a reused run is left exactly as it was."""
     if settings.display_results and flow.artifacts and flow.succeeded:
         table = Table(
             box=box.SIMPLE,
@@ -176,12 +177,14 @@ def report(
 
     if record:
         assert flow.run_id is not None, f"{flow.name} has no run id"
-        flow.record = record_of(
+        stored = record_of(
             flow, run_root=run_root, run_id=flow.run_id, finished=datetime.now(timezone.utc)
         )
         if settings.dump_results_json:
-            dump_json(encode_record(flow.record), results_json, backup=settings.backups)
+            dump_json(encode_record(stored), results_json, backup=settings.backups)
             log.info("Results written to %s", results_json)
+        # Only now: a record that could not be stored is no record of the flow.
+        flow.record = stored
 
     if settings.display_results:
         print_results(

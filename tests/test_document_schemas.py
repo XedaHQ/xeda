@@ -796,3 +796,12 @@ def test_an_output_whose_names_do_not_fit_it_is_a_corrupt_record(tmp_path, outpu
     with pytest.raises(RecordError, match=problem) as caught:
         decode_record(document, run_dir=tmp_path / "d" / "flow", run_root=tmp_path)
     assert caught.value.code == "corrupt_record"
+
+
+@pytest.mark.parametrize("outcome", ["blocked", "skipped", "detached"])
+def test_a_record_cannot_hold_the_outcome_of_a_node_that_did_not_run(tmp_path, outcome):
+    import dataclasses
+
+    record = decode_record(record_document(), run_dir=tmp_path / "d" / "flow", run_root=tmp_path)
+    with pytest.raises(ValueError, match="cannot hold the outcome"):
+        dataclasses.replace(record, outcome=outcome)
