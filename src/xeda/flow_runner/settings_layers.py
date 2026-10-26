@@ -16,6 +16,9 @@ The settings of a flow are assembled from these layers, lowest precedence first:
 8. the command line (`-s KEY=VALUE`, or the `flow_settings` of `run` and `plan`), then the
    overrides given through the API (`flow_overrides`)
 
+The text of a `KEY=VALUE` item is read as the type of its setting where the layers merge
+(`merge_layers`). A value that Python or a file gives is never converted.
+
 The layers are merged deeply. A nested section such as `clocks.main_clock` combines key by key, so
 `-s clocks.main_clock.freq=100MHz` changes that one setting of the clock in the design instead of
 replacing the whole section. Any other value, a list included, is replaced whole by a higher
@@ -58,6 +61,7 @@ from ..design import Design
 from ..errors import FlowNotFoundError as PublicFlowNotFoundError
 from ..flow import Flow, FlowSettingsError, registered_flows
 from ..flow.io import declared_inputs
+from ..setting_text import SettingTextError, parse_text_leaves
 from ..utils import (
     ConflictingKeys,
     EscapedName,
@@ -446,6 +450,26 @@ def _atomic_table(key: str, value: Any) -> Any:
     return atoms
 
 
+def _read_command_line_text(
+    values: dict[str, Any], settings_cls: type[XedaBaseModel]
+) -> dict[str, Any]:
+    """Return `values` with each leaf of command-line text read as the type of its setting.
+
+    Only the text of a `KEY=VALUE` item is read (`SettingText`). A value from Python or from a
+    file is never converted. The settings of a flow report a leaf that is no value of its type as
+    a `FlowSettingsError`. Other models let the `SettingTextError` through for their loader to
+    report."""
+    try:
+        return parse_text_leaves(values, settings_cls)
+    except SettingTextError as error:
+        if not issubclass(settings_cls, Flow.Settings):
+            raise
+        raise FlowSettingsError(
+            [(address, message, None, kind) for address, message, kind in error.problems],
+            settings_cls,
+        ) from error
+
+
 def merge_layers(
     *layers: Layer, settings_cls: type[XedaBaseModel] | None = None, append: bool = False
 ) -> dict[str, Any]:
@@ -461,6 +485,7 @@ def merge_layers(
         if layer:
             values = settings_to_dict(layer)  # type: ignore[arg-type]
             if settings_cls is not None:
+                values = _read_command_line_text(values, settings_cls)
                 values = _with_atomic_names(values, settings_cls)
                 merged = _merge_settings_layer(merged, values, settings_cls, append)
             else:
@@ -535,6 +560,15 @@ def _leaves(
         else:
             leaves[(*prefix, target)] = (".".join((*written, key)), value)
     return leaves
+
+
+def _command_line_text(value: Any) -> str:
+    """Return how the command line writes `value`, a setting that was read from text."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple)):
+        return ",".join(_command_line_text(item) for item in value)
+    return str(value)
 
 
 def _is_inside(path: tuple[str, ...], other: tuple[str, ...]) -> bool:
@@ -657,7 +691,7 @@ def split_flow_sections(
     for path, (written, value) in _leaves(own, settings_cls).items():
         spelled = f"`-s {written}={value}`"
         for other_path, (other, other_value) in requested_leaves.items():
-            qualified = f"`-s flows.{requested}.{other}={other_value}`"
+            qualified = f"`-s flows.{requested}.{other}={_command_line_text(other_value)}`"
             if _is_inside(path, other_path) and _sets_value(value):
                 message = f"{spelled} sets a value, and {qualified} sets a key inside it; give one"
             elif _is_inside(other_path, path) and _sets_value(other_value):

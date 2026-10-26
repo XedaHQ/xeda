@@ -283,9 +283,9 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
             xedaproject=str(tmp_path / PROJECT_FILE),
             flow_settings=["nthreads=5", "flows.vivado_synth.fail_timing=false"],
         )
-    assert launched["settings"] == {"timeout": 1, "nthreads": "5"}
+    assert launched["settings"] == {"timeout": 1, "nthreads": 5}
     assert launched["all_flows"]["vivado_synth"] == {
-        "fail_timing": "false",
+        "fail_timing": False,
         "nthreads": 4,
         "out_of_context": False,
         "fpga": {"part": "xc7a100t"},
@@ -794,10 +794,10 @@ def test_dash_s_flows_node_key_sets_a_dependencys_setting(tmp_path, monkeypatch,
             flow_settings=["flows.vivado_synth.out_of_context=false", "timeout=3"],
         )
     assert (
-        launched["all_flows"]["vivado_synth"]["out_of_context"] == "false"
+        launched["all_flows"]["vivado_synth"]["out_of_context"] == False
     )  # command line beats the design file
-    assert launched["settings"]["timeout"] == "3"
-    assert launched["all_flows"]["vivado_synth"]["out_of_context"] == "false"
+    assert launched["settings"]["timeout"] == 3
+    assert launched["all_flows"]["vivado_synth"]["out_of_context"] == False
 
 
 def test_dash_s_key_and_flows_requested_key_are_one_leaf(tmp_path, monkeypatch, launched):
@@ -807,7 +807,7 @@ def test_dash_s_key_and_flows_requested_key_are_one_leaf(tmp_path, monkeypatch, 
         DefaultRunner(tmp_path / "run").run(
             "nextpnr", design, flow_settings=["seed=3", "flows.nextpnr.seed=3"]
         )
-    assert launched["settings"]["seed"] == "3"
+    assert launched["settings"]["seed"] == 3
     with pytest.raises(FlowSettingsError, match=r"seed.*flows\.nextpnr\.seed"):
         DefaultRunner(tmp_path / "run").run(
             "nextpnr", design, flow_settings=["seed=3", "flows.nextpnr.seed=4"]
@@ -845,7 +845,7 @@ def test_a_command_line_dependency_setting_beats_the_producers_file_value(
         DefaultRunner(tmp_path / "run").run(
             "vivado_postsynth_sim", design, flow_settings=["flows.vivado_synth.fail_timing=false"]
         )
-    assert launched["all_flows"]["vivado_synth"]["fail_timing"] == "false"
+    assert launched["all_flows"]["vivado_synth"]["fail_timing"] == False
 
 
 def test_an_unknown_setting_in_a_lower_layer_is_still_reported(tmp_path, monkeypatch):

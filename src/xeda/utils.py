@@ -41,7 +41,7 @@ from xml.etree import ElementTree
 
 from varname import argname  # type: ignore
 
-from .dataclass import AtomicName, BaseModel, XedaBaseModel
+from .dataclass import AtomicName, BaseModel, SettingText, XedaBaseModel
 from .frozen import FrozenDict, thaw
 from .units import Quantity
 
@@ -1071,17 +1071,13 @@ DictStrHier = Dict[str, Any]
 StrOrDictStrHier = Union[str, DictStrHier]
 
 
-def conv(v):
-    return v
-
-
 def expand_hierarchy(d: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if d is None:
         return {}
     refuse_both_spellings(d)
     expanded: DictStrHier = {}
     for k, v in d.items():
-        set_hierarchy(expanded, k, conv(v))
+        set_hierarchy(expanded, k, v)
     return expanded
 
 
@@ -1101,11 +1097,11 @@ def settings_to_dict(
                         f"Settings should be in KEY=VALUE format! (value given: {override})"
                     )
                 key, val = sp
-                set_hierarchy(res, key, conv(val))
+                set_hierarchy(res, key, SettingText(val))
             elif override and isinstance(override, dict):
                 refuse_both_spellings(override)
                 for key, val in override.items():  # type: ignore
-                    set_hierarchy(res, key, conv(val))
+                    set_hierarchy(res, key, val)
         return res
     if isinstance(settings, Mapping):
         settings = dict(settings)

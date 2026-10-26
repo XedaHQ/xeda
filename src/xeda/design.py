@@ -73,6 +73,7 @@ from .dataclass import (
 from .digest import content_digest
 from .frozen import Frozen, FrozenDict, FrozenModel, freeze, thaw
 from .proc_utils import run_child
+from .setting_text import SettingTextError
 from .run_dir import DIR_NAME_HASH_LEN, run_directory_name
 from .utils import (
     hierarchical_merge,
@@ -3787,6 +3788,11 @@ class Design(XedaBaseModel):
             return cls._merge_target(
                 cls.with_default_rtl(deepcopy(dict(data))), update, append=False
             )
+        except SettingTextError as e:
+            raise DesignValidationError(
+                [(address, message, "", kind) for address, message, kind in e.problems],
+                data=dict(data),
+            ) from e
         except (ValueError, XedaException) as e:
             raise DesignValidationError(
                 [("flows", str(e), "", "value_error")], data=dict(data)

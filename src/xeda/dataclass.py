@@ -91,6 +91,7 @@ __all__ = [
     "atomic_keys",
     "escaped_names_atomic",
     "AtomicName",
+    "SettingText",
     "name_inside_another",
     "shape_problems",
     "single_item_fields_of",
@@ -497,6 +498,17 @@ class AtomicName(str):
     @property
     def name(self) -> str:
         return str.replace(self, ESCAPED_DOT, ".")
+
+
+class SettingText(str):
+    """The text of one setting as the command line writes it (`-s seed=4`: the text `4`).
+
+    `utils.settings_to_dict` marks each value of a `KEY=VALUE` item with this class. A merge that
+    knows the model of the setting reads the text by the annotation of the setting
+    (`setting_text.parse_setting_text`). A value from Python or from a file is never marked, so
+    it is never read this way."""
+
+    __slots__ = ()
 
 
 def fold_dotted_keys(value: Any) -> Any:
