@@ -335,7 +335,7 @@ def test_xsim_native_power_uses_successful_declared_activity(work_dir):
             "vivado_synth": {
                 "fpga": {"part": PART},
                 "clocks": {"main_clock": {"period": "10 ns"}},
-                "ncpus": 2,
+                "nthreads": 2,
             },
             "vivado_postsynth_sim": {"timeout": 240.0, "prerun_time": "10ns", "stop_time": "20ns"},
         },
