@@ -1612,6 +1612,11 @@ class ChiselGenerator(Generator):
         return self.run_cmd(self.execution_command())
 
 
+#: The classes of generator that a recipe names with `class`. Without `class`, a recipe is a
+#: plain `Generator`.
+GENERATOR_CLASSES = ("chisel",)
+
+
 def generator_model(recipe: Any, root: Optional[Path] = None) -> Generator | None:
     """Return the generator that a table recipe stands for, or `None` for no recipe.
 
@@ -1626,7 +1631,7 @@ def generator_model(recipe: Any, root: Optional[Path] = None) -> Generator | Non
     clazz = table.pop("class", None)
     if clazz and not isinstance(clazz, str):
         raise ValueError(f"class={clazz} must be a string")
-    if clazz and clazz.lower() != "chisel":
+    if clazz and clazz not in GENERATOR_CLASSES:
         raise ValueError(f"unknown generator class: {clazz}")
     model = ChiselGenerator if clazz else Generator
     with nullcontext() if root is None else loading_in_design_root(root):

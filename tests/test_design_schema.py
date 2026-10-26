@@ -568,3 +568,12 @@ def test_a_returned_schema_shares_nothing_with_the_next_one():
     disturb(first)
     assert design_schema() == reference
     assert design_schema() == design_schema()
+
+
+def test_the_schema_of_a_generator_lists_its_class():
+    from xeda.design import GENERATOR_CLASSES
+
+    properties = design_schema()["$defs"]["Generator"]["properties"]
+
+    assert properties["class"]["enum"] == list(GENERATOR_CLASSES)
+    assert "chisel" in GENERATOR_CLASSES

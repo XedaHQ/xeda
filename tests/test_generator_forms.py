@@ -180,3 +180,8 @@ def test_a_cocotb_source_from_a_dependency_does_not_switch_cocotb_on(tmp_path):
     )
     assert [source.file.name for source in design.tb.sources] == ["cocotb_tests.py"]
     assert design.tb.cocotb is None
+
+
+def test_the_class_of_a_generator_is_case_sensitive():
+    with pytest.raises(ValueError, match="unknown generator class: Chisel"):
+        Rtl(sources=(), generator={"class": "Chisel", "project": "p"})

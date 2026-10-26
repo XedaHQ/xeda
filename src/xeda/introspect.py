@@ -50,6 +50,7 @@ from .dataclass import (
     XedaBaseModel,
 )
 from .design import (
+    GENERATOR_CLASSES,
     DESIGN_NAME,
     TARGET_FORBIDDEN_KEYS,
     Design,
@@ -954,6 +955,18 @@ def _make_rtl_and_name_optional(schema: Dict[str, Any]) -> None:
             schema.pop("required", None)
 
 
+def _add_generator_class(schema: Dict[str, Any]) -> None:
+    """Describe `class` in a generator table. The loader reads it before the model validates the
+    table, so the model has no field for it."""
+    generator = schema.get("$defs", {}).get("Generator", {})
+    generator.setdefault("properties", {})["class"] = {
+        "type": "string",
+        "enum": list(GENERATOR_CLASSES),
+        "description": "The class of the generator. Without it, the table is a plain generator "
+        "that runs `command`, `executable` or `shell`.",
+    }
+
+
 def _add_targets(schema: dict[str, Any]) -> None:
     """Describe `targets`. Each target is an overlay that takes the design's own keys, in every
     form the root takes them, except the keys that belong to the design alone
@@ -1107,6 +1120,7 @@ def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
     _accept_clock_forms(schema)
     _accept_single_items(schema)
     _make_rtl_and_name_optional(schema)
+    _add_generator_class(schema)
     _open_property_sets(schema)
     for definition, properties in _EXTRA_INPUT_FORMS.items():
         target = schema if not definition else schema.get("$defs", {}).get(definition)
