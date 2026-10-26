@@ -696,3 +696,101 @@ def project_listing_two(tmp_path: Path) -> Path:
             "flows": {"vivado_synth": {"fpga": {"part": "xc7a100tcsg324-1"}}},
         },
     )
+
+
+# ------------------------------------------------- the paths of the project layer
+
+
+def layered_project_with_paths(tmp_path: Path) -> Path:
+    design_file(tmp_path / "hw", "fifo.yaml")
+    return write_project(
+        tmp_path,
+        {
+            "designs": [{"file": "hw/fifo.yaml"}],
+            "flows": {
+                "nextpnr": {"custom_boards_file": "boards.yaml", "seed": 3},
+                "vivado_synth": {"xdc_files": ["top.xdc", "$DESIGN_ROOT/own.xdc", "/abs/a.xdc"]},
+                "yosys": {"memory": {"libmap": ["lib/m.map"]}},
+            },
+        },
+    )
+
+
+def test_a_path_setting_of_the_project_resolves_against_the_project_file(tmp_path):
+    path = layered_project_with_paths(tmp_path)
+    root = path.parent.resolve()
+    request = DefaultRunner(tmp_path / "run")._request("nextpnr", "fifo", xedaproject=str(path))
+    section = dict(request.origins)[str(path)]["nextpnr"]
+    assert section == {"custom_boards_file": str(root / "boards.yaml"), "seed": 3}
+    assert request.settings["custom_boards_file"] == str(root / "boards.yaml")
+    # the design's own file is below the project, and its root is another directory
+    assert request.design.root == (root / "hw")
+
+
+def test_every_kind_of_path_setting_of_the_project_is_resolved_and_the_rest_is_left(tmp_path):
+    path = layered_project_with_paths(tmp_path)
+    root = str(path.parent.resolve())
+    runner = DefaultRunner(tmp_path / "run")
+    sections = dict(runner._request("vivado_synth", "fifo", xedaproject=str(path)).origins)
+    assert sections[str(path)]["vivado_synth"]["xdc_files"] == [
+        f"{root}/top.xdc",
+        "$DESIGN_ROOT/own.xdc",  # a variable is expanded where it is read
+        "/abs/a.xdc",
+    ]
+    sections = dict(runner._request("yosys", "fifo", xedaproject=str(path)).origins)
+    assert sections[str(path)]["yosys"]["memory"]["libmap"] == [f"{root}/lib/m.map"]
+
+
+def test_the_paths_of_the_design_stay_relative_to_the_design_root(tmp_path):
+    path = layered_project_with_paths(tmp_path)
+    (tmp_path / "hw" / "fifo.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "fifo",
+                "rtl": rtl(),
+                "flows": {"nextpnr": {"custom_boards_file": "boards.yaml"}},
+            }
+        )
+    )
+    request = DefaultRunner(tmp_path / "run")._request("nextpnr", "fifo", xedaproject=str(path))
+    assert request.settings["custom_boards_file"] == "boards.yaml"  # the design wins, as written
+    assert request.design.root == (tmp_path / "hw").resolve()
+
+
+def test_a_remote_request_ships_the_resolved_paths_of_the_project(tmp_path):
+    path = layered_project_with_paths(tmp_path)
+    prepared = DefaultRunner(tmp_path / "run", display_results=False).prepare_request(
+        "nextpnr", "fifo", xedaproject=str(path), flow_settings=["fpga.part=LFE5U-25F-6BG256C"]
+    )
+    root = path.parent.resolve()
+    assert prepared.sections["nextpnr"]["custom_boards_file"] == str(root / "boards.yaml")
+
+
+def test_a_file_that_a_flow_writes_stays_a_name_in_the_run_directory(tmp_path):
+    design_file(tmp_path / "hw", "fifo.yaml")
+    path = write_project(
+        tmp_path,
+        {
+            "designs": [{"file": "hw/fifo.yaml"}],
+            "flows": {
+                "yosys_fpga": {"netlist_json": "out/n.json"},
+                "nextpnr": {"custom_boards_file": "boards.yaml"},
+            },
+        },
+    )
+    request = DefaultRunner(tmp_path / "run")._request("yosys_fpga", "fifo", xedaproject=str(path))
+    sections = dict(request.origins)[str(path)]
+    assert sections["yosys_fpga"]["netlist_json"] == "out/n.json"
+    assert sections["nextpnr"]["custom_boards_file"] == str(path.parent.resolve() / "boards.yaml")
+
+
+def test_a_project_and_a_design_in_one_directory_leave_the_paths_as_written(tmp_path):
+    path = write_project(
+        tmp_path,
+        {
+            "designs": [{"name": "d", "rtl": rtl()}],
+            "flows": {"nextpnr": {"custom_boards_file": "boards.yaml"}},
+        },
+    )
+    request = DefaultRunner(tmp_path / "run")._request("nextpnr", "d", xedaproject=str(path))
+    assert dict(request.origins)[str(path)]["nextpnr"]["custom_boards_file"] == "boards.yaml"

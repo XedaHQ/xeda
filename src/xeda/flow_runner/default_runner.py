@@ -102,6 +102,7 @@ from . import (
     launch_run,
 )
 from .chains import ChainElement, FlowRequest, parse_request
+from .layer_paths import anchored_sections
 from .code_digest import CodeDigests
 from .configuration import configuration_hash, design_configuration_hash
 from .error_codes import error_info
@@ -2457,6 +2458,15 @@ class FlowLauncher:
         host_label, host_table = host_layer if host_layer is not None else ("", {})
         host_sections, host_bindings = split_bindings(host_table, location=host_label)
         project_sections, project_bindings = split_bindings(flows_settings, location=project_label)
+        if layer is not None and Path(project_label).parent.resolve() != design.root:
+            # The project file is another file than the design file, in another directory: its
+            # relative paths are relative to it. (Where the two directories are one, a flow
+            # resolves them against the design root, as it does for every other layer.)
+            project_sections = anchored_sections(
+                project_sections,
+                Path(project_label).parent.resolve(),
+                lambda name: getattr(_get_flow_class_if_known(name), "Settings", None),
+            )
         design_sections, design_bindings = split_bindings(thaw(design.flows), location=design_label)
         # The `-s flows.<node>.key` items of the command line are the third origin. They may only
         # name a flow of this run, and `-s key` is a leaf of the requested flow.
