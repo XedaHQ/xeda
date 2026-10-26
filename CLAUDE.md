@@ -105,7 +105,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - A launch ends in a `Result` (`outcomes.py`): an outcome and a disposition for every planned node,
   and the aggregate verdict with its cause. Only `flow_runner/launch_result.py` builds it, from the
   collector that `_launch` reports to; a node's failure is a value in it, never an exception, and
-  `KeyboardInterrupt` propagates.
+  `KeyboardInterrupt` propagates (`tests/test_outcomes.py`).
 - `Flow.always_runs()` returns a reason or `None`; every override calls `super()`. A simulation
   passes only on evidence that it ended (`judge_evidence`, `tests/test_sim_evidence.py`).
 
