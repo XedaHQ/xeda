@@ -275,9 +275,11 @@ def generated(
     environ = dict(os.environ) if environ is None else environ
     forced = rebuild_all
     reason: str | None = None
+    description = "the generator"
     for _attempt in range(ATTEMPTS):
         generation = generate(design, run_root=run_root, rebuild_all=forced, environ=environ)
         assert generation is not None
+        description = generation.description
         with storage_lock(generation.storage, exclusive=False, run_root=run_root):
             reason, matches = judge(
                 generation.storage,
@@ -294,7 +296,7 @@ def generated(
                 return
         forced = False
     raise GenerationError(
-        f"{generation.description} left no output that Xeda could vouch for after {ATTEMPTS} "
+        f"{description} left no output that Xeda could vouch for after {ATTEMPTS} "
         f"tries: {reason}. A generator that changes what it reads while it runs (a file it "
         "writes into a directory in its `sources`) cannot be judged: name only what it reads"
     )
