@@ -1014,6 +1014,27 @@ def test_ctrl_c_while_delivering_says_that_the_launch_finished(tmp_path, remote_
     assert "--outputs-to may be partly written" in message
 
 
+def test_ctrl_c_while_planning_gives_a_document_without_an_outcome(
+    tmp_path, remote_host, monkeypatch
+):
+    """Ctrl-C while this side loads the design or plans the request starts no launch: the
+    document has no outcome and no nodes, the code is `canceled` and the exit status is 1."""
+
+    def interrupted(*arguments, **keywords):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(client, "_plan", interrupted)
+    outcome = _request(tmp_path, _design(tmp_path))
+    assert isinstance(outcome.error, RemoteCanceled), outcome.document
+    document = outcome.document
+    assert document["outcome"] is None and document["nodes"] == [] and document["roots"] == []
+    assert document["error"]["code"] == "canceled"
+    assert document["error"]["message"] == "Ctrl-C canceled the command before the launch started."
+    assert document["spec"] is not None
+    assert outcome.exit_status == 1
+    assert not remote_host.remote.calls("ssh")
+
+
 def test_ctrl_c_before_the_launch_says_it_never_started(tmp_path, remote_host, monkeypatch):
     def interrupted(*arguments, **keywords):
         raise KeyboardInterrupt

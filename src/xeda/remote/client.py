@@ -74,7 +74,7 @@ from ..outcomes import (
     spec_document,
 )
 from ..proc_utils import tool_output_stream
-from ..records import ErrorInfo, decode_record
+from ..records import CANCELED, ErrorInfo, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
 from ..xedaproject import resolve_project_file
 from .constants import HEARTBEAT, LAYOUT
@@ -157,10 +157,14 @@ class RemoteOutcome:
     @property
     def exit_status(self) -> int:
         """The exit status of `xeda run`: 0 for a launch that passed, 2 for a request that
-        started no launch because it is invalid (the `outcome` of its document is null), else 1."""
+        started no launch because it is invalid (the `outcome` of its document is null), else 1.
+        A Ctrl-C before the launch started also has no outcome, and its exit status is 1."""
         if self.success:
             return 0
-        return 2 if self.document.get("outcome", True) is None else 1
+        if self.document.get("outcome", True) is not None:
+            return 1
+        error = self.document.get("error") or {}
+        return 1 if error.get("code") == CANCELED else 2
 
 
 # --- Names ------------------------------------------------------------------------------------
@@ -1269,7 +1273,8 @@ def run_remote(
     The arguments are those of the command `xeda run`. The outcome holds the document that
     `--json` prints. A failure of any step is an outcome too, with `success` false, the exception
     in `error` and a failure document that names it. Ctrl-C during the launch is an outcome with
-    the error `RemoteCanceled`."""
+    the error `RemoteCanceled`. Ctrl-C while this side loads the design or plans the request is
+    one too: its document has no outcome, since no launch started, and the code `canceled`."""
     from ..introspect import request_info
 
     request = parse_request(chain)
@@ -1351,6 +1356,15 @@ def _unreached(run: _Run, outcome: Outcome) -> Dict[str, NodeResult]:
     return found
 
 
+#: The message of a Ctrl-C that came while the request was loaded or planned on this side.
+_CANCELED_BEFORE_START = "Ctrl-C canceled the command before the launch started."
+
+
+class _CanceledBeforeStart(RemoteCanceled):
+    """Ctrl-C came while this side loaded the design or planned the request: no launch started,
+    and nothing was sent to the host."""
+
+
 def _failed(run: _Run, error: Exception) -> RemoteOutcome:
     """The outcome of a run that raised `error`: the document of the launch that failed.
 
@@ -1369,6 +1383,16 @@ def _failed(run: _Run, error: Exception) -> RemoteOutcome:
             error=ErrorInfo(
                 code=error.code, message=str(error), node=error.node, exit_status=None, log=None
             ),
+            launch_id=None,
+            spec=spec,
+            roots=(),
+            nodes=(),
+        )
+        return RemoteOutcome(document, False, error)
+    if isinstance(error, _CanceledBeforeStart):
+        document = run_document(
+            outcome=None,
+            error=ErrorInfo(CANCELED, str(error), None, None, None),
             launch_id=None,
             spec=spec,
             roots=(),
@@ -1446,25 +1470,28 @@ def _run(
             "machine."
         )
     local_root = _local_run_root(run_root)
-    prepared = _plan(
-        run,
-        local_root=local_root,
-        destination_text=destination_text,
-        run_root=run_root,
-        flow_settings=flow_settings,
-        xedaproject=xedaproject,
-        design_overrides=design_overrides,
-        design_allow_extra=design_allow_extra,
-        select_design_in_project=select_design_in_project,
-        hashed_run_dirs=hashed_run_dirs,
-        clean=clean,
-        rebuild_all=rebuild_all,
-        dry_run=dry_run,
-        outputs_to=outputs_to,
-        overwrite_outputs=overwrite_outputs,
-        confirm_overwrite=confirm_overwrite,
-        ssh_options=ssh_options,
-    )
+    try:
+        prepared = _plan(
+            run,
+            local_root=local_root,
+            destination_text=destination_text,
+            run_root=run_root,
+            flow_settings=flow_settings,
+            xedaproject=xedaproject,
+            design_overrides=design_overrides,
+            design_allow_extra=design_allow_extra,
+            select_design_in_project=select_design_in_project,
+            hashed_run_dirs=hashed_run_dirs,
+            clean=clean,
+            rebuild_all=rebuild_all,
+            dry_run=dry_run,
+            outputs_to=outputs_to,
+            overwrite_outputs=overwrite_outputs,
+            confirm_overwrite=confirm_overwrite,
+            ssh_options=ssh_options,
+        )
+    except KeyboardInterrupt:
+        raise _CanceledBeforeStart(_CANCELED_BEFORE_START) from None
     destination = prepared.destination
     mirror_root = local_root / f"@{destination.label()}"
     design = prepared.prepared.design
