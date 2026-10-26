@@ -290,3 +290,59 @@ def test_a_file_listed_twice_stays_one_source_and_the_entries_are_no_identity(tm
     assert once.rtl.sources == twice.rtl.sources and len(twice.rtl.sources) == 1
     assert once.rtl.sources[0].as_json_value() == twice.rtl.sources[0].as_json_value()
     assert len(twice.source_entries()) == 2
+
+
+# ---------------------------------------------------------------- links in the design tree
+# `design/src` may be a link to `design/lib`: the entry `src/*.v` then reads `design/lib/new.v`,
+# and a delivery to either name is refused. The entry and the destination are compared as written
+# and with the existing directories on their way resolved.
+
+
+def test_a_delivery_through_a_directory_link_is_judged_where_the_entry_reads(tmp_path, deliverer):
+    """`design/src` is a link to `design/lib`, and `src/*.v` reads `lib/new.v` through it."""
+    root = tmp_path / "design"
+    (root / "lib").mkdir(parents=True)
+    (root / "lib" / "seed.v").write_text("module seed; endmodule\n")
+    (root / "src").symlink_to(root / "lib", target_is_directory=True)
+    design = Design(name="d", design_root=root, rtl={"sources": ["src/*.v"], "top": "seed"})
+    for target in (root / "lib" / "new.v", root / "src" / "new.v"):
+        with pytest.raises(DeliveryError, match=r"`src/\*.v` entry of `rtl.sources`"):
+            _launch(tmp_path, deliverer, design, target)
+    assert not RUNS
+
+
+def test_a_delivery_into_a_linked_directory_that_a_plain_entry_names_is_refused(
+    tmp_path, deliverer
+):
+    root = tmp_path / "design"
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "gen.py").write_text("")
+    (root / "tools").symlink_to(root / "scripts", target_is_directory=True)
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": ["gen/top.v"], "top": "top", "generator": _generator("tools")},
+    )
+    with pytest.raises(DeliveryError, match="entry of `rtl.generator.sources`"):
+        _launch(tmp_path, deliverer, design, root / "scripts" / "new.py")
+
+
+def test_a_wildcard_directory_that_is_a_link_is_read_through_the_link(tmp_path, deliverer):
+    root = tmp_path / "design"
+    (root / "real").mkdir(parents=True)
+    (root / "real" / "x.v").write_text("module x; endmodule\n")
+    (root / "pkgs").mkdir()
+    (root / "pkgs" / "one").symlink_to(root / "real", target_is_directory=True)
+    design = Design(name="d", design_root=root, rtl={"sources": ["pkgs/*/*.v"], "top": "x"})
+    with pytest.raises(DeliveryError, match=r"`pkgs/\*/\*.v` entry"):
+        _launch(tmp_path, deliverer, design, root / "real" / "new.v")
+
+
+def test_a_link_does_not_make_a_star_cross_a_directory(tmp_path, deliverer):
+    root = tmp_path / "design"
+    (root / "lib" / "deeper").mkdir(parents=True)
+    (root / "lib" / "seed.v").write_text("module seed; endmodule\n")
+    (root / "src").symlink_to(root / "lib", target_is_directory=True)
+    design = Design(name="d", design_root=root, rtl={"sources": ["src/*.v"], "top": "seed"})
+    target = root / "lib" / "deeper" / "new.v"
+    assert _launch(tmp_path, deliverer, design, target).succeeded

@@ -112,7 +112,10 @@ __all__ = [
     "Source",
     "DesignValidationError",
     "SourceEntry",
+    "glob_name_matches",
+    "pattern_reads",
     "source_entry_matches",
+    "source_entry_pattern",
     "FileResource",
     "LanguageSettings",
     "Rtl",
@@ -1285,7 +1288,7 @@ def _pattern_part(pattern: str, text: str) -> bool:
     )
 
 
-def _name_matches(pattern: str, name: str) -> bool:
+def glob_name_matches(pattern: str, name: str) -> bool:
     """Whether the name `name` is one that the pattern part `pattern` names, as a source glob
     decides it: a name that starts with a dot matches only a pattern part that starts with one."""
     if name.startswith(".") and not pattern.startswith("."):
@@ -1293,23 +1296,38 @@ def _name_matches(pattern: str, name: str) -> bool:
     return fnmatchcase(name, pattern)
 
 
+def source_entry_pattern(entry: str, root: Path) -> Path:
+    """Return the pattern that the source `entry` stands for: absolute and normalized, with the
+    variables expanded and escaped as the source globbing does (`_globbed_source_files`). A
+    relative entry lies below `root`. It reads no file."""
+    written = re.sub(r"[?\[]", r"[\g<0>]", entry)
+    expanded = _expand_design_path(written, root, escape=glob_escape)
+    return Path(os.path.normpath(expanded if expanded.is_absolute() else root / expanded))
+
+
+def pattern_reads(pattern: Path, wildcard: bool, candidate: Path) -> bool:
+    """Return whether the pattern of an entry (`source_entry_pattern`) reads the absolute path
+    `candidate`. `wildcard` says that the entry has a `*`.
+
+    The match is made part by part: a pattern and the path must have the same number of parts, and
+    `*` never crosses a `/`. An entry without a `*` also matches every path below it, which is how
+    a directory entry reads."""
+    parts, names = pattern.parts, Path(os.path.normpath(candidate)).parts
+    if len(names) < len(parts) or (len(names) > len(parts) and wildcard):
+        return False
+    return all(glob_name_matches(part, name) for part, name in zip(parts, names))
+
+
 def source_entry_matches(entry: str, root: Path, candidate: Path) -> bool:
     """Return whether a design that lists the source `entry` would read the file `candidate`.
 
     The entry is a name, a pattern in which `*` is the only pattern character, or a directory
     (which stands for every file under it). It expands variables and escapes as the source
-    globbing does (`_globbed_source_files`), and a relative entry lies below `root`. `candidate`
-    is absolute. The match is made part by part: a pattern and the path must have the same number
-    of parts, and `*` never crosses a `/`. A name entry also matches every path below it, which
-    is how a directory entry reads. The function reads no file system, so it judges a destination
-    that does not exist yet, and the caller resolves links in `root` and `candidate`."""
-    written = re.sub(r"[?\[]", r"[\g<0>]", entry)
-    expanded = _expand_design_path(written, root, escape=glob_escape)
-    pattern = Path(os.path.normpath(expanded if expanded.is_absolute() else root / expanded))
-    parts, names = pattern.parts, Path(os.path.normpath(candidate)).parts
-    if len(names) < len(parts) or (len(names) > len(parts) and "*" in entry):
-        return False
-    return all(_name_matches(part, name) for part, name in zip(parts, names))
+    globbing does, and a relative entry lies below `root`. `candidate` is absolute. The match
+    is made as `pattern_reads` makes it. The function reads no file system, so it judges a
+    destination that does not exist yet, and the caller resolves the links in `root` and
+    `candidate` (`deliver.ReadInputs.source_entry_reading` does)."""
+    return pattern_reads(source_entry_pattern(entry, root), "*" in entry, candidate)
 
 
 class SourceEntry(NamedTuple):

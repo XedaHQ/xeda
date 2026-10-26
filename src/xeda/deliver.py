@@ -56,6 +56,7 @@ import itertools
 import json
 import logging
 import os
+import re
 import stat
 import tempfile
 from collections import Counter
@@ -66,7 +67,7 @@ from typing import Any, Dict, Optional
 
 from .artifacts import iter_artifact_paths
 from .dataclass import DELIVERABLE_ROLE, written_role
-from .design import SourceEntry, source_entry_matches
+from .design import SourceEntry, pattern_reads, source_entry_pattern, glob_name_matches
 from .digest import FileRecord, content_digest, filesystem_time_ns, record_file
 from .listing import directory_files
 from .errors import RecordError
@@ -490,6 +491,50 @@ def _reached_files(source: Path) -> set[tuple[int, int]]:
     return {i for i in (_identity(source, follow=False), _identity(source)) if i is not None}
 
 
+_UNESCAPED_STAR = re.compile(r"(?<!\[)\*(?!\])")
+
+
+def _inside_a_run_root(path: Path) -> bool:
+    return any(is_run_root(directory) for directory in (path, *path.parents))
+
+
+def _resolved_patterns(pattern: Path, wildcard: bool) -> list[Path]:
+    """Return the patterns that read what `pattern` reads, with the links on the way resolved.
+
+    The directories of the pattern come first: a part with a `*` stands for each existing
+    directory that it matches (a link to a directory included), and every directory is replaced by
+    the directory it is (`os.path.realpath`). The last part stays a pattern. An entry without a
+    `*` is resolved whole, because it may be a link to a directory. A directory inside a run root
+    is never entered: a link in the design tree that leads there reads nothing of the design.
+    This reads the design tree, and only its directories."""
+    parts = pattern.parts
+    if not wildcard:
+        whole = Path(os.path.realpath(pattern))
+        return [] if whole == pattern else [whole]
+    directories = [Path(parts[0])]
+    for part in parts[1:-1]:
+        found: list[Path] = []
+        for base in directories:
+            if not _UNESCAPED_STAR.search(part):
+                found.append(base / part)
+                continue
+            try:
+                names = sorted(os.listdir(base))
+            except OSError:
+                continue
+            for name in names:
+                child = base / name
+                if (
+                    glob_name_matches(part, name)
+                    and child.is_dir()
+                    and not _inside_a_run_root(Path(os.path.realpath(child)))
+                ):
+                    found.append(child)
+        directories = found
+    resolved = [Path(os.path.realpath(directory)) / parts[-1] for directory in directories]
+    return [form for form in resolved if form != pattern]
+
+
 class ReadInputs:
     """Every file that the flows of a launch read.
 
@@ -514,7 +559,9 @@ class ReadInputs:
         #: it was listed under, and that directory.
         self._directories: dict[Path, tuple[str, Path]] = {}
         #: The entries of the design that name source files (`add_source_entries`).
-        self._entries: list[tuple[SourceEntry, Path]] = []
+        self._entries: list[SourceEntry] = []
+        #: The patterns that read each entry (`_entry_forms`).
+        self._forms: dict[SourceEntry, list[Path]] = {}
         self.add(paths)
 
     def add(self, paths: Iterable[Path]) -> None:
@@ -551,14 +598,36 @@ class ReadInputs:
 
         A file that does not exist yet is an input of the run when an entry names it, so no
         delivery goes there (`source_entry_reading`)."""
-        for entry in entries:
-            self._entries.append((entry, Path(os.path.realpath(entry.root))))
+        self._entries.extend(entries)
 
-    def source_entry_reading(self, destination: Path) -> Optional[SourceEntry]:
-        """Return the first registered entry that the design would read `destination` through,
-        or None. `destination` is located, and the match judges names only."""
-        for entry, root in self._entries:
-            if source_entry_matches(entry.text, root, destination):
+    def _entry_forms(self, entry: SourceEntry) -> list[Path]:
+        """Return the patterns through which the design reads `entry`: as written, and with the
+        existing directories on its way resolved (`_resolved_patterns`). The launch reads the
+        design tree once for each entry."""
+        if entry not in self._forms:
+            written = source_entry_pattern(entry.text, entry.root)
+            resolved = _resolved_patterns(written, "*" in entry.text)
+            self._forms[entry] = list(dict.fromkeys([written, *resolved]))
+        return self._forms[entry]
+
+    def source_entry_reading(
+        self, destination: Path, given: Optional[Path] = None
+    ) -> Optional[SourceEntry]:
+        """Return the first registered entry through which the design would read `destination`,
+        or None.
+
+        `destination` is located (its parent resolved), and `given` is the destination as it was
+        named. A link in the design tree can make `src/*.v` read `lib/new.v`, so each entry is
+        compared in both forms with both names of the destination. The comparison keeps the part
+        boundaries of the pattern."""
+        names = list(dict.fromkeys(path for path in (destination, given) if path is not None))
+        for entry in self._entries:
+            wildcard = "*" in entry.text
+            if any(
+                pattern_reads(form, wildcard, name)
+                for form in self._entry_forms(entry)
+                for name in names
+            ):
                 return entry
         return None
 
@@ -911,7 +980,9 @@ class Deliveries:
                 f"which is {found}, an input of the run: an output never replaces an input; "
                 "name another path"
             )
-        entry = self.inputs.source_entry_reading(destination)
+        entry = self.inputs.source_entry_reading(
+            destination, Path(os.path.abspath(delivery.destination))
+        )
         if entry is not None:
             return (
                 f"which the `{entry.text}` entry of `{entry.part}` reads: a file delivered there "
