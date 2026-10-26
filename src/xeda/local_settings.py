@@ -27,6 +27,7 @@ import yaml
 from .errors import ProjectError
 from .frozen import freeze
 from .project import Project
+from .remote.errors import RemoteConfigError
 from .remote.profile import config_directory, read_host_profiles, remotes_file
 from .types import UNSET, PathLike, Unset
 from .utils import ConflictingKeys, expand_hierarchy, flows_table_problems
@@ -102,7 +103,11 @@ def local_settings(
     # so that this module stays below the launcher.
     from .flow_runner.settings_layers import PROJECT_LOCAL_ORIGIN, USER_CONFIG_ORIGIN
 
-    profiles = read_host_profiles(remotes_file())
+    profile_file = remotes_file()
+    try:
+        profiles = read_host_profiles(profile_file)
+    except RemoteConfigError as e:
+        raise ProjectError(str(e), code="invalid_local_settings", path=profile_file) from e
     user: _File | None = None
     local: _File | None = None
     if config is not None:

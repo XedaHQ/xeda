@@ -276,12 +276,6 @@ def test_the_host_profiles_are_read_in_every_case(tmp_path, private_home):
         assert set(ls.host_profiles) == {"venona"}
 
 
-def test_malformed_host_profiles_are_a_remote_config_error(private_home):
-    write(private_home / "remotes.yaml", "hosts: [")
-    with pytest.raises(RemoteConfigError):
-        local_settings(config=None)
-
-
 def test_no_library_call_reads_a_private_file_unasked(tmp_path, private_home):
     """Planning with no `local_settings` ignores a user file that would not load."""
     user_file(private_home, "colour: 1\n")
@@ -740,3 +734,21 @@ def test_the_command_line_refuses_a_config_file_that_does_not_exist(tmp_path):
     assert result.exit_code == 2
     assert document["error"]["code"] == "invalid_local_settings"
     assert str(missing) in document["error"]["message"]
+
+
+@pytest.mark.parametrize("text", ["hosts: [", "- venona\n", "hosts:\n  venona: {root: 'a b'}\n"])
+def test_malformed_host_profiles_are_an_invalid_local_settings_error(private_home, text):
+    path = write(private_home / "remotes.yaml", text)
+    with pytest.raises(errors.ProjectError) as raised:
+        local_settings(config=None)
+    assert raised.value.code == "invalid_local_settings"
+    assert str(path) in str(raised.value)
+    assert not isinstance(raised.value, RemoteConfigError)
+
+
+def test_remote_commands_still_report_malformed_host_profiles_as_remote_config_errors(tmp_path):
+    from xeda.remote.profile import read_host_profiles
+
+    path = write(tmp_path / "remotes.yaml", "hosts: [")
+    with pytest.raises(RemoteConfigError):
+        read_host_profiles(path)

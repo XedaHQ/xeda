@@ -191,7 +191,7 @@ A host profile holds what is specific to Xeda on one host. Everything about SSH 
 ``~/.ssh/config``. The profiles are in the file ``${XDG_CONFIG_HOME:-~/.config}/xeda/remotes.yaml``.
 Xeda ignores a relative value of ``XDG_CONFIG_HOME``. The file is beside the user config file (see
 :ref:`private-files`). Every ``xeda run`` reads it, with or without ``--remote``, so an invalid file
-is an error for all of them. ``--no-config`` does not skip it. The file is optional. A host with no entry
+is an error (``invalid_local_settings``) for all of them. ``--no-config`` does not skip it. The file is optional. A host with no entry
 gets the default profile, which suits a host whose tools are on the login ``PATH``.
 
 The ``hosts`` table is keyed by the exact text of ``--remote``. ``--remote cluster`` uses
@@ -605,10 +605,11 @@ Errors
     the fetch repeats.
 
 ``RemoteConfigError``
-    The file ``remotes.yaml`` or one of its entries is not valid, or the text of ``--remote``
+    One entry of ``remotes.yaml`` is not valid for ``xeda remote``, or the text of ``--remote``
     starts with ``-`` or has a space, or the host of ``xeda remote check``, ``attach`` or ``cancel``
-    is empty. The message names the file, the host and the field. An empty ``--remote`` of ``xeda
-    run`` is a usage error instead (exit status 2).
+    is empty. The message names the file, the host and the field. ``xeda run`` reports an invalid
+    ``remotes.yaml`` as ``invalid_local_settings``, and an empty ``--remote`` as a usage error
+    (exit status 2).
     The error also appears when the remote root has a character that Xeda cannot put in a command
     line (a double quote, a backslash, ``$``, a backquote or ``!``). Set ``root`` to another path.
 
