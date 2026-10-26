@@ -24,6 +24,7 @@ from xeda.flow import flowrun_hash
 from xeda.flow_runner.bindings import node_identity
 from xeda.flow_runner.configuration import configuration_hash
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.dependencies import merged_design
 from xeda.flow_runner.trace import read_trace
 from xeda.flows import VivadoSynth
 from xeda.utils import dump_json
@@ -460,12 +461,16 @@ def test_a_parameter_inherited_from_a_dependency_keeps_how_it_was_written(tmp_pa
     for where in ("here", "there"):
         root = tree(tmp_path / where)
         designs.append(
-            Design(
-                name="d",
-                design_root=root,
-                rtl={"sources": ["top.vhd"], "top": "top"},
-                # appended (`pos = -1`): the form that also inherits the dependency's parameters
-                dependencies=[{"uri": str(root / "dep" / "dep.toml"), "rtl": {"pos": -1}}],
+            merged_design(
+                Design(
+                    name="d",
+                    design_root=root,
+                    rtl={"sources": ["top.vhd"], "top": "top"},
+                    # appended (`pos = -1`): the form that also inherits the dependency's
+                    # parameters
+                    dependencies=[{"uri": str(root / "dep" / "dep.toml"), "rtl": {"pos": -1}}],
+                ),
+                run_root=None,
             )
         )
 
@@ -494,12 +499,15 @@ def test_a_recorded_design_with_a_dependency_reloads_as_itself(tmp_path, pos, ow
         'name = "dep"\n[rtl]\nsources = ["core.vhd"]\ntop = "core"\n'
         '[tb]\nsources = ["tb.vhd"]\ntop = "tb"\n'
     )
-    design = Design(
-        name="d",
-        design_root=root,
-        rtl={"sources": ["top.vhd"], "top": "top"},
-        **({"tb": own_tb} if own_tb else {}),
-        dependencies=[{"uri": str(root / "dep" / "dep.toml"), "rtl": {"pos": pos}}],
+    design = merged_design(
+        Design(
+            name="d",
+            design_root=root,
+            rtl={"sources": ["top.vhd"], "top": "top"},
+            **({"tb": own_tb} if own_tb else {}),
+            dependencies=[{"uri": str(root / "dep" / "dep.toml"), "rtl": {"pos": pos}}],
+        ),
+        run_root=None,
     )
     recorded = tmp_path / "settings.json"
     dump_json({"design": design}, recorded)
@@ -527,11 +535,14 @@ def test_a_file_the_design_and_its_dependency_both_list_is_compiled_once(tmp_pat
     (root / "dep" / "dep.toml").write_text(
         'name = "dep"\n[rtl]\nsources = ["pkg.vhd", "core.vhd"]\n'
     )
-    design = Design(
-        name="d",
-        design_root=root,
-        rtl={"sources": ["dep/pkg.vhd", "top.vhd"], "top": "top"},
-        dependencies=[{"uri": str(root / "dep" / "dep.toml"), "rtl": {"pos": pos}}],
+    design = merged_design(
+        Design(
+            name="d",
+            design_root=root,
+            rtl={"sources": ["dep/pkg.vhd", "top.vhd"], "top": "top"},
+            dependencies=[{"uri": str(root / "dep" / "dep.toml"), "rtl": {"pos": pos}}],
+        ),
+        run_root=None,
     )
     names = [src.file.name for src in design.rtl.sources]
     assert sorted(names) == ["core.vhd", "pkg.vhd", "top.vhd"]
@@ -655,11 +666,14 @@ def test_artifact_names_are_distinct_even_where_folding_is_not(tmp_path):
     (lib / "lib.toml").write_text('name = "lib"\n[rtl]\nsources = ["rtl/fifo.vhd"]\ntop = "fifo"\n')
 
     sources = ["rtl/my-fifo.vhd", "rtl/my_fifo.vhd", "rtl/fifo.vhd", "rtl/fifo.vhdl"]
-    design = Design(
-        name="d",
-        design_root=root,
-        rtl={"sources": [*sources, "rtl/alone.vhd"], "top": "top"},
-        dependencies=[{"uri": str(lib / "lib.toml"), "rtl": {"pos": -1}}],
+    design = merged_design(
+        Design(
+            name="d",
+            design_root=root,
+            rtl={"sources": [*sources, "rtl/alone.vhd"], "top": "top"},
+            dependencies=[{"uri": str(lib / "lib.toml"), "rtl": {"pos": -1}}],
+        ),
+        run_root=None,
     )
     assert len(design.rtl.sources) == 6
 
