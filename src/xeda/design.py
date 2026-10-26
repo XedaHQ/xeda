@@ -49,6 +49,7 @@ from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, c
 from typing_extensions import TypedDict
 
 from .dataclass import (
+    ESCAPED_DOT,
     WHOLE,
     ConfigDict,
     Field,
@@ -2928,6 +2929,20 @@ NO_SINGULAR_TARGET = (
 )
 
 
+def _plain_names(value: Any) -> Any:
+    """Return `value` with each name that a merged table writes with `ESCAPED_DOT` (the text of an
+    `AtomicName`) written with plain dots, at any depth. A user cannot write the escaped form
+    (`utils.EscapedName`), and a design file reads the plain one as the same name."""
+    if isinstance(value, Mapping):
+        return {
+            (key.replace(ESCAPED_DOT, ".") if isinstance(key, str) else key): _plain_names(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_plain_names(item) for item in value]
+    return value
+
+
 def _flows_table(value: Any) -> dict[str, Any]:
     """Return the `flows` table of a design, or of a target's overlay, as the design holds it.
 
@@ -3650,7 +3665,7 @@ class Design(XedaBaseModel):
         the updates of this design (`updates`). No generator runs.
 
         Raises `DesignValidationError` for a key that a design does not have."""
-        data = self._document("json")
+        data = self._document("python")
         if self.target is not None:
             data["target"] = self.target
         data = self._updated(data, updates)
@@ -3683,12 +3698,22 @@ class Design(XedaBaseModel):
         target."""
         return self._document("json")
 
-    def _document(self, mode: Literal["json", "python"]) -> dict[str, Any]:
+    def _document(
+        self, mode: Literal["json", "python"], *, plain_names: bool = True
+    ) -> dict[str, Any]:
         """Return the effective design as a table of a design file, in the `mode` of a dump.
 
         A testbench with a `Cocotb` source and no cocotb table has said `cocotb: false`: a design
-        derives the table from the source when `cocotb` is missing, so the refusal is written."""
+        derives the table from the source when `cocotb` is missing, so the refusal is written.
+        In the `python` mode the names of a merged flow table stay whole (`AtomicName`), so an
+        update merges as the layers of a design did. In the `json` mode they are written with plain
+        dots, as a design file writes them, and a reload reads the same names. Without
+        `plain_names` the escaped text stays, as the package of a remote run needs it: the host
+        reads the text as the names of the table that the layers merged (`escaped_names_atomic`),
+        also when it holds `A` and `A.B`."""
         document = self.model_dump(mode=mode, exclude={"root", "target", "targets", "updates"})
+        if mode == "json" and plain_names:
+            document["flows"] = _plain_names(document["flows"])
         tb = document.get("tb")
         if (
             isinstance(tb, dict)

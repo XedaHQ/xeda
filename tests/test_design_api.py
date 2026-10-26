@@ -16,6 +16,7 @@ from click.testing import CliRunner
 from xeda import Design
 from xeda.cli import cli
 from xeda.design import DesignValidationError
+from xeda.frozen import thaw
 
 DESIGN_FILE = """\
 name: a
@@ -387,3 +388,86 @@ def test_a_new_cocotb_source_after_an_update_still_turns_cocotb_on(tmp_path):
     assert plain.tb.cocotb is None
     changed = plain.with_updates({"tb.sources": [{"file": "test_b.py", "type": "Cocotb"}]})
     assert changed.tb.cocotb is not None
+
+
+PROPERTY = "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM"
+
+
+def _property_design(root: Path, **kwargs: object) -> Design:
+    """A design whose base and target both set a property whose name contains dots."""
+    return Design(
+        name="a",
+        root=root,
+        rtl={"sources": [], "top": "a"},
+        flows={"vivado_synth": {"set_synth_properties": {PROPERTY: 0, "OTHER": 1}}},
+        targets={"t": {"flows": {"vivado_synth": {"set_synth_properties": {PROPERTY: 2}}}}},
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+def _properties(design: Design) -> dict[str, object]:
+    """The property table as the flow reads it."""
+    from xeda.flows import VivadoSynth
+
+    settings = VivadoSynth.Settings.from_input(thaw(design.flows["vivado_synth"]))
+    return dict(settings.set_synth_properties)
+
+
+def test_a_merged_property_name_with_dots_survives_an_update(tmp_path):
+    design = _property_design(tmp_path, target="t")
+    assert _properties(design) == {PROPERTY: 2, "OTHER": 1}
+    for changed in (
+        design.with_updates({"rtl.top": "b"}),
+        design.with_updates({}),
+        design.with_updates({"flows": {"vivado_synth": {"set_synth_properties": {"NEW": 3}}}}),
+    ):
+        assert _properties(changed)[PROPERTY] == 2
+        assert changed.target == "t"
+    assert (
+        _properties(
+            design.with_updates({"flows.vivado_synth.set_synth_properties": {PROPERTY: 5}})
+        )[PROPERTY]
+        == 5
+    )
+    assert design.with_updates({}) == design
+
+
+def test_to_dict_names_a_merged_property_as_a_design_file_does(tmp_path):
+    design = _property_design(tmp_path, target="t")
+    document = design.to_dict()
+    table = document["flows"]["vivado_synth"]["set_synth_properties"]
+    assert set(table) == {PROPERTY, "OTHER"}, "plain dotted names, no escaped dot"
+    again = Design(root=design.root, **document)
+    assert _properties(again) == _properties(design)
+    assert again == Design(root=design.root, **design.to_dict())
+    # the written document, read as a design file
+    import json
+
+    file = tmp_path / "written.json"
+    file.write_text(json.dumps(document))
+    assert _properties(Design.load(file)) == _properties(design)
+
+
+def test_the_package_of_a_remote_run_keeps_a_name_and_a_name_inside_it_apart(tmp_path):
+    """`A` and `A.B` can both be names of a merged table. A design file cannot write that pair,
+    so the package writes the escaped text and the host reads it back as the merged names."""
+    import json
+
+    from xeda.dataclass import AtomicName
+
+    design = Design(
+        name="a",
+        root=tmp_path,
+        rtl={"sources": [], "top": "a"},
+        flows={"vivado_synth": {"set_synth_properties": {"A": 1}}},
+        targets={"t": {"flows": {"vivado_synth": {"set_synth_properties": {"A.B": 2}}}}},
+        target="t",
+    )
+    file = tmp_path / "a.xeda.json"
+    document = design._document("json", plain_names=False)
+    file.write_text(json.dumps({**document, "target": "t"}))
+    table = Design._load_file(file, packaged=True).flows["vivado_synth"]["set_synth_properties"]
+    assert {(k.name if isinstance(k, AtomicName) else k): v for k, v in table.items()} == {
+        "A": 1,
+        "A.B": 2,
+    }

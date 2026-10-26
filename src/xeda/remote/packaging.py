@@ -179,7 +179,7 @@ def package_inputs(
     # The design a target yielded, with the name of the target. The remote plans the same run
     # directories as this side (`<design>/<target>/<flow>`), and a design file may not write
     # `target`, but a packaged document may (`Design._load_file`).
-    new_design: Dict[str, Any] = design.to_dict()
+    new_design: Dict[str, Any] = design._document("json", plain_names=False)
     if design.target is not None:
         new_design["target"] = design.target
     design_file = f"{design.name}.xeda.json"
