@@ -29,9 +29,10 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
 - The suite is parallel-safe and must stay so (`addopts` has no `-n` on purpose). A test writes
   only under `tmp_path` (opt-in layers: the checkout's `xeda_run/`), takes no fixed name and
   leaves no process-wide change: use `monkeypatch` (a direct `os.environ` write fails,
-  `tests/test_environment_isolation.py`), never `chdir`, and restore flow registrations with
-  `preserved_flow_registry` (`tests/flow_registry.py`). The checkout guard (`tests/conftest.py`)
-  fails a test that changes a file in the checkout.
+  `tests/test_environment_isolation.py`), never `chdir`. The flow registry is put back after
+  each test; a test module that keeps a flow registered at import needs an entry in
+  `REVIEWED_IMPORT_REGISTRATIONS`. The checkout guard (both in `tests/conftest.py`) fails a test
+  that changes a file in the checkout.
 - Real-tool tests skip when the tool is missing (`require_*` in `tests/tool_utils.py`);
   `XEDA_TESTS_REQUIRE_TOOLS=1` (set in CI) makes a skip fail. Opt-in layers: `XEDA_TESTS_VIVADO`,
   `XEDA_TESTS_DOCKER`, `XEDA_TESTS_EXTERNAL`, `XEDA_TESTS_OPENXC7`, `XEDA_TESTS_OPENROAD`,
