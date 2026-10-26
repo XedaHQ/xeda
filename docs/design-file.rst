@@ -1154,19 +1154,21 @@ A project file has these keys. Any other key at its root is an error that names 
 ``flows``
   The settings that the designs of the project share.
 ``run_root``
-  Where the runs of the project go, relative to the project file. ``xeda run`` uses it when you
-  give neither ``--run-root`` nor ``XEDA_RUN_ROOT``. Without this key, the run root is
-  ``xeda_run`` in the directory where you start Xeda.
+  Where the runs of the project go, relative to the project file. Without this key, the run root
+  is ``xeda_run`` beside the project file. ``xeda run`` uses the run root of the project it
+  selects, whichever design it runs, unless you give ``--run-root`` or ``XEDA_RUN_ROOT``.
 ``default_target``
   The target that Xeda selects for a design of the project when you give neither ``--target`` nor
   ``--no-target``. A design that has no such target is an error: select a target, or pass
   ``--no-target``.
 
 Select a design of the project with ``--design-name NAME``. This is the only way to run a design
-of a project. A design file that you give as the ``DESIGN`` argument never gets the ``flows`` of
+of a project. If you give neither ``--design-name`` nor ``DESIGN``, Xeda selects the only design of
+the project; a project with several designs is an error that lists them. Give ``DESIGN`` or
+``--design-name``, not both. A design file that you give as the ``DESIGN`` argument never gets the ``flows`` of
 the project. If the project lists that file in a ``file`` entry, Xeda refuses it and names the
 option to use: ``--design-name <name>``. A design file that the project does not list runs without
-the project.
+the settings of the project, and the project still supplies the run root.
 
 The ``DESIGN`` argument is always the path of a design file, with or without a suffix. If no such
 file exists and the project has a design of that name, Xeda says so and names ``--design-name``.
