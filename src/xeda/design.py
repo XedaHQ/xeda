@@ -3061,6 +3061,32 @@ class _GitReferenceInput(TypedDict):
     tb: NotRequired[TbDep]
 
 
+def _generator_written(section: Any) -> Any:
+    """Return the `generator` that `section`, the `rtl` of a design or a target as written, gives,
+    or None."""
+    return section.get("generator") if isinstance(section, Mapping) else None
+
+
+def _expanded_sources(section: Any, recipe_source: Any, root: Path) -> Any:
+    """Return the table `section` (`rtl` or `tb`, as written) with its `sources` as `Source`
+    objects: the entries a generator writes as declarations, the others expanded now, a pattern to
+    the files that match it. An entry that cannot be expanded now (a file that is missing, a form
+    that is wrong) leaves the list as written, and the design that is built from it reports it.
+
+    `recipe_source` is the `generator` that decides which entries are the generator's."""
+    if not isinstance(section, Mapping) or "sources" not in section:
+        return section
+    entries = as_source_list(section["sources"])
+    if not isinstance(entries, (list, tuple)):
+        return section
+    try:
+        recipe = None if recipe_source is None else _generator_recipe(recipe_source, root)
+        listed = list(entries) if recipe is None else generated_declarations(entries, recipe, root)
+        return {**section, "sources": DesignPart._sources_to_files(listed)}
+    except (ValueError, TypeError, OSError):
+        return section
+
+
 class Design(XedaBaseModel):
     # A design is immutable, and so is everything in it. `model_copy(update=...)` makes a changed
     # design; call `invalidate_cached_properties()` on the copy.
@@ -3563,6 +3589,8 @@ class Design(XedaBaseModel):
             declared = cls.expanded(deepcopy(dict(declared)))
             names = declared.get("targets")
             if data is None:
+                cls.select_target(declared, None)  # the form of every target, as written
+                declared = cls._with_expanded_sources(declared, root_path)
                 data = cls.select_target(declared, target)
                 for update in updates:
                     data = cls._updated(data, update)
@@ -3605,6 +3633,39 @@ class Design(XedaBaseModel):
     def model_validate_strings(cls, *args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
         """Refuse: a design built without the constructor has no root."""
         raise TypeError(_NO_ROOT.format(name="model_validate_strings"))
+
+    @classmethod
+    def _with_expanded_sources(cls, declared: Mapping[str, Any], root: Path) -> dict[str, Any]:
+        """Return `declared` with the sources of the design and of every target expanded, once.
+
+        The result keeps them as `Source` objects with the entries that named them, so selecting
+        a target later (`with_target`) expands nothing again: a file added or removed since is
+        neither in the design nor missing from it. A target whose entries cannot be expanded now
+        stays as written, and is checked when it is selected."""
+        result = dict(declared)
+        generator = _generator_written(result.get("rtl"))
+        for part in ("rtl", "tb"):
+            if part in result:
+                result[part] = _expanded_sources(
+                    result[part], generator if part == "rtl" else None, root
+                )
+        targets = result.get("targets")
+        if isinstance(targets, Mapping):
+            expanded: dict[Any, Any] = {}
+            for name, overlay in targets.items():
+                if isinstance(overlay, Mapping):
+                    overlay = dict(overlay)
+                    own = (
+                        (overlay.get("rtl") or {}).get("generator") if overlay.get("rtl") else None
+                    )
+                    for part in ("rtl", "tb"):
+                        if part in overlay:
+                            overlay[part] = _expanded_sources(
+                                overlay[part], (own or generator) if part == "rtl" else None, root
+                            )
+                expanded[name] = overlay
+            result["targets"] = expanded
+        return result
 
     @classmethod
     def _built(

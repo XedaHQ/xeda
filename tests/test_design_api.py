@@ -499,3 +499,62 @@ def test_an_update_keeps_the_entries_that_named_the_sources(tmp_path):
     replaced = design.with_updates({"rtl.sources": ["tb.sv"]})
     assert [entry.text for entry in replaced.source_entries()] == ["tb.sv", "tb.sv"]
     assert [s.path.name for s in replaced.rtl.sources] == ["tb.sv"]
+
+
+def _sources_of(design: Design) -> list[str]:
+    return [str(s.path.relative_to(design.root)) for s in design.rtl.sources]
+
+
+def test_with_target_expands_nothing_again(tmp_path):
+    for name in ("src/a.sv", "board/b.sv", "board/c.sv"):
+        (tmp_path / name).parent.mkdir(exist_ok=True)
+        (tmp_path / name).write_text("module m; endmodule\n")
+    file = tmp_path / "a.yaml"
+    file.write_text(dedent("""\
+            name: a
+            rtl:
+              sources: [src/*.sv]
+              top: a
+            targets:
+              t:
+                rtl:
+                  sources: [board/*.sv]
+              u:
+                rtl:
+                  sources: [board/b.sv]
+            """))
+    design = Design.load(file)
+    # a file that matches is added, another is removed, after the design is loaded
+    (tmp_path / "src" / "new.sv").write_text("module n; endmodule\n")
+    (tmp_path / "board" / "new.sv").write_text("module n; endmodule\n")
+    (tmp_path / "src" / "a.sv").unlink()
+    (tmp_path / "board" / "c.sv").unlink()
+    chosen = design.with_target("t")
+    assert _sources_of(chosen) == ["src/a.sv", "board/b.sv", "board/c.sv"]
+    assert _sources_of(chosen.with_target("u")) == ["src/a.sv", "board/b.sv"]
+    assert _sources_of(chosen.with_target(None)) == ["src/a.sv"]
+    assert [e.text for e in chosen.source_entries()] == ["src/*.sv", "board/*.sv"]
+    # the same design loaded again sees the files as they are now
+    assert _sources_of(Design.load(file, target="t")) == [
+        "src/new.sv",
+        "board/b.sv",
+        "board/new.sv",
+    ]
+    # an update after the target keeps the sources of the target
+    assert _sources_of(chosen.with_updates({"rtl.top": "b"})) == _sources_of(chosen)
+
+
+def test_a_target_whose_files_are_missing_is_checked_when_it_is_selected(tmp_path):
+    (tmp_path / "a.sv").write_text("module a; endmodule\n")
+    design = Design(
+        name="a",
+        root=tmp_path,
+        rtl={"sources": ["a.sv"], "top": "a"},
+        targets={"t": {"rtl": {"sources": ["board/*.sv"]}}},
+    )
+    assert design.targets == ("t",)
+    with pytest.raises(DesignValidationError, match=r"board/\*\.sv"):
+        design.with_target("t")
+    (tmp_path / "board").mkdir()
+    (tmp_path / "board" / "b.sv").write_text("module b; endmodule\n")
+    assert _sources_of(design.with_target("t")) == ["a.sv", "board/b.sv"]
