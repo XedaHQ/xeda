@@ -245,3 +245,22 @@ def test_a_yaml_board_entry_gives_openfpgaloader_board_as_text_or_not_at_all(tmp
         )
     message = str(raised.value)
     assert "MY_BOARD" in message and "`openfpgaloader_board`" in message and "as text" in message
+
+
+@pytest.mark.parametrize("filename", ["boards.toml", "boards.yaml"])
+def test_a_bare_part_number_in_a_boards_file_names_the_board_and_the_file(tmp_path, filename):
+    database = tmp_path / filename
+    database.write_text(
+        'MY_BOARD = {fpga = "xc7a35tcpg236-1"}\n'
+        if filename.endswith("toml")
+        else "MY_BOARD:\n  fpga: xc7a35tcpg236-1\n"
+    )
+
+    with pytest.raises(FlowSettingsError) as refused:
+        WithFpgaBoardSettings.from_input(
+            {"board": "MY_BOARD", "custom_boards_file": database}, design_root=tmp_path
+        )
+
+    message = str(refused.value)
+    assert "'MY_BOARD'" in message and str(database) in message
+    assert "`fpga: <part>` was removed: use `fpga.part`" in message

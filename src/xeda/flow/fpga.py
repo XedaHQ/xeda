@@ -17,7 +17,10 @@ from ..utils import try_convert
 log = logging.getLogger(__name__)
 
 
-__all__ = ["FPGA"]
+__all__ = ["FPGA", "FPGA_PART_TEXT"]
+
+#: The refusal of a part number written as the value of `fpga`: the name, and what to write.
+FPGA_PART_TEXT = ("fpga: <part>", SecondSpelling("`fpga.part`"))
 
 
 class FPGA(XedaBaseModel):
@@ -62,7 +65,7 @@ class FPGA(XedaBaseModel):
         # The positional form `FPGA("xc7a...")` accepts a part number. A bare part number as the
         # value of a field is another spelling of `part`.
         if isinstance(values, str):
-            raise removed_error("fpga: <part>", SecondSpelling("`fpga.part`"), values)
+            raise removed_error(*FPGA_PART_TEXT, values)
         if not isinstance(values, dict):
             return values
         # An empty mapping is checked like any other: an FPGA must identify a device. Letting
