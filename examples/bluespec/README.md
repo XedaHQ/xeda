@@ -36,7 +36,7 @@ All the designs follow the same conventions:
 To run the negative test without editing a design file, define the macro on the command line:
 
 ```bash
-xeda run bsc_sim examples/bluespec/gcd/gcd.yaml --design-overrides tb.defines.XEDA_INJECT_BUG=true
+xeda run bsc_sim examples/bluespec/gcd/gcd.yaml --design-updates tb.defines.XEDA_INJECT_BUG=true
 ```
 
 The same setting in a design file is `defines.XEDA_INJECT_BUG: true` under `tb`.

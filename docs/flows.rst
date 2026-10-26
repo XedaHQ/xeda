@@ -141,7 +141,7 @@ The command line takes dotted keys for nested values, and you can give several a
 
 A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an error that names
 ``timing`` and ``timing.x``, and so is the same pair in the other order. The same holds in a
-design file, a target, ``--design-overrides`` and a ``flows`` table.
+design file, a target, ``--design-updates`` and a ``flows`` table.
 
 .. _opaque-keys:
 

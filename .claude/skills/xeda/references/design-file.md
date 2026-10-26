@@ -46,7 +46,11 @@ are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` 
 | `flows` | Per-flow settings. |
 | `targets` | One overlay per board. |
 | `dependencies` | Other designs: a design file path, or `git+<url>#<design file in the repository>`. A URL without `git+` is refused. Planning reads them; see below. |
-| `design_root` | Base for relative paths. Defaults to the design file's directory. |
+
+Relative paths resolve against the design file's directory (the design root). `design_root` was
+removed. In Python: `Design.load(path, target=None)` or `Design(name=..., root=..., rtl={...})`.
+A design is immutable: `d.with_updates({"tb.parameters.W": 8})` and `d.with_target("t")` return new
+designs; `d.to_dict()` is the effective design in the shape of a file.
 
 ## `rtl`: the design
 
@@ -308,7 +312,7 @@ A project file's section means the same, below the design's. A chain on the comm
 ## `targets`: one design, several boards
 
 A target is an overlay on the design. It takes the design's own keys (`rtl`, `tb`, `flows`,
-the flat form), not `name`, `targets`, `target` or `design_root`. `--target NAME` on `xeda run` and `xeda dse` selects it.
+the flat form), not `name`, `targets` or `target`. `--target NAME` on `xeda run` and `xeda dse` selects it.
 
 ```yaml
 name: knight
@@ -335,7 +339,7 @@ targets:
 
 - A target is optional. Without `--target`, Xeda uses the design itself, whatever the number of
   targets. An unknown name is an error that lists the targets. `--target` on a design without
-  targets is an error. API: `Design.from_file(path, target=...)`.
+  targets is an error. API: `Design.load(path, target=...)`.
 - Where design and target both write a key, the target wins with no error (its
   `flows.nextpnr.board` replaces the design's); other keys stay. Mappings merge at every depth,
   `sources` append, any other list replaces. A null or empty `flows` table or section adds
@@ -344,7 +348,7 @@ targets:
   is `fpga.part: <part>`). A target's `clock` refines the design's first clock, its `clocks`
   replaces all, `clock: null` means none. A value
   that is no table where one is expected (`tb: 3`) is an error.
-- `--design-overrides KEY=VALUE...` merge by the same rules, except that only a target appends
+- `--design-updates KEY=VALUE...` merge by the same rules, except that only a target appends
   `sources`: an override's `rtl.sources` or `tb.sources` replaces the whole list.
 - A target name matches `[A-Za-z][A-Za-z0-9_-]*` and is not a flow's name or hashed run
   directory name; two names that differ only in case are refused. A design file has no `target`

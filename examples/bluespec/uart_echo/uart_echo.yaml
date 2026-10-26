@@ -64,7 +64,7 @@ targets:
         FIXED_BAUD: 0
   # The transformed echo (ECHO_TRANSFORM 1): every byte comes back as reverseBits(b) ^ 8'hB1, so
   # that a wire loopback from txd to rxd cannot pass a host test. For a board, add
-  # `--design-overrides rtl.defines.ECHO_TRANSFORM=1` to its target.
+  # `--design-updates rtl.defines.ECHO_TRANSFORM=1` to its target.
   echo_transform:
     rtl:
       defines:
@@ -84,7 +84,7 @@ targets:
   # has a bare name, so it stays in the run directory (outputs/); add `--outputs-to DIR` to copy
   # it. Programming: `xeda run vivado_synth+openfpgaloader uart_echo.yaml --target arty`.
   # FIXED_BAUD 0: the four switches select the baud rate (the table in README.md), 12 Mbaud with
-  # all of them off. For one fixed rate: `--design-overrides rtl.defines.FIXED_BAUD=1`.
+  # all of them off. For one fixed rate: `--design-updates rtl.defines.FIXED_BAUD=1`.
   arty:
     rtl:
       sources:
@@ -121,7 +121,7 @@ targets:
   # `xeda run yosys_fpga+nextpnr+fpga_pack uart_echo.yaml --target ulx3s`
   # FIXED_BAUD 0: the four DIP switches (SW1 to SW4) select the baud rate as on the Arty: 3 Mbaud
   # with all of them OFF, and the rates of the table in README.md otherwise. For one rate that no
-  # switch can change: `--design-overrides rtl.defines.FIXED_BAUD=1`.
+  # switch can change: `--design-updates rtl.defines.FIXED_BAUD=1`.
   ulx3s:
     rtl:
       sources:
@@ -144,9 +144,9 @@ targets:
   # FIXED_BAUD is 1.
   # The echo runs on the 200 MHz clock itself. BAUD is 3 Mbaud. In testing on macOS, the board's
   # WCH CH9102 bridge worked at 3 Mbaud but not at 921600 baud; other hosts and drivers may differ.
-  # For another rate: `--design-overrides rtl.defines.BAUD=...`.
+  # For another rate: `--design-updates rtl.defines.BAUD=...`.
   # ECHO_TRANSFORM 0: a plain echo, which a terminal wants. To prove that the FPGA is in the loop,
-  # build with `--design-overrides rtl.defines.ECHO_TRANSFORM=1` and test with
+  # build with `--design-updates rtl.defines.ECHO_TRANSFORM=1` and test with
   # `uart_echo_test.py --transform`.
   stlv7325:
     rtl:

@@ -580,7 +580,7 @@ second spelling is refused, and the error names the right one.
 from xeda import Design, DefaultRunner
 from xeda.introspect import flows_info, settings_info, results_info, design_schema
 
-design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
+design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
 flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock.period=5ns"])
 if flow and flow.results.success:
     print(flow.results.fmax)

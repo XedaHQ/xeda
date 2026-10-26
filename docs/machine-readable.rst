@@ -998,7 +998,7 @@ To run a flow:
 
     from xeda import Design, DefaultRunner
 
-    design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
+    design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
     runner = DefaultRunner("xeda_run")
     flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5ns"])
     if flow and flow.record and flow.record.passed:

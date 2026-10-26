@@ -35,7 +35,7 @@ The activity LEDs stay on for 0.4 to 1 times `ACTIVITY_US` after the last event,
 see them at 12 Mbaud. The echo FIFO is `ECHO_DEPTH` bytes of block RAM. The PHY buffers hold one
 byte each.
 
-Set the macros with `rtl.defines` in the design file, in a target, or with `--design-overrides`.
+Set the macros with `rtl.defines` in the design file, in a target, or with `--design-updates`.
 All have defaults.
 
 | macro | meaning | default |
@@ -55,9 +55,9 @@ target or an override. Any other input does not build: `false` gives the default
 such as `yes` are bsc errors, and `2` stops with `FIXED_BAUD is 2: write 0 or 1`.
 
 ```bash
-xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --design-overrides rtl.defines.FIXED_BAUD=0
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --design-updates rtl.defines.FIXED_BAUD=0
 xeda run yosys_fpga+nextpnr+fpga_pack examples/bluespec/uart_echo/uart_echo.yaml --target stlv7325 \
-    --design-overrides rtl.defines.ECHO_TRANSFORM=1 rtl.defines.BAUD=115200
+    --design-updates rtl.defines.ECHO_TRANSFORM=1 rtl.defines.BAUD=115200
 ```
 
 ### Switches (`FIXED_BAUD=0`)
@@ -99,7 +99,7 @@ With `FIXED_BAUD=1` the design has no table, no switch synchronizers and no idle
 | `stlv7325` | SITLINV STLV7325 v2 (Kintex-7) | openXC7 | 200 MHz | 3 Mbaud, fixed | WCH CH9102 |
 
 The ULX3S has four DIP switches, so the target uses them: it runs at 3 Mbaud only with all four off.
-For a rate that no switch changes, add `--design-overrides rtl.defines.FIXED_BAUD=1`.
+For a rate that no switch changes, add `--design-updates rtl.defines.FIXED_BAUD=1`.
 
 The STLV7325 v2 has no switches. Its target builds `boards/Stlv7325V2.bsv`, a Bluespec wrapper that
 adds the `IBUFDS` and `BUFG` of the differential clock and inverts the active-low LEDs and buttons
@@ -215,7 +215,7 @@ state and no latency, and the line stays fully used. The key is `echoKey` in `rt
 
 ```bash
 xeda run yosys_fpga+nextpnr+fpga_pack+openfpgaloader examples/bluespec/uart_echo/uart_echo.yaml --target stlv7325 \
-    --design-overrides rtl.defines.ECHO_TRANSFORM=1
+    --design-updates rtl.defines.ECHO_TRANSFORM=1
 python3 examples/bluespec/uart_echo/host/uart_echo_test.py --port /dev/cu.usbserial-<serial> --baud 3000000 --transform
 ```
 
@@ -249,7 +249,7 @@ and `echo_transform` choose which combination uses the real top `mkUartEcho`.
 xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml                              # Bluesim, about 45 s
 xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml -s simulator=verilator       # or iverilog
 xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --target switches
-xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --design-overrides tb.defines.XEDA_INJECT_BUG=true   # must fail
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --design-updates tb.defines.XEDA_INJECT_BUG=true   # must fail
 ```
 
 `XEDA_INJECT_BUG` plants a bug (the echo takes a new baud rate at once, even in the middle of a

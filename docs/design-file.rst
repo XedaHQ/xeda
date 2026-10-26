@@ -41,7 +41,7 @@ list item. TOML and JSON designs and projects are also accepted.
 
 A dotted key stands for nested tables: ``tb.top: x`` is the same as ``tb: {top: x}``. Dotted keys
 work in a design file, in a design entry and in the ``flows`` table of a project file, in a target
-and in design overrides. A key cannot be both a value and a table. ``tb: 3`` together with
+and in design updates. A key cannot be both a value and a table. ``tb: 3`` together with
 ``tb.top: x`` is an error that names both keys.
 
 Write one table in one spelling inside a mapping. ``clock.port: clk`` and a ``clock:`` block together are an error. So are
@@ -57,6 +57,9 @@ same. :ref:`The settings reference <opaque-keys>` lists these settings.
 
 Top level
 =========
+
+The design root is the directory of the design file. Every relative path in the file resolves
+against it, wherever you run Xeda. The file has no key for the root: ``design_root`` was removed.
 
 .. list-table::
    :header-rows: 1
@@ -97,11 +100,6 @@ Top level
    * - ``license``, ``version``, ``url``
      - no
      - Metadata. No flow uses it.
-   * - ``design_root``
-     - no
-     - The directory that relative paths resolve against. It defaults to the directory of the
-       design file, which is almost always what you want. A relative ``design_root`` in a design
-       file is relative to the directory of that file.
    * - ``targets``
      - no
      - Overlays for individual boards. See :ref:`targets`.
@@ -1012,8 +1010,8 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
     xeda run nextpnr knight.yaml --target ulx3s    # the design with the target ulx3s
 
 * A target takes ``rtl``, ``tb``, ``flows`` and every other key of a design file. In a target
-  they mean exactly what they mean at the top of the file. ``name``, ``targets`` and
-  ``design_root`` belong to the design alone. An unknown key is an error, as it is in the design.
+  they mean exactly what they mean at the top of the file. ``name`` and ``targets``
+  belong to the design alone. An unknown key is an error, as it is in the design.
 * Mappings merge key by key, at every depth (``defines``, ``parameters`` and each
   ``flows.<flow>`` section). The ``sources`` of ``rtl`` and ``tb`` are appended after the
   design's, in order. Any other list replaces the design's. Xeda merges each ``flows.<flow>``
@@ -1032,7 +1030,7 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
   target as well (at ``targets.<name>.rtl.clocks``). Xeda checks a target that is not selected
   only for the form of its values. A removed key (``clock_port``, or a key of ``rtl`` written at
   the top level) is an error in the design, in a target (selected or not) and in
-  ``--design-overrides``. The error names the key to write.
+  ``--design-updates``. The error names the key to write.
 * A value that is no table, and no short form of one, where a table is expected is an error,
   whichever target you select. Examples are ``tb: 3`` and ``keep: 3`` in ``rtl.attributes``,
   whose entries are tables. A table that a target writes over the value does not hide the error.
@@ -1046,7 +1044,7 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
   setting can come from these places, lowest first: the defaults of the flow, the project file,
   the design file, the target, the command line (``-s``) and the API. So ``-s seed=9`` and an API
   override still win over a target. The loader records the name of the selected target, and a
-  design override cannot set or change it. Two flows of one run that disagree about a setting
+  design update cannot set or change it. Two flows of one run that disagree about a setting
   they share, such as ``yosys_fpga`` and ``nextpnr`` that name different boards, are a different
   case, and that is an error.
 * A path in a target resolves against the design root, like the paths of the design.
@@ -1054,13 +1052,13 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
   the number of targets. A lone target is not selected automatically. ``--target NAME`` selects
   that target. An unknown name is an error, and the error lists the targets. ``--target`` on a
   design without ``targets`` is an error. From Python, write
-  ``Design.from_file(path, target="ulx3s")``. ``--design-overrides`` are an overlay on the
+  ``Design.load(path, target="ulx3s")``. ``--design-updates`` are an overlay on the
   selected design, like a target, and merge by the same rules: a short form means
-  its table, and an override does not hide a mistake in the design. One rule differs. Only a
+  its table, and an update does not hide a mistake in the design. One rule differs. Only a
   target adds its ``sources`` to the design's, because its job is to add the files of a board. A
-  ``sources`` override (``rtl.sources`` or ``tb.sources``) replaces the whole list, the sources of
-  the selected target included, as an override of any other list does. The designs of a project
-  take overrides in the same way.
+  ``sources`` update (``rtl.sources`` or ``tb.sources``) replaces the whole list, the sources of
+  the selected target included, as an update of any other list does. The designs of a project
+  take updates in the same way.
 * A target name starts with a letter and holds only letters, digits, ``_`` and ``-``. It is not
   the name of a flow. There is one spelling, ``targets.<name>``. A design file has no
   ``target`` key.
@@ -1085,6 +1083,41 @@ Two limits apply:
   target. Xeda refuses them and names where to write them: they are settings of each flow, under
   ``flows.<flow>`` of the target. A clock constraint goes there too, as ``flows.<flow>.clock``.
 * A target cannot inherit from another target.
+
+Designs in Python
+=================
+
+``Design.load`` reads a design file. ``Design(...)`` builds the same design from keyword arguments,
+one for each key of the file (``name``, ``rtl``, ``tb``, ``flows``, ``targets``, ``language``,
+``dependencies``, ``description``, ``authors``, ``license``, ``version`` and ``url``). It needs a
+``root``, the directory that a relative path resolves against. A source pattern expands when the
+design is built, and a file added later is not part of it. A Python ``None`` is a YAML ``null``.
+
+.. code-block:: python
+
+    from xeda import Design
+
+    design = Design.load("sqrt.yaml", target="ecp5")
+    same = Design(
+        name="sqrt",
+        root="examples/vhdl/sqrt",
+        rtl={"sources": ["sqrt.vhdl"], "top": "sqrt"},
+        tb={"top": "sqrt_tb"},
+    )
+
+A design never changes. These calls return a new design:
+
+* ``design.with_updates({"tb.parameters.G_IN_WIDTH": 16})`` merges a table over the design, by the
+  rules of ``--design-updates``. The ``target`` cannot be updated. ``design.updates`` lists the
+  arguments of the calls, in order. They are no part of the equality of designs.
+* ``design.with_target("artix7")`` selects another target (``None`` selects none) and applies the
+  updates again, after the target.
+* ``design.to_dict()`` gives the design in the shape of a design file, with the target and the
+  updates merged in. It has no ``root``, ``target``, ``targets`` or ``updates``.
+  ``Design(root=design.root, **design.to_dict())`` has the same configuration and no target.
+
+``design.root`` is the absolute root, ``design.target`` the selected target (or ``None``) and
+``design.targets`` the names of the targets that the design defines.
 
 Environment variables in paths
 ==============================
