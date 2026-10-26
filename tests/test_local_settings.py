@@ -822,3 +822,50 @@ def test_dse_of_a_design_file_follows_the_same_run_root_order(tmp_path, private_
          "--optimizer", "fmax_optimizer", *PART],
     )  # fmt: skip
     assert Path(seen["run_root"]) == (repo / "local").resolve()
+
+
+def test_a_launch_protects_the_private_files_it_loaded(tmp_path, private_home):
+    user = user_file(private_home, {"run_root": "runs"})
+    project = project_of(tmp_path)
+    local = write(local_file_of(project), {"run_root": "local"})
+    runner = DefaultRunner(tmp_path / "run")
+    runner._request("vivado_synth", project.design("d"), local_settings=local_settings(project))
+    assert {user.resolve(), local.resolve()} <= set(runner._launch_inputs)
+    runner._request("vivado_synth", project.design("d"), local_settings=local_settings(config=None))
+    assert not {user.resolve(), local.resolve()} & set(runner._launch_inputs)
+
+
+def test_a_remote_launch_protects_the_private_files_it_loaded(tmp_path, private_home):
+    from xeda.deliver import ReadInputs
+    from xeda.remote import client
+
+    user = user_file(private_home, {"run_root": "runs"})
+    project = project_of(tmp_path)
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    prepared = runner.prepare_request(
+        "vivado_synth",
+        project.design("d"),
+        flow_settings=["fpga.part=xc7a100tcsg324-1"],
+        local_settings=local_settings(project),
+    )
+    seen: list = []
+
+    def inputs(design, settings, sections, launch_inputs, **kwargs):
+        seen.extend(launch_inputs)
+        return ReadInputs(launch_inputs)
+
+    from types import SimpleNamespace
+
+    import pytest as _pytest
+
+    with _pytest.MonkeyPatch.context() as patch:
+        patch.setattr(client, "remote_read_inputs", inputs)
+        client._check_outputs_to(
+            runner,
+            prepared,
+            SimpleNamespace(mirror_root=tmp_path / "mirror", design="d"),
+            outputs_to=tmp_path / "out",
+            overwrite_outputs=False,
+            confirm_overwrite=None,
+        )
+    assert user.resolve() in seen

@@ -33,6 +33,7 @@ from xeda.deliver import (
 from xeda.digest import RACY_NS
 from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
+from xeda.local_settings import LocalSettings
 from xeda.run_root import ensure_run_root
 from xeda.utils import PATH_VARIABLES
 
@@ -2144,3 +2145,24 @@ def test_a_file_in_the_way_of_an_artifact_that_leads_out_is_still_asked_about_be
             tmp_path / "xeda_run", display_results=False, outputs_to=got, rebuild_all=True
         ).launch_flow(_Linker, design, {})
     assert (got / "tool.log").read_text() == "the user's\n"
+
+
+@pytest.mark.parametrize("which", ["user_file", "local_file"])
+def test_a_loaded_private_settings_file_is_never_a_destination_even_with_overwrite_outputs(
+    world, tmp_path, which
+):
+    """The files that `local_settings()` loaded are inputs of the launch, as the design file and
+    the project file are: a deliverable named after one is refused before it replaces it."""
+    private = tmp_path / "private" / ("config.yaml" if which == "user_file" else "x.local.yaml")
+    private.parent.mkdir()
+    private.write_text("flows: {}\n")
+    settings = LocalSettings(**{which: private})
+    launcher = DefaultRunner(world.root, display_results=False, overwrite_outputs=True)
+    with pytest.raises(DeliveryError, match="an input of the run"):
+        launcher.run(
+            _Deliverer,
+            world.design,
+            flow_settings={"netlist": str(private)},
+            local_settings=settings,
+        )
+    assert private.read_text() == "flows: {}\n" and RUNS == []

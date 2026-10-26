@@ -2593,10 +2593,14 @@ class FlowLauncher:
                 "design: %s" % PrettyPrinter().pformat(_shown_dependencies(design.model_dump()))
             )
         # The files that this launch was given: never the destination of an output.
-        # A design that a project selected has two more: its own file and the project file.
+        # A design that a project selected has two more: its own file and the project file. The
+        # private settings files that were loaded come last.
         launch_files: list[Path | None] = [given_file, project_path, design._source_file]
         if layer is not None:
             launch_files.append(Path(project_label))
+        # The private files that were loaded are files of the launch too.
+        if local_settings is not None:
+            launch_files += [local_settings.user_file, local_settings.local_file]
         self._launch_inputs = list(
             dict.fromkeys(
                 path.resolve() for path in launch_files if path is not None and path.is_file()
