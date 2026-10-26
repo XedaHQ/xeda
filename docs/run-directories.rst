@@ -400,7 +400,8 @@ later checks do not read it again.
 ``--clean`` empties the run directory of each flow before the flow runs, and runs every flow. It is
 "make clean, then make". The run directory is emptied after the flow's producers pass and before
 the flow prepares its inputs. So if a producer does not pass, or the flow's own ``init()`` fails,
-the run directory keeps its old files. Xeda refuses several other names, and the message says what
+``--clean`` does not empty the run directory. A failed ``init()`` still replaces ``results.json``
+with its failure record and removes the trace. Xeda refuses several other names, and the message says what
 to use:
 ``--no-incremental``, the per-flow ``clean`` setting, Verilator's ``clean_before_run`` and the
 launcher setting ``cleanup_before_run``. GHDL's ``clean`` is refused too. Its message names
