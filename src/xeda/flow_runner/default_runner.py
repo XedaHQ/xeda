@@ -35,6 +35,7 @@ from typing import (
 from ..artifacts import iter_artifact_paths
 from ..dataclass import XedaBaseModel, model_validator
 from ..frozen import freeze, thaw
+from ..local_settings import LocalSettings
 from ..deliver import (
     OUTPUTS_TO,
     Conflict,
@@ -143,6 +144,8 @@ from .settings_layers import (
     command_line_sections,
     compose_flow_settings,
     host_profile_origin,
+    project_local_origin,
+    user_config_origin,
     merge_flow_sections,
     registered_flow,
     split_flow_sections,
@@ -1956,10 +1959,14 @@ class FlowLauncher:
         design_allow_extra: bool = False,
         design_remove_fields: List[str] = [],
         target: str | None | Unset = UNSET,
+        local_settings: LocalSettings | None = None,
     ) -> Optional[Flow]:
         """Load and compose a request, then execute its resolved declared graph.
 
-        `target` selects one of the `targets` of the design, as `Design.load` does."""
+        `target` selects one of the `targets` of the design, as `Design.load` does.
+        `local_settings` are the private settings of the user and of the checkout, as
+        `xeda.local_settings()` reads them: two layers of the settings (`settings_layers`). The
+        launcher reads no private file."""
         request, plan = self.resolve_run(
             flow,
             design,
@@ -1970,6 +1977,7 @@ class FlowLauncher:
             design_allow_extra,
             design_remove_fields,
             target=target,
+            local_settings=local_settings,
         )
         return self.run_resolved(request, plan)
 
@@ -1994,6 +2002,7 @@ class FlowLauncher:
         design_allow_extra: bool = False,
         design_remove_fields: List[str] = [],
         target: str | None | Unset = UNSET,
+        local_settings: LocalSettings | None = None,
     ) -> Tuple[_Request, Plan]:
         """Load, compose and check a request as `run()` does before it launches, and launch nothing.
 
@@ -2015,6 +2024,7 @@ class FlowLauncher:
             design_allow_extra,
             design_remove_fields,
             target=target,
+            local_settings=local_settings,
         )
         self._refuse_unaccepted_plan(request, plan)
         return request, plan
@@ -2046,6 +2056,7 @@ class FlowLauncher:
         design_allow_extra: bool = False,
         design_remove_fields: list[str] = [],
         target: str | None | Unset = UNSET,
+        local_settings: LocalSettings | None = None,
     ) -> Plan:
         """Plan what `run()` would execute.
 
@@ -2062,6 +2073,7 @@ class FlowLauncher:
             design_allow_extra,
             design_remove_fields,
             target,
+            local_settings,
         )[1]
 
     @log_context.with_launch_context
@@ -2077,6 +2089,7 @@ class FlowLauncher:
         *,
         host_flows: Mapping[str, Mapping[str, Any]] | None = None,
         host: str | None = None,
+        local_settings: LocalSettings | None = None,
         before_fetch: Callable[[Design], None] | None = None,
     ) -> PreparedRequest:
         """Load, resolve and check a request as `run()` does before it launches, and launch nothing.
@@ -2108,6 +2121,7 @@ class FlowLauncher:
             target=target,
             before_fetch=before_fetch,
             host_layer=(host_profile_origin(host), host_flows) if host_flows is not None else None,
+            local_settings=local_settings,
         )
         self._refuse_unaccepted_plan(request, plan)
         self._refuse_planned(plan, run_directories_here=host_flows is None)
@@ -2132,6 +2146,7 @@ class FlowLauncher:
         design_allow_extra: bool = False,
         design_remove_fields: list[str] = [],
         target: str | None | Unset = UNSET,
+        local_settings: LocalSettings | None = None,
     ) -> tuple[Plan, dict[str, NodeFreshness]]:
         """Return `plan()` and what `run()` would do with each node.
 
@@ -2149,6 +2164,7 @@ class FlowLauncher:
             design_allow_extra,
             design_remove_fields,
             target,
+            local_settings,
         )
         states = judge_plan(
             plan,
@@ -2173,6 +2189,7 @@ class FlowLauncher:
         design_allow_extra: bool,
         design_remove_fields: list[str],
         target: str | None | Unset,
+        local_settings: LocalSettings | None = None,
     ) -> tuple[_Request, Plan]:
         request, plan = self._judged_request(
             flow,
@@ -2184,6 +2201,7 @@ class FlowLauncher:
             design_allow_extra,
             design_remove_fields,
             target=target,
+            local_settings=local_settings,
         )
         self._refuse_planned(plan)
         return request, plan
@@ -2227,6 +2245,7 @@ class FlowLauncher:
         target: str | None | Unset,
         before_fetch: Callable[[Design], None] | None = None,
         host_layer: tuple[str, Mapping[str, Any]] | None = None,
+        local_settings: LocalSettings | None = None,
     ) -> tuple[_Request, Plan]:
         """Load and resolve a request.
 
@@ -2252,6 +2271,7 @@ class FlowLauncher:
             design_remove_fields,
             target=target,
             host_layer=host_layer,
+            local_settings=local_settings,
         )
         if request.design.dependencies:
             check_settings_without_design(
@@ -2312,6 +2332,23 @@ class FlowLauncher:
         merged = self._merged(request.design)
         return request if merged is request.design else replace(request, design=merged)
 
+    @staticmethod
+    def _private_layer(
+        table: Mapping[str, Any], label: str, file: Path | None, design: Design
+    ) -> tuple[str, dict[str, Any], BindingLayer]:
+        """Return the label, the sections and the bindings of the `flows` table of a private file.
+
+        A relative path of the file resolves against the directory of the file, once. A table
+        that no file gave resolves against the design root, like the design's own."""
+        sections, bindings = split_bindings(thaw(table), location=label)
+        if file is not None and sections and file.parent.resolve() != design.root:
+            sections = anchored_sections(
+                sections,
+                file.parent.resolve(),
+                lambda name: getattr(_get_flow_class_if_known(name), "Settings", None),
+            )
+        return label, sections, bindings
+
     def _request(
         self,
         flow: type[Flow] | str | FlowRequest,
@@ -2325,11 +2362,14 @@ class FlowLauncher:
         *,
         target: str | None | Unset = UNSET,
         host_layer: tuple[str, Mapping[str, Any]] | None = None,
+        local_settings: LocalSettings | None = None,
     ) -> _Request:
         """Load the design and the layers of settings of a request, and return the request.
 
-        `host_layer` is the label and the `flows` table of a host profile: the lowest layer of
-        the settings of every flow (`prepare_request`)."""
+        `host_layer` is the label and the `flows` table of a host profile: a layer of the
+        settings of every flow, above the user file (`prepare_request`). `local_settings` gives
+        the layer of the user file, below the project, and that of the project-local file, above
+        the design."""
         # Nothing is loaded yet: a request that fails before its design loads reports none.
         self.target = None
         self.design_name = None
@@ -2468,6 +2508,18 @@ class FlowLauncher:
                 lambda name: getattr(_get_flow_class_if_known(name), "Settings", None),
             )
         design_sections, design_bindings = split_bindings(thaw(design.flows), location=design_label)
+        user_label, user_sections, user_bindings = self._private_layer(
+            local_settings.user if local_settings else {},
+            user_config_origin(local_settings.user_file if local_settings else None),
+            local_settings.user_file if local_settings else None,
+            design,
+        )
+        local_label, local_sections, local_bindings = self._private_layer(
+            local_settings.local if local_settings else {},
+            project_local_origin(local_settings.local_file if local_settings else None),
+            local_settings.local_file if local_settings else None,
+            design,
+        )
         # The `-s flows.<node>.key` items of the command line are the third origin. They may only
         # name a flow of this run, and `-s key` is a leaf of the requested flow.
         cli_sections, cli_own = split_flow_sections(
@@ -2483,9 +2535,11 @@ class FlowLauncher:
             {flow_class.name: flow_overrides}, location=API_ORIGIN, kind="api"
         )
         binding_layers = (
+            *((user_bindings,) if user_sections else ()),
             *((host_bindings,) if host_layer is not None else ()),
             project_bindings,
             design_bindings,
+            *((local_bindings,) if local_sections else ()),
             cli_bindings,
             api_bindings,
         )
@@ -2500,9 +2554,11 @@ class FlowLauncher:
                 explicit_flow_settings, flow_class, flow_class_for=_get_flow_class_if_known
             )
         file_origins = [
+            *([user_sections] if user_sections else []),
             *([host_sections] if host_layer is not None else []),
             *([project_sections] if layer else []),
             design_sections,
+            *([local_sections] if local_sections else []),
         ]
         origins = [*file_origins, cli_sections, api_sections]
         all_sections = merge_flow_sections(*origins, flow_class_for=_get_flow_class_if_known)
@@ -2539,9 +2595,11 @@ class FlowLauncher:
             tuple(
                 (label, deepcopy(section))
                 for label, section in (
+                    *(((user_label, user_sections),) if user_sections else ()),
                     *(((host_label, host_sections),) if host_layer is not None else ()),
                     *(((project_label, project_sections),) if layer else ()),
                     (design_label, design_sections),
+                    *(((local_label, local_sections),) if local_sections else ()),
                 )
             ),
             deepcopy(cli_sections),

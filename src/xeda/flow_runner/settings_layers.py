@@ -3,14 +3,17 @@
 The settings of a flow are assembled from these layers, lowest precedence first:
 
 1. the defaults of the flow (supplied by validation, not here)
-2. with `--remote`, the `flows` table of the host profile (`FlowLauncher.prepare_request` only)
-3. the `flows.<flow>` section of the project file
-4. the `flows.<flow>` section of the design file
-5. the `flows.<flow>` section of the selected target (`--target`), key by key. The target is
+2. the `flows` table of the user file (`LocalSettings.user`)
+3. with `--remote`, the `flows` table of the host profile (`FlowLauncher.prepare_request` only)
+4. the `flows.<flow>` section of the project file
+5. the `flows.<flow>` section of the design file
+6. the `flows.<flow>` section of the selected target (`--target`), key by key. The target is
    the author of the design saying "for this build, these values", so what it writes wins over
    the design. The loader merges it into the design before anything else sees the design, so it
-   is part of the origin of the design, and below the command line and the API
-6. the command line (`-s KEY=VALUE`, or the `flow_settings` of `run` and `plan`), then the
+   is part of the origin of the design
+7. the `flows` table of the project-local file (`LocalSettings.local`), which overrides the
+   checked-in files of one checkout
+8. the command line (`-s KEY=VALUE`, or the `flow_settings` of `run` and `plan`), then the
    overrides given through the API (`flow_overrides`)
 
 The layers are merged deeply. A nested section such as `clocks.main_clock` combines key by key, so
@@ -23,7 +26,7 @@ Every way to launch a flow takes the same layers. `run`, `plan` and the remote r
 files and hand them to `FlowLauncher.resolve` as origins. A launch that is given a built design
 instead (`run_flow`, `launch_flow`) hands none, and `resolve` takes layers 4 and 5 from the
 design itself. Only `run`, `plan` and the remote runner read a project file. Only `prepare_request` takes
-layer 2.
+layer 3. The launcher reads no private file: a caller hands it a `LocalSettings` (layers 2 and 7).
 """
 
 import difflib
@@ -68,12 +71,16 @@ __all__ = [
     "API_ORIGIN",
     "COMMAND_LINE_ORIGIN",
     "HOST_PROFILE_ORIGIN",
+    "PROJECT_LOCAL_ORIGIN",
     "REMOVED_FLOWS",
     "SUPPLIED_SECTIONS_ORIGIN",
+    "USER_CONFIG_ORIGIN",
     "FlowNotFoundError",
     "FlowRemovedError",
     "check_flow_name",
     "host_profile_origin",
+    "project_local_origin",
+    "user_config_origin",
     "carry_diagnostics",
     "settings_in_context",
     "suggest_dependency_node",
@@ -100,9 +107,25 @@ HOST_PROFILE_ORIGIN = "the host profile"
 SUPPLIED_SECTIONS_ORIGIN = "the supplied flow sections"
 
 
+#: How messages name the `flows` table of the user file and that of the project-local file.
+#: `user_config_origin` and `project_local_origin` add the path of the file.
+USER_CONFIG_ORIGIN = "the user config"
+PROJECT_LOCAL_ORIGIN = "the project-local file"
+
+
 def host_profile_origin(host: str | None) -> str:
     """Return the label of the host profile of `host`, as messages name that layer."""
     return f"{HOST_PROFILE_ORIGIN} of {host}" if host else HOST_PROFILE_ORIGIN
+
+
+def user_config_origin(file: Path | None) -> str:
+    """Return the label of the user file `file`, or of settings that no file gave."""
+    return f"{USER_CONFIG_ORIGIN} {file}" if file else USER_CONFIG_ORIGIN
+
+
+def project_local_origin(file: Path | None) -> str:
+    """Return the label of the project-local file `file`, or of settings that no file gave."""
+    return f"{PROJECT_LOCAL_ORIGIN} {file}" if file else PROJECT_LOCAL_ORIGIN
 
 
 class FlowNotFoundError(PublicFlowNotFoundError):

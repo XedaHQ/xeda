@@ -401,7 +401,8 @@ def test_a_binding_in_flow_overrides_is_still_located_in_the_api(tmp_path):
 
 def test_one_constant_names_each_origin():
     """Every message takes the label of an origin from `settings_layers`
-    (`COMMAND_LINE_ORIGIN`, `API_ORIGIN`, `SUPPLIED_SECTIONS_ORIGIN`, `HOST_PROFILE_ORIGIN`): no
+    (`COMMAND_LINE_ORIGIN`, `API_ORIGIN`, `SUPPLIED_SECTIONS_ORIGIN`, `HOST_PROFILE_ORIGIN`,
+    `USER_CONFIG_ORIGIN`, `PROJECT_LOCAL_ORIGIN`): no
     other module spells it out."""
     source = Path(__file__).parent.parent / "src" / "xeda"
     spelled = [
@@ -410,7 +411,8 @@ def test_one_constant_names_each_origin():
         if path.name != "settings_layers.py"
         for number, line in enumerate(path.read_text().splitlines(), 1)
         if re.search(
-            r"""["']the (command line|API|supplied (API )?flow sections|host profile)["']""", line
+            r"""["']the (command line|API|supplied (API )?flow sections|host profile|user config|project-local file)["']""",
+            line,
         )
     ]
     assert not spelled, f"spell an origin as a constant of settings_layers: {spelled}"
@@ -429,7 +431,7 @@ ENTRY_POINTS = [
 
 
 def test_only_prepare_request_takes_the_host_layer():
-    """The `flows` table of a host profile is the lowest layer of a remote run's settings, and
+    """The `flows` table of a host profile is a layer of a remote run's settings only, and
     `prepare_request` is the one door that takes it. The other doors take the layers of a local
     launch."""
     taking = [

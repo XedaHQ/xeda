@@ -63,6 +63,7 @@ from ..errors import RecordError, SpecError
 from ..flow_runner.default_runner import PreparedRequest
 from ..flow_runner.settings_layers import command_line_table
 from ..flow_runner.run_lock import run_dir_lock
+from ..local_settings import LocalSettings
 from ..outcomes import (
     Disposition,
     NodeResult,
@@ -645,6 +646,7 @@ def _plan(
     confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
     ssh_options: Sequence[str],
     profile: HostProfile,
+    local_settings: LocalSettings | None,
 ) -> _Prepared:
     """Step 1: the checks that need no connection."""
     destination = resolve_destination(destination_text, ssh_options)
@@ -667,6 +669,7 @@ def _plan(
         target=run.target,
         host_flows=profile.flows,
         host=destination_text,
+        local_settings=local_settings,
         # Refused before a Git dependency is fetched: it needs nothing that one supplies.
         before_fetch=refuse_unsendable_declared,
     )
@@ -1281,11 +1284,13 @@ def run_remote(
     ssh_options: Sequence[str] = (),
     keep_running: bool = False,
     profile: HostProfile | None = None,
+    local_settings: LocalSettings | None = None,
 ) -> RemoteOutcome:
     """Run the request `chain` on the host `destination_text` and return its outcome.
 
     The arguments are those of the command `xeda run`. `profile` is the profile of the host (the
-    default profile without it): this function reads no file. The outcome holds the document that
+    default profile without it) and `local_settings` the private settings of this user: this
+    function reads no file. The outcome holds the document that
     `--json` prints. A failure of any step is an outcome too, with `success` false, the exception
     in `error` and a failure document that names it. Ctrl-C during the launch is an outcome with
     the error `RemoteCanceled`. Ctrl-C while this side loads the design or plans the request is
@@ -1326,6 +1331,7 @@ def run_remote(
             ssh_options=ssh_options,
             keep_running=keep_running,
             profile=profile or HostProfile(),
+            local_settings=local_settings,
         )
     except Exception as error:  # pylint: disable=broad-except
         return _failed(run, error)
@@ -1477,6 +1483,7 @@ def _run(
     detailed_logs: bool,
     ssh_options: Sequence[str],
     profile: HostProfile,
+    local_settings: LocalSettings | None,
     keep_running: bool = False,
 ) -> RemoteOutcome:
     if _is_windows():
@@ -1503,6 +1510,7 @@ def _run(
             confirm_overwrite=confirm_overwrite,
             ssh_options=ssh_options,
             profile=profile,
+            local_settings=local_settings,
         )
     except KeyboardInterrupt:
         raise _CanceledBeforeStart(_CANCELED_BEFORE_START) from None

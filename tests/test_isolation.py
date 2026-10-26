@@ -2928,3 +2928,76 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
     finally:
         for name in (LinkLeaver.name, LinkLeaver.__name__):
             registered_flows.pop(name, None)
+
+
+# ---------------------------------------------------------------- the private settings files
+
+#: The private files that the audit hook watches, once a test sets it: the list collects the
+#: files opened.
+_PRIVATE_OPENS: Optional[list] = None
+_PRIVATE_ROOT: Optional[Path] = None
+
+
+def _audit_private_files(event: str, args: tuple) -> None:
+    if _PRIVATE_OPENS is None or event != "open" or not isinstance(args[0], (str, os.PathLike)):
+        return
+    path = Path(os.fsdecode(args[0]))
+    if _PRIVATE_ROOT is not None and path.is_relative_to(_PRIVATE_ROOT):
+        if path.name == "config.yaml" or path.name.endswith(".local.yaml"):
+            _PRIVATE_OPENS.append(path)
+
+
+sys.addaudithook(_audit_private_files)
+
+
+def test_only_local_settings_and_the_command_line_open_the_private_settings_files(
+    tmp_path, monkeypatch
+):
+    """A planning or a launch opens neither `config.yaml` nor `*.local.yaml`: the library is
+    handed what they hold. `local_settings()` and the command line read them."""
+    global _PRIVATE_OPENS, _PRIVATE_ROOT
+    from xeda.local_settings import local_settings
+    from xeda.project import Project
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "cfg" / "xeda").mkdir(parents=True)
+    (tmp_path / "cfg" / "xeda" / "config.yaml").write_text("run_root: user_runs\n")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "knight.v").write_text("module knight(); endmodule\n")
+    project_file = repo / "xedaproject.yaml"
+    project_file.write_text(
+        yaml.safe_dump(
+            {"designs": [{"name": "d", "rtl": {"sources": ["knight.v"], "top": "knight"}}]}
+        )
+    )
+    (repo / "xedaproject.local.yaml").write_text("run_root: local_runs\n")
+    settings = ["fpga.part=xc7a100tcsg324-1"]
+    _PRIVATE_ROOT, _PRIVATE_OPENS = tmp_path, []
+    try:
+        project = Project.load(project_file)
+        design = project.design("d")
+        plan = DefaultRunner(tmp_path / "run").plan("vivado_synth", design, flow_settings=settings)
+        assert plan.requested == "vivado_synth"
+        assert _PRIVATE_OPENS == [], "the library read a private file"
+        local_settings(project)
+        assert {path.name for path in _PRIVATE_OPENS} == {"config.yaml", "xedaproject.local.yaml"}
+        _PRIVATE_OPENS.clear()
+        result = CliRunner().invoke(
+            cli,
+            ["run", "vivado_synth", "--xedaproject", str(project_file), "--design-name", "d",
+             "--dry-run", "-s", settings[0], "--json"],
+        )  # fmt: skip
+        assert result.exit_code == 0, result.output
+        assert {path.name for path in _PRIVATE_OPENS} == {"config.yaml", "xedaproject.local.yaml"}
+        _PRIVATE_OPENS.clear()
+        result = CliRunner().invoke(
+            cli,
+            ["run", "vivado_synth", "--xedaproject", str(project_file), "--design-name", "d",
+             "--dry-run", "--no-config", "-s", settings[0], "--json"],
+        )  # fmt: skip
+        assert result.exit_code == 0, result.output
+        assert _PRIVATE_OPENS == [], "--no-config read a private file"
+    finally:
+        _PRIVATE_OPENS = _PRIVATE_ROOT = None

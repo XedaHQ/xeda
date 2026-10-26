@@ -49,6 +49,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .deliver import Conflict
     from .design import DESIGN_NAME, DesignFileParseError, target_name_problem
     from .errors import ProjectError
+    from .local_settings import LocalSettings, local_settings
     from .project import Project
     from .xedaproject import resolve_project_file
     from .flow_runner import (
@@ -650,19 +651,74 @@ def _project_for_launcher(project: Project | None) -> str | None:
     return None if project is None else str(project.path)
 
 
-def _cli_run_root(run_root: Path, project: Project | None) -> Path:
-    """Return the run root of this command, highest first: `--run-root`, `XEDA_RUN_ROOT`, the run
-    root of the project (`Project.run_root`: its `run_root` key, else `xeda_run` beside the
-    project file), then `./xeda_run` when no project is used.
+def _config_options(func):
+    """Add `--config` and `--no-config`, which select the private settings files."""
+    func = click.option(
+        "--no-config",
+        "no_config",
+        is_flag=True,
+        default=False,
+        help="Read neither the user config file nor the project-local file. The host profiles "
+        "of `remotes.yaml` are still read.",
+    )(func)
+    return click.option(
+        "--config",
+        "config",
+        type=click.Path(dir_okay=False, resolve_path=True, path_type=Path),
+        default=None,
+        help="Read this file in place of the user config file, "
+        "$XDG_CONFIG_HOME/xeda/config.yaml (~/.config/xeda/config.yaml). A file that does not "
+        "exist adds no settings.",
+    )(func)
 
-    A run root is a fact of the machine, so a choice on the command line or in the environment
-    wins over the project's suggestion. The private settings files of the user and of the
-    project enter between the environment and the project file."""
+
+def _refuse_both_config_options(config: Path | None, no_config: bool) -> None:
+    if config is not None and no_config:
+        raise click.UsageError(
+            "`--config` and `--no-config` exclude each other.", ctx=click.get_current_context()
+        )
+
+
+def _cli_local_settings(
+    project: Project | None,
+    design: Any,
+    config: Path | None,
+    no_config: bool,
+) -> LocalSettings:
+    """Return the private settings of this command: the user file (or the file of `--config`,
+    or none with `--no-config`) and, for a design of the project, the project-local file.
+
+    A design file given on the command line never gets the project-local file."""
+    return local_settings(
+        _project_for_local(project, design), config=None if no_config else config or UNSET
+    )
+
+
+def _project_for_local(project: Project | None, design: Any) -> Project | None:
+    """Return the project whose project-local file the command reads: only a design that the
+    project holds gets it."""
+    return None if design is not None else project
+
+
+def _cli_run_root(run_root: Path, local: LocalSettings, project: Project | None) -> Path:
+    """Return the run root of this command, highest first: `--run-root`, `XEDA_RUN_ROOT`, the
+    `run_root` of the project-local file, that of the user file, that of the project file, then
+    `./xeda_run` (the default of `run_root`).
+
+    A run root is a fact of the machine, not a setting of the design. A choice on the command
+    line or in the environment wins, and so does the choice of this user for this machine over the
+    suggestion that the project file checks in. `local.run_root` holds the first three that the
+    files give. A design file given on its own has no project-local file, and the project file
+    still gives its run root."""
     source = click.get_current_context().get_parameter_source("run_root")
     chosen = source not in (None, ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP)
-    if chosen or project is None:
+    if chosen:
         return run_root
-    return project.run_root
+    if local.run_root is not None:
+        return local.run_root
+    if project is not None:
+        return project.run_root
+    return run_root
 
 
 def _interactive(json_flag: bool) -> bool:
@@ -784,6 +840,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     required=False,
 )
 @_run_root_options
+@_config_options
 @click.option(
     "--rebuild-all",
     is_flag=True,
@@ -1006,6 +1063,8 @@ def run(
     flow_settings: Union[None, str, Iterable[str]] = None,
     clean: bool = False,
     run_root: Optional[Path] = None,
+    config: Optional[Path] = None,
+    no_config: bool = False,
     xedaproject: Optional[str] = None,
     # design: Optional[str] = None,
     design_name: Optional[str] = None,
@@ -1029,6 +1088,7 @@ def run(
     assert ctx
     # FLOW is the canonical request text. The results, the settings and the exit status are
     # those of its last flow.
+    _refuse_both_config_options(config, no_config)
     request = parse_request(flow)
     chain, flow = flow, request.requested.name
     if json_flag:
@@ -1136,6 +1196,7 @@ def run(
     # directory), and the launcher gets that path. The library discovers nothing.
     try:
         project = _selected_project(xedaproject, design_file)
+        local = _cli_local_settings(project, design_file, config, no_config)
     except Exception as e:
         not_started(e)
     if not design and project is None:
@@ -1145,7 +1206,7 @@ def run(
             ctx=ctx,
         )
     project_for_launcher = _project_for_launcher(project)
-    run_root = _cli_run_root(run_root, project)
+    run_root = _cli_run_root(run_root, local, project)
     if fetch_all and not remote:
         raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
     if keep_running and not remote:
@@ -1173,7 +1234,7 @@ def run(
                 ctx=ctx,
             )
         from .remote import client as remote_client
-        from .remote.profile import host_profile, read_host_profiles, remotes_file
+        from .remote.profile import host_profile
 
         outcome = remote_client.run_remote(
             chain,
@@ -1197,7 +1258,8 @@ def run(
             log_level=log_level,
             detailed_logs=detailed_logs,
             keep_running=keep_running,
-            profile=host_profile(remote, read_host_profiles(remotes_file())),
+            profile=host_profile(remote, local.host_profiles),
+            local_settings=local,
         )
         document = outcome.document
         if outcome.error is not None:
@@ -1246,6 +1308,7 @@ def run(
                 flow_settings=flow_settings,
                 design_updates=design_updates,
                 target=selected_target,
+                local_settings=local,
             )
         except KeyboardInterrupt:
             canceled_before_start()
@@ -1291,6 +1354,7 @@ def run(
             flow_settings=flow_settings,
             design_updates=design_updates,
             target=selected_target,
+            local_settings=local,
         )
     except KeyboardInterrupt:
         canceled_before_start()
@@ -1410,6 +1474,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     """,
 )
 @_run_root_options
+@_config_options
 @click.option(
     "--xedaproject",
     envvar="XEDA_XEDAPROJECT",
@@ -1530,6 +1595,8 @@ def dse(
     init_freq_low: float,
     init_freq_high: float,
     run_root: Path,
+    config: Optional[Path] = None,
+    no_config: bool = False,
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
     target: str | None = None,
@@ -1545,6 +1612,7 @@ def dse(
 
     if design and design_name:
         raise click.UsageError("give DESIGN or --design-name, not both")
+    _refuse_both_config_options(config, no_config)
     dse: Dse | None = None
     selected_target = _selected_target(target, no_target)
 
@@ -1609,10 +1677,11 @@ def dse(
 
     try:
         project = _selected_project(xedaproject, design)
+        local = _cli_local_settings(project, design, config, no_config)
         dse = Dse(
             optimizer_class=optimizer,
             optimizer_settings=opt_settings,
-            run_root=_cli_run_root(run_root, project),
+            run_root=_cli_run_root(run_root, local, project),
             **dse_settings_dict,
         )
         # The tables go to stderr with --json (`machine_readable_mode`).
@@ -1625,6 +1694,7 @@ def dse(
             design=design or design_name,
             flow_settings=list(flow_settings),
             target=selected_target,
+            local_settings=local,
         )
     except SystemExit:
         raise
