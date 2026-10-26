@@ -467,6 +467,63 @@ def test_a_positional_file_that_the_project_references_is_refused(tmp_path, monk
     assert not (tmp_path / "xeda_run").exists()
 
 
+def test_each_way_to_name_a_listed_file_is_refused(tmp_path, monkeypatch):
+    """A relative path, an absolute path, a path with `..`, a symbolic link to the file and a path
+    through a linked directory name one file, so each is the design the project lists."""
+    cli_project(tmp_path, monkeypatch)
+    real = tmp_path / "hw" / "fifo.yaml"
+    (tmp_path / "link.yaml").symlink_to(real)
+    (tmp_path / "linked").symlink_to(tmp_path / "hw", target_is_directory=True)
+    (tmp_path / "other_dir").mkdir()
+    spellings = [
+        "hw/fifo.yaml",
+        "./hw/fifo.yaml",
+        "hw/../hw/fifo.yaml",
+        str(real),
+        str(tmp_path / "hw" / ".." / "hw" / "fifo.yaml"),
+        "link.yaml",
+        str(tmp_path / "link.yaml"),
+        "linked/fifo.yaml",
+    ]
+    for spelling in spellings:
+        result, document = invoke("run", "vivado_synth", spelling, "--dry-run", *PART)
+        assert result.exit_code == 2, (spelling, document)
+        assert document["error"]["code"] == "use_design_name", spelling
+        assert "--design-name fifo" in document["error"]["message"], spelling
+    # from another directory, by the path that leads to it
+    monkeypatch.chdir(tmp_path / "other_dir")
+    project = str(tmp_path / PROJECT_FILE)
+    for spelling in ("../hw/fifo.yaml", str(real)):
+        result, document = invoke(
+            "run", "vivado_synth", spelling, "--xedaproject", project, "--dry-run", *PART
+        )
+        assert document["error"]["code"] == "use_design_name", spelling
+    assert not (tmp_path / "xeda_run").exists()
+
+
+def test_a_link_in_the_project_to_a_file_is_the_file_it_links_to(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    real = design_file(tmp_path / "real", "fifo.yaml")
+    (tmp_path / "hw").mkdir()
+    (tmp_path / "hw" / "fifo.yaml").symlink_to(real)
+    write_project(tmp_path, {"designs": [{"file": "hw/fifo.yaml"}]})
+    result, document = invoke("run", "vivado_synth", str(real), "--dry-run", *PART)
+    assert document["error"]["code"] == "use_design_name"
+
+
+def test_a_file_the_project_does_not_list_gets_neither_the_project_nor_a_name_error(
+    tmp_path, monkeypatch
+):
+    """Not listed: it runs on its own, whatever the project holds, and the project still
+    supplies the run root."""
+    cli_project(tmp_path, monkeypatch, run_root="runs")
+    design_file(tmp_path / "hw", "again.yaml")
+    for spelling in ("other.yaml", "hw/again.yaml"):
+        result, document = invoke("run", "vivado_synth", spelling, "--dry-run", *PART)
+        assert result.exit_code == 0, document
+        assert run_path_of(document).is_relative_to((tmp_path / "runs").resolve())
+
+
 def test_the_launcher_does_not_look_for_a_project_or_check_a_listed_file(tmp_path, monkeypatch):
     """Only the command line discovers the project file and refuses a listed design file. The
     launcher reads the files it is given."""

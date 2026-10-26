@@ -1165,12 +1165,21 @@ A project file has these keys. Any other key at its root is an error that names 
 Select a design of the project with ``--design-name NAME``. This is the only way to run a design
 of a project. If you give neither ``--design-name`` nor ``DESIGN``, Xeda selects the only design of
 the project; a project with several designs is an error that lists them. Give ``DESIGN`` or
-``--design-name``, not both. A design file that you give as the ``DESIGN`` argument never gets the ``flows`` of
-the project. If the project lists that file in a ``file`` entry, Xeda refuses it and names the
-option to use: ``--design-name <name>``. A design file that the project does not list runs without
-the settings of the project, and the project still supplies the run root.
+``--design-name``, not both.
 
 The ``DESIGN`` argument is always the path of a design file, with or without a suffix. If no such
 file exists and the project has a design of that name, Xeda says so and names ``--design-name``.
+A design file that you give by path follows three rules:
+
+1. If the project lists that file in a ``file`` entry, Xeda refuses it with the error
+   ``use_design_name`` and names the option to use: ``--design-name <name>``. This holds however
+   you name the file: by a relative path, by an absolute path, or by a symbolic link that leads to
+   it. One design then never has two identities.
+2. A file that the project does not list gets no layer from the project: not the ``flows`` of the
+   project file, and no settings file of the project. A layer that belongs to the user still
+   applies to it.
+3. The project, whether you give it with ``--xedaproject`` or Xeda finds it, still supplies the run
+   root. The order is ``--run-root``, ``XEDA_RUN_ROOT``, the run root of the project, and then
+   ``./xeda_run`` when no project is used.
 
 ``--target NAME`` selects one target and ``--no-target`` selects none.
