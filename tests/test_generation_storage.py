@@ -677,3 +677,47 @@ def test_the_lease_is_of_the_files_the_judgment_under_it_found(tmp_path, monkeyp
     monkeypatch.setattr(launch_generation, "generate", stale)
     with generated(world.load(), run_root=world.run_root.resolve(), environ=dict(os.environ)) as g:
         assert g is not None and dict(g.matches) == {"gen/top.v": ("gen/top.v",)}
+
+
+def test_a_scrub_refuses_a_storage_that_became_a_link_after_the_confirmation(tmp_path):
+    from xeda.flow_runner.scrub import scrub_generations
+    from xeda.run_dir import RunDirectoryError
+
+    world = World(tmp_path)
+    assert world.launch(reader_flow()).outcome is Outcome.PASSED
+    (storage,) = world.storages()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "precious.txt").write_text("keep\n")
+
+    def swap(candidates) -> bool:
+        moved = storage.rename(tmp_path / "moved")
+        storage.symlink_to(outside, target_is_directory=True)
+        assert moved.is_dir()
+        return True
+
+    with pytest.raises(RunDirectoryError, match="link"):
+        scrub_generations("generated", run_root=world.run_root.resolve(), confirm=swap)
+    assert (outside / "precious.txt").read_text() == "keep\n"
+    assert storage.is_symlink() and (tmp_path / "moved" / "gen" / "top.v").is_file()
+
+
+def test_a_scrub_does_not_delete_through_a_link_to_another_storage(tmp_path):
+    from xeda.flow_runner.scrub import scrub_generations
+    from xeda.run_dir import RunDirectoryError
+
+    world = World(tmp_path)
+    assert world.launch(reader_flow()).outcome is Outcome.PASSED
+    (storage,) = world.storages()
+    other = world.run_root / ".generated" / "another" / "0123456789abcdef"
+    other.mkdir(parents=True)
+    (other / "keep.v").write_text("// keep\n")
+
+    def swap(candidates) -> bool:
+        storage.rename(tmp_path / "moved")
+        storage.symlink_to(other, target_is_directory=True)
+        return True
+
+    with pytest.raises(RunDirectoryError, match="link"):
+        scrub_generations("generated", run_root=world.run_root.resolve(), confirm=swap)
+    assert (other / "keep.v").is_file()

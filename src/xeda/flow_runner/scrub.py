@@ -517,11 +517,25 @@ def scrub_generations(
         return ScrubResult([base], [], [], [], [])
     removed: list[Path] = []
     gone: list[Path] = []
+    places = {storage: os.path.realpath(storage) for storage in found}
     for storage in found:
         with storage_lock(storage, exclusive=True, run_root=run_root):
-            if not storage.is_dir():
+            if _is_gone(storage):
                 gone.append(storage)
                 continue
+            # Judged again under the lock, as the user confirmed what was listed: a storage that
+            # became a link, or whose place is another one now, is not removed.
+            try:
+                RunDirectory(run_root, run_root).unlinked(storage)
+            except RunDirectoryError as error:
+                raise RunDirectoryError(
+                    f"{storage} is a link now: it was not removed. {error}"
+                ) from error
+            if os.path.realpath(storage) != places[storage]:
+                raise RunDirectoryError(
+                    f"{storage} leads to another place than the one that scrub listed: "
+                    "it was not removed."
+                )
             owner = RunDirectory.claimed(storage, run_root)
             owner.clear()
             owner.delete()
