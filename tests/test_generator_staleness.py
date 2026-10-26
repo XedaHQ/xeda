@@ -505,6 +505,8 @@ def test_a_generator_writing_bytecode_into_a_source_directory_records_on_its_sec
     assert world.runs == 1
     assert (package / "__pycache__").is_dir(), "the generator was to leave bytecode there"
     assert world.records() == [], "the inputs changed while it ran: a record would be of other ones"
+    stale = [p for p in (world.run_root / ".generated").glob("*/*") if p.is_dir()]
+    assert stale == [], "the storage of the old key is removed: nothing vouches for it"
     world.generate()
     assert world.runs == 2
     assert len(world.records()) == 1

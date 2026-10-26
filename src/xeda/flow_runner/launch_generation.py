@@ -231,10 +231,12 @@ def generate(
                 else:
                     # What the generator reads changed while it ran, itself perhaps (bytecode in
                     # a source directory): its output is not that of this key, so nothing vouches
-                    # for it. The launch generates again.
+                    # for it, and the storage of this key goes. The launch generates again.
                     log.info(
-                        "The inputs of %s changed while it ran: keeping no record", description
+                        "The inputs of %s changed while it ran: keeping no output of this key",
+                        description,
                     )
+                    _discard(storage, run_root)
             except BaseException as error:
                 _discard(storage, run_root)
                 if isinstance(error, (NonZeroExitCode, OSError, ValueError, RunDirectoryError)):
