@@ -404,8 +404,8 @@ flows:
     clock.period: 5 ns
 ```
 
-- Top-level keys: `designs`, `flows`, `run_root` (relative to the project file; default
-  `xeda_run` beside it) and `default_target`. Any other key fails with
+- Top-level keys: `designs`, `flows`, `run_root` (relative to the project file; the CLI uses it
+  unless `--run-root` or `XEDA_RUN_ROOT` is set, else `./xeda_run`) and `default_target`. Any other key fails with
   `ProjectError: ... unknown key(s) ...; a project has 'designs', 'flows', 'run_root',
   'default_target'`. The singular `design` and `flow` were removed (`removed_alias`).
 - `designs` is a list (a single table is `invalid_project`). An entry is a table with a `name` (each name once; its root is the project's directory), or `{file: hw/fifo.yaml}`, which

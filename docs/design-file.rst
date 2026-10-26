@@ -1154,8 +1154,9 @@ A project file has these keys. Any other key at its root is an error that names 
 ``flows``
   The settings that the designs of the project share.
 ``run_root``
-  Where the runs of the project go, relative to the project file. The default is ``xeda_run``
-  beside the project file.
+  Where the runs of the project go, relative to the project file. ``xeda run`` uses it when you
+  give neither ``--run-root`` nor ``XEDA_RUN_ROOT``. Without this key, the run root is
+  ``xeda_run`` in the directory where you start Xeda.
 ``default_target``
   The target that Xeda selects for a design of the project when you give neither ``--target`` nor
   ``--no-target``. A design that has no such target is an error: select a target, or pass

@@ -650,6 +650,20 @@ def _project_for_launcher(project: Project | None, design: Any) -> str | None:
     return None if project is None or _is_design_file(design) else str(project.path)
 
 
+def _cli_run_root(run_root: Path, project: Project | None) -> Path:
+    """Return the run root of this command, highest first: `--run-root`, `XEDA_RUN_ROOT`, the
+    `run_root` that the project file gives, then `./xeda_run` (the default of `run_root`).
+
+    A run root is a fact of the machine, so a choice on the command line or in the environment
+    wins over the project's suggestion. The private settings files of the user and of the
+    project enter between the environment and the project file."""
+    source = click.get_current_context().get_parameter_source("run_root")
+    chosen = source not in (None, ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP)
+    if chosen or project is None or not project._run_root_given:  # pylint: disable=protected-access
+        return run_root
+    return project.run_root
+
+
 def _interactive(json_flag: bool) -> bool:
     """Return whether a question may be asked: stdin and stderr are terminals, and the output is
     not machine-readable."""
@@ -1132,6 +1146,7 @@ def run(
     except Exception as e:
         not_started(e)
     project_for_launcher = _project_for_launcher(project, design_file)
+    run_root = _cli_run_root(run_root, project)
     if fetch_all and not remote:
         raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
     if keep_running and not remote:
@@ -1594,7 +1609,7 @@ def dse(
         dse = Dse(
             optimizer_class=optimizer,
             optimizer_settings=opt_settings,
-            run_root=run_root,
+            run_root=_cli_run_root(run_root, project),
             **dse_settings_dict,
         )
         # The tables go to stderr with --json (`machine_readable_mode`).

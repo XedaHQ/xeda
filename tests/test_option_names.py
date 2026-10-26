@@ -187,6 +187,10 @@ def _non_default(option: click.Option, tmp_path: Path) -> list:
     if option.is_flag:
         return [option.secondary_opts[0] if option.default is True else option.opts[0]]
     if isinstance(option.type, click.Path):
+        if option.name == "xedaproject":  # the command line reads the project file it names
+            project = tmp_path / "project.yaml"
+            project.write_text("flows: {}\n")
+            return [option.opts[0], str(project)]
         if option.type.exists:
             return [option.opts[0], str(SQRT)]
         return [option.opts[0], str(tmp_path / option.name)]

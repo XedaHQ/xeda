@@ -794,3 +794,85 @@ def test_a_project_and_a_design_in_one_directory_leave_the_paths_as_written(tmp_
     )
     request = DefaultRunner(tmp_path / "run")._request("nextpnr", "d", xedaproject=str(path))
     assert dict(request.origins)[str(path)]["nextpnr"]["custom_boards_file"] == "boards.yaml"
+
+
+# ------------------------------------------------------------------------------ the run root
+
+
+def run_path_of(document) -> Path:
+    return Path(document["plan"]["nodes"][-1]["run_path"])
+
+
+def test_the_run_root_of_the_project_is_used_from_another_directory(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    design_file(repo, "other.yaml")
+    project = write_project(
+        repo, {"designs": [{"name": "d", "rtl": rtl()}], "run_root": "build/runs"}
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    arguments = ("run", "vivado_synth", "--xedaproject", str(project), "--dry-run", *PART)
+    for design in (("--design-name", "d"), (str(repo / "other.yaml"),)):
+        result, document = invoke(*arguments, *design)
+        assert result.exit_code == 0, document
+        assert run_path_of(document).is_relative_to((repo / "build" / "runs").resolve())
+
+
+def test_the_run_root_option_and_variable_win_over_the_project(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    project = write_project(repo, {"designs": [{"name": "d", "rtl": rtl()}], "run_root": "build"})
+    monkeypatch.chdir(tmp_path)
+    arguments = (
+        "run", "vivado_synth", "--xedaproject", str(project), "--design-name", "d", "--dry-run",
+        *PART,
+    )  # fmt: skip
+    result = CliRunner().invoke(cli, [*arguments, "--json"], env={"XEDA_RUN_ROOT": "from_env"})
+    assert run_path_of(json.loads(result.stdout)).is_relative_to((tmp_path / "from_env").resolve())
+    result, document = invoke(*arguments, "--run-root", str(tmp_path / "given"))
+    assert run_path_of(document).is_relative_to((tmp_path / "given").resolve())
+    result = CliRunner().invoke(
+        cli,
+        [*arguments, "--run-root", str(tmp_path / "given"), "--json"],
+        env={"XEDA_RUN_ROOT": "from_env"},
+    )
+    assert run_path_of(json.loads(result.stdout)).is_relative_to((tmp_path / "given").resolve())
+
+
+def test_a_project_without_a_run_root_leaves_the_default(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    project = write_project(repo, {"designs": [{"name": "d", "rtl": rtl()}]})
+    monkeypatch.chdir(tmp_path)
+    result, document = invoke(
+        "run", "vivado_synth", "--xedaproject", str(project), "--design-name", "d", "--dry-run",
+        *PART,
+    )  # fmt: skip
+    assert run_path_of(document).is_relative_to((tmp_path / "xeda_run").resolve())
+
+
+def test_the_project_run_root_is_used_by_dse_and_the_remote_mirror(tmp_path, monkeypatch):
+    from xeda.remote import client
+
+    repo = tmp_path / "repo"
+    project = write_project(repo, {"designs": [{"name": "d", "rtl": rtl()}], "run_root": "runs"})
+    monkeypatch.chdir(tmp_path)
+    seen = {}
+
+    def fake_run_remote(chain, **arguments):
+        seen.update(arguments)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(client, "run_remote", fake_run_remote)
+    CliRunner().invoke(
+        cli,
+        ["run", "vivado_synth", "--xedaproject", str(project), "--design-name", "d",
+         "--remote", "host", *PART],
+    )  # fmt: skip
+    assert seen["run_root"] == (repo / "runs").resolve()
+    seen.clear()
+    CliRunner().invoke(
+        cli,
+        ["run", "vivado_synth", "--xedaproject", str(project), "--design-name", "d",
+         "--remote", "host", "--run-root", str(tmp_path / "given"), *PART],
+    )  # fmt: skip
+    assert seen["run_root"] == (tmp_path / "given").resolve()

@@ -76,6 +76,8 @@ class Project:
     #: The `flows` table of the file.
     flows: Mapping[str, Any]
     _entries: tuple[_Entry, ...]
+    #: Whether the file has a `run_root` key (`run_root` is a default otherwise).
+    _run_root_given: bool
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         raise TypeError("a Project has no constructor: read a project file with Project.load")
@@ -147,6 +149,7 @@ class Project:
             default_target=default_target,
             flows=freeze(flows or {}),
             _entries=parsed,
+            _run_root_given=data.get("run_root") is not None,
         )
 
     def design(
