@@ -594,3 +594,55 @@ def test_the_attrs_class_of_a_project_is_gone():
 def test_unset_is_one_value_that_prints_as_its_name():
     assert [member.name for member in Unset] == ["UNSET"] and UNSET is Unset.UNSET
     assert repr(UNSET) == "UNSET"
+
+
+# ---------------------------------------------------------------- the files a launch was given
+
+
+def test_a_launch_protects_the_design_file_and_the_project_file_it_selected(tmp_path):
+    path = project_listing_two(tmp_path)
+    runner = DefaultRunner(tmp_path / "run")
+    runner._request("vivado_synth", "fifo", xedaproject=str(path))
+    assert set(runner._launch_inputs) == {
+        (tmp_path / "hw" / "fifo.yaml").resolve(),
+        path.resolve(),
+    }
+
+
+def test_a_remote_launch_protects_the_same_files(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from xeda.deliver import ReadInputs
+    from xeda.remote import client
+
+    path = project_listing_two(tmp_path)
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    prepared = runner.prepare_request("vivado_synth", "fifo", xedaproject=str(path))
+    seen = []
+
+    def inputs(design, settings, sections, launch_inputs, **kwargs):
+        seen.extend(launch_inputs)
+        return ReadInputs(launch_inputs)
+
+    monkeypatch.setattr(client, "remote_read_inputs", inputs)
+    run = SimpleNamespace(mirror_root=tmp_path / "mirror", design="fifo")
+    client._check_outputs_to(
+        runner,
+        prepared,
+        run,
+        outputs_to=tmp_path / "out",
+        overwrite_outputs=False,
+        confirm_overwrite=None,
+    )
+    assert set(seen) == {(tmp_path / "hw" / "fifo.yaml").resolve(), path.resolve()}
+
+
+def project_listing_two(tmp_path: Path) -> Path:
+    design_file(tmp_path / "hw", "fifo.yaml")
+    return write_project(
+        tmp_path,
+        {
+            "designs": [{"file": "hw/fifo.yaml"}],
+            "flows": {"vivado_synth": {"fpga": {"part": "xc7a100tcsg324-1"}}},
+        },
+    )

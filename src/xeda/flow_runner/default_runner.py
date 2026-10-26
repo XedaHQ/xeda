@@ -2522,11 +2522,15 @@ class FlowLauncher:
                 "design: %s" % PrettyPrinter().pformat(_shown_dependencies(design.model_dump()))
             )
         # The files that this launch was given: never the destination of an output.
-        self._launch_inputs = [
-            path.resolve()
-            for path in (given_file, project_path)
-            if path is not None and path.is_file()
-        ]
+        # A design that a project selected has two more: its own file and the project file.
+        launch_files: list[Path | None] = [given_file, project_path, design._source_file]
+        if layer is not None:
+            launch_files.append(Path(project_label))
+        self._launch_inputs = list(
+            dict.fromkeys(
+                path.resolve() for path in launch_files if path is not None and path.is_file()
+            )
+        )
         return _Request(
             flow_class,
             design,

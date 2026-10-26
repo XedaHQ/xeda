@@ -56,7 +56,7 @@ from ..deliver import (
     recorded_artifacts,
     split_deliveries,
 )
-from ..design import generator_of, names_a_design_file
+from ..design import generator_of
 from ..flow_runner import DefaultRunner, launch_generation
 from ..flow_runner.chains import parse_request
 from ..errors import RecordError, SpecError
@@ -77,7 +77,6 @@ from ..proc_utils import TOOL_OUTPUT, tool_output_stream
 from ..records import CANCELED, ErrorInfo, RunRecord, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
 from ..types import Unset
-from ..xedaproject import resolve_project_file
 from .constants import HEARTBEAT, LAYOUT
 from .environment import CodeSnapshot, DependencySpec, code_snapshot, dependency_spec
 from .errors import (
@@ -689,7 +688,6 @@ def _plan(
             outputs_to=outputs_to,
             overwrite_outputs=overwrite_outputs,
             confirm_overwrite=confirm_overwrite,
-            xedaproject=xedaproject,
         )
     return _Prepared(
         profile, destination, launcher, prepared, node.flow_class, plan.requested, deliveries
@@ -710,7 +708,6 @@ def _check_outputs_to(
     outputs_to: Path,
     overwrite_outputs: bool,
     confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
-    xedaproject: Any,
 ) -> Deliveries:
     """Check `--outputs-to` as a local launch does, before anything is connected or shipped. The
     deliveries protect every file that this side can name as an input."""
@@ -719,14 +716,8 @@ def _check_outputs_to(
     local_root = _local_run_root(launcher._run_root)  # pylint: disable=protected-access
     assert run.mirror_root is not None
     mirror_dir = _mirror_of(run.mirror_root, local_root, Path(node.run_path))
-    design = run.design
-    given = (
-        Path(design) if isinstance(design, (str, Path)) and names_a_design_file(design) else None
-    )
-    project = resolve_project_file(xedaproject)
-    launch_inputs = [
-        path.resolve() for path in (given, project) if path is not None and path.is_file()
-    ]
+    # The files that the request was given, as the launcher noted them (`prepare_request`).
+    launch_inputs = list(launcher._launch_inputs)  # pylint: disable=protected-access
     deliveries = Deliveries(
         mirror_dir,
         local_root,
