@@ -47,8 +47,7 @@ are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` 
 | `targets` | One overlay per board. |
 | `dependencies` | Other designs: a design file path, or `git+<url>#<design file in the repository>`. A URL without `git+` is refused. Planning reads them; see below. |
 
-Relative paths resolve against the design file's directory (the design root). `design_root` was
-removed. In Python: `Design.load(path, target=None)` or `Design(name=..., root=..., rtl={...})`.
+Relative paths resolve against the design file's directory (the design root). `design_root` is refused in a design file (a design entry of a project file may still set it, relative to the project file). In Python: `Design.load(path, target=None)` or `Design(name=..., root=..., rtl={...})`.
 A design is immutable: `d.with_updates({"tb.parameters.W": 8})` and `d.with_target("t")` return new
 designs; `d.to_dict()` is the effective design in the shape of a file.
 

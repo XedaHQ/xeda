@@ -59,7 +59,9 @@ Top level
 =========
 
 The design root is the directory of the design file. Every relative path in the file resolves
-against it, wherever you run Xeda. The file has no key for the root: ``design_root`` was removed.
+against it, wherever you run Xeda. A design file has no key for the root: Xeda refuses
+``design_root`` there. A design entry of a project file may still set ``design_root``, relative to
+the project file.
 
 .. list-table::
    :header-rows: 1

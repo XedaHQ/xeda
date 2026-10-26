@@ -112,6 +112,11 @@ def test_root_is_required_and_unknown_keywords_are_refused(tmp_path):
         Design(name="a", root=tmp_path, rtl={"sources": [], "top": "a"}, nonsense=1)  # type: ignore[call-arg]
 
 
+def test_an_empty_root_is_refused_and_not_the_current_directory():
+    with pytest.raises(DesignValidationError, match="not a path"):
+        Design(name="a", root="", rtl={"sources": []})
+
+
 def test_root_must_be_a_directory(tmp_path):
     with pytest.raises(DesignValidationError, match="directory does not exist"):
         Design(name="a", root=tmp_path / "missing", rtl={"sources": []})
@@ -318,10 +323,17 @@ def test_the_old_option_names_its_successor(tmp_path):
     assert "`--design-overrides` was removed" in output and "--design-updates" in output
 
 
-def test_the_new_option_applies_updates(tmp_path):
+def test_with_updates_equals_the_design_updates_option(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+
     file = _tree(tmp_path)
-    result = CliRunner().invoke(
-        cli,
-        ["run", "--dry-run", "--json", "ghdl_sim", str(file), "--design-updates", "tb.top=other"],
-    )
-    assert "--design-updates" not in click.unstyle(result.output) or result.exit_code == 0
+    updates = {"tb.top": "other", "rtl.parameters.W": 2}
+    for target in (None, "ecp5"):
+        request = DefaultRunner(tmp_path / "run")._request(
+            "ghdl_sim", str(file), design_updates=updates, target=target
+        )
+        expected = Design.load(file, target=target).with_updates(updates)
+        assert request.design == expected
+        assert request.design.updates == (updates,)
+        assert request.design.rtl.parameters["W"] == 2
+        assert request.design.tb.top == ("other",)

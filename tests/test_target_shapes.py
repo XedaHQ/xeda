@@ -157,9 +157,7 @@ def test_a_target_in_another_form_gives_the_design_written_flat_by_hand(
     tmp_path, design, target, flat
 ):
     selected, expected = selected_and_flat(tmp_path, design, target, flat)
-    assert selected.model_dump(mode="json", exclude={"target"}) == expected.model_dump(
-        mode="json", exclude={"target"}
-    )
+    assert selected.to_dict() == expected.to_dict()
     assert selected.rtl_hash == expected.rtl_hash and selected.tb_hash == expected.tb_hash
 
 
@@ -533,7 +531,7 @@ def test_a_malformed_entry_of_a_flow_dictionary_is_reported_whatever_table_a_tar
 
 # ------------------------------------------------------------------------------ design overrides
 #
-# `--design-updates` (`overrides=` of `Design.from_file`) is an overlay on the design, as a target
+# `--design-updates` (`Design.with_updates`) is an overlay on the design, as a target
 # is, and is merged by the same rule: a shorthand is read as its table, and a mistake of the
 # design is not hidden by an override table. The one difference is `sources`: only a target adds
 # its sources to the design's, so an override's replace them.
@@ -572,9 +570,7 @@ def test_design_updates_give_the_design_written_flat_by_hand(
     )
     selected = Design.load(path, target="t" if with_target else None).with_updates(overrides)
     expected = Design.load(flat_path)
-    assert selected.model_dump(mode="json", exclude={"target"}) == expected.model_dump(
-        mode="json", exclude={"target"}
-    )
+    assert selected.to_dict() == expected.to_dict()
     assert selected.rtl_hash == expected.rtl_hash
 
 
@@ -601,7 +597,7 @@ def test_design_updates_given_as_text_are_tables_too(tmp_path, design, overrides
         settings_to_dict(overrides)
     )
     expected = Design.load(write_design(tmp_path, overlay(BASE, flat), "flat.json"))
-    assert selected.model_dump(mode="json") == expected.model_dump(mode="json")
+    assert selected.to_dict() == expected.to_dict()
 
 
 # fmt: off
@@ -752,7 +748,7 @@ def test_the_same_overrides_give_the_same_design_through_a_project_and_a_design_
     project = XedaProject.from_file(write_project(tmp_path, data), design_updates=overrides)
     from_project = project.get_design(from_file.name)
     assert from_project is not None, project.design_names
-    assert from_project.model_dump(mode="json") == from_file.model_dump(mode="json")
+    assert from_project.to_dict() == from_file.to_dict()
     assert project.design_names == [from_file.name]
     assert project.designs == [data], "the entries stay as written"
 

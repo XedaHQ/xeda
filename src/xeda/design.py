@@ -3527,6 +3527,8 @@ class Design(XedaBaseModel):
 
         root_path: Any = root
         try:
+            if not os.fspath(root):
+                raise ValueError("an empty path")
             root_path = Path(root).resolve()
         except (TypeError, ValueError):
             raise invalid("root", f"not a path: {root!r}") from None

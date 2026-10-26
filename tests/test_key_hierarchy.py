@@ -251,7 +251,7 @@ OVERLAY_DOTTED = {"tb.top": "other", "flows.vivado_synth.clocks.main_clock.perio
 
 def _dump(design: Design, root: Path) -> dict:
     """The design as data, with the directory it was written in left out of every path."""
-    return json.loads(design.model_dump_json().replace(str(root), "ROOT"))
+    return json.loads(json.dumps(design.to_dict()).replace(str(root), "ROOT"))
 
 
 def _root(tmp_path: Path) -> Path:

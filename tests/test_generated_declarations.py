@@ -122,9 +122,9 @@ def test_the_design_root_spelling_of_a_generated_name_is_the_name(tmp_path):
 
 def test_a_dump_of_the_design_loads_again_to_the_same_declarations(tmp_path):
     design = _design(tmp_path, ["top.v", "gen/*.v", {"path": "gen/odd", "type": "Data"}], ["gen"])
-    dumped = design.model_dump(mode="json")
+    dumped = design.to_dict()
     assert dumped["rtl"]["sources"][1:] == ["gen/*.v", {"path": "gen/odd", "type": "Data"}]
-    again = Design(root=tmp_path, **{k: v for k, v in dumped.items() if k != "design_root"})
+    again = Design(root=tmp_path, **dumped)
     assert _described(again) == _described(design)
     assert again.rtl.sources == design.rtl.sources
 

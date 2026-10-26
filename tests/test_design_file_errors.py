@@ -114,7 +114,7 @@ def assert_one_critical_line(proc, *mentions: str, returncode: int = 2) -> None:
 
 
 # ---------------------------------------------------------------------------------------------
-# Design.from_file: every load failure is a DesignFileParseError naming the file
+# Design.load: every load failure is a DesignFileParseError naming the file
 # ---------------------------------------------------------------------------------------------
 
 
@@ -168,7 +168,7 @@ def test_an_unreadable_design_file_is_a_parse_error_naming_it(tmp_path):
 
 
 def test_a_design_validation_error_names_the_file(tmp_path):
-    """`from_file` attaches the file to the error, and the error has to say it: without it the
+    """`load` attaches the file to the error, and the error has to say it: without it the
     CLI printed only "1 error validating design 'bad'", naming no file at all."""
     write(tmp_path / "sqrt.vhdl", (SQRT_DIR / "sqrt.vhdl").read_text())
     path = write(

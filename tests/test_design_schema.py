@@ -251,7 +251,7 @@ def test_source_object_may_not_name_both_a_file_and_a_path():
 
     The object branch used to be an `anyOf` of the two `required` clauses, which an object
     carrying both satisfies -- so `xeda design-schema` validated a design that
-    `Design.from_file` rejects with "'file' and 'path' are mutually exclusive."
+    `Design.load` rejects with "'file' and 'path' are mutually exclusive."
     """
     both = {"file": "a.v", "path": "generated/a.v"}
     with pytest.raises(ValueError, match="mutually exclusive"):
