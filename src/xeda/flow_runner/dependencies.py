@@ -31,6 +31,7 @@ import logging
 import os
 import re
 import secrets
+from collections.abc import Callable
 from pathlib import Path
 
 import yaml
@@ -331,9 +332,14 @@ def _git_design(ref: GitReference, storage: Path, field: str) -> Design:
     return Design.from_file(path)
 
 
+#: Where Git dependencies are fetched: a run root, or a function that makes it when the first Git
+#: dependency needs it, so that a design without one makes none.
+RunRoot = Path | Callable[[], Path] | None
+
+
 def _merge(
     design: Design,
-    run_root: Path | None,
+    run_root: RunRoot,
     slots: list[DependencyRecord | None],
     first: int | None,
 ) -> Design:
@@ -350,8 +356,9 @@ def _merge(
             slots.append(None)
         if isinstance(ref, GitReference):
             assert run_root is not None, "a Git dependency is fetched into a run root"
-            commit = resolve_reference(ref, run_root=run_root, field=field)
-            storage = fetch(ref, commit, run_root=run_root, field=field)
+            root = run_root() if callable(run_root) else run_root
+            commit = resolve_reference(ref, run_root=root, field=field)
+            storage = fetch(ref, commit, run_root=root, field=field)
             loaded = _git_design(ref, storage, field)
             checkout = Path(os.path.realpath(storage))
             slots[index] = DependencyRecord(
@@ -369,7 +376,7 @@ def _merge(
     return design.merged_with(merged, resolved)
 
 
-def merged_design(design: Design, *, run_root: Path | None) -> Design:
+def merged_design(design: Design, *, run_root: RunRoot) -> Design:
     """Return `design` with the sources and the metadata of its dependencies merged in.
 
     The entries of `design.dependencies` merge in the order they are listed. A local dependency
@@ -382,7 +389,8 @@ def merged_design(design: Design, *, run_root: Path | None) -> Design:
     `design.dependencies`. The sources of a Git dependency carry that index. The entries of a
     dependency come after those of the design.
 
-    `run_root` can be `None` for a design that has no Git dependency. `design` itself does not
+    `run_root` can be `None` for a design that has no Git dependency, at any depth. It can be a
+    function that returns the run root: a Git dependency calls it when it is met. `design` itself does not
     change, and a design without dependencies is returned as it is."""
     if not design.dependencies:
         return design

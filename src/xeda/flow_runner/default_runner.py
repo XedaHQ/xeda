@@ -50,7 +50,7 @@ from ..deliver import (
     refuse_shared_destinations,
     split_deliveries,
 )
-from ..design import Design, GitReference, names_a_design_file, shown_dependencies
+from ..design import Design, names_a_design_file, shown_dependencies
 from ..flow import (
     Flow,
     FlowDependencyFailure,
@@ -2266,7 +2266,7 @@ class FlowLauncher:
             target=target,
             host_layer=host_layer,
         )
-        if any(isinstance(ref, GitReference) for ref in request.design.dependencies):
+        if request.design.dependencies:
             check_settings_without_design(
                 request.flow_request,
                 request.settings,
@@ -2282,12 +2282,12 @@ class FlowLauncher:
     def _merged(self, design: Design) -> Design:
         """Return `design` with its dependencies merged in (`dependencies.merged_design`).
 
-        A design without a dependency left to merge is returned as it is. The run root is made
-        and marked only for a Git dependency, so planning any other design writes nothing."""
+        A design without a dependency is returned as it is. The run root is made and marked when
+        the first Git dependency, at any depth, needs it, so planning any other design writes
+        nothing."""
         if not design.dependencies:
             return design
-        git = any(isinstance(ref, GitReference) for ref in design.dependencies)
-        return dependencies.merged_design(design, run_root=self.run_root if git else None)
+        return dependencies.merged_design(design, run_root=lambda: self.run_root)
 
     def _with_dependencies(self, request: _Request) -> _Request:
         """Return `request` with the dependencies of its design merged in. The design of the

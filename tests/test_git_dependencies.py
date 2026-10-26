@@ -875,3 +875,23 @@ def test_the_debug_log_of_a_request_shows_no_credential(tmp_path, caplog, git_lo
         runner.plan("yosys_fpga", str(design_file), flow_settings=dict(XILINX))
     assert "design:" in caplog.text and "does/not/exist.git" in caplog.text
     assert SECRET not in caplog.text
+
+
+def test_a_git_dependency_of_a_local_dependency_is_fetched(tmp_path, remote):
+    """main.yaml lists a local design, and that design lists the Git repository."""
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    (lib / "lib.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "lib",
+                "rtl": {"sources": []},
+                "dependencies": [{"uri": f"git+{remote.url}?commit={remote.first}#dep.yaml"}],
+            }
+        )
+    )
+    plan = _plan(tmp_path, _design_file(tmp_path, {"uri": "lib/lib.yaml"}))
+    sources = _configuration(plan)["rtl"]["sources"]
+    # the local entry is dependency 0, and the entry it lists comes after the entries of the design
+    assert {"dependency": 1, "path": "src/a.v", "type": "Verilog"} in sources
+    assert (tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY).is_dir()
