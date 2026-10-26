@@ -104,6 +104,13 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
   negative hold slack in Vivado, negative slack in Quartus) is reported again on an unchanged
   launch (outcome `rejected`, disposition `reused`); `--rebuild-all` runs it again. A tool failure, such as a
   Vivado setup-slack miss or a `nextpnr` timing miss, runs again.
+- `missing_generated`: a source of `rtl.sources` that the generator should write matches no file in
+  the output of the generator. The message names the entry. Check what the generator writes into
+  `$XEDA_GENERATED`. A hand-written entry beside generated ones needs `generated_sources`: with it
+  empty, every entry is the generator's.
+- `generator_failed`: an error of the whole launch (`error.node` is null); every node is `skipped`.
+  The generator exited with an error, could not be started, or changes what it reads while it
+  runs. Its output is in the log.
 - `storage_error`: a file or directory error of the operating system, or a path that leaves the
   run directory, ended the node.
 - `missing_output`: a declared output is absent, unreadable, outside the run directory or not

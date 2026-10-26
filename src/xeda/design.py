@@ -194,11 +194,6 @@ class DesignValidationError(AnyDesignValidationException):
         self.file = file
         self.design_in_msg = design_in_msg
 
-    @property
-    def only_missing_files(self) -> bool:
-        """Whether every error is a file the design names that is not there (`MissingFile`)."""
-        return bool(self.errors) and all(kind == MISSING_FILE_ERROR for *_, kind in self.errors)
-
     def __str__(self) -> str:
         """Format validation errors with their design name and field locations."""
 
@@ -338,8 +333,8 @@ def _read_design_file(path: Path) -> dict[str, Any]:
 
 
 #: The root of the design that is being loaded. A relative path in a design resolves against it
-#: (`design_relative_root`). `Design.__init__` sets it around the validation, the generators and
-#: the merge of the dependencies, so a load never changes the working directory of the process.
+#: (`design_relative_root`). `Design.__init__` sets it around the validation and the merge of the
+#: dependencies, so a load never changes the working directory of the process.
 #: A dependency is a design with a root of its own, and a thread has its own value.
 _loading_root: ContextVar[Optional[Path]] = ContextVar("loading_root", default=None)
 

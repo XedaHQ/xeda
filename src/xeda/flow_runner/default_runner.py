@@ -820,12 +820,19 @@ class FlowLauncher:
            (design root, start directory) and apply the `debug` setting of the launcher. The
            result is the input of the run, never modified afterwards. A missing required
            setting, or a design that the flow cannot run, fails the launch here.
-        2. Identity (`launch_identity.run_identity`). Compute the hash of the design and the
-           `flowrun_hash` of the node. Decide the run directory, `<design>[/<target>]/<flow>`
+        2. Identity (`launch_identity.run_identity`). Compute the `flowrun_hash` of the node,
+           which holds no content of the design. Decide the run directory, `<design>[/<target>]/<flow>`
            (with `hashed_run_dirs`, `<flow>_<flowrun_hash>`). The flow must be able to work in
            it (`Flow.check_run_directory`, judged on the path before anything is created).
            Lock the run directory from here until the trace of the run is written
            (`run_lock`). With `clean`, empty the directory now (or back it up, with `backups`).
+        2a. Generation (`launch_generation`). The requested flow, once every declarative check
+           has passed and before it takes the lock of any run directory, runs the generator of the
+           design into its storage under the run root, unless the storage is current. It then
+           holds the shared lease of the storage until the last delivery. From here the flows get
+           the execution copy of the design, whose generated sources name their files in the
+           storage, and the hash of the design is that of the copy. A failure is the error of the
+           whole launch (`generator_failed`).
         3. Design. A flow whose `design` input comes from a converter (bsc turns Bluespec into
            Verilog) gets that converter launched first (`launch_producers.run_design_producer`),
            under the lock of this flow and before the flow exists. The record of the converter is
