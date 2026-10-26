@@ -438,6 +438,35 @@ def _write_json(path: Path, document: Any) -> None:
         stream.write("\n")
 
 
+def _launch_nodes(document: dict[str, Any]) -> list[Any]:
+    """Return a `fetch.NodeResult` for each node of the launch `document`, with the record that
+    this launch left in its run directory.
+
+    A node that the launch did not run (its state is `blocked` or `not run`) keeps the record of
+    an earlier run in its directory. That record is not of this launch, so the node has none, and
+    the fetch takes it as a node that did not pass."""
+    from .fetch import NodeResult
+
+    named = {element.get("node") for element in document.get("request") or []}
+    written = document.get("written") or {}
+    nodes = []
+    for node in document["nodes"]:
+        name = node["node"]
+        run_dir = Path(node["run_path"])
+        ran = node.get("state") not in ("blocked", "not run")
+        results = _read_json(run_dir / "results.json") if ran else None
+        nodes.append(
+            NodeResult(
+                name,
+                run_dir,
+                results if isinstance(results, dict) else {},
+                name in named,
+                frozenset(written[name]) if name in written else None,
+            )
+        )
+    return nodes
+
+
 def _read_json(path: Path) -> Any:
     """The JSON document in the regular file `path`, or `None` if there is none or it is not
     JSON. A link is not followed."""
@@ -1348,7 +1377,7 @@ class Session:
     # -- step 4: the fetch
 
     def fetch(self, body: Any) -> None:
-        from .fetch import NodeResult, select_fetch
+        from .fetch import select_fetch
 
         if not isinstance(body, dict) or not isinstance(body.get("fetch_all", False), bool):
             raise RemoteProtocolError("`fetch` is not an object with a boolean `fetch_all`")
@@ -1357,22 +1386,7 @@ class Session:
         files: dict[str, Path] = {}
         skipped: list[Any] = []
         if request is not None and document.get("nodes"):
-            named = {element.get("node") for element in document.get("request") or []}
-            written = document.get("written") or {}
-            nodes = []
-            for node in document["nodes"]:
-                name = node["node"]
-                run_dir = Path(node["run_path"])
-                results = _read_json(run_dir / "results.json")
-                nodes.append(
-                    NodeResult(
-                        name,
-                        run_dir,
-                        results if isinstance(results, dict) else {},
-                        name in named,
-                        frozenset(written[name]) if name in written else None,
-                    )
-                )
+            nodes = _launch_nodes(document)
             selection = select_fetch(
                 Path(request.run_root), nodes, fetch_all=bool(body.get("fetch_all", False))
             )
