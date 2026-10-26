@@ -594,7 +594,9 @@ Where the generator runs and what it writes
 -------------------------------------------
 
 The generator writes into its storage, a directory under the run root:
-``<run root>/.generated/<design>/<key>/``. It never writes into the tree of the design. The key
+``<run root>/.generated/<design>/<key>/``. Xeda writes nothing into the tree of the design. (A
+tool that a Chisel generator starts in the design root, ``mill`` or ``bloop``, writes its own build
+directories there.) The key
 names one configuration (see below), so two variants of a design keep their own generated files
 side by side. Xeda sets two variables in the environment of every generator:
 
@@ -740,14 +742,21 @@ of the launch is ``skipped``. Xeda leaves no storage behind.
 Concurrency
 -----------
 
-A launch holds a lock of the storage while it generates, and a shared lease of the storage until
+A launch holds a lock of a storage while it generates, and a shared lease of every storage until
 it has delivered its outputs. A second launch of the same configuration waits, finds the record
 and generates nothing. A launch that regenerates (``--rebuild-all``) waits until no other launch
 reads the storage. On POSIX the locks are file locks beside the storage. Windows has no
 interprocess lock.
 
-Xeda keeps the storage until it is removed. The directory ``<run root>/.generated/`` holds nothing
-that a launch needs after it has ended, and may be deleted while no launch runs.
+A generation holds one exclusive lock and waits for no other lock while it holds it. The leases
+come after all the generations, shared, in the order of the paths of the storages. Two launches
+therefore never wait for each other, also when they merge the same dependencies in another order
+and rebuild them. A launch generates before it takes the lock of any run directory.
+
+Xeda keeps the storage until it is removed. No command removes it yet: ``xeda scrub`` leaves it
+alone, and a later design-level scrub of the Python API will remove it. The directory
+``<run root>/.generated/`` holds nothing that a launch needs after it has ended, and may be
+deleted while no launch runs.
 
 ``--remote``
 ------------
@@ -775,8 +784,20 @@ Bluespec, ``bsc`` converts the generated files as it converts hand-written ones 
 runs again. Each flow after ``bsc`` runs again only if one of its own inputs changed, such as the
 Verilog that ``bsc`` writes or a source that ``bsc`` passes through.
 
-A design that lists a dependency with a generator of its own is refused: a generator runs only for
-the design that a launch is asked for.
+Dependencies with generators
+----------------------------
+
+A dependency design (``dependencies``) may have a generator of its own. The launch runs it too,
+into a storage of its own, ``<run root>/.generated/<dependency name>/<key>/``, by the same rules:
+the key holds the recipe of the dependency with its ``env``, the configuration of the dependency
+without content, its declared ``sources`` and its executable, and the inherited environment is
+evidence. A dependency of a dependency generates as well. The generators run in this order: a
+dependency before the design that depends on it, and the design itself last. The sources that the
+generator of a dependency writes keep that dependency as their owner when the design merges them,
+so the flows read them from its storage. A pattern or a name that matches nothing fails the node
+that reads it with ``missing_generated``, and the message names the generator of the dependency.
+``--remote`` refuses a dependency generator that declares no ``sources``, as it refuses the
+generator of the design. A design and its dependencies may not declare the same generated name.
 
 .. _language:
 

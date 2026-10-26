@@ -254,8 +254,11 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   the storage with `DESIGN_ROOT` and `XEDA_GENERATED`; flows get `execution_design`, and the plan,
   the identity and the node configuration use the declared design. A launch generates before it takes any
   run-directory lock, and holds the shared lease of the storage until the last delivery
-  (`run_lock.storage_lock`, `tests/test_storage_locks.py`). A Git fetch still happens at load and
-  is refused by a plan; print a URL only via `design.redacted_url`.
+  (`run_lock.storage_lock`, `tests/test_storage_locks.py`). A dependency with a generator is a unit
+  of generation (`Design.generation_units`, `Source.owner`) with a storage of its own, dependencies
+  first; a generation holds one exclusive lock and waits for no other, and the shared leases of all
+  storages come after all generations (`tests/test_dependency_generation.py`). A Git fetch still
+  happens at load and is refused by a plan; print a URL only via `design.redacted_url`.
 
 ### Templates, tools and the CLI
 

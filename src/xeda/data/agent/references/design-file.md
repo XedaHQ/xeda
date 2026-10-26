@@ -77,7 +77,8 @@ entry is a name or pattern in its output, typed by its extension or by `type:`; 
 file fails the node that reads it (`missing_generated`). A failing generator is the launch error
 `generator_failed` (every node skipped). A plan runs nothing: a node that reads generated sources is
 `unknown` ("the generator has not run") until the storage is current. `--remote` sends the recipe and
-its declared `sources`; a generator without `sources` is refused. A generator may write Bluespec:
+its declared `sources`; a generator without `sources` is refused. A dependency with a generator is
+generated too, first, into its own storage; the same names may not be declared twice. A generator may write Bluespec:
 `bsc` converts the generated files like hand-written ones. Each flow after `bsc` runs again only if
 one of its own inputs changed, such as the Verilog that `bsc` writes or a source that `bsc` passes
 through.
