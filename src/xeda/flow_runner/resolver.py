@@ -718,6 +718,17 @@ def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, An
     return ordinary
 
 
+def _needs_no_neighbor(flow_cls: type[Flow], given: Mapping[str, Any] | Flow.Settings) -> bool:
+    """Whether `given` holds every shared setting that `flow_cls` declares, so that no flow of the
+    graph can add to them (`SHARED_SETTINGS`)."""
+    for name in SHARED_SETTINGS:
+        if name in flow_cls.Settings.model_fields:
+            value = given.get(name) if isinstance(given, Mapping) else getattr(given, name, None)
+            if value is None or value == {} or value == []:
+                return False
+    return True
+
+
 def check_settings_without_design(
     flow_request: FlowRequest,
     settings: Mapping[str, Any] | Flow.Settings,
@@ -726,33 +737,44 @@ def check_settings_without_design(
     design_root: Path,
     runner_cwd: Path,
 ) -> None:
-    """Validate the names and the values of the settings of every flow that a request may use,
-    before planning reads the design.
+    """Check the settings of every flow that a request may use, before planning reads the design.
 
-    These are the checks that a design cannot change: a setting that no flow has, and a value of
-    the wrong type. They run for the flows of the chain and for each flow that those flows may
-    take as a producer, on the settings without their shared leaves (`SHARED_SETTINGS`), which
-    agree along the edges of the graph that planning resolves. So a request that is wrong in
-    itself is refused before planning fetches a Git dependency. Resolution repeats the checks."""
+    These are the checks that a design cannot change. For each flow that the request may use, a
+    setting that no flow has and a value of the wrong type. They run on the settings without
+    their shared leaves (`SHARED_SETTINGS`), which agree along the edges of the graph that
+    planning resolves. For the flows of the chain, if no neighbor can add a shared setting, they
+    also run what the settings alone refuse: a path that a flow writes and cannot, and
+    `Flow.check_settings_supported`. So a request that is wrong in itself is refused before
+    planning fetches a Git dependency. Resolution repeats the checks."""
     requested = flow_request.requested
+    chain = {element.flow_class.name for element in flow_request.elements}
     flows: dict[str, type[Flow]] = {}
     for element in flow_request.elements:
         flows[element.flow_class.name] = element.flow_class
         flows.update(transitive_dependencies(element.flow_class))
     for name, flow_cls in flows.items():
         if flow_cls is requested:
-            if isinstance(settings, Flow.Settings):
-                continue  # a model is validated already
             given = settings
         else:
             given = compose_flow_settings(flow_cls, [sections])
         try:
-            settings_in_context(
-                flow_cls,
-                _nonshared_input(flow_cls, given),
-                design_root=design_root,
-                runner_cwd=runner_cwd,
-            )
+            if not isinstance(given, Flow.Settings):
+                settings_in_context(
+                    flow_cls, _nonshared_input(flow_cls, given), design_root, runner_cwd
+                )
+            if name in chain and _needs_no_neighbor(flow_cls, given):
+                model = settings_in_context(flow_cls, given, design_root, runner_cwd)
+                problems = written_path_problems(model)
+                if problems:
+                    raise FlowSettingsError(
+                        [(key, message, None, "value_error") for key, message in problems],
+                        flow_cls.Settings,
+                    )
+                try:
+                    flow_cls.check_settings_supported(model)
+                except FlowSettingsError as error:
+                    error.refuses_support = True
+                    raise
         except FlowSettingsError as error:
             suggest_dependency_node(requested, error)
             raise

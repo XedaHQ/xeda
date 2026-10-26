@@ -923,3 +923,33 @@ def test_a_file_of_the_repository_named_like_the_record_is_kept(tmp_path, remote
     assert {"dependency": 0, "path": "src/a.v", "type": "Verilog"} in _configuration(plan)["rtl"][
         "sources"
     ]
+
+
+# ---------------------------------------- what the settings alone refuse comes before any fetch
+
+#: Two waveform formats at once: Verilator refuses it from its settings, with no design.
+TWO_WAVEFORMS = {"vcd": True, "fst": True}
+
+
+def _a_design_with_a_git_dependency(tmp_path: Path, remote: Remote) -> Path:
+    (tmp_path / "tb.v").write_text("module tb; endmodule\n")
+    return _design_file(tmp_path, _pinned(remote), extra={"tb": {"sources": ["tb.v"], "top": "tb"}})
+
+
+@pytest.mark.parametrize("entry", ["plan", "run", "resolve", "launch_flow"])
+def test_a_refusal_from_the_settings_alone_starts_no_git_process(tmp_path, remote, git_log, entry):
+    from xeda.flows import Verilator
+
+    design_file = _a_design_with_a_git_dependency(tmp_path, remote)
+    runner = _runner(tmp_path)
+    started = len(git_log())
+    with pytest.raises(Exception, match="vcd|fst"):
+        if entry == "plan":
+            runner.plan("verilator", str(design_file), flow_settings=TWO_WAVEFORMS)
+        elif entry == "run":
+            runner.run("verilator", str(design_file), flow_settings=TWO_WAVEFORMS)
+        elif entry == "resolve":
+            runner.resolve(Verilator, Design.from_file(design_file), TWO_WAVEFORMS)
+        else:
+            runner.launch_flow(Verilator, Design.from_file(design_file), TWO_WAVEFORMS)
+    assert len(git_log()) == started and not (tmp_path / "xeda_run" / ".dependencies").exists()

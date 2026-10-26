@@ -629,7 +629,11 @@ class FlowLauncher:
         settings after those. So planning a design and launching it from the same arguments
         resolve the same plan.
 
-        A design that still has dependencies to merge gets them merged first."""
+        A design that still has dependencies to merge gets them merged first, after the checks
+        that the settings alone allow."""
+        self._refuse_before_merging(
+            flow_class, design, flow_settings, all_flows_settings, flow_request
+        )
         design = self._merged(design)
         recorded_settings = as_recorded(flow_settings or {})
         recorded_sections = as_recorded(all_flows_settings or {})
@@ -883,6 +887,13 @@ class FlowLauncher:
         failure, delivers nothing, not even the outputs of a producer that succeeded
         (`_finish_launch`).
         """
+        if plan is None:
+            self._refuse_before_merging(
+                get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class,
+                design,
+                flow_settings,
+                all_flows_settings,
+            )
         design = self._merged(design)
         top_level = self._launch_depth == 0
         if top_level:
@@ -2278,6 +2289,36 @@ class FlowLauncher:
             before_fetch(request.design)
         request = self._with_dependencies(request)
         return request, self._resolve_request(request)
+
+    def _refuse_before_merging(
+        self,
+        flow_class: type[Flow],
+        design: Design,
+        flow_settings: Mapping[str, Any] | Flow.Settings | None,
+        sections: Mapping[str, Any] | None,
+        flow_request: FlowRequest | None = None,
+    ) -> None:
+        """Refuse what the settings alone refuse, before a dependency of `design` is read.
+
+        It is for a caller that hands the launcher a design and the settings on top of the
+        `flows` of the design (`resolve`, `launch_flow`): a request composes its settings itself
+        and checks them in `_judged_request`."""
+        if not design.dependencies:
+            return
+        own, _ = split_bindings(thaw(design.flows), location=f"the design {design.name}")
+        given, _ = split_bindings(sections or {}, location=SUPPLIED_SECTIONS_ORIGIN)
+        requested: Mapping[str, Any] | Flow.Settings = (
+            flow_settings
+            if isinstance(flow_settings, Flow.Settings)
+            else compose_flow_settings(flow_class, [own, given], flow_settings or {})
+        )
+        check_settings_without_design(
+            flow_request or FlowRequest((ChainElement(flow_class),)),
+            requested,
+            merge_flow_sections(own, given, flow_class_for=_get_flow_class_if_known),
+            design_root=design.root_path,
+            runner_cwd=self._start,
+        )
 
     def _merged(self, design: Design) -> Design:
         """Return `design` with its dependencies merged in (`dependencies.merged_design`).
