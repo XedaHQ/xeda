@@ -568,7 +568,9 @@ def command_line_table(requested: str, items: Iterable[str]) -> dict[str, Any]:
     table: dict[str, Any] = dict(flows) if isinstance(flows, Mapping) else {}
     if given:
         own = table.get(requested)
-        table[requested] = {**own, **given} if isinstance(own, Mapping) else given
+        table[requested] = (
+            hierarchical_merge(dict(own), given) if isinstance(own, Mapping) else given
+        )
     return table
 
 

@@ -17,6 +17,7 @@ from xeda import Design
 from xeda.flow import FlowSettingsError, flowrun_hash
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.settings_layers import (
+    command_line_table,
     compose_flow_settings,
     merge_flow_sections,
     merge_layers,
@@ -1043,3 +1044,16 @@ def test_an_alias_and_its_setting_are_one_leaf_across_the_two_spellings(
         DefaultRunner(tmp_path / "run").run(
             "nextpnr", design, flow_settings=["ncpus=3", "flows.nextpnr.nthreads=4"]
         )
+
+
+def test_the_command_line_table_keeps_both_spellings_of_one_group():
+    """A qualified and an unqualified setting in one group of the requested flow are both in the
+    table that the run document shows as `spec.settings`."""
+    table = command_line_table(
+        "nextpnr",
+        ["flows.nextpnr.clock.period=5ns", "clock.port=clk", "flows.yosys_fpga.abc9=true"],
+    )
+    assert table == {
+        "nextpnr": {"clock": {"period": "5ns", "port": "clk"}},
+        "yosys_fpga": {"abc9": "true"},
+    }
