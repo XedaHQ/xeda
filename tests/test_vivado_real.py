@@ -428,6 +428,32 @@ def test_vivado_impl_builds_the_bitstream_of_a_yosys_netlist(work_dir) -> None:
     assert _logged(flow.run_path, "link_design completed successfully")
 
 
+def test_vivado_impl_implements_the_yosys_netlist_of_a_design_with_an_assertion(work_dir) -> None:
+    """An immediate `assert` made a `$check` cell that reached the EDIF netlist, and Vivado
+    stopped at `opt_design` with "[DRC INBB-3] Black Box Instances". `yosys_fpga` removes the
+    formal cells, so the netlist implements."""
+    require_yosys()
+    root = work_dir / "design"
+    _write(
+        root / "top.sv",
+        "module top (input logic clk, input logic [7:0] a, b, output logic [8:0] y);\n"
+        "  always_ff @(posedge clk) begin\n"
+        "    y <= a + ~b;\n"
+        "    assert (y != 9'h1ff);\n"
+        "  end\n"
+        "endmodule\n",
+    )
+    design = Design(
+        name="top",
+        design_root=root,
+        rtl={"sources": ["top.sv"], "top": "top", "clock": {"port": "clk"}},
+    )
+    flow = DefaultRunner(work_dir / "run").run_flow(VivadoImpl, design, IMPL_SETTINGS)
+    assert flow is not None and flow.succeeded
+    assert flow.results["ff"] == 9
+    assert not _logged(flow.run_path, "INBB-3")
+
+
 def test_vivado_impl_runs_the_power_optimization_steps_it_is_asked_for(work_dir) -> None:
     """`impl.steps.power_opt` has the script optimize the power after placement and write a report
     in `reports/post_place`. Vivado makes no directory for a report, so the script makes this one.
