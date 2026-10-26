@@ -797,7 +797,8 @@ def test_the_time_of_a_node_is_that_of_its_own_execution(tmp_path, flows):
     result = _launch(_runner(tmp_path), flows["_AfterSlow"], _design(tmp_path))
     slow, after = result.nodes[flows["_Slow"].name], result.nodes[flows["_AfterSlow"].name]
     assert slow.elapsed >= 0.4
-    assert 0.0 < after.elapsed < 0.2, "the consumer's time includes its producer's"
+    # The producer's time is a sleep: a consumer whose time included it would take longer.
+    assert 0.0 < after.elapsed < slow.elapsed, "the consumer's time includes its producer's"
 
 
 def test_a_delivery_that_xeda_skipped_is_noted_as_not_delivered(tmp_path):

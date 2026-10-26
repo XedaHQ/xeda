@@ -170,7 +170,7 @@ def test_the_codes_of_a_whole_launch_are_listed_where_a_reader_looks():
         root / "src" / "xeda" / "data" / "agent" / "references" / "troubleshooting.md",
     ]
     for page in pages:
-        text = page.read_text()
+        text = page.read_text(encoding="utf-8")
         for code in (error_codes.DELIVERY_FAILED, error_codes.CLEANUP_FAILED):
             assert code in text, f"{page} does not list {code}"
 
