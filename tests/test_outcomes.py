@@ -1037,6 +1037,7 @@ def test_result_from_dict_reads_a_detached_and_a_skipped_node(tmp_path):
         {"nodes": [{"name": "a"}]},
         {"roots": "a"},
         {"spec": None},
+        {"spec": {"flow": "a", "design": "a/b", "target": None, "settings": {}}},
     ],
     ids=lambda change: next(iter(change)) + "=" + repr(next(iter(change.values()))),
 )
@@ -1093,6 +1094,28 @@ def test_an_interrupted_launch_keeps_the_producer_that_passed_and_cancels_the_ru
     failed = failed_result(runner, spec, None, ErrorInfo("internal_error", "x", None, None, None))
     assert failed.outcome is Outcome.FAILED
     assert failed.nodes[_NeedsMayFail.name].outcome is Outcome.FAILED
+
+
+@pytest.mark.usefixtures("flows")
+def test_a_node_that_ended_before_the_interrupt_keeps_its_outcome(tmp_path, monkeypatch):
+    """Ctrl-C after the producer noted its end (its record and trace are written), in the last
+    steps of its attempt, leaves the producer `passed`. The consumer, whose attempt the interrupt
+    left, is `canceled`, and so is the launch."""
+
+    def interrupted(*arguments, **keywords):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(default_runner_module.CompletedRun, "capture", interrupted)
+    runner, design = _runner(tmp_path), _design(tmp_path)
+    spec = Spec(_NeedsMayFail.name, design)
+    with pytest.raises(KeyboardInterrupt):
+        launch_result(runner, spec, lambda: runner.run_flow(_NeedsMayFail, design, {}))
+    error = ErrorInfo("canceled", "The launch was interrupted.", None, None, None)
+    result = failed_result(runner, spec, None, error, interrupted=True)
+    assert result.outcome is Outcome.CANCELED and result.error == error
+    producer, consumer = result.nodes.values()
+    assert (producer.outcome, producer.record is not None) == (Outcome.PASSED, True)
+    assert consumer.outcome is Outcome.CANCELED
 
 
 def test_a_design_file_is_not_part_of_the_equality_of_designs(tmp_path):

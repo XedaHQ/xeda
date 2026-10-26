@@ -395,7 +395,7 @@ def _spec_of(document: Mapping[str, Any]) -> Spec:
 
     The document holds the name of the design, not the design. The `Spec` gets an empty design
     of that name, target and file."""
-    from .design import Design
+    from .design import AnyDesignValidationException, Design
     from .spec import Spec
 
     design_file = document.get("design_file")
@@ -404,11 +404,15 @@ def _spec_of(document: Mapping[str, Any]) -> Spec:
     target = document.get("target")
     if target is not None and not isinstance(target, str):
         raise ValueError(f"the spec has no valid `target`: {target!r}")
-    design = Design(
-        name=_field(document, "design", str, "the spec"),
-        target=target,
-        design_root=Path(design_file).parent if design_file else None,
-    )
+    name = _field(document, "design", str, "the spec")
+    try:
+        design = Design(
+            name=name,
+            target=target,
+            design_root=Path(design_file).parent if design_file else None,
+        )
+    except AnyDesignValidationException as error:
+        raise ValueError(f"the spec has no valid `design` name: {name!r}: {error}") from None
     design._source_file = None if design_file is None else Path(design_file)
     return Spec(
         _field(document, "flow", str, "the spec"),

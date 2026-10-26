@@ -430,8 +430,9 @@ def failed_result(
     for node in plan.nodes if plan is not None else ():
         assert plan is not None
         end = ended.get(node.name)
+        # A node that ended before the interrupt left its attempt keeps its end.
         running = interrupted and (
-            collector.interrupted is node
+            (end is None and collector.interrupted is node)
             or (end is not None and isinstance(end.error, KeyboardInterrupt))
         )
         if end is not None and not running:
