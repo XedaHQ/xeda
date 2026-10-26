@@ -558,3 +558,29 @@ def test_a_target_whose_files_are_missing_is_checked_when_it_is_selected(tmp_pat
     (tmp_path / "board").mkdir()
     (tmp_path / "board" / "b.sv").write_text("module b; endmodule\n")
     assert _sources_of(design.with_target("t")) == ["a.sv", "board/b.sv"]
+
+
+def test_a_target_that_drops_the_generator_has_handwritten_sources(tmp_path):
+    """A target that writes `generator: null` has no generator: its sources are files, though the
+    design's generator would write every entry of its own list."""
+    (tmp_path / "hand.v").write_text("module hand; endmodule\n")
+    design = Design(
+        name="a",
+        root=tmp_path,
+        rtl={"sources": ["gen/out.v"], "generator": {"shell": "true"}},
+        targets={"t": {"rtl": {"generator": None, "sources": ["hand.v"]}}},
+    )
+    assert [s.generated for s in design.rtl.sources] == [True]
+    chosen = design.with_target("t")
+    hand = [s for s in chosen.rtl.sources if s.output_name != "gen/out.v"]
+    assert [s.path.name for s in hand] == ["hand.v"] and not hand[0].generated
+    assert hand[0].path == (tmp_path / "hand.v").resolve()
+    # a target that says nothing of the generator still has the design's
+    (tmp_path / "gen").mkdir()
+    other = Design(
+        name="a",
+        root=tmp_path,
+        rtl={"sources": ["gen/out.v"], "generator": {"shell": "true"}},
+        targets={"t": {"rtl": {"sources": ["gen/more.v"]}}},
+    ).with_target("t")
+    assert [s.generated for s in other.rtl.sources] == [True, True]

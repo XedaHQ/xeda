@@ -3655,13 +3655,18 @@ class Design(XedaBaseModel):
             for name, overlay in targets.items():
                 if isinstance(overlay, Mapping):
                     overlay = dict(overlay)
-                    own = (
-                        (overlay.get("rtl") or {}).get("generator") if overlay.get("rtl") else None
+                    written = overlay.get("rtl")
+                    # A target that gives the `generator` key decides, `null` included (no
+                    # generator); one that does not has the design's.
+                    chosen = (
+                        written["generator"]
+                        if isinstance(written, Mapping) and "generator" in written
+                        else generator
                     )
                     for part in ("rtl", "tb"):
                         if part in overlay:
                             overlay[part] = _expanded_sources(
-                                overlay[part], (own or generator) if part == "rtl" else None, root
+                                overlay[part], chosen if part == "rtl" else None, root
                             )
                 expanded[name] = overlay
             result["targets"] = expanded
