@@ -42,6 +42,7 @@ from xeda.dataclass import Field
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
 from .io_flows import _Join, _Maker, _Reader, _Taker
+from .record_documents import record_document
 
 KEYS = {
     "schema_version",
@@ -379,6 +380,7 @@ def test_a_record_that_cannot_be_read_says_why(tmp_path, text, code):
         lambda d: d["artifacts"].update(log="/etc/passwd"),
         lambda d: d["artifacts"].update(log="../outside"),
         lambda d: d["artifacts"].update(log="."),
+        lambda d: d["artifacts"].update(log="a\x00b"),
         lambda d: d["metrics"].update(count="3"),
         lambda d: d["metrics"]["group"].update(ratio=float("nan")),
         lambda d: d["metrics"]["delays"].update(x=float("inf")),
@@ -768,3 +770,29 @@ def test_a_row_of_a_repeated_input_is_still_checked(tmp_path):
         decode_record(document, run_dir=record.run_dir, run_root=record.run_root)
     assert caught.value.code == "corrupt_record"
     assert "inputs[].origin" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "output, problem",
+    [
+        (
+            {
+                "kind": "Data",
+                "cardinality": "one",
+                "names": ["a.v", "b.v"],
+                "digests": ["0" * 32] * 2,
+            },
+            "of cardinality one has 2 names",
+        ),
+        (
+            {"kind": "design", "cardinality": "one", "names": ["a.v"], "digests": ["0" * 32]},
+            "has no `design`",
+        ),
+    ],
+)
+def test_an_output_whose_names_do_not_fit_it_is_a_corrupt_record(tmp_path, output, problem):
+    document = record_document()
+    document["outputs"]["x"] = {**output, "design": None}
+    with pytest.raises(RecordError, match=problem) as caught:
+        decode_record(document, run_dir=tmp_path / "d" / "flow", run_root=tmp_path)
+    assert caught.value.code == "corrupt_record"

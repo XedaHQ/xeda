@@ -488,7 +488,7 @@ def _file_name(value: Any, label: str) -> str:
     """Return a name relative to a run directory: a name that leads out of it is not one."""
     name = _text(value, label)
     path = PurePosixPath(name)
-    if not path.parts or path.is_absolute() or ".." in path.parts or "\\" in name:
+    if not path.parts or path.is_absolute() or ".." in path.parts or "\\" in name or "\x00" in name:
         raise _Malformed(f"`{label}` is not a name inside the run directory: {name!r}")
     return name
 
@@ -536,9 +536,13 @@ def _decode_output(name: str, value: Any) -> OutputRecord:
     digests = _texts(item.get("digests"), f"{label}.digests")
     if len(digests) != len(names):
         raise _Malformed(f"`{label}` has {len(names)} names and {len(digests)} digests")
+    if kind != DESIGN_KIND and cardinality != "many" and len(names) > 1:
+        raise _Malformed(f"`{label}` of cardinality {cardinality} has {len(names)} names")
     design = item.get("design")
     if design is not None and kind != DESIGN_KIND:
         raise _Malformed(f"`{label}.design` is there only if the kind is `{DESIGN_KIND}`")
+    if design is None and kind == DESIGN_KIND and names:
+        raise _Malformed(f"`{label}` names generated files, and it has no `design`")
     return OutputRecord(
         name=name,
         kind=kind,
