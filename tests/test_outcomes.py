@@ -10,7 +10,6 @@ from __future__ import annotations
 import dataclasses
 import os
 import pickle
-import time
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -41,6 +40,10 @@ from .test_failure_results import _MayFail, _NeedsMayFail, producer_registered  
 pytestmark = pytest.mark.python_compat
 
 MAY_FAIL = _MayFail.name
+
+
+#: The clock of the collector in the timing test: `_Slow` advances it, not the wall clock.
+_CLOCK = [0.0]
 
 
 @pytest.fixture(autouse=True)
@@ -105,7 +108,7 @@ def _flows() -> dict[str, Any]:
             note: Path = Out(SourceType.Data, description="The note it writes.")
 
         def run(self) -> None:
-            time.sleep(0.4)
+            _CLOCK[0] += 100.0  # a long run, on the clock of the timing test
             note = self.run_path / "note.txt"
             self.run_directory.writable(note).write_text("note\n")
             self.outputs.note = note
@@ -793,12 +796,21 @@ def test_a_refusal_before_the_run_is_raised_not_reported(tmp_path, monkeypatch):
     assert raised.value is refusal
 
 
-def test_the_time_of_a_node_is_that_of_its_own_execution(tmp_path, flows):
+def test_the_time_of_a_node_is_that_of_its_own_execution(tmp_path, flows, monkeypatch):
+    from types import SimpleNamespace
+
+    from xeda.flow_runner import launch_result
+
+    def monotonic() -> float:
+        _CLOCK[0] += 0.001  # each reading takes a little time
+        return _CLOCK[0]
+
+    _CLOCK[0] = 0.0
+    monkeypatch.setattr(launch_result, "time", SimpleNamespace(monotonic=monotonic))
     result = _launch(_runner(tmp_path), flows["_AfterSlow"], _design(tmp_path))
     slow, after = result.nodes[flows["_Slow"].name], result.nodes[flows["_AfterSlow"].name]
-    assert slow.elapsed >= 0.4
-    # The producer's time is a sleep: a consumer whose time included it would take longer.
-    assert 0.0 < after.elapsed < slow.elapsed, "the consumer's time includes its producer's"
+    assert slow.elapsed > 100.0
+    assert 0.0 < after.elapsed < 1.0, "the consumer's time includes its producer's"
 
 
 def test_a_delivery_that_xeda_skipped_is_noted_as_not_delivered(tmp_path):
