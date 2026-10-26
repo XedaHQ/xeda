@@ -196,9 +196,8 @@ def test_a_failed_run_reports_the_nodes_that_did_not_run(tmp_path, monkeypatch):
     }
     not_run = next(n for n in document["nodes"] if n["node"] == "__right")
     assert not_run["run_path"].endswith("__right") and not_run["inputs"][0]["producer"] == "__fork"
-    assert json.loads((tmp_path / "xeda_run/demo/__join/results.json").read_text())["success"] is (
-        False
-    )
+    joined = json.loads((tmp_path / "xeda_run/demo/__join/results.json").read_text())
+    assert joined["outcome"] == "failed"
     assert result.stdout.count('"success"') == 1, "one document"
 
 

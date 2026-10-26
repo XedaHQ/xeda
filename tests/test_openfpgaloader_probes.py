@@ -990,7 +990,7 @@ def test_no_probe_matches_the_run_fails_before_programming(tmp_path, fake_loader
     )
     assert not _calls(tmp_path, "openfpgaloader")
     results = (tmp_path / "run/top/openfpgaloader/results.json").read_text()
-    assert '"success": false' in results and '"code": "reported_failure"' in results
+    assert '"outcome": "failed"' in results and '"code": "reported_failure"' in results
 
 
 def test_two_probes_match_the_run_fails_before_programming(tmp_path, fake_loader, monkeypatch):

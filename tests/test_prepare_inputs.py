@@ -125,12 +125,12 @@ def test_cache_failure_after_success_records_preparation_cause(tmp_path, generat
     with pytest.raises(FlowFatalError, match="generator"):
         _launch_cache(tmp_path, generation)
     recorded = json.loads((first.run_path / "results.json").read_text())
-    assert recorded["success"] is False and recorded["error"]["code"] == "reported_failure"
+    assert recorded["outcome"] == "failed" and recorded["error"]["code"] == "reported_failure"
     assert (
         "generator" in recorded["error"]["message"]
         and "nextpnr failure" not in recorded["error"]["message"]
     )
-    for key in ("design", "flow", "design_hash", "flow_hash", "run_path", "timestamp"):
+    for key in ("design", "flow", "identity", "run_id", "started", "finished"):
         assert recorded[key]
     assert not (first.run_path / "trace.json").exists()
 
@@ -315,9 +315,9 @@ def test_preparation_failure_invalidates_success_and_releases_lease(tmp_path, mo
     with pytest.raises(FlowFatalError, match="broken preparation"):
         runner.launch_flow(_Taker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
-    assert recorded["success"] is False
+    assert recorded["outcome"] == "failed"
     assert recorded["error"]["message"] == "broken preparation"
-    for key in ("design", "flow", "design_hash", "flow_hash", "run_path", "timestamp"):
+    for key in ("design", "flow", "identity", "run_id", "started", "finished"):
         assert recorded[key]
     assert not (first.run_path / "trace.json").exists()
     assert _probe(first.inputs.made.parent) == "free"

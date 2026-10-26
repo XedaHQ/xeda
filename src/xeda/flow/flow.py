@@ -10,6 +10,7 @@ from abc import ABCMeta, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime
 from pathlib import Path, PurePath
 from types import UnionType
 from typing import (
@@ -66,7 +67,7 @@ from ..dataclass import (
     written_role,
 )
 from ..design import LANGUAGE_TYPES, Design, DesignSource, SourceType
-from ..records import REJECTED, ErrorInfo
+from ..records import REJECTED, ErrorInfo, RunRecord
 from ..run_dir import OutputSnapshot, RunDirectory, record_output_state, resolved_inside
 from ..units import count, finalize_template_value, to_filter
 from ..utils import (
@@ -1624,9 +1625,17 @@ class Flow(metaclass=ABCMeta):
         self.blocked_by: Optional[str] = None
         #: Set by the launcher when the flow ran although a previous run existed: why.
         self.stale_reason: Optional[str] = None
-        #: Set by the launcher on every flow it completes: the run whose results the flow holds
-        #: (its trace's `run_id`, or a new one for a run no trace records).
+        #: Set by the launcher when an execution starts, or from the record of a reused run: the
+        #: id of the run whose results the flow holds. The record and the trace of the run take it.
         self.run_id: Optional[str] = None
+        #: Set by the launcher when an execution starts: the moment, in UTC.
+        self.started: Optional[datetime] = None
+        #: Set by the launcher: the record of the run whose results the flow holds, once the flow
+        #: is complete (it ran, or it was reused). Every reader of the run goes through it.
+        self.record: Optional[RunRecord] = None
+        #: Set by the launcher: the `run_id` of each producer that handed this flow a file, by
+        #: the run directory of the producer.
+        self.producer_run_ids: Dict[str, str] = {}
         #: Set by the launcher once the launch has finished: the outputs delivered where the user
         #: named them (`xeda.deliver`).
         self.deliveries: List["Delivered"] = []

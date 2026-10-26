@@ -479,10 +479,11 @@ def test_the_whole_chain_builds_and_programs_the_board_through_the_fakes(
     assert str(netlist) in placer["inputs"] and str(config) in packer["inputs"]
     assert config.is_file() and (root / "fpga_pack" / board.bitstream).read_bytes() == BITSTREAM
     # the declared outputs are checked records: path and digest, the config switched on
-    assert _results(tmp_path, board.design, "nextpnr")["outputs"]["config"]["path"] == str(config)
-    assert len(_results(tmp_path, board.design, "nextpnr")["outputs"]["config"]["sha"]) == 32
+    placed = _results(tmp_path, board.design, "nextpnr")["outputs"]["config"]
+    assert placed["names"] == [config.relative_to(root / "nextpnr").as_posix()]
+    assert len(placed["digests"][0]) == 32
     outputs = _results(tmp_path, board.design, "fpga_pack")["outputs"]["bitstream"]
-    assert outputs["path"] == str(root / "fpga_pack" / board.bitstream)
+    assert outputs["names"] == [board.bitstream]
     # the programmer is the fake, by the file that ran, and read the packed bitstream only
     bitstream = root / "fpga_pack" / board.bitstream
     call = _programmed(tmp_path, toolchain, board.design, bitstream)
@@ -799,7 +800,7 @@ def test_an_upstream_output_that_was_never_written_never_reaches_the_programmer(
         "openfpgaloader": "blocked",
     }
     maker = _results(tmp_path, "top", "__asc_maker")
-    assert maker["success"] is False and maker["error"]["code"] == "missing_output"
+    assert maker["outcome"] == "failed" and maker["error"]["code"] == "missing_output"
     assert "did not produce its output `config`" in maker["error"]["message"]
     for consumer in ("fpga_pack", "openfpgaloader"):
         assert _results(tmp_path, "top", consumer)["error"]["code"] == "producer_failed"
@@ -823,13 +824,13 @@ def test_a_packer_that_makes_no_whole_bitstream_never_reaches_the_programmer(
     assert states["openfpgaloader"] == "blocked"
     assert [call["tool"] for call in _calls(tmp_path, board.design, "fpga_pack")] == [board.packer]
     pack = _results(tmp_path, board.design, "fpga_pack")
-    assert pack["success"] is False and "bitstream" not in pack.get("outputs", {})
+    assert pack["outcome"] == "failed" and not pack["outputs"]["bitstream"]["names"]
     if mode == "no-output":
         assert "wrote no bitstream" in pack["error"]["message"]
     published = tmp_path / "xeda_run" / board.design / "fpga_pack" / board.bitstream
     assert not published.exists()
     loader = _results(tmp_path, board.design, "openfpgaloader")
-    assert loader["success"] is False and loader["error"]["code"] == "producer_failed"
+    assert loader["outcome"] == "failed" and loader["error"]["code"] == "producer_failed"
     _assert_never_programmed(tmp_path, board.design)
     # the control: the same root, the same chain, the packer well -- programs, with the fake
     monkeypatch.delenv("XEDA_FAKE_FPGA_TOOL")
@@ -865,7 +866,7 @@ def test_an_upstream_failure_stops_the_chain_before_the_programmer(
     for name in downstream:
         assert _calls(tmp_path, board.design, name) == [], name
     failed = _results(tmp_path, board.design, stage)
-    assert failed["success"] is False
+    assert failed["outcome"] == "failed"
     # the stage's own failure is named in its document: a tool's exit status, or the output a
     # tool that exited with zero did not write -- and then the consumers quote it
     expected = {
@@ -1263,7 +1264,7 @@ def test_the_vivado_chain_programs_the_bitstream_vivado_wrote(
     assert _states(document) == {"vivado_synth": "ran", "openfpgaloader": "ran"}
     runs = root / "xeda_run" / demo.design
     for node, identity in identities.items():
-        assert json.loads((runs / node / "results.json").read_text())["flow_hash"] == identity
+        assert json.loads((runs / node / "results.json").read_text())["identity"] == identity
     bitstream = runs / "vivado_synth" / "outputs" / f"{demo.design}.bit"
     assert bitstream.read_text() == "fake Vivado bitstream of blinky\n"
     (project,) = [

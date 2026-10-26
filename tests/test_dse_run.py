@@ -30,7 +30,7 @@ from xeda.flow_runner.settings_layers import merge_layers
 from xeda.dataclass import Field
 from xeda.units import Time
 from xeda.utils import replacing_file
-from xeda.flow import FpgaSynthFlow
+from xeda.flow import FpgaSynthFlow, MetricSpec
 from .io_flows import _Place
 from .tool_utils import HANG_GUARD
 
@@ -259,8 +259,8 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     # The best run is a real run directory, holding the results it was chosen for.
     run_path = Path(best["run_path"])
     recorded_results = json.loads((run_path / "results.json").read_text())
-    assert recorded_results["success"] is True
-    assert best["results"]["fmax"] == recorded_results["fmax"]
+    assert recorded_results["outcome"] == "passed"
+    assert best["results"]["fmax"] == recorded_results["metrics"]["fmax"]
 
     # The search's own record of it is the same view the CLI printed.
     (best_file,) = (tmp_path / "xeda_run").glob("fmax_sqrt_vivado_synth_*.json")
@@ -625,7 +625,13 @@ class _TimingJudged(FpgaSynthFlow):
     It counts its runs in a file of its run directory, which a worker process of the search can
     leave for the test to read."""
 
-    results_description = {}
+    results_description = {
+        "period": MetricSpec("The period of the clock.", "number", "ns"),
+        "fmax": MetricSpec("The frequency the period suggests.", "number", "MHz"),
+        "started_at": MetricSpec(
+            "When the run started, in nanoseconds since the epoch.", "integer"
+        ),
+    }
     #: The shortest period, in ns, that the checks accept.
     MIN_PERIOD = 8.0
 

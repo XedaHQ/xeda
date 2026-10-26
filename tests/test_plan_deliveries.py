@@ -212,7 +212,7 @@ def test_a_refusal_before_a_producer_runs_leaves_the_requested_flow_s_directory_
     first = _launch(world, delivers={"netlist": "$PWD/one.v"})
     assert first.succeeded
     kept = {p.name: p.read_bytes() for p in _directory(world).iterdir() if p.is_file()}
-    assert "trace.json" in kept and json.loads(kept["results.json"])["success"] is True
+    assert "trace.json" in kept and json.loads(kept["results.json"])["outcome"] == "passed"
     (world.user / "two.v").write_text("the user's file\n")
     RUNS.clear()
     with pytest.raises(OutputExistsError):

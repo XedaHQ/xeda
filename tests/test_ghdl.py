@@ -341,7 +341,7 @@ def test_ghdl_runtime_evidence(tmp_path, body, clock, settings, passes, ended, t
         assert flow.results.get("sim.time") == time
     assert "sim.time_unit" not in flow.results
     saved = json.loads((flow.run_path / "results.json").read_text())
-    assert saved["sim.evidence"] == flow.results["sim.evidence"]
+    assert saved["metrics"]["sim"]["evidence"] == flow.results["sim.evidence"]
     assert (flow.run_path / "sim.log").exists()
     if "PROBE_error" in body:
         event = flow.results["sim.evidence"]["events"][0]

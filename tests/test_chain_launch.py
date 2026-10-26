@@ -112,13 +112,13 @@ def _tamper(producer_path: Path, tmp_path: Path, tamper: str) -> None:
     results_json = producer_path / "results.json"
     results = json.loads(results_json.read_text())
     if tamper == "sha":
-        results["outputs"]["made"]["sha"] = "0" * 32
+        results["outputs"]["made"]["digests"] = ["0" * 32]
     elif tamper == "missing":
-        results["outputs"]["made"]["path"] = str(producer_path / "absent.txt")
+        results["outputs"]["made"]["names"] = ["absent.txt"]
     elif tamper == "outside":
         outside = tmp_path / "outside.txt"
         outside.write_text("bound\n")
-        results["outputs"]["made"]["path"] = str(outside)
+        results["outputs"]["made"]["names"] = ["../outside.txt"]
     else:
         del results["outputs"]["made"]
     results_json.write_text(json.dumps(results))
@@ -160,8 +160,8 @@ def test_a_bound_producer_s_record_is_checked_at_hand_over(tmp_path, monkeypatch
     with pytest.raises(FlowDependencyFailure):
         runner.run(_Taker, _bound(tmp_path, "changed\n"))
     failure = json.loads((first.run_path / "results.json").read_text())
-    assert failure["success"] is False and failure["error"]["code"] == "producer_failed"
-    assert failure["flow_hash"] == first.flow_hash, "the failure keeps the run's identity"
+    assert failure["outcome"] == "failed" and failure["error"]["code"] == "producer_failed"
+    assert failure["identity"] == first.flow_hash, "the failure keeps the run's identity"
     assert not (first.run_path / "trace.json").exists()
     assert _probe(tmp_path / "run" / "d" / "__input_maker") == "free"
 
@@ -268,7 +268,7 @@ def test_a_failing_bound_producer_leaves_the_consumer_a_failure_document(tmp_pat
     with pytest.raises(FlowDependencyFailure, match="__input_maker"):
         runner.run(_Taker, broken)
     failure = json.loads((first.run_path / "results.json").read_text())
-    assert failure["success"] is False and "__input_maker" in failure["error"]["message"]
+    assert failure["outcome"] == "failed" and "__input_maker" in failure["error"]["message"]
     assert not (first.run_path / "trace.json").exists()
     assert [f.name for f in runner.launched[-2:]] == ["__input_maker", "__taker"]
 

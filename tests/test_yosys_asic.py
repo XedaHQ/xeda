@@ -346,7 +346,7 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
     assert sorted(p.parent.name for p in run_root.rglob("settings.json")) == ["yosys"]
     run_dir = run_root / "mac" / "yosys"
     results = json.loads((run_dir / "results.json").read_text())
-    netlist = Path(results["outputs"]["netlist"]["path"])
+    netlist = run_dir / results["outputs"]["netlist"]["names"][0]
     assert netlist == run_dir / "netlist.v"
     text = netlist.read_text()
     assert "_X1 " in text, "no cells of the platform in the netlist"
@@ -491,7 +491,7 @@ def test_the_yosys_flow_synthesizes_with_the_selected_script(strategy, tmp_path)
 
     (yosys_results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")
     yosys_run = yosys_results.parent
-    assert json.loads((yosys_run / "results.json").read_text())["success"] is True
+    assert json.loads((yosys_run / "results.json").read_text())["outcome"] == "passed"
     executed = re.findall(r"^ABC: \+ (.+?)\s*$", (yosys_run / "yosys.log").read_text(), re.M)
     script = yosys_flows.abc_strategy_script(strategy)
     assert script is not None

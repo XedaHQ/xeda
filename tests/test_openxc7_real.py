@@ -27,7 +27,9 @@ import pytest
 
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.launch_report import results_of
 from xeda.flows import FpgaPack
+from xeda.records import read_record
 
 from . import tool_utils
 from .tool_utils import HANG_GUARD
@@ -148,7 +150,9 @@ def built(toolchain: Path, run_root: Path, tmp_path_factory: pytest.TempPathFact
 
 
 def _results(run_root: Path, design: Design, flow: str) -> dict[str, Any]:
-    return json.loads((run_root / design.name / flow / "results.json").read_text())
+    """The record of a run, as a flat table: its metrics by their dotted paths and `success`
+    (`launch_report.results_of`)."""
+    return results_of(read_record(run_root / design.name / flow, run_root=run_root))
 
 
 def _chipdbs(run_root: Path) -> list[Path]:
@@ -273,7 +277,7 @@ def test_a_second_design_reuses_the_chip_database(built, run_root, tmp_path):
     # more logic LUT: (3, 2, 1). `xilinx_lut_footprint` counted no INV before "Count an
     # instantiated INV as the LUT1 it is", which made this (2, 2, 1), an undercount. The pin moves
     # again only if abc9 stops (or starts) materializing an inversion for this design.
-    cells = mapped["_utilization"]
+    cells = mapped["cell_types"]
     assert (cells["INV"], cells["LUT6_2"], cells["RAM32X1D"], cells["SRL16E"]) == (1, 1, 1, 1)
     assert (mapped["lut_use.logic"], mapped["lut_use.ram"], mapped["lut_use.srl"]) == (3, 2, 1)
     assert mapped["lut"] == 6

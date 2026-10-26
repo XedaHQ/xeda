@@ -78,8 +78,8 @@ wins at each value:
 4. **user**. Your own residue file, ``platform_file``. It has the same form as the residue file.
 
 A flow that lacks a value it needs refuses to run. The error names the value and the layers that
-Xeda looked in. ``results.json`` has a ``platform`` entry with the name, the provider, the version
-and the corner, and ``sources``, which tells for each value the layer that gave it.
+Xeda looked in. The ``results`` of ``xeda run --json`` have a ``platform`` entry with the name, the provider, the
+version and the corner, and ``sources``, which tells for each value the layer that gave it.
 
 The residue file
 ================

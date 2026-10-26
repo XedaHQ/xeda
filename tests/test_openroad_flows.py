@@ -631,8 +631,8 @@ def test_the_results_of_the_chain_are_the_recorded_metrics(tmp_path, monkeypatch
     assert results["instances"] == 576 and results["fill_cells"] == 186
     assert results["parasitics"] == "estimate" and results["platform"]["name"] == "tiny"
     persisted = json.loads((run_dir(tmp_path) / "results.json").read_text())
-    assert persisted["worst_slack"] == results["worst_slack"]
-    assert persisted["success"] is True
+    assert persisted["metrics"]["worst_slack"] == results["worst_slack"]
+    assert persisted["outcome"] == "passed"
 
 
 def test_the_outputs_of_the_chain_are_the_files_of_the_last_flow(tmp_path, monkeypatch, chain):
@@ -692,7 +692,7 @@ def test_a_timing_miss_rejects_the_run_and_the_next_launch_reports_it_again(
     last = run_dir(tmp_path)
     assert (last / "trace.json").is_file(), "a rejection keeps its trace"
     persisted = json.loads((last / "results.json").read_text())
-    assert persisted["success"] is False and persisted["error"]["code"] == "rejected"
+    assert persisted["outcome"] == "rejected" and persisted["error"]["code"] == "rejected"
     written = (last / "openroad_final.log").stat().st_mtime_ns
     calls = (last / "fake_openroad.calls").read_text()
 
@@ -753,7 +753,7 @@ def failed_without_trace(tmp_path: Path, flow) -> None:
     assert flow is None or (not flow.succeeded and flow.outcome == "failed")
     assert not (run_dir(tmp_path) / "trace.json").exists()
     results = json.loads((run_dir(tmp_path) / "results.json").read_text())
-    assert results["success"] is False
+    assert results["outcome"] == "failed"
 
 
 @pytest.mark.parametrize(

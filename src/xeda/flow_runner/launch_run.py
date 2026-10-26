@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from collections.abc import Iterable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,13 @@ from ..dataclass import WORKING_ROLE
 from ..flow import Flow
 from ..flow.flow import WrittenLeaf, map_written_leaves
 from ..proc_utils import ProcessTimeout
-from ..records import MISSING_OUTPUT, REPORTED_FAILURE, ErrorInfo
+from ..records import (
+    INVALID_METRIC,
+    MISSING_OUTPUT,
+    REPORTED_FAILURE,
+    ErrorInfo,
+    collect_metrics,
+)
 from ..run_dir import RunDirectory, RunDirectoryError
 from ..tool import NonZeroExitCode
 from .error_codes import error_info, missing_report_info
@@ -70,10 +77,15 @@ def free_working_locations(flow: Flow) -> None:
     map_written_leaves(flow.settings, free)
 
 
-def record_identity(flow: Flow, run_path: Path) -> None:
-    """Record the identity of the run in its results.
+def timestamp_text(moment: datetime) -> str:
+    """Return `moment` as the local time text of `Flow.timestamp` (`YYYY-MM-DD-HHMMSS`)."""
+    return moment.astimezone().strftime("%Y-%m-%d-%H%M%S")
 
-    Every results document holds it, whether the run succeeded or not."""
+
+def record_identity(flow: Flow, run_path: Path) -> None:
+    """Record the identity of the run in `Flow.results`, which the launcher and the CLI read.
+
+    The record of the run (`records.record_of`) takes its identity from the flow, not from here."""
     flow.results["design"] = flow.design.name
     flow.results["design_hash"] = flow.design_hash
     flow.results["flow"] = flow.name
@@ -145,6 +157,20 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
                 exit_status=None,
                 log=None,
             ).as_json_value()
+    # A value that is no metric fails the node, and the metrics that are valid stay.
+    invalid = collect_metrics(flow.results, type(flow).results_description)[2]
+    for bad in invalid:
+        log.error("%s", bad)
+        flow.results.pop(bad.path, None)
+    if invalid and flow.outcome != "failed":
+        flow.outcome = "failed"
+        flow.results["error"] = ErrorInfo(
+            code=INVALID_METRIC,
+            message="; ".join(str(bad) for bad in invalid),
+            node=flow.name,
+            exit_status=None,
+            log=None,
+        ).as_json_value()
     success = flow.outcome == "passed"
     if not success and not input_settings.is_quiet:
         log.debug("Failure was reported in the parsed results.")

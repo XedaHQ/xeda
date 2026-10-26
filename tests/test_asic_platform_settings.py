@@ -473,9 +473,9 @@ def test_a_launch_with_a_missing_store_stops_at_the_first_node(tmp_path):
             {"platform_file": "tiny.yaml", "pdk_root": tmp_path / "empty"},
         )
     maker = json.loads((tmp_path / "run" / "d" / "__asic_maker" / "results.json").read_text())
-    assert maker["success"] is False and maker["error"]["code"] == "reported_failure"
+    assert maker["outcome"] == "failed" and maker["error"]["code"] == "reported_failure"
     taker = tmp_path / "run" / "d" / "__asic_taker"
-    assert json.loads((taker / "results.json").read_text())["success"] is False
+    assert json.loads((taker / "results.json").read_text())["outcome"] == "failed"
     assert not (taker / "trace.json").exists()
 
 

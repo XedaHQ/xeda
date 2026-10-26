@@ -207,7 +207,7 @@ def test_failed_node_records_only_what_this_run_wrote(tmp_path, fake_fpga):
     assert Path(second["run_path"]) == run_dir
     written = set(second["written"]["nextpnr"])
     assert "results.json" in written
-    assert json.loads((run_dir / "results.json").read_text())["success"] is False
+    assert json.loads((run_dir / "results.json").read_text())["outcome"] == "failed"
     # The outputs of the first run that this run did not write are not in the record.
     assert {"config.txt", "report.json", "nextpnr.log"} <= outputs
     assert not written & {"config.txt", "report.json", "nextpnr.log"}
@@ -219,7 +219,7 @@ def test_blocked_consumer_records_what_the_failed_producer_run_rewrote(tmp_path,
     design = make_inputs(tmp_path)
     _process, first = launch(tmp_path, design, name="first")
     run_dir = Path(first["run_path"])
-    assert json.loads((run_dir / "results.json").read_text())["success"] is True
+    assert json.loads((run_dir / "results.json").read_text())["outcome"] == "passed"
     changed = make_inputs(tmp_path, "120 MHz")
     _process, second = launch(
         tmp_path,
@@ -232,7 +232,7 @@ def test_blocked_consumer_records_what_the_failed_producer_run_rewrote(tmp_path,
     assert states["nextpnr"] == "blocked"
     # The launch replaced the results of the consumer, so they are in the record. The reports
     # of the first run are not.
-    assert json.loads((run_dir / "results.json").read_text())["success"] is False
+    assert json.loads((run_dir / "results.json").read_text())["outcome"] == "failed"
     assert second["written"]["nextpnr"] == ["results.json"]
 
 

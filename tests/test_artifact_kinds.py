@@ -305,8 +305,8 @@ def run_yosys(tmp_path: Path, *settings: str) -> tuple[dict, Path]:
 def test_a_run_without_a_library_records_the_generic_netlist(tmp_path, setting):
     require_yosys()
     results, run_dir = run_yosys(tmp_path, *([setting] if setting else []))
-    assert "netlist" not in results["outputs"]
-    netlist = Path(results["outputs"]["netlist_generic"]["path"])
+    assert not results["outputs"]["netlist"]["names"]
+    netlist = run_dir / results["outputs"]["netlist_generic"]["names"][0]
     assert netlist == run_dir / "netlist.v"
     assert netlist.is_file()
 
@@ -319,8 +319,9 @@ def test_a_run_with_a_library_records_the_mapped_netlist(tmp_path):
     results, run_dir = run_yosys(
         tmp_path, f"platform_file={TINY_RESIDUE}", f"pdk_root={store}", "clock.period=2ns"
     )
-    assert "netlist_generic" not in results["outputs"]
-    assert Path(results["outputs"]["netlist"]["path"]) == run_dir / "netlist.v"
+    # the record lists every declared output, and the generic netlist was not written
+    assert results["outputs"]["netlist_generic"]["names"] == []
+    assert results["outputs"]["netlist"]["names"] == ["netlist.v"]
     assert "_X1 " in (run_dir / "netlist.v").read_text()
 
 
@@ -369,4 +370,4 @@ def test_a_consumer_of_the_generic_netlist_is_handed_it_and_the_mapped_one_is_no
         flow = runner.run_flow(_GenericTaker, design)
     assert flow.succeeded and flow.results["read"] is True
     yosys = json.loads((tmp_path / "xeda_run" / "top" / "yosys" / "results.json").read_text())
-    assert set(yosys["outputs"]) >= {"netlist_generic"} and "netlist" not in yosys["outputs"]
+    assert yosys["outputs"]["netlist_generic"]["names"] and not yosys["outputs"]["netlist"]["names"]

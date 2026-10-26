@@ -2212,16 +2212,16 @@ Results
 =======
 
 After the tools run, a flow parses their reports into ``results``, which Xeda writes to
-``results.json`` in the run directory. ``results.success`` decides the exit status of the flow and
-of the process.
+``results.json`` in the run directory, as the metrics of the record (see :ref:`results-json`). The
+``outcome`` of the run decides the exit status of the flow and of the process.
 
-Every flow reports a common set of keys (``success``, ``runtime``, ``tools``, ``design``, ``flow``,
-``run_path``, ``timestamp`` and the hashes). Each flow also reports keys of its own. Run ``xeda
-list-results <flow>`` for the list.
+Each flow reports metrics of its own, and the record holds the metrics that the flow describes.
+Run ``xeda list-results <flow>`` for the list.
 
 A metric name is lower snake case. A dot joins the parts of a group (``lut_use.logic``). A
 quantity has one name in every flow that reports it, such as ``fmax``, ``lut`` and ``ff``, so a
-script does not need to know which flow produced the file.
+script does not need to know which flow produced the file. The record holds the described metrics
+only; the results of ``xeda run --json`` hold every key the flow reported.
 
 .. note::
    ``clock_frequency`` is not ``fmax`` on purpose. It is the frequency that was constrained, and not

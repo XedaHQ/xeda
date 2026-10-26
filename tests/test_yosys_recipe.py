@@ -900,7 +900,7 @@ def test_the_mode_keeps_the_commands_that_cannot_move_a_cell(tmp_path, toolchain
     assert _commands(run_path, script_format).count("tee") == 2  # `check` and `stat`
     assert "write_json" in _commands(run_path, script_format)
     results = json.loads((run_path / "results.json").read_text())
-    assert results["success"] is True
+    assert results["outcome"] == "passed"
 
 
 @BY_FORMAT

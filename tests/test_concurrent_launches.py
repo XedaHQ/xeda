@@ -123,9 +123,16 @@ def alone(tmp_path_factory: pytest.TempPathFactory) -> _Alone:
 
 
 def _check_launch(saved: dict[str, Any], files: list[str], flow_name: str, alone: _Alone) -> None:
-    """Check the saved results and files of a finished launch against the same flow run alone."""
-    assert saved["success"] is True, saved
-    assert _summary(saved) == alone.results[flow_name]
+    """Check the saved record and files of a finished launch against the same flow run alone.
+
+    The record nests the metrics by their dotted path (`sim.time` is `metrics["sim"]["time"]`)."""
+    assert saved["outcome"] == "passed", saved
+    metrics = saved["metrics"]
+    recorded = {}
+    for key in RESULT_KEYS:
+        group, name = key.split(".")
+        recorded[key] = metrics[group][name]
+    assert recorded == alone.results[flow_name]
     assert files == alone.files[flow_name]
 
 

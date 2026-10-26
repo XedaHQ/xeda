@@ -459,7 +459,7 @@ def test_an_edited_results_json_is_stale(probes, root):
     cls = probes["ProbeSource"]
     first, _ = _launch(root, cls)
     results = first.run_path / "results.json"
-    results.write_text(results.read_text().replace('"success": true', '"success": true '))
+    results.write_text(results.read_text().replace('"outcome": "passed"', '"outcome": "passed" '))
     flow, _ = _launch(root, cls)
     assert not flow.reused and flow.stale_reason == f"output changed: {results.resolve()}"
 

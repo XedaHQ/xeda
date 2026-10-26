@@ -98,12 +98,12 @@ def test_a_raising_run_replaces_the_previous_success_with_a_failure_document(tmp
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     first = runner.run_flow(_MayFail, design, {})
     results_json = first.run_path / "results.json"
-    assert json.loads(results_json.read_text())["success"] is True
+    assert json.loads(results_json.read_text())["outcome"] == "passed"
 
     with pytest.raises(FlowFatalError, match="boom"):
         runner.run_flow(_MayFail, design, {"fail": True})
     document = json.loads(results_json.read_text())
-    assert document["success"] is False
+    assert document["outcome"] == "failed"
     assert document["error"] == {
         "code": "reported_failure",
         "message": "boom",
@@ -112,7 +112,7 @@ def test_a_raising_run_replaces_the_previous_success_with_a_failure_document(tmp
         "log": None,
     }
     assert document["design"] == "d" and document["flow"] == first.name
-    assert document["run_path"] and document["timestamp"]
+    assert document["identity"] and document["started"] and document["finished"]
     assert not (first.run_path / "trace.json").exists()
 
 
@@ -122,7 +122,7 @@ def test_a_non_zero_exit_is_recorded_in_the_failure_document(tmp_path):
         _ExitsNonZero, design, {}
     )
     document = json.loads((flow.run_path / "results.json").read_text())
-    assert document["success"] is False
+    assert document["outcome"] == "failed"
     assert document["error"]["code"] == "nonzero_exit"
     assert document["error"]["exit_status"] == 3
     assert document["error"]["node"] == flow.name
@@ -135,7 +135,7 @@ def test_a_failure_the_reports_show_is_a_failure_document_with_an_error(tmp_path
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     flow = runner.run_flow(_MayFail, design, {"report_failure": True})
     document = json.loads((flow.run_path / "results.json").read_text())
-    assert document["success"] is False
+    assert document["outcome"] == "failed"
     assert document["error"]["code"] == "reported_failure"
     assert f"`{flow.name}` reported failure" in document["error"]["message"]
     assert "reports or checks" in document["error"]["message"]
@@ -156,14 +156,14 @@ def test_a_failing_producer_replaces_the_consumer_s_previous_success(
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     first = runner.run_flow(_NeedsMayFail, design, {})
     results_json = first.run_path / "results.json"
-    assert json.loads(results_json.read_text())["success"] is True
+    assert json.loads(results_json.read_text())["outcome"] == "passed"
     assert (first.run_path / "trace.json").exists()
     (done,) = producers_of(runner, first)
 
     with pytest.raises(FlowDependencyFailure, match=reason):
         runner.run_flow(_NeedsMayFail, design, {}, all_flows_settings={"__may_fail": producer})
     document = json.loads(results_json.read_text())
-    assert document["success"] is False
+    assert document["outcome"] == "failed"
     assert document["error"]["code"] == "producer_failed"
     assert document["flow"] == first.name and document["design"] == "d"
     assert not (first.run_path / "trace.json").exists()

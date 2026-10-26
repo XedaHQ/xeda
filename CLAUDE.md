@@ -89,7 +89,12 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - Read every report or log through `Flow.report_file(path)`, which ignores a file this run did
   not write (`tests/test_stale_reports.py`). Pass `optional=True` for a read whose lack fails
   nothing: only a lack that can fail the run is `missing_report`.
-- A failure after a run starts leaves `results.json` with `success: false`, `error.code` and
+- `results.json` is one `RunRecord` (`records.py`, schema 1): write it with
+  `encode_record(record_of(...))`, read it only with `read_record`, never as raw JSON
+  (`tests/test_document_schemas.py`). A file without `schema_version` is no run: the node runs
+  again. A metric is a described key; a value that is not finite or not of its type fails the node
+  (`invalid_metric`).
+- A failure after a run starts leaves `results.json` with `outcome: failed`, `error.code` and
   `error.message` (`tests/test_failure_results.py`). The code is stable and never a class name
   (`flow_runner/error_codes.py`, `tests/test_public_errors.py`); `reported_failure` is a node's
   cause, `FlowFailed` the verdict of `xeda run --json`. Only a rejection (`Flow.reject` in

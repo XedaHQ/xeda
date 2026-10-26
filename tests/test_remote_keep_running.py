@@ -709,7 +709,7 @@ def test_attach_replays_the_log_waits_and_fetches(
     assert _states(result.document)["nextpnr"] == "ran"
     assert (mirror / "nextpnr" / "config.txt").is_file()
     written = json.loads((mirror / "nextpnr" / "results.json").read_text())
-    assert written["success"] is True
+    assert written["outcome"] == "passed"
     assert str(remote_host.home) not in (mirror / "nextpnr" / "results.json").read_text()
     assert "nextpnr-ecp5" in capsys.readouterr().out  # the log, from its start
     # The record names the original request: the mirror gets the local paths.

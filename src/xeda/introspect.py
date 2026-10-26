@@ -908,7 +908,7 @@ def settings_completion_info(flow: Union[str, Type[Flow]]) -> dict[str, dict[str
 def results_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     """Return the metrics that a flow can write to `results.json`.
 
-    Each metric is `{path, description, type, unit}`. The keys that every flow reports (`success`,
+    Each metric is `{path, description, type, unit}`. The other fields of the record (`outcome`,
     `runtime`, ...) are no metrics and are not listed. `artifacts` is empty until a flow
     describes the files it keeps.
     """

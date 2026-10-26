@@ -268,7 +268,7 @@ def test_failed_run_mirror_has_no_stale_outputs(tmp_path, remote_host):
     assert document["results"]["success"] is False
     assert (remote_dir / "config.txt").is_file(), "the remote still has the old output"
     saved = json.loads((mirror_dir / "results.json").read_text())
-    assert saved["success"] is False
+    assert saved["outcome"] == "failed"
     assert not (mirror_dir / "config.txt").exists()
     assert not (mirror_dir / "report.json").exists()
     assert "textcfg" not in (document["results"].get("artifacts") or {})
@@ -518,7 +518,7 @@ def _earlier_success(tmp_path: Path) -> tuple[Path, Path]:
     tool again. Return the design file and the results of the earlier run in the mirror."""
     _succeeded(_request(tmp_path, _design(tmp_path)))
     mirror = tmp_path / "local" / "xeda_run" / "@somewhere" / "top"
-    assert json.loads((mirror / "nextpnr" / "results.json").read_text())["success"]
+    assert json.loads((mirror / "nextpnr" / "results.json").read_text())["outcome"] == "passed"
     return _design(tmp_path, freq="90 MHz"), mirror
 
 
@@ -790,14 +790,15 @@ def test_the_records_of_the_mirror_name_the_paths_of_this_side(tmp_path, remote_
             text = (directory / name).read_text()
             assert workspace not in text, f"{directory / name} names a path of the remote"
             assert str(remote_host.home) not in text
-        results = json.loads((directory / "results.json").read_text())
-        assert results["run_path"] == str(directory)
+        assert json.loads((directory / "results.json").read_text())["outcome"] == "passed"
     directory = Path(document["run_path"])
     saved = json.loads((directory / "results.json").read_text())
-    assert saved["artifacts"]["textcfg"] == str(directory / "config.txt")
-    assert saved["outputs"]["config"]["path"] == str(directory / "config.txt")
-    # the same document that the run printed, without what the delivery adds
-    assert {k: v for k, v in document["results"].items() if k != "deliveries"} == saved
+    # the record names its files relative to the run directory: the mirror has them where the
+    # remote had them, and the document that the run printed names them in the mirror
+    assert saved["artifacts"]["textcfg"] == "config.txt"
+    assert saved["outputs"]["config"]["names"] == ["config.txt"]
+    assert document["results"]["artifacts"]["textcfg"] == str(directory / "config.txt")
+    assert document["results"]["outputs"]["config"]["path"] == str(directory / "config.txt")
     # the design of the settings is the local one: its sources are the files that were sent
     settings = json.loads((directory / "settings.json").read_text())
     assert settings["design"]["design_root"] == str(design.parent)
@@ -910,7 +911,9 @@ def test_a_failure_before_any_node_runs_replaces_the_mirror(tmp_path, remote_hos
     design = _design(tmp_path)
     ok = _succeeded(_request(tmp_path, design))
     mirror = Path(ok["mirror"])
-    assert json.loads((mirror / "top" / "nextpnr" / "results.json").read_text())["success"]
+    assert (
+        json.loads((mirror / "top" / "nextpnr" / "results.json").read_text())["outcome"] == "passed"
+    )
     real = client._launch
 
     def another_plan(agent, request, launch_id, setup):

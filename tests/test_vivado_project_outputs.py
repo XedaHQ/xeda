@@ -11,7 +11,6 @@ hook again as its run would, in step order, each in a directory of its own, and 
 output the flow registers is written by the hook of its step, at the registered path.
 """
 
-import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -24,6 +23,8 @@ from xeda.digest import content_digest
 from xeda.flow import FPGA, FlowSettingsException
 from xeda.flow.io import declared_outputs
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.outputs import recorded_outputs
+from xeda.records import read_record
 from xeda.flows import VivadoAltSynth, VivadoSynth
 from xeda.flows.vivado import vivado_synth as vs
 from xeda.flows.vivado.vivado_postsynthsim import VivadoPostsynthSim
@@ -373,9 +374,10 @@ def test_qor_suggestions_are_written_under_the_run_directorys_reports(
     assert Path(call[-1]) == reports / "qor_suggestions.rqs"
 
 
-def _recorded_output(flow_dir: Path, name: str) -> Path:
+def _recorded_output(run_root: Path, flow_dir: Path, name: str) -> Path:
     """The path of a declared output as the node's own `results.json` records it."""
-    return Path(json.loads((flow_dir / "results.json").read_text())["outputs"][name]["path"])
+    stored = recorded_outputs(read_record(flow_dir, run_root=run_root))
+    return Path(stored[name]["path"])
 
 
 @needs_tclsh
@@ -396,11 +398,15 @@ def test_postsynth_sim_simulates_what_its_synthesis_registered(
     assert sim is not None and sim.succeeded
     synth_dir = sim.run_path.parent / "vivado_synth"
     calls = fake_calls(sim.run_path)
-    netlist = _recorded_output(synth_dir, "netlist_timing" if timing_sim else "netlist")
+    netlist = _recorded_output(
+        tmp_path / "run", synth_dir, "netlist_timing" if timing_sim else "netlist"
+    )
     assert [call[-1] for call in calls if call[:2] == ["exec", "xvlog"]] == [str(netlist)]
     (xelab,) = [call for call in calls if call[:2] == ["exec", "xelab"]]
     sdf = [word for word in xelab if word.startswith("uut=")]
-    assert sdf == ([f"uut={_recorded_output(synth_dir, 'sdf')}"] if timing_sim else [])
+    assert sdf == (
+        [f"uut={_recorded_output(tmp_path / 'run', synth_dir, 'sdf')}"] if timing_sim else []
+    )
     assert ("-sdfmax" in xelab) is timing_sim
     # the functional netlist instantiates UNISIM primitives, the timing one SIMPRIM primitives
     libraries = [name for flag, name in zip(xelab, xelab[1:]) if flag == "-L" and name != "work"]
@@ -451,8 +457,8 @@ def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
     assert power is not None and power.succeeded
     synth_dir = power.run_path.parent / "vivado_synth"
     sim_dir = power.run_path.parent / "vivado_postsynth_sim"
-    checkpoint = _recorded_output(synth_dir, "checkpoint_route")
-    activity = _recorded_output(sim_dir, "timing_saif")
+    checkpoint = _recorded_output(tmp_path / "run", synth_dir, "checkpoint_route")
+    activity = _recorded_output(tmp_path / "run", sim_dir, "timing_saif")
     assert activity == sim_dir / "outputs" / "sqrt.saif", "the conventional name"
     assert activity.is_file()
     # the simulation, on the fake Vivado, records the activity file it writes
@@ -502,10 +508,10 @@ def _run(flow_class, tmp_path: Path, monkeypatch, **settings):
 
 
 def _recorded_outputs(flow) -> dict:
-    """The `outputs` of the run's `results.json`, as written to disk."""
-    saved = json.loads((flow.run_path / "results.json").read_text())
-    assert saved["outputs"] == flow.results["outputs"]
-    return saved["outputs"]
+    """The outputs of the run's `results.json` that the run wrote, as written to disk."""
+    saved = recorded_outputs(read_record(flow.run_path, run_root=flow.run_path.parent))
+    assert saved == flow.results["outputs"]
+    return saved
 
 
 @pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)

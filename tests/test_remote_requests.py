@@ -409,7 +409,7 @@ def test_a_refused_delivery_leaves_the_mirror_whole_and_unlocked(
     assert outcome.document["error"]["type"] == "DeliveryError"
     # the records of the mirror were written before the delivery, and name the mirror
     saved = json.loads((mirror / "results.json").read_text())
-    assert saved["run_path"] == str(mirror)
+    assert saved["outcome"] == "passed" and str(mirror) not in json.dumps(saved)
     assert not _locked_elsewhere(mirror)
     assert not (tmp_path / "got").exists()
 

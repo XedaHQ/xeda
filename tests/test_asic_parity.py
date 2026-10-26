@@ -27,6 +27,7 @@ from xeda.introspect import all_flow_classes
 from xeda.platforms import bundled_platform_names
 from xeda.units import Time
 
+from .record_documents import record_document
 from .tool_utils import AsicQorTools, require_asic_qor
 
 ROOT = Path(__file__).parent.parent
@@ -995,7 +996,15 @@ def test_every_required_metric_has_a_result_of_xeda() -> None:
 
 def test_the_results_of_a_node_are_read_from_its_run_directory(tmp_path: Path) -> None:
     run = tmp_path / "xeda_run" / "d" / "yosys"
-    write(run / "results.json", json.dumps({"area": 506.9, "cells": 357, "runtime": 1.5}))
+    record = record_document(
+        metrics={"area": 506.9, "cells": 357},
+        metric_info={
+            "area": {"description": "area", "type": "number", "unit": "um^2"},
+            "cells": {"description": "cells", "type": "integer", "unit": None},
+        },
+        runtime=1.5,
+    )
+    write(run / "results.json", json.dumps(record))
     document = {
         "nodes": [
             {"node": "yosys", "flow": "yosys", "run_path": str(run)},
@@ -1006,6 +1015,8 @@ def test_the_results_of_a_node_are_read_from_its_run_directory(tmp_path: Path) -
     assert tool.node_results(document, "openroad") == {}, "no results file"
     assert tool.node_results(document, "openroad_cts") == {}, "no such node"
     assert tool.node_results({}, "yosys") == {}
+    write(run / "results.json", json.dumps({"area": 506.9, "cells": 357, "runtime": 1.5}))
+    assert tool.node_results(document, "yosys") == {}, "a file that an older Xeda wrote"
 
 
 def test_the_times_of_a_half_split_at_the_synthesis() -> None:

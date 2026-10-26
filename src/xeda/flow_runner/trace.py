@@ -74,7 +74,9 @@ TRACE_FILE = "trace.json"
 #: `results.json` to agree with them.
 #: 17: the `error` of a trace is an error record: a stable `code`, not the name of a class.
 #: 18: metrics have lower-snake names, so a `results.json` with the earlier names is not reused.
-TRACE_FORMAT = 18
+#: 19: a trace holds the equivalence digest of each declared output file
+#: (`Trace.output_equivalences`), no longer `results.json`.
+TRACE_FORMAT = 19
 
 #: The names that Xeda reserves at the top of a run directory, never outputs: the trace and the
 #: trace being written. The clock markers (`digest.TIME_MARKER_PREFIX` plus a random suffix) are
@@ -298,6 +300,10 @@ class Trace(XedaBaseModel):
     #: in POSIX form. They are removed before the next run executes.
     reports: List[str] = []
     declared_inputs: list[DeclaredInputRecord] = []
+    #: The equivalence digest (`xeda.equivalence`) of each declared output file whose type has one,
+    #: by the name of the file relative to the run directory. A consumer that compares it reads it
+    #: here for a reused producer: the record of the run does not hold it.
+    output_equivalences: Dict[str, str] = {}
     #: What the checks of the run decided: "passed", or "rejected" (the run called
     #: `Flow.reject`). A launch with the same inputs and settings reports a rejection again
     #: without running.
@@ -376,6 +382,16 @@ def previous_trace(run_dir: Path, flow: str) -> Optional[Trace]:
     if found is None or found[0].format != TRACE_FORMAT or found[0].flow != flow:
         return None
     return found[0]
+
+
+def output_equivalences(run_dir: Path, flow: str) -> Dict[str, str]:
+    """Return the equivalence digests of the declared outputs of the last run of `flow` in
+    `run_dir`.
+
+    They are those of its trace (`Trace.output_equivalences`), by the name of the file relative to
+    the run directory. Return none if there is no valid trace."""
+    trace = previous_trace(run_dir, flow)
+    return {} if trace is None else dict(trace.output_equivalences)
 
 
 def write_trace(run_dir: Path, trace: Trace) -> None:
