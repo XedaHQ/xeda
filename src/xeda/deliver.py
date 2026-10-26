@@ -13,7 +13,10 @@ output goes, and what it is called there, never changes what the tools do or wha
 A delivery never goes onto an input, which is any file that a flow of the launch reads
 (`ReadInputs`, by file identity and resolved path). It never goes into a directory that a read
 setting names (every file there is an input of the run, and so is a file delivered there), into a
-run root, or over a directory. It never deletes anything and never writes through a symbolic
+run root, or over a directory. It never goes where an entry of the design's sources would read
+it (`ReadInputs.source_entry_reading`): a file delivered to a place that an entry of `rtl.sources`,
+`tb.sources` or the generator's `sources` names would become an input of the next run, even when
+the file does not exist yet. It never deletes anything and never writes through a symbolic
 link: it writes a temporary file in the directory of the destination and renames it into place.
 
 Two deliveries of one launch never go to one destination, and none goes inside another
@@ -63,6 +66,7 @@ from typing import Any, Dict, Optional
 
 from .artifacts import iter_artifact_paths
 from .dataclass import DELIVERABLE_ROLE, written_role
+from .design import SourceEntry, source_entry_matches
 from .digest import FileRecord, content_digest, filesystem_time_ns, record_file
 from .listing import directory_files
 from .errors import RecordError
@@ -502,6 +506,8 @@ class ReadInputs:
         #: Each directory read (resolved), with the key of the setting that names the directory
         #: it was listed under, and that directory.
         self._directories: dict[Path, tuple[str, Path]] = {}
+        #: The entries of the design that name source files (`add_source_entries`).
+        self._entries: list[tuple[SourceEntry, Path]] = []
         self.add(paths)
 
     def add(self, paths: Iterable[Path]) -> None:
@@ -532,6 +538,22 @@ class ReadInputs:
                 self._directories.setdefault(Path(os.path.realpath(path)), (key, named))
             else:
                 self._add_file(path, None if st is None else (st.st_dev, st.st_ino))
+
+    def add_source_entries(self, entries: Iterable[SourceEntry]) -> None:
+        """Register the entries of a design that name source files (`Design.source_entries`).
+
+        A file that does not exist yet is an input of the run when an entry names it, so no
+        delivery goes there (`source_entry_reading`)."""
+        for entry in entries:
+            self._entries.append((entry, Path(os.path.realpath(entry.root))))
+
+    def source_entry_reading(self, destination: Path) -> Optional[SourceEntry]:
+        """Return the first registered entry that the design would read `destination` through,
+        or None. `destination` is located, and the match judges names only."""
+        for entry, root in self._entries:
+            if source_entry_matches(entry.text, root, destination):
+                return entry
+        return None
 
     def find(self, destination: Path) -> Optional[Path]:
         """Return the input that `destination` is, or None.
@@ -875,6 +897,12 @@ class Deliveries:
             return (
                 f"which is {found}, an input of the run: an output never replaces an input; "
                 "name another path"
+            )
+        entry = self.inputs.source_entry_reading(destination)
+        if entry is not None:
+            return (
+                f"which the `{entry.text}` entry of `{entry.part}` reads: a file delivered there "
+                "would be a source of the next run; name another path"
             )
         if (
             destination.is_dir()

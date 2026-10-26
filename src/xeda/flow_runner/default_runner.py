@@ -1248,6 +1248,7 @@ class FlowLauncher:
         # the deliveries of every flow, before any flow is entered: a refusal never comes after
         # the tool of an earlier flow ran.
         self._read_inputs.add(design_files(design))
+        self._read_inputs.add_source_entries(design.source_entries())
         if plan_node is None:
             for planned in plan.nodes:
                 register_read_settings(

@@ -20,6 +20,7 @@ from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
+from fnmatch import fnmatchcase
 from glob import escape as glob_escape
 from glob import glob
 from os.path import isfile
@@ -32,6 +33,7 @@ from typing import (
     Dict,
     List,
     Optional,
+    NamedTuple,
     NotRequired,
     Tuple,
     Type,
@@ -108,6 +110,8 @@ __all__ = [
     "DesignPart",
     "Source",
     "DesignValidationError",
+    "SourceEntry",
+    "source_entry_matches",
     "FileResource",
     "LanguageSettings",
     "Rtl",
@@ -436,6 +440,11 @@ class FileResource:
     file: Path
     _specified_path: Path
     _checked: bool
+    #: The entry of a design file that named this file, as written: a name or a pattern
+    #: (`src/*.v`). `entry_root` is the directory it resolves against. A generated source
+    #: belongs to the output of a producer, so it has neither (None).
+    entry: str | None
+    entry_root: Path | None
 
     def __setattr__(self, name: str, value: Any) -> None:
         raise AttributeError(f"a {type(self).__name__} is read-only: cannot set `{name}`")
@@ -448,6 +457,8 @@ class FileResource:
         path: Union[str, os.PathLike, Dict[str, str]],
         _root_path: Optional[Path] = None,
         resolve=True,
+        *,
+        entry: str | None = None,
     ) -> None:
         """Create a resource for a file of the design.
 
@@ -490,6 +501,9 @@ class FileResource:
         attributes["file"] = path.resolve() if resolve else path.absolute()
         #: True for a file that must exist (`file`), false for one that need not exist yet (`path`).
         attributes["_checked"] = bool(resolve)
+        # The entry that named the file: the pattern that matched it, else the path as written.
+        attributes["entry"] = entry if entry is not None else str(specified_path)
+        attributes["entry_root"] = root
 
     @property
     def path(self) -> Path:
@@ -1024,6 +1038,8 @@ class Source(FileResource):
         attributes["owner"] = owner
         attributes["dependency"] = None
         attributes["dependency_place"] = None
+        if generated:
+            attributes["entry"] = attributes["entry_root"] = None
 
     @classmethod
     def declaration(
@@ -1039,6 +1055,8 @@ class Source(FileResource):
         attributes["file"] = None
         attributes["_specified_path"] = Path(name)
         attributes["_checked"] = False
+        attributes["entry"] = None
+        attributes["entry_root"] = None
         attributes["type"] = typ
         attributes["_stated"] = {"type": str(typ)} if stated else {}
         attributes["generated"] = True
@@ -1250,6 +1268,48 @@ def _pattern_part(pattern: str, text: str) -> bool:
     return (
         re.fullmatch(".*".join(re.escape(piece) for piece in pattern.split("*")), text) is not None
     )
+
+
+def _name_matches(pattern: str, name: str) -> bool:
+    """Whether the name `name` is one that the pattern part `pattern` names, as a source glob
+    decides it: a name that starts with a dot matches only a pattern part that starts with one."""
+    if name.startswith(".") and not pattern.startswith("."):
+        return False
+    return fnmatchcase(name, pattern)
+
+
+def source_entry_matches(entry: str, root: Path, candidate: Path) -> bool:
+    """Return whether a design that lists the source `entry` would read the file `candidate`.
+
+    The entry is a name, a pattern in which `*` is the only pattern character, or a directory
+    (which stands for every file under it). It expands variables and escapes as the source
+    globbing does (`_globbed_source_files`), and a relative entry lies below `root`. `candidate`
+    is absolute. The match is made part by part: a pattern and the path must have the same number
+    of parts, and `*` never crosses a `/`. A name entry also matches every path below it, which
+    is how a directory entry reads. The function reads no file system, so it judges a destination
+    that does not exist yet, and the caller resolves links in `root` and `candidate`."""
+    written = re.sub(r"[?\[]", r"[\g<0>]", entry)
+    expanded = _expand_design_path(written, root, escape=glob_escape)
+    pattern = Path(os.path.normpath(expanded if expanded.is_absolute() else root / expanded))
+    parts, names = pattern.parts, Path(os.path.normpath(candidate)).parts
+    if len(names) < len(parts) or (len(names) > len(parts) and "*" in entry):
+        return False
+    return all(_name_matches(part, name) for part, name in zip(parts, names))
+
+
+class SourceEntry(NamedTuple):
+    """An entry of a design file that names source files, with where it was written.
+
+    `part` is the table that holds it (`rtl.sources`, `tb.sources` or `rtl.generator.sources`),
+    `text` the entry as written, and `root` the directory that it resolves against."""
+
+    part: str
+    text: str
+    root: Path
+
+    def matches(self, candidate: Path) -> bool:
+        """Whether the design reads `candidate` through this entry (`source_entry_matches`)."""
+        return source_entry_matches(self.text, self.root, candidate)
 
 
 def _entry_parts(entry: str, root: Path | None) -> tuple[str, ...]:
@@ -1473,7 +1533,7 @@ class DesignPart(XedaBaseModel):
                 src_type = None
                 if _is_source_pattern(src):
                     glob_sources = _expand_source_glob(src, design_relative_root())
-                    srcs = [ds(s, src_type) for s in glob_sources]
+                    srcs = [Source(s, typ=src_type, entry=src) for s in glob_sources]
                     sources.extend(s for s in srcs if not source_already_exists(s))
                     continue  # skip the append at the bottom
                 src = src_with_type(src, src_type)
@@ -3733,6 +3793,30 @@ class Design(XedaBaseModel):
             for part in self.source_path_as_named(src).with_suffix("").parts
         )
         return "_".join(part for part in parts if part)
+
+    def source_entries(self) -> tuple[SourceEntry, ...]:
+        """Return the entries of this design that name files it reads, as the files of the design
+        wrote them: the written entries of `rtl.sources` and `tb.sources`, the entries of the
+        dependencies merged into them, and the `sources` of every generator (the design's own and
+        those of its dependencies). A generated source is no entry: it names a file in the output
+        of its generator, never a file of the tree.
+
+        The entries are kept as written (a pattern is not expanded), because a file that does not
+        exist yet is what a pattern names for the files of the future. The method reads no file."""
+        found: dict[tuple[str, str, Path], None] = {}
+        for part in _DESIGN_PART_ORDER:
+            for source in getattr(self, part).sources:
+                if source.entry is not None and source.entry_root is not None:
+                    found[(f"{part}.sources", source.entry, source.entry_root)] = None
+        for unit in (*self.generation_units, self):
+            recipe = unit.rtl.generator
+            if recipe is None:
+                continue
+            listed = as_source_list(recipe.get("sources", ()))
+            for entry in listed if isinstance(listed, (list, tuple)) else ():
+                if isinstance(entry, (str, os.PathLike)):
+                    found[("rtl.generator.sources", os.fspath(entry), unit.root_path)] = None
+        return tuple(SourceEntry(*key) for key in found)
 
     def part_metadata(self, part: str) -> Dict[str, Any]:
         """Return the metadata of a design part (`rtl` or `tb`): everything but its sources.
