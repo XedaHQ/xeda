@@ -372,14 +372,21 @@ def generated(
             judged: dict[str | None, Generation] = {}
             for owner, unit, found in ran:
                 description = found.description
-                reason, matches = judge(
-                    found.storage,
-                    found.key,
-                    declarations(unit),
-                    generation_key(unit, environ)[1],
-                    environ,
-                    judging=False,
-                )
+                # What the unit reads may have changed while a later unit generated: the storage
+                # it holds must be that of its key now.
+                current, generator = generation_key(unit, environ)
+                matches: Mapping[str, tuple[str, ...]] = {}
+                if current != found.key:
+                    reason = "what its generator reads changed while it ran"
+                else:
+                    reason, matches = judge(
+                        found.storage,
+                        found.key,
+                        declarations(unit),
+                        generator,
+                        environ,
+                        judging=False,
+                    )
                 if reason is not None:
                     break
                 judged[owner] = Generation(found.storage, found.key, matches, found.description)

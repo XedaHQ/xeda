@@ -286,3 +286,25 @@ def test_launches_that_merge_the_same_dependencies_in_other_orders_do_not_wait_f
         thread.join(HANG_GUARD)
     assert not any(thread.is_alive() for thread in threads), "the launches wait for each other"
     assert results == [Outcome.PASSED] * 6
+
+
+def test_a_storage_whose_key_changed_while_another_unit_generated_is_not_leased(tmp_path):
+    """The generator of one unit changes a declared input of an earlier unit. Under the leases the
+    launch compares the current key of each unit with the key of the storage it holds, and
+    generates the earlier unit again."""
+    from xeda.flow_runner.launch_generation import generated, generation_key
+
+    chain = Chain(tmp_path, depth=2)
+    script = tmp_path / "lib1" / "gen.py"
+    script.write_text(
+        script.read_text()
+        + "Path(os.environ['DESIGN_ROOT'], '..', 'lib2', 'spec.txt').write_text('two\\n')\n"
+    )
+    chain.run_root.mkdir()
+    design = chain.load()
+    with generated(design, run_root=chain.run_root.resolve(), environ=dict(os.environ)) as held:
+        assert held is not None
+        for owner, unit in generating_units(design):
+            assert held.by_owner[owner].key == generation_key(unit)[0]
+    assert len(chain.storages("lib2")) == 2
+    assert chain.ran.count("lib2") == 2
