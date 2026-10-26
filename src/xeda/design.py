@@ -3200,6 +3200,9 @@ class Design(XedaBaseModel):
     _targets: tuple[str, ...] = PrivateAttr(default=())
     #: The arguments of `with_updates`, in order.
     _updates: tuple[Mapping[str, Any], ...] = PrivateAttr(default=())
+    #: The same updates as they were applied: the `sources` of each, expanded once, as `Source`
+    #: objects. `with_target` replays these, so it expands nothing again.
+    _replay: tuple[Mapping[str, Any], ...] = PrivateAttr(default=())
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -3547,6 +3550,7 @@ class Design(XedaBaseModel):
         *,
         target: str | None = None,
         updates: Sequence[Mapping[str, Any]] = (),
+        replay: Sequence[Mapping[str, Any]] | None = None,
         data: Mapping[str, Any] | None = None,
         remove: Sequence[str] = (),
         recorded_target: str | None = None,
@@ -3555,8 +3559,10 @@ class Design(XedaBaseModel):
         """Set up this design: the one place that builds a design value.
 
         `declared` is the design as written (dotted keys expand here). The design is that, with
-        `target` selected and then each of `updates` applied. `data` is the data to validate when
-        the caller has composed it already (`with_updates`). `recorded_target` is the name of the
+        `target` selected and then each of `updates` applied. `replay` holds the updates as they
+        were applied before (their sources expanded), and the update is applied as it is there.
+        `data` is the data to validate when the caller has composed it already (`with_updates`,
+        which gives `replay` too). `recorded_target` is the name of the
         target of a design that was made from a target elsewhere (a packaged design): it is
         recorded and selects nothing."""
 
@@ -3592,8 +3598,16 @@ class Design(XedaBaseModel):
                 cls.select_target(declared, None)  # the form of every target, as written
                 declared = cls._with_expanded_sources(declared, root_path)
                 data = cls.select_target(declared, target)
-                for update in updates:
-                    data = cls._updated(data, update)
+                steps = []
+                for index, update in enumerate(updates):
+                    step = (
+                        replay[index]
+                        if replay is not None
+                        else cls._resolved_update(data, update, root_path)
+                    )
+                    data = cls._updated(data, step)
+                    steps.append(step)
+                replay = steps
             data = dict(data)
             cls.remove_keys(data, remove)
             if recorded_target is not None:
@@ -3612,6 +3626,7 @@ class Design(XedaBaseModel):
         self._declared = declared
         self._targets = tuple(names) if isinstance(names, Mapping) else ()
         self._updates = tuple(freeze(deepcopy(dict(update))) for update in updates)
+        self._replay = tuple(updates if replay is None else replay)
         self._source_file = source_file
 
     @classmethod  # type: ignore[no-redef]
@@ -3687,6 +3702,35 @@ class Design(XedaBaseModel):
         return design
 
     @classmethod
+    def _resolved_update(
+        cls, data: Mapping[str, Any], update: Mapping[str, Any], root: Path
+    ) -> dict[str, Any]:
+        """Return `update` as it is applied to the design `data`: with the `sources` it writes
+        expanded once, as `Source` objects with their entries.
+
+        The generator that decides which entries a generator writes is the one the update gives, or
+        else the one of `data`. An update that cannot be expanded now is returned as written, and
+        applying it reports the mistake."""
+        try:
+            resolved = cls.expanded(deepcopy(dict(update)))
+        except DesignValidationError:
+            return dict(update)
+        with loading_in_design_root(root):
+            for part in ("rtl", "tb"):
+                section = resolved.get(part)
+                if part == "rtl":
+                    generator = (
+                        section["generator"]
+                        if isinstance(section, Mapping) and "generator" in section
+                        else _generator_written(data.get("rtl"))
+                    )
+                else:
+                    generator = None
+                if part in resolved:
+                    resolved[part] = _expanded_sources(section, generator, root)
+        return resolved
+
+    @classmethod
     def _updated(cls, data: Mapping[str, Any], update: Mapping[str, Any]) -> dict[str, Any]:
         """Return the design `data` (in the form of a design file, with its target selected) with
         `update` merged over it.
@@ -3734,12 +3778,14 @@ class Design(XedaBaseModel):
         data = self._document("python")
         if self.target is not None:
             data["target"] = self.target
-        data = self._updated(data, updates)
+        step = self._resolved_update(data, updates, self.root)
+        data = self._updated(data, step)
         return type(self)._built(
             self.root,
             self._declared,
             data=data,
             updates=(*self._updates, updates),
+            replay=(*self._replay, step),
             source_file=self._source_file,
         )
 
@@ -3753,6 +3799,7 @@ class Design(XedaBaseModel):
             self._declared,
             target=target,
             updates=self._updates,
+            replay=self._replay,
             source_file=self._source_file,
         )
 

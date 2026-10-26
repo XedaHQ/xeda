@@ -584,3 +584,29 @@ def test_a_target_that_drops_the_generator_has_handwritten_sources(tmp_path):
         targets={"t": {"rtl": {"sources": ["gen/more.v"]}}},
     ).with_target("t")
     assert [s.generated for s in other.rtl.sources] == [True, True]
+
+
+def test_with_target_replays_an_update_that_replaced_the_sources_as_they_were(tmp_path):
+    for name in ("src/a.sv", "board/b.sv"):
+        (tmp_path / name).parent.mkdir(exist_ok=True)
+        (tmp_path / name).write_text("module m; endmodule\n")
+    design = Design(
+        name="a",
+        root=tmp_path,
+        rtl={"sources": ["board/b.sv"], "top": "a"},
+        targets={"t": {"rtl": {"defines": {"A": 1}}}, "u": {}},
+    )
+    updated = design.with_updates({"rtl.sources": ["src/*.sv"]})
+    assert _sources_of(updated) == ["src/a.sv"]
+    (tmp_path / "src" / "new.sv").write_text("module n; endmodule\n")
+    (tmp_path / "src" / "a.sv").unlink()
+    for chosen in (updated.with_target("t"), updated.with_target("t").with_target("u")):
+        assert _sources_of(chosen) == ["src/a.sv"]
+        assert [e.text for e in chosen.source_entries()] == ["src/*.sv"]
+    # the arguments are kept as given
+    assert thaw(updated.updates[0]) == {"rtl.sources": ["src/*.sv"]}
+    # the same call made now sees the files as they are now
+    assert _sources_of(design.with_updates({"rtl.sources": ["src/*.sv"]})) == ["src/new.sv"]
+    # a later update that does not touch the sources keeps them too
+    later = updated.with_updates({"rtl.top": "b"}).with_target("t")
+    assert _sources_of(later) == ["src/a.sv"] and later.rtl.top == "b"
