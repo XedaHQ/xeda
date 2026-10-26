@@ -47,7 +47,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     )
     from .console import console
     from .deliver import Conflict
-    from .design import DESIGN_NAME, names_a_design_file, target_name_problem
+    from .design import DESIGN_NAME, DesignFileParseError, target_name_problem
     from .errors import ProjectError
     from .project import Project
     from .xedaproject import resolve_project_file
@@ -616,38 +616,37 @@ def _selected_target(target: str | None, no_target: bool) -> str | None | Unset:
     return None if no_target else UNSET if target is None else target
 
 
-def _is_design_file(design: Any) -> bool:
-    """Return whether the `DESIGN` argument names a design file and not a project design."""
-    return design is not None and (isinstance(design, Path) or names_a_design_file(design))
-
-
 def _selected_project(xedaproject: Any, design: Any) -> Project | None:
     """Return the project of this command, or None: the file of `--xedaproject`, else the one
     project file in the current directory. Only the command line looks there; the library reads
     the project file it is given and nothing else.
 
-    A design file that the project lists is refused: select its design with `--design-name`, so
-    that one design never has two identities."""
+    `design` is the `DESIGN` argument. It is always a design file, with or without a suffix. A
+    design file that the project lists is refused, and so is a name that is no file but is the
+    name of a design of the project: select a project design with `--design-name`, so that one
+    design never has two identities."""
     path = resolve_project_file(xedaproject)
-    if path is None:
-        return None
-    project = Project.load(path)
-    if _is_design_file(design):
+    project = None if path is None else Project.load(path)
+    if design is not None and project is not None:
         referenced = project.referenced_name(design)
+        if referenced is None and not Path(design).exists() and str(design) in project.designs:
+            referenced = str(design)
         if referenced is not None:
             raise ProjectError(
-                f'The design file "{design}" is the design {referenced!r} of the project file '
-                f'"{project.path}". Select a design of a project with --design-name {referenced}.',
+                f'"{design}" is the design {referenced!r} of the project file "{project.path}", '
+                f"not a design file. Select a design of a project with --design-name {referenced}.",
                 code="use_design_name",
                 path=project.path,
             )
+    if design is not None and not Path(design).exists():
+        raise DesignFileParseError(design, "no such file")
     return project
 
 
 def _project_for_launcher(project: Project | None, design: Any) -> str | None:
     """Return the project file that the launcher reads: only a design that the project holds
     comes from it. A design file given on its own gets no project layer."""
-    return None if project is None or _is_design_file(design) else str(project.path)
+    return None if project is None or design is not None else str(project.path)
 
 
 def _cli_run_root(run_root: Path, project: Project | None) -> Path:
@@ -777,13 +776,8 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
 @click.argument(
     "design_file",
     metavar="DESIGN",
-    type=click.Path(
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-        exists=True,
-        path_type=Path,
-    ),
+    # A missing file is reported by `_selected_project`, which tells a name of a project design.
+    type=click.Path(file_okay=True, dir_okay=False, readable=True, path_type=Path),
     default=None,
     required=False,
 )
@@ -1050,7 +1044,7 @@ def run(
         flow_settings = []
 
     # The positional DESIGN argument, then --design-name.
-    design = design_file or design_name
+    design = Path(design_file) if design_file else design_name
     if not design:
         raise click.UsageError(
             "No design specified. Pass a design file as the DESIGN argument, or name one with "

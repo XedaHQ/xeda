@@ -1168,4 +1168,7 @@ the project. If the project lists that file in a ``file`` entry, Xeda refuses it
 option to use: ``--design-name <name>``. A design file that the project does not list runs without
 the project.
 
+The ``DESIGN`` argument is always the path of a design file, with or without a suffix. If no such
+file exists and the project has a design of that name, Xeda says so and names ``--design-name``.
+
 ``--target NAME`` selects one target and ``--no-target`` selects none.

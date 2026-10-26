@@ -415,7 +415,8 @@ flows:
 - Xeda finds the file as `--xedaproject FILE`, else the one `xedaproject.yaml`, `.yml` or `.toml`
   in the start directory. Two of these names in one directory is a `ProjectError`
   (`several_project_files`).
-- Select a design of the project with `--design-name sqrt`: the only way. A design file given as
+- Select a design of the project with `--design-name sqrt`: the only way. `DESIGN` is always a file
+  path; a name there that is a design of the project is refused (`use_design_name`). A design file given as
   `DESIGN` never gets the project's `flows`; if a `file` entry lists it, the run is refused
   (`use_design_name`, "use --design-name <name>"). Without a name, a project with one design
   is not guessed: the CLI needs `DESIGN` or `--design-name`.

@@ -526,6 +526,34 @@ def test_the_command_line_finds_a_lone_project_file_by_any_accepted_name(
     assert name in document["error"]["message"]
 
 
+def test_a_positional_design_is_always_a_file(tmp_path, monkeypatch):
+    """`--design-name` is the one way to reach a project design: a name given as `DESIGN` is
+    the path of a design file, with or without a suffix."""
+    cli_project(tmp_path, monkeypatch)
+    # no such file, and no design of that name: the file is missing
+    result, document = invoke("run", "vivado_synth", "nothing", "--dry-run", *PART)
+    assert result.exit_code == 2 and document["error"]["code"] == "design_file_not_found"
+    assert "nothing" in document["error"]["message"]
+    # no such file, but the project has a design of that name
+    for name in ("fifo", "inline"):
+        result, document = invoke("run", "vivado_synth", name, "--dry-run", *PART)
+        assert result.exit_code == 2, document
+        assert document["error"]["code"] == "use_design_name"
+        assert f"--design-name {name}" in document["error"]["message"]
+    # a file of that name is a file, whatever the project holds
+    (tmp_path / "fifo").write_text("name: fifo\nrtl: {sources: []}\n")
+    result, document = invoke("run", "vivado_synth", "fifo", "--dry-run", *PART)
+    assert (
+        document["error"]["code"] == "invalid_design" and "suffix" in document["error"]["message"]
+    )
+
+
+def test_a_positional_name_without_a_project_is_a_missing_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result, document = invoke("run", "vivado_synth", "fifo", "--dry-run", *PART)
+    assert result.exit_code == 2 and document["error"]["code"] == "design_file_not_found"
+
+
 def test_a_positional_file_the_project_does_not_reference_gets_no_project_layer(
     tmp_path, monkeypatch
 ):
