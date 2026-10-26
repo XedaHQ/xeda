@@ -199,8 +199,10 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   - A removed setting fails with "`<name>` was removed: ...". If nothing replaces it, the message
     says to delete it. On the simulator flows, `timeout` replaces `timeout_seconds`; no other flow
     limits a tool's run time. `no_console` has no replacement.
-- A setting accepts its declared type only. `true` and `false` are the only booleans, and a list
-  setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
+- A setting accepts its declared type only, from Python and from files: an integer setting takes
+  `4`, not `"4"`, `4.0` or `true`. `true` and `false` are the only booleans. On the command line
+  every value is text and Xeda reads it as the type of the setting (`-s seed=4`,
+  `-s timing_allow_fail=false`); a list setting is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
 
 ## Flows that feed each other
 

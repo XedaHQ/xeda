@@ -208,8 +208,11 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   design model; code `removed_alias`), and a row of `REMOVED_SPELLINGS`
   (`tests/test_removed_spellings.py`).
 - A setting accepts exactly its type; never add an implicit conversion. A boolean takes only
-  `true`/`false`; list text is comma-separated and `[...]` text is refused; `Code` is for
-  number-like text (`tests/test_settings_input.py`, `tests/test_malformed_input.py`).
+  `True`/`False`; list text is comma-separated and `[...]` text is refused; `Code` is for
+  number-like text (`tests/test_settings_input.py`, `tests/test_malformed_input.py`). Command-line
+  text (the `SettingText` that `utils.settings_to_dict` marks) goes through
+  `setting_text.parse_setting_text` by the field's annotation where the layers merge; values from
+  Python and files are never converted (`tests/test_setting_text.py`).
 - A physical measurement is a quantity type from `xeda.units` with a unit, never a bare number;
   every other numeric setting carries one marker (`count`, `ratio`, `percent`, `library_units`,
   `data_size`); the test's `NOT_MIGRATED_YET` table, which only shrinks, lists what is left

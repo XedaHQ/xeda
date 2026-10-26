@@ -208,8 +208,8 @@ are keyed by net or instance name: ``ir_drop.nets``, ``ir_drop.vsrc_files``,
 a dictionary of tables such as ``ndr.rules``, a dotted key is a path into nested tables. A path
 that goes on past the value of a key is an error, as for any setting.
 
-A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
-empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
+A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. Each item is read as the
+item type of the list. An empty value is the empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
 that names these two spellings, because it would be one item and not a list. A setting that also
 takes plain text keeps the text as it is. The lists of the ``cocotb`` section (``testcase`` and
 ``gpi_extra``) take text in the same way.

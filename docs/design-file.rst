@@ -26,8 +26,15 @@ Dates, sexagesimal values (``1:30``) and numbers with underscores (``1_000``) ar
 ``true`` and ``false`` are booleans, and ``null`` and ``~`` are null. Quote values that are meant
 as HDL text, and quote source paths.
 
-A boolean setting accepts only ``true`` and ``false``, in every format. On the command line,
-``-s key=true`` does the same. ``yes`` and ``1`` are errors. For example, ``debug: yes`` and
+A setting takes exactly the type that it declares, and Xeda converts no value to another type.
+An integer setting takes ``4``, not ``"4"``, ``4.0`` or ``true``. A number setting takes an
+integer or a float, not text. This holds in a design file, in a project, in every other file
+and in Python. On the command line every value is text, so ``-s seed=4`` is read as the type of
+the setting ``seed``.
+
+A boolean setting accepts only ``true`` and ``false`` in a file, and only ``True`` and ``False``
+in Python. On the command line, ``-s key=true`` and ``-s key=false`` give the boolean (in any
+letter case). ``yes`` and ``1`` are errors. For example, ``debug: yes`` and
 ``-s debug=on`` fail with a message that ``yes`` (or ``on``) is text and not a boolean, and that
 you should write ``true``. A field that is not a boolean gives the same advice for a word that
 YAML 1.1 reads as a boolean (``nthreads: on``).
