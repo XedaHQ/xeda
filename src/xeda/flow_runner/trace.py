@@ -385,7 +385,8 @@ def previous_trace(run_dir: Path, flow: str) -> Optional[Trace]:
 
 
 def output_equivalences(run_dir: Path, flow: str) -> Dict[str, str]:
-    """Return the equivalence digests of the declared outputs of the last run of `flow` in `run_dir`.
+    """Return the equivalence digests of the declared outputs of the last run of `flow` in
+    `run_dir`.
 
     They are those of its trace (`Trace.output_equivalences`), by the name of the file relative to
     the run directory. Return none if there is no valid trace."""

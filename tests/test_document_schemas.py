@@ -173,8 +173,7 @@ def private_registry():
 
 
 @pytest.fixture
-def design(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+def design(tmp_path):
     root = tmp_path / "d"
     root.mkdir()
     (root / "top.sv").write_text("module top; endmodule\n")
@@ -379,6 +378,10 @@ def test_a_record_that_cannot_be_read_says_why(tmp_path, text, code):
         ),
         lambda d: d["artifacts"].update(log="/etc/passwd"),
         lambda d: d["artifacts"].update(log="../outside"),
+        lambda d: d["artifacts"].update(log="."),
+        lambda d: d["metrics"].update(count="3"),
+        lambda d: d["metrics"]["group"].update(ratio=float("nan")),
+        lambda d: d["metrics"]["delays"].update(x=float("inf")),
         lambda d: d.update(
             metric_info={"ghost": {"description": "", "type": "integer", "unit": None}}
         ),

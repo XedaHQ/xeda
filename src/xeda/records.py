@@ -169,7 +169,8 @@ class OutputRecord:
     their content digests, in the same order. Both are empty when the run wrote none. `design` is
     the derived design, for the kind `design` when the run wrote it, else `None`: its top, the
     design it came from, and its sources, in order. A source is a file that the converter
-    generated (`generated`, a name in `names`) or a source of the input design that passes through (`source`, its index, and `file`).
+    generated (`generated`, a name in `names`) or a source of the input design that passes
+    through (`source`, its index, and `file`).
     """
 
     name: str
@@ -487,7 +488,7 @@ def _file_name(value: Any, label: str) -> str:
     """Return a name relative to a run directory: a name that leads out of it is not one."""
     name = _text(value, label)
     path = PurePosixPath(name)
-    if not name or path.is_absolute() or ".." in path.parts or "\\" in name:
+    if not path.parts or path.is_absolute() or ".." in path.parts or "\\" in name:
         raise _Malformed(f"`{label}` is not a name inside the run directory: {name!r}")
     return name
 
@@ -586,6 +587,8 @@ def _decode_input(value: Any, run_root: Path) -> InputRecord:
 
 
 def _decode_metric_info(value: Any, metrics: Mapping[str, Any]) -> dict[str, MetricInfo]:
+    from .flow.metrics import non_finite_in, value_fits
+
     info: dict[str, MetricInfo] = {}
     for path, entry in _mapping(value, "metric_info").items():
         item = _mapping(entry, f"metric_info.{path}")
@@ -598,6 +601,8 @@ def _decode_metric_info(value: Any, metrics: Mapping[str, Any]) -> dict[str, Met
             if not isinstance(node, Mapping) or segment not in node:
                 raise _Malformed(f"`metric_info` lists `{path}`, and `metrics` has no such value")
             node = node[segment]
+        if not value_fits(metric_type, node) or non_finite_in(node) is not None:
+            raise _Malformed(f"`metrics.{path}` is not a finite value of the type {metric_type}")
         info[path] = MetricInfo(
             path,
             _text(item.get("description"), f"metric_info.{path}.description"),
