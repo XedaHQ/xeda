@@ -2704,6 +2704,13 @@ class DependencyRecord:
     commit: str | None
     design_file: str
     checkout: Path | None
+    #: The position of the entry in the tree of dependencies, as the indexes of the entries from the
+    #: design down, joined by `-` (`0`, `1-0`). It names the entry in the table of commits that
+    #: a remote host fetches (`flow_runner.dependencies.using_pinned_commits`).
+    path: str = ""
+    #: Whether the design gave the commit of a Git dependency itself (`commit`). Otherwise the
+    #: planning resolved a branch, a tag or the `HEAD` to it.
+    given: bool = False
 
     @property
     def storage(self) -> Path | None:

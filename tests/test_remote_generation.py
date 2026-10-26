@@ -562,3 +562,41 @@ def test_the_host_fetches_the_commit_of_a_dependency_of_a_git_dependency(
     stored = {p.name for p in (remote_host.workspace() / "xeda_run" / ".dependencies").iterdir()}
     assert dependency_key(remote.url, first) in stored
     assert dependency_key(remote.url, second) not in stored, "the host fetched the moved branch"
+
+
+def test_two_entries_of_one_repository_get_each_its_own_commit_on_the_host(
+    tmp_path, remote_host, remote, git_log, monkeypatch
+):
+    """One entry pins commit A, the other has no reference and so names the `HEAD`. The `HEAD`
+    moves after the client resolved it. The host fetches A for the first entry and the commit of
+    the client for the second, though both name one repository and one design file."""
+    import xeda.flow_runner.dependencies as dependencies
+    from xeda.flow_runner.dependencies import dependency_key
+
+    pinned = remote.first
+    head = remote.advance()
+    git = f"git+{remote.url}"
+    world = _world(
+        tmp_path,
+        extra=f"dependencies:\n  - {git}?commit={pinned}#dep.yaml\n  - {git}#dep.yaml\n",
+    )
+    fetched, moved = dependencies.fetch, []
+
+    def fetch_then_move_the_head(ref, commit, *args, **kwargs):
+        storage = fetched(ref, commit, *args, **kwargs)
+        if commit == head and not moved:  # the client has fetched the commit of the `HEAD`
+            moved.append(remote.advance())
+        return storage
+
+    monkeypatch.setattr(dependencies, "fetch", fetch_then_move_the_head)
+    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    if outcome.error is not None:
+        raise outcome.error
+    assert outcome.success, outcome.document
+    (later,) = moved
+    stored = {p.name for p in (remote_host.workspace() / "xeda_run" / ".dependencies").iterdir()}
+    assert dependency_key(remote.url, pinned) in stored
+    assert dependency_key(remote.url, head) in stored
+    assert dependency_key(remote.url, later) not in stored, "the host fetched the moved HEAD"
+    rows = outcome.document["nodes"][-1]["record"]["dependencies"]
+    assert [row["commit"] for row in rows] == [pinned, head]

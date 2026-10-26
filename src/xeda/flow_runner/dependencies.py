@@ -61,7 +61,6 @@ __all__ = [
     "CHECKOUT",
     "RECORD_NAME",
     "dependency_key",
-    "dependency_pin",
     "dependency_storage",
     "fetch",
     "merged_design",
@@ -349,15 +348,8 @@ def _git_design(ref: GitReference, checkout: Path, field: str) -> Design:
     return Design.from_file(path)
 
 
-def dependency_pin(repository: str, branch: str | None, design_file: str) -> str:
-    """Return the name of a Git reference in the table of pinned commits: its repository (as
-    `redacted_url` shows it), its branch or tag as written, and its design file. The name is a
-    digest, so a table of names is a table of plain keys."""
-    text = json.dumps([repository, branch, design_file])
-    return hashlib.sha256(text.encode()).hexdigest()[:16]
-
-
-#: The commits that planning fetches instead of resolving a reference, by `dependency_pin`.
+#: The commits that planning fetches instead of resolving a reference, by the path of the entry
+#: in the tree of dependencies (`DependencyRecord.path`).
 _pinned: ContextVar[Mapping[str, str]] = ContextVar("pinned_commits", default={})
 
 
@@ -365,8 +357,11 @@ _pinned: ContextVar[Mapping[str, str]] = ContextVar("pinned_commits", default={}
 def using_pinned_commits(commits: Mapping[str, str]) -> Iterator[None]:
     """Fetch the Git dependencies that `commits` name at those commits while the block runs.
 
-    A remote host plans with the commits that the client resolved, which the package carries
-    beside the design. A reference that the table does not name is resolved as usual."""
+    `commits` maps the path of an entry in the tree of dependencies (`DependencyRecord.path`, as
+    `0` or `1-0`) to a commit. A remote host plans with the commits that the client resolved, which
+    the package carries beside the design. An entry that the table does not name, or that gives its
+    own `commit`, is resolved as usual. The client and the host walk the same tree, so a path
+    names one entry on both."""
     token = _pinned.set(dict(commits))
     try:
         yield
@@ -385,6 +380,7 @@ def _merge(
     slots: list[DependencyRecord | None],
     first: int | None,
     pins: Mapping[str, str],
+    where: tuple[int, ...] = (),
 ) -> Design:
     """Merge the dependencies of `design`, in the order they are listed.
 
@@ -400,15 +396,21 @@ def _merge(
         if isinstance(ref, GitReference):
             assert run_root is not None, "a Git dependency is fetched into a run root"
             root = run_root() if callable(run_root) else run_root
-            pinned = pins.get(
-                dependency_pin(redacted_url(ref.repo_url), ref.branch, ref.design_file)
+            path = "-".join(str(number) for number in (*where, position))
+            commit = (
+                ref.commit or pins.get(path) or resolve_reference(ref, run_root=root, field=field)
             )
-            commit = pinned or resolve_reference(ref, run_root=root, field=field)
             files = fetch(ref, commit, run_root=root, field=field)
             loaded = _git_design(ref, files, field)
             checkout = Path(os.path.realpath(files))
             slots[index] = DependencyRecord(
-                redacted_url(ref.repo_url), ref.branch, commit, ref.design_file, checkout
+                redacted_url(ref.repo_url),
+                ref.branch,
+                commit,
+                ref.design_file,
+                checkout,
+                path,
+                given=bool(ref.commit),
             )
             marked: tuple[int | None, Path | None] = (index, checkout)
         else:
@@ -416,7 +418,7 @@ def _merge(
             slots[index] = DependencyRecord(None, None, None, str(ref.uri), None)
             # its written files count by their path in its own root
             marked = (index, loaded.root_path)
-        loaded = _merge(loaded, run_root, slots, len(slots), pins)
+        loaded = _merge(loaded, run_root, slots, len(slots), pins, (*where, position))
         merged.append(MergedDependency(ref, loaded, *marked))
     resolved = tuple(slot for slot in slots if slot is not None) if first is None else ()
     return design.merged_with(merged, resolved)

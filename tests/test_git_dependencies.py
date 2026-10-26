@@ -103,8 +103,9 @@ class Remote:
 
     def advance(self) -> str:
         """Add a commit to the branch `main` of the bare repository, and return it."""
-        (self.work / "src" / "a.v").write_text("module a; wire x; endmodule\n")
-        commit = self.commit("second")
+        self.advances = getattr(self, "advances", 0) + 1
+        (self.work / "src" / "a.v").write_text(f"module a; wire x{self.advances}; endmodule\n")
+        commit = self.commit(f"advance {self.advances}")
         _git("push", "--quiet", "origin", "main", cwd=self.work)
         return commit
 

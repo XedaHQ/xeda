@@ -62,8 +62,8 @@ class LaunchRequest(XedaBaseModel):
     #: The identity text of every shipped path, by its path here and its role
     #: (`using_path_identities`).
     path_identities: Dict[str, Dict[str, str]]
-    #: The commit that the local xeda resolved each Git reference to, by
-    #: `dependency_pin` (`using_pinned_commits`). The launch fetches those commits.
+    #: The commit that the local xeda resolved each Git entry to, by the path of the entry
+    #: (`using_pinned_commits`). The launch fetches those commits.
     dependency_commits: Dict[str, str] = {}
     hashed_run_dirs: bool
     clean: bool

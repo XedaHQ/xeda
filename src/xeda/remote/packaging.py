@@ -33,7 +33,6 @@ from ..flow.flow import map_keyed_path_leaves
 from ..flow_runner.bindings import INPUTS_KEY, BindingLayer, written_bindings
 from ..flow_runner.chains import FlowRequest
 from ..flow_runner.default_runner import _get_flow_class_if_known
-from ..flow_runner.dependencies import dependency_pin
 from ..listing import VCS_METADATA, directory_files
 from ..frozen import thaw
 from ..utils import json_encodable, location_free, location_roots
@@ -58,9 +57,10 @@ class InputPackage:
     #: The directories of the inputs that hold no file, relative to the inputs directory. The
     #: remote makes them, since a manifest lists files only.
     directories: list[str] = field(default_factory=list)
-    #: The commit that this side resolved each Git reference of the design to, by
-    #: `dependency_pin`: the host fetches those commits (`using_pinned_commits`), also for the
-    #: Git dependencies of a Git dependency, which the design document does not list.
+    #: The commit that this side resolved each Git entry to that gave no `commit` of its own, by
+    #: the path of the entry in the tree of dependencies (`DependencyRecord.path`): the host
+    #: fetches those commits (`using_pinned_commits`), also for the Git dependencies of a Git
+    #: dependency, which the design document does not list.
     dependency_commits: dict[str, str] = field(default_factory=dict)
 
 
@@ -164,7 +164,14 @@ def package_inputs(
     A Git dependency travels as its reference, and the host fetches it. A local dependency is a
     file on this side only: it travels as a design document of its own, with the files and the
     generator recipe it declares, below `_dependencies/<n>` of the inputs. The host reads that
-    document where it would read the local file."""
+    document where it would read the local file.
+
+    `resolved` are the dependencies as this side resolved them (`Design.resolved_dependencies` of
+    the planned design). The package holds, beside the design document, the commit that this side
+    resolved each Git entry to that gave no `commit` of its own (`InputPackage.dependency_commits`),
+    also for the entries of a Git dependency, which the document does not list. The host fetches
+    those commits, so a branch that moves between the two plans changes nothing. The branch of an
+    entry stays as written (the provenance)."""
     host_flows = host_flows or {}
     path_identities: dict[str, dict[str, str]] = {}
     # `mode="json"`: a field kept as it is may hold a `Path`, which a python-mode dump leaves as an
@@ -414,9 +421,7 @@ def package_inputs(
 
     new_design.update(packaged_document(design, Path(".")))
     commits = {
-        dependency_pin(d.repository, d.reference, d.design_file): d.commit
-        for d in resolved
-        if d.repository is not None and d.commit
+        d.path: d.commit for d in resolved if d.repository is not None and d.commit and not d.given
     }
 
     def packaged_path(value: Any) -> Any:
