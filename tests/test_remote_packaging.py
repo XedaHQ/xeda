@@ -303,7 +303,7 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
 
     remote_dir = tmp_path / "remote_inputs"
     package = package_inputs(
-        prepared.design,
+        prepared.declared,
         prepared.sections,
         {node.name for node in prepared.plan.nodes},
         run_root=local_root,
@@ -314,7 +314,7 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
     _sync(package, remote_dir)
     remote_root = tmp_path / "remote" / "xeda_run"
     remote = DefaultRunner(remote_root, display_results=False, hashed_run_dirs=hashed)
-    loaded = load_packaged_design(remote, remote_dir / package.design_file, dry_run=True)
+    loaded = load_packaged_design(remote_dir / package.design_file)
     with using_path_identities(package.path_identities):
         remote_plan = remote.plan(flow, design=loaded)
     return package, remote_plan, remote_root, remote_dir
