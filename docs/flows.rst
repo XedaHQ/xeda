@@ -134,6 +134,14 @@ design that has no Bluespec source. A flow of a chain or of a binding is part of
 design, target or project file can keep a ``flows.<flow>`` section for any flow that Xeda knows, and
 Xeda ignores the sections of the flows that do not run. A section of a removed flow is an error.
 
+The flows of the run depend on the design. They are the flows that the plan contains, and the
+default producers that a source or a binding of the design displaced. A converter belongs to the
+run only when the design has a source that it converts. So ``-s flows.bsc.optimize=true`` is
+accepted for a design with Bluespec sources, and refused for a design with Verilog sources only.
+The same rule gives the ``did you mean -s flows.<flow>.<key>`` hint for an unknown setting. A
+``flows.<flow>`` section of a design, a target or a project file for a flow outside the run is
+ignored.
+
 A ``flows`` table maps flow names to mappings of settings, wherever it is written: in a design
 file, a target, a project file, on the command line or through the API. ``flows`` is a mapping,
 and so is each ``flows.<flow>``. Text, a number or a list in either place is an error that names

@@ -159,12 +159,13 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   Put the design before `-s`, or end the options with `--`.
 - A dotted key reaches a nested setting. `-s flows.<flow>.<key>=<value>` sets any flow of the run (a
   producer too); `-s <key>` and `-s flows.<requested>.<key>` are one setting.
+  The flows of the run follow the design: the plan's nodes and the default producers that a source
+  or binding displaced. A converter (`bsc`) counts only if the design has a source it converts.
 - Sections for flows outside the run differ by layer. A file (design, target, project) may keep a
   `flows.<flow>` for any known flow (a removed flow is an error): it is ignored, with the INFO line
   `<flow> is not part of this run: its settings are unused` for a default producer that a source or
-  binding displaced and no line for other flows. `-s flows.<flow>.*` must name the requested flow, a
-  flow of the chain or bindings, or a default producer, else `unknown_flow`. A converter counts as a default producer (`bsc` for any flow that reads
-  Verilog), so `-s flows.bsc.<key>` passes a run of a SystemVerilog design, checked but unused.
+  binding displaced and no line for other flows. `-s flows.<flow>.*` must name a flow of the run,
+  else `unknown_flow`: `-s flows.bsc.<key>` on a design without Bluespec sources is refused.
 - A setting of a settings group has a dotted name, such as `abc.strategy` or
   `sequential.clock_gating.enabled` for `yosys`. Its `tier` (`common`, `advanced` or
   `expert`) says how often a user needs it; it affects the listing, never what Xeda

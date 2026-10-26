@@ -1233,7 +1233,7 @@ class FlowLauncher:
         runner_cwd = Path.cwd()
         if plan is None:
             request = self._request_context
-            run_flows = {flow_name, *transitive_dependencies(flow_class)}
+            run_flows = {flow_name, *transitive_dependencies(flow_class, design)}
             plan = self.resolve(
                 flow_class,
                 design,
@@ -2279,6 +2279,7 @@ class FlowLauncher:
                 request.flow_request,
                 request.settings,
                 request.sections,
+                request.design,
                 design_root=request.design.root,
                 runner_cwd=self._start,
             )
@@ -2313,6 +2314,7 @@ class FlowLauncher:
             flow_request or FlowRequest((ChainElement(flow_class),)),
             requested,
             merge_flow_sections(own, given, flow_class_for=_get_flow_class_if_known),
+            design,
             design_root=design.root,
             runner_cwd=self._start,
         )
@@ -2566,7 +2568,10 @@ class FlowLauncher:
             and len(flow_request.elements) == 1
         ):
             command_line_sections(
-                explicit_flow_settings, flow_class, flow_class_for=_get_flow_class_if_known
+                explicit_flow_settings,
+                flow_class,
+                design,
+                flow_class_for=_get_flow_class_if_known,
             )
         file_origins = [
             *([user_sections] if user_sections else []),

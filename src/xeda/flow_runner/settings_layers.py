@@ -54,6 +54,7 @@ from ..dataclass import (
     opaque_key_paths,
     table_entries,
 )
+from ..design import Design
 from ..errors import FlowNotFoundError as PublicFlowNotFoundError
 from ..flow import Flow, FlowSettingsError, registered_flows
 from ..flow.io import declared_inputs
@@ -629,15 +630,16 @@ def command_line_table(requested: str, items: Iterable[str]) -> dict[str, Any]:
 def check_run_flows(
     sections: Mapping[str, Any],
     flow_cls: type[Flow],
+    design: Design,
     run_flows: Collection[str] | None = None,
 ) -> None:
     """Refuse a `flows.<name>` section of the command line that names a flow outside this run.
 
-    The sections may name only the flows of this run: the requested flow and its transitive
-    declared producers, or `run_flows` when the resolver knows the graph (an explicit binding
-    can reach a flow outside the default one). Any other name is an error with the close matches
-    among them."""
-    run_flows = sorted({flow_cls.name, *(run_flows or transitive_dependencies(flow_cls))})
+    The sections may name only the flows of this run: the requested flow and the flows below it
+    in a run on `design` (`transitive_dependencies`), or `run_flows` when the resolver knows the
+    graph (an explicit binding can reach a flow outside the default one). Any other name is an
+    error with the close matches among them."""
+    run_flows = sorted({flow_cls.name, *(run_flows or transitive_dependencies(flow_cls, design))})
     unknown = [name for name in sections if name not in run_flows]
     if unknown:
         raise FlowSettingsError(
@@ -661,6 +663,7 @@ def check_run_flows(
 def command_line_sections(
     layer: Mapping[str, Any],
     flow_cls: type[Flow],
+    design: Design,
     flow_class_for: Callable[[str], Any | None] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """Return `(sections, own)` of the command line for a run of `flow_cls`.
@@ -668,7 +671,7 @@ def command_line_sections(
     That is `split_flow_sections`, then `check_run_flows`. Local and remote runs both take the
     command line through this function."""
     sections, own = split_flow_sections(layer, flow_cls.name, flow_class_for)
-    check_run_flows(sections, flow_cls)
+    check_run_flows(sections, flow_cls, design)
     return sections, own
 
 
@@ -678,22 +681,32 @@ def registered_flow(name: str) -> type[Flow] | None:
     return None if found is None else found[1]
 
 
-def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
-    """Return the flows of the declared default producers, transitively, in one traversal.
+def transitive_dependencies(flow_cls: type[Flow], design: Design) -> dict[str, type[Flow]]:
+    """Return the flows that a run of `flow_cls` on `design` may plan below `flow_cls`.
 
-    A converter flow that can feed the `design` input of a flow is a producer of it too
-    (`chains.converter_edges`), so `-s flows.bsc.<setting>` names a flow of a run of `yosys`."""
-    from .chains import converter_edges
+    These are the declared default producers, transitively, and the converters of the `design`
+    input that the design needs: a converter is in the set only if `design` has a source that it
+    converts (`chains.converting_edges`). So `-s flows.bsc.<setting>` names a flow of a run of
+    `yosys` on a design with Bluespec sources, and no flow of a run on a design without any. The
+    sources of a dependency that is not merged yet are unknown: until then, every converter that
+    could feed a flow is in the set, and planning checks again with the merged design."""
+    from .chains import converter_edges, converting_edges
 
+    sources_unknown = bool(design.dependencies) and not design.resolved_dependencies
     found: dict[str, type[Flow]] = {}
     visited = {flow_cls.name}
 
     def visit(cls: type[Flow]) -> None:
+        edges = (
+            converter_edges(cls)
+            if sources_unknown
+            else [edge for edge, _converted in converting_edges(cls, design)]
+        )
         dependencies = [
             registered_flow(declaration.producer)
             for declaration in declared_inputs(cls).values()
             if declaration.producer is not None
-        ] + [edge.producer for edge in converter_edges(cls)]
+        ] + [edge.producer for edge in edges]
         for dependency in dependencies:
             if dependency is not None and dependency.name not in visited:
                 visited.add(dependency.name)
@@ -787,9 +800,12 @@ def settings_in_context(
     return given.model_copy(deep=True)
 
 
-def suggest_dependency_node(flow_cls: type[Flow], error: FlowSettingsError) -> None:
-    """Suggest `-s flows.<node>.key` when an unknown root setting belongs to a producer."""
-    dependencies = transitive_dependencies(flow_cls)
+def suggest_dependency_node(flow_cls: type[Flow], design: Design, error: FlowSettingsError) -> None:
+    """Suggest `-s flows.<node>.key` when an unknown root setting belongs to a producer.
+
+    The producers are the flows below `flow_cls` in a run on `design` (`transitive_dependencies`).
+    """
+    dependencies = transitive_dependencies(flow_cls, design)
     suggested = []
     for location, message, context, kind in error.errors:
         # A hint for a name in another case already names the setting this flow has.

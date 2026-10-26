@@ -865,10 +865,12 @@ def test_the_settings_of_a_group_are_independent_copies(toy_flow):
     assert second.toy.items == []
 
 
-def test_a_hint_for_another_case_wins_over_the_hint_for_a_producer():
+def test_a_hint_for_another_case_wins_over_the_hint_for_a_producer(tmp_path):
+    from xeda import Design
     from xeda.flows import Nextpnr, YosysFpga
     from xeda.flow_runner.settings_layers import suggest_dependency_node
 
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     producer_only = next(
         name
         for name in YosysFpga.Settings.model_fields
@@ -877,14 +879,14 @@ def test_a_hint_for_another_case_wins_over_the_hint_for_a_producer():
     plain = FlowSettingsError(
         [(producer_only, "Extra inputs are not permitted", "", "extra_forbidden")], Nextpnr.Settings
     )
-    suggest_dependency_node(Nextpnr, plain)
+    suggest_dependency_node(Nextpnr, design, plain)
     assert "flows.yosys_fpga" in plain.errors[0][1]
 
     hinted_message = "Extra inputs are not permitted; did you mean `other`?"
     hinted = FlowSettingsError(
         [(producer_only, hinted_message, "", "extra_forbidden")], Nextpnr.Settings
     )
-    suggest_dependency_node(Nextpnr, hinted)
+    suggest_dependency_node(Nextpnr, design, hinted)
     assert hinted.errors[0][1] == hinted_message
 
 

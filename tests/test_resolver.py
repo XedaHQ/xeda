@@ -202,10 +202,11 @@ def test_a_missing_required_setting_names_the_requested_flow_first(tmp_path):
         _plan(tmp_path, _Place)
 
 
-def test_a_declared_producer_is_a_flow_the_command_line_may_address():
-    assert set(transitive_dependencies(_Taker)) == {"__maker"}
-    assert set(transitive_dependencies(_Place)) == {"__synth"}
-    assert _Maker.name in transitive_dependencies(_Taker)
+def test_a_declared_producer_is_a_flow_the_command_line_may_address(tmp_path):
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
+    assert set(transitive_dependencies(_Taker, design)) == {"__maker"}
+    assert set(transitive_dependencies(_Place, design)) == {"__synth"}
+    assert _Maker.name in transitive_dependencies(_Taker, design)
 
 
 @pytest.fixture(autouse=True)
@@ -757,7 +758,8 @@ def test_a_cycle_is_reported_by_one_finite_walk(tmp_path):
         def run(self):
             pass
 
-    assert list(transitive_dependencies(_CycleA)) == ["__cycle_b"]
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
+    assert list(transitive_dependencies(_CycleA, design)) == ["__cycle_b"]
     with pytest.raises(FlowSettingsException, match="__cycle_a -> __cycle_b -> __cycle_a"):
         _plan(tmp_path, _CycleA)
 

@@ -24,7 +24,7 @@ from typing import Any, Literal
 
 from ..board import WithFpgaBoardSettings
 from ..dataclass import BaseModel, expand_forms
-from ..design import LANGUAGE_TYPES, Design
+from ..design import Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
 from ..flow.derived import DesignConversion, planned_design
@@ -50,7 +50,7 @@ from .bindings import (
 )
 from .chains import (
     FlowRequest,
-    converter_edges,
+    converting_edges,
     default_graph,
     design_edge_refusal,
     fitting_outputs,
@@ -733,11 +733,15 @@ def check_settings_without_design(
     flow_request: FlowRequest,
     settings: Mapping[str, Any] | Flow.Settings,
     sections: Mapping[str, Any],
+    design: Design,
     *,
     design_root: Path,
     runner_cwd: Path,
 ) -> None:
     """Check the settings of every flow that a request may use, before planning reads the design.
+
+    `design` is the design before its dependencies merge: it tells which converters a request may
+    use (`settings_layers.transitive_dependencies`).
 
     These are the checks that a design cannot change. For each flow that the request may use, a
     setting that no flow has and a value of the wrong type. They run on the settings without
@@ -751,7 +755,7 @@ def check_settings_without_design(
     flows: dict[str, type[Flow]] = {}
     for element in flow_request.elements:
         flows[element.flow_class.name] = element.flow_class
-        flows.update(transitive_dependencies(element.flow_class))
+        flows.update(transitive_dependencies(element.flow_class, design))
     for name, flow_cls in flows.items():
         if flow_cls is requested:
             given = settings
@@ -776,12 +780,12 @@ def check_settings_without_design(
                     error.refuses_support = True
                     raise
         except FlowSettingsError as error:
-            suggest_dependency_node(requested, error)
+            suggest_dependency_node(requested, design, error)
             raise
 
 
 def _shared_locations(
-    raw: _Located, cls: type[Flow], context: dict[str, Any]
+    raw: _Located, cls: type[Flow], design: Design, context: dict[str, Any]
 ) -> dict[tuple[str, ...], _Leaf]:
     """Return the shared leaves of a composed mapping, as validated models read them.
 
@@ -789,7 +793,7 @@ def _shared_locations(
     try:
         settings_in_context(cls, _nonshared_input(cls, raw.values), **context)
     except FlowSettingsError as error:
-        suggest_dependency_node(cls, error)
+        suggest_dependency_node(cls, design, error)
         raise
     request = _Request(cls, raw, cls.name)
     result = {}
@@ -999,27 +1003,12 @@ def converting_flow(cls: type[Flow], design: Design) -> tuple[type[Flow], str, s
     """Return the converter that supplies the unbound `design` input of `cls`, or None.
 
     The rule has one hop and looks at `rtl` only. A flow with a design output itself gets no
-    conversion. The languages of `rtl.sources` that `cls` does not read are the unread ones.
-    The registered converters that convert one of them and write only languages that `cls` reads
-    fit (`chains.converter_edges`, from the declarations alone). None fits: the design input stays
-    unbound and the flow refuses the language itself. One fits: it is the producer, with the
+    conversion. The registered converters that convert a language of `rtl.sources` that `cls` does
+    not read, and write only languages that `cls` reads, fit (`chains.converting_edges`). None
+    fits: the design input stays unbound and the flow refuses the language itself. One fits: it is the producer, with the
     output it makes and the reason. More than one fits: the request is ambiguous and the error
     names the choices."""
-    reads = cls.reads_sources
-    if reads is None:
-        return None
-    unread = {
-        source.type
-        for source in design.rtl.sources
-        if source.type in LANGUAGE_TYPES and source.type not in reads
-    }
-    if not unread:
-        return None
-    fitting = []
-    for edge in converter_edges(cls):
-        conversion = edge.producer.design_conversion(edge.producer.Settings())
-        if conversion is not None and conversion.transforms & unread:
-            fitting.append((edge, conversion.transforms & unread))
+    fitting = converting_edges(cls, design)
     if not fitting:
         return None
     if len(fitting) > 1:
@@ -1092,8 +1081,8 @@ def resolve(
         _explicit(settings) if settings is not None else {}, flow_cls, API_ORIGIN, "api"
     )
     known = _leaves(root_raw.values)
-    normalized_known = _shared_locations(root_raw, flow_cls, context)
-    normalized_supplied = _shared_locations(supplied, flow_cls, context)
+    normalized_known = _shared_locations(root_raw, flow_cls, design, context)
+    normalized_supplied = _shared_locations(supplied, flow_cls, design, context)
     supplied.locations = {
         path: root_raw.locations.get(path, loc) if known.get(path) == supplied_leaves[path] else loc
         for path, loc in supplied.locations.items()
@@ -1444,13 +1433,13 @@ def resolve(
         for request in requests
     )
     active = {request.cls.name: request.cls for request in requests}
-    default_flows = {**transitive_dependencies(flow_cls)}
+    default_flows = {**transitive_dependencies(flow_cls, design)}
     for active_cls in active.values():
-        default_flows.update(transitive_dependencies(active_cls))
+        default_flows.update(transitive_dependencies(active_cls, design))
     if cli_sections:
         # `-s flows.<node>.*` may name a node of the resolved graph, or a default producer a
         # source or binding displaced (its settings are then unused, as in a file).
-        check_run_flows(cli_sections, flow_cls, run_flows={*active, *default_flows})
+        check_run_flows(cli_sections, flow_cls, design, run_flows={*active, *default_flows})
     for unused_name, unused_cls in default_flows.items():
         if unused_name not in active:
             unused = compose_flow_settings(unused_cls, [values for _label, values, _kind in layers])
@@ -1467,7 +1456,7 @@ def resolve(
         try:
             request.settings = settings_in_context(request.cls, request.raw.values, **context)
         except FlowSettingsError as error:
-            suggest_dependency_node(request.cls, error)
+            suggest_dependency_node(request.cls, design, error)
             raise
         switched = []
         for name in declared_outputs(request.cls):

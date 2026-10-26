@@ -384,12 +384,17 @@ def test_a_converter_edge_follows_the_conversion_of_each_converter() -> None:
     assert [edge.producer for edge in converter_edges(GhdlSim)] == [to_vhdl]
 
 
-def test_a_flow_of_the_run_may_be_set_on_the_command_line_with_its_converter() -> None:
-    """`-s flows.bsc.<setting>` names a flow of a run of `yosys`, as it does in the chain."""
-    assert "bsc" in transitive_dependencies(Yosys)
-    assert "bsc" in transitive_dependencies(Nextpnr)
-    assert "bsc" in transitive_dependencies(Verilator)
-    assert "bsc" not in transitive_dependencies(BscSim)
+def test_a_flow_of_the_run_may_be_set_on_the_command_line_with_its_converter(tmp_path) -> None:
+    """`-s flows.bsc.<setting>` names a flow of a run of `yosys` on a design with Bluespec sources,
+    as it does in the chain, and no flow of a run on a design without any."""
+    bluespec = _bluespec_design(tmp_path)
+    assert "bsc" in transitive_dependencies(Yosys, bluespec)
+    assert "bsc" in transitive_dependencies(Nextpnr, bluespec)
+    assert "bsc" in transitive_dependencies(Verilator, bluespec)
+    assert "bsc" not in transitive_dependencies(BscSim, bluespec)
+    verilog = _verilog_design(tmp_path)
+    for consumer in (Yosys, Nextpnr, Verilator):
+        assert "bsc" not in transitive_dependencies(consumer, verilog)
 
 
 # ------------------------------------------------------------------------ chains

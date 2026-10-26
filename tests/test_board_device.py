@@ -110,11 +110,15 @@ def _requests() -> list[tuple[str, list[str]]]:
     return [(request, _board_nodes(request)) for request in found]
 
 
+#: A design with no source: no converter is a producer of any flow of a request.
+NO_SOURCES = Design(name="d", root=Path(__file__).parent, rtl={"sources": [], "top": "t"})
+
+
 def _board_nodes(request: str) -> list[str]:
     """The board-aware flows of `request`'s graph: its own flows and the default producers of
     the first, the only one whose input the chain does not bind."""
     elements = parse_request(request).elements
-    flows = [*transitive_dependencies(elements[0].flow_class).values()]
+    flows = [*transitive_dependencies(elements[0].flow_class, NO_SOURCES).values()]
     flows += [element.flow_class for element in elements]
     return [cls.name for cls in flows if "board" in cls.Settings.model_fields]
 

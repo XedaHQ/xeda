@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..design import SourceType
+from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..flow import Flow, FlowSettingsException, registered_flows
 from ..flow.derived import DesignConversion
 from ..flow.io import declared_inputs, declared_outputs, kinds_text
@@ -41,6 +41,7 @@ __all__ = [
     "close_names",
     "complete_request",
     "converter_edges",
+    "converting_edges",
     "default_conversion",
     "default_graph",
     "design_edge_refusal",
@@ -612,6 +613,33 @@ def converter_edges(consumer: type[Flow]) -> list[DefaultEdge]:
         if conversion is None or (conversion.produces <= reads and conversion.transforms - reads):
             found.append(DefaultEdge(consumer, declaration.name, converter, output))
     return found
+
+
+def converting_edges(
+    consumer: type[Flow], design: Design
+) -> list[tuple[DefaultEdge, frozenset[SourceType]]]:
+    """Return the converters that fit `consumer` and the languages of `design` they convert.
+
+    The rule has one hop and looks at `rtl` only. The languages of `rtl.sources` that `consumer`
+    does not read are the unread ones. A converter of `converter_edges` fits when its conversion
+    under the default settings transforms one of them. Each result is an edge and the unread
+    languages that the converter converts. A flow that reads no design sources has none."""
+    reads = consumer.reads_sources
+    if reads is None:
+        return []
+    unread = {
+        source.type
+        for source in design.rtl.sources
+        if source.type in LANGUAGE_TYPES and source.type not in reads
+    }
+    if not unread:
+        return []
+    fitting = []
+    for edge in converter_edges(consumer):
+        conversion = default_conversion(edge.producer)
+        if conversion is not None and conversion.transforms & unread:
+            fitting.append((edge, frozenset(conversion.transforms & unread)))
+    return fitting
 
 
 @lru_cache(maxsize=8)
