@@ -1688,10 +1688,12 @@ class Generator(XedaBaseModel):
 
     def lookup_directory(self, design_root: Path) -> Path:
         """Return the directory that a relative executable and a relative `PATH` entry resolve
-        against: `cwd` below the design root, else the design root.
+        against: `cwd` below the design root, else the design root. `cwd` counts as the load
+        check reads it, normalized (`build/../work` is `work`), so no other directory on its
+        way needs to exist.
 
         It does not depend on the storage, so the identity of a generation does not either."""
-        return design_root if self.cwd is None else design_root / self.cwd
+        return design_root if self.cwd is None else design_root / os.path.normpath(self.cwd)
 
     def working_directory(self, design_root: Path, storage: Path) -> Path:
         """Return the directory that the generator runs in.
@@ -1699,7 +1701,7 @@ class Generator(XedaBaseModel):
         That is `cwd` below the design root, else the storage that holds its output. A generator
         that needs its project (Chisel) runs in the design root unless `cwd` says otherwise."""
         if self.cwd is not None:
-            return design_root / self.cwd
+            return self.lookup_directory(design_root)
         return design_root if self.runs_in_design_root else storage
 
     def _words(

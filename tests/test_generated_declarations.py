@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import DesignValidationError, SourceType
+from xeda.design import DesignValidationError, SourceType, generator_of
 
 
 def _design(root: Path, sources, generated_sources=None, **recipe) -> Design:
@@ -204,6 +204,17 @@ def test_a_generator_cwd_outside_the_design_root_is_refused_when_the_design_load
 def test_a_generator_cwd_below_the_design_root_is_accepted(tmp_path, cwd):
     design = _design(tmp_path, ["gen/top.v"], cwd=cwd)
     assert design.rtl.generator is not None
+
+
+def test_a_generator_starts_in_its_cwd_as_the_check_reads_it(tmp_path):
+    """`build/../work` is `work`: the generator starts there, also when `build` does not exist
+    (on the remote host, only `work` is made)."""
+    design = _design(tmp_path, ["gen/top.v"], cwd="build/../work")
+    generator = generator_of(design.rtl, root=design.root_path)
+    assert generator is not None
+    storage = tmp_path / "storage"
+    assert generator.working_directory(tmp_path, storage) == tmp_path / "work"
+    assert generator.lookup_directory(tmp_path) == tmp_path / "work"
 
 
 def test_a_dependency_generator_cwd_is_judged_against_the_root_of_the_dependency(tmp_path):
