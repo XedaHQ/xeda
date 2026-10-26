@@ -452,7 +452,8 @@ def scrub_design(
     are only those in `<design_dir>/<target>`. What is on disk decides (`_target_parents`). No
     design file is read, so a target that the design no longer names is found, and one that was
     never built is nothing to do. A link named like a run directory that is none
-    (`run_directory_problem`) is not listed: it is logged, and returned as `skipped` with its reason. A `target` that is no target name is a `RunDirectoryError`, before anything is
+    (`run_directory_problem`) is not listed: it is logged, and returned as `skipped` with its
+    reason. A `target` that is no target name is a `RunDirectoryError`, before anything is
     looked at. So is a symbolic link at the design or the named target (`refuse_link_on_way`);
     the error names it. A link found at a target below the design is not followed: it is logged
     and returned as `skipped`."""

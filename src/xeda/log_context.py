@@ -66,7 +66,8 @@ def launch_context() -> Iterator[str]:
 
 
 def tag_launch_id(error: BaseException, launch_id: str) -> None:
-    """Note on `error`, which leaves a launch, the id of that launch (the first launch to tag it)."""
+    """Note on `error`, which leaves a launch, the id of that launch. The first launch to tag it
+    wins."""
     if not hasattr(error, "xeda_launch_id"):
         try:
             error.xeda_launch_id = launch_id  # type: ignore[attr-defined]

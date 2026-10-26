@@ -468,8 +468,8 @@ Behavior:
   `--keep-running` with `--dry-run`.
 - The mirror is `<run root>/@<host>/<design>[/<target>]/<flow>[_<hash>]`, `<host>` being the text of
   `--remote` with each character outside `[A-Za-z0-9._@-]` replaced by `_`. Every flow of the plan
-  gets `results.json`, `settings.json`, the top-level `*.log` files, `logs/*.log` and `reports/`; the requested
-  flow also its declared outputs and artifacts. A failed flow returns only the files its run wrote.
+  gets `results.json`, `settings.json`, the top-level `*.log` files, `logs/*.log` and `reports/`;
+  the requested flow also its declared outputs and artifacts. A failed flow returns only the files its run wrote.
   An artifact outside the run directory never comes back; the results keep its path on the host.
   An artifact that a symbolic link leads out of the run directory does not come back either: the
   results name its place in the mirror, where no file lies, and `--outputs-to` skips it.
