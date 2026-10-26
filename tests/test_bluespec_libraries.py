@@ -8,6 +8,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.dependencies import merged_design
 from xeda.flows import Bsc, BscSim
 
 from .design_edits import with_updates
@@ -127,7 +128,7 @@ LIBRARIES = [
 
 @pytest.mark.parametrize("path,rtl_sources,target,top,tb_sources", LIBRARIES)
 def test_library_default_is_bench_free(path, rtl_sources, target, top, tb_sources):
-    design = Design.from_file(EXAMPLES / path)
+    design = merged_design(Design.from_file(EXAMPLES / path), run_root=None)
 
     assert [source.file.name for source in design.rtl.sources] == rtl_sources
     assert design.rtl.top is None
@@ -137,7 +138,7 @@ def test_library_default_is_bench_free(path, rtl_sources, target, top, tb_source
 
 @pytest.mark.parametrize("path,rtl_sources,target,top,tb_sources", LIBRARIES)
 def test_library_test_target_selects_existing_sources(path, rtl_sources, target, top, tb_sources):
-    design = Design.from_file(EXAMPLES / path, target=target)
+    design = merged_design(Design.from_file(EXAMPLES / path, target=target), run_root=None)
 
     assert design.rtl.sources
     assert list(design.tb.top) == [top] or design.rtl.top == top
