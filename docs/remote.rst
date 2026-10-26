@@ -11,9 +11,9 @@ a chain, bindings, a target, ``--outputs-to`` and ``--dry-run``.
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --remote cluster
 
 ``HOST`` is any OpenSSH destination: an alias from ``~/.ssh/config``, ``user@host`` or
-``ssh://user@host:port``. The ``XEDA_REMOTE`` environment variable gives the same value. When
-``XEDA_REMOTE`` is unset or empty, or ``--remote`` is empty, the request runs locally. A script that
-must run locally can unset the variable: ``env -u XEDA_REMOTE xeda run ...``. The host
+``ssh://user@host:port``. The ``XEDA_REMOTE`` environment variable gives the same value. An empty
+``XEDA_REMOTE`` is the same as an unset one, and the request runs locally. So a script that must run
+locally can run ``XEDA_REMOTE= xeda run ...``. An empty ``--remote`` is a usage error. The host
 needs no Xeda. The first run installs it under one directory of the host (see `The first run`_).
 The results arrive in ``<run root>/@HOST/`` (see `The local mirror`_).
 

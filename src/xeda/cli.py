@@ -1034,6 +1034,15 @@ def run(
             )
         sys.exit(1)
 
+    if remote == "":
+        # An empty `XEDA_REMOTE` is the same as an unset one. An empty `--remote` is a mistake:
+        # the option names a host.
+        if ctx.get_parameter_source("remote") is not ParameterSource.ENVIRONMENT:
+            raise click.UsageError(
+                "`--remote` needs a host, such as `user@host`; leave it out to run locally",
+                ctx=ctx,
+            )
+        remote = None
     if fetch_all and not remote:
         raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
     if keep_running and not remote:
