@@ -105,7 +105,7 @@ def test_a_record_with_several_rows_for_one_input_is_still_a_record(tmp_path):
     run = _run_dir(tmp_path)
     rows = [_input_row("more", name) for name in ("right", "left", "right")]
     node = _node(run, named=True, outputs={"netlist": ["other/x.v"]}, inputs=rows)
-    selected = select_fetch(tmp_path, [node], fetch_all=False)
+    selected = select_fetch(tmp_path, [node], fetch_all=False).files
     assert "d/flow/other/x.v" in selected
 
 
