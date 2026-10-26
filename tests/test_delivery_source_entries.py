@@ -244,3 +244,49 @@ def test_the_entry_of_a_source_is_private_and_no_part_of_its_identity(tmp_path):
             for d in (by_name, by_pattern)
         ]
     assert hashes[0] == hashes[1]
+
+
+# ---------------------------------------------------------------- every declared entry stays
+
+
+def test_a_pattern_whose_matches_are_all_listed_already_stays_an_entry(tmp_path, deliverer):
+    """`src/*.v` matches only `seed.v` today, and `seed.v` is listed once already. The pattern
+    still reads `src/new.v` on the next load."""
+    root = tmp_path / "design"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "seed.v").write_text("module seed; endmodule\n")
+    design = Design(
+        name="d", design_root=root, rtl={"sources": ["src/seed.v", "src/*.v"], "top": "seed"}
+    )
+    assert [e.text for e in design.source_entries()] == ["src/seed.v", "src/*.v"]
+    target = root / "src" / "new.v"
+    with pytest.raises(DeliveryError, match=r"`src/\*.v` entry of `rtl.sources`"):
+        _launch(tmp_path, deliverer, design, target)
+    assert not RUNS and not target.exists()
+
+
+def test_an_entry_of_a_dependency_stays_when_the_design_lists_the_file_first(tmp_path, deliverer):
+    root = tmp_path / "design"
+    (root / "dep" / "lib").mkdir(parents=True)
+    (root / "dep" / "lib" / "a.v").write_text("module a; endmodule\n")
+    (root / "dep" / "dep.yaml").write_text("name: dep\nrtl:\n  sources: [lib/*.v]\n  top: a\n")
+    (root / "top.v").write_text("module top; endmodule\n")
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": ["top.v", "dep/lib/a.v"], "top": "top"},
+        dependencies=["dep/dep.yaml"],
+    )
+    assert sorted(s.path.name for s in design.rtl.sources) == ["a.v", "top.v"], "listed once"
+    with pytest.raises(DeliveryError, match=r"`lib/\*.v` entry of `rtl.sources`"):
+        _launch(tmp_path, deliverer, design, root / "dep" / "lib" / "new.v")
+
+
+def test_a_file_listed_twice_stays_one_source_and_the_entries_are_no_identity(tmp_path):
+    root = tmp_path / "design"
+    _tree(root)
+    once = Design(name="d", design_root=root, rtl={"sources": ["src/a.v"], "top": "a"})
+    twice = Design(name="d", design_root=root, rtl={"sources": ["src/a.v", "src/*.v"], "top": "a"})
+    assert once.rtl.sources == twice.rtl.sources and len(twice.rtl.sources) == 1
+    assert once.rtl.sources[0].as_json_value() == twice.rtl.sources[0].as_json_value()
+    assert len(twice.source_entries()) == 2

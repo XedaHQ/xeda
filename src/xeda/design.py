@@ -17,6 +17,7 @@ import tomllib
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
+from copy import copy as shallow_copy
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
@@ -440,13 +441,12 @@ class FileResource:
     file: Path
     _specified_path: Path
     _checked: bool
-    #: The entry of a design file that named this file, as written: a name or a pattern
-    #: (`src/*.v`). `_entry_root` is the directory it resolves against. A generated source
-    #: belongs to the output of a producer, so it has neither (None). They are private: they
-    #: are no part of the equality, the hash, the JSON value or any identity of a source, and
-    #: `Design.source_entries` is the only reader.
-    _entry: str | None
-    _entry_root: Path | None
+    #: The entries of a design file that named this file, each as written (a name or a pattern
+    #: such as `src/*.v`) with the directory it resolves against. A file that two entries name is
+    #: one source, and it keeps both. A generated source belongs to the output of a producer, so
+    #: it has none. The entries are private: they are no part of the equality, the hash, the JSON
+    #: value or any identity of a source, and `Design.source_entries` is the only reader.
+    _entries: tuple[tuple[str, Path], ...]
 
     def __setattr__(self, name: str, value: Any) -> None:
         raise AttributeError(f"a {type(self).__name__} is read-only: cannot set `{name}`")
@@ -504,8 +504,7 @@ class FileResource:
         #: True for a file that must exist (`file`), false for one that need not exist yet (`path`).
         attributes["_checked"] = bool(resolve)
         # The entry that named the file: the pattern that matched it, else the path as written.
-        attributes["_entry"] = _entry if _entry is not None else str(specified_path)
-        attributes["_entry_root"] = root
+        attributes["_entries"] = ((_entry if _entry is not None else str(specified_path), root),)
 
     @property
     def path(self) -> Path:
@@ -1041,7 +1040,7 @@ class Source(FileResource):
         attributes["dependency"] = None
         attributes["dependency_place"] = None
         if generated:
-            attributes["_entry"] = attributes["_entry_root"] = None
+            attributes["_entries"] = ()
 
     @classmethod
     def declaration(
@@ -1057,8 +1056,7 @@ class Source(FileResource):
         attributes["file"] = None
         attributes["_specified_path"] = Path(name)
         attributes["_checked"] = False
-        attributes["_entry"] = None
-        attributes["_entry_root"] = None
+        attributes["_entries"] = ()
         attributes["type"] = typ
         attributes["_stated"] = {"type": str(typ)} if stated else {}
         attributes["generated"] = True
@@ -1252,12 +1250,27 @@ def already_listed(sources: Iterable[Source], source: Source) -> bool:
     )
 
 
+def _list_source(sources: list[Source], source: Source) -> None:
+    """Append `source` to `sources`, unless its file is listed already. The listed source then
+    keeps the entries of `source` as well, in a copy of its own: the listed source may belong to
+    another design (a dependency), and a source never changes."""
+    for index, listed in enumerate(sources):
+        if already_listed([listed], source):
+            extra = tuple(entry for entry in source._entries if entry not in listed._entries)
+            if extra:
+                merged = shallow_copy(listed)
+                vars(merged)["_entries"] = (*listed._entries, *extra)
+                sources[index] = merged
+            return
+    sources.append(source)
+
+
 def _distinct_sources(sources: Iterable[Source]) -> list[Source]:
-    """Return `sources` in order, with a file that is listed twice kept once, at its first place."""
+    """Return `sources` in order, with a file that is listed twice kept once, at its first place.
+    The source that is kept names every entry that listed the file."""
     kept: list[Source] = []
     for source in sources:
-        if not already_listed(kept, source):
-            kept.append(source)
+        _list_source(kept, source)
     return kept
 
 
@@ -1523,9 +1536,6 @@ class DesignPart(XedaBaseModel):
         value = as_source_list(value)
         sources: List[Source] = []
 
-        def source_already_exists(src: Source) -> bool:
-            return already_listed(sources, src)
-
         if not isinstance(value, (list, tuple, set)):
             raise ValueError(
                 f"'sources' must be a list of source files, got {type(value).__name__}: {value!r}"
@@ -1536,7 +1546,8 @@ class DesignPart(XedaBaseModel):
                 if _is_source_pattern(src):
                     glob_sources = _expand_source_glob(src, design_relative_root())
                     srcs = [Source(s, typ=src_type, _entry=src) for s in glob_sources]
-                    sources.extend(s for s in srcs if not source_already_exists(s))
+                    for matched in srcs:
+                        _list_source(sources, matched)
                     continue  # skip the append at the bottom
                 src = src_with_type(src, src_type)
             if not isinstance(src, Source):
@@ -1552,8 +1563,7 @@ class DesignPart(XedaBaseModel):
                         f"source file does not exist: {e.filename} (give a source that a "
                         "generator writes later as a table, in YAML `{path: <file>}`)"
                     ) from e
-            if not source_already_exists(src):
-                sources.append(src)
+            _list_source(sources, src)
         return sources
 
 
@@ -3808,8 +3818,8 @@ class Design(XedaBaseModel):
         found: dict[tuple[str, str, Path], None] = {}
         for part in _DESIGN_PART_ORDER:
             for source in getattr(self, part).sources:
-                if source._entry is not None and source._entry_root is not None:
-                    found[(f"{part}.sources", source._entry, source._entry_root)] = None
+                for text, entry_root in source._entries:
+                    found[(f"{part}.sources", text, entry_root)] = None
         for unit in (*self.generation_units, self):
             recipe = unit.rtl.generator
             if recipe is None:
