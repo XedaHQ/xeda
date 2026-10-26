@@ -266,8 +266,7 @@
      "time": 5000,
      "time_unit": "1000fs"
     },
-    "sim.time": 5000,
-    "sim.time_unit": "1000fs",
+    "sim.time": 5000000,
     "sim.warnings": 0,
     "success": true,
     "tools": [

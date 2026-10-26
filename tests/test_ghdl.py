@@ -338,9 +338,8 @@ def test_ghdl_runtime_evidence(tmp_path, body, clock, settings, passes, ended, t
     if isinstance(time, tuple):
         assert flow.results["sim.time"] in time
     else:
-        assert flow.results["sim.time"] == time
-    if time is not None:
-        assert flow.results["sim.time_unit"] == "1fs"
+        assert flow.results.get("sim.time") == time
+    assert "sim.time_unit" not in flow.results
     saved = json.loads((flow.run_path / "results.json").read_text())
     assert saved["sim.evidence"] == flow.results["sim.evidence"]
     assert (flow.run_path / "sim.log").exists()

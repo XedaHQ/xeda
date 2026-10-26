@@ -1,6 +1,6 @@
 """Check that a written value has the type that its descriptor declares."""
 
-from typing import Any, Callable, Dict, Mapping, Type
+from typing import Any, Callable, Dict, Iterable, Mapping, Type
 
 from xeda.flow import Flow, MetricSpec
 
@@ -32,9 +32,33 @@ VALUE_TESTS: Dict[str, Callable[[Any], bool]] = {
 }
 
 
+#: The keys that every run has, whatever the flow describes.
+RUN_KEYS = frozenset({"success", "tools", "artifacts", "runtime"})
+
+
 def descriptor_of(key: str, declared: Mapping[str, MetricSpec]) -> MetricSpec | None:
     """Return the descriptor of the result `key`, or `None` when the flow does not describe it."""
     return declared.get(key)
+
+
+def paths_inside_paths(paths: Iterable[str]) -> list[tuple[str, str]]:
+    """Return each pair of `paths` of which the first starts the second at a segment boundary
+    (`bram` and `bram.ramb18`). Such paths cannot nest into one object."""
+    found = set(paths)
+    return sorted(
+        (outer, inner) for outer in found for inner in found if inner.startswith(outer + ".")
+    )
+
+
+def undescribed_keys(flow_class: Type[Flow], results: Mapping[str, Any]) -> list[str]:
+    """Return the keys of `results` that the flow does not describe, leaving out an internal key
+    (it starts with `_`) and the keys of the run itself (`RUN_KEYS`)."""
+    declared = flow_class.results_description
+    return [
+        key
+        for key in results
+        if not key.startswith("_") and key not in declared and key not in RUN_KEYS
+    ]
 
 
 def mismatches(flow_class: Type[Flow], results: Mapping[str, Any]) -> list[str]:

@@ -1430,7 +1430,6 @@ class BscSim(BscFlow, SimFlow):
         "sim.evidence",
         "sim.ended_by",
         "sim.time",
-        "sim.time_unit",
         "sim.errors",
         "sim.warnings",
         simulator=MetricSpec("The simulator that ran the testbench.", "text"),

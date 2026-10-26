@@ -66,7 +66,7 @@ def test_user_driver_exit_has_execution_evidence(tmp_path, header, body):
     assert flow.succeeded
     assert flow.results["sim.ended_by"] == "exit"
     assert flow.results["sim.evidence"]["exit_code"] == 0
-    assert flow.results["sim.time"] is None
+    assert "sim.time" not in flow.results
     assert flow.results["sim.errors"] == 0
     record = flow.run_path / "cxxrtl_end.json"
     assert record.is_file() and json.loads(record.read_text())["ended_by"] == "exit"

@@ -318,6 +318,11 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
     results_description = describe_results(
         "area",
         cells=MetricSpec("Total number of cells in the synthesized netlist.", "integer"),
+        cell_types=MetricSpec(
+            "Number of cells of each type in the synthesized netlist, by the cell name that the "
+            "technology library or yosys gives.",
+            "counts",
+        ),
         platform=MetricSpec(
             "The platform that the netlist is mapped to, when the run maps to one: `name`, the "
             "PDK `provider` and `version`, the `corner`, and `sources`, the layer (derived, "
@@ -1014,8 +1019,9 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             self.results["_hierarchical_utilization"] = mod_util
         design_util = utilization.get("design")
         if design_util:
-            num_cells_by_type = design_util.get("num_cells_by_type", {})
-            self.results.update(**num_cells_by_type)
+            num_cells_by_type = design_util.get("num_cells_by_type")
+            if num_cells_by_type:
+                self.results["cell_types"] = dict(num_cells_by_type)
             num_cells = design_util.get("num_cells")
             if num_cells is not None:
                 self.results["cells"] = num_cells

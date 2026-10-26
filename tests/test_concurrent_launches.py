@@ -56,7 +56,7 @@ tb:
 """
 
 #: The results that a simulation of `TESTBENCH` reports, whatever the simulator.
-RESULT_KEYS = ("sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings")
+RESULT_KEYS = ("sim.ended_by", "sim.time", "sim.errors", "sim.warnings")
 
 #: The flows of a pair: the same flow twice, or two flows of one design.
 PAIRS = {"same_flow": ("ghdl_sim", "ghdl_sim"), "different_flows": ("ghdl_sim", "nvc")}

@@ -179,7 +179,7 @@ def test_the_arty_blinky_builds_to_a_bitstream(built, run_root):
     assert routed["device"] == PART and routed["fabric"] == FABRIC
     assert (routed["ff"], routed["bram"], routed["dsp"], routed["io"]) == (25, 0, 0, 2)
     # a 25-bit counter: carry chains with their LUTs, counted as occupied LUT locations
-    assert 25 <= routed["lut"] <= routed["SLICE_LUTX"]
+    assert 25 <= routed["lut"] <= routed["cell_types"]["SLICE_LUTX"]
     assert routed["lut_basis.stage"] == "placed and routed"
     mapped = _results(run_root, design, "yosys_fpga")
     assert mapped["lut_basis.stage"] == "mapped" and mapped["ff"] == 25
@@ -263,7 +263,7 @@ def test_a_second_design_reuses_the_chip_database(built, run_root, tmp_path):
     assert "bbasm" not in json.dumps(trace["programs"])
     routed = _results(run_root, design, "nextpnr")
     assert routed["timing_met"] is True and (routed["bram"], routed["dsp"]) == (0, 0)
-    assert routed["ff"] == 4 and 4 <= routed["lut"] <= routed["SLICE_LUTX"]
+    assert routed["ff"] == 4 and 4 <= routed["lut"] <= routed["cell_types"]["SLICE_LUTX"]
     mapped = _results(run_root, design, "yosys_fpga")
     # The mapped netlist holds the three primitives the design instantiates and one cell it does
     # not: the INV that abc9 makes of the counter's bit-0 complement (`$abc$...$lut$not$...`,

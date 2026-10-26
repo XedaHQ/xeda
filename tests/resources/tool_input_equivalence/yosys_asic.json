@@ -529,9 +529,11 @@
      "timing_report": null,
      "utilization_report": "reports/utilization.json"
     },
+    "cell_types": {
+     "fake_cell": 251
+    },
     "cells": 251,
     "design": "counter",
-    "fake_cell": 251,
     "flow": "yosys",
     "outputs": {
      "netlist": {

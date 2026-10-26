@@ -182,7 +182,6 @@ class Verilator(SimFlow):
         "sim.evidence",
         "sim.ended_by",
         "sim.time",
-        "sim.time_unit",
         "sim.errors",
         "sim.warnings",
         *COCOTB_METRICS,

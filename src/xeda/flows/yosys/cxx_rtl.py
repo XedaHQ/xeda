@@ -50,7 +50,7 @@ class YosysSim(YosysBase, SimFlow):
     minimum_yosys = None
 
     results_description = describe_results(
-        "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
+        "sim.evidence", "sim.ended_by", "sim.time", "sim.errors", "sim.warnings"
     )
     # The design's C++ driver is compiled with the model.
     reads_sources = READ_SOURCE_TYPES | {SourceType.Cpp}

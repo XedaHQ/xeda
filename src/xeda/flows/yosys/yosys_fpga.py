@@ -156,6 +156,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
     results_description = describe_results(
         "lut",
         "ff",
+        "dsp",
         **{
             "lut_use.logic": MetricSpec(
                 "Mapped Xilinx logic LUT footprint estimate at the synthesis stage.", "integer"
@@ -170,6 +171,20 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 "Stage that the `lut` resource estimate describes.", "text"
             ),
             "lut_basis.method": MetricSpec("Method that gave the `lut` resource estimate.", "text"),
+            "latch": MetricSpec(
+                "Number of latch primitives (`LDCE`, `LDPE`) in the netlist.", "integer"
+            ),
+            "bram.ramb18": MetricSpec(
+                "Number of `RAMB18` primitives (all variants) in the netlist.", "integer"
+            ),
+            "bram.ramb36": MetricSpec(
+                "Number of `RAMB36` primitives (all variants) in the netlist.", "integer"
+            ),
+            "cell_types": MetricSpec(
+                "Number of cells of each type in the synthesized netlist, by the primitive name "
+                "(`LUT6`, `CARRY4`, `FDRE`).",
+                "counts",
+            ),
         },
     )
 
@@ -1068,11 +1083,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                         **num_cells_by_type,
                     }
                     self.results["_utilization"] = design_util
-
-                def add_util_if_nonzero(name: str) -> None:
-                    util = int(design_util.get(name, 0))
-                    if util:
-                        self.results[name] = util
+                    self.results["cell_types"] = dict(num_cells_by_type)
 
                 def add_util_sum_if_nonzero(group_name: str, names: List[str]):
                     util = sum(int(design_util.get(t, 0)) for t in names)
@@ -1105,18 +1116,16 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                         ],
                     )
                     add_util_sum_if_nonzero(
-                        "LATCH",
+                        "latch",
                         [
                             "LDCE",  # Transparent Data Latch with Asynchronous Clear and Gate Enable
                             "LDPE",  # Transparent Data Latch with Asynchronous Preset and Gate Enable
                         ],
                     )
 
-                    add_util_sum_if_nonzero("RAMB18", ["RAMB18", "RAMB18E1", "RAMB18E2"])
-                    add_util_sum_if_nonzero("RAMB36", ["RAMB36", "RAMB36E1", "RAMB36E2"])
-                    add_util_sum_if_nonzero("DSP", ["DSP48E1", "DSP48E2", "DSP48E"])
-                    for res in ["CARRY4", "CARRY8", "MUXF7", "MUXF8", "MUXF9"]:
-                        add_util_if_nonzero(res)
+                    add_util_sum_if_nonzero("bram.ramb18", ["RAMB18", "RAMB18E1", "RAMB18E2"])
+                    add_util_sum_if_nonzero("bram.ramb36", ["RAMB36", "RAMB36E1", "RAMB36E2"])
+                    add_util_sum_if_nonzero("dsp", ["DSP48E1", "DSP48E2", "DSP48E"])
 
         return True
 

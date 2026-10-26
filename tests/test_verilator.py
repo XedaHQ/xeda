@@ -6,6 +6,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowFatalError, FlowSettingsError, FlowSettingsException
+from xeda.flow.sim import time_in_fs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Verilator
 from xeda.run_dir import RunDirectoryError
@@ -239,7 +240,7 @@ def test_verilator_enables_timing_by_default(tmp_path):
     flow = _launch(tmp_path, "initial begin #100; $finish; end", {}, timescale="1ps/1ps")
     assert flow.succeeded
     assert flow.results["sim.ended_by"] == "finish"
-    assert flow.results["sim.time"] == 100
+    assert flow.results["sim.time"] == 100_000  # 100 ps in femtoseconds
 
 
 def test_verilator_reports_an_error_at_its_default_simulation_time(tmp_path):
@@ -253,7 +254,7 @@ def test_verilator_reports_an_error_at_its_default_simulation_time(tmp_path):
     )
     assert not flow.succeeded
     assert flow.results["sim.ended_by"] == "error"
-    assert flow.results["sim.time"] == 10
+    assert flow.results["sim.time"] == 10_000  # 10 ps in femtoseconds
 
 
 def test_verilator_simulates_the_designs_testbench_top(tmp_path):
@@ -315,8 +316,9 @@ def test_verilator_records_the_finish_time_in_the_models_precision(tmp_path, tim
         tmp_path, "initial begin #15ns; $finish; end", {"timing": True}, timescale=timescale
     )
     assert flow.results["sim.ended_by"] == "finish"
-    assert flow.results["sim.time"] == ticks
-    assert flow.results["sim.time_unit"] == timescale.split("/")[1]
+    precision = timescale.split("/")[1]
+    assert flow.results["sim.time"] == time_in_fs(ticks, precision)
+    assert "sim.time_unit" not in flow.results
     assert flow.succeeded
 
 
@@ -326,7 +328,7 @@ def test_a_drained_run_fails_and_has_no_time(tmp_path):
     require_verilator()
     flow = _launch(tmp_path, "initial begin #10; #10; end", {"timing": True})
     assert flow.results["sim.ended_by"] == "drained"
-    assert flow.results["sim.time"] is None
+    assert "sim.time" not in flow.results
     assert not flow.succeeded
 
 

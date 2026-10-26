@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Dict, Literal, Optional
 
-from ..units import is_quantity_unit
+from ..units import is_metric_unit
 
 __all__ = [
     "COCOTB_METRICS",
@@ -56,7 +56,7 @@ class MetricSpec:
 
 def metric_unit_known(unit: str) -> bool:
     """Return whether `unit` is a unit text of the units table of `xeda.units`."""
-    return is_quantity_unit(unit)
+    return is_metric_unit(unit)
 
 
 #: Metrics that several flows report with the same meaning. A flow declares the subset it
@@ -162,12 +162,10 @@ COMMON_METRICS: Dict[str, MetricSpec] = {
         "text",
     ),
     "sim.time": MetricSpec(
-        "Simulated time at the end, in the unit `sim.time_unit` gives; null when the simulator "
-        "did not report it.",
+        "Simulated time at the end, as an integer number of femtoseconds. The metric is absent "
+        "when the simulator did not report the time.",
         "integer",
-    ),
-    "sim.time_unit": MetricSpec(
-        "The unit of `sim.time`, e.g. `1ps` (the model's time precision).", "text"
+        "fs",
     ),
     "sim.errors": MetricSpec(
         "Number of errors the simulation reported: $error, failed assertions, $stop and $fatal.",

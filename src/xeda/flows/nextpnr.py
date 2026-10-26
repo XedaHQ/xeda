@@ -99,7 +99,7 @@ ECP5_RESOURCES: Dict[str, Tuple[str, ...]] = {
 #: Canonical resource name -> the bel types that implement it, for Xilinx 7-series
 #: (nextpnr-himbaechel 1.0.0, uarch `xilinx`). `lut` is not in the table. `SLICE_LUTX` counts 5LUT
 #: and 6LUT positions, two for each physical LUT, so `lut` comes from the placement dump
-#: (`xilinx_lut_locations`). Block RAM counts primitives. `CARRY4` stays a raw count.
+#: (`xilinx_lut_locations`). Block RAM counts primitives. `CARRY4` stays in `cell_types`.
 XILINX_RESOURCES: dict[str, tuple[str, ...]] = {
     "ff": ("SLICE_FFX",),
     "bram": ("RAMB18E1", "RAMB36E1"),
@@ -345,6 +345,11 @@ class Nextpnr(FpgaSynthFlow):
             ),
             "clock_port": MetricSpec(
                 "Top-level port of the only reported clock domain, when that is certain.", "text"
+            ),
+            "cell_types": MetricSpec(
+                "Number of bels used of each type, by the bel name that nextpnr gives "
+                "(`TRELLIS_COMB`, `SLICE_LUTX`).",
+                "counts",
             ),
             "device": MetricSpec("Xilinx 7-series: the part placed and routed.", "text"),
             "fabric": MetricSpec(
@@ -1426,6 +1431,7 @@ class Nextpnr(FpgaSynthFlow):
     def _parse_utilization(self, utilization: Dict[str, Any]) -> None:
         """Record the usage of each bel type, and canonical resource names for a known family."""
         detail: Dict[str, Dict[str, Any]] = {}
+        cell_types: Dict[str, int] = {}
         for cell, counts in utilization.items():
             used = counts.get("used") or 0
             available = counts.get("available") or 0
@@ -1436,7 +1442,9 @@ class Nextpnr(FpgaSynthFlow):
             }
             if used:
                 # Raw bel-type counts are always correct, whatever the family is.
-                self.results[cell] = used
+                cell_types[cell] = used
+        if cell_types:
+            self.results["cell_types"] = cell_types
         self.results["_utilization"] = detail
 
         assert isinstance(self.settings, self.Settings)
@@ -1450,8 +1458,8 @@ class Nextpnr(FpgaSynthFlow):
                     family or None,
                 )
             return
-        for canonical, cell_types in resources.items():
-            present = [c for c in cell_types if c in detail]
+        for canonical, bel_types in resources.items():
+            present = [c for c in bel_types if c in detail]
             if present:
                 self.results[canonical] = sum(detail[c]["used"] for c in present)
         if family == "xilinx":

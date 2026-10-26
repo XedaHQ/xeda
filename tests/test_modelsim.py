@@ -179,12 +179,16 @@ def test_modelsim_questa_runtime_evidence(
     assert flow.results["sim.warnings"] == warnings
     assert ["runStatus", "-full"] in calls
     assert (flow.run_path / "modelsim_runtime.log").exists()
-    assert flow.results["sim.time"] == (
-        0
-        if state in ("finish0", "silent")
-        else 5000 if state == "limit5" else 10000 if state in ("limit10", "break10") else 5000
-    )
-    assert flow.results["sim.time_unit"] == "1ps"
+    assert (
+        flow.results["sim.time"]
+        == (
+            0
+            if state in ("finish0", "silent")
+            else 5000 if state == "limit5" else 10000 if state in ("limit10", "break10") else 5000
+        )
+        * 1000
+    )  # the record counts picoseconds
+    assert "sim.time_unit" not in flow.results
 
 
 @needs_tclsh

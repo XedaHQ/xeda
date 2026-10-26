@@ -33,8 +33,11 @@ from xeda.units import (
     Resistance,
     Time,
     Voltage,
+    METRIC_ONLY_UNITS,
     count,
     data_size,
+    is_metric_unit,
+    is_quantity_unit,
     library_units,
     measure_of,
     percent,
@@ -119,6 +122,25 @@ def test_minutes_and_hours() -> None:
     assert Time("1 h").magnitude == 3600e9
     assert Time("90 s").to("min") == 1.5
     assert Time("1.5 h").to("min") == 90.0
+
+
+def test_the_units_of_metrics_change_nothing_a_setting_reads() -> None:
+    """`degC`, `delta_degC` and `K/W` are units of metrics only. Every input that a setting
+    refused before still gets the message that it got."""
+    assert not any(is_quantity_unit(unit) for unit in METRIC_ONLY_UNITS)
+    assert all(is_metric_unit(unit) for unit in METRIC_ONLY_UNITS)
+    with pytest.raises(QuantityError) as error:
+        Time("5 ns/s")
+    assert str(error.value) == (
+        "cannot read `5 ns/s` as a time: write one number and one unit, such as `10 ns`"
+    )
+    with pytest.raises(QuantityError) as error:
+        Time("5 degC")
+    assert str(error.value) == "unknown unit `degC` in `5 degC`: a time takes one of " + ", ".join(
+        Time.units
+    )
+    with pytest.raises(QuantityError, match="cannot read `5 K/W` as a power"):
+        Power("5 K/W")
 
 
 # ---- canonical text ------------------------------------------------------------------------

@@ -794,6 +794,18 @@ def is_quantity_unit(text: str) -> bool:
     return text in Quantity._kind_of_unit  # pylint: disable=protected-access
 
 
+#: The units that only metrics have, which no setting takes: a temperature, a temperature
+#: difference and a thermal resistance. 5 `delta_degC` is 5 K, and 5 `degC` is 278.15 K. A
+#: quantity kind reads a unit as a number of settings and cannot hold these, so they are no kind.
+METRIC_ONLY_UNITS = ("degC", "delta_degC", "K/W")
+
+
+def is_metric_unit(text: str) -> bool:
+    """Return whether `text` is exactly a unit that a metric can have: a unit of a quantity kind
+    (`ns`, `MHz`) or one of `METRIC_ONLY_UNITS`."""
+    return is_quantity_unit(text) or text in METRIC_ONLY_UNITS
+
+
 def is_number_text(text: str) -> bool:
     """Return whether `text` is exactly one number in the grammar of a quantity (`5.5`, `1e3`)."""
     return re.fullmatch(_NUMBER, text) is not None
@@ -816,6 +828,7 @@ __all__ = [
     "Length",
     "MEASURES",
     "MEASURE_KEY",
+    "METRIC_ONLY_UNITS",
     "Power",
     "Quantity",
     "QuantityError",
@@ -832,6 +845,7 @@ __all__ = [
     "data_size",
     "finalize_template_value",
     "freq_mhz_optional",
+    "is_metric_unit",
     "is_number_text",
     "is_quantity_unit",
     "library_units",

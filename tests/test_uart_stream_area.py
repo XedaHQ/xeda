@@ -88,7 +88,7 @@ def test_uart_stream_adapter_area(target, input_width, output_width, tmp_path, c
     assert flow.results["lut_use.ram"] >= 0
     assert flow.results["lut_use.srl"] >= 0
     assert flow.results["ff"] >= 0
-    assert flow.results["CARRY4"] >= 0
+    assert flow.results["cell_types"]["CARRY4"] >= 0
     assert flow.results["lut"] == (
         flow.results["lut_use.logic"] + flow.results["lut_use.ram"] + flow.results["lut_use.srl"]
     )
@@ -130,7 +130,7 @@ def test_leanlink_core_area(target, tmp_path, capfd):
     assert flow.results["lut_use.ram"] >= 0
     assert flow.results["lut_use.srl"] >= 0
     assert flow.results["ff"] >= 0
-    assert flow.results["CARRY4"] >= 0
+    assert flow.results["cell_types"]["CARRY4"] >= 0
     assert flow.results["lut"] == (
         flow.results["lut_use.logic"] + flow.results["lut_use.ram"] + flow.results["lut_use.srl"]
     )

@@ -27,7 +27,7 @@ class VivadoSim(Vivado, SimFlow):
     reads_sources = frozenset({SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl})
 
     results_description = describe_results(
-        "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings", "sim.evidence"
+        "sim.ended_by", "sim.time", "sim.errors", "sim.warnings", "sim.evidence"
     )
 
     # TODO: Vivado can run several configurations (test vectors) in one run through `run_configs`.
