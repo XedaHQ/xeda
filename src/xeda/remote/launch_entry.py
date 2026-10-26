@@ -4,8 +4,8 @@
 launch holds (`take_locks`), and then reads `<launch dir>/request.json` (a `LaunchRequest`),
 plans the request, checks that this plan is the one the local xeda made, runs it, and writes
 `<launch dir>/result.json`. The agent starts this module on the remote host. The launch holds the
-locks until it ends. The exit status is 0 when the launch passed, 1 when it did not, 2 when the request is invalid
-and 130 when the launch was interrupted. The result is in `result.json` in every case.
+locks until it ends. The exit status is 0 when the launch passed, 1 when it did not, 2 when the
+request is invalid and 130 when the launch was interrupted. The result is in `result.json` in every case.
 
 `result.json` is the document that `xeda run --json` prints (`Result.to_dict`), or the dry-run
 document, so the local xeda can report it as it reports a local run. It has two more keys for a

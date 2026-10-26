@@ -200,7 +200,7 @@ no flow takes). A listed netlist is your claim: Xeda does not parse it or compar
 `platform`, `liberty` or `fpga`, and the tool that reads it reports unknown cells.
 
 A chain runs flows in order and binds each output to the next flow's required input; the last flow
-is the one requested (its `results`, `--help-settings` and exit status):
+is the one requested (its record in the run document, `--help-settings` and exit status):
 
 ```bash
 xeda run yosys_fpga+nextpnr+fpga_pack design.yaml

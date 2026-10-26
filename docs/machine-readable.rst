@@ -846,8 +846,8 @@ Planning builds each flow as the launch does, with a run directory that it never
 whether the flow always runs. A flow also refuses what its settings and the design rule out alone,
 in the pure hooks ``check_settings_supported`` and ``check_design_supported``, and planning calls
 them. Invalid settings, conflicts between shared settings, missing required inputs, impossible
-targets and any other combination that these hooks refuse produce the usual document with ``success:
-false`` and an ``error``.
+targets and any other combination that these hooks refuse produce the usual run document, with
+the ``outcome`` ``null`` (no launch started) and an ``error``.
 
 Planning changes no run root, marker, lock, result or delivery. It refreshes no trace, starts no
 process and probes no tool. If the declarations of the design already rule out the request, Xeda

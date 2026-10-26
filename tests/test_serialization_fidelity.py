@@ -653,8 +653,8 @@ def test_no_key_turns_a_document_into_an_error(tmp_path):
 
 
 def test_a_run_whose_results_have_unusual_keys_still_reports_them(tmp_path, monkeypatch):
-    """What an agent sees: `xeda run --json` prints the record, and `results.json` holds the same results,
-    whatever keys a flow reports them under."""
+    """What an agent sees: `xeda run --json` prints the record, and `results.json` holds the same
+    results, whatever keys a flow reports them under."""
     from typing import ClassVar
 
     from click.testing import CliRunner
