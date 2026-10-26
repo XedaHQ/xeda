@@ -316,8 +316,6 @@ def test_embedded_example_designs_validate_against_the_published_schema(path):
     project = Project.load(path)
     raw = load_design_file(path)
     designs = raw.get("designs", [])
-    if isinstance(designs, dict):
-        designs = [designs]
     assert designs
     for index, data in enumerate(designs):
         assert project.design(project.designs[index]) is not None

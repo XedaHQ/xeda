@@ -223,7 +223,7 @@ def _write_dse_project(tmp_path):
     """A project with the design `d`, whose own section disagrees with the project's."""
     path = tmp_path / "project.toml"
     path.write_text(
-        "[designs]\nname = 'd'\n[designs.rtl]\nsources = []\ntop = 't'\n"
+        "[[designs]]\nname = 'd'\n[designs.rtl]\nsources = []\ntop = 't'\n"
         "[designs.flows.__synth]\nfpga.part = 'LFE5U-85F-6BG381C'\n"
         '[flows.__dse_place]\nfpga.part = "LFE5U-25F-6BG256C"\n'
     )

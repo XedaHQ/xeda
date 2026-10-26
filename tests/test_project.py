@@ -232,15 +232,19 @@ def test_each_call_gives_a_new_design_of_the_same_configuration(tmp_path):
     assert pickle.loads(pickle.dumps(p.flows)) == p.flows
 
 
-def test_design_root_of_an_entry_is_relative_to_the_project_file(tmp_path):
+def test_the_root_of_an_inline_entry_is_the_directory_of_the_project_file(tmp_path):
+    path = write_project(tmp_path / "hw", {"designs": [{"name": "d", "rtl": rtl()}]})
+    design = Project.load(path).design("d")
+    assert design.root == path.parent.resolve()
+    assert design.rtl.sources[0].path == path.parent.resolve() / "knight.v"
+
+
+def test_a_design_with_another_root_is_a_file_entry(tmp_path):
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "a.v").write_text("module a; endmodule\n")
-    path = write_project(
-        tmp_path,
-        {"designs": [{"name": "nested", "design_root": "sub", "rtl": {"sources": ["a.v"]}}]},
-    )
-    design = Project.load(path).design("nested")
-    assert design.root == (tmp_path / "sub").resolve()
+    design_file(tmp_path / "sub", "a.yaml", {"name": "a", "rtl": {"sources": ["a.v"]}})
+    path = write_project(tmp_path, {"designs": [{"file": "sub/a.yaml"}]})
+    assert Project.load(path).design("a").root == (tmp_path / "sub").resolve()
 
 
 # ---------------------------------------------------------------------------- invalid files
@@ -340,6 +344,15 @@ def test_a_flows_table_of_the_wrong_shape_is_refused(tmp_path):
 def test_a_default_target_and_a_run_root_must_be_what_they_are(tmp_path, text, message):
     error = invalid_project(tmp_path, text)
     assert error.code == "invalid_project" and message in str(error)
+
+
+def test_designs_is_a_list_and_a_single_table_shows_the_list_form(tmp_path):
+    error = invalid_project(tmp_path, "designs:\n  name: d\n  rtl: {sources: []}\n")
+    assert error.code == "invalid_project"
+    assert "`designs` is a list" in str(error) and "designs: [{file:" in str(error)
+    assert str(tmp_path / PROJECT_FILE) in str(error)
+    for text in ("designs: fifo.yaml\n", "designs: 3\n"):
+        assert invalid_project(tmp_path, text).code == "invalid_project"
 
 
 def test_a_design_entry_that_is_not_a_table_names_its_position_and_type(tmp_path):

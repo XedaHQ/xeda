@@ -50,8 +50,6 @@ def _raw_designs(path):
     if path.stem != "xedaproject":
         return [data]
     designs = data.get("design", data.get("designs"))
-    if isinstance(designs, dict):
-        designs = [designs]
     return [d for d in designs or [] if isinstance(d, dict)]
 
 

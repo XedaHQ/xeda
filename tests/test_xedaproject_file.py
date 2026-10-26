@@ -13,13 +13,13 @@ from .project_files import PROJECT_FILE, TOML_PROJECT_FILE
 
 DESIGN = """
 designs:
-  name: d
-  rtl: {sources: [top.vhd], top: top}
+  - name: d
+    rtl: {sources: [top.vhd], top: top}
 """
 
 #: the same design as `DESIGN`, in TOML
 TOML_DESIGN = """
-[designs]
+[[designs]]
 name = 'd'
 [designs.rtl]
 sources = ['top.vhd']

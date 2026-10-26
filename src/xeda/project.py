@@ -98,8 +98,7 @@ class Project:
             )
         data = _read(file)
         root = file.parent.resolve()
-        # The design entries are expanded where they are used, one by one, whether `designs` is a
-        # table or a list of tables.
+        # The design entries are expanded where they are used, one by one.
         entries = {"designs": data.pop("designs")} if "designs" in data else {}
         try:
             data = expand_hierarchy(data)
@@ -284,7 +283,12 @@ def _entries(file: Path, root: Path, data: Mapping[str, Any]) -> tuple[_Entry, .
     if designs is None:
         return ()
     if not isinstance(designs, list):
-        designs = [designs]
+        raise _invalid(
+            file,
+            "`designs` is a list. Write each design as an item, for example "
+            "`designs: [{file: hw/fifo.yaml}]` or `designs: [{name: fifo, rtl: {...}}]`, "
+            f"not {type(designs).__name__} {designs!r:.60}",
+        )
     entries: list[_Entry] = []
     for i, written in enumerate(designs):
         if not isinstance(written, dict):
