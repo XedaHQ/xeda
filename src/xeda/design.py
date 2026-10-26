@@ -3683,7 +3683,11 @@ class Design(XedaBaseModel):
         """Return `src` as this design names it.
 
         The path is relative to the design root when `src` is under it, and otherwise the path
-        that the design file wrote."""
+        that the design file wrote. A generated source is named by its name in the output of its
+        producer, because its file lies in a storage or a run directory whose place depends on
+        the run root."""
+        if isinstance(src, Source) and src.generated:
+            return Path(str(src.output_name))
         if src.file and self.design_root:
             try:
                 return src.file.absolute().relative_to(self.root_path.absolute())
@@ -3710,12 +3714,20 @@ class Design(XedaBaseModel):
         This is naming only. Nothing here may be read back as design state.
         """
         name = self._folded_source_name(src)
-        this = src.file.resolve()
+
+        def place(source: FileResource) -> str:
+            # A generated source is told apart by its name in the output of its producer: its
+            # file lies where the run root puts it.
+            if isinstance(source, Source) and source.generated:
+                return f"generated:{source.output_name}"
+            return str(source.file.resolve())
+
+        this = place(src)
         if any(
-            other.file.resolve() != this and self._folded_source_name(other) == name
+            place(other) != this and self._folded_source_name(other) == name
             for other in (*self.rtl.sources, *self.tb.sources)
         ):
-            name += "_" + hashlib.sha256(str(this).encode()).hexdigest()[:8]
+            name += "_" + hashlib.sha256(this.encode()).hexdigest()[:8]
         return name + suffix
 
     def _folded_source_name(self, src: FileResource) -> str:

@@ -758,3 +758,25 @@ def test_a_plan_sees_the_files_of_a_generated_input_as_the_launch_does(tmp_path)
     again = world.launch(flow)
     assert again.nodes[flow.name].disposition.value == "reused"
     assert world.runs == 1
+
+
+def test_a_generated_source_is_named_and_hashed_whatever_the_run_root_is(tmp_path):
+    from xeda.flow_runner.launch_generation import execution_design, generate
+
+    seen = []
+    for run_root in (tmp_path / "one" / "xeda_run", tmp_path / "elsewhere" / "deeper" / "run"):
+        world = World(tmp_path)
+        run_root.mkdir(parents=True)
+        design = world.load()
+        generation = generate(design, run_root=run_root.resolve(), environ=dict(os.environ))
+        executable = execution_design(design, generation)
+        (source,) = executable.rtl.sources
+        seen.append(
+            (
+                executable.source_artifact_name(source, ".v"),
+                executable.parts_hash({"rtl"}),
+                executable.source_path_as_named(source),
+            )
+        )
+    assert seen[0] == seen[1]
+    assert seen[0][2] == Path("gen/top.v") and str(tmp_path) not in seen[0][0]
