@@ -13,7 +13,7 @@ from typing import TextIO
 
 from ..digest import FileRecord, record_file, unknown_record
 from ..listing import directory_files
-from ..run_dir import RunDirectoryError, refuse_link_on_way
+from ..run_dir import RunDirectory, RunDirectoryError, refuse_link_on_way
 
 if sys.platform != "win32":
     import fcntl
@@ -131,7 +131,12 @@ def _lock(run_path: Path, exclusive: bool, run_root: Path | None = None) -> Iter
             hold.readers -= int(not exclusive)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a") as f:
+    if run_root is not None:
+        # The lock file is Xeda's own: a link at its name would send the lock to another inode.
+        RunDirectory(run_root, run_root).unlinked(path)
+    # Opened without following a link, so none can replace the file between the check and here.
+    descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o666)
+    with os.fdopen(descriptor, "a") as f:
         _acquire(f, exclusive, path)
         try:
             if lock_file(run_path, run_root) != path:

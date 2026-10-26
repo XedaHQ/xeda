@@ -2603,8 +2603,14 @@ REVIEWED_WRITES = [
     ),
     (
         "flow_runner/run_lock.py",
-        'with open(path, "a") as f:',
-        "the lock file beside a run directory, in the run root: opened to be locked, not written",
+        'with os.fdopen(descriptor, "a") as f:',
+        "the descriptor of the lock file that the line above opened: held to be locked, not written",
+    ),
+    (
+        "flow_runner/run_lock.py",
+        "descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o666)",
+        "the lock file beside a run directory or a storage, in the run root: opened to be locked, "
+        "not written, and never through a link",
     ),
     (
         "flow_runner/trace.py",

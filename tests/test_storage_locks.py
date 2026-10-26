@@ -163,3 +163,34 @@ def test_the_wait_hook_is_not_called_when_nothing_is_held(tmp_path, monkeypatch)
     with storage_lock(storage, exclusive=False, run_root=run_root):
         pass
     assert seen == []
+
+
+def test_a_lock_file_that_is_a_link_is_refused(tmp_path):
+    run_root, storage = _storage(tmp_path)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep\n")
+    lock = lock_file(storage)
+    lock.parent.mkdir(parents=True)
+    lock.symlink_to(victim)
+    with pytest.raises(RunDirectoryError, match="symbolic link"):
+        with storage_lock(storage, exclusive=True, run_root=run_root):
+            pytest.fail("a lock behind a link is not taken")
+    assert victim.read_text() == "keep\n"
+
+
+def test_the_lock_file_is_opened_without_following_a_link(tmp_path, monkeypatch):
+    """The check and the open are two steps: the open itself refuses a link."""
+    import os
+
+    run_root, storage = _storage(tmp_path)
+    flags = []
+    real = os.open
+
+    def spy(path, flag, *args, **kwargs):
+        flags.append(flag)
+        return real(path, flag, *args, **kwargs)
+
+    monkeypatch.setattr(run_lock.os, "open", spy)
+    with storage_lock(storage, exclusive=True, run_root=run_root):
+        pass
+    assert flags and all(flag & os.O_NOFOLLOW for flag in flags)
