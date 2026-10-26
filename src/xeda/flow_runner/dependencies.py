@@ -250,7 +250,14 @@ def _clone(ref: GitReference, commit: str, into: Path, owner: RunDirectory, fiel
     and tag. The directory of Git is removed afterwards: the files are the content, and the
     directory could hold the URL."""
     try:
-        _git(["init", "--quiet", "."], repository=ref.repo_url, cwd=into)
+        # A hash of 64 digits names a commit of a SHA-256 repository, and Git fetches it only into
+        # one.
+        object_format = ["--object-format=sha256"] if len(commit) == 64 else []
+        _git(
+            ["init", "--quiet", *object_format, "."],
+            repository=ref.repo_url,
+            cwd=into,
+        )
         try:
             _git(
                 ["fetch", "--quiet", "--depth", "1", _REMOTE, commit],

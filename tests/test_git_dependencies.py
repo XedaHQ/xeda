@@ -66,11 +66,17 @@ def _git(*arguments: str, cwd: Path) -> str:
 class Remote:
     """A repository `lib` with a design file `dep.yaml`, served by a bare repository."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, object_format: str = "sha1") -> None:
         self.work = root / "work"
         self.bare = root / "remote.git"
         self.work.mkdir()
-        _git("init", "--quiet", "--initial-branch=main", cwd=self.work)
+        _git(
+            "init",
+            "--quiet",
+            "--initial-branch=main",
+            f"--object-format={object_format}",
+            cwd=self.work,
+        )
         (self.work / "src").mkdir()
         (self.work / "src" / "a.v").write_text("module a; endmodule\n")
         (self.work / "dep.yaml").write_text(
@@ -986,3 +992,19 @@ def test_a_source_that_moves_to_another_dependency_is_another_origin_of_an_input
         assert [i.origin for i in node.inputs if i.name == "config"] == ["source"]
         identities.append(node.flowrun_hash)
     assert identities[0] != identities[1]
+
+
+def test_a_sha256_repository_is_fetched_at_its_64_digit_commit(tmp_path, git_log):
+    try:
+        remote = Remote(_dir(tmp_path / "sha256"), object_format="sha256")
+    except subprocess.CalledProcessError:
+        pytest.skip("this Git cannot make a SHA-256 repository")
+    assert len(remote.first) == 64
+    plan = _plan(tmp_path, _design_file(tmp_path, _pinned(remote)))
+    storage = (
+        tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY / dependency_key(remote.url, remote.first)
+    )
+    assert (storage / "checkout" / "dep.yaml").is_file()
+    assert {"dependency": 0, "path": "src/a.v", "type": "Verilog"} in _configuration(plan)["rtl"][
+        "sources"
+    ]
