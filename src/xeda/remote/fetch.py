@@ -487,25 +487,36 @@ def translate_paths(document: Any, translate: Callable[[str], Optional[str]]) ->
 
 
 def _only_fetched_artifacts(document: Any, mirror_dir: Path) -> Any:
-    """Return the record `document` of a run that did not pass, with the artifacts that came back.
+    """Return the record `document` of a run that did not pass, with the artifacts that came back
+    and its declared outputs empty.
 
     The record of a run lists the files it wrote. A remote that lists a file it never wrote
     (`select_fetch` takes only the files that the remote vouches for) must not make the mirror
-    record name a file that the mirror lacks. A record of a run that passed is returned as it is:
-    every file it names came back, or the fetch failed."""
+    record name a file that the mirror lacks. A run that did not pass hands over no output, and
+    `select_fetch` brings back none of its outputs: each keeps its entry, with no names. A record
+    of a run that passed is returned as it is: every file it names came back, or the fetch
+    failed."""
     if not isinstance(document, Mapping) or document.get("outcome") == "passed":
         return document
+    kept = dict(document)
     artifacts = document.get("artifacts")
-    if not isinstance(artifacts, Mapping):
-        return document
-    return {
-        **document,
-        "artifacts": {
+    if isinstance(artifacts, Mapping):
+        kept["artifacts"] = {
             key: name
             for key, name in artifacts.items()
             if isinstance(name, str) and _is_regular_inside(str(mirror_dir), name)
-        },
-    }
+        }
+    outputs = document.get("outputs")
+    if isinstance(outputs, Mapping):
+        kept["outputs"] = {
+            name: (
+                {**output, "names": [], "digests": [], "design": None}
+                if isinstance(output, Mapping)
+                else output
+            )
+            for name, output in outputs.items()
+        }
+    return kept
 
 
 def rewrite_records(
