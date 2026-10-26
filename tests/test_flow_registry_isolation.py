@@ -289,3 +289,16 @@ def test_a_reviewed_flow_that_its_module_unregisters_is_no_problem():
     for name in ("withdrawn", "Withdrawn", "withdrawn_alias"):
         del registered_flows[name]
     assert not [problem for problem in _import_registration_problems() if "Withdrawn" in problem]
+
+
+def test_a_builtin_name_that_an_import_removed_is_reported():
+    from xeda.flow import registered_flows
+
+    from .conftest import _import_registration_problems
+
+    builtin = _builtin()
+    del registered_flows[builtin.name]
+    assert (
+        f"{builtin.name}: {builtin.__module__}.{builtin.__qualname__} is unregistered"
+        in _import_registration_problems()
+    )

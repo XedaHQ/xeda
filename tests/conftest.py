@@ -222,9 +222,10 @@ REVIEWED_IMPORT_REGISTRATIONS = {
 
 def _import_registration_problems() -> list[str]:
     """What the imported test modules left in the flow registry that no review allows: a flow of
-    a module not in `REVIEWED_IMPORT_REGISTRATIONS`, and a name that a built-in flow or a flow of
-    a reviewed module registered but that now leads to another class (two flows registered one
-    name, their snake-case name, class name or alias, and the later one won)."""
+    a module not in `REVIEWED_IMPORT_REGISTRATIONS`, a name that a built-in flow or a flow of a
+    reviewed module registered but that now leads to another class (two flows registered one
+    name, their snake-case name, class name or alias, and the later one won), and a name of a
+    built-in flow that is gone from the registry."""
     import inspect
 
     from xeda.flow import Flow, registered_flows
@@ -246,8 +247,13 @@ def _import_registration_problems() -> list[str]:
             cls.__module__.startswith("xeda.") or cls.__module__ in REVIEWED_IMPORT_REGISTRATIONS
         ):
             continue
+        builtin = cls.__module__.startswith("xeda.")
         for name in dict.fromkeys([cls.name, cls.__name__, *cls.aliases]):
-            holder = registered_flows.get(name, (None, cls))[1]  # a module may unregister its own
+            if name not in registered_flows:
+                if builtin:  # a reviewed module may unregister its own flow, never a built-in
+                    problems.append(f"{name}: {cls.__module__}.{cls.__qualname__} is unregistered")
+                continue
+            holder = registered_flows[name][1]
             if holder is not cls:
                 problems.append(
                     f"{name}: {cls.__module__}.{cls.__qualname__} and "
