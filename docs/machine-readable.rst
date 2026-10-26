@@ -550,6 +550,10 @@ the options that need each other. For example, ``--remote`` refuses ``--post-cle
 ``--keep-running`` and ``--fetch-all`` need ``--remote``. Click prints the same exit status 2 without
 ``--json``.
 
+A Ctrl-C while Xeda loads the design or plans the request, before the launch starts, also gives a
+document with ``"outcome": null`` and no nodes. Its error code is ``canceled``, and the exit status
+is 1.
+
 A binding that cannot be applied (an unknown input or producer, a binding for a flow that declares
 no inputs, or a chain together with a command-line or API binding of the same input) is a settings
 error. It names the input and the place where the binding was written.
@@ -902,11 +906,10 @@ the paths and hashes:
     }
 
 In this example, the chain replaced both bindings that the file saved (``overridden`` names them and
-their sections). A request for a single flow has a one-element ``request``. After a failure, the
-nodes that Xeda planned and never entered are listed with ``"state": "not run"``. A delivery that
-Xeda refuses before the tool of a producer runs leaves the requested flow in that state too. A chain
-that Xeda refused before it was planned (a usage error) has no ``request`` and no ``nodes`` in its
-document.
+their sections). A request for a single flow has a one-element ``request``. In the run document of
+a launch that failed, a node that Xeda planned and never entered has the disposition ``not_run``,
+and the outcome ``blocked`` or ``skipped``. A chain that Xeda refused before it was planned (a
+usage error) has ``"spec": null`` and empty ``roots`` and ``nodes`` in its run document.
 
 Using Xeda as a library
 =======================

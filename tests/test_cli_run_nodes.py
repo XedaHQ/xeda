@@ -262,3 +262,23 @@ def test_a_bug_before_the_plan_is_a_failed_launch_with_no_node(toys, design, mon
     assert document["error"]["code"] == "internal_error"
     assert (document["roots"], document["nodes"], document["launch_id"]) == ([], [], None)
     assert document["spec"]["design_file"] == str(design)
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["run", "dry-run"])
+def test_ctrl_c_while_planning_prints_one_document_without_an_outcome(
+    toys, design, monkeypatch, dry_run
+):
+    """A Ctrl-C before the launch starts (while Xeda loads the design or plans) started no
+    launch: the run document has no outcome, the error `canceled` and no nodes."""
+    from xeda.flow_runner.default_runner import DefaultRunner
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        DefaultRunner, "plan_with_freshness" if dry_run else "resolve_run", interrupted
+    )
+    result, document = _run("toy_node_producer", str(design), *(["--dry-run"] if dry_run else []))
+    assert result.exit_code == 1
+    assert document["outcome"] is None and document["error"]["code"] == "canceled"
+    assert document["nodes"] == [] and document["spec"]["flow"] == "toy_node_producer"

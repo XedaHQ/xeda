@@ -1004,6 +1004,39 @@ def run(
     launcher: Optional[DefaultRunner] = None
     table = command_line_table(flow, flow_settings)
 
+    def request_spec() -> Dict[str, Any]:
+        """The `spec` of a document of a launch that never got its `Spec`: the request text."""
+        return spec_document(
+            flow=chain,
+            **design_info(design, launcher.design_name if launcher is not None else None),
+            target=(launcher.target if launcher is not None else None) or target,
+            settings=table,
+        )
+
+    def canceled_before_start() -> NoReturn:
+        """Report a Ctrl-C that came while the command loaded the design or planned, before the
+        launch started. With `--json`, the document has no outcome, since no launch started, and
+        the error `canceled`; the exit status is 1. Without `--json`, the interrupt propagates.
+        Call it while the `KeyboardInterrupt` is handled."""
+        if not json_flag:
+            raise  # pylint: disable=misplaced-bare-raise
+        canceled = ErrorInfo(
+            CANCELED, "Ctrl-C canceled the command before the launch started.", None, None, None
+        )
+        log.critical("%s", canceled.message)
+        emit_structured(
+            run_document(
+                outcome=None,
+                error=canceled,
+                launch_id=None,
+                spec=request_spec(),
+                roots=(),
+                nodes=(),
+            ),
+            "json",
+        )
+        sys.exit(1)
+
     def not_started(
         error: Exception, spec: Optional[Spec] = None, plan: Optional[Plan] = None
     ) -> NoReturn:
@@ -1022,17 +1055,7 @@ def run(
                 assert launcher is not None
                 document = failed_result(launcher, spec, plan, info).to_dict()
             else:
-                if spec is None:
-                    spec_fields = spec_document(
-                        flow=chain,
-                        **design_info(
-                            design, launcher.design_name if launcher is not None else None
-                        ),
-                        target=(launcher.target if launcher is not None else None) or target,
-                        settings=table,
-                    )
-                else:
-                    spec_fields = spec_document_of(spec)
+                spec_fields = request_spec() if spec is None else spec_document_of(spec)
                 document = run_document(
                     outcome=None if refused else Outcome.FAILED,
                     error=info,
@@ -1066,6 +1089,8 @@ def run(
                 design_allow_extra=design_allow_extra,
                 target=target,
             )
+        except KeyboardInterrupt:
+            canceled_before_start()
         except Exception as e:
             not_started(e)
         if json_flag:
@@ -1111,6 +1136,8 @@ def run(
             design_allow_extra=design_allow_extra,
             target=target,
         )
+    except KeyboardInterrupt:
+        canceled_before_start()
     except Exception as e:
         not_started(e)
     spec = Spec(chain, resolved.design, settings=table)
