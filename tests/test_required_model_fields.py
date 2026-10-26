@@ -95,7 +95,7 @@ def runner(tmp_path, monkeypatch):
 
 @pytest.fixture
 def design(tmp_path):
-    return Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    return Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
 
 
 GIVEN = {"where": "a/b", "label": "ok"}

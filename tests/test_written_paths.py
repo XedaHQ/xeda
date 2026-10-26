@@ -233,7 +233,7 @@ def test_cwd_is_no_variable_and_names_pwd(tmp_path):
 
 
 def test_the_launcher_refuses_a_working_location_before_anything_runs(tmp_path):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
     cls = _settings_of("verilator")
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(FlowSettingsError, match="sim_dir"):
@@ -263,7 +263,7 @@ def test_vcs_writes_a_relative_waveform_in_its_run_directory(tmp_path):
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "tb.sv").write_text("module tb; endmodule\n")
     design = Design(
-        name="d", design_root=tmp_path / "design", rtl={"sources": ["tb.sv"]}, tb={"top": "tb"}
+        name="d", root=tmp_path / "design", rtl={"sources": ["tb.sv"]}, tb={"top": "tb"}
     )
     flow = Vcs({"fsdb": "dump.fsdb"}, design, tmp_path / "run")
     flow.init()

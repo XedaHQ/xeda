@@ -261,7 +261,9 @@ def test_missing_inputs_cannot_produce_or_program_anything(name, tmp_path):
 def test_loader_explicit_dispatch_reads_a_typed_bitstream(tmp_path, monkeypatch):
     path = tmp_path / "prebuilt.bin"
     path.write_bytes(b"\xff\x00prebuilt")
-    design = Design(name="prebuilt", rtl={"sources": [{"file": path, "type": "Bitstream"}]})
+    design = Design(
+        name="prebuilt", root=tmp_path, rtl={"sources": [{"file": path, "type": "Bitstream"}]}
+    )
     tool_utils.use_fake_tools(monkeypatch)
     assert (
         Path(shutil.which("openFPGALoader")).resolve()
@@ -392,7 +394,7 @@ def test_process_handover_and_second_launch_reuse(part, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source = tmp_path / "top.v"
     source.write_text("module top(input clk, output q); assign q = clk; endmodule\n")
-    design = Design(name="top", rtl={"sources": [source], "top": "top"})
+    design = Design(name="top", root=tmp_path, rtl={"sources": [source], "top": "top"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     first = runner.run("nextpnr", design, flow_settings={"fpga": {"part": part}})
     assert first is not None and first.succeeded

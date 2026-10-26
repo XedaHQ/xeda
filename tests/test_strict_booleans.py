@@ -26,7 +26,7 @@ FALSE_WORDS = ["no", "off", "n", "No", "OFF"]
 def _design(tmp_path, body):
     path = tmp_path / "probe.yaml"
     path.write_text(f"name: probe\nrtl: {{sources: []}}\n{body}\n")
-    return Design.from_file(path)
+    return Design.load(path)
 
 
 @pytest.mark.parametrize(
@@ -66,7 +66,7 @@ def test_a_number_for_a_text_field_says_to_quote_it(tmp_path):
     path = tmp_path / "probe.yaml"
     path.write_text("name: probe\nrtl: {sources: [], top: 010}\n")
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(path)
+        Design.load(path)
     assert 'write `"10"` for text' in str(raised.value)
 
 

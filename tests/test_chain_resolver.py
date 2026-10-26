@@ -45,9 +45,7 @@ def _design(tmp_path, sources=(), flows=None):
     for name, kind in sources:
         (root / name).write_text(BLINK if kind is SourceType.Verilog else "{}\n")
         entries.append({"file": name, "type": kind.name})
-    return Design(
-        name="d", design_root=root, rtl={"sources": entries, "top": "blink"}, flows=flows or {}
-    )
+    return Design(name="d", root=root, rtl={"sources": entries, "top": "blink"}, flows=flows or {})
 
 
 def _runner(tmp_path, **kwargs):

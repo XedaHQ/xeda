@@ -32,6 +32,7 @@ from .remote_fixtures import (
 )
 from .tiny_platform import TINY_OPENROAD_RESIDUE, TINY_RESIDUE, tiny_store
 from .tool_utils import require_bsc, require_ghdl, require_yosys
+from .design_edits import design_from_dump
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -172,7 +173,7 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
     parameters = settings["design"]["rtl"]["parameters"]
     assert parameters["ROM"] == str(design_root / "rom.mem")
     assert parameters["TRACE"] == str(design_root / "out" / "trace.txt")
-    recorded = Design(**settings["design"])
+    recorded = design_from_dump(settings["design"])
     assert recorded.rtl_hash == settings["rtl_hash"]
 
     # Artifacts were fetched, and the reported paths name the mirror.
@@ -633,7 +634,7 @@ def test_a_producers_settings_only_file_is_shipped(tmp_path, remote_host, monkey
         mirror_settings["flow_settings"]["input_file"]
     ).samefile(input_path)
     expected = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
-        _InputTaker, Design.from_file(design), {}
+        _InputTaker, Design.load(design), {}
     )
     assert settings["flowrun_hash"] == expected.node("__input_maker").flowrun_hash
 
@@ -652,7 +653,7 @@ def test_the_remote_runs_the_nodes_planning_names(tmp_path, remote_host, section
     remote_host.load_test_flows()
     design = _declared_design(tmp_path / "design", sections)
     planned = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
-        _Place, Design.from_file(design), {}
+        _Place, Design.load(design), {}
     )
     document = _succeeded(remote_request(tmp_path, design, _Place.name))
     assert _identity(document) == planned.node(_Place.name).flowrun_hash
@@ -673,7 +674,7 @@ def test_a_declared_graph_has_the_same_input_origin_on_the_remote(tmp_path, remo
         entries = [{"file": "given.dat", "type": "Data"}]
     design = _declared_design(root, sources=entries)
     expected = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
-        _Taker, Design.from_file(design), {}
+        _Taker, Design.load(design), {}
     )
     document = _succeeded(remote_request(tmp_path, design, _Taker.name))
     assert _results(document)["read"] == ("given\n" if source else "made\n")
@@ -792,7 +793,7 @@ def test_a_design_file_binding_reaches_the_remote_plan(tmp_path, remote_host):
     remote_host.load_test_flows()
     design = _bound_design(tmp_path / "design")
     planned = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
-        _Taker, Design.from_file(design), {}
+        _Taker, Design.load(design), {}
     )
     assert [node.name for node in planned.nodes] == ["__input_maker", "__taker"]
     document = _succeeded(remote_request(tmp_path, design, _Taker.name))
@@ -838,7 +839,7 @@ def test_two_producers_of_a_many_input_run_remotely(tmp_path, remote_host):
         },
     )
     planned = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
-        _Join, Design.from_file(design), {}
+        _Join, Design.load(design), {}
     )
     document = _succeeded(remote_request(tmp_path, design, _Join.name))
     assert _results(document)["more"] == ["made\n", "second\n"]

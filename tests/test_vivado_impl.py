@@ -106,7 +106,7 @@ def _design(
     rtl = {"sources": list(sources), "top": top, "clocks": [{"port": "clk"}]}
     if attributes:
         rtl["attributes"] = attributes
-    return Design(name="blinky", design_root=root, rtl=rtl, flows=flows or {})
+    return Design(name="blinky", root=root, rtl=rtl, flows=flows or {})
 
 
 def _edif_design(root: Path, **kwargs) -> Design:
@@ -127,7 +127,7 @@ def _power_design(root: Path) -> Design:
     )
     return Design(
         name="blinky",
-        design_root=root,
+        root=root,
         rtl=design.rtl.model_dump(mode="json"),
         tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
     )
@@ -647,7 +647,7 @@ def test_every_step_of_the_shared_implementation_script_writes_into_a_directory_
     if flow == "vivado_impl":
         design, flow_class = _edif_design(tmp_path / "d"), VivadoImpl
     else:
-        design = Design.from_file(Path(__file__).parent / "resources" / "design0" / "design0.toml")
+        design = Design.load(Path(__file__).parent / "resources" / "design0" / "design0.toml")
         flow_class = VivadoAltSynth
         settings |= {"write_checkpoint": True, "write_netlist": True, "write_timing_netlist": True}
         settings["synth"] = {"steps": {"power_opt": {"verbose": True}}}
@@ -904,7 +904,7 @@ def test_every_text_of_the_design_reaches_vivado_as_one_literal_word(tmp_path, t
     (tmp_path / "more [x] $v.xdc").write_text("# more\n")
     design = Design(
         name="blinky",
-        design_root=root,
+        root=root,
         rtl={
             "sources": [{"file": "net [x] $v.edf", "type": "Edif"}, "pins [x] $v.xdc"],
             "top": top,

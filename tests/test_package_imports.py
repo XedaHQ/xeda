@@ -47,7 +47,7 @@ assert set(sys.modules) == modules_before
 
 def test_extension_simulator_rejection_includes_builtin_cocotb_simulators() -> None:
     result = run_python("""
-import sys
+import sys, tempfile
 from xeda import Design, SimFlow
 from xeda.flow import FlowSettingsException
 
@@ -57,7 +57,10 @@ class CustomSimulator(SimFlow):
 
 assert "xeda.flows" not in sys.modules
 try:
-    CustomSimulator.check_design_supported(Design(name="cocotb_design", tb={"cocotb": True}))
+    design = Design(
+        name="cocotb_design", root=tempfile.gettempdir(), rtl={"sources": []}, tb={"cocotb": True}
+    )
+    CustomSimulator.check_design_supported(design)
 except FlowSettingsException as error:
     suggested = str(error).split("use one of: ")[1].split(", ")
     assert {"ghdl_sim", "nvc", "verilator"} <= set(suggested)

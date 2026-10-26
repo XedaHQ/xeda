@@ -195,7 +195,7 @@ def _launch(tmp_path: Path, database: Path | None = None, part: str = PART):
     flows = {"fpga_pack": {"prjxray_db": str(database)}} if database else {}
     design = Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": ["routed.fasm"], "top": "top"},
         flows=flows,
     )

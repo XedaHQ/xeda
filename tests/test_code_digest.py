@@ -138,7 +138,7 @@ def loose_plugin(tmp_path, monkeypatch):
 @pytest.fixture
 def design(tmp_path):
     (tmp_path / "a.v").write_text("module a; endmodule\n")
-    return Design(name="toy", rtl={"sources": ["a.v"], "top": "a"}, design_root=tmp_path)
+    return Design(name="toy", rtl={"sources": ["a.v"], "top": "a"}, root=tmp_path)
 
 
 def _launch(tmp_path, plugin, design) -> Flow:

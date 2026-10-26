@@ -371,7 +371,7 @@ def test_embedded_project_design_paths_are_relative_to_the_project_file(tmp_path
     design = project.get_design("d")
 
     assert design is not None
-    assert design.root_path == tmp_path.resolve()
+    assert design.root == tmp_path.resolve()
     assert design.rtl.sources[0].path == (tmp_path / "top.v").resolve()
 
 
@@ -517,7 +517,7 @@ def test_dse_does_not_reapply_or_remove_design_settings(tmp_path, monkeypatch):
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["top.v"], "top": "top", "clocks": ["clk"]},
         flows={
             "vivado_synth": {
@@ -558,7 +558,7 @@ def test_dse_candidates_keep_all_flow_sections_for_dependencies(tmp_path):
             )
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")  # `yosys_fpga` reads a source
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
     outcome, index = Executioner(
         Launcher(tmp_path / "run"),
         design,
@@ -670,6 +670,7 @@ def test_running_a_design_mapping_does_not_modify_the_callers_mapping(tmp_path, 
     (tmp_path / "top.v").write_text("module top; endmodule\n")  # `vivado_synth` reads a source
     design = {
         "name": "d",
+        "root": tmp_path,
         "rtl": {"sources": [str(tmp_path / "top.v")], "top": "top"},
     }
     before = deepcopy(design)
@@ -755,7 +756,7 @@ def test_run_flow_composes_the_sections_it_is_given(tmp_path, monkeypatch):
 
     monkeypatch.setattr(DefaultRunner, "launch_flow", launch_flow)
     (tmp_path / "top.v").write_text("module top; endmodule\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run_flow(
             VivadoPostsynthSim,

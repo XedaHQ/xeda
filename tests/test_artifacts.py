@@ -128,7 +128,7 @@ def test_a_failed_run_reports_only_the_artifacts_that_exist(passes, tmp_path, ca
         def parse_reports(self) -> bool:
             return passes
 
-    design = Design.from_file(EXAMPLE)
+    design = Design.load(EXAMPLE)
     try:
         with caplog.at_level(logging.WARNING):
             flow = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
@@ -217,7 +217,7 @@ def _sqrt_with_a_vhdl_testbench(root: Path) -> Design:
     (root / "tb.vhd").write_text("entity tb is end;\narchitecture sim of tb is begin end;\n")
     return Design(
         name="sqrt",
-        design_root=root,
+        root=root,
         rtl={"sources": [str(EXAMPLE.parent / "sqrt.vhdl")], "top": "sqrt"},
         tb={"sources": ["tb.vhd"], "top": "tb", "uut": "uut"},
         language={"vhdl": {"standard": "2008"}},
@@ -233,7 +233,7 @@ def test_a_failed_run_never_reports_an_earlier_runs_artifact(flow_name, tmp_path
     if flow_name == "vivado_sim":
         design = _sqrt_with_a_vhdl_testbench(tmp_path / "design")
     else:
-        design = Design.from_file(EXAMPLE)
+        design = Design.load(EXAMPLE)
     (tmp_path / "cells.db").write_text("")
     monkeypatch.chdir(tmp_path)
     settings, failing = FAKE_TOOL_FLOWS[flow_name]
@@ -302,7 +302,7 @@ def test_a_new_output_with_an_early_mtime_still_counts_as_written(tmp_path):
         def parse_reports(self) -> bool:
             return False  # force `_drop_unwritten_artifacts`, which consults `wrote_output`
 
-    design = Design.from_file(EXAMPLE)
+    design = Design.load(EXAMPLE)
     try:
         flow = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
             NewOutputEarlyMtime, design, {}
@@ -339,7 +339,7 @@ def test_an_untouched_artifact_at_the_run_starts_own_tick_is_not_written(tmp_pat
         def parse_reports(self) -> bool:
             return False
 
-    design = Design.from_file(EXAMPLE)
+    design = Design.load(EXAMPLE)
     try:
         flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
             SeesEarlierArtifact, design, {}
@@ -364,7 +364,7 @@ def test_a_successful_vivado_synth_overwrites_an_earlier_bitstream_with_an_early
     `FlowFatalError` for a bitstream it plainly wrote. (A bitstream is always written in the run
     directory now; a location the user names is delivered to after the launch.)"""
     use_fake_tools(monkeypatch)
-    design = Design.from_file(EXAMPLE)
+    design = Design.load(EXAMPLE)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     settings = {
         "fpga": {"part": "xc7a12tcsg325-1"},
@@ -406,7 +406,7 @@ def test_a_directly_constructed_flow_does_not_reintroduce_the_stale_artifact_bug
     old.write_text("old\n")  # here before the flow is even constructed
 
     try:
-        flow = DirectlyConstructed({}, Design.from_file(EXAMPLE), run_dir)
+        flow = DirectlyConstructed({}, Design.load(EXAMPLE), run_dir)
         # created only after construction: absent from the snapshot taken at that point
         fresh = run_dir / "fresh.bit"
         fresh.write_text("fresh\n")
@@ -438,7 +438,7 @@ def test_a_directly_constructed_flow_with_a_relative_run_path_is_still_sound(tmp
     old.write_text("old\n")  # here before the flow is even constructed
 
     try:
-        flow = DirectlyConstructedRelative({}, Design.from_file(EXAMPLE), run_dir)
+        flow = DirectlyConstructedRelative({}, Design.load(EXAMPLE), run_dir)
         fresh = tmp_path / run_dir / "fresh.bit"
         fresh.write_text("fresh\n")
 
@@ -484,7 +484,7 @@ def _failed_run_artifacts(tmp_path: Path, run_dir: Path, artifact: str, rewrite=
 
     try:
         flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
-            DeclaresAnOutput, Design.from_file(EXAMPLE), {}
+            DeclaresAnOutput, Design.load(EXAMPLE), {}
         )
         assert flow.run_path == run_dir
     finally:
@@ -554,7 +554,7 @@ def test_a_directory_is_the_runs_only_if_the_run_changed_it(written, tmp_path):
 
     run_dir = _earlier_run_dir(tmp_path)
     try:
-        flow = NeverRuns({}, Design.from_file(EXAMPLE), run_dir)
+        flow = NeverRuns({}, Design.load(EXAMPLE), run_dir)
     finally:
         for name in (NeverRuns.name, NeverRuns.__name__):
             registered_flows.pop(name, None)
@@ -582,7 +582,7 @@ def test_a_directory_the_snapshot_could_not_read_is_never_taken_for_empty(tmp_pa
     locked = run_dir / "real"
     locked.chmod(0)
     try:
-        flow = NeverRuns({}, Design.from_file(EXAMPLE), run_dir)
+        flow = NeverRuns({}, Design.load(EXAMPLE), run_dir)
     finally:
         locked.chmod(0o755)
         for name in (NeverRuns.name, NeverRuns.__name__):
@@ -663,7 +663,7 @@ def test_a_successful_vivado_synth_accepts_its_bitstream_on_a_file_system_whose_
 
     flow = runner.launch_flow(
         "vivado_synth",
-        Design.from_file(EXAMPLE),
+        Design.load(EXAMPLE),
         {
             "fpga": {"part": "xc7a12tcsg325-1"},
             "clocks": {"main_clock": {"period": "10 ns"}},
@@ -711,7 +711,7 @@ def _launch_and_forget(flow_class, tmp_path: Path) -> Flow:
     """Launch a flow class defined by a test, then unregister it."""
     try:
         return DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
-            flow_class, Design.from_file(EXAMPLE), {}
+            flow_class, Design.load(EXAMPLE), {}
         )
     finally:
         for name in (flow_class.name,):

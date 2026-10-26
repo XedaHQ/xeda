@@ -41,7 +41,7 @@ def _bare_and_initialized(cls, settings, world, monkeypatch):
     rtl, tb = DESIGNS.get(cls.name, SQRT_DESIGN)
     design = Design(
         name="sqrt",
-        design_root=world.work,
+        root=world.work,
         rtl=rtl,
         tb=tb,
         language={"vhdl": {"standard": "2008"}},

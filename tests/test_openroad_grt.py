@@ -76,12 +76,12 @@ def grt_flow(
             TINY_OPENROAD_RESIDUE if unset_polish else residue_with(tmp_path, opt_post_grt_wns=0)
         )
     store = tiny_store(tmp_path, "store")
-    design = Design.from_file(openroad_design(tmp_path / "design"))
+    design = Design.load(openroad_design(tmp_path / "design"))
     given = {**tiny_settings(store, residue=residue), **(settings or {})}
     run_path = tmp_path / "work"
     run_path.mkdir(exist_ok=True)
     flow = OpenroadGrt(
-        OpenroadGrt.Settings.from_input(given, design_root=design.design_root, runner_cwd=tmp_path),
+        OpenroadGrt.Settings.from_input(given, design_root=design.root, runner_cwd=tmp_path),
         design,
         run_path,
     )
@@ -1354,9 +1354,7 @@ def test_a_change_of_a_global_route_setting_runs_the_route_again_and_not_the_flo
 ):
     runner, design, settings, _ = launch(tmp_path, monkeypatch)
     given = dict(s.split("=", 1) for s in settings) | {"router.seed": "5"}
-    _, states = runner.plan_with_freshness(
-        "openroad_grt", Design.from_file(design), flow_settings=given
-    )
+    _, states = runner.plan_with_freshness("openroad_grt", Design.load(design), flow_settings=given)
     assert states["openroad_place"].state == "fresh"
     assert states["openroad_cts"].state == "fresh"
     assert states["openroad_grt"].state != "fresh"
@@ -1425,7 +1423,7 @@ def test_a_failed_route_leaves_a_failed_database_and_no_trace(tmp_path, monkeypa
     # the next launch keeps the flows before it and runs the route
     _, states = runner.plan_with_freshness(
         "openroad_grt",
-        Design.from_file(design),
+        Design.load(design),
         flow_settings=dict(s.split("=", 1) for s in settings),
     )
     assert states["openroad_cts"].state == "fresh"

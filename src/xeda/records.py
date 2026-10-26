@@ -957,7 +957,7 @@ def _input_source(flow: Flow, path: str) -> InputSource:
             else (
                 source.dependency_place
                 if dependency is not None
-                else root_relative_text(flow.design.root_path, Path(path))
+                else root_relative_text(flow.design.root, Path(path))
             )
         ),
         generated=generated,

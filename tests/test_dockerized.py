@@ -53,7 +53,7 @@ def _design(root: Path, name: str, rtl: dict, **files: str) -> Design:
     for rel, text in files.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(text)
-    return Design(name=name, design_root=root, rtl=rtl)
+    return Design(name=name, root=root, rtl=rtl)
 
 
 def test_vivado_synth_runs_in_its_default_image(work_dir) -> None:
@@ -95,7 +95,7 @@ def test_ghdl_sim_runs_in_its_default_image(work_dir) -> None:
     )
     design = Design(
         name="sim",
-        design_root=root,
+        root=root,
         rtl={"sources": [], "top": "tb"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
     )
@@ -156,7 +156,7 @@ def _modelsim_run(
     (root / "tb.vhd").write_text(tb)
     design = Design(
         name="inv",
-        design_root=root,
+        root=root,
         language={"vhdl": {"standard": "2008"}},
         rtl={"sources": ["inv.sv"], "top": "inv"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
@@ -273,7 +273,7 @@ def test_modelsim_native_runtime_contract(language, body, settings, passes, work
         )
     design = Design(
         name="native",
-        design_root=root,
+        root=root,
         rtl={"sources": [source], "top": "tb"},
         tb={"top": "tb"},
         language={"vhdl": {"standard": "2008"}},

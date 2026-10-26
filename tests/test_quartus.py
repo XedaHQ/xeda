@@ -78,7 +78,7 @@ def test_parse_csv():
 
 def _test_parse_reports():
     root_dir = Path("/Users/kamyar/src/xeda/examples/vhdl/pipeline")
-    design = Design.from_file(root_dir / "pipelined_adder.yaml")
+    design = Design.load(root_dir / "pipelined_adder.yaml")
     run_path = root_dir / "xeda_run/pipelined_adder/quartus"
     settings = Quartus.Settings(fpga={"part": "10CL016YU256C6G"}, clocks={"main_clock": {"period": "15 ns"}})  # type: ignore
     flow = Quartus(settings, design, run_path=run_path)
@@ -118,7 +118,7 @@ def test_quartus_records_bitstream_as_artifact(tmp_path, monkeypatch) -> None:
     directory; `Quartus` never declared it. The project is `<design name>`, created in the run
     directory with no output directory of its own."""
     use_fake_tools(monkeypatch)
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("10CL016YU256C6G"), clocks={"main_clock": dict(period="6 ns")})
     flow = DefaultRunner(tmp_path / "run").run_flow(Quartus, design, settings)
     assert flow is not None and flow.succeeded
@@ -134,7 +134,7 @@ def test_quartus_reads_the_timing_reports_through_the_run_directory(tmp_path, mo
     """The process does not work in the run directory: the Fmax reports of the Timing Analyzer
     are found there, whatever the working directory is."""
     use_fake_tools(monkeypatch)
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("10CL016YU256C6G"), clocks={"main_clock": dict(period="6 ns")})
     flow = DefaultRunner(tmp_path / "run").run_flow(Quartus, design, settings)
     assert flow is not None and flow.succeeded
@@ -158,7 +158,7 @@ def _quartus_processes(tmp_path, monkeypatch, **settings) -> list:
         return ""
 
     monkeypatch.setattr("xeda.tool.run_process", record)
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     flow = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
         Quartus,
         design,
@@ -194,7 +194,7 @@ def test_every_launch_of_quartus_has_its_own_tool(tmp_path, monkeypatch) -> None
     shared by every launch of the process would carry that from launch to launch."""
     assert not isinstance(vars(Quartus).get("quartus_sh"), Tool)
     monkeypatch.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("10CL016YU256C6G"), clocks={"main_clock": dict(period="6 ns")})
     first = DefaultRunner(tmp_path / "one", display_results=False).launch_flow(
         Quartus, design, settings
@@ -209,7 +209,7 @@ def test_quartus_synth_py(monkeypatch) -> None:
     path = RESOURCES_DIR / "design0/design0.toml"
     use_fake_tools(monkeypatch)
     assert path.exists()
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(
         fpga=FPGA("10CL016YU256C6G"), clocks={"main_clock": {"period": "6 ns"}}, dockerized=False
     )

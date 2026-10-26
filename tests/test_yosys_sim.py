@@ -17,7 +17,7 @@ def _design_with_a_source(root):
     """A design a `YosysSim` can be built on, for a test of its settings: the flow needs a source
     it reads."""
     (root / "d.v").write_text("module d; endmodule\n")
-    return Design(name="d", design_root=root, rtl={"sources": ["d.v"], "top": "d"})
+    return Design(name="d", root=root, rtl={"sources": ["d.v"], "top": "d"})
 
 
 def _driver_design(tmp_path, body="return 0;", *, rtl=None, header=True):
@@ -40,7 +40,7 @@ def _driver_design(tmp_path, body="return 0;", *, rtl=None, header=True):
     )
     return Design(
         name="driver",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut"},
         tb={"sources": ["main.cpp"]},
     )
@@ -283,7 +283,7 @@ def test_yosys_sim_runs_the_cxxrtl_example(tmp_path):
     require_yosys()
     require_c_toolchain()
     example = Path(__file__).parent.parent / "examples/mixed_language/blink/blinky.xeda.yaml"
-    design = Design.from_file(example)
+    design = Design.load(example)
     flow = DefaultRunner(tmp_path).run_flow(YosysSim, design, {"cxxrtl": {"filename": None}})
     assert flow is not None and flow.succeeded
     assert (flow.run_path / "blink.cpp").is_file()
@@ -357,7 +357,7 @@ def test_invalid_init_driver_fails_before_cxxrtl(tmp_path, check_assert):
     (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
     design = Design(
         name="bad_init_driver",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["bad.v"], "top": "top"},
         tb={"sources": ["main.cpp"]},
     )
@@ -387,7 +387,7 @@ def test_simulation_top_and_hdl_testbench_source_are_used(tmp_path, capfd):
     )
     design = Design(
         name="sim_top_example",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["dut.v"], "top": "dut"},
         tb={"sources": ["sim_top.v", "sim_main.cpp"], "top": "sim_top"},
     )
@@ -407,7 +407,7 @@ def test_a_testbench_source_the_flow_cannot_read_is_refused_when_planned(tmp_pat
     (tmp_path / "Tb.bsv").write_text("package Tb; endpackage\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut"},
         tb={"sources": ["Tb.bsv"]},
     )
@@ -420,7 +420,7 @@ def test_a_cpp_driver_beside_the_rtl_is_planned(tmp_path):
     (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut"},
         tb={"sources": ["main.cpp"]},
     )

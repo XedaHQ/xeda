@@ -128,7 +128,7 @@ LIBRARIES = [
 
 @pytest.mark.parametrize("path,rtl_sources,target,top,tb_sources", LIBRARIES)
 def test_library_default_is_bench_free(path, rtl_sources, target, top, tb_sources):
-    design = merged_design(Design.from_file(EXAMPLES / path), run_root=None)
+    design = merged_design(Design.load(EXAMPLES / path), run_root=None)
 
     assert [source.file.name for source in design.rtl.sources] == rtl_sources
     assert design.rtl.top is None
@@ -138,7 +138,7 @@ def test_library_default_is_bench_free(path, rtl_sources, target, top, tb_source
 
 @pytest.mark.parametrize("path,rtl_sources,target,top,tb_sources", LIBRARIES)
 def test_library_test_target_selects_existing_sources(path, rtl_sources, target, top, tb_sources):
-    design = merged_design(Design.from_file(EXAMPLES / path, target=target), run_root=None)
+    design = merged_design(Design.load(EXAMPLES / path, target=target), run_root=None)
 
     assert design.rtl.sources
     assert list(design.tb.top) == [top] or design.rtl.top == top
@@ -168,7 +168,7 @@ def test_library_test_target_selects_existing_sources(path, rtl_sources, target,
     ],
 )
 def test_stream_exchange_library_keeps_width_targets(target, top):
-    design = Design.from_file(EXAMPLES / "uart_link/stream-exchange-library.yaml", target=target)
+    design = Design.load(EXAMPLES / "uart_link/stream-exchange-library.yaml", target=target)
 
     assert design.rtl.top == top
 
@@ -179,7 +179,7 @@ def test_stream_exchange_library_keeps_width_targets(target, top):
 def test_every_library_test_target_runs(path, target, top_field, expected_top, tmp_path, capfd):
     """Run every library test target in CI so source and testbench changes stay executable."""
     require_bluesim()
-    design = Design.from_file(EXAMPLES / path, target=target)
+    design = Design.load(EXAMPLES / path, target=target)
     actual_top = getattr(design, top_field).top
     if top_field == "rtl":
         assert actual_top == expected_top
@@ -206,7 +206,7 @@ def test_every_library_test_target_runs(path, target, top_field, expected_top, t
 def test_stream_app_bytes_uses_link_configuration(defines, tmp_path, capfd):
     """Elaborate both app-specific and default byte tops with the board's link macros."""
     require_bsc()
-    design = Design.from_file(EXAMPLES / "uart_link/apps/gcd.yaml", target="sim_bytes")
+    design = Design.load(EXAMPLES / "uart_link/apps/gcd.yaml", target="sim_bytes")
     app_defines = {
         name: value
         for name, value in design.rtl.defines.items()

@@ -56,6 +56,7 @@ from .dataclass import (
     SerializeAsAny,
     ValidationError,
     XedaBaseModel,
+    computed_field,
     escaped_names_atomic,
     field_validator,
     input_names,
@@ -191,7 +192,7 @@ class DesignValidationError(AnyDesignValidationException):
         errors: List[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]],
         data: Optional[Dict[str, Any]] = None,
         *args: object,
-        design_root: Union[str, os.PathLike, None] = None,
+        root: Union[str, os.PathLike, None] = None,
         design_name: Optional[str] = None,
         file: Optional[str] = None,
         design_in_msg: bool = False,
@@ -199,7 +200,7 @@ class DesignValidationError(AnyDesignValidationException):
         super().__init__(*args)
         self.errors = errors  # (location, message, context, type)
         self.data = data or {}
-        self.design_root = design_root
+        self.root = root
         self.design_name = design_name
         self.file = file
         self.design_in_msg = design_in_msg
@@ -218,7 +219,7 @@ class DesignValidationError(AnyDesignValidationException):
             len(self.errors),
             "s" if len(self.errors) > 1 else "",
             f" '{name}'" if name else "",
-            # the design file `from_file` attaches: the one thing that says where to look
+            # the design file `Design.load` attaches: the one thing that says where to look
             f' in "{self.file}"' if self.file else "",
             "\n".join(f"{fmt_loc(loc)}{msg}\n" for loc, msg, _, _ in self.errors),
         ) + (
@@ -242,7 +243,7 @@ def _design_errors(
     ]
 
 
-#: The format in which Xeda reads a design file, by its suffix. `Design.from_file` reads by it,
+#: The format in which Xeda reads a design file, by its suffix. `Design.load` reads by it,
 #: and the launcher tells a design file from a design's name by it.
 DESIGN_FILE_FORMATS: dict[str, str] = {
     ".toml": "toml",
@@ -255,7 +256,7 @@ DESIGN_FILE_FORMATS: dict[str, str] = {
 def names_a_design_file(path: str | os.PathLike) -> bool:
     """Return whether `path` is meant as a design file and not as a design's name in a project.
 
-    A path with a design-file suffix in any case is a design file. `Design.from_file` rejects a
+    A path with a design-file suffix in any case is a design file. `Design.load` rejects a
     mis-cased suffix and names the right spelling, so the path is not looked up in a project and
     reported missing there."""
     return Path(path).suffix.lower() in DESIGN_FILE_FORMATS
@@ -625,7 +626,7 @@ class FileResource:
                     # Use `oneOf`, not `anyOf`. `FileResource` rejects an object that gives
                     # neither key and one that gives both, so exactly one branch must match.
                     # Under `anyOf`, an object with both keys satisfies both branches and passes
-                    # the schema, while `Design.from_file` rejects it.
+                    # the schema, while `Design.load` rejects it.
                     "oneOf": [{"required": ["file"]}, {"required": ["path"]}],
                 },
             ],
@@ -1969,13 +1970,13 @@ class Generator(XedaBaseModel):
     def run(self, design_root: Path, storage: Path, environ: Mapping[str, str]) -> None:
         """Run the generator in its working directory, with its environment."""
         command = self.execution_command(design_root, storage)
-        self.run_cmd(command, design_root=design_root, storage=storage, environ=environ)
+        self.run_cmd(command, root=design_root, storage=storage, environ=environ)
 
     def run_cmd(
         self,
         cmd,
         *,
-        design_root: Path,
+        root: Path,
         storage: Path,
         environ: Mapping[str, str],
         check=None,
@@ -1988,7 +1989,7 @@ class Generator(XedaBaseModel):
             # Resolve exactly the executable used by freshness identity. This also makes child
             # cwd and PATH selection consistent on Windows, where Popen ignores both for lookup.
             # Pass it separately to preserve argv[0] and symlink-alias behavior for wrappers.
-            executable = str(self.execution_executable_path(design_root, cmd, environ))
+            executable = str(self.execution_executable_path(root, cmd, environ))
         log.info("Running command: '%s'", " ".join(cmd))
         # The output of the generator goes where tool output goes (`run_child`): it does not
         # corrupt a `--json` document and does not reach the standard streams of a library caller.
@@ -1996,12 +1997,12 @@ class Generator(XedaBaseModel):
         return run_child(
             cmd,
             source=cmd[0] if cmd else "generator",
-            cwd=self.working_directory(design_root, storage),
+            cwd=self.working_directory(root, storage),
             executable=executable,
             check=self.check if check is None else check,
             stdout=stdout,
             stderr=stderr,
-            env=self.process_environment(design_root, storage, environ),
+            env=self.process_environment(root, storage, environ),
         )
 
     @property
@@ -2085,7 +2086,7 @@ class ChiselGenerator(Generator):
     def run_mill(self, design_root: Path, storage: Path, environ: Mapping[str, str]) -> None:
         self.run_cmd(
             self.execution_command(design_root, storage),
-            design_root=design_root,
+            root=design_root,
             storage=storage,
             environ=environ,
         )
@@ -2094,7 +2095,7 @@ class ChiselGenerator(Generator):
         if self.project is None:
             p = self.run_cmd(
                 ["bloop", "projects"],
-                design_root=design_root,
+                root=design_root,
                 storage=storage,
                 environ=environ,
                 stdout=subprocess.PIPE,
@@ -2111,7 +2112,7 @@ class ChiselGenerator(Generator):
             raise ValueError("`project` must be specified for Chisel generator")
         self.run_cmd(
             self.execution_command(design_root, storage),
-            design_root=design_root,
+            root=design_root,
             storage=storage,
             environ=environ,
         )
@@ -2910,12 +2911,12 @@ class MergedDependency:
 DesignType = TypeVar("DesignType", bound="Design")
 
 #: Keys a target may not hold: they belong to the design itself.
-TARGET_FORBIDDEN_KEYS = frozenset({"name", "targets", "target", "design_root"})
+TARGET_FORBIDDEN_KEYS = frozenset({"name", "targets", "target"})
 # Settings shared by the flows of a graph (`board`, `fpga`, ...): written once, they would apply to
 # every flow that declares them. A target takes them only under its own `flows.<flow>`, for now.
 TARGET_FLOW_SETTING_KEYS = frozenset({"board", "fpga", "custom_boards_file"})
 
-_NO_SINGULAR_TARGET = (
+NO_SINGULAR_TARGET = (
     "`target` is not a key of a design: targets are written as `targets.<name>`, and one is "
     "selected with `--target NAME` (`target=` in the API)"
 )
@@ -3049,7 +3050,6 @@ class Design(XedaBaseModel):
         "letters, digits, `_` and `-`. Name regex: [a-zA-Z][a-zA-Z0-9_\\-]*."
     )
 
-    design_root: Optional[Path] = Field(None, json_schema_extra={"hidden_from_schema": True})
     description: Optional[str] = Field(None, description="A brief description of the design.")
     authors: Tuple[str, ...] = Field(
         (),
@@ -3138,21 +3138,55 @@ class Design(XedaBaseModel):
         "defines": SecondSpelling("`rtl.defines`"),
         "generator": SecondSpelling("`rtl.generator`"),
         "clock_port": "`rtl.clocks`, as `rtl.clocks: [{port: <port>}]`",
+        "design_root": "the directory of the design file as the root (`root=` in Python)",
     }
 
-    #: The design file that `from_file` read (absolute), or `None` for any other design. It is no
+    #: The design file that `load` read (absolute), or `None` for any other design. It is no
     #: field: a saved design, a hash and a comparison of settings never see it.
     _source_file: Optional[Path] = PrivateAttr(default=None)
+    #: The directory that a relative path in the design resolves against (absolute).
+    _root: Path = PrivateAttr()
+    #: The design as written, with its dotted keys expanded and its `targets` still in it: what
+    #: `with_target` selects from.
+    _declared: dict[str, Any] = PrivateAttr(default_factory=dict)
+    #: The names of the targets that the design defines.
+    _targets: tuple[str, ...] = PrivateAttr(default=())
+    #: The arguments of `with_updates`, in order.
+    _updates: tuple[Mapping[str, Any], ...] = PrivateAttr(default=())
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def root(self) -> Path:
+        """The directory that a relative path in the design resolves against (absolute)."""
+        return self._root
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def targets(self) -> tuple[str, ...]:
+        """The names of the targets that the design defines, in the order of the design."""
+        return self._targets
+
+    @computed_field(  # type: ignore[prop-decorator]
+        return_type=Annotated[Tuple[Mapping[str, Any], ...], Frozen()]
+    )
+    @property
+    def updates(self) -> tuple[Mapping[str, Any], ...]:
+        """The arguments of the `with_updates` calls that made this design, in order.
+
+        They are provenance only: they are no part of the configuration or of the equality."""
+        return self._updates
 
     def __eq__(self, other: object) -> bool:
-        """Two designs are equal when their fields are: the file a design was read from says
-        nothing about it."""
+        """Two designs are equal when their configuration (`to_dict`), root, target and targets
+        are. The file a design was read from and the updates that made it say nothing about it."""
         if not isinstance(other, Design):
             return NotImplemented
         return (
             type(self) is type(other)
-            and self.__pydantic_extra__ == other.__pydantic_extra__
-            and all(getattr(self, name) == getattr(other, name) for name in type(self).model_fields)
+            and self.root == other.root
+            and self.target == other.target
+            and self.targets == other.targets
+            and self.to_dict() == other.to_dict()
         )
 
     __hash__ = None  # type: ignore[assignment]
@@ -3222,7 +3256,9 @@ class Design(XedaBaseModel):
             return DesignValidationError([(loc, msg, "", "value_error")], data=data)
 
         if "target" in data:
-            raise invalid("target", _NO_SINGULAR_TARGET)
+            raise invalid("target", NO_SINGULAR_TARGET)
+        if target is not None and not isinstance(target, str):
+            raise invalid("target", f"a target is named by text, not {type(target).__name__}")
 
         if "targets" in data and data["targets"] is None:
             raise invalid(
@@ -3286,7 +3322,7 @@ class Design(XedaBaseModel):
     def _merge_target(
         cls, base: Mapping[str, Any], overlay: Mapping[str, Any], *, append: bool
     ) -> dict[str, Any]:
-        """Return the design `base` with an overlay (a target, or the `--design-overrides`)
+        """Return the design `base` with an overlay (a target, or the `--design-updates`)
         merged over it, both given in the form of a design file.
 
         One rule serves every key: the rule that merges the settings layers of a flow
@@ -3413,47 +3449,104 @@ class Design(XedaBaseModel):
 
     def __init__(
         self,
-        design_root: Union[str, os.PathLike, None] = None,
-        **data: Any,
+        *,
+        name: str,
+        root: Union[str, os.PathLike],
+        rtl: Mapping[str, Any],
+        tb: Mapping[str, Any] | None = None,
+        flows: Mapping[str, Any] | None = None,
+        targets: Mapping[str, Any] | None = None,
+        target: str | None = None,
+        language: Mapping[str, Any] | None = None,
+        dependencies: Sequence[Mapping[str, Any]] = (),
+        description: str | None = None,
+        authors: Sequence[str] = (),
+        license: str | None = None,
+        version: str | None = None,
+        url: str | None = None,
     ) -> None:
-        """Copy caller data before compatibility and source processing."""
-        # Compatibility processing, generators and source normalization all consume or enrich
-        # nested mappings. The data of the caller is input, not a workspace that Xeda owns.
-        data = deepcopy(data)
-        if design_root is None:
-            design_root = (
-                data.pop("design_root") if "design_root" in data else design_relative_root()
-            )
-        if design_root is None:
-            raise ValueError("design_root is not set")
+        """Build the design that a design file in `root` would hold with these keys.
 
-        # Everything up to `super().__init__` runs outside the validators of pydantic, so this
+        The arguments are the keys of a design file, one name each, with the nested tables in the
+        form of the file (`introspect.design_schema()`). A relative path in them resolves against
+        `root`, and a source pattern (`*.sv`) expands now. A dotted key expands, and a Python
+        `None` is a YAML `null`. `target` selects one of `targets`; without it the design has no
+        target and keeps the names of its `targets`. A relative `root` resolves against the
+        current directory now, once.
+
+        Raises `DesignValidationError`."""
+        declared: dict[str, Any] = {"name": name, "rtl": rtl}
+        for key, value in (
+            ("tb", tb),
+            ("flows", flows),
+            ("targets", targets),
+            ("language", language),
+            ("description", description),
+            ("license", license),
+            ("version", version),
+            ("url", url),
+        ):
+            if value is not None:
+                declared[key] = value
+        for key, given in (("dependencies", dependencies), ("authors", authors)):
+            if given is not None and not (isinstance(given, (list, tuple)) and not given):
+                declared[key] = given
+        self._initialize(root, declared, target=target)
+
+    def _initialize(
+        self,
+        root: Union[str, os.PathLike],
+        declared: Mapping[str, Any],
+        *,
+        target: str | None = None,
+        updates: Sequence[Mapping[str, Any]] = (),
+        data: Mapping[str, Any] | None = None,
+        remove: Sequence[str] = (),
+        recorded_target: str | None = None,
+        source_file: Path | None = None,
+    ) -> None:
+        """Set up this design: the one place that builds a design value.
+
+        `declared` is the design as written (dotted keys expand here). The design is that, with
+        `target` selected and then each of `updates` applied. `data` is the data to validate when
+        the caller has composed it already (`with_updates`). `recorded_target` is the name of the
+        target of a design that was made from a target elsewhere (a packaged design): it is
+        recorded and selects nothing."""
+
+        # Everything up to `BaseModel.__init__` runs outside the validators of pydantic, so this
         # code turns a malformed design into a `DesignValidationError` by hand. Otherwise
-        # `rtl: [x]` or a mistyped `design_root` would escape as a bare `AssertionError`,
+        # `rtl: [x]` or a mistyped root would escape as a bare `AssertionError`,
         # `FileNotFoundError` or `TypeError` traceback, and the error would not name the
         # offending key.
         def invalid(
             loc: Optional[str], msg: str, kind: str = "value_error"
         ) -> DesignValidationError:
-            return DesignValidationError([(loc, msg, "", kind)], data=data, design_root=design_root)
+            return DesignValidationError(
+                [(loc, msg, "", kind)], data=dict(declared), root=root_path
+            )
 
+        root_path: Any = root
         try:
-            root = Path(design_root)
-            if not root.is_absolute():
-                root = design_relative_root() / root
-            design_root = root.resolve()
-        except TypeError:
-            raise invalid("design_root", f"not a path: {design_root!r}") from None
-        if not design_root.is_dir():
-            raise invalid("design_root", f"directory does not exist: {design_root}")
-        if not data.get("design_root"):
-            data["design_root"] = design_root
-        # A relative path in the design resolves against the design root, in the validation of
-        # the nested models, in the generators and in the dependencies alike. The working
-        # directory of the process stays as it is.
-        with loading_in_design_root(design_root):
-            if "targets" in data:
-                data = self.select_target(data)
+            root_path = Path(root).resolve()
+        except (TypeError, ValueError):
+            raise invalid("root", f"not a path: {root!r}") from None
+        if not root_path.is_dir():
+            raise invalid("root", f"directory does not exist: {root_path}")
+        cls = type(self)
+        # A relative path in the design resolves against the root, in the validation of the
+        # nested models, in the generators and in the dependencies alike. The working directory
+        # of the process stays as it is.
+        with loading_in_design_root(root_path):
+            declared = cls.expanded(deepcopy(dict(declared)))
+            names = declared.get("targets")
+            if data is None:
+                data = cls.select_target(declared, target)
+                for update in updates:
+                    data = cls._updated(data, update)
+            data = dict(data)
+            cls.remove_keys(data, remove)
+            if recorded_target is not None:
+                data["target"] = recorded_target
             try:
                 data = Design.process_dict(data)
             except (ValueError, TypeError, AssertionError) as e:
@@ -3462,8 +3555,105 @@ class Design(XedaBaseModel):
                 super().__init__(**data)
             except ValidationError as e:
                 raise DesignValidationError(
-                    _design_errors(e.errors()), data=data, design_root=design_root
+                    _design_errors(e.errors()), data=data, root=root_path
                 ) from e
+        self._root = root_path
+        self._declared = declared
+        self._targets = tuple(names) if isinstance(names, Mapping) else ()
+        self._updates = tuple(freeze(deepcopy(dict(update))) for update in updates)
+        self._source_file = source_file
+
+    @classmethod
+    def _built(
+        cls: Type[DesignType],
+        root: Union[str, os.PathLike],
+        declared: Mapping[str, Any],
+        **options: Any,
+    ) -> DesignType:
+        """Return a design made by `_initialize`, whose arguments are these, without the
+        arguments of the public constructor (a class that tolerates more keys than a design file
+        has, a design of a document that holds a target already, ...)."""
+        design = cls.__new__(cls)
+        design._initialize(root, declared, **options)
+        return design
+
+    @classmethod
+    def _updated(cls, data: Mapping[str, Any], update: Mapping[str, Any]) -> dict[str, Any]:
+        """Return the design `data` (in the form of a design file, with its target selected) with
+        `update` merged over it.
+
+        Mappings merge key by key at every depth, and the `sources` of the update replace the
+        design's: only a target adds its sources (`_merge_target`). The `target` of a design is
+        selected and cannot be updated."""
+        update = cls.expanded(deepcopy(dict(update)))
+        for key in ("target", "targets"):
+            if key in update:
+                raise DesignValidationError(
+                    [
+                        (
+                            key,
+                            f"`{key}` cannot be updated: select the target with `with_target` "
+                            "or when the design is loaded",
+                            "",
+                            "value_error",
+                        )
+                    ],
+                    data=dict(data),
+                )
+        if not update:
+            return dict(data)
+        for path, message, kind in removed_inputs_in(cls, update):
+            raise DesignValidationError([(".".join(path), message, "", kind)], data=dict(data))
+        try:
+            return cls._merge_target(
+                cls.with_default_rtl(deepcopy(dict(data))), update, append=False
+            )
+        except (ValueError, XedaException) as e:
+            raise DesignValidationError(
+                [("flows", str(e), "", "value_error")], data=dict(data)
+            ) from e
+
+    def with_updates(self: DesignType, updates: Mapping[str, Any]) -> DesignType:
+        """Return this design with `updates` merged over it.
+
+        Mappings merge key by key, and `sources` replace the design's. A dotted key is accepted.
+        The `target` cannot be updated (`with_target` selects it). The files of a source pattern
+        are those that the design has: a file added later is not. The result lists `updates` after
+        the updates of this design (`updates`). No generator runs.
+
+        Raises `DesignValidationError` for a key that a design does not have."""
+        data = self.to_dict()
+        if self.target is not None:
+            data["target"] = self.target
+        data = self._updated(data, updates)
+        return type(self)._built(
+            self.root,
+            self._declared,
+            data=data,
+            updates=(*self._updates, updates),
+            source_file=self._source_file,
+        )
+
+    def with_target(self: DesignType, target: str | None) -> DesignType:
+        """Return the design with `target` selected, or with no target for `None`.
+
+        The target folds into the design as the design declares it, and then each of `updates` is
+        applied again, in order. Raises `DesignValidationError` for a name that is no target."""
+        return type(self)._built(
+            self.root,
+            self._declared,
+            target=target,
+            updates=self._updates,
+            source_file=self._source_file,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the effective design in the shape of a design file: the selected target folded
+        in and every update merged, without `root`, `target`, `targets` or `updates`.
+
+        `Design(root=d.root, **d.to_dict())` is a design with the configuration of `d` and no
+        target."""
+        return self.model_dump(mode="json", exclude={"root", "target", "targets", "updates"})
 
     @property
     def generation_label(self) -> str:
@@ -3474,7 +3664,7 @@ class Design(XedaBaseModel):
         has one."""
         if self._source_file is not None:
             return Path(os.path.normpath(self._source_file)).as_posix()
-        return f"{self.root_path.as_posix()}::{self.name}"
+        return f"{self.root.as_posix()}::{self.name}"
 
     def merged_with(
         self,
@@ -3554,7 +3744,7 @@ class Design(XedaBaseModel):
                                 "value_error",
                             )
                         ],
-                        design_root=self.root_path,
+                        root=self.root,
                         design_name=self.name,
                     )
         rtl = {name: getattr(self.rtl, name) for name in Rtl.model_fields}
@@ -3562,12 +3752,12 @@ class Design(XedaBaseModel):
         tb = {name: getattr(self.tb, name) for name in Testbench.model_fields}
         tb.update(sources=tb_sources, top=tb_top)
         try:
-            with loading_in_design_root(self.root_path):
+            with loading_in_design_root(self.root):
                 checked_rtl = Rtl.model_validate(rtl)
                 checked_tb = Testbench.model_validate(tb, context={"merged": True})
         except ValidationError as e:
             raise DesignValidationError(
-                _design_errors(e.errors()), design_root=self.root_path, design_name=self.name
+                _design_errors(e.errors()), root=self.root, design_name=self.name
             ) from e
         result = self.model_copy(
             update={
@@ -3624,12 +3814,6 @@ class Design(XedaBaseModel):
                 return self.tb.top
         return tuple()
 
-    @property
-    def root_path(self) -> Path:
-        if not self.design_root:
-            raise ValueError("design_root is not set")
-        return self.design_root
-
     @classmethod
     def remove_keys(cls, data: dict[str, Any], names: Iterable[str]) -> None:
         """Remove the keys `names` from the design data `data`,"""
@@ -3639,20 +3823,36 @@ class Design(XedaBaseModel):
             del data[key]
 
     @classmethod
-    def from_file(
-        cls: Type[DesignType],
-        design_file: Union[str, os.PathLike],
-        design_root: Union[str, os.PathLike, None] = None,
-        overrides: Optional[Dict[str, Any]] = None,
-        allow_extra: bool = False,
-        remove_extra: Optional[List[str]] = None,
-        target: str | None = None,
-        packaged: bool = False,
+    def load(
+        cls: Type[DesignType], path: Union[str, os.PathLike], *, target: str | None = None
     ) -> DesignType:
         """Load and validate a design from a TOML, JSON or YAML file.
 
-        `target` selects one of the design's `targets` (`select_target`). Without it, the design
-        is loaded with no target. `overrides` are applied last, over the selected target.
+        The root of the design is the directory of the file. The call reads the file, expands
+        dotted keys, expands source patterns (the files that match now are the design's; a file
+        added later is not), selects `target` among the `targets` of the design and validates.
+        Without `target` the design has no target. It runs no generator and fetches nothing.
+
+        A file that cannot be read as a design raises `DesignFileParseError`. A file whose design
+        does not validate raises `DesignValidationError`. Both errors name the file."""
+        return cls._load_file(path, target=target)
+
+    @classmethod
+    def _load_file(
+        cls: Type[DesignType],
+        design_file: Union[str, os.PathLike],
+        *,
+        target: str | None = None,
+        updates: Sequence[Mapping[str, Any]] = (),
+        allow_extra: bool = False,
+        remove_extra: Sequence[str] = (),
+        packaged: bool = False,
+    ) -> DesignType:
+        """Load a design file as `load` does, with what only the launcher needs.
+
+        `updates` are applied over the selected target, in order. `allow_extra` makes a class
+        that tolerates keys a design does not have, and `remove_extra` removes the named keys
+        from the file first.
 
         `packaged` is for the document that the local xeda wrote for a remote host
         (`xeda.remote.packaging`) and only for the remote launch entry. Such a document holds
@@ -3662,18 +3862,9 @@ class Design(XedaBaseModel):
         table of tool or netlist names with its dots escaped (`dataclass.ESCAPED_DOT`), and the
         loader reads that text as the merged name (`dataclass.AtomicName`). So the remote gets the
         tables as the local layers merged them, even when they hold `A` and `A.B`. A user's design
-        file may not have such a key.
-
-        A file that cannot be read as a design raises `DesignFileParseError`. A file whose design
-        does not validate raises `DesignValidationError`. Both errors name the file.
-        """
-        if overrides is None:
-            overrides = {}
-        if remove_extra is None:
-            remove_extra = []
+        file may not have such a key."""
         # Read the working directory here, in the call that receives the file, and nowhere later.
         design_file = Path(design_file).absolute()
-        absolute_file = design_file
         design_dict = _read_design_file(design_file)
         if allow_extra:
             cls = model_with_allow_extra(cls)
@@ -3686,45 +3877,36 @@ class Design(XedaBaseModel):
                     raise DesignValidationError(
                         [("target", problem, "", "value_error")], data=dict(design_dict)
                     )
-            design_dict = cls.target_selected(design_dict, target, overrides)
-            if packaged:
+            declared = cls.expanded(design_dict)
+            if packaged and "flows" in declared:
                 # the names of a table that layers merged, `A` and `A.B` (`dataclass.AtomicName`)
-                if "flows" in design_dict:
-                    design_dict["flows"] = escaped_names_atomic(design_dict["flows"])
-            if recorded_target is not None:
-                design_dict["target"] = recorded_target
-            if "name" not in design_dict:
-                design_name = design_file.stem
-                design_name = removesuffix(design_name, ".xeda")
+                declared["flows"] = escaped_names_atomic(declared["flows"])
+            if "name" not in declared:
+                design_name = removesuffix(design_file.stem, ".xeda")
                 log.debug(
                     "'design.name' not specified! Inferring design name: `%s` from design file name.",
                     design_name,
                 )
-                design_dict["name"] = design_name
-            if not allow_extra:
-                cls.remove_keys(design_dict, remove_extra)
-            # The default design root is the directory that holds the design file.
-            dr = design_dict.pop("design_root", None)
-            if design_root is None and isinstance(dr, (str, os.PathLike)) and dr:
-                # A relative `design_root` in the file is relative to the file.
-                dr = absolute_file.parent / dr
-            if design_root is None:
-                design_root = dr
-            if design_root is None:
-                design_root = design_file.parent
-            design = cls(design_root=design_root, **design_dict)
-            design._source_file = design_file.absolute()
-            return design
+                declared["name"] = design_name
+            return cls._built(
+                design_file.parent,
+                declared,
+                target=target,
+                updates=updates,
+                remove=() if allow_extra else remove_extra,
+                recorded_target=recorded_target,
+                source_file=design_file,
+            )
         except DesignValidationError as e:
-            raise DesignValidationError(  # add design_file to the emitted exception
+            raise DesignValidationError(  # add the design file to the emitted exception
                 e.errors,
                 data=e.data,
-                design_root=e.design_root,
+                root=e.root,
                 design_name=e.design_name,
-                file=str(absolute_file),
+                file=str(design_file),
             ) from e
         except Exception as e:
-            log.error("Error processing design file: %s", absolute_file)
+            log.error("Error processing design file: %s", design_file)
             raise e
 
     @classmethod
@@ -3742,47 +3924,6 @@ class Design(XedaBaseModel):
                 [(e.value_key, str(e), "", "value_error")], data=dict(data)
             ) from e
 
-    @classmethod
-    def target_selected(
-        cls,
-        data: Mapping[str, Any],
-        target: str | None = None,
-        overrides: Mapping[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Return the design as written in a file (a design file, or a project's `designs` entry),
-        with its target selected and then `overrides` applied.
-
-        Every loader of written designs builds the `Design` from this result. Written input has
-        no `target` key, because the loader records the name there. The overrides are an overlay
-        on the design, like a target, and merge by the same rule (`_merge_target`), except that
-        their `sources` replace the design's: only a target adds its sources to the design's."""
-        selected = cls.select_target(cls.expanded(data), target)
-        overrides = cls.expanded(deepcopy(dict(overrides or {})))
-        if "target" in overrides:
-            raise DesignValidationError(
-                [
-                    (
-                        "target",
-                        "`target` is recorded by selection and cannot be overridden",
-                        "",
-                        "value_error",
-                    )
-                ],
-                data=dict(data),
-            )
-        if not overrides:
-            return selected
-        for path, message, kind in removed_inputs_in(cls, overrides):
-            raise DesignValidationError([(".".join(path), message, "", kind)], data=dict(data))
-        try:
-            return cls._merge_target(
-                cls.with_default_rtl(deepcopy(selected)), overrides, append=False
-            )
-        except (ValueError, XedaException) as e:
-            raise DesignValidationError(
-                [("flows", str(e), "", "value_error")], data=dict(data)
-            ) from e
-
     def source_path_as_named(self, src: FileResource) -> Path:
         """Return `src` as this design names it.
 
@@ -3792,9 +3933,9 @@ class Design(XedaBaseModel):
         the run root."""
         if isinstance(src, Source) and src.generated:
             return Path(str(src.output_name))
-        if src.file and self.design_root:
+        if src.file:
             try:
-                return src.file.absolute().relative_to(self.root_path.absolute())
+                return src.file.absolute().relative_to(self.root.absolute())
             except ValueError:
                 pass
         return src.get_specified_path()
@@ -3863,7 +4004,7 @@ class Design(XedaBaseModel):
             listed = as_source_list(recipe.get("sources", ()))
             for entry in listed if isinstance(listed, (list, tuple)) else ():
                 if isinstance(entry, (str, os.PathLike)):
-                    found[("rtl.generator.sources", os.fspath(entry), unit.root_path)] = None
+                    found[("rtl.generator.sources", os.fspath(entry), unit.root)] = None
         return tuple(SourceEntry(*key) for key in found)
 
     def part_metadata(self, part: str) -> Dict[str, Any]:
@@ -3943,7 +4084,7 @@ class Design(XedaBaseModel):
             for index, record in enumerate(self.resolved_dependencies)
             if record.checkout is not None
         ]
-        roots += [("DESIGN_ROOT", self.root_path)] if self.design_root else []
+        roots += [("DESIGN_ROOT", self.root)]
 
         def counted(value: Any) -> Any:
             value = thaw(value)
@@ -3960,8 +4101,8 @@ class Design(XedaBaseModel):
         fingerprint uses (`location_free`). The root is resolved when the design is built, and so
         is every path that a design resolves against it."""
         path = Path(path)
-        if self.design_root and path.is_absolute() and path.is_relative_to(self.root_path):
-            return path.relative_to(self.root_path)
+        if path.is_absolute() and path.is_relative_to(self.root):
+            return path.relative_to(self.root)
         return None
 
     def _source_fingerprint(self, source: Source) -> Dict[str, Any]:
@@ -3994,7 +4135,7 @@ class Design(XedaBaseModel):
             else:
                 known = path_identity(source.file, "source")
                 fingerprint["path"] = (
-                    known if known is not None else root_relative_text(self.root_path, source.file)
+                    known if known is not None else root_relative_text(self.root, source.file)
                 )
         return fingerprint
 
@@ -4016,7 +4157,7 @@ class Design(XedaBaseModel):
             return known
         if source.dependency_place is not None:
             return source.dependency_place
-        return root_relative_text(self.root_path, source.file)
+        return root_relative_text(self.root, source.file)
 
     @property
     def rtl_hash(self) -> str:

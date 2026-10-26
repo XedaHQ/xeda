@@ -810,13 +810,15 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "value wins over the design's and the project's. The order, lowest first, is defaults < "
     "project < design < target < -s < API.",
 )
+@_removed_options("--design-updates", "--design-overrides", took_value=True)
 @click.option(
-    "--design-overrides",
+    "--design-updates",
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
-    help="""Override attributes of the design.""",
+    help="""Update the design: merge the KEY=VALUE items over it, after the target is selected.
+    KEY is a design key in dot notation, for example rtl.top or tb.parameters.W.""",
 )
 @click.option(
     "--design-allow-extra/--no-design-allow-extra",
@@ -945,7 +947,7 @@ def run(
     # design: Optional[str] = None,
     design_name: Optional[str] = None,
     target: str | None = None,
-    design_overrides: Iterable[str] = tuple(),
+    design_updates: Iterable[str] = tuple(),
     log_level: Optional[int] = None,
     detailed_logs: bool = False,
     post_cleanup: bool = False,
@@ -1032,7 +1034,7 @@ def run(
             run_root=run_root,
             flow_settings=flow_settings,
             xedaproject=xedaproject,
-            design_overrides=design_overrides,
+            design_updates=design_updates,
             design_allow_extra=False,
             target=target,
             select_design_in_project=select_design_in_project,
@@ -1166,7 +1168,7 @@ def run(
                 design=design,
                 flow_settings=flow_settings,
                 select_design_in_project=select_design_in_project,
-                design_overrides=design_overrides,
+                design_updates=design_updates,
                 target=target,
             )
         except KeyboardInterrupt:
@@ -1212,7 +1214,7 @@ def run(
             design=design or design_name,
             flow_settings=flow_settings,
             select_design_in_project=select_design_in_project,
-            design_overrides=design_overrides,
+            design_updates=design_updates,
             target=target,
         )
     except KeyboardInterrupt:

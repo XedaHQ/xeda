@@ -964,9 +964,7 @@ class YosysSynthesisBase(YosysBase):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         if ss.abc_script and not ss.abc_script.startswith("+"):
-            return self.process_path(
-                ss.abc_script, subs_vars=True, resolve_to=self.design.design_root
-            )
+            return self.process_path(ss.abc_script, subs_vars=True, resolve_to=self.design.root)
         return None
 
     def locate_prepared_inputs(self) -> Optional[List[Path]]:

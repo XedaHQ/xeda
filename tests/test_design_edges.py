@@ -61,7 +61,7 @@ def _verilog_design(tmp_path: Path, **fields) -> Design:
     root = tmp_path / "d"
     root.mkdir(exist_ok=True)
     (root / "top.v").write_text("module top(); endmodule\n")
-    return Design(name="d", design_root=root, rtl={"sources": ["top.v"], "top": "top"}, **fields)
+    return Design(name="d", root=root, rtl={"sources": ["top.v"], "top": "top"}, **fields)
 
 
 def _vhdl_design(tmp_path: Path, **fields) -> Design:
@@ -69,7 +69,7 @@ def _vhdl_design(tmp_path: Path, **fields) -> Design:
     root = tmp_path / "vhdl"
     root.mkdir(exist_ok=True)
     (root / "top.vhd").write_text("entity top is end entity;\n")
-    return Design(name="d", design_root=root, rtl={"sources": ["top.vhd"], "top": "top"}, **fields)
+    return Design(name="d", root=root, rtl={"sources": ["top.vhd"], "top": "top"}, **fields)
 
 
 def _bluespec_design(tmp_path: Path, **fields) -> Design:
@@ -77,9 +77,7 @@ def _bluespec_design(tmp_path: Path, **fields) -> Design:
     root = tmp_path / "d"
     root.mkdir(exist_ok=True)
     (root / "Top.bsv").write_text("package Top; endpackage\n")
-    return Design(
-        name="d", design_root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"}, **fields
-    )
+    return Design(name="d", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"}, **fields)
 
 
 # ------------------------------------------------------------------------ the declaration
@@ -654,7 +652,7 @@ def _bluespec_vhdl_design(tmp_path: Path, **fields) -> Design:
     (root / "pad.vhd").write_text("entity pad is end entity;\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["Top.bsv", "pad.vhd"], "top": "mkTop"},
         **fields,
     )

@@ -239,7 +239,7 @@ def _nvc_design(root) -> Design:
     (root / "tb.vhd").write_text(NVC_TESTBENCH)
     return Design(
         name="w",
-        design_root=root,
+        root=root,
         rtl={"sources": ["w.vhd"], "top": "w"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
         language={"vhdl": {"standard": "2008"}},

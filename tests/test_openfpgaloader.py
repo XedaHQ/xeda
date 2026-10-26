@@ -53,7 +53,7 @@ def _design(tmp_path: Path, extra=(), flows=None) -> Design:
     (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
     return Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v", *extra], "top": "top"},
         flows=flows or {},
     )
@@ -96,7 +96,7 @@ def test_the_loader_takes_one_bitstream_and_declares_no_output():
 
 
 def test_the_loader_always_runs_because_it_programs(tmp_path, fake_loader):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "d"})
     flow = Openfpgaloader(Openfpgaloader.Settings(fpga={"part": ECP5}), design, tmp_path / "loader")
     assert flow.always_runs() == "it programs a device"
     flow.init()  # makes the loader's tool: asks the (fake) loader for its version
@@ -228,7 +228,7 @@ def test_a_loader_whose_version_cannot_be_read_is_not_compared(tmp_path, fake_lo
 def test_a_base_class_reason_to_always_run_comes_first(tmp_path, monkeypatch):
     from xeda.flow import Flow
 
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "d"})
     flow = Openfpgaloader(Openfpgaloader.Settings(fpga={"part": ECP5}), design, tmp_path / "loader")
     monkeypatch.setattr(Flow, "always_runs", lambda self: "the base class says so")
     assert flow.always_runs() == "the base class says so"

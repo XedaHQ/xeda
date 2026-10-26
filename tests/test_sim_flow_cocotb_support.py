@@ -36,7 +36,7 @@ def cocotb_design(tmp_path):
     """`examples/vhdl/sqrt`, whose testbench is cocotb's (`tb.cocotb = true`)."""
     root = tmp_path / "design"
     shutil.copytree(SQRT, root, ignore=shutil.ignore_patterns("__pycache__", "xeda_run"))
-    design = Design.from_file(root / "sqrt.yaml")
+    design = Design.load(root / "sqrt.yaml")
     assert design.tb.cocotb
     return design
 
@@ -45,7 +45,7 @@ def _readable_by(flow_class, design: Design, cocotb: bool = True) -> Design:
     """`design` with its testbench cocotb's or not, and its VHDL unit replaced by a Verilog one
     if the simulator does not read VHDL: it refuses a design with a source it cannot read."""
     reads = flow_class.reads_sources
-    root = design.design_root
+    root = design.root
     assert root is not None
     if reads is None or SourceType.Vhdl in reads:
         readable = design.model_copy(deep=True)
@@ -53,7 +53,7 @@ def _readable_by(flow_class, design: Design, cocotb: bool = True) -> Design:
         (root / "sqrt_unit.v").write_text("module sqrt; endmodule\n")
         readable = Design(
             name=design.name,
-            design_root=root,
+            root=root,
             rtl={"sources": ["sqrt_unit.v"], "top": "sqrt"},
             tb={"sources": [str(src.file) for src in design.tb.sources], "cocotb": True},
         )

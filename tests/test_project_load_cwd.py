@@ -48,7 +48,7 @@ CHILD = textwrap.dedent("""
         try:
             design = project.get_design(name)
             reached[name] = {
-                "design_root": str(design.design_root),
+                "design_root": str(design.root),
                 "sources": [str(source.path) for source in design.rtl.sources],
             }
         except Exception as error:
@@ -131,7 +131,7 @@ def test_a_relative_root_path_is_read_once_when_the_project_is_built(tmp_path):
         )
         os.chdir(sys.argv[2])
         design = project.get_design("d")
-        print(json.dumps([str(project.root_path), str(design.design_root)]))
+        print(json.dumps([str(project.root_path), str(design.root)]))
         """)
     result = subprocess.run(
         [sys.executable, "-c", script, str(tmp_path / "first"), str(tmp_path / "second")],

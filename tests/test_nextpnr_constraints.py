@@ -16,7 +16,7 @@ from .test_nextpnr import write_nextpnr_config
 
 
 def make_flow(tmp_path, monkeypatch, *, sources=(), settings=None, top="d"):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": list(sources), "top": top})
+    design = Design(name="d", root=tmp_path, rtl={"sources": list(sources), "top": top})
     flow = Nextpnr(
         Nextpnr.Settings.from_input(
             settings or {"fpga": {"part": "LFE5U-25F-6BG381C"}}, design_root=tmp_path
@@ -155,7 +155,7 @@ def test_local_board_fallback_is_fresh_immediately_then_stale_on_edit(tmp_path, 
     netlist.write_text('{"modules":{"d":{"ports":{},"cells":{},"netnames":{}}}}')
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [{"file": netlist.name, "type": "JsonNetlist"}], "top": "d"},
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)
@@ -315,7 +315,7 @@ def test_archive_board_preparation_reuses_and_replaces_content_identity(tmp_path
     netlist.write_text('{"modules":{"d":{"ports":{},"cells":{},"netnames":{}}}}')
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [{"file": netlist.name, "type": "JsonNetlist"}], "top": "d"},
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)
@@ -397,7 +397,7 @@ def test_prepared_board_file_is_reserved_against_delivery(tmp_path, monkeypatch)
     netlist.write_text('{"modules":{"d":{"ports":{},"cells":{},"netnames":{}}}}')
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [{"file": netlist.name, "type": "JsonNetlist"}], "top": "d"},
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False, overwrite_outputs=True)
@@ -622,7 +622,7 @@ def test_timing_file_edit_invalidates_the_next_launch(tmp_path, monkeypatch, cha
     setting.write_text("# setting\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [{"file": netlist.name, "type": "JsonNetlist"}, source.name], "top": "d"},
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)

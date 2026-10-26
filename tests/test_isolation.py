@@ -848,7 +848,7 @@ def _launch(
         standard = settings.pop("__language", "2008")
         design = Design(
             name="sqrt",  # every flow's, so the canaries named after it (`sqrt.xpr`) apply to all
-            design_root=world.work,
+            root=world.work,
             rtl=rtl,
             tb=tb,
             language={"vhdl": {"standard": standard}},
@@ -1551,7 +1551,7 @@ def _yosys_on_bluespec(tmp_path: Path, monkeypatch, patch=None):
     document["flows"] = {}  # no platform: yosys synthesizes for no library
     del document["targets"]
     (work / "gcd.yaml").write_text(yaml.safe_dump(document, sort_keys=False))
-    design = Design.from_file(work / "gcd.yaml")
+    design = Design.load(work / "gcd.yaml")
     root = tmp_path / "run"
     if patch is not None:
         patch(monkeypatch)
@@ -1671,7 +1671,7 @@ def test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree(tmp_path, mo
     world = _world(tmp_path)
     ensure_run_root(world.root)
     rtl, tb = GCD_DESIGN
-    design = Design(name="gcd", design_root=world.work, rtl=rtl, tb=tb)
+    design = Design(name="gcd", root=world.work, rtl=rtl, tb=tb)
     monkeypatch.chdir(world.work)
     _freeze(world.parent, keep=world.root)
     try:
@@ -1721,7 +1721,7 @@ def test_a_launch_that_runs_a_generator_writes_only_under_the_run_root(tmp_path)
     )
     before = _state(world.parent, [world.root])
     with watching(world) as violations:
-        design = Design.from_file(design_file)
+        design = Design.load(design_file)
         generate(design, run_root=world.root, environ=dict(os.environ))
         generate(design, run_root=world.root, environ=dict(os.environ))
     assert [src.path for src in design.rtl.sources] == [Path("gen/top.v")]
@@ -2874,7 +2874,7 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
                     (run_dir / name).symlink_to(target)
             self.artifacts.update(deliver)
 
-    design = Design(name="links", design_root=tmp_path, rtl={"sources": [str(SQRT / "sqrt.vhdl")]})
+    design = Design(name="links", root=tmp_path, rtl={"sources": [str(SQRT / "sqrt.vhdl")]})
     root = tmp_path / "xeda_run"
     try:
         flow = DefaultRunner(root, display_results=False).launch_flow(LinkLeaver, design, {})

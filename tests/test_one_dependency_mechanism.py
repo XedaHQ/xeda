@@ -816,7 +816,7 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
     rtl, tb = DESIGNS.get(flow_class.name, SQRT_DESIGN)
     design = Design(
         name="sqrt",
-        design_root=world.work,
+        root=world.work,
         rtl=rtl,
         tb=tb,
         language={"vhdl": {"standard": "2008"}},
@@ -834,7 +834,7 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
     )
     # what a launch without a plan made: the flow's own settings, validated in the same context
     direct = flow_class.Settings.from_input(
-        settings, design_root=design.root_path, runner_cwd=Path.cwd()
+        settings, design_root=design.root, runner_cwd=Path.cwd()
     )
     assert node.settings_hash == flowrun_hash(flow_class.name, direct, design.name)
     recorded = json.loads((node.run_path / "settings.json").read_text())

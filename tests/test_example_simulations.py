@@ -68,7 +68,7 @@ def _designs() -> list[tuple[str, str | None, Design]]:
                 assert design is not None
                 found.append((relative, design.name, design))
         else:
-            found.append((relative, None, Design.from_file(path)))
+            found.append((relative, None, Design.load(path)))
     return found
 
 

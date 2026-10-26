@@ -87,7 +87,7 @@ def test_launching_open_xc7_through_the_api_says_it_was_removed(tmp_path):
     from xeda import Design
     from xeda.flow_runner import DefaultRunner, FlowNotFoundError
 
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "d"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     for launch in (runner.run, runner.plan):
         with pytest.raises(
@@ -107,9 +107,7 @@ def _design_with_sections(tmp_path, sections):
 
     (tmp_path / "d.v").write_text(_COUNTER)
     sections = {"yosys_fpga": {"fpga": {"part": "xc7a100tcsg324-1"}}, **sections}
-    return Design(
-        name="d", design_root=tmp_path, rtl={"sources": ["d.v"], "top": "d"}, flows=sections
-    )
+    return Design(name="d", root=tmp_path, rtl={"sources": ["d.v"], "top": "d"}, flows=sections)
 
 
 @pytest.mark.parametrize("name", ["open_xc7", "openxc7", "OpenXC7", "open-xc7"])
@@ -319,7 +317,7 @@ def test_clock_period_was_removed_at_every_origin(tmp_path, monkeypatch, origin)
         data["targets"] = {"t": {"flows": {"vivado_synth": {"fpga": fpga, "clock_period": 5.0}}}}
     design_file = tmp_path / "top.json"
     design_file.write_text(json.dumps(data))
-    design = Design.from_file(design_file, target="t" if origin == "target" else None)
+    design = Design.load(design_file, target="t" if origin == "target" else None)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     base = ["fpga.part=xc7a100tcsg324-1"]
     with pytest.raises(Exception, match=re.escape(CLOCK_PERIOD_REMOVED)):

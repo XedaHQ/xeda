@@ -35,6 +35,7 @@ def make_flow(tmp_path: Path, report: Any, family: str = "ecp5") -> Nextpnr:
     """A Nextpnr instance whose run directory holds `report` as its nextpnr report."""
     design = Design(
         name="dummy",
+        root=tmp_path,
         rtl={"sources": [], "top": "dummy", "clocks": ["clk"]},  # type: ignore[arg-type]
     )
     settings = Nextpnr.Settings(fpga=FPGA(family=family), clocks={"main_clock": {"period": "5 ns"}})  # type: ignore[call-arg]
@@ -314,7 +315,7 @@ def test_report_setting_defaults_to_a_file_the_flow_reads():
     ],
 )
 def test_target_specific_nextpnr_arguments(tmp_path, monkeypatch, fpga, expected, forbidden):
-    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, root=tmp_path)
     settings = Nextpnr.Settings(fpga=fpga)
     flow = Nextpnr(settings, design, tmp_path / "pnr")
     flow.inputs.netlist = _netlist(tmp_path)
@@ -352,7 +353,7 @@ def test_ice40_part_identifies_synthesis_and_pnr_device(
     fpga = FPGA(part=part)
     assert fpga.family == "ice40" and fpga.vendor == "lattice"
     assert fpga.device == device
-    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, root=tmp_path)
     flow = Nextpnr(Nextpnr.Settings(fpga=fpga), design, tmp_path / "pnr")
     flow.inputs.netlist = _netlist(tmp_path)
     calls = []
@@ -369,7 +370,7 @@ def test_ice40_part_identifies_synthesis_and_pnr_device(
 def test_nextpnr_resolves_explicit_constraint_paths_against_design_root(tmp_path, monkeypatch):
     (tmp_path / "pins.lpf").write_text('LOCATE COMP "clk" SITE "A1";\n')
     (tmp_path / "timing.sdc").write_text("# timing\n")
-    design = Design(name="d", rtl={"sources": ["pins.lpf"], "top": "d"}, design_root=tmp_path)
+    design = Design(name="d", rtl={"sources": ["pins.lpf"], "top": "d"}, root=tmp_path)
     fpga = FPGA(part="LFE5U-25F-6BG381C")
     flow = Nextpnr(
         Nextpnr.Settings(fpga=fpga, sdc="timing.sdc"),
@@ -392,7 +393,7 @@ def test_nextpnr_resolves_explicit_constraint_paths_against_design_root(tmp_path
 
 def _nextpnr_args(tmp_path, monkeypatch, **settings):
     """The arguments `Nextpnr.run` hands nextpnr, for a design rooted at `tmp_path`."""
-    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, root=tmp_path)
     flow = Nextpnr(
         Nextpnr.Settings.from_input(settings, design_root=tmp_path, runner_cwd=tmp_path),
         design,
@@ -461,7 +462,7 @@ def test_nextpnr_names_the_device_and_package_its_own_way(tmp_path, monkeypatch,
 def test_nextpnr_rejects_a_target_before_synthesis(tmp_path, settings, message):
     """An unsupported target or a setting of another architecture fails in `init`, before any
     producer runs."""
-    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, root=tmp_path)
     flow = Nextpnr(Nextpnr.Settings(**settings), design, tmp_path)
     with pytest.raises(FlowSettingsException, match=re.escape(message)):
         flow.init()
@@ -479,7 +480,7 @@ def test_nextpnr_ice40_end_to_end(tmp_path, monkeypatch):
     )
     design = Design(
         name="blink",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["blink.v"], "top": "blink", "clocks": [{"port": "clk"}]},
     )
     monkeypatch.chdir(tmp_path)
@@ -620,7 +621,7 @@ def test_nextpnr_runs_with_its_device_given_only_for_yosys_fpga(tmp_path, monkey
     )
     design = Design(
         name="blink",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["blink.v"], "top": "blink", "clocks": [{"port": "clk"}]},
         flows={"yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}}},
     )
@@ -641,7 +642,7 @@ def _blink(tmp_path: Path, flows: dict[str, Any]) -> Design:
     (tmp_path / "blink.v").write_text(BLINK)
     return Design(
         name="blink",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["blink.v"], "top": "blink", "clocks": [{"port": "clk"}]},
         flows=flows,
     )

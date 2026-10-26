@@ -305,8 +305,8 @@ def _within(root: Path, relative: str) -> Path | None:
 
 
 def _generator_text(design: Design) -> str:
-    generator = generator_of(design.rtl, root=design.root_path)
-    return "" if generator is None else generator.describe(design.name, design.root_path)
+    generator = generator_of(design.rtl, root=design.root)
+    return "" if generator is None else generator.describe(design.name, design.root)
 
 
 def _local_design(design: Design, ref: DesignReference, field: str) -> Design:
@@ -314,7 +314,7 @@ def _local_design(design: Design, ref: DesignReference, field: str) -> Design:
 
     The path is relative to the root of `design`. The file must exist now: a generator of the
     design runs later, in the launch, so it cannot write it."""
-    path = design.root_path / ref.uri
+    path = design.root / ref.uri
     if not path.is_file():
         generator = _generator_text(design)
         hint = (
@@ -330,7 +330,7 @@ def _local_design(design: Design, ref: DesignReference, field: str) -> Design:
             field=field,
             path=path,
         )
-    return Design.from_file(path)
+    return Design.load(path)
 
 
 def _git_design(ref: GitReference, checkout: Path, field: str) -> Design:
@@ -346,7 +346,7 @@ def _git_design(ref: GitReference, checkout: Path, field: str) -> Design:
                 else f"`{ref.design_file}` is not a file"
             ),
         )
-    return Design.from_file(path)
+    return Design.load(path)
 
 
 #: The commits that planning fetches instead of resolving a reference, by the path of the entry
@@ -416,7 +416,7 @@ def declared_designs(
     for position, ref in enumerate(design.dependencies):
         if isinstance(ref, GitReference):
             continue
-        if missing_ok and not (design.root_path / ref.uri).is_file():
+        if missing_ok and not (design.root / ref.uri).is_file():
             continue
         field = f"dependencies[{position}]"
         yield from declared_designs(
@@ -473,7 +473,7 @@ def _merge(
             loaded = _local_design(design, ref, field)
             slots[index] = DependencyRecord(None, None, None, str(ref.uri), None)
             # its written files count by their path in its own root
-            marked = (index, loaded.root_path)
+            marked = (index, loaded.root)
         loaded = _merge(
             loaded, run_root, slots, len(slots), pins, (*where, position), active, field
         )

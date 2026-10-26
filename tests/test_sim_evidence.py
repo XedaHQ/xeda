@@ -490,7 +490,7 @@ def test_verilator_never_takes_a_previous_runs_end_record(tmp_path, monkeypatch)
     root = tmp_path / "design"
     design = Design(
         name="tb",
-        design_root=root,
+        root=root,
         rtl={"sources": [_readable_source(Verilator, root)], "top": "tb"},
         tb={"sources": [], "top": "tb"},
     )
@@ -555,7 +555,7 @@ def _normalized_flow(tmp_path):
 
     root = tmp_path / "design"
     rtl = {"sources": [_readable_source(Verilator, root)], "top": "tb"}
-    return Verilator({}, Design(name="tb", design_root=root, rtl=rtl), tmp_path)
+    return Verilator({}, Design(name="tb", root=root, rtl=rtl), tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -717,7 +717,7 @@ def test_a_new_unadapted_simulator_cannot_pass_on_silent_exit_zero(tmp_path):
             def parse_reports(self):
                 return True
 
-        design = Design(name="silent", design_root=tmp_path, rtl={"sources": [], "top": "tb"})
+        design = Design(name="silent", root=tmp_path, rtl={"sources": [], "top": "tb"})
         flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
             UnadaptedSimulator, design
         )
@@ -762,7 +762,7 @@ def test_cocotb_keeps_priority_over_hdl_evidence(flow_name, content, passes, tmp
     root = tmp_path / "design"
     design = Design(
         name="coco",
-        design_root=root,
+        root=root,
         rtl={"sources": [_readable_source(cls, root)], "top": "tb"},
         tb={"sources": [], "cocotb": True},
     )

@@ -26,7 +26,7 @@ def launch(tmp_path, monkeypatch, state="silent", one_shot=False, settings=None,
         if vhdl
         else "module tb; endmodule\n"
     )
-    design = Design(name="tb", design_root=root, rtl={"sources": [source]}, tb={"top": "tb"})
+    design = Design(name="tb", root=root, rtl={"sources": [source]}, tb={"top": "tb"})
     return DefaultRunner(tmp_path / "run", rebuild_all=True).run_flow(
         Vcs, design, {"one_shot_run": one_shot, **(settings or {})}
     )
@@ -140,7 +140,7 @@ def evidence_flow(tmp_path):
     root = tmp_path / "design"
     root.mkdir()
     (root / "tb.sv").write_text("module tb; endmodule\n")
-    design = Design(name="tb", design_root=root, rtl={"sources": ["tb.sv"]}, tb={"top": "tb"})
+    design = Design(name="tb", root=root, rtl={"sources": ["tb.sv"]}, tb={"top": "tb"})
     return Vcs({}, design, tmp_path)
 
 
@@ -291,7 +291,7 @@ def test_vcs_analyzes_the_sources_it_reads_by_language_in_design_order(tmp_path,
         (root / name).write_text(text)
     design = Design(
         name="order",
-        design_root=root,
+        root=root,
         rtl={"sources": ["inc/defs.vh", "b.v", "a.sv", "c.vhd", "pins.xdc"], "top": "a"},
         tb={"sources": ["tb.sv", "d.v"], "top": "tb"},
     )
@@ -317,9 +317,7 @@ def test_vcs_refuses_a_chisel_source_when_planned(tmp_path, monkeypatch):
     root.mkdir()
     (root / "tb.sv").write_text("module tb; endmodule\n")
     (root / "gen.sc").write_text("object Gen\n")
-    design = Design(
-        name="d", design_root=root, rtl={"sources": ["tb.sv", "gen.sc"]}, tb={"top": "tb"}
-    )
+    design = Design(name="d", root=root, rtl={"sources": ["tb.sv", "gen.sc"]}, tb={"top": "tb"})
     with pytest.raises(FlowSettingsException) as raised:
         DefaultRunner(tmp_path / "run", rebuild_all=True).run_flow(Vcs, design, {})
     message = str(raised.value)
@@ -335,9 +333,7 @@ def _built_vcs(tmp_path, **settings) -> Vcs:
     root = tmp_path / "design"
     root.mkdir(parents=True, exist_ok=True)
     (root / "tb.sv").write_text("module tb; endmodule\n")
-    design = Design(
-        name="tb", design_root=root, rtl={"sources": [root / "tb.sv"]}, tb={"top": "tb"}
-    )
+    design = Design(name="tb", root=root, rtl={"sources": [root / "tb.sv"]}, tb={"top": "tb"})
     flow = Vcs(Vcs.Settings(**settings), design, tmp_path / "run")
     flow.init()
     return flow

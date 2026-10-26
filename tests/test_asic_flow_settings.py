@@ -27,7 +27,7 @@ def _dc_design(root: Path) -> Design:
     )
     return Design(
         name="dcdesign",
-        design_root=root,
+        root=root,
         rtl={"sources": ["rtl/top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
 

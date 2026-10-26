@@ -41,7 +41,7 @@ def design(tmp_path):
     shutil.copy(SQRT / "sqrt.vhdl", root)
     return Design(
         name="sqrt",
-        design_root=root,
+        root=root,
         rtl={"sources": ["sqrt.vhdl"], "top": "sqrt", "clocks": [{"port": "clk"}]},
     )
 

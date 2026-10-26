@@ -124,7 +124,7 @@ def test_a_malformed_design_file_is_a_parse_error_at_its_position(tmp_path, name
     content, line, column = MALFORMED[name]
     path = write(tmp_path / name, content)
     with pytest.raises(DesignFileParseError) as raised:
-        Design.from_file(path)
+        Design.load(path)
     error = raised.value
     assert isinstance(error, XedaException)
     assert error.file == str(path.absolute())
@@ -150,7 +150,7 @@ def test_a_file_that_is_not_a_design_is_a_parse_error_naming_it(tmp_path, name, 
     """A file that is not a design is a parse error naming it."""
     path = write(tmp_path / name, content)
     with pytest.raises(DesignFileParseError) as raised:
-        Design.from_file(path)
+        Design.load(path)
     assert raised.value.file == str(path.absolute())
     message = str(raised.value)
     assert str(path.absolute()) in message
@@ -161,10 +161,10 @@ def test_a_file_that_is_not_a_design_is_a_parse_error_naming_it(tmp_path, name, 
 def test_an_unreadable_design_file_is_a_parse_error_naming_it(tmp_path):
     """An unreadable design file is a parse error naming it."""
     with pytest.raises(DesignFileParseError, match=re.escape("missing.toml")):
-        Design.from_file(tmp_path / "missing.toml")
+        Design.load(tmp_path / "missing.toml")
     (tmp_path / "dir.toml").mkdir()
     with pytest.raises(DesignFileParseError, match=re.escape("dir.toml")):
-        Design.from_file(tmp_path / "dir.toml")
+        Design.load(tmp_path / "dir.toml")
 
 
 def test_a_design_validation_error_names_the_file(tmp_path):
@@ -175,7 +175,7 @@ def test_a_design_validation_error_names_the_file(tmp_path):
         tmp_path / "badval.toml", 'name = "bad"\n[rtl]\nsources = ["sqrt.vhdl"]\ntop = 5\n'
     )
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(path)
+        Design.load(path)
     assert isinstance(raised.value, XedaException)
     assert raised.value.file == str(path.absolute())
     assert str(path.absolute()) in str(raised.value)

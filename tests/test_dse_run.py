@@ -31,6 +31,7 @@ from xeda.dataclass import Field
 from xeda.units import Time
 from xeda.utils import replacing_file
 from xeda.flow import FpgaSynthFlow, MetricSpec
+from .design_edits import design_from_dump
 from .io_flows import _Place
 from .tool_utils import HANG_GUARD
 
@@ -94,9 +95,7 @@ def test_worker_deltas_do_not_replay_serialized_path_defaults():
 
 def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
-    )
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
     best = runner.run(
         _DsePlace,
@@ -135,9 +134,7 @@ class _DseLeaf(FpgaSynthFlow):
 
 def test_dse_variants_of_a_flow_that_declares_no_io_run_as_one_node_plans(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
-    )
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
     best = runner.run(
         _DseLeaf,
@@ -160,9 +157,7 @@ def test_a_dse_with_purge_deletes_the_runs_that_did_not_improve_and_keeps_the_be
     not improve, once their outcome is in. It is not the launch-wide purge of `xeda run`, which
     would delete the best run too: each launch of the exploration leaves its run directory."""
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
-    )
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(
         _DeclaredOptimizer,
         run_root=tmp_path / "run",
@@ -190,7 +185,7 @@ def test_declared_dse_conflicts_fail_before_logs_or_worker_creation(tmp_path, mo
     monkeypatch.chdir(tmp_path)
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [], "top": "t"},
         flows={"__synth": {"fpga": {"part": "LFE5U-85F-6BG381C"}}},
     )
@@ -211,7 +206,7 @@ def test_declared_dse_adjustments_are_resolved_before_any_write(tmp_path, monkey
 
     monkeypatch.chdir(tmp_path)
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     plans = []
     resolve = runner.resolve
 
@@ -297,8 +292,8 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
         and again.main_clock.period.as_json_value()
         == best["settings"]["clocks"]["main_clock"]["period"]
     )
-    explored = Design.from_file(tmp_path / "sqrt.yaml")
-    assert Design(**recorded["design"]).rtl_hash == explored.rtl_hash
+    explored = Design.load(tmp_path / "sqrt.yaml")
+    assert design_from_dump(recorded["design"]).rtl_hash == explored.rtl_hash
 
     # the start directory holds the design's files and the run root, nothing else
     assert {p.name for p in tmp_path.iterdir()} == {
@@ -450,9 +445,7 @@ class _PromotingOptimizer(_DeclaredOptimizer):
 
 def test_dse_two_rounds_after_promoting_agreed_candidate(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
-    )
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(_PromotingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     assert runner.run(
         _DsePlace,
@@ -489,9 +482,7 @@ class _ObservedFmax(FmaxOptimizer):
 
 def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
-    )
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(
         _ObservedFmax,
         optimizer_settings={
@@ -528,7 +519,7 @@ def _idle_search(tmp_path, monkeypatch, **dse_settings) -> Dse:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "a.v").write_text("module a(input clk); endmodule\n")
     design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clocks": ["clk"]}
+        name="d", root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clocks": ["clk"]}
     )
     runner = Dse(
         _IdleFmax,
@@ -728,9 +719,7 @@ def _as_json(results) -> dict:
 
 
 def _search_timing_judged(tmp_path) -> Dse:
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
-    )
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(
         _OneBatchFmax,
         optimizer_settings={"init_freq_low": 100.0, "init_freq_high": 300.0},
@@ -838,7 +827,7 @@ def test_dse_refuses_the_openroad_flows_before_any_worker(tmp_path):
             FlowSettingsException,
             match="Fmax exploration of the OpenROAD flows",
         ):
-            runner.run_flow("openroad", Design.from_file(design))
+            runner.run_flow("openroad", Design.load(design))
     assert not (tmp_path / "run").exists()
 
 
@@ -883,9 +872,7 @@ def test_dse_of_the_command_line_refuses_the_openroad_flows(tmp_path):
 
 def test_dse_does_not_refuse_a_flow_that_is_not_an_openroad_flow(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
-    )
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(_ClockWritingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     assert (
         runner.run(
@@ -909,7 +896,7 @@ def test_a_search_checks_a_bluespec_design_as_the_verilog_that_bsc_converts_it_t
     (tmp_path / "Top.bsv").write_text("package Top;\nendpackage\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["Top.bsv"], "top": "mkTop", "clocks": ["CLK"]},
     )
     runner = Dse(

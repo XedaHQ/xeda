@@ -455,7 +455,7 @@ def _counter(tmp_path: Path) -> Design:
     (root / "t1.v").write_text(COUNTER)
     return Design(
         name="t1",
-        design_root=root,
+        root=root,
         rtl={"sources": ["t1.v"], "top": "t1", "clocks": [{"port": "clk"}]},
     )
 
@@ -465,7 +465,7 @@ def _ulx3s_blinky(_tmp_path: Path) -> Design:
     reproducer, in a design that people build."""
     return Design(
         name="blinky",
-        design_root=EXAMPLES_DIR / "boards" / "ulx3s" / "blinky",
+        root=EXAMPLES_DIR / "boards" / "ulx3s" / "blinky",
         rtl={"sources": ["blinky.v"], "top": "blinky", "clocks": [{"port": "clk_25mhz"}]},
     )
 

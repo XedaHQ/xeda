@@ -106,7 +106,7 @@ class Delivering:
         return len(self.counter.read_text().splitlines()) if self.counter.exists() else 0
 
     def design(self) -> Design:
-        return Design.from_file(self.file)
+        return Design.load(self.file)
 
     def runner(self, **settings) -> DefaultRunner:
         return DefaultRunner(self.run_root, display_results=False, **settings)

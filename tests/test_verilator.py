@@ -61,7 +61,7 @@ def test_verilator_cocotb_verdict(tmp_path: Path, expected: int, success: bool) 
     )
     design = Design(
         name="cocotb_verdict",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut"},
         tb={"sources": ["tb_dut.py"], "cocotb": True},
     )
@@ -91,7 +91,7 @@ def _launch(
         (tmp_path / name).write_text(text)
     design = Design(
         name="tb",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["tb.sv"], "top": "tb"},
         tb={"sources": ["tb.sv", *(extra_sources or {})], "top": "tb"},
     )
@@ -288,7 +288,7 @@ def test_a_design_with_its_own_main_and_hdl_sources_needs_no_testbench_top(tmp_p
     (tmp_path / "main.cpp").write_text(OWN_DRIVER.replace("STATUS", "0"))
     design = Design(
         name="dut",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut"},
         tb={"sources": ["chk.sv", "main.cpp"]},
     )
@@ -446,7 +446,7 @@ def test_optimize_is_the_level_that_follows_the_o_of_verilator(
     tmp_path, commands, optimize, expected
 ):
     (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
-    design = Design(name="tb", design_root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
+    design = Design(name="tb", root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
     DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
         Verilator, design, {"optimize": optimize}
     )
@@ -471,7 +471,7 @@ def test_optimize_that_verilator_would_not_take_is_refused_before_it_runs(
     tmp_path, optimize, message
 ):
     (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
-    design = Design(name="tb", design_root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
+    design = Design(name="tb", root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     with pytest.raises(FlowSettingsError, match=message):
         runner.plan("verilator", design, flow_settings={"optimize": optimize})
@@ -519,7 +519,7 @@ def test_rtl_parameters_reach_a_cocotb_top(tmp_path):
     )
     design = Design(
         name="dut",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut", "parameters": {"W": 4}},
         tb={"sources": ["tb_dut.py"], "cocotb": True},
     )
@@ -548,7 +548,7 @@ def test_a_cocotb_toplevel_other_than_the_rtl_top_is_simulated(tmp_path):
     )
     design = Design(
         name="dut_wrap",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut", "parameters": {"W": 4}},
         tb={
             "sources": ["dut_wrap.sv", "tb_wrap.py"],
@@ -570,9 +570,7 @@ def _stop_time_designs(tmp_path):
         "cocotb": ({"sources": ["tb_dut.py"], "cocotb": True}, {}),
     }
     for name, (tb, settings) in cases.items():
-        design = Design(
-            name=name, design_root=tmp_path, rtl={"sources": ["dut.sv"], "top": "dut"}, tb=tb
-        )
+        design = Design(name=name, root=tmp_path, rtl={"sources": ["dut.sv"], "top": "dut"}, tb=tb)
         yield name, design, settings
 
 
@@ -595,7 +593,7 @@ def test_stop_time_is_refused_in_every_mode_before_anything_runs(tmp_path):
 def test_two_trace_formats_are_refused(tmp_path, pair):
     """Verilator takes one trace format; the flow no longer picks one of two in silence."""
     (tmp_path / "d.sv").write_text("module d; endmodule\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["d.sv"], "top": "d"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["d.sv"], "top": "d"})
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     with pytest.raises(FlowSettingsException, match="one trace format"):
         runner.plan("verilator", design, flow_settings={name: True for name in pair})
@@ -605,7 +603,7 @@ def test_the_trace_formats_are_switches_that_default_to_verilators_own_options(t
     """`true` selects a format, YAML and command line alike, and no trace option beyond the format
     is passed unless it is set."""
     (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
-    design = Design(name="tb", design_root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
+    design = Design(name="tb", root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
     for name in ("vcd", "fst", "saif"):
         commands.clear()
         DefaultRunner(tmp_path / f"runs-{name}", display_results=False).run_flow(
@@ -632,7 +630,7 @@ def test_verilators_main_is_asked_for_unless_the_design_brings_its_own(tmp_path,
     (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
     design = Design(
         name="tb",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["tb.sv"], "top": "tb"},
         tb={"sources": ["main.cpp"], "top": "tb"},
     )
@@ -648,16 +646,14 @@ def test_verilators_main_is_asked_for_unless_the_design_brings_its_own(tmp_path,
 
 def test_cocotb_has_its_own_main_and_the_systemc_model_needs_the_designs(tmp_path):
     (tmp_path / "d.sv").write_text("module d; endmodule\n")
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": ["d.sv"], "top": "d"}, tb={"top": "d"}
-    )
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["d.sv"], "top": "d"}, tb={"top": "d"})
     flow_settings = Verilator.Settings.from_input({"generate_systemc": True}, design_root=tmp_path)
     with pytest.raises(FlowSettingsException, match="`main: false`"):
         Verilator(flow_settings, design, tmp_path / "run").init()
     (tmp_path / "tb_d.py").write_text("")
     cocotb = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["d.sv"], "top": "d"},
         tb={"sources": ["tb_d.py"], "cocotb": True},
     )
@@ -737,7 +733,7 @@ def test_a_waveform_name_or_location_is_refused_before_verilator_runs(tmp_path, 
         sources.append("main.cpp")
     design = Design(
         name="tb",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["tb.sv"], "top": "tb"},
         tb={"sources": sources, "top": "tb"},
     )
@@ -768,7 +764,7 @@ def test_cocotb_names_the_waveform_and_a_location_is_delivered(tmp_path):
     )
     design = Design(
         name="dut",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut"},
         tb={"sources": ["tb_dut.py"], "cocotb": True},
     )
@@ -792,7 +788,7 @@ def test_verilator_refuses_a_vhdl_design_when_planned(tmp_path):
     """Verilator reads Verilog and SystemVerilog. A design with VHDL sources used to be handed to
     it with the VHDL left out, and verilator failed with "No input Verilog file specified". Now
     the plan refuses the design, naming the VHDL source and what Verilator reads."""
-    design = Design.from_file(SQRT_DESIGN)
+    design = Design.load(SQRT_DESIGN)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(FlowSettingsException) as raised:
         runner.plan("verilator", design)
@@ -851,7 +847,7 @@ def test_verilator_is_handed_the_sources_it_reads_in_design_order(tmp_path, comm
         (tmp_path / name).write_text(text)
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["inc/defs.vh", "rtl/top.v", "pkg.sv", "pins.xdc"], "top": "top"},
         tb={"sources": ["tb inc/tb_defs.svh", "tb.sv", "main.cpp"], "top": "tb"},
     )
@@ -1039,7 +1035,7 @@ def test_a_flow_built_directly_refuses_a_coverage_link_it_may_not_remove(tmp_pat
     """In a directory no launcher chose, xeda deletes nothing. A link at the coverage file's name
     would then be written through by the model, so the run is refused before it starts."""
     (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
-    design = Design(name="tb", design_root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
+    design = Design(name="tb", root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
     run_path = tmp_path / "direct"
     run_path.mkdir()
     outside = tmp_path / "outside.txt"

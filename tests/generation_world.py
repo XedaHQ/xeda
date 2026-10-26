@@ -158,7 +158,7 @@ class World:
         return cwd, design_root, generated
 
     def load(self) -> Design:
-        return Design.from_file(self.design_file)
+        return Design.load(self.design_file)
 
     def runner(self, **settings) -> DefaultRunner:
         return DefaultRunner(self.run_root, display_results=False, **settings)

@@ -167,7 +167,7 @@ def test_a_flow_leaves_the_design_it_runs_on_unchanged(case: str, tmp_path: Path
     guard: Callable[[], None] = require_tool
     guard()
     _files(tmp_path, files)
-    design = Design(name=case, design_root=tmp_path, **fields)
+    design = Design(name=case, root=tmp_path, **fields)
     before = _snapshot(design)
     flow = DefaultRunner(tmp_path / "xeda_run").run_flow(flow_class, design, settings)
     assert flow is not None and flow.succeeded

@@ -83,7 +83,7 @@ def _design(tmp_path: Path, source: str = "hier.v", text: str = SOURCE) -> Desig
     (root / source).write_text(text)
     return Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": [source], "top": "top", "clocks": [{"port": "clk"}]},
     )
 

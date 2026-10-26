@@ -263,7 +263,7 @@ def _root(tmp_path: Path) -> Path:
 def _design_file(tmp_path: Path, data: dict, target: str | None = None) -> Design:
     path = _root(tmp_path) / "d.json"
     path.write_text(json.dumps({"name": "d", **data}))
-    design = Design.from_file(path, target=target)
+    design = Design.load(path, target=target)
     assert design.target == target
     return design
 
@@ -291,7 +291,7 @@ ORIGINS = {
     ),
     "design overrides of a design file": lambda tmp, dotted: _overridden_file(tmp, dotted),
     "design overrides of a project": lambda tmp, dotted: _project(
-        tmp, DESIGN, design_overrides=OVERLAY_DOTTED if dotted else OVERLAY_NESTED
+        tmp, DESIGN, design_updates=OVERLAY_DOTTED if dotted else OVERLAY_NESTED
     ),
     "target in a project design entry": lambda tmp, dotted: _project(
         tmp,
@@ -304,7 +304,7 @@ ORIGINS = {
 def _overridden_file(tmp_path: Path, dotted: bool) -> Design:
     path = _root(tmp_path) / "d.json"
     path.write_text(json.dumps({"name": "d", **DESIGN}))
-    return Design.from_file(path, overrides=OVERLAY_DOTTED if dotted else OVERLAY_NESTED)
+    return Design.load(path).with_updates(OVERLAY_DOTTED if dotted else OVERLAY_NESTED)
 
 
 @pytest.mark.parametrize("origin", ORIGINS)
@@ -368,9 +368,9 @@ def test_a_design_file_refuses_a_table_written_both_ways_at_the_key(tmp_path, do
     path = _yaml_design(tmp_path, block)
 
     with pytest.raises(DesignValidationError, match=BOTH_WAYS.format(dotted="tb.top", table="tb")):
-        Design.from_file(path)
+        Design.load(path)
     try:
-        Design.from_file(path)
+        Design.load(path)
     except DesignValidationError as e:
         assert e.file == str(path.absolute())
         assert [location for location, *_ in e.errors] == ["tb"]
@@ -383,7 +383,7 @@ def test_a_design_file_refuses_it_inside_a_flow_section(tmp_path):
     with pytest.raises(
         DesignValidationError, match=BOTH_WAYS.format(dotted=table + r"\.part", table=table)
     ) as raised:
-        Design.from_file(path)
+        Design.load(path)
 
     assert [location for location, *_ in raised.value.errors] == [table]
 
@@ -396,8 +396,8 @@ def test_a_design_file_takes_the_normal_forms(tmp_path):
         tmp_path / "nested", "flows:\n  vivado_synth:\n    fpga:\n      part: p\n      speed: -1\n"
     )
 
-    assert Design.from_file(dotted).flows == Design.from_file(nested).flows
-    assert Design.from_file(dotted).flows["vivado_synth"]["fpga"] == {"part": "p", "speed": -1}
+    assert Design.load(dotted).flows == Design.load(nested).flows
+    assert Design.load(dotted).flows["vivado_synth"]["fpga"] == {"part": "p", "speed": -1}
 
 
 def test_a_target_refuses_it_at_the_target_whichever_is_selected(tmp_path):
@@ -410,15 +410,15 @@ def test_a_target_refuses_it_at_the_target_whichever_is_selected(tmp_path):
             DesignValidationError,
             match=BOTH_WAYS.format(dotted=r"targets\.a\.tb\.top", table=r"targets\.a\.tb"),
         ) as raised:
-            Design.from_file(path, target=target)
+            Design.load(path, target=target)
         assert [location for location, *_ in raised.value.errors] == ["targets.a.tb"]
 
 
-def test_design_overrides_refuse_it(tmp_path):
+def test_design_updates_refuse_it(tmp_path):
     path = _yaml_design(tmp_path)
 
     with pytest.raises(DesignValidationError, match=BOTH_WAYS.format(dotted="tb.top", table="tb")):
-        Design.from_file(path, overrides={"tb.top": "tb", "tb": {"sources": []}})
+        Design.load(path).with_updates({"tb.top": "tb", "tb": {"sources": []}})
 
 
 @pytest.mark.parametrize("dotted_first", [True, False], ids=["dotted-first", "table-first"])
@@ -461,7 +461,7 @@ def test_an_api_mapping_refuses_it(tmp_path, origin):
     keyword = {
         "flow settings": "flow_settings",
         "flow overrides": "flow_overrides",
-        "design overrides": "design_overrides",
+        "design overrides": "design_updates",
     }[origin]
 
     with pytest.raises(Exception, match=r"both set keys of `(fpga|tb)`: write one of them"):

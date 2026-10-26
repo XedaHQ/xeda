@@ -362,7 +362,7 @@ def test_the_options_that_refine_a_waveform_reach_the_tool(tmp_path, monkeypatch
 def test_a_refused_waveform_is_refused_when_planned_and_starts_no_tool(tmp_path):
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [_write(tmp_path / "d.v", "module d; endmodule\n")], "top": "d"},
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)
@@ -668,7 +668,7 @@ def test_nvc_filters_the_waveform_with_the_globs(tmp_path):
     )
     design = Design(
         name="globs",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [source], "top": "tb"},
         tb={"top": "tb"},
         language={"vhdl": {"standard": "2008"}},

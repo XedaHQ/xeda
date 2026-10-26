@@ -17,7 +17,7 @@ def _dc_design(root: Path) -> Design:
     (root / "rtl" / "top.v").write_text("module top(input a, output y); assign y = ~a; endmodule\n")
     return Design(
         name="dcdesign",
-        design_root=root,
+        root=root,
         rtl={"sources": ["rtl/top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
 

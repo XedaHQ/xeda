@@ -110,7 +110,7 @@ def test_a_program_edited_with_its_size_and_mtime_put_back_makes_the_run_stale(
     program.write_text("#!/bin/sh\necho one\n")
     program.chmod(0o755)
     monkeypatch.setenv("PATH", f"{program.parent}{os.pathsep}{os.environ['PATH']}")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     try:
         runner.launch_flow(_RunsTool, design, {})
@@ -154,7 +154,7 @@ def probe_tool(tmp_path, monkeypatch) -> Path:
 
 
 def _launch(tmp_path, **settings) -> Flow:
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, **settings)
     return runner.launch_flow(_RunsTool, design, {})
 

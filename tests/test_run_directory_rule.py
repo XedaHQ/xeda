@@ -402,7 +402,7 @@ def test_a_plan_refuses_the_link_a_launch_refuses(tmp_path, case):
     CASES[case][0](world, link)
     before = entries(tmp_path)
     launcher = DefaultRunner(world.root, display_results=False)
-    design = Design.from_file(design_dir / "d.yaml", target="a")
+    design = Design.load(design_dir / "d.yaml", target="a")
     with pytest.raises(RunDirectoryError) as refused:
         launcher.plan(_Maker, design)
     assert str(link) in str(refused.value)
@@ -788,7 +788,7 @@ def maker_design(tmp_path: Path) -> Design:
     folder = tmp_path / "design"
     folder.mkdir(exist_ok=True)
     (folder / "d.yaml").write_text('name: d\nrtl: {sources: [], top: "t"}\n')
-    return Design.from_file(folder / "d.yaml")
+    return Design.load(folder / "d.yaml")
 
 
 @pytest.mark.parametrize("option", ["post_cleanup_purge", "both"])

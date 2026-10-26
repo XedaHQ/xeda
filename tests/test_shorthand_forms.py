@@ -44,6 +44,7 @@ from xeda.flow.synth import SynthFlow
 from xeda.flow_runner.settings_layers import merge_layers
 from xeda.flows import VivadoSynth, Yosys
 
+from .design_edits import design_of
 from .settings_samples import flow_classes, minimal_settings
 from .test_target_shapes import PROBE_VALUES
 
@@ -98,7 +99,7 @@ def validated(owner: type, name: str, value: Any) -> Any:
     if issubclass(owner, Design):
         data: dict = {"name": "d", "rtl": {"sources": [], "top": "t"}, name: value}
         try:
-            return ("valid", Design(design_root=_ROOT, **data).model_dump(mode="json"))
+            return ("valid", design_of(data, _ROOT).model_dump(mode="json"))
         except DesignValidationError as e:
             return ("refused", _heads(e.errors) & spellings or {name})
     if owner in flow_of_settings():  # a flow's settings

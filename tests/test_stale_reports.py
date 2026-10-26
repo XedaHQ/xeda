@@ -124,7 +124,7 @@ def _launch(flow_class, work: Path, run_root: Path, **launcher):
     sources, top = SOURCES.get(flow_class.name, (["sqrt.vhdl"], "sqrt"))
     design = Design(
         name="sqrt",
-        design_root=work,
+        root=work,
         rtl={"sources": sources, "top": top, "clocks": [{"port": "clk"}]},
         tb={"sources": ["tb_sqrt.py"], "cocotb": True},
         language={"vhdl": {"standard": "2008"}},
@@ -210,9 +210,7 @@ def test_report_file_says_whether_this_run_wrote_it(tmp_path):
             pass
 
     try:
-        flow = ProbeReports(
-            {}, Design(name="d", design_root=tmp_path, rtl={"sources": []}), tmp_path
-        )
+        flow = ProbeReports({}, Design(name="d", root=tmp_path, rtl={"sources": []}), tmp_path)
         (tmp_path / "old.rpt").write_text("old\n")
         in_the_future = time.time() + 3600  # no clock decides: an earlier file is earlier
         os.utime(tmp_path / "old.rpt", (in_the_future, in_the_future))
@@ -291,7 +289,7 @@ def test_a_flow_the_sweep_cannot_run_never_reads_a_previous_run_s_report(
     (tmp_path / "sqrt.vhd").write_text("entity sqrt is end;\n")  # a source the simulators read
     design = Design(
         name="sqrt",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["sqrt.vhd"], "top": "sqrt"},
         tb={"sources": [], "cocotb": True, "top": "tb"},
     )
@@ -342,7 +340,7 @@ class _ReadsReport(Flow):
 def test_the_reports_a_run_read_are_removed_before_the_next_run(tmp_path):
     """A report whose mtime was moved forward passes the check that a run wrote it; removing the
     reports the last run read before the next one runs does not let it through."""
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     try:
         first = runner.launch_flow(_ReadsReport, design, {"write": True})
@@ -393,7 +391,7 @@ def test_a_previous_trace_s_reports_are_removed_before_every_run(tmp_path, monke
     runs: left with a future mtime, it passes the check that a run wrote it, and must never be
     read as this run's (every run directory is xeda's: no exception)."""
     (tmp_path / "a.v").write_text("module a; endmodule\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["a.v"], "top": "a"})
     monkeypatch.setenv(WRITE_REPORT, "1")
     try:
         first = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
@@ -409,7 +407,7 @@ def test_a_previous_trace_s_reports_are_removed_before_every_run(tmp_path, monke
             settings = {"tag": "b"}
         elif why == "an input changed":
             (tmp_path / "a.v").write_text("module a(); endmodule\n")
-            design = Design(name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a"})
+            design = Design(name="d", root=tmp_path, rtl={"sources": ["a.v"], "top": "a"})
         elif why == "it always runs":
             settings = {"always": True}
         runner = DefaultRunner(

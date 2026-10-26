@@ -33,7 +33,7 @@ CONFIGURATIONS = (
 
 
 def _design(ascon128a: bool, unroll_factor: int) -> Design:
-    design = Design.from_file(DESIGN_FILE)
+    design = Design.load(DESIGN_FILE)
     assert design.rtl is not None
     defines: dict[str, object] = {"UNROLL_FACTOR": unroll_factor}
     if ascon128a:

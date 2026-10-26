@@ -87,7 +87,7 @@ def _design(root: Path, sources=("blink.v",), flows=None) -> Design:
     (root / "blink.v").write_text(BLINK)
     return Design(
         name="blink",
-        design_root=root,
+        root=root,
         rtl={"sources": list(sources), "top": "blink", "clocks": ["clk"]},
         flows=flows or {},
     )
@@ -435,7 +435,7 @@ def test_successful_declared_launch_and_delivery_preserve_outside_tree(
     (world.work / "input.json").write_text(NETLIST)
     design = Design(
         name="placed",
-        design_root=world.work,
+        root=world.work,
         rtl={"sources": [{"file": "input.json", "type": "JsonNetlist"}], "top": "blink"},
     )
     runner = DefaultRunner(world.root, display_results=False, outputs_to=world.delivered)
@@ -477,8 +477,8 @@ def test_nextpnr_subprocess_reads_only_the_selected_netlist(
     script.write_text(_SUBPROCESS_PNR)
     design = _design(tmp_path / "d")
     if source_supplied:
-        (design.root_path / "input.json").write_text(NETLIST)
-        design = _design(design.root_path, sources=({"file": "input.json", "type": "JsonNetlist"},))
+        (design.root / "input.json").write_text(NETLIST)
+        design = _design(design.root, sources=({"file": "input.json", "type": "JsonNetlist"},))
     (tmp_path / "canary.json").write_text("outside canary")
 
     def run(self, *args, env=None):
@@ -604,7 +604,7 @@ def test_a_typed_netlist_source_displaces_its_producer(tmp_path):
     (tmp_path / "d.v").write_text("{}\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [{"file": "d.v", "type": "JsonNetlist"}], "top": "d"},
     )
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
@@ -621,7 +621,7 @@ def test_the_design_s_sdc_sources_are_a_declared_input_in_source_order(tmp_path)
         (tmp_path / name).write_text("set_load 0.1 [all_outputs]\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={
             "sources": [{"file": "d.v", "type": "JsonNetlist"}, "b.sdc", "a.sdc"],
             "top": "d",

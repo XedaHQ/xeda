@@ -138,15 +138,13 @@ def test_a_design_with_a_source_xeda_cannot_type_does_not_load(tmp_path):
     with pytest.raises(DesignValidationError, match="notes.txt"):
         Design(
             name="d",
-            design_root=tmp_path,
+            root=tmp_path,
             rtl={"sources": ["top.v", "notes.txt"], "top": "top"},
         )
 
 
 def test_an_unchecked_source_a_generator_writes_later_is_typed_too(tmp_path):
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [{"path": "gen/top.v"}], "top": "top"}
-    )
+    design = Design(name="d", root=tmp_path, rtl={"sources": [{"path": "gen/top.v"}], "top": "top"})
     assert design.rtl.sources[0].type is SourceType.Verilog
 
 

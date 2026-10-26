@@ -411,7 +411,7 @@ def test_a_launch_refuses_a_bad_group_before_any_run_directory_exists(toy_flow, 
 def _toy_design(root: Path) -> dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
     (root / "top.v").write_text("module top; endmodule\n")
-    return {"name": "d", "design_root": root, "rtl": {"sources": ["top.v"], "top": "top"}}
+    return {"name": "d", "root": root, "rtl": {"sources": ["top.v"], "top": "top"}}
 
 
 # --------------------------------------------------------------------------- removed settings

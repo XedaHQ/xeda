@@ -200,7 +200,7 @@ def flows(producer_registered):  # noqa: F811
 
 def _design(tmp_path: Path) -> Design:
     (tmp_path / "top.v").write_text("module top; endmodule\n")
-    return Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
+    return Design(name="d", root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
 
 
 def _runner(tmp_path: Path, **options: Any) -> DefaultRunner:
@@ -581,7 +581,7 @@ def test_clean_does_not_remove_a_consumer_that_ends_up_blocked(
     else:
         events = Events()
         converter, root = consumer_flows(events)
-        design = Design.from_file(
+        design = Design.load(
             write_design(tmp_path / "d", flows={root.name: {"inputs": {"design": converter.name}}})
         )
         sections, broken = None, None
@@ -976,7 +976,7 @@ def test_a_document_gives_every_field_of_a_node_back(tmp_path):
 
 @pytest.mark.usefixtures("flows")
 def test_a_passed_result_round_trips_and_keeps_the_design_file(tmp_path):
-    design = Design.from_file(_write_design_file(tmp_path))
+    design = Design.load(_write_design_file(tmp_path))
     runner = _runner(tmp_path)
     result = launch_result(
         runner,
@@ -1001,11 +1001,11 @@ def _write_design_file(tmp_path: Path) -> Path:
 
 def test_a_design_remembers_the_file_it_was_loaded_from_and_nothing_else(tmp_path):
     path = _write_design_file(tmp_path)
-    design = Design.from_file(path)
+    design = Design.load(path)
     assert design._source_file == path
     assert "_source_file" not in design.model_dump()
     assert design.model_copy(deep=True)._source_file == path
-    assert Design(name="d", design_root=tmp_path)._source_file is None
+    assert Design(name="d", root=tmp_path, rtl={"sources": []})._source_file is None
 
 
 def test_result_from_dict_reads_a_detached_and_a_skipped_node(tmp_path):
@@ -1118,9 +1118,9 @@ def test_a_node_that_ended_before_the_interrupt_keeps_its_outcome(tmp_path, monk
 
 def test_a_design_file_is_not_part_of_the_equality_of_designs(tmp_path):
     path = _write_design_file(tmp_path)
-    loaded = Design.from_file(path)
-    again = Design.from_file(path)
-    built = Design(**{**loaded.model_dump(), "design_root": loaded.design_root})
+    loaded = Design.load(path)
+    again = Design.load(path)
+    built = Design(root=loaded.root, **loaded.to_dict())
     assert loaded._source_file == path and built._source_file is None
     assert loaded == again == built
     assert loaded != built.model_copy(update={"name": "other"})

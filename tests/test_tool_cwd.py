@@ -51,7 +51,7 @@ def _flow(tmp_path: Path, name: str = "run", *, linked: bool = False) -> Yosys:
         run_path.symlink_to(real, target_is_directory=True)
     else:
         run_path.mkdir()
-    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=design_root)
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, root=design_root)
     return Yosys({}, design, run_path)
 
 
@@ -437,7 +437,7 @@ CHILD = textwrap.dedent("""
     root = Path(sys.argv[1])
     (root / "run").mkdir(parents=True)
     (root / "design").mkdir()
-    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=root / "design")
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, root=root / "design")
     flow = Yosys({}, design, root / "run")
     tool = Tool(executable=sys.executable, flow=flow, version_flag=None, print_command=False)
     show = "import os; print(os.getcwd())"

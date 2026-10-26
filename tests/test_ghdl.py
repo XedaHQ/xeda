@@ -94,7 +94,7 @@ def test_ghdl_finds_a_library_through_lib_paths(tmp_path, flow_class, given):
         rtl = {"sources": [source], "top": "top"}
     design = Design(
         name="library",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl=rtl,
         tb={"top": "tb"} if flow_class is GhdlSim else {},
         language={"vhdl": {"standard": "2008"}},
@@ -138,7 +138,7 @@ def _same_stem_design(root: Path, top: bool = False) -> Design:
         sources.append("top.vhd")
     return Design(
         name="stem",
-        design_root=root,
+        root=root,
         rtl={"sources": sources, "top": "top" if top else "fifo_b"},
     )
 
@@ -227,7 +227,7 @@ def _evidence_design(root: Path, body: str, *, clock: str = "") -> Design:
     )
     return Design(
         name="evidence",
-        design_root=root,
+        root=root,
         rtl={"sources": [source], "top": "tb"},
         tb={"top": "tb"},
         language={"vhdl": {"standard": "2008"}},
@@ -546,7 +546,7 @@ def _systemverilog_design(root: Path) -> Design:
     (root / "tb.sv").write_text("module tb; dut u(); endmodule\n")
     return Design(
         name="sv",
-        design_root=root,
+        root=root,
         rtl={"sources": ["dut.sv"], "top": "dut"},
         tb={"sources": ["tb.sv"], "top": "tb"},
     )
@@ -605,7 +605,7 @@ def test_ghdl_sim_analyzes_the_vhdl_sources_in_design_order(tmp_path, analyzed):
     )
     design = Design(
         name="order",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["b.vhd", "a.vhd", "pins.xdc"], "top": "unit_a"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
         language={"vhdl": {"standard": "2008"}},

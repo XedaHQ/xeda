@@ -137,13 +137,13 @@ class Probes:
         store = tiny_store(tmp_path, store_name)
         root = tmp_path / "design"
         if design is None:
-            design = Design.from_file(openroad_design(root))
+            design = Design.load(openroad_design(root))
         cls = self.database if database else self.netlist
         given = {**tiny_settings(store, residue=TINY_OPENROAD_RESIDUE), **(settings or {})}
         run_path = tmp_path / "run" / cls.name
         run_path.mkdir(parents=True, exist_ok=True)
         flow = cls(
-            cls.Settings.from_input(given, design_root=design.design_root, runner_cwd=tmp_path),
+            cls.Settings.from_input(given, design_root=design.root, runner_cwd=tmp_path),
             design,
             run_path,
         )
@@ -156,7 +156,7 @@ class Probes:
             flow.inputs.odb = inputs / "in.odb"
             flow.inputs.sdc = inputs / "in.sdc"
         else:
-            flow.inputs.netlist = design.design_root / "counter_netlist.v"
+            flow.inputs.netlist = design.root / "counter_netlist.v"
         flow.outputs.odb = run_path / "probe.odb"
         flow.prepare_inputs()
         return flow

@@ -18,6 +18,7 @@ from xeda.design import Design, DesignReference
 from xeda.remote.manifest import build_manifest, write_tar
 from xeda.remote.packaging import package_inputs
 from xeda.utils import dump_json, semantic_hash
+from .design_edits import design_from_dump
 
 pytestmark = pytest.mark.python_compat
 
@@ -31,14 +32,13 @@ GIT_URI = "git+https://github.com/u/r.git?branch=main#sub/d.toml"
 # ---------------------------------------------------------------------------------------------
 
 
-def test_git_dependency_keeps_its_own_fields_when_dumped():
+def test_git_dependency_keeps_its_own_fields_when_dumped(tmp_path):
     """`dependencies` is `List[DesignReference]`, but the entries are `GitReference`s.
 
     Without `SerializeAsAny`, `model_dump()` emitted only `{"uri": ...}` and the package of a
     remote run shipped a dependency the far side could not clone.
     """
-    reference = DesignReference.from_data(GIT_URI)
-    design = Design.model_construct(name="d", dependencies=[reference])
+    design = Design(name="d", root=tmp_path, rtl={"sources": []}, dependencies=[GIT_URI])  # type: ignore[list-item]
 
     dumped = design.model_dump()["dependencies"][0]
 
@@ -47,10 +47,9 @@ def test_git_dependency_keeps_its_own_fields_when_dumped():
     assert dumped["branch"] == "main"
 
 
-def test_git_dependency_survives_json_round_trip():
+def test_git_dependency_survives_json_round_trip(tmp_path):
     """Git dependency survives json round trip."""
-    reference = DesignReference.from_data(GIT_URI)
-    design = Design.model_construct(name="d", dependencies=[reference])
+    design = Design(name="d", root=tmp_path, rtl={"sources": []}, dependencies=[GIT_URI])  # type: ignore[list-item]
 
     payload = json.loads(design.model_dump_json())
 
@@ -63,7 +62,9 @@ def test_git_dependency_survives_json_round_trip():
 
 
 def _with_extra(value):
-    return model_with_allow_extra(Design)(name="d", rtl=RTL, extra_key=value)
+    return model_with_allow_extra(Design)._built(
+        Path(__file__).resolve().parent, {"name": "d", "rtl": RTL, "extra_key": value}
+    )
 
 
 def test_extras_reach_the_persisted_settings_json(tmp_path):
@@ -120,7 +121,7 @@ def _unpacked(package, remote_root):
     archive.seek(0)
     with tarfile.open(fileobj=archive) as tar:
         tar.extractall(remote_root, filter="data")
-    return Design.from_file(remote_root / package.design_file)
+    return Design.load(remote_root / package.design_file)
 
 
 def test_remote_design_package_preserves_source_compilation_metadata(tmp_path):
@@ -131,7 +132,7 @@ def test_remote_design_package_preserves_source_compilation_metadata(tmp_path):
     (tmp_path / "test.py").write_text("def test_dut(): pass\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={
             "sources": [
                 {"file": "one/shared.src", "type": "Vhdl"},
@@ -236,7 +237,7 @@ def test_json_keeps_what_a_source_cannot_be_rebuilt_without(tmp_path):
         (tmp_path / name).write_text(f"-- {name}\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={
             "sources": [
                 "top.vhd",
@@ -255,7 +256,7 @@ def test_json_keeps_what_a_source_cannot_be_rebuilt_without(tmp_path):
     assert sources[2]["type"] == "Vhdl"
     assert set(sources[3]) == {"path"}, "an unchecked source must not come back as a checked one"
 
-    again = Design(**json.loads(design.model_dump_json()))
+    again = design_from_dump(json.loads(design.model_dump_json()))
     assert [str(s.type) for s in again.rtl.sources] == [str(s.type) for s in design.rtl.sources]
 
 
@@ -281,7 +282,7 @@ def test_recording_a_design_is_a_fixed_point(tmp_path):
         (tmp_path / name).write_text(f"-- {name}\n")
     design = Design(
         name="sink",
-        design_root=tmp_path,
+        root=tmp_path,
         language={"vhdl": {"standard": "2008"}},
         rtl={
             "sources": [
@@ -304,7 +305,7 @@ def test_recording_a_design_is_a_fixed_point(tmp_path):
 
     first = tmp_path / "first.json"
     dump_json({"design": design}, first, backup=False)
-    reloaded = Design(**json.loads(first.read_text())["design"])
+    reloaded = design_from_dump(json.loads(first.read_text())["design"])
     second = tmp_path / "second.json"
     dump_json({"design": reloaded}, second, backup=False)
 
@@ -340,7 +341,7 @@ def test_remote_design_package_carries_file_valued_parameters(tmp_path):
     (tmp_path / "rom.mem").write_text("00 11\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={
             "sources": ["rtl/top.vhd"],
             "top": "top",
@@ -377,7 +378,7 @@ def test_remote_design_package_ships_a_parameter_file_from_outside_the_root(tmp_
     (tmp_path / "shared" / "rom.mem").write_text("22 33\n")
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": ["rtl/top.vhd"],
             "top": "top",
@@ -446,7 +447,7 @@ def test_a_value_printed_under_json_is_the_value_xeda_writes_to_a_file(tmp_path)
     (tmp_path / "legacy.v").write_text("module legacy; endmodule\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={
             "sources": [{"file": "legacy.v", "type": "SystemVerilog"}, {"path": "gen/later.v"}],
             "top": "legacy",

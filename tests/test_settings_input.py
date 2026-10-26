@@ -23,6 +23,8 @@ from xeda.flow import Flow, FlowSettingsError
 
 pytestmark = pytest.mark.python_compat
 
+ROOT = Path(__file__).resolve().parent
+
 
 # ---------------------------------------------------------------------------------------------
 # No implicit conversion
@@ -32,8 +34,8 @@ pytestmark = pytest.mark.python_compat
 @pytest.mark.parametrize(
     ("build", "setting"),
     [
-        (lambda: Design(name=2024, rtl={"sources": [], "top": "t"}), "name"),
-        (lambda: Design(name=True, rtl={"sources": [], "top": "t"}), "name"),
+        (lambda: Design(name=2024, root=ROOT, rtl={"sources": [], "top": "t"}), "name"),
+        (lambda: Design(name=True, root=ROOT, rtl={"sources": [], "top": "t"}), "name"),
         (lambda: _flow("verilator").Settings(compile_args=["-j", 8]), "compile_args"),
         (
             lambda: _flow("vivado_synth").Settings(
@@ -466,7 +468,7 @@ def test_comma_separated_path_list_expands_each_design_root(tmp_path):
 def test_direct_flow_construction_attaches_missing_settings_context(tmp_path):
     from xeda.flows import VivadoSynth
 
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "top"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "top"})
     start = tmp_path / "start"
     flow = VivadoSynth(
         VivadoSynth.Settings(
@@ -488,7 +490,7 @@ def test_runner_preserves_edits_inside_a_producer_settings_object(tmp_path):
     from xeda.flows import VivadoSynth
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")  # `vivado_synth` reads a source
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
     settings = VivadoSynth.Settings(fpga={"part": "xc7a100t"})
     settings.xdc_files = ["$DESIGN_ROOT/pins.xdc"]
 
@@ -609,7 +611,7 @@ def _sweep_base(model) -> dict:
     from .settings_samples import flow_classes, minimal_settings
 
     if model is Design:
-        return {"name": "d", "rtl": {"sources": [], "top": "t"}}
+        return {"name": "d", "root": ROOT, "rtl": {"sources": [], "top": "t"}}
     for cls, _ in flow_classes():
         if cls.Settings is model:
             return minimal_settings(cls)
@@ -744,6 +746,6 @@ def test_no_validator_of_a_setting_turns_what_it_cannot_read_into_a_default():
 
 
 @pytest.mark.parametrize("given", [0, False, [], {}], ids=repr)
-def test_a_design_root_that_is_no_path_is_refused_not_replaced_by_the_working_directory(given):
-    with pytest.raises(DesignValidationError, match="design_root"):
-        Design(name="d", rtl={"sources": [], "top": "t"}, design_root=given)
+def test_a_root_that_is_no_path_is_refused_not_replaced_by_the_working_directory(given):
+    with pytest.raises(DesignValidationError, match="root"):
+        Design(name="d", rtl={"sources": [], "top": "t"}, root=given)

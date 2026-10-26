@@ -38,7 +38,7 @@ def _plan(tmp_path: Path, flow_cls, settings=None, sections=None, sources=(), **
     for source in sources:
         (root / source["file"]).write_text("x\n")
     design = Design(
-        name="d", design_root=root, rtl={"sources": list(sources), "top": "t", "clocks": ["clk"]}
+        name="d", root=root, rtl={"sources": list(sources), "top": "t", "clocks": ["clk"]}
     )
     return resolve(
         flow_cls,
@@ -370,7 +370,7 @@ def test_deep_plan_protection_and_resolution_purity(tmp_path):
 
     root = tmp_path / "d"
     root.mkdir()
-    design = Design(name="d", design_root=root, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=root, rtl={"sources": [], "top": "t"})
     sections = {"__place": {"fpga": {"part": PART}}, "__synth": {"lib_paths": [("work", "lib")]}}
     given = _Place.Settings.from_input(
         compose_flow_settings(_Place, [sections]), design_root=root, runner_cwd=tmp_path
@@ -944,7 +944,7 @@ def test_direct_entry_points_share_context_and_validation(tmp_path, monkeypatch,
     root = tmp_path / "d"
     root.mkdir()
     # the same design as the plan's (`_plan`): its configuration is part of the identity
-    design = Design(name="d", design_root=root, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
+    design = Design(name="d", root=root, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     values = {"nthreads": 2, "lib_paths": [("work", "$DESIGN_ROOT/lib")], "text": "entry point\n"}
     given = (
         _Maker.Settings.from_input(values, design_root=root, runner_cwd=tmp_path)
@@ -1033,7 +1033,7 @@ def _asic_plan(tmp_path, taker, **kwargs):
     root = tmp_path / "d"
     root.mkdir(parents=True, exist_ok=True)
     (root / "t.v").write_text("module t; endmodule\n")
-    design = Design(name="d", design_root=root, rtl={"sources": ["t.v"], "top": "t"})
+    design = Design(name="d", root=root, rtl={"sources": ["t.v"], "top": "t"})
     return resolve(
         taker,
         design,

@@ -461,7 +461,7 @@ def fake_yosys(tmp_path, monkeypatch) -> Path:
 @pytest.mark.parametrize("when", WHENS)
 def test_editing_a_map_at_any_position_makes_the_next_launch_stale(fake_yosys, when):
     design = _design(fake_yosys / "design")
-    path = design.design_root / "m.v"
+    path = design.root / "m.v"
     path.write_text("module _unused(); endmodule\n")
     given = _given(tiny_store(fake_yosys), techmap_files=[{"path": "m.v", "when": when}])
     assert _runner(fake_yosys).launch_flow(Yosys, design, given).succeeded

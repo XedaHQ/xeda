@@ -315,7 +315,7 @@ def test_the_generated_design_is_a_valid_design(spec: str, tmp_path: Path) -> No
         sources=tool.design_sources(variables),
     )
     path = write(tmp_path / "design.yaml", yaml.safe_dump(generated, sort_keys=False))
-    design = Design.from_file(path)
+    design = Design.load(path)
     assert design.name == f"{config.platform}_{spec.split('/')[1]}"
     assert design.rtl.top == FACTS[spec]["top"]
     (clock,) = design.rtl.clocks

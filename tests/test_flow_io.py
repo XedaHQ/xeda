@@ -154,7 +154,7 @@ def test_a_required_specialized_input_can_be_supplied_without_a_default_producer
     (tmp_path / "data").write_text("given\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [{"file": "data", "type": "Data"}], "top": "t"},
     )
     plan = DefaultRunner(tmp_path / "run").plan(_SourceOnly, design)
@@ -162,7 +162,7 @@ def test_a_required_specialized_input_can_be_supplied_without_a_default_producer
 
 
 def test_inputs_and_outputs_are_unset_until_set_and_validated_when_set(tmp_path):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     taker = _Taker({}, design, tmp_path / "run")
     assert taker.inputs.made is None
     taker.inputs.made = str(tmp_path / "x")
@@ -355,7 +355,7 @@ def test_staged_models_validate_scalar_and_list_assignments_and_are_private(tmp_
     flow_cls = _flow_with_model(
         "Inputs", list[Path], In(SourceType.Data, optional=True, description="x")
     )
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     first = flow_cls({}, design, tmp_path / "first")
     second = flow_cls({}, design, tmp_path / "second")
     assert first.inputs.file is None

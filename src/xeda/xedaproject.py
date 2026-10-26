@@ -97,22 +97,22 @@ class XedaProject:
     #: a design entry's `design_root` defaults to it, and a relative one is relative to it. A
     #: relative `root_path` is made absolute once, here, against the working directory.
     root_path: Path = attrs.field(kw_only=True, converter=lambda p: Path(p).absolute())
-    # Applied to a design once, when it is selected (`Design.target_selected`), as for a design
+    # Applied to a design once, when it is selected (`Design.with_updates`), as for a design
     # file. The entries of `designs` stay as written.
-    design_overrides: dict[str, Any] = {}
+    design_updates: dict[str, Any] = {}
 
     @classmethod
     def from_file(
         cls: Type[XedaProject],
         file: Union[str, Path],
         skip_designs: bool = False,
-        design_overrides: Union[Dict[str, Any], None] = None,
+        design_updates: Union[Dict[str, Any], None] = None,
         design_allow_extra: bool = False,
         design_remove_extra: Union[List[str], None] = None,
     ) -> XedaProject:
         """Load a project file."""
-        if design_overrides is None:
-            design_overrides = {}
+        if design_updates is None:
+            design_updates = {}
         if design_remove_extra is None:
             design_remove_extra = []
         if not isinstance(file, Path):
@@ -222,7 +222,7 @@ class XedaProject:
                 flows=flows,
                 design_cls=design_cls,
                 root_path=file.parent.resolve(),
-                design_overrides=dict(design_overrides),
+                design_updates=dict(design_updates),
             )
         except Exception as e:
             log.error("Error processing project file: %s", file.absolute())
@@ -231,9 +231,9 @@ class XedaProject:
     @property
     def design_names(self) -> List[str]:
         """Return the names of the designs as loaded. An override of `name` renames each."""
-        renamed = "name" in self.design_overrides
+        renamed = "name" in self.design_updates
         return [
-            str(self.design_overrides["name"] if renamed else d.get("name"))
+            str(self.design_updates["name"] if renamed else d.get("name"))
             for d in self.designs
             if renamed or "name" in d
         ]
@@ -256,21 +256,26 @@ class XedaProject:
     ) -> Design | None:
         """Return the project's design with that name or at that position (the first by default).
 
-        `target` is selected among its `targets` as `Design.from_file` selects one. Return None if
+        `target` is selected among its `targets` as `Design.load` selects one. Return None if
         there is no such design."""
         index = self.design_index(name_or_idx)
         if index is None:
             return None
-        data = self.design_cls.target_selected(self.designs[index], target, self.design_overrides)
+        data = self.design_cls.expanded(self.designs[index])
         # A relative `design_root` of an entry is relative to the project file's directory. An
         # entry without one has that directory as its root; any value but a path is an error.
-        design_root = data.get("design_root")
+        design_root = data.pop("design_root", None)
         if design_root is None:
-            data["design_root"] = self.root_path
+            root = self.root_path
         elif isinstance(design_root, (str, os.PathLike)) and os.fspath(design_root):
-            data["design_root"] = self.root_path / design_root
+            root = self.root_path / design_root
         else:
             raise DesignValidationError(
                 [("design_root", f"not a path: {design_root!r}", "", "value_error")], data=data
             )
-        return self.design_cls(**data)
+        return self.design_cls._built(
+            root,
+            data,
+            target=target,
+            updates=(self.design_updates,) if self.design_updates else (),
+        )

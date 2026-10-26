@@ -97,7 +97,7 @@ BASE_ITEMS = [("fpga.part", PART), ("clocks.main_clock.period", "5.5 ns")]
 
 
 def design_from(tmp_path: Path, data: dict) -> Design:
-    return Design.from_file(write_design(tmp_path, yaml.safe_dump(data, sort_keys=False)))
+    return Design.load(write_design(tmp_path, yaml.safe_dump(data, sort_keys=False)))
 
 
 def flows_section(synth, impl) -> dict:
@@ -185,7 +185,7 @@ def origin_design_file_dotted_section(tmp_path):
         f"    set_synth_properties.{SYNTH_NAME}: 0\n"
         f"    set_impl_properties:\n      {IMPL_NAME}: Explore\n"
     )
-    return planned(tmp_path, Design.from_file(write_design(tmp_path, text)))
+    return planned(tmp_path, Design.load(write_design(tmp_path, text)))
 
 
 def origin_design_file_dotted_flows_key(tmp_path):
@@ -195,7 +195,7 @@ def origin_design_file_dotted_flows_key(tmp_path):
         f"flows.vivado_synth.set_synth_properties.{SYNTH_NAME}: 0\n"
         f"flows.vivado_synth.set_impl_properties.{IMPL_NAME}: Explore\n"
     )
-    return planned(tmp_path, Design.from_file(write_design(tmp_path, text)))
+    return planned(tmp_path, Design.load(write_design(tmp_path, text)))
 
 
 def origin_target(tmp_path):
@@ -239,14 +239,14 @@ def origin_project_file_text(tmp_path):
     return planned(tmp_path, design_from(tmp_path, design_data()), xedaproject=str(project))
 
 
-def origin_design_overrides(tmp_path):
+def origin_design_updates(tmp_path):
     path = write_design(
         tmp_path, yaml.safe_dump(design_data(flows_section({}, {})), sort_keys=False)
     )
     return planned(
         tmp_path,
         path,
-        design_overrides=[
+        design_updates=[
             f"flows.vivado_synth.set_synth_properties.{SYNTH_NAME}=0",
             f"flows.vivado_synth.set_impl_properties.{IMPL_NAME}=Explore",
         ],
@@ -256,7 +256,7 @@ def origin_design_overrides(tmp_path):
 def origin_design_object(tmp_path):
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["top.v"], "top": "top", "clocks": ["clk"]},
         flows=flows_section({SYNTH_NAME: 0}, {IMPL_NAME: "Explore"}),
     )
@@ -276,7 +276,7 @@ ORIGINS = [
     origin_target_overrides_design,
     origin_project_file,
     origin_project_file_text,
-    origin_design_overrides,
+    origin_design_updates,
     origin_design_object,
 ]
 
@@ -508,9 +508,7 @@ def escaped_from_design_file(tmp_path):
 
 def escaped_from_target(tmp_path):
     data = design_data(targets={"t": {"flows": flows_section({"A": 1, ESCAPED: 2}, {})}})
-    return planned(
-        tmp_path, Design.from_file(write_design(tmp_path, yaml.safe_dump(data)), target="t")
-    )
+    return planned(tmp_path, Design.load(write_design(tmp_path, yaml.safe_dump(data)), target="t"))
 
 
 ESCAPED_ORIGINS = [
@@ -812,7 +810,7 @@ def test_every_dictionary_setting_is_opaque_or_reviewed_as_nested():
 
 def run_on_fake_vivado(tmp_path, monkeypatch, settings, flow_class=VivadoSynth):
     use_fake_tools(monkeypatch)
-    design = Design.from_file(Path(__file__).parent / "resources" / "design0" / "design0.toml")
+    design = Design.load(Path(__file__).parent / "resources" / "design0" / "design0.toml")
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
         flow_class, design, settings
     )

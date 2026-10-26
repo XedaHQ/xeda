@@ -130,7 +130,7 @@ def test_default_project_discovery_rejects_multiple_formats(tmp_path, monkeypatc
     runner = DefaultRunner(tmp_path / "run")
 
     with pytest.raises(ProjectFileError) as raised:
-        runner._request("ghdl_sim", Design(name="d"))
+        runner._request("ghdl_sim", Design(name="d", root=tmp_path, rtl={"sources": []}))
 
     message = str(raised.value)
     assert PROJECT_FILE in message

@@ -27,7 +27,7 @@ def _design(root: Path) -> Design:
     root.mkdir(parents=True, exist_ok=True)
     (root / "Top.bsv").write_text("package Top; endpackage\n")
     (root / "ext.v").write_text("module ext(); endmodule\n")
-    return Design(name="d", design_root=root, rtl={"sources": ["Top.bsv", "ext.v"], "top": "mkTop"})
+    return Design(name="d", root=root, rtl={"sources": ["Top.bsv", "ext.v"], "top": "mkTop"})
 
 
 def _record(*generated: Path) -> dict:

@@ -361,7 +361,7 @@ def _synthesize(
     (design_root / "top.v").write_text(source)
     design = Design(
         name="top",
-        design_root=design_root,
+        root=design_root,
         rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     settings: dict[str, Any] = {

@@ -100,7 +100,7 @@ def _small_design(root: Path, tb: str = "module tb; endmodule\n", rtl: str = "")
     (root / "tb.v").write_text(tb)
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["a.v"], "top": "a"},
         tb={"sources": ["tb.v"], "top": "tb"},
     )
@@ -216,7 +216,7 @@ class Project:
         language = {"vhdl": {"standard": "2008"}} if self.case.rtl[0].endswith(".vhd") else {}
         return Design(
             name="inv",
-            design_root=self.root,
+            root=self.root,
             rtl={"sources": [self.case.rtl[0]], "top": "inv", "clocks": ["a"]},
             tb={"sources": [self.case.tb[0]], "top": "tb"},
             language=language,

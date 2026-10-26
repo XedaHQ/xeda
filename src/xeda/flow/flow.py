@@ -1463,7 +1463,7 @@ class Flow(metaclass=ABCMeta):
 
     @property
     def design_root(self):
-        return self.design.design_root
+        return self.design.root
 
     @property
     def run_directory(self) -> RunDirectory:
@@ -1510,8 +1510,8 @@ class Flow(metaclass=ABCMeta):
 
         if isinstance(design, dict):
             design = dict(design)
-            if design.get("design_root") is None:
-                design["design_root"] = run_path
+            if design.get("root") is None:
+                design["root"] = run_path
             design = Design(**design)
         assert isinstance(design, Design), "design is not a Design object"
 
@@ -1541,7 +1541,7 @@ class Flow(metaclass=ABCMeta):
 
         if isinstance(settings, dict):
             settings = self.Settings.from_input(
-                settings, design_root=design.root_path, runner_cwd=runner_cwd
+                settings, design_root=design.root, runner_cwd=runner_cwd
             )
         elif isinstance(settings, Flow.Settings):
             # The flow completes its settings (paths, clocks): the caller's are not its to change.
@@ -1558,7 +1558,7 @@ class Flow(metaclass=ABCMeta):
             # edited are preserved too.
             settings = self.Settings.from_input(
                 settings.model_dump(),
-                design_root=settings.context.get("design_root") or design.root_path,
+                design_root=settings.context.get("design_root") or design.root,
                 runner_cwd=settings.context.get("runner_cwd") or runner_cwd,
             )
         assert isinstance(settings, self.Settings)
@@ -1889,8 +1889,7 @@ class Flow(metaclass=ABCMeta):
     def resolve_paths_to_design_or_cwd(self, paths: list) -> List[Path]:
         """Expand the variables in `paths` and resolve the relative ones against the design root."""
         return [
-            self.process_path(path, subs_vars=True, resolve_to=self.design.design_root)
-            for path in paths
+            self.process_path(path, subs_vars=True, resolve_to=self.design.root) for path in paths
         ]
 
     def resolve_lib_paths(self) -> None:
@@ -1914,7 +1913,7 @@ class Flow(metaclass=ABCMeta):
             path = expand_env_vars(
                 path,
                 overrides=path_variables(
-                    {"design_root": self.design.design_root, "runner_cwd": self.runner_cwd}
+                    {"design_root": self.design.root, "runner_cwd": self.runner_cwd}
                 ),
             )
         if not isinstance(path, Path):
@@ -1927,7 +1926,7 @@ class Flow(metaclass=ABCMeta):
         return self.process_path(
             path,
             subs_vars=False,
-            resolve_to=self.design.design_root,
+            resolve_to=self.design.root,
         )
 
 

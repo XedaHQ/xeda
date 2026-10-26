@@ -24,7 +24,7 @@ def test_uart_stream_application(application, serial, tmp_path, capfd, monkeypat
     name = "ascon" if application.startswith("ascon") else "gcd"
     path = APPS / f"{name}.yaml"
     assert path.is_file(), f"missing UART application design: {path}"
-    design = Design.from_file(path, target="sim_uart" if serial else "sim_bytes")
+    design = Design.load(path, target="sim_uart" if serial else "sim_bytes")
     if application == "ascon128a":
         design = with_updates(design, rtl={"defines": {**design.rtl.defines, "ASCON128A": True}})
     monkeypatch.setenv("STREAM_SOURCE_ROOT", str(APPS.parents[3]))

@@ -31,7 +31,7 @@ def _design(tmp_path: Path, **kwargs) -> Design:
     root = tmp_path / "design"
     root.mkdir(exist_ok=True)
     kwargs.setdefault("rtl", {"sources": [], "top": "t"})
-    return Design(name="d", design_root=root, **kwargs)
+    return Design(name="d", root=root, **kwargs)
 
 
 def _package(design: Design, sections, tmp_path: Path, **kwargs) -> InputPackage:
@@ -174,7 +174,7 @@ def test_the_package_unpacks_into_the_design_it_describes(tmp_path):
     (design_root / "rom.mem").write_text("00\n")
     design = Design(
         name="d",
-        design_root=design_root,
+        root=design_root,
         rtl={
             "sources": ["rtl/top.v", "rtl/defs.vh", "inc/defs.vh"],
             "top": "top",
@@ -194,7 +194,7 @@ def test_the_package_unpacks_into_the_design_it_describes(tmp_path):
     archive.seek(0)
     with tarfile.open(fileobj=archive) as tar:
         tar.extractall(remote, filter="data")
-    loaded = Design.from_file(remote / package.design_file)
+    loaded = Design.load(remote / package.design_file)
     assert [loaded.source_path_as_named(src).as_posix() for src in loaded.rtl.sources] == [
         "rtl/top.v",
         "rtl/defs.vh",
@@ -208,10 +208,10 @@ def test_the_package_unpacks_into_the_design_it_describes(tmp_path):
 
 def test_a_design_file_name_taken_by_a_source_moves_the_source(tmp_path):
     design = _design(tmp_path)
-    (design.root_path / "d.xeda.json").write_text("{}\n")
+    (design.root / "d.xeda.json").write_text("{}\n")
     design = Design(
         name="d",
-        design_root=design.root_path,
+        root=design.root,
         rtl={"sources": [{"file": "d.xeda.json", "type": "JsonNetlist"}], "top": "t"},
     )
     package = _package(design, {}, tmp_path)
@@ -229,7 +229,7 @@ def test_the_package_lists_only_regular_files_that_exist(tmp_path):
     shutil.copy(Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.vhdl", tmp_path)
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [{"file": "sqrt.vhdl", "type": SourceType.Vhdl}], "top": "sqrt"},
     )
     package = _package(design, {}, tmp_path)
@@ -532,8 +532,8 @@ def test_a_user_design_file_never_takes_a_target_whatever_its_name(tmp_path):
             json.dumps({"name": "d", "target": "arty", "rtl": {"sources": [], "top": "t"}})
         )
         with pytest.raises(DesignValidationError, match="not a key of a design"):
-            Design.from_file(path)
-    loaded = Design.from_file(path, packaged=True)
+            Design.load(path)
+    loaded = Design._load_file(path, packaged=True)
     assert loaded.target == "arty"
 
 
@@ -547,7 +547,7 @@ def test_only_a_packaged_document_takes_escaped_names_in_a_flow_table(tmp_path):
         "flows": {"vivado_synth": {"set_synth_properties": {"A": 1, "A\\.B": 2}}},
     }
     path.write_text(json.dumps(document))
-    table = Design.from_file(path, packaged=True).flows["vivado_synth"]["set_synth_properties"]
+    table = Design._load_file(path, packaged=True).flows["vivado_synth"]["set_synth_properties"]
     assert {type(key) for key in table} == {str, AtomicName}
     assert {
         key.name if isinstance(key, AtomicName) else key: item for key, item in table.items()
@@ -556,7 +556,7 @@ def test_only_a_packaged_document_takes_escaped_names_in_a_flow_table(tmp_path):
         "A.B": 2,
     }
     # A user's design file gets no such key: the setting refuses the name when it is read.
-    plain = Design.from_file(path).flows["vivado_synth"]["set_synth_properties"]
+    plain = Design.load(path).flows["vivado_synth"]["set_synth_properties"]
     assert not any(isinstance(key, AtomicName) for key in plain)
 
 
@@ -566,7 +566,7 @@ def test_a_packaged_document_names_its_target_by_the_rule_of_target_names(tmp_pa
     path = tmp_path / "d.xeda.json"
     path.write_text(json.dumps({"name": "d", "target": "../x", "rtl": {"sources": [], "top": "t"}}))
     with pytest.raises(DesignValidationError, match="not a target name"):
-        Design.from_file(path, packaged=True)
+        Design._load_file(path, packaged=True)
 
 
 def _unpacked(package: InputPackage, remote: Path) -> Design:
@@ -579,7 +579,7 @@ def _unpacked(package: InputPackage, remote: Path) -> Design:
     archive.seek(0)
     with tarfile.open(fileobj=archive) as tar:
         tar.extractall(remote, filter="data")
-    return Design.from_file(remote / package.design_file)
+    return Design.load(remote / package.design_file)
 
 
 def test_the_package_names_every_source_s_type(tmp_path):
@@ -597,7 +597,7 @@ def test_the_package_names_every_source_s_type(tmp_path):
         sources.append({"file": name, "type": "Data"})
         members.append(SourceType.Data)
     design = Design(
-        name="d", design_root=root, rtl={"sources": sources, "top": "t"}, tb={"sources": sources}
+        name="d", root=root, rtl={"sources": sources, "top": "t"}, tb={"sources": sources}
     )
     package = _package(design, {}, tmp_path)
     shipped = _shipped(package)
@@ -623,7 +623,7 @@ def test_every_example_design_unpacks_with_the_same_sources(design_file, tmp_pat
     and its content, in order, and the same settings of the design. (A source outside the design
     root has another place there, so the hash of the design may differ. The run identity does not:
     the host counts the place as this side does.)"""
-    design = Design.from_file(design_file)
+    design = Design.load(design_file)
     restored = _unpacked(_package(design, {}, tmp_path), tmp_path / "remote")
 
     def sources(loaded: Design, part: str) -> list:
@@ -821,7 +821,7 @@ def _places_outside_the_root(tmp_path: Path) -> Design:
     (tmp_path / "data" / "rom.mem").write_text("00\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": [
                 "top.v",
@@ -915,7 +915,7 @@ def test_a_file_that_is_a_source_and_a_parameter_has_a_text_for_each_role(tmp_pa
     assert key.startswith(str(REMOTE_INPUTS / "d" / "sources"))
     assert package.path_identities[key] == {"source": "../lib/shared.v", "parameter": str(shared)}
     # a value that travels as it is is keyed by itself
-    assets = str(design.root_path / "assets")
+    assets = str(design.root / "assets")
     assert package.path_identities[assets] == {"parameter": "$DESIGN_ROOT/assets"}
 
 
@@ -948,7 +948,7 @@ def test_the_netlist_of_a_design_outside_its_root_has_the_same_identity_on_the_r
     root.mkdir()
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": [{"file": str(tmp_path / "lib" / "n.json"), "type": "JsonNetlist"}],
             "top": "t",
@@ -983,7 +983,7 @@ def test_a_testbench_with_cocotb_has_the_same_identity_on_the_remote(tmp_path):
         (root / name).write_text(f"module {name[:-2]}(); endmodule\n")
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": ["top.v"],
             "top": "top",

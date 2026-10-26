@@ -67,7 +67,7 @@ def _inverter_design(root: Path, flow_name: str, test_module: str) -> Design:
     (root / "tb_dut.py").write_text(test_module)
     return Design(
         name="cocotb_dut",
-        design_root=root,
+        root=root,
         rtl={"sources": [source], "top": "dut"},
         tb={"sources": ["tb_dut.py"], "cocotb": True},
     )
@@ -336,7 +336,7 @@ def _testcase_env(
     (tmp_path / "tb_dut.py").write_text("")
     design = Design(
         name="dut",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut"},
         tb={"sources": ["tb_dut.py"], "cocotb": True},
     )
@@ -375,7 +375,7 @@ def test_cocotb_explains_an_unsupported_python_bin_query(tmp_path, monkeypatch):
     (tmp_path / "tb_dut.py").write_text("")
     design = Design(
         name="dut",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut"},
         tb={"sources": ["tb_dut.py"], "cocotb": True},
     )

@@ -38,7 +38,7 @@ BSC_MESSAGE = "without quoting"
 
 def _verilog_design(root: Path) -> Design:
     (root / "top.sv").write_text("`timescale 1ns/1ps\nmodule top; initial $finish; endmodule\n")
-    return Design(name="top", design_root=root, rtl={"sources": ["top.sv"], "top": "top"})
+    return Design(name="top", root=root, rtl={"sources": ["top.sv"], "top": "top"})
 
 
 def _bluespec_design(root: Path) -> Design:
@@ -46,7 +46,7 @@ def _bluespec_design(root: Path) -> Design:
         (root / name).write_text("package P; endpackage\n")
     return Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": ["Top.bsv"], "top": "mkTop"},
         tb={"sources": ["Tb.bsv"], "top": "mkTb"},
     )

@@ -72,7 +72,7 @@ def _design(root: Path) -> Design:
     )
     return Design(
         name="rd",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.vhd"], "top": "top", "clocks": [{"port": "clk"}]},
         tb={"sources": ["tb.vhd"], "top": "tb", "uut": "uut"},
     )

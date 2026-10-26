@@ -347,7 +347,7 @@ def test_ice40_options_are_rejected_for_other_targets():
 
 
 def test_sta_needs_a_flat_design(tmp_path):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "d"})
     settings = YosysFpga.Settings(fpga=TARGETS["ecp5"], sta=True, flatten=False)
     with pytest.raises(FlowSettingsException, match="flatten=false"):
         YosysFpga(settings, design, tmp_path).init()
@@ -375,7 +375,7 @@ def test_only_fpga_synthesis_raises_the_yosys_minimum(tmp_path, monkeypatch):
     """The FPGA flag floor must not narrow generic synthesis or CXXRTL compatibility."""
     monkeypatch.setattr("xeda.flows.yosys.common.Tool", lambda **kwargs: SimpleNamespace(**kwargs))
     (tmp_path / "d.v").write_text("module d; endmodule\n")  # `YosysSim` needs a source it reads
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["d.v"], "top": "d"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["d.v"], "top": "d"})
     for flow_class, settings, expected in (
         (Yosys, Yosys.Settings(), (0, 21)),
         (YosysFpga, YosysFpga.Settings(fpga=TARGETS["ecp5"]), MINIMUM_YOSYS),
@@ -630,7 +630,7 @@ def test_the_rtl_outputs_hold_only_the_designs_modules(target, flatten, script_f
     (root / "top.v").write_text(HIERARCHY)
     design = Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     settings: Dict[str, Any] = {

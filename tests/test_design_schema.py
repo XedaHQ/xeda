@@ -16,6 +16,8 @@ from xeda.introspect import JSON_SCHEMA_DIALECT, design_schema
 from xeda.xedaproject import XedaProject
 from xeda.yaml_loader import load_yaml
 
+from .design_edits import design_of
+
 pytestmark = pytest.mark.python_compat
 
 
@@ -169,7 +171,7 @@ def test_published_schema_is_a_valid_json_schema():
 @pytest.mark.parametrize("path", EXAMPLE_DESIGNS, ids=lambda p: p.name)
 def test_example_designs_validate_against_the_published_schema(path):
     """Guards against the schema drifting from what the loader actually accepts."""
-    Design.from_file(path)  # the loader accepts it...
+    Design.load(path)  # the loader accepts it...
     errors = sorted(validator().iter_errors(load_design_file(path)), key=lambda e: list(e.path))
     assert not errors, f"{path.name} loads but fails the published schema: " + "; ".join(
         f"{'.'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in errors[:3]
@@ -179,7 +181,7 @@ def test_example_designs_validate_against_the_published_schema(path):
 @pytest.mark.parametrize("label", sorted(INPUT_SHORTHANDS))
 def test_documented_shorthands_are_accepted_by_both(label):
     data = INPUT_SHORTHANDS[label]
-    Design(**data)  # the loader accepts it...
+    design_of(data)  # the loader accepts it...
     errors = sorted(validator().iter_errors(data), key=lambda e: list(e.path))
     assert not errors, f"schema rejects {label}: {[e.message for e in errors[:2]]}"
 
@@ -225,14 +227,14 @@ def test_the_schema_advertises_the_clock_short_form_without_flat_rtl_keys():
 )
 def test_clock_port_was_removed(data):
     with pytest.raises(Exception, match="`clock_port` was removed: use `rtl.clocks`"):
-        Design(**data)
+        design_of(data)
 
 
 def test_a_flat_clock_is_refused_with_the_key_to_use():
     data = {"name": "d", "sources": [], "top": "t", "clocks": [{"port": "a"}]}
 
     with pytest.raises(Exception, match="`sources` was removed: use `rtl.sources`"):
-        Design(**data)
+        design_of(data)
 
 
 def test_source_object_must_name_a_file_or_a_path():
@@ -265,7 +267,7 @@ def test_schema_and_loader_refuse_the_same_source_keys(key, tmp_path):
     design_file = tmp_path / "d.json"
     design_file.write_text(json.dumps(data))
     with pytest.raises(DesignValidationError):
-        Design.from_file(design_file)
+        Design.load(design_file)
     assert not validator().is_valid(data)
 
 
@@ -289,7 +291,7 @@ def test_source_object_form_loads_and_validates(label, tmp_path):
     data = {"name": "d", "rtl": {"top": "design0", "sources": [SOURCE_OBJECT_FORMS[label]]}}
     design_file.write_text(json.dumps(data))
 
-    design = Design.from_file(design_file)  # the loader accepts it...
+    design = Design.load(design_file)  # the loader accepts it...
     assert [p.file.name for p in design.rtl.sources] == ["design0.sv"]
     assert validator().is_valid(data), "schema rejects a form the loader accepts"
 
@@ -337,7 +339,7 @@ def test_targets_are_published_in_the_input_schema_only():
     assert {"rtl", "tb", "flows", "language", "authors"} <= set(overlay)
     assert not {"flow", "sources", "defines", "top", "clock", "test"} & set(overlay)
     # ...but for the ones that are the design's alone
-    for name in ("name", "targets", "target", "design_root"):
+    for name in ("name", "targets", "target"):
         assert overlay[name] is False, name
     # the recorded name is not something a design file writes
     assert "target" not in schema["properties"]
@@ -357,7 +359,7 @@ def test_every_target_of_a_design_agrees_with_the_schema_and_the_loader(path):
     targets = data.get("targets", {})
     assert path.name not in ("knight.yaml", "single.yaml") or targets
     for target in targets or [None]:
-        assert Design.from_file(path, target=target).target == target
+        assert Design.load(path, target=target).target == target
 
 
 @pytest.mark.parametrize(
@@ -378,7 +380,7 @@ def test_the_schema_refuses_what_the_loader_refuses_in_targets(targets, tmp_path
     # The loader judges the form of every target, and the values of the selected one.
     selected = next(iter(targets)) if isinstance(targets, dict) else None
     with pytest.raises(Exception):
-        Design(design_root=tmp_path, **Design.select_target(data, selected))
+        Design._built(tmp_path, data, target=selected)
 
 
 @pytest.mark.parametrize("spelling", ["parameters"])
@@ -393,7 +395,7 @@ def test_the_schema_refuses_a_parameter_list_entry_the_loader_refuses(spelling, 
     data = {"name": "d", "rtl": {"sources": [], "top": "t", spelling: [entry]}}
     assert not validator().is_valid(data)
     with pytest.raises(Exception):
-        Design(design_root=tmp_path, **data)
+        Design(root=tmp_path, **data)
 
 
 @pytest.mark.parametrize("value", [0, "", False, "8", 3.5])
@@ -403,7 +405,7 @@ def test_the_schema_accepts_a_parameter_list_entry_with_a_falsy_value(value, tmp
         "rtl": {"sources": [], "top": "t", "parameters": [{"name": "W", "value": value}]},
     }
     assert validator().is_valid(data)
-    assert Design(design_root=tmp_path, **data).rtl.parameters == {"W": value}
+    assert Design(root=tmp_path, **data).rtl.parameters == {"W": value}
 
 
 # ------------------------------------------------- a list field that takes one item in its place
@@ -522,7 +524,7 @@ def test_sources_given_as_one_path_or_one_table_load_and_validate(tmp_path, sect
         assert list(validator().iter_errors(data)) == [], form
         path = tmp_path / "d.json"
         path.write_text(json.dumps(data))
-        design = Design.from_file(path)
+        design = Design.load(path)
         if section != "rtl.generator":
             assert len((design.tb if section == "tb" else design.rtl).sources) == 1
 
@@ -546,7 +548,7 @@ def test_every_form_of_clocks_the_loader_reads_is_in_the_schema(clocks, count):
     """`clocks` as one clock, a list of port names and tables, and the items that say there is
     no clock (`null`, `""`, an empty table): `Rtl.clock_tables` reads all of them."""
     data = {"name": "d", "rtl": {"sources": [], "top": "t", "clocks": clocks}}
-    assert len(Design(**data).rtl.clocks) == count
+    assert len(design_of(data).rtl.clocks) == count
     assert list(validator().iter_errors(data)) == []
 
 

@@ -141,7 +141,7 @@ def world(tmp_path, monkeypatch):
     RUNS.clear()
     DURING_RUN.clear()
     registered_flows.update(_REGISTERED)
-    design = Design(name="d", design_root=tmp_path / "design", rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path / "design", rtl={"sources": [], "top": "t"})
     yield SimpleNamespace(
         user=user, lib=lib, design=design, root=tmp_path / "xeda_run", runner=_runner(tmp_path)
     )
@@ -535,7 +535,7 @@ def _refusal_at_a_producers_turn(world, monkeypatch):
         return check(self, predicted)
 
     monkeypatch.setattr(Deliveries, "check", check_again)
-    design = world.design.root_path / "d.yaml"
+    design = world.design.root / "d.yaml"
     design.write_text(
         yaml.safe_dump(
             {
@@ -740,7 +740,7 @@ def test_a_design_file_in_the_requested_flow_s_run_directory_is_refused_before_a
     world, tmp_path
 ):
     source = _in_the_run_directory_of(world, "__both", "top.v")
-    design = Design(name="d", design_root=world.root, rtl={"sources": [str(source)], "top": "t"})
+    design = Design(name="d", root=world.root, rtl={"sources": [str(source)], "top": "t"})
     (world.user / "r.rpt").write_text("the user's report\n")
     asked = _asking(world.runner)
 

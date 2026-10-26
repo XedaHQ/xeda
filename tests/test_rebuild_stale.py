@@ -94,7 +94,7 @@ def toys():
 @pytest.fixture
 def design(tmp_path):
     (tmp_path / "a.v").write_text("module a; endmodule\n")
-    return Design(name="toy", rtl={"sources": ["a.v"], "top": "a"}, design_root=tmp_path)
+    return Design(name="toy", rtl={"sources": ["a.v"], "top": "a"}, root=tmp_path)
 
 
 def _run(tmp_path, cls, design, sections=None, settings=None, **launcher):
@@ -130,7 +130,7 @@ def test_dependencies_are_siblings(tmp_path, toys, design):
 def test_a_source_edit_reruns_the_chain_and_says_why(tmp_path, toys, design):
     _, consumer = toys
     _run(tmp_path, consumer, design)
-    (design.root_path / "a.v").write_text("module b; endmodule\n")
+    (design.root / "a.v").write_text("module b; endmodule\n")
     flow, ran = _run(tmp_path, consumer, design)
     assert ran == ["toy_producer", "toy_consumer"]
     assert flow.producers[0].stale_reason.startswith("input changed:")
@@ -178,9 +178,9 @@ def test_a_producer_that_runs_again_in_the_launch_with_the_same_output_is_said_s
     """A source the producer reads and copies nothing of re-runs it; the consumer is fresh, and
     the log says the producer ran again and what stayed the same."""
     _, consumer = toys
-    second = design.root_path / "b.v"
+    second = design.root / "b.v"
     second.write_text("module b; endmodule\n")
-    two = Design(name="toy", rtl={"sources": ["a.v", "b.v"], "top": "a"}, design_root=tmp_path)
+    two = Design(name="toy", rtl={"sources": ["a.v", "b.v"], "top": "a"}, root=tmp_path)
     _run(tmp_path, consumer, two)
     second.write_text("module b; wire edited; endmodule\n")
     caplog.set_level("INFO")
@@ -274,7 +274,7 @@ def exact():
 def two_sources(tmp_path):
     (tmp_path / "a.v").write_text("FIRST\n")
     (tmp_path / "b.v").write_text("SECOND\n")
-    return Design(name="toy", rtl={"sources": ["a.v", "b.v"], "top": "a"}, design_root=tmp_path)
+    return Design(name="toy", rtl={"sources": ["a.v", "b.v"], "top": "a"}, root=tmp_path)
 
 
 def _launch_readers(tmp_path, exact, design):
@@ -390,7 +390,7 @@ def test_a_file_handed_over_is_no_file_record_of_its_consumer_whatever_names_it(
 def test_rewriting_a_source_with_the_same_content_runs_nothing(tmp_path, toys, design):
     _, consumer = toys
     _run(tmp_path, consumer, design)
-    (design.root_path / "a.v").write_text("module a; endmodule\n")  # same content, new mtime
+    (design.root / "a.v").write_text("module a; endmodule\n")  # same content, new mtime
     flow, ran = _run(tmp_path, consumer, design)
     assert ran == [] and flow.reused
 
@@ -894,7 +894,7 @@ def test_an_edited_include_reruns_yosys(tmp_path):
         '`include "defs.vh"\nmodule top(input [`W-1:0] a, output [`W-1:0] y); '
         "assign y = ~a; endmodule\n"
     )
-    design = Design(name="inc", rtl={"sources": ["top.v"], "top": "top"}, design_root=tmp_path)
+    design = Design(name="inc", rtl={"sources": ["top.v"], "top": "top"}, root=tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     settings = {"fpga": {"part": "LFE5U-25F-6BG256C"}}
     first = runner.launch_flow("yosys_fpga", design, settings)

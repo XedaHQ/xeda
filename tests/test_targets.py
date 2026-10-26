@@ -55,9 +55,9 @@ def write_design(tmp_path: Path, data: dict, name: str = "d.yaml") -> Path:
 BASE = {"name": "d", "rtl": {"sources": ["knight.v"], "top": "knight"}}
 
 
-def error_of(tmp_path: Path, data: dict, **kwargs) -> str:
+def error_of(tmp_path: Path, data: dict, overrides: dict | None = None, **kwargs) -> str:
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(write_design(tmp_path, data), **kwargs)
+        Design.load(write_design(tmp_path, data), **kwargs).with_updates(overrides or {})
     return str(raised.value)
 
 
@@ -75,8 +75,8 @@ def error_of(tmp_path: Path, data: dict, **kwargs) -> str:
     ],
 )
 def test_a_selected_target_is_the_design_written_flat_by_hand(design, target, flat):
-    selected = Design.from_file(RESOURCES / design, target=target)
-    flat = Design.from_file(RESOURCES / flat)
+    selected = Design.load(RESOURCES / design, target=target)
+    flat = Design.load(RESOURCES / flat)
 
     assert selected.target == target and flat.target is None
     assert selected.rtl_hash == flat.rtl_hash
@@ -89,19 +89,14 @@ def test_a_selected_target_is_the_design_written_flat_by_hand(design, target, fl
     for name in Design.model_fields:
         if name not in ("target", "flow"):
             assert getattr(selected, name) == getattr(flat, name), name
-    assert selected.model_dump(exclude={"target", "flow"}) == flat.model_dump(
-        exclude={"target", "flow"}
-    )
-    assert selected.model_dump(mode="json", exclude={"target", "flow"}) == flat.model_dump(
-        mode="json", exclude={"target", "flow"}
-    )
+    assert selected.to_dict() == flat.to_dict()
 
 
 def test_the_target_name_is_not_identity(tmp_path):
     """Two targets with the same overlay are the same design under two names."""
     overlay = {"rtl": {"defines": {"A": 1}}}
     path = write_design(tmp_path, {**BASE, "targets": {"one": overlay, "two": dict(overlay)}})
-    one, two = Design.from_file(path, target="one"), Design.from_file(path, target="two")
+    one, two = Design.load(path, target="one"), Design.load(path, target="two")
     assert (one.target, two.target) == ("one", "two")
     assert design_hash(one) == design_hash(two)
 
@@ -120,7 +115,7 @@ def test_sources_are_appended_and_other_lists_replace(tmp_path):
             }
         },
     }
-    design = Design.from_file(write_design(tmp_path, data), target="t")
+    design = Design.load(write_design(tmp_path, data), target="t")
     assert [s.file.name for s in design.rtl.sources] == ["knight.v", "por_sync.v", "arty.xdc"]
     assert [s.file.name for s in design.tb.sources] == ["knight_tb.v", "ulx3s.lpf"]
     assert design.authors == ("C <c@example.com>",)
@@ -128,7 +123,7 @@ def test_sources_are_appended_and_other_lists_replace(tmp_path):
 
 
 def test_mappings_merge_key_by_key_at_every_depth():
-    design = Design.from_file(KNIGHT, target="ulx3s")
+    design = Design.load(KNIGHT, target="ulx3s")
     assert design.rtl.parameters == {"WIDTH": 4}
     assert design.rtl.defines == {"CLK_HZ": 25000000}
     assert design.flows["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
@@ -138,7 +133,7 @@ def test_mappings_merge_key_by_key_at_every_depth():
 
 def test_dotted_keys_in_a_target_are_expanded(tmp_path):
     data = {**BASE, "targets": {"t": {"rtl.clocks": [{"port": "CLK"}], "flows.nextpnr.seed": 5}}}
-    design = Design.from_file(write_design(tmp_path, data), target="t")
+    design = Design.load(write_design(tmp_path, data), target="t")
     assert design.rtl.clocks[0]["port"] == "CLK"
     assert design.flows == {"nextpnr": {"seed": 5}}
 
@@ -150,16 +145,14 @@ def test_a_target_s_paths_resolve_against_the_design_root(tmp_path, monkeypatch)
     path = write_design(
         tmp_path / "d", {**BASE, "targets": {"t": {"rtl": {"sources": ["arty.xdc"]}}}}
     )
-    design = Design.from_file(path, target="t")
+    design = Design.load(path, target="t")
     assert design.rtl.sources[-1].file == (tmp_path / "d" / "arty.xdc").resolve()
 
 
-def test_design_overrides_win_over_the_target(tmp_path):
+def test_design_updates_win_over_the_target(tmp_path):
     data = {**BASE, "targets": {"t": {"rtl": {"top": "from_target", "defines": {"A": 1, "B": 1}}}}}
-    design = Design.from_file(
-        write_design(tmp_path, data),
-        target="t",
-        overrides={"rtl": {"top": "from_override", "defines": {"A": 2}}},
+    design = Design.load(write_design(tmp_path, data), target="t").with_updates(
+        {"rtl": {"top": "from_override", "defines": {"A": 2}}}
     )
     assert design.rtl.top == "from_override"
     assert design.rtl.defines == {"A": 2, "B": 1}
@@ -203,8 +196,8 @@ def test_a_sources_override_replaces_the_design_s_sources(
     data = {**SOURCES_DESIGN, **({"targets": {"t": SOURCES_TARGET}} if with_target else {})}
     path = write_design(tmp_path, data)
     target = "t" if with_target else None
-    design = Design.from_file(path, target=target, overrides=overrides)
-    kept = Design.from_file(path, target=target)
+    design = Design.load(path, target=target).with_updates(overrides)
+    kept = Design.load(path, target=target)
     assert source_names(kept.rtl.sources) == (
         ["knight.v", "por_sync.v", "arty.xdc"] if with_target else ["knight.v", "por_sync.v"]
     )
@@ -223,7 +216,7 @@ def test_a_sources_override_replaces_the_design_s_sources(
 
 def test_a_sources_override_replaces_a_project_design_s_sources_and_a_target_s(tmp_path):
     project = XedaProject.from_file(
-        project_file(tmp_path), design_overrides={"rtl": {"sources": ["por_sync.v"]}}
+        project_file(tmp_path), design_updates={"rtl": {"sources": ["por_sync.v"]}}
     )
     design = project.get_design("knight", target="arty")
     assert design is not None
@@ -232,15 +225,15 @@ def test_a_sources_override_replaces_a_project_design_s_sources_and_a_target_s(t
 
 
 @pytest.mark.parametrize("reported_target", ["another", None])
-def test_design_overrides_cannot_change_or_hide_the_selected_target(tmp_path, reported_target):
+def test_design_updates_cannot_change_or_hide_the_selected_target(tmp_path, reported_target):
     path = write_design(tmp_path, {**BASE, "targets": {"t": {"rtl": {"top": "from_target"}}}})
-    with pytest.raises(DesignValidationError, match="cannot be overridden"):
-        Design.from_file(path, target="t", overrides={"target": reported_target})
+    with pytest.raises(DesignValidationError, match="cannot be updated"):
+        Design.load(path, target="t").with_updates({"target": reported_target})
 
 
-def test_project_design_overrides_cannot_forge_the_selected_target(tmp_path):
-    project = XedaProject.from_file(project_file(tmp_path), design_overrides={"target": "another"})
-    with pytest.raises(DesignValidationError, match="cannot be overridden"):
+def test_project_design_updates_cannot_forge_the_selected_target(tmp_path):
+    project = XedaProject.from_file(project_file(tmp_path), design_updates={"target": "another"})
+    with pytest.raises(DesignValidationError, match="cannot be updated"):
         project.get_design("knight", target="ulx3s")
 
 
@@ -248,33 +241,33 @@ def test_project_design_overrides_cannot_forge_the_selected_target(tmp_path):
 
 
 def test_one_target_is_not_selected_automatically():
-    design = Design.from_file(SINGLE)
+    design = Design.load(SINGLE)
     assert design.target is None
     assert [s.file.name for s in design.rtl.sources] == ["knight.v"]
     assert design.rtl.defines == {}
     assert design.rtl.top == "knight"
-    selected = Design.from_file(SINGLE, target="arty")
+    selected = Design.load(SINGLE, target="arty")
     assert selected.target == "arty"
     assert [s.file.name for s in selected.rtl.sources] == ["knight.v", "arty.xdc"]
     assert selected.rtl.defines == {"CLK_HZ": 100000000}
 
 
 def test_several_targets_and_no_selection_is_the_design_itself():
-    base = Design.from_file(KNIGHT)
+    base = Design.load(KNIGHT)
     assert base.target is None
-    assert "targets" not in base.model_dump()
+    assert "targets" not in base.to_dict()
     assert [s.file.name for s in base.rtl.sources] == ["knight.v", "por_sync.v"]
     assert base.rtl.parameters == {"WIDTH": 8}
     assert base.flows["nextpnr"] == {"seed": 3}
-    assert design_hash(base) != design_hash(Design.from_file(KNIGHT, target="arty"))
+    assert design_hash(base) != design_hash(Design.load(KNIGHT, target="arty"))
 
 
 def test_no_selection_is_the_design_written_without_its_targets(tmp_path):
     data = yaml.safe_load(KNIGHT.read_text())
-    with_targets = Design.from_file(write_design(tmp_path, data, "with_targets.yaml"))
+    with_targets = Design.load(write_design(tmp_path, data, "with_targets.yaml"))
     del data["targets"]
-    flat = Design.from_file(write_design(tmp_path, data, "flat.yaml"))
-    assert with_targets.model_dump() == flat.model_dump()
+    flat = Design.load(write_design(tmp_path, data, "flat.yaml"))
+    assert with_targets.to_dict() == flat.to_dict()
     assert design_hash(with_targets) == design_hash(flat)
 
 
@@ -287,7 +280,7 @@ def test_a_target_that_is_not_selected_is_still_checked_for_its_form(tmp_path):
 
 def test_an_unknown_target_lists_them_with_a_close_match():
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(KNIGHT, target="ulx3")
+        Design.load(KNIGHT, target="ulx3")
     message = str(raised.value)
     assert "'ulx3'" in message and "arty, ulx3s" in message
     assert "did you mean 'ulx3s'" in message
@@ -314,39 +307,38 @@ def test_a_written_target_is_rejected_without_a_target_table(tmp_path, targets):
 
 def test_a_design_without_targets_is_what_it_was(tmp_path):
     """No `targets`: nothing is recorded, and the dump has the same content as before."""
-    design = Design.from_file(write_design(tmp_path, BASE))
+    design = Design.load(write_design(tmp_path, BASE))
     assert design.target is None
-    dump = design.model_dump(mode="json")
-    assert dump.pop("target") is None
-    assert "targets" not in dump
+    dump = design.to_dict()
+    assert "target" not in dump and "targets" not in dump
     # pinned on main (bfd08478) for this very design: the loader's result is unchanged
-    assert design.rtl_hash == Design(design_root=tmp_path, **BASE).rtl_hash
+    assert design.rtl_hash == Design(root=tmp_path, **BASE).rtl_hash
 
 
 def test_an_empty_targets_table_is_no_targets(tmp_path):
-    design = Design.from_file(write_design(tmp_path, {**BASE, "targets": {}}))
+    design = Design.load(write_design(tmp_path, {**BASE, "targets": {}}))
     assert design.target is None
 
 
 def test_a_design_built_from_data_has_no_target_unless_one_is_selected(tmp_path):
     write_design(tmp_path, BASE)
     for targets in ({"t": {"rtl": {"defines": {"A": 1}}}}, {"a": {}, "b": {}}):
-        design = Design(design_root=tmp_path, **BASE, targets=targets)
+        design = Design(root=tmp_path, **BASE, targets=targets)
         assert design.target is None and design.rtl.defines == {}
     chosen = Design(
-        design_root=tmp_path,
-        **Design.select_target(
-            {**BASE, "targets": {"a": {}, "b": {"rtl": {"defines": {"A": 1}}}}}, "b"
-        ),
+        root=tmp_path,
+        **BASE,
+        targets={"a": {}, "b": {"rtl": {"defines": {"A": 1}}}},
+        target="b",
     )
     assert chosen.target == "b" and chosen.rtl.defines == {"A": 1}
 
 
-def test_a_recorded_target_survives_a_dump_and_reload():
-    design = Design.from_file(KNIGHT, target="arty")
-    reloaded = Design(**design.model_dump())
-    assert reloaded.target == "arty"
-    assert reloaded.model_dump() == design.model_dump()
+def test_a_dump_of_a_target_design_reloads_as_a_design_with_no_target():
+    design = Design.load(KNIGHT, target="arty")
+    reloaded = Design(root=design.root, **design.to_dict())
+    assert reloaded.target is None and reloaded.targets == ()
+    assert reloaded.to_dict() == design.to_dict()
     assert design_hash(reloaded) == design_hash(design)
 
 
@@ -404,7 +396,12 @@ def test_every_flow_name_is_refused_as_a_target_name(tmp_path):
             Design.select_target({**BASE, "targets": {name: {}}})
 
 
-@pytest.mark.parametrize("key", ["name", "targets", "target", "design_root"])
+def test_the_removed_design_root_is_refused_in_a_target(tmp_path):
+    message = error_of(tmp_path, {**BASE, "targets": {"t": {"design_root": "x"}}})
+    assert "targets.t.design_root" in message and "`design_root` was removed" in message
+
+
+@pytest.mark.parametrize("key", ["name", "targets", "target"])
 def test_keys_that_are_the_design_s_alone_are_refused_in_a_target(tmp_path, key):
     message = error_of(tmp_path, {**BASE, "targets": {"t": {key: "x"}}})
     assert f"targets.t.{key}" in message and "not allowed in a target" in message
@@ -448,7 +445,7 @@ def test_a_project_design_takes_a_target_the_same_way(tmp_path):
     project = XedaProject.from_file(project_file(tmp_path))
     design = project.get_design("knight", target="ulx3s")
     assert design is not None and design.target == "ulx3s"
-    flat = Design.from_file(RESOURCES / "knight_ulx3s_flat.yaml")
+    flat = Design.load(RESOURCES / "knight_ulx3s_flat.yaml")
     assert design.rtl_hash == flat.rtl_hash and design.flows == flat.flows
     with pytest.raises(DesignValidationError, match="arty, ulx3s"):
         project.get_design("knight", target="nexys")
@@ -488,9 +485,14 @@ def test_the_launcher_applies_overrides_to_a_dictionary_design(tmp_path):
     launcher = DefaultRunner(tmp_path / "xeda_run")
     request = launcher._request(
         "vivado_synth",
-        design={"name": "d", "targets": {"t": {"rtl": {"top": "from_target"}}}},
+        design={
+            "name": "d",
+            "root": tmp_path,
+            "rtl": {"sources": []},
+            "targets": {"t": {"rtl": {"top": "from_target"}}},
+        },
         target="t",
-        design_overrides={"rtl": {"top": "from_api"}},
+        design_updates={"rtl": {"top": "from_api"}},
     )
     assert request.design.target == "t"
     assert request.design.rtl.top == "from_api"
@@ -504,7 +506,7 @@ def test_the_launcher_rejects_a_written_target_without_a_target_table(tmp_path):
 
 
 def test_a_built_design_takes_no_target(tmp_path):
-    design = Design.from_file(KNIGHT, target="arty")
+    design = Design.load(KNIGHT, target="arty")
     with pytest.raises(ValueError, match="already built"):
         DefaultRunner(tmp_path / "xeda_run").plan("vivado_synth", design=design, target="ulx3s")
 
@@ -542,9 +544,7 @@ def test_a_run_reports_the_target(tmp_path, monkeypatch):
     assert document["spec"]["target"] is None
 
 
-def test_design_overrides_of_the_command_line_replace_the_sources_of_a_target(
-    tmp_path, monkeypatch
-):
+def test_design_updates_of_the_command_line_replace_the_sources_of_a_target(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     use_fake_tools(monkeypatch)
     result, document = invoke(
@@ -553,7 +553,7 @@ def test_design_overrides_of_the_command_line_replace_the_sources_of_a_target(
         str(KNIGHT),
         "--target",
         "arty",
-        "--design-overrides",
+        "--design-updates",
         "rtl.sources=por_sync.v",
     )
     assert result.exit_code == 0, document.get("error")
@@ -826,7 +826,7 @@ def test_a_target_constrains_a_flow_s_clock_through_its_flow_section(tmp_path):
     launcher = DefaultRunner(tmp_path / "xeda_run")
     periods = {}
     for target in ("fast", "slow"):
-        design = Design.from_file(path, target=target)
+        design = Design.load(path, target=target)
         settings = VivadoSynth.Settings(**thaw(design.flows["vivado_synth"]))
         flow = VivadoSynth(settings, design, tmp_path / target)
         clock = flow.settings.clocks["main_clock"]

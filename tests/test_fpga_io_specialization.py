@@ -14,7 +14,6 @@ from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, In
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nextpnr
 
-from .design_edits import with_updates
 from .flow_registry import preserved_flow_registry
 from .test_declared_fpga_flows import tools as tools
 
@@ -71,7 +70,7 @@ def _design(tmp_path, sources=()):
     for name, kind in sources:
         (root / name).write_text("{}\n" if kind == SourceType.JsonNetlist else "input\n")
         entries.append({"file": name, "type": kind.name})
-    return Design(name="d", design_root=root, rtl={"sources": entries, "top": "top"})
+    return Design(name="d", root=root, rtl={"sources": entries, "top": "top"})
 
 
 @pytest.mark.parametrize("part,pins,config,setting,filename", FAMILIES)
@@ -110,10 +109,10 @@ def test_only_selected_pin_sources_and_all_sdc_sources_are_bound(
     )
     bindings = {entry.name: entry for entry in node.inputs}
     assert bindings["constraints"].sources == (
-        design.root_path / "second",
-        design.root_path / "first",
+        design.root / "second",
+        design.root / "first",
     )
-    assert bindings["sdc"].sources == (design.root_path / "a.sdc", design.root_path / "b.sdc")
+    assert bindings["sdc"].sources == (design.root / "a.sdc", design.root / "b.sdc")
 
 
 def test_foreign_pins_and_sdc_leave_pin_binding_empty(tmp_path):
@@ -169,17 +168,18 @@ def test_mixed_configurations_select_only_the_agreed_family(tmp_path):
         flow_settings={"fpga": {"part": FAMILIES[0][0]}},
     )
     assert [node.name for node in plan.nodes] == [_ConfigTaker.name]
-    assert plan.nodes[0].inputs[0].sources == (design.root_path / "given.config",)
+    assert plan.nodes[0].inputs[0].sources == (design.root / "given.config",)
 
 
 def test_matching_source_displaces_conflicting_producer_settings(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
-    design = with_updates(
-        design,
-        flows={
-            "nextpnr": {"fpga": {"part": FAMILIES[1][0]}},
-            _ConfigTaker.name: {"fpga": {"part": FAMILIES[0][0]}},
-        },
+    design = design.with_updates(
+        {
+            "flows": {
+                "nextpnr": {"fpga": {"part": FAMILIES[1][0]}},
+                _ConfigTaker.name: {"fpga": {"part": FAMILIES[0][0]}},
+            }
+        }
     )
     plan = DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
     assert [node.name for node in plan.nodes] == [_ConfigTaker.name]
@@ -188,12 +188,13 @@ def test_matching_source_displaces_conflicting_producer_settings(tmp_path):
 
 def test_matching_source_displaces_a_conflicting_producer_board(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
-    design = with_updates(
-        design,
-        flows={
-            _ConfigTaker.name: {"fpga": {"part": FAMILIES[0][0]}},
-            "nextpnr": {"board": "arty_a7_35t"},
-        },
+    design = design.with_updates(
+        {
+            "flows": {
+                _ConfigTaker.name: {"fpga": {"part": FAMILIES[0][0]}},
+                "nextpnr": {"board": "arty_a7_35t"},
+            }
+        }
     )
     plan = DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
     assert [node.name for node in plan.nodes] == [_ConfigTaker.name]
@@ -212,19 +213,20 @@ def test_foreign_fasm_cannot_displace_ecp5_production(tmp_path):
 
 def test_displaced_target_does_not_survive_in_the_final_plan(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
-    design = with_updates(design, flows={"nextpnr": {"fpga": {"part": FAMILIES[0][0]}}})
+    design = design.with_updates({"flows": {"nextpnr": {"fpga": {"part": FAMILIES[0][0]}}}})
     with pytest.raises(FlowSettingsException, match=r"needs `fpga`"):
         DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
 
 
 def test_active_conflicting_targets_still_fail(tmp_path):
     design = _design(tmp_path, [("foreign.fasm", SourceType.Fasm)])
-    design = with_updates(
-        design,
-        flows={
-            "nextpnr": {"fpga": {"part": FAMILIES[1][0]}},
-            _ConfigTaker.name: {"fpga": {"part": FAMILIES[0][0]}},
-        },
+    design = design.with_updates(
+        {
+            "flows": {
+                "nextpnr": {"fpga": {"part": FAMILIES[1][0]}},
+                _ConfigTaker.name: {"fpga": {"part": FAMILIES[0][0]}},
+            }
+        }
     )
     with pytest.raises(FlowSettingsError, match="disagrees"):
         DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
@@ -234,24 +236,25 @@ def test_active_conflicting_targets_still_fail(tmp_path):
 def test_database_override_and_context_aliases_agree(tmp_path, owner):
     design = _design(tmp_path)
     other = "nextpnr" if owner == _ConfigTaker.name else _ConfigTaker.name
-    design = with_updates(
-        design, flows={owner: {"prjxray_db": "$DESIGN_ROOT/db"}, other: {"prjxray_db": "db"}}
+    design = design.with_updates(
+        {"flows": {owner: {"prjxray_db": "$DESIGN_ROOT/db"}, other: {"prjxray_db": "db"}}}
     )
     plan = DefaultRunner(tmp_path / "run").plan(
         _ConfigTaker, design, flow_settings={"fpga": {"part": XILINX_PART}}
     )
     for name in (_ConfigTaker.name, "nextpnr"):
-        assert plan.node(name).settings.prjxray_db.resolve() == design.root_path / "db"
+        assert plan.node(name).settings.prjxray_db.resolve() == design.root / "db"
 
 
 def test_database_conflict_and_command_line_precedence(tmp_path):
     design = _design(tmp_path)
-    design = with_updates(
-        design,
-        flows={
-            _ConfigTaker.name: {"fpga": {"part": XILINX_PART}, "prjxray_db": "a"},
-            "nextpnr": {"prjxray_db": "b"},
-        },
+    design = design.with_updates(
+        {
+            "flows": {
+                _ConfigTaker.name: {"fpga": {"part": XILINX_PART}, "prjxray_db": "a"},
+                "nextpnr": {"prjxray_db": "b"},
+            }
+        }
     )
     runner = DefaultRunner(tmp_path / "run")
     with pytest.raises(FlowSettingsError, match="prjxray_db.*disagrees"):
@@ -262,26 +265,26 @@ def test_database_conflict_and_command_line_precedence(tmp_path):
     assert (
         plan.node("nextpnr").settings.prjxray_db
         == plan.node(_ConfigTaker.name).settings.prjxray_db
-        == design.root_path / "c"
+        == design.root / "c"
     )
 
 
 @pytest.mark.parametrize("owner", [_ConfigTaker.name, "nextpnr"])
 def test_one_database_override_reaches_only_endpoints_with_the_setting(tmp_path, owner):
     design = _design(tmp_path)
-    design = with_updates(design, flows={owner: {"prjxray_db": "db"}})
+    design = design.with_updates({"flows": {owner: {"prjxray_db": "db"}}})
     plan = DefaultRunner(tmp_path / "run").plan(
         _ConfigTaker, design, flow_settings={"fpga": {"part": XILINX_PART}}
     )
-    assert plan.node(_ConfigTaker.name).settings.prjxray_db == design.root_path / "db"
-    assert plan.node("nextpnr").settings.prjxray_db == design.root_path / "db"
+    assert plan.node(_ConfigTaker.name).settings.prjxray_db == design.root / "db"
+    assert plan.node("nextpnr").settings.prjxray_db == design.root / "db"
     assert not hasattr(plan.node("yosys_fpga").settings, "prjxray_db")
 
 
 @pytest.mark.parametrize("owner", [_ConfigTaker.name, "nextpnr"])
 def test_board_target_propagates_before_family_selection(tmp_path, owner):
     design = _design(tmp_path)
-    design = with_updates(design, flows={owner: {"board": "ulx3s_85f"}})
+    design = design.with_updates({"flows": {owner: {"board": "ulx3s_85f"}}})
     plan = DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
     assert all(node.settings.fpga.family == "ecp5" for node in plan.nodes)
     assert plan.node(_ConfigTaker.name).inputs[0].origin == "producer"
@@ -290,14 +293,14 @@ def test_board_target_propagates_before_family_selection(tmp_path, owner):
 
 def test_displaced_board_target_cannot_satisfy_the_consumer(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
-    design = with_updates(design, flows={"nextpnr": {"board": "ulx3s_85f"}})
+    design = design.with_updates({"flows": {"nextpnr": {"board": "ulx3s_85f"}}})
     with pytest.raises(FlowSettingsException, match=r"needs `fpga`"):
         DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
 
 
 def test_displaced_producer_still_gets_syntax_validation(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
-    design = with_updates(design, flows={"nextpnr": {"unknown_setting": True}})
+    design = design.with_updates({"flows": {"nextpnr": {"unknown_setting": True}}})
     with pytest.raises(FlowSettingsError, match="unknown_setting"):
         DefaultRunner(tmp_path / "run").plan(
             _ConfigTaker, design, flow_settings={"fpga": {"part": FAMILIES[0][0]}}
@@ -313,8 +316,8 @@ def test_two_matching_configurations_fail_with_selected_type_and_paths(tmp_path)
         DefaultRunner(tmp_path / "run").plan(
             _ConfigTaker, design, flow_settings={"fpga": {"part": FAMILIES[0][0]}}
         )
-    assert str(design.root_path / "a") in str(raised.value)
-    assert str(design.root_path / "b") in str(raised.value)
+    assert str(design.root / "a") in str(raised.value)
+    assert str(design.root / "b") in str(raised.value)
     assert "foreign" not in str(raised.value)
 
 

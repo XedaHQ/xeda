@@ -1067,7 +1067,7 @@ def resolve(
 
     The plan holds the hash of the configuration of the design (no content), so it exists for a
     design whose generated sources have not been generated."""
-    context = dict(design_root=design.root_path, runner_cwd=runner_cwd)
+    context = dict(design_root=design.root, runner_cwd=runner_cwd)
     if isinstance(settings, Flow.Settings) and settings.context:
         context = {key: settings.context.get(key) or value for key, value in context.items()}
     layers = [
@@ -1626,7 +1626,7 @@ def resolve(
         tuple(nodes),
         PlanContext(
             design_configuration_hash(design),
-            design.root_path,
+            design.root,
             runner_cwd,
             run_root,
             hashed_run_dirs,

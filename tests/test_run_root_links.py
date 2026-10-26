@@ -32,6 +32,7 @@ from xeda.flow_runner.scrub import scrub_design, scrub_generations
 from xeda.run_dir import RunDirectory, RunDirectoryError, link_on_way
 from xeda.run_root import ensure_run_root
 
+from .design_edits import design_of_target
 from .flow_registry import preserved_flow_registry
 
 pytestmark = [
@@ -128,12 +129,7 @@ class World:
         self.before = snapshot(tmp_path)
 
     def design(self) -> Design:
-        return Design(
-            name=self.design_name,
-            target=self.target,
-            design_root=self.base,
-            rtl={"sources": []},
-        )
+        return design_of_target(self.target, self.base, name=self.design_name, rtl={"sources": []})
 
     def unchanged(self) -> None:
         assert snapshot(self.base) == self.before, "something was written or deleted"
@@ -315,7 +311,7 @@ def test_a_run_root_that_is_a_link_keeps_working(tmp_path, confirmed):
     real.parent.mkdir()
     link = tmp_path / "xeda_run"
     link.symlink_to(real, target_is_directory=True)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
     for clean in (False, True, True):
         flow = DefaultRunner(link, display_results=False, clean=clean).run_flow(
             _LinkProbe, design, {}

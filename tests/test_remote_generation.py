@@ -318,7 +318,7 @@ def test_two_dependency_designs_in_one_directory_are_two_units_on_the_host(tmp_p
         "  top: top\n", "  top: top\n  clocks: [{port: clk}]\n", 1
     )
     design_file.write_text(text)
-    document, package = _document(tmp_path, Design.from_file(design_file))
+    document, package = _document(tmp_path, Design.load(design_file))
     assert [e["uri"] for e in document["dependencies"]] == [
         "_dependencies/0/a.xeda.json",
         "_dependencies/0/b.xeda.json",
@@ -377,8 +377,8 @@ def test_a_unit_carries_its_whole_configuration_to_the_host(tmp_path, remote_hos
     from xeda.flow_runner.launch_generation import generating_units, generation_key
 
     design_file = _rich_dependency(tmp_path)
-    design = merged_design(Design.from_file(design_file), run_root=None)
-    document, package = _document(tmp_path, Design.from_file(design_file))
+    design = merged_design(Design.load(design_file), run_root=None)
+    document, package = _document(tmp_path, Design.load(design_file))
     assert "generation_units" not in document
     unit = json.loads(package.generated[document["dependencies"][0]["uri"]])
     assert unit["rtl"]["parameters"] == {"W": 1} and unit["rtl"]["defines"] == {"FAST": 1}

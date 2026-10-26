@@ -190,7 +190,7 @@ def generation_key(
     if design.rtl.generator is None:
         raise ValueError("the design has no generator")
     try:
-        generator = generator_of(design.rtl, root=design.root_path)
+        generator = generator_of(design.rtl, root=design.root)
     except (ValidationError, ValueError) as error:
         # What the recipe names went since the design loaded (a file of `sources`, say).
         raise GenerationError(f"the recipe of the generator is not valid now: {error}") from error
@@ -199,8 +199,8 @@ def generation_key(
     identity = {
         "recipe": recipe_identity(generator),
         "configuration": design_configuration(design),
-        "inputs": input_digests(generator, design.root_path),
-        "executable": executable_identity(generator, design.root_path, environ),
+        "inputs": input_digests(generator, design.root),
+        "executable": executable_identity(generator, design.root, environ),
     }
     return semantic_hash(identity)[:KEY_LENGTH], generator
 
@@ -278,7 +278,7 @@ def generate(
     while True:
         key, generator = generation_key(design, environ)
         storage = generation_storage(run_root, design.name, key)
-        description = generator.describe(design.name, design.root_path)
+        description = generator.describe(design.name, design.root)
         with storage_lock(storage, exclusive=True, run_root=run_root):
             if generation_key(design, environ)[0] != key:
                 # What the generator reads changed while this launch waited for the lock: the
@@ -299,7 +299,7 @@ def generate(
                 if storage.exists():
                     RunDirectory.claimed(storage, run_root).delete()
                 owner.unlinked(storage).mkdir(parents=True)
-                generator.run(design.root_path, storage, environ)
+                generator.run(design.root, storage, environ)
                 matches = {name: tuple(matches_in(storage, name)) for name in names}
                 if generation_key(design, environ)[0] == key:
                     write_record(owner, storage, key, generator, environ, matches)
@@ -525,10 +525,8 @@ def delivery_directory(unit: Design, start_directory: Path) -> Path | None:
     (`Generator.outputs_to`, with every path variable expanded), or None for a recipe without one.
 
     `start_directory` is what `$PWD` stands for."""
-    generator = generator_of(unit.rtl, root=unit.root_path)
-    return (
-        None if generator is None else generator.delivery_directory(unit.root_path, start_directory)
-    )
+    generator = generator_of(unit.rtl, root=unit.root)
+    return None if generator is None else generator.delivery_directory(unit.root, start_directory)
 
 
 def reading_nodes(nodes: Iterable[Any], design: Design) -> dict[str | None, Any]:

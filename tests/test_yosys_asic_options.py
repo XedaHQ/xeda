@@ -615,7 +615,7 @@ def test_real_yosys_maps_a_memory_with_the_library_and_the_techmap_of_the_settin
 def _design_from(root: Path, top: str) -> Design:
     return Design(
         name=top,
-        design_root=root,
+        root=root,
         rtl={"sources": ["ram.v"], "top": top, "clocks": [{"port": "clk"}]},
     )
 

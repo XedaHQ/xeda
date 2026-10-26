@@ -23,7 +23,7 @@ def test_ise_synth_py(monkeypatch) -> None:
     path = RESOURCES_DIR / "design0/design0.toml"
     use_fake_tools(monkeypatch)
     assert path.exists()
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clocks={"main_clock": {"period": "5.5 ns"}})
     with tempfile.TemporaryDirectory() as run_dir:
         print("Xeda run dir: ", run_dir)
@@ -86,7 +86,7 @@ from xeda.flow import FPGA
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import IseSynth
 
-design = Design.from_file({str(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")!r})
+design = Design.load({str(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")!r})
 settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clocks={{"main_clock": {{"period": "5.5 ns"}}}})
 flow = DefaultRunner(Path(sys.argv[1]), rebuild_all=True).run_flow(IseSynth, design, settings)
 print(json.dumps(dict(
@@ -99,7 +99,7 @@ print(json.dumps(dict(
 
 def _run_ise(run_dir: Path, monkeypatch, **launcher) -> Flow:
     use_fake_tools(monkeypatch)
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     flow = DefaultRunner(run_dir, **launcher).run_flow(IseSynth, design, ISE_SETTINGS)
     assert flow is not None
     return flow
@@ -179,7 +179,7 @@ def test_an_ise_run_without_its_bitstream_fails_naming_it(tmp_path, monkeypatch)
     expected, and records nothing that does not exist."""
     use_fake_tools(monkeypatch)
     monkeypatch.setenv("XEDA_FAKE_TOOL_NO_OUTPUT", "1")
-    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
+    design = Design.load(RESOURCES_DIR / "design0/design0.toml")
     flow = IseSynth(IseSynth.Settings(**ISE_SETTINGS), design, tmp_path)
     flow.init()
 
@@ -194,7 +194,7 @@ def test_ise_needs_a_top_before_any_tool_runs(tmp_path, monkeypatch) -> None:
     asserted only after the whole ISE run, although it is known from the design."""
     use_fake_tools(monkeypatch)
     (tmp_path / "top.v").write_text("module top(input clk); endmodule\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "clocks": ["clk"]})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["top.v"], "clocks": ["clk"]})
     run_dir = tmp_path / "run"
 
     with pytest.raises(FlowSettingsException, match="rtl.top"):

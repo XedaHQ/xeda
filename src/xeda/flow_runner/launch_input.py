@@ -44,7 +44,7 @@ def input_settings(
     setting: the requested flow does.
     """
     try:
-        settings = settings_in_context(flow_class, flow_settings, design.root_path, runner_cwd)
+        settings = settings_in_context(flow_class, flow_settings, design.root, runner_cwd)
     except FlowSettingsError as error:
         if not producer:
             suggest_dependency_node(flow_class, error)

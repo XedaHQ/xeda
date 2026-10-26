@@ -74,7 +74,7 @@ def test_a_library_named_from_another_start_directory_is_stale(tmp_path, monkeyp
     """`$PWD/libs`, launched from `A` and then from `B`, one run directory."""
     a, b = _library(tmp_path / "A", 1), _library(tmp_path / "B", 2)
     (tmp_path / "design").mkdir()
-    design = Design(name="t", design_root=tmp_path / "design", rtl={"sources": [], "top": "t"})
+    design = Design(name="t", root=tmp_path / "design", rtl={"sources": [], "top": "t"})
     settings = {"lib_paths": [["mylib", "$PWD/libs"]]}
     monkeypatch.chdir(a)
     _launch(tmp_path / "run", design, settings)
@@ -94,7 +94,7 @@ def test_a_library_of_another_design_tree_with_the_same_text_is_stale(tmp_path):
     settings = {"lib_paths": [["mylib", "$DESIGN_ROOT/libs"]]}
     outs = []
     for tree in trees:
-        design = Design(name="soc", design_root=tree, rtl={"sources": [], "top": "t"})
+        design = Design(name="soc", root=tree, rtl={"sources": [], "top": "t"})
         flow, out = _launch(tmp_path / "run", design, settings)
         outs.append(out)
     assert not flow.reused, "the first tree's library was taken for the second's"
@@ -112,10 +112,10 @@ def test_a_relative_library_of_another_design_tree_is_stale(tmp_path, monkeypatc
     for start in ("A", "B"):
         (tmp_path / start).mkdir()
         monkeypatch.chdir(tmp_path / start)
-        design = Design(name="soc", design_root=trees[0], rtl={"sources": [], "top": "t"})
+        design = Design(name="soc", root=trees[0], rtl={"sources": [], "top": "t"})
         flow, _ = _launch(tmp_path / "run", design, settings)
     assert flow.reused, flow.stale_reason  # from B too: no `libs` there
-    design = Design(name="soc", design_root=trees[1], rtl={"sources": [], "top": "t"})
+    design = Design(name="soc", root=trees[1], rtl={"sources": [], "top": "t"})
     flow, out = _launch(tmp_path / "run", design, settings)
     was, now = (trees[0] / "libs").resolve(), (trees[1] / "libs").resolve()
     assert not flow.reused and flow.stale_reason == f"lib_paths[0][1] now names {now} (was {was})"
@@ -127,7 +127,7 @@ def test_a_setting_that_names_a_file_is_bound_by_the_file(tmp_path, monkeypatch)
     directory changing alone, with the same file named, is no change."""
     lib = _library(tmp_path / "L", 1)
     (tmp_path / "design").mkdir()
-    design = Design(name="t", design_root=tmp_path / "design", rtl={"sources": [], "top": "t"})
+    design = Design(name="t", root=tmp_path / "design", rtl={"sources": [], "top": "t"})
     settings = {"lib_paths": [["mylib", str(lib / "libs")]]}
     for start in ("A", "B"):
         (tmp_path / start).mkdir()
@@ -174,7 +174,7 @@ def test_ghdl_sim_with_a_library_named_from_another_start_directory_is_stale(tmp
     (tmp_path / "design" / "tb.vhd").write_text(TB)
     design = Design(
         name="t",
-        design_root=tmp_path / "design",
+        root=tmp_path / "design",
         rtl={"sources": [], "top": "tb"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
         language={"vhdl": {"standard": "2008"}},
@@ -227,7 +227,7 @@ lib_paths = [["mylib", "$DESIGN_ROOT/libs"]]
 
 def _probe_design(tmp_path: Path) -> Design:
     (tmp_path / "design").mkdir(exist_ok=True)
-    return Design(name="t", design_root=tmp_path / "design", rtl={"sources": [], "top": "t"})
+    return Design(name="t", root=tmp_path / "design", rtl={"sources": [], "top": "t"})
 
 
 def _change(libs: Path, change: str) -> str:
@@ -312,7 +312,7 @@ LIBS = {"lib_paths": [["mylib", "$DESIGN_ROOT/libs"]]}
 
 def _tree(tmp_path) -> tuple[Path, Design]:
     tree = _library(tmp_path / "t", 1)
-    return tree, Design(name="t", design_root=tree, rtl={"sources": [], "top": "t"})
+    return tree, Design(name="t", root=tree, rtl={"sources": [], "top": "t"})
 
 
 def test_an_empty_directory_added_to_a_library_is_a_new_input(tmp_path):
@@ -353,7 +353,7 @@ def test_a_library_behind_a_directory_link_is_listed_through_it(tmp_path):
     (tree / "libs" / "pkg.txt").write_text("K = 0\n")
     (tree / "libs" / "vendor").symlink_to(real, target_is_directory=True)
     (tree / "libs" / "loop").symlink_to(tree / "libs", target_is_directory=True)
-    design = Design(name="t", design_root=tree, rtl={"sources": [], "top": "t"})
+    design = Design(name="t", root=tree, rtl={"sources": [], "top": "t"})
     _launch(tmp_path / "run", design, LIBS)
     (real / "pkg.txt").write_text("K = 2\n")
     flow, _ = _launch(tmp_path / "run", design, LIBS)
@@ -366,7 +366,7 @@ def test_the_run_s_own_directories_are_not_listed(tmp_path, monkeypatch):
     it) does not list the run root: the flow's own `reports`/`outputs` directories, and every
     other run's, are not its inputs, so a second launch is reused."""
     lib = _library(tmp_path / "L", 1)
-    design = Design(name="t", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="t", root=tmp_path, rtl={"sources": [], "top": "t"})
     monkeypatch.chdir(tmp_path)
     settings = {"lib_paths": [["mylib", str(lib / "libs")], ["root", "$DESIGN_ROOT"]]}
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
@@ -403,7 +403,7 @@ def test_ghdl_sim_with_a_library_recompiled_in_place_is_stale(tmp_path, monkeypa
     (tmp_path / "design" / "tb.vhd").write_text(TB)
     design = Design(
         name="t",
-        design_root=tmp_path / "design",
+        root=tmp_path / "design",
         rtl={"sources": [], "top": "tb"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
         language={"vhdl": {"standard": "2008"}},

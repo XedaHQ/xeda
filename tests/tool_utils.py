@@ -1402,7 +1402,7 @@ def require_modelsim() -> None:
         source.write_text("module probe; initial $finish(0); endmodule\n")
         design = Design(
             name="probe",
-            design_root=work,
+            root=work,
             rtl={"sources": [source], "top": "probe"},
             tb={"top": "probe"},
         )

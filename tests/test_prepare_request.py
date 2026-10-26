@@ -31,7 +31,7 @@ def start_in_tmp_path(tmp_path, monkeypatch):
 
 
 def _design(root, **flow) -> Design:
-    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}, flows=flow)
+    return Design(name="d", root=root, rtl={"sources": [], "top": "t"}, flows=flow)
 
 
 def _runner(tmp_path) -> DefaultRunner:
@@ -149,7 +149,7 @@ def test_prepare_request_runs_no_flow_and_refuses_what_run_refuses(tmp_path):
     refused = _runner(tmp_path / "refused")
     flow, settings = "vivado_synth", {"fpga": {"part": "xc7a12tcsg325-1"}}
     (tmp_path / "a.sc").write_text("")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["a.sc"], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["a.sc"], "top": "t"})
     with pytest.raises(FlowSettingsException) as from_run:
         refused.run(flow, design, flow_settings=settings)
     with pytest.raises(FlowSettingsException) as from_prepare:

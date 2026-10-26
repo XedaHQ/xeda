@@ -22,7 +22,7 @@ EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 
 
 def test_vivado_synth_template(tmp_path: Path) -> None:
-    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
+    design = Design.load(RESOURCES_DIR / "design0/design0.toml")
     settings = VivadoSynth.Settings(fpga=FPGA(part="abcd"), clocks={"main_clock": {"period": "5.5 ns"}})  # type: ignore
     run_dir = tmp_path / "vivado_synth_run"
     run_dir.mkdir()
@@ -51,7 +51,7 @@ def test_vivado_synth_template(tmp_path: Path) -> None:
 
 def test_vivado_synth_py(tmp_path: Path, monkeypatch) -> None:
     use_fake_tools(monkeypatch)
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clocks={"main_clock": {"period": "5.5 ns"}})
     xeda_runner = DefaultRunner(tmp_path / "xeda_run", debug=True)
     flow = xeda_runner.run_flow(VivadoSynth, design, settings)
@@ -97,7 +97,7 @@ def _run_report(
     procedure's arguments after the file name; it defaults to asking for every
     registered path."""
     assert TCLSH
-    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
+    design = Design.load(RESOURCES_DIR / "design0/design0.toml")
     settings = VivadoSynth.Settings(fpga=FPGA(part="abcd"), clocks={"main_clock": {"period": "5.5 ns"}})  # type: ignore
     flow = VivadoSynth(settings, design, tmp_dir)  # type: ignore
     util_tcl = tmp_dir / flow.copy_from_template("util.tcl")
@@ -145,7 +145,7 @@ def test_vivado_s_version_probe_does_not_make_vivado_synth_stale(tmp_path, monke
     from .tool_utils import use_fake_tools
 
     use_fake_tools(monkeypatch)
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clocks={"main_clock": dict(period="5.5 ns")})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     first = runner.launch_flow(VivadoSynth, design, settings)
@@ -223,7 +223,7 @@ def test_num_critical_paths_setting_reaches_the_templates() -> None:
     from xeda.flows import VivadoAltSynth
     from xeda.flows.vivado.vivado_alt_synth import flatten_options, synth_design_options
 
-    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
+    design = Design.load(RESOURCES_DIR / "design0/design0.toml")
     assert VivadoSynth.Settings(fpga=FPGA(part="abcd"), clocks={"main_clock": {"period": "5.5 ns"}}).num_critical_paths == 100  # type: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -298,7 +298,7 @@ def test_vivado_alt_synth_records_the_checkpoints_and_netlists_it_writes(
     netlist and the XDC under `write_netlist`, and the timing netlist and SDF under
     `write_timing_netlist`. Each is recorded exactly when the script writes it."""
     use_fake_tools(monkeypatch)
-    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
+    design = Design.load(RESOURCES_DIR / "design0/design0.toml")
     settings = {
         "fpga": {"part": "xc7a12tcsg325-1"},
         "clocks": {"main_clock": {"period": "5.5 ns"}},
@@ -370,7 +370,7 @@ def _vivado_sim_design(root: Path) -> Design:
     )
     return Design(
         name="simdesign",
-        design_root=root,
+        root=root,
         rtl={"sources": ["rtl/top.vhd"], "top": "top"},
         tb={"sources": ["tb/tb_top.vhd"], "top": "tb_top", "uut": "uut"},
     )
@@ -426,7 +426,7 @@ def test_vivado_sim_analyzes_the_sources_it_reads_in_design_order(tmp_path, monk
         (root / name).write_text(text)
     design = Design(
         name="order",
-        design_root=root,
+        root=root,
         rtl={"sources": ["b.v", "a.vhd", "pins.xdc"], "top": "a"},
         tb={"sources": ["tb.sv"], "top": "tb"},
     )
@@ -453,7 +453,7 @@ def test_vivado_sim_refuses_a_bluespec_source_when_planned(tmp_path, monkeypatch
     (root / "tb" / "gen.bsv").write_text("package Gen; endpackage\n")
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["rtl/top.vhd"], "top": "top"},
         tb={"sources": ["tb/tb_top.vhd", "tb/gen.bsv"], "top": "tb_top", "uut": "uut"},
     )

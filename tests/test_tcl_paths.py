@@ -82,7 +82,7 @@ def _design(root: Path) -> Design:
         (root / rel).write_text("-- a source\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": rtl, "top": "top", "clocks": [{"port": "clk"}]},
         tb={"sources": tb, "top": "tb", "uut": "dut"},
     )
@@ -202,7 +202,7 @@ def test_modelsim_keeps_systemverilog_and_lint_as_separate_options(tmp_path, mon
     source.write_text("module top; endmodule\n")
     design = Design(
         name="sv",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.sv"], "top": "top"},
         tb={"top": "top"},
     )
@@ -520,7 +520,7 @@ def _evil_design(root: Path) -> Design:
     (root / "tb.vhd").write_text("-- a testbench\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": ["top.vhd"],
             "top": f"top {EVIL}",
@@ -630,7 +630,7 @@ def test_a_design_name_with_tcl_metacharacters_is_rejected(name, tmp_path):
     `[A-Za-z][A-Za-z0-9_-]*` when the design is loaded, so it is rejected before anything runs
     -- and no tool script ever holds one."""
     with pytest.raises(DesignValidationError, match="not a design name"):
-        Design(name=name, design_root=tmp_path, rtl={"sources": [], "top": "top"})
+        Design(name=name, root=tmp_path, rtl={"sources": [], "top": "top"})
 
 
 @needs_tclsh
@@ -673,7 +673,7 @@ def test_every_text_of_the_openroad_header_reaches_the_tool_as_a_literal_word(
     from .openroad_utils import openroad_design, probe_flows, render_driver, run_fake_openroad
 
     odd_root = tmp_path / "design root $v [xeda_injected]"
-    design = Design.from_file(openroad_design(odd_root, top=f"counter {EVIL}"))
+    design = Design.load(openroad_design(odd_root, top=f"counter {EVIL}"))
     settings = {
         "dont_use_cells": [f"CELL {EVIL}", "PLAIN"],
         "wire_rc": {

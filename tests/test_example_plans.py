@@ -131,7 +131,7 @@ def test_the_documented_command_plans(name, target, request_, flows, tmp_path):
 
 def test_the_ascon_clock_reaches_synthesis_and_placement(tmp_path):
     """The `yosys` section of the design file sets the clock of the whole OpenROAD chain."""
-    design = Design.from_file(EXAMPLES / "ascon" / "ascon.yaml")
+    design = Design.load(EXAMPLES / "ascon" / "ascon.yaml")
     plan = DefaultRunner(tmp_path / "plan", display_results=False).plan(
         Openroad, design, xedaproject=empty_project(tmp_path)
     )

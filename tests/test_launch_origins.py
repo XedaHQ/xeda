@@ -55,7 +55,7 @@ def start_in_tmp_path(tmp_path, monkeypatch):
 def _design(root: Path, where: str, sections=None) -> Design:
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": [], "top": "t"},
         flows=copy.deepcopy(SECTIONS[where] if sections is None else sections),
     )
@@ -248,7 +248,7 @@ def _bound_design(root: Path) -> Design:
     (root / "in.txt").write_text("bound\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": [], "top": "t"},
         flows={
             "__taker": {"inputs": {"made": "__input_maker.made"}},
@@ -322,7 +322,7 @@ COMMAND_LINE = "the command line (`-s`) or `flow_settings`"
 
 
 def _plan_error(tmp_path, **kwargs) -> str:
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     with pytest.raises(FlowSettingsException) as raised:
         DefaultRunner(tmp_path / "labels", display_results=False).plan(_Place, design, **kwargs)
     return str(raised.value)
@@ -344,7 +344,7 @@ def test_a_conflict_in_flow_settings_names_the_command_line_and_flow_settings(tm
 
 
 def test_a_conflict_in_the_api_layer_still_names_the_api(tmp_path):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "labels", display_results=False)
     with pytest.raises(FlowSettingsException) as raised:
         runner.resolve(
@@ -377,7 +377,7 @@ def test_a_conflict_on_the_command_line_names_the_command_line_and_flow_settings
     ids=["mapping", "items"],
 )
 def test_a_binding_in_flow_settings_is_located_in_that_layer(tmp_path, given):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     plan = DefaultRunner(tmp_path / "bindings", display_results=False).plan(
         _Taker, design, flow_settings=given
     )
@@ -388,7 +388,7 @@ def test_a_binding_in_flow_settings_is_located_in_that_layer(tmp_path, given):
 
 
 def test_a_binding_in_flow_overrides_is_still_located_in_the_api(tmp_path):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     plan = DefaultRunner(tmp_path / "bindings", display_results=False).plan(
         _Taker, design, flow_overrides={"inputs.made": "__input_maker.made"}
     )

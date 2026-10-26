@@ -50,7 +50,13 @@ from ..deliver import (
     refuse_shared_destinations,
     split_deliveries,
 )
-from ..design import Design, names_a_design_file, _shown_dependencies
+from ..design import (
+    NO_SINGULAR_TARGET,
+    Design,
+    DesignValidationError,
+    _shown_dependencies,
+    names_a_design_file,
+)
 from ..flow import (
     Flow,
     FlowDependencyFailure,
@@ -733,7 +739,7 @@ class FlowLauncher:
             or captured[0] is not plan
             or (
                 context.design_hash != design_hash
-                or context.design_root != design.root_path
+                or context.design_root != design.root
                 or context.runner_cwd != Path.cwd()
                 or context.run_root != self._run_root
                 or context.hashed_run_dirs != self.settings.hashed_run_dirs
@@ -2048,14 +2054,14 @@ class FlowLauncher:
             Mapping[str, Any],
         ] = [],
         select_design_in_project=None,
-        design_overrides: Union[Iterable[str], Dict[str, Any], None] = None,
+        design_updates: Union[Iterable[str], Dict[str, Any], None] = None,
         design_allow_extra: bool = False,
         design_remove_fields: List[str] = [],
         target: str | None = None,
     ) -> Optional[Flow]:
         """Load and compose a request, then execute its resolved declared graph.
 
-        `target` selects one of the `targets` of the design, as `Design.from_file` does."""
+        `target` selects one of the `targets` of the design, as `Design.load` does."""
         request, plan = self.resolve_run(
             flow,
             design,
@@ -2063,7 +2069,7 @@ class FlowLauncher:
             flow_settings,
             flow_overrides,
             select_design_in_project,
-            design_overrides,
+            design_updates,
             design_allow_extra,
             design_remove_fields,
             target=target,
@@ -2088,7 +2094,7 @@ class FlowLauncher:
             Mapping[str, Any],
         ] = [],
         select_design_in_project=None,
-        design_overrides: Union[Iterable[str], Dict[str, Any], None] = None,
+        design_updates: Union[Iterable[str], Dict[str, Any], None] = None,
         design_allow_extra: bool = False,
         design_remove_fields: List[str] = [],
         target: str | None = None,
@@ -2108,7 +2114,7 @@ class FlowLauncher:
             flow_settings,
             flow_overrides,
             select_design_in_project,
-            design_overrides,
+            design_updates,
             design_allow_extra,
             design_remove_fields,
             target=target,
@@ -2140,7 +2146,7 @@ class FlowLauncher:
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
         select_design_in_project=None,
-        design_overrides: Iterable[str] | dict[str, Any] | None = None,
+        design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
         design_remove_fields: list[str] = [],
         target: str | None = None,
@@ -2157,7 +2163,7 @@ class FlowLauncher:
             flow_settings,
             flow_overrides,
             select_design_in_project,
-            design_overrides,
+            design_updates,
             design_allow_extra,
             design_remove_fields,
             target,
@@ -2171,7 +2177,7 @@ class FlowLauncher:
         xedaproject: str | None = None,
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
         select_design_in_project=None,
-        design_overrides: Iterable[str] | dict[str, Any] | None = None,
+        design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
         target: str | None = None,
         *,
@@ -2203,7 +2209,7 @@ class FlowLauncher:
             flow_settings,
             [],
             select_design_in_project,
-            design_overrides,
+            design_updates,
             design_allow_extra,
             [],
             target=target,
@@ -2230,7 +2236,7 @@ class FlowLauncher:
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
         select_design_in_project=None,
-        design_overrides: Iterable[str] | dict[str, Any] | None = None,
+        design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
         design_remove_fields: list[str] = [],
         target: str | None = None,
@@ -2248,7 +2254,7 @@ class FlowLauncher:
             flow_settings,
             flow_overrides,
             select_design_in_project,
-            design_overrides,
+            design_updates,
             design_allow_extra,
             design_remove_fields,
             target,
@@ -2273,7 +2279,7 @@ class FlowLauncher:
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings,
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any],
         select_design_in_project,
-        design_overrides: Iterable[str] | dict[str, Any] | None,
+        design_updates: Iterable[str] | dict[str, Any] | None,
         design_allow_extra: bool,
         design_remove_fields: list[str],
         target: str | None,
@@ -2285,7 +2291,7 @@ class FlowLauncher:
             flow_settings,
             flow_overrides,
             select_design_in_project,
-            design_overrides,
+            design_updates,
             design_allow_extra,
             design_remove_fields,
             target=target,
@@ -2326,7 +2332,7 @@ class FlowLauncher:
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings,
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any],
         select_design_in_project,
-        design_overrides: Iterable[str] | dict[str, Any] | None,
+        design_updates: Iterable[str] | dict[str, Any] | None,
         design_allow_extra: bool,
         design_remove_fields: list[str],
         *,
@@ -2345,8 +2351,8 @@ class FlowLauncher:
         checks that read the merged design (a source in a language that a flow cannot read, a
         missing testbench top, a run directory that a flow refuses), the identities and the
         resolved plan. All of it comes before the generator runs."""
-        if design_overrides is not None and not isinstance(design_overrides, dict):
-            design_overrides = list(design_overrides)
+        if design_updates is not None and not isinstance(design_updates, dict):
+            design_updates = list(design_updates)
         if select_design_in_project is not None:
             select_design_in_project = _choosing_once(select_design_in_project)
         request = self._request(
@@ -2356,7 +2362,7 @@ class FlowLauncher:
             flow_settings,
             flow_overrides,
             select_design_in_project,
-            design_overrides,
+            design_updates,
             design_allow_extra,
             design_remove_fields,
             target=target,
@@ -2367,7 +2373,7 @@ class FlowLauncher:
                 request.flow_request,
                 request.settings,
                 request.sections,
-                design_root=request.design.root_path,
+                design_root=request.design.root,
                 runner_cwd=self._start,
             )
         if before_fetch is not None:
@@ -2401,7 +2407,7 @@ class FlowLauncher:
             flow_request or FlowRequest((ChainElement(flow_class),)),
             requested,
             merge_flow_sections(own, given, flow_class_for=_get_flow_class_if_known),
-            design_root=design.root_path,
+            design_root=design.root,
             runner_cwd=self._start,
         )
 
@@ -2429,7 +2435,7 @@ class FlowLauncher:
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
         select_design_in_project=None,
-        design_overrides: Iterable[str] | dict[str, Any] | None = None,
+        design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
         design_remove_fields: list[str] = [],
         *,
@@ -2458,11 +2464,11 @@ class FlowLauncher:
         # Take the default flow settings from the project file even if a design file is given.
         xeda_project = None
         flows_settings: Dict[str, Any] = {}
-        if not design_overrides:
-            design_overrides = {}
-        if not isinstance(design_overrides, dict):
-            design_overrides = list(design_overrides)
-            design_overrides = settings_to_dict(design_overrides)
+        if not design_updates:
+            design_updates = {}
+        if not isinstance(design_updates, dict):
+            design_updates = list(design_updates)
+            design_updates = settings_to_dict(design_updates)
         design_not_in_project = False
         project_path = resolve_project_file(xedaproject)
         # The name messages use when there is no project file.
@@ -2476,7 +2482,7 @@ class FlowLauncher:
             if isinstance(design, (Design, dict, Path)):
                 design_not_in_project = True
             elif names_a_design_file(design):
-                # A design file, whether or not it exists: `Design.from_file` says what is wrong
+                # A design file, whether or not it exists: `Design.load` says what is wrong
                 # with it, rather than a project reporting a design of that name missing.
                 design_not_in_project = True
                 design = Path(design)
@@ -2485,7 +2491,7 @@ class FlowLauncher:
                 xeda_project = XedaProject.from_file(
                     xedaproject,
                     skip_designs=design_not_in_project,
-                    design_overrides=design_overrides,
+                    design_updates=design_updates,
                     design_allow_extra=design_allow_extra,
                     design_remove_extra=design_remove_fields,
                 )
@@ -2500,23 +2506,29 @@ class FlowLauncher:
             if isinstance(design, (str, Path)):
                 # An invalid design file raises, as a design from a project does: the caller
                 # reports it (`xeda run --json` names the error instead of "did not complete").
-                design = Design.from_file(
+                design = Design._load_file(
                     design,
-                    overrides=design_overrides,
+                    updates=(design_updates,) if design_updates else (),
                     allow_extra=design_allow_extra,
                     remove_extra=design_remove_fields,
                     target=target,
                 )
 
             elif isinstance(design, dict):
-                design = Design.target_selected(design, target, design_overrides)
-                if "design_root" not in design:
-                    design["design_root"] = Path.cwd()
-                design = Design(**design)
+                # The keyword arguments of `Design(...)`, `root` among them. A dictionary
+                # `target` selects the design's target.
+                keywords = dict(design)
+                if "target" in keywords:
+                    raise DesignValidationError(
+                        [("target", NO_SINGULAR_TARGET, "", "value_error")], data=keywords
+                    )
+                design = Design(**keywords, target=target)
+                if design_updates:
+                    design = design.with_updates(design_updates)
             elif target is not None:
                 raise ValueError(
                     f"target {target!r} was asked for, but the design is already built: "
-                    "select the target where the design is loaded (`Design.from_file(..., "
+                    "select the target where the design is loaded (`Design.load(..., "
                     "target=...)`)"
                 )
         else:

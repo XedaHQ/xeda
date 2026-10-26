@@ -66,7 +66,7 @@ def test_expanding_a_strategy_hands_out_copies_of_its_steps(run, monkeypatch) ->
 
 
 def _design() -> Design:
-    return Design.from_file(RESOURCES / "design0" / "design0.toml")
+    return Design.load(RESOURCES / "design0" / "design0.toml")
 
 
 def _run(flow_class, root: Path, design: Design, settings: dict, monkeypatch):

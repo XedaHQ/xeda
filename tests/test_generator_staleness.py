@@ -98,7 +98,7 @@ class World:
 
     def load(self) -> Design:
         """Load the design: it runs nothing."""
-        return Design.from_file(self.design_file)
+        return Design.load(self.design_file)
 
     def generate(self, rebuild_all: bool = False, environ: dict | None = None) -> Generation:
         """Generate as a launch does, into the storage under the run root."""
@@ -164,7 +164,7 @@ def test_first_generation_is_serialized_across_processes(tmp_path):
         "from pathlib import Path\n"
         "from xeda import Design\n"
         "from xeda.flow_runner.launch_generation import generate\n"
-        f"design = Design.from_file(Path({str(world.design_file)!r}))\n"
+        f"design = Design.load(Path({str(world.design_file)!r}))\n"
         f"root = Path({str(world.run_root)!r})\n"
         "root.mkdir(exist_ok=True)\n"
         "generate(design, run_root=root.resolve(), environ=dict(os.environ))\n"

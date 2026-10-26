@@ -114,7 +114,7 @@ def judged_registered():
 
 def _design(tmp_path):
     (tmp_path / "top.v").write_text("module top; endmodule\n")
-    return Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
+    return Design(name="d", root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
 
 
 @pytest.mark.parametrize(

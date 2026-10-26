@@ -38,7 +38,7 @@ def _design(root: Path, **extra) -> Design:
         (root / name).write_text("module top; endmodule\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": ["top.v", {"path": "made.v"}],
             "top": "top",
@@ -115,14 +115,14 @@ def test_a_clock_is_a_table_with_a_port_and_a_name(design):
 
 
 def test_the_models_are_built_from_the_tables(design):
-    generator = generator_of(design.rtl, root=design.root_path)
+    generator = generator_of(design.rtl, root=design.root)
     assert generator is not None and generator.command == "python gen.py"
     assert generator.args == ["a"] and generator.always_runs
     cocotb = cocotb_of(design.tb)
     assert cocotb is not None and cocotb.module == "tb"
     assert language_of(design).vhdl.standard == "08"
     assert cocotb_of(design_module.Testbench()) is None
-    assert generator_of(Rtl(sources=()), root=design.root_path) is None
+    assert generator_of(Rtl(sources=()), root=design.root) is None
 
 
 @pytest.mark.parametrize(
@@ -139,7 +139,7 @@ def test_an_invalid_recipe_fails_when_the_design_loads(tmp_path, rtl, message):
     from xeda.design import DesignValidationError
 
     with pytest.raises(DesignValidationError, match=message):
-        Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", **rtl})
+        Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", **rtl})
     with pytest.raises(pydantic.ValidationError, match=message):
         Rtl(sources=(), **rtl)
 
@@ -150,7 +150,7 @@ def test_an_invalid_cocotb_recipe_fails_when_the_design_loads(tmp_path):
     with pytest.raises(DesignValidationError, match="testcase"):
         Design(
             name="d",
-            design_root=tmp_path,
+            root=tmp_path,
             rtl={"sources": [], "top": "t"},
             tb={"cocotb": {"testcase": 3}},
         )
@@ -186,9 +186,7 @@ def test_a_design_is_written_as_plain_json(design, tmp_path):
 
 
 def test_the_design_loads_again_from_its_own_dump(design):
-    again = Design(
-        **{**design.model_dump(), "design_root": design.design_root},
-    )
+    again = Design(root=design.root, **design.to_dict())
     assert design_configuration_hash(again) == design_configuration_hash(design)
     assert again.rtl.sources == design.rtl.sources
     assert again.rtl.clocks == design.rtl.clocks and again.language == design.language
@@ -207,7 +205,7 @@ def test_a_dependency_is_merged_into_a_design_that_cannot_change(tmp_path):
     )
     declared = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v"]},
         dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
     )
@@ -251,7 +249,7 @@ def test_source_types_keep_enum_identity_and_their_name(tmp_path):
     (tmp_path / "top.vhd").write_text("entity top is end entity;\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["top.vhd"], "top": "top"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
     )
@@ -266,7 +264,7 @@ def test_a_vhdl_source_is_assigned_as_vhdl_to_quartus(tmp_path, monkeypatch):
     root.mkdir()
     (root / "top.vhd").write_text("entity top is end entity;\n")
     design = Design(
-        name="d", design_root=root, rtl={"sources": ["top.vhd"], "top": "top", "clocks": ["clk"]}
+        name="d", root=root, rtl={"sources": ["top.vhd"], "top": "top", "clocks": ["clk"]}
     )
     calls = _calls("quartus", design, _settings(root, "quartus"), tmp_path, monkeypatch)
     assert ["set_global_assignment", "-name", "VHDL_FILE", str(root / "top.vhd")] in calls
@@ -280,7 +278,7 @@ def test_a_frozen_flows_section_goes_straight_to_the_settings(tmp_path):
 
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [], "clocks": [{"port": "clk"}]},
         flows={
             "vivado_synth": {

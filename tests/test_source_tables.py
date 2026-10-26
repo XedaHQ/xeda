@@ -84,7 +84,7 @@ def test_the_api_refuses_it_in_either_part(design_dir: Path, key: str, part: str
     data = design_data({"file": "tb.vhd"})
     data[part]["sources"] = [{"file": "tb.vhd", key: "08"}]
     with pytest.raises(Exception, match=re.escape(REFUSED[key])):
-        Design(design_root=design_dir, **data)
+        Design(root=design_dir, **data)
 
 
 @pytest.mark.parametrize("key", sorted(REFUSED))
@@ -92,7 +92,7 @@ def test_a_design_file_is_refused_naming_the_source_list(design_dir: Path, key: 
     path = design_dir / "d.yaml"
     path.write_text(yaml.safe_dump(design_data({"file": "tb.vhd", key: "08"})))
     with pytest.raises(DesignValidationError, match=re.escape(REFUSED[key])) as error:
-        Design.from_file(path)
+        Design.load(path)
     assert "tb.sources" in str(error.value)
 
 
@@ -113,18 +113,15 @@ def test_a_target_is_refused_whether_or_not_it_is_selected(
     path = design_dir / "d.yaml"
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(DesignValidationError, match=re.escape(REFUSED[key])) as error:
-        Design.from_file(path, target="bad" if selected else "good")
+        Design.load(path, target="bad" if selected else "good")
     assert "targets.bad.rtl.sources" in str(error.value)
 
 
-def test_design_overrides_are_refused_too(design_dir: Path) -> None:
+def test_design_updates_are_refused_too(design_dir: Path) -> None:
     path = design_dir / "d.yaml"
     path.write_text(yaml.safe_dump(design_data({"file": "tb.vhd"})))
     with pytest.raises(DesignValidationError, match="language.vhdl.standard"):
-        Design.from_file(
-            path,
-            overrides={"tb": {"sources": [{"file": "tb.vhd", "standard": "08"}]}},
-        )
+        Design.load(path).with_updates({"tb": {"sources": [{"file": "tb.vhd", "standard": "08"}]}})
 
 
 def test_a_project_design_is_refused(design_dir: Path) -> None:
@@ -176,7 +173,7 @@ def test_ghdl_sim_runs_a_testbench_that_needs_vhdl_2008_with_the_design_standard
     require_ghdl()
     design = Design(
         name="d",
-        design_root=design_dir,
+        root=design_dir,
         rtl={"sources": [], "top": "tb"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
         language={"vhdl": {"standard": "2008"}},
@@ -191,7 +188,7 @@ def test_nvc_runs_a_testbench_that_needs_vhdl_2008_with_the_design_standard(
     require_nvc()
     design = Design(
         name="d",
-        design_root=design_dir,
+        root=design_dir,
         rtl={"sources": [], "top": "tb"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
         language={"vhdl": {"standard": "2008"}},

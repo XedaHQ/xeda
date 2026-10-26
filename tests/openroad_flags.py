@@ -465,7 +465,7 @@ class Bench:
         data["values"]["opt_post_grt_wns"] = polish
         residue.write_text(yaml.safe_dump(data, sort_keys=False))
         self.residue = residue
-        self.design = Design.from_file(openroad_design(root / "design"))
+        self.design = Design.load(openroad_design(root / "design"))
         self.inputs = root / "inputs"
         self.inputs.mkdir()
         for name in ("place", "cts", "grt"):
@@ -489,13 +489,13 @@ class Bench:
         """Build `cls` with the settings `given` (nested), ready to render. Raise whatever the
         settings or the platform refuse with."""
         settings = cls.Settings.from_input(  # type: ignore[attr-defined]
-            given, design_root=self.design.design_root, runner_cwd=self.root
+            given, design_root=self.design.root, runner_cwd=self.root
         )
         cls.check_settings_supported(settings)  # type: ignore[attr-defined]
         flow = cls(settings, self.design, self.work)
         flow.init()
         if cls is OpenroadPlace:
-            flow.inputs.netlist = self.design.design_root / "counter_netlist.v"
+            flow.inputs.netlist = self.design.root / "counter_netlist.v"
             flow.outputs.odb = self.work / "place.odb"
             flow.outputs.sdc = self.work / "place.sdc"
         else:

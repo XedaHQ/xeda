@@ -76,7 +76,7 @@ def _flow(tmp_path, monkeypatch, prefix, part=A100T, *, pins=PINS, sdc=None, **s
     chipdb.write_bytes(_binary(fabric))
     netlist = root / "netlist.json"
     netlist.write_text('{"modules": {"d": {"ports": {"clk": {"bits": [2]}}, "netnames": {}}}}')
-    design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=root)
+    design = Design(name="d", rtl={"sources": [], "top": "d"}, root=root)
     flow = Nextpnr(
         Nextpnr.Settings.from_input(
             {"fpga": {"part": part}, "chipdb": chipdb, **settings},
@@ -491,7 +491,7 @@ def _project(tmp_path, monkeypatch, sdc=None):
     if sdc is not None:
         (tmp_path / "timing.sdc").write_text(sdc)
         sources.append("timing.sdc")
-    design = Design(name="top", design_root=tmp_path, rtl={"sources": sources, "top": "top"})
+    design = Design(name="top", root=tmp_path, rtl={"sources": sources, "top": "top"})
     return design, DefaultRunner(tmp_path / "run", display_results=False)
 
 
@@ -537,7 +537,7 @@ def test_a_launch_with_a_clock_in_the_sdc_and_the_settings_names_both(tmp_path, 
 def test_a_board_supplies_the_part_and_its_pin_file(tmp_path, monkeypatch):
     """No typed XDC source: the bundled Arty A7-100 pin file is the fallback, with the clock."""
     design, runner = _project(tmp_path, monkeypatch)
-    design = Design(name="top", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
+    design = Design(name="top", root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
     settings = {
         "board": "arty_a7_100t",
         "clocks": {"main": {"port": "CLK100MHZ", "period": "10 ns"}},

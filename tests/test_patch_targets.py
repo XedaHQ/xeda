@@ -632,7 +632,7 @@ def test_patching_a_launcher_stage_name_intercepts_a_real_launch(tmp_path, monke
     from .io_flows import _Maker
 
     seen = _intercepting(monkeypatch, ON_A_SUCCESSFUL_LAUNCH)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(
         tmp_path / "run", display_results=False, hashed_run_dirs=True, scrub_old_runs=True
     )
@@ -675,7 +675,7 @@ def test_patching_the_failed_run_artifact_drop_intercepts_a_failing_launch(tmp_p
     from xeda.flow_runner import DefaultRunner
 
     seen = _intercepting(monkeypatch, ["_drop_unwritten_artifacts"])
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     with _a_flow_whose_run_raises() as failing:
         with pytest.raises(RuntimeError, match="as the oracle asked"):
@@ -714,7 +714,7 @@ def test_patching_the_failed_run_artifact_drop_intercepts_an_ordinary_failed_exe
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     flow = runner.launch_flow(
         "vivado_alt_synth",
-        Design.from_file(SQRT_EXAMPLE),
+        Design.load(SQRT_EXAMPLE),
         {
             "fpga": {"part": "xc7a12tcsg325-1"},
             "clocks": {"main_clock": {"period": "10 ns"}},

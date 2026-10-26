@@ -26,31 +26,24 @@ MISSING = "xeda-no-such-distribution"
 FIFO = Path(__file__).parent.parent / "examples" / "sv" / "fifo" / "fifo_cocotb.xeda.yaml"
 
 
-def _design(packages, tmp_path=None) -> Design:
-    sources = []
-    if tmp_path is not None:
-        (tmp_path / "d.vhd").write_text("entity d is end; architecture a of d is begin end;\n")
-        sources = ["d.vhd"]
-    return Design.model_validate(
-        {
-            "name": "d",
-            "design_root": str(tmp_path) if tmp_path is not None else None,
-            "rtl": {"sources": sources, "top": "d"},
-            "tb": {"sources": [], "top": "tb", "python_packages": packages},
-        }
+def _design(packages, tmp_path) -> Design:
+    (tmp_path / "d.vhd").write_text("entity d is end; architecture a of d is begin end;\n")
+    return Design(
+        name="d",
+        root=tmp_path,
+        rtl={"sources": ["d.vhd"], "top": "d"},
+        tb={"sources": [], "top": "tb", "python_packages": packages},
     )
 
 
 def _cocotb_design(packages, tmp_path: Path) -> Design:
     (tmp_path / "d.vhd").write_text("entity d is end; architecture a of d is begin end;\n")
     (tmp_path / "tb_d.py").write_text("")
-    return Design.model_validate(
-        {
-            "name": "d",
-            "design_root": str(tmp_path),
-            "rtl": {"sources": ["d.vhd"], "top": "d"},
-            "tb": {"sources": ["tb_d.py"], "cocotb": True, "python_packages": packages},
-        }
+    return Design(
+        name="d",
+        root=tmp_path,
+        rtl={"sources": ["d.vhd"], "top": "d"},
+        tb={"sources": ["tb_d.py"], "cocotb": True, "python_packages": packages},
     )
 
 
@@ -67,7 +60,7 @@ def _config(tmp_path: Path, python_bin: str | None = None) -> Path:
 
 
 def test_fifo_declares_its_coverage_dependency():
-    assert "cocotb-coverage" in Design.from_file(FIFO).tb.python_packages
+    assert "cocotb-coverage" in Design.load(FIFO).tb.python_packages
 
 
 def test_cocotb_checks_the_selected_python_not_xeda_python(tmp_path, monkeypatch):
@@ -136,8 +129,8 @@ def test_cocotb_reports_a_package_missing_from_its_python_before_removing_result
     assert result.read_text() == "previous result"
 
 
-def test_the_default_is_no_package():
-    assert _design([]).tb.python_packages == ()
+def test_the_default_is_no_package(tmp_path):
+    assert _design([], tmp_path).tb.python_packages == ()
 
 
 def test_installed_packages_pass(tmp_path):
@@ -159,14 +152,14 @@ def test_a_synthesis_flow_does_not_check(tmp_path):
 @pytest.mark.parametrize(
     "name", ["cocotb>=1.9", "cocotb[bus]", "cocotb==1.9.0", "", " cocotb", "-x"]
 )
-def test_only_a_distribution_name_is_accepted(name):
+def test_only_a_distribution_name_is_accepted(name, tmp_path):
     with pytest.raises(DesignValidationError, match="only the name of the package"):
-        _design([name])
+        _design([name], tmp_path)
 
 
 @pytest.mark.parametrize("name", ["cocotb", "cocotb-bus", "zope.interface", "a_b", "7zip"])
-def test_a_distribution_name_is_accepted(name):
-    assert _design([name]).tb.python_packages == (name,)
+def test_a_distribution_name_is_accepted(name, tmp_path):
+    assert _design([name], tmp_path).tb.python_packages == (name,)
 
 
 def test_planning_refuses_a_missing_package_before_any_run_directory(tmp_path):

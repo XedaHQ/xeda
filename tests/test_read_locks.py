@@ -61,7 +61,7 @@ def _design(tmp_path: Path, monkeypatch) -> Design:
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "d"
     root.mkdir()
-    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"})
+    return Design(name="d", root=root, rtl={"sources": [], "top": "t"})
 
 
 def test_a_read_lock_keeps_another_process_from_rewriting_but_not_from_reading(tmp_path):
@@ -206,7 +206,7 @@ def read(self):
     assert self.inputs.made.read_text() == "made\\n"
 _Taker.run = read
 DefaultRunner(root / "run", display_results=False).launch_flow(
-    _Taker, Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}), {})
+    _Taker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}), {})
 print("done", flush=True)
 """
 WRITER = """
@@ -229,7 +229,7 @@ def flock(fd, mode):
 run_lock.fcntl.flock = flock
 if action == "rebuild":
     DefaultRunner(root / "run", display_results=False, clean=True).launch_flow(
-        _Maker, Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}), {})
+        _Maker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}), {})
 else:
     # Keep the actual scrub confirmation/ownership/deletion path, suppressing its display.
     console.print = lambda *a, **kw: None
@@ -467,7 +467,7 @@ runner = DefaultRunner(root / "run", hashed_run_dirs=True, scrub_old_runs=True,
                        display_results=False)
 runner.confirm_scrub = lambda directories: True
 flow = runner.launch_flow(
-    _Maker, Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}),
+    _Maker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}),
     {"text": sys.argv[2]})
 assert flow.succeeded
 print("done", flush=True)
@@ -478,7 +478,7 @@ def _launch_variants_scrubbing_at_once(tmp_path: Path, texts: tuple[str, ...], t
     """Make one hashed variant of `_Maker` for each of `texts`, then launch every variant again,
     each as its own process with `--scrub`, all released together: each one removes the others'
     run directories and then makes its own. Every launch must succeed."""
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "run", hashed_run_dirs=True, display_results=False)
     for text in texts:
         assert runner.launch_flow(_Maker, design, {"text": text}).succeeded
@@ -550,7 +550,7 @@ def lease(self, producer):
     return original_lease(self, producer)
 DefaultRunner._producer_read_lease = lease
 flow = DefaultRunner(root / "run", hashed_run_dirs=True, display_results=False).launch_flow(
-    _Taker, Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}), {})
+    _Taker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}), {})
 assert flow.succeeded
 print("done", flush=True)
 """

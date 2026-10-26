@@ -611,7 +611,7 @@ def _check_deliverables(prepared: PreparedRequest, design_name: str) -> None:
     # The copies of generated sources go to a place in the local design tree, which the host does
     # not reach: the host would write them where the same path leads on the host.
     for _owner, unit in launch_generation.generating_units(prepared.design):
-        generator = generator_of(unit.rtl, root=unit.root_path)
+        generator = generator_of(unit.rtl, root=unit.root)
         if generator is not None and generator.outputs_to is not None:
             raise DeliveryError(
                 f"`rtl.generator.outputs_to` of {unit.name} names a location "
@@ -634,7 +634,7 @@ def _plan(
     run_root: Path,
     flow_settings: Any,
     xedaproject: Any,
-    design_overrides: Any,
+    design_updates: Any,
     design_allow_extra: bool,
     select_design_in_project: Any,
     hashed_run_dirs: bool,
@@ -663,7 +663,7 @@ def _plan(
         xedaproject=xedaproject,
         flow_settings=flow_settings,
         select_design_in_project=select_design_in_project,
-        design_overrides=design_overrides,
+        design_updates=design_updates,
         design_allow_extra=design_allow_extra,
         target=run.target,
         host_flows=profile.flows,
@@ -1272,7 +1272,7 @@ def run_remote(
     run_root: Path,
     flow_settings: Any,
     xedaproject: Any,
-    design_overrides: Any,
+    design_updates: Any,
     design_allow_extra: bool,
     target: Optional[str],
     select_design_in_project: Any,
@@ -1317,7 +1317,7 @@ def run_remote(
             run_root=run_root,
             flow_settings=flow_settings,
             xedaproject=xedaproject,
-            design_overrides=design_overrides,
+            design_updates=design_updates,
             design_allow_extra=design_allow_extra,
             select_design_in_project=select_design_in_project,
             hashed_run_dirs=hashed_run_dirs,
@@ -1469,7 +1469,7 @@ def _run(
     run_root: Path,
     flow_settings: Any,
     xedaproject: Any,
-    design_overrides: Any,
+    design_updates: Any,
     design_allow_extra: bool,
     select_design_in_project: Any,
     hashed_run_dirs: bool,
@@ -1500,7 +1500,7 @@ def _run(
             run_root=run_root,
             flow_settings=flow_settings,
             xedaproject=xedaproject,
-            design_overrides=design_overrides,
+            design_updates=design_updates,
             design_allow_extra=design_allow_extra,
             select_design_in_project=select_design_in_project,
             hashed_run_dirs=hashed_run_dirs,
@@ -1589,7 +1589,7 @@ def _run(
                                 remote_run_root=remote_run_root,
                                 inputs_dir=inputs_dir,
                                 package=package,
-                                design_root=design.root_path,
+                                design_root=design.root,
                                 fetch_all=fetch_all,
                                 delivers=outputs_to is not None,
                             )
@@ -1604,7 +1604,7 @@ def _run(
                     inputs_dir=inputs_dir,
                     files={name: str(path) for name, path in package.files.items()},
                     generated=package.generated,
-                    design_root=design.root_path,
+                    design_root=design.root,
                 )
                 if not dry_run:
                     run.localize = lambda: _localized(

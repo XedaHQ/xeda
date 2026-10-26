@@ -69,7 +69,7 @@ def probes():
             assert self.settings.constraints is not None
             source = self.settings.constraints
             if not source.is_absolute():
-                source = self.design.root_path / source
+                source = self.design.root / source
             _copy_to_output(self, source.read_text())
             _edit_during_run("setting")
 
@@ -88,7 +88,7 @@ def probes():
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         def run(self) -> None:
-            include = self.design.root_path / "inc.vh"
+            include = self.design.root / "inc.vh"
             text = include.read_text()
             (self.run_path / "deps.d").write_text(f"out.txt: {include}\n")
             self.depfiles.append(self.run_path / "deps.d")
@@ -254,7 +254,7 @@ def root(tmp_path):
 
 
 def _design(root: Path, **rtl) -> Design:
-    return Design(name="p", rtl={"sources": ["a.v"], "top": "a", **rtl}, design_root=root)
+    return Design(name="p", rtl={"sources": ["a.v"], "top": "a", **rtl}, root=root)
 
 
 def _launch(root: Path, cls, settings=None, design=None, **launcher):
@@ -410,7 +410,7 @@ def test_absent_setting_file_created_during_run_is_unknown(probes, root):
             pass
 
         def run(self):
-            source = self.design.root_path / "late.txt"
+            source = self.design.root / "late.txt"
             _copy_to_output(self, source.read_text() if source.exists() else "absent\n")
             source.write_text("created\n")
 
@@ -436,7 +436,7 @@ def test_absent_setting_file_created_then_changed_after_read_is_unknown(probes, 
         """A previously absent setting file is created, read, then changed by the user."""
 
         def run(self):
-            source = self.design.root_path / "late.txt"
+            source = self.design.root / "late.txt"
             source.write_text("v1\n")
             _copy_to_output(self, source.read_text())
             source.write_text("v2\n")

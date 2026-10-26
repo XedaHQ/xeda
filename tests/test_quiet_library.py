@@ -43,7 +43,7 @@ CHATTER = "import sys; print('tool says hi'); print('tool says oops', file=sys.s
 
 
 def _design(tmp_path: Path) -> Design:
-    return Design(name="quiet", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    return Design(name="quiet", root=tmp_path, rtl={"sources": [], "top": "t"})
 
 
 def _chatty_flow(times: int = 1, seen: list | None = None) -> type[Flow]:

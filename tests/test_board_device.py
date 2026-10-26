@@ -364,7 +364,7 @@ def test_a_device_written_as_one_dotted_key_is_named_where_it_does_not_reach(
         if origin == "API":
             DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
                 Openfpgaloader,
-                Design.from_file(design),
+                Design.load(design),
                 {"write_flash": True},
                 all_flows_settings=dotted,
             )
