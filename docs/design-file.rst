@@ -701,7 +701,8 @@ follow the rules of every delivery:
   root, over a directory, or through a symbolic link.
 * Xeda never copies to a place where an entry of the design's sources would read the file: an entry
   of ``rtl.sources``, of ``tb.sources`` or of the ``sources`` of a generator (a pattern, a name or
-  a directory). The file would be a source of the next run. The error names the entry. A copy that
+  a directory), also through a link to a directory in the design tree. The file would be a source of
+  the next run. The error names the entry. A copy that
   restores a generated entry is fine, because the design reads that entry from the storage and
   never from the tree.
 * A failed launch makes no copy.

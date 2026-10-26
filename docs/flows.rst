@@ -748,7 +748,9 @@ answer, or ``--overwrite-outputs``. Xeda never copies onto an input of the launc
 directory that a setting reads, into a run root, over a directory, or through a symbolic link, and
 no two deliveries of a launch go to one file. It also never copies to a place where an entry of the
 design's sources (``rtl.sources``, ``tb.sources`` or the ``sources`` of the generator) would read
-the file, because the file would become a source of the next run. The error names the entry. All
+the file, because the file would become a source of the next run. The error names the entry. A link to a directory
+in the design tree does not hide it: Xeda compares the entry and the destination as written and with
+the links resolved. All
 this is checked before any tool runs, as far as the destinations are known then. A destination is
 no part of the identity of a run.
 

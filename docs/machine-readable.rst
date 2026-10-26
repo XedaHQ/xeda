@@ -496,10 +496,10 @@ name and meaning:
 ``run_dir``
     The run directory of the node.
 ``deliveries``
-    Every output that the node copied to a location that the settings or ``--outputs-to`` named,
-    once the whole launch finished (see "Outputs where you name them" in :doc:`run-directories`).
-    Each entry is ``{key, destination, delivered}``. ``key`` is the setting (or ``--outputs-to``)
-    that asked for the delivery. ``delivered`` is false when Xeda refused the delivery or it failed,
+    Every output that the node copied to a location that the settings, ``--outputs-to`` or the
+    ``outputs_to`` of the design's generator named, once the whole launch finished (see "Outputs where you name them" in :doc:`run-directories`).
+    Each entry is ``{key, destination, delivered}``. ``key`` is the setting (or ``--outputs-to``,
+    or ``generator`` for a copy of a generated source) that asked for the delivery. ``delivered`` is false when Xeda refused the delivery or it failed,
     when the launch did not pass, and for an artifact of ``--outputs-to`` that a symbolic link leads
     out of the run directory, which Xeda skips (see :doc:`run-directories`). The list is ``[]`` for
     a node with nothing to deliver. A node
@@ -648,9 +648,10 @@ the cause:
 ``internal_error``
     A bug of Xeda.
 
-The code of an error of the whole launch (``node`` is ``null``): ``delivery_failed`` (Xeda could
-not deliver an output that a setting or ``--outputs-to`` named), ``cleanup_failed`` (see below),
-``canceled``, and, for ``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
+The code of an error of the whole launch (``node`` is ``null``): ``generator_failed``,
+``delivery_failed`` (Xeda could not deliver an output that a setting, ``--outputs-to`` or the
+``outputs_to`` of a generator named), ``cleanup_failed`` (see below), ``canceled``, and, for
+``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
 ``remote_detached``. ``no_successful_run`` is the error of ``xeda dse``.
 
 The code of an error of a request that started no launch is the code of the setting, design,

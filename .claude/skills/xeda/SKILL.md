@@ -484,7 +484,8 @@ Behavior:
   that holds it.
 - Refused before any connection: `--post-cleanup`, `--post-cleanup-purge` (use `xeda remote clean`),
   `--scrub` (a remote launch cannot ask for the confirmation),
-  a deliverable setting or `rtl.generator.outputs_to` that names a location (use `--outputs-to`), a chain with a programmer
+  a deliverable setting that names a location (use `--outputs-to`), `rtl.generator.outputs_to` (drop it for the
+  remote run, or run locally to get the copies), a chain with a programmer
   flow (`openfpgaloader`; run the part before it with `--remote`, then program locally with a
   binding to the fetched file), `--fetch-all` or `--keep-running` without `--remote`, and
   `--keep-running` with `--dry-run`.
