@@ -2908,6 +2908,11 @@ class MergedDependency:
         return source.in_dependency(self.index, source.path.relative_to(self.checkout).as_posix())
 
 
+_NO_ROOT = (
+    "a design has a root, and only Design(...) or Design.load(...) gives it one: "
+    "`{name}` builds a design without it"
+)
+
 DesignType = TypeVar("DesignType", bound="Design")
 
 #: Keys a target may not hold: they belong to the design itself.
@@ -3564,6 +3569,26 @@ class Design(XedaBaseModel):
         self._targets = tuple(names) if isinstance(names, Mapping) else ()
         self._updates = tuple(freeze(deepcopy(dict(update))) for update in updates)
         self._source_file = source_file
+
+    @classmethod  # type: ignore[no-redef]
+    def model_construct(cls, *args: Any, **values: Any) -> Any:  # type: ignore[override]
+        """Refuse: a design built without the constructor has no root."""
+        raise TypeError(_NO_ROOT.format(name="model_construct"))
+
+    @classmethod
+    def model_validate(cls, *args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
+        """Refuse: a design built without the constructor has no root."""
+        raise TypeError(_NO_ROOT.format(name="model_validate"))
+
+    @classmethod
+    def model_validate_json(cls, *args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
+        """Refuse: a design built without the constructor has no root."""
+        raise TypeError(_NO_ROOT.format(name="model_validate_json"))
+
+    @classmethod
+    def model_validate_strings(cls, *args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
+        """Refuse: a design built without the constructor has no root."""
+        raise TypeError(_NO_ROOT.format(name="model_validate_strings"))
 
     @classmethod
     def _built(

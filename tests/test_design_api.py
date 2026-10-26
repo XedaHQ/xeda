@@ -337,3 +337,16 @@ def test_with_updates_equals_the_design_updates_option(tmp_path):
         assert request.design.updates == (updates,)
         assert request.design.rtl.parameters["W"] == 2
         assert request.design.tb.top == ("other",)
+
+
+def test_a_design_cannot_be_built_without_a_root(tmp_path):
+    """`model_construct` and `model_validate` skip the constructor, so they would give a design
+    with no root: they are refused, and say what to call."""
+    keys = {"name": "a", "rtl": {"sources": []}}
+    for build in (Design.model_construct, Design.model_validate):
+        with pytest.raises(TypeError, match=r"Design\(\.\.\.\) or Design\.load"):
+            build(keys)
+    with pytest.raises(TypeError, match=r"Design\(\.\.\.\) or Design\.load"):
+        Design.model_validate_json('{"name": "a", "rtl": {"sources": []}}')
+    design = Design(root=tmp_path, **keys)  # type: ignore[arg-type]
+    assert design.model_copy(update={"description": "d"}).root == tmp_path.resolve()
