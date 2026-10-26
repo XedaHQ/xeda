@@ -189,7 +189,9 @@ Host profiles
 
 A host profile holds what is specific to Xeda on one host. Everything about SSH stays in
 ``~/.ssh/config``. The profiles are in the file ``${XDG_CONFIG_HOME:-~/.config}/xeda/remotes.yaml``.
-Xeda ignores a relative value of ``XDG_CONFIG_HOME``. The file is optional. A host with no entry
+Xeda ignores a relative value of ``XDG_CONFIG_HOME``. The file is beside the user config file (see
+:ref:`private-files`). Every ``xeda run`` reads it, with or without ``--remote``, so an invalid file
+is an error for all of them. ``--no-config`` does not skip it. The file is optional. A host with no entry
 gets the default profile, which suits a host whose tools are on the login ``PATH``.
 
 The ``hosts`` table is keyed by the exact text of ``--remote``. ``--remote cluster`` uses

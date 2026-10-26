@@ -72,22 +72,29 @@ name. An unrecognized name gets a list of close matches.
 Settings
 ========
 
-Every flow declares its own settings. A setting can come from seven places. This is the order from
+Every flow declares its own settings. A setting can come from eight places. This is the order from
 the lowest to the highest precedence:
 
 1. the defaults of the flow
-2. with ``--remote``, the ``flows`` section of the host profile (see :doc:`remote`)
-3. the ``flows.<flow_name>`` section of a project file (``xedaproject.yaml``)
-4. the ``flows.<flow_name>`` section of the design file
-5. the ``flows.<flow_name>`` section of the selected target, if you chose a target with
+2. the ``flows`` section of your user file, ``config.yaml`` (see :ref:`private-files`)
+3. with ``--remote``, the ``flows`` section of the host profile (see :doc:`remote`)
+4. the ``flows.<flow_name>`` section of a project file (``xedaproject.yaml``)
+5. the ``flows.<flow_name>`` section of the design file
+6. the ``flows.<flow_name>`` section of the selected target, if you chose a target with
    ``--target`` (see :ref:`targets`)
-6. the command line, with ``-s`` or ``--settings``. The ``flow_settings`` argument of ``run()`` and
-   ``plan()`` is the same layer, so messages call it "the command line (``-s``) or
-   ``flow_settings``".
-7. the API, with ``flow_overrides``
+7. the ``flows`` section of the project-local file, ``xedaproject.local.yaml`` (see
+   :ref:`private-files`)
+8. the command line, with ``-s`` or ``--settings``, and then the API, with ``flow_overrides``. The
+   ``flow_settings`` argument of ``run()`` and ``plan()`` is the same layer as ``-s``, so messages
+   call it "the command line (``-s``) or ``flow_settings``".
 
 The project file is a layer only for a design that you select from it with ``--design-name``. A
-design file that you give as the ``DESIGN`` argument does not get the ``flows`` of a project.
+design file that you give as the ``DESIGN`` argument does not get the ``flows`` of a project, nor
+the project-local file. It still gets your user file.
+
+A value has the same identity whichever file wrote it: the origin of a value never changes the hash
+of a run. A setting that names where installed data lives (``pdk_root``) is no part of the identity
+in any layer.
 
 The layers merge key by key. ``-s clock.freq=100MHz`` changes that one clock setting
 section from the design file and does not replace the whole section. A higher layer replaces only

@@ -138,9 +138,16 @@ flows:
 
 ## Settings
 
-Layers, lowest to highest: flow defaults, project `flows.<flow>`, design `flows.<flow>`, selected
-target's `flows.<flow>`, `-s`, API. They merge key by key, so `-s clock.freq=100MHz` refines a
-nested section. Write a flow's settings under its own `flows.<flow>` only.
+Layers, lowest to highest: flow defaults, user file `flows`, (`--remote`: host profile `flows`),
+project `flows.<flow>`, design `flows.<flow>`, selected target's `flows.<flow>`, project-local file
+`flows`, `-s`, API. The user file is `$XDG_CONFIG_HOME/xeda/config.yaml` (`~/.config/xeda/`); the
+project-local file is `xedaproject.local.yaml` beside the project file. Both are private (keep
+the second out of Git), have the keys `flows`, `env` and `run_root`, and are read by `xeda run` and
+`xeda dse` only. A `designs` key or any unknown key is `invalid_local_settings`. `--config FILE`
+replaces the user file; `--no-config` reads neither file. A design file given as `DESIGN` gets the
+user file and no project-local file. Run root, highest first: `--run-root`, `XEDA_RUN_ROOT`,
+project-local `run_root`, user `run_root`, project `run_root`, `./xeda_run`. They merge key by key, so `-s clock.freq=100MHz` refines a nested
+section. Write a flow's settings under its own `flows.<flow>` only.
 
 ```bash
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
@@ -471,7 +478,7 @@ load for every host with `RemoteConfigError`). The `hosts` table is keyed by the
 - `python`: `managed` (default; `uv` installs the local Python version) or the absolute path of a
   Python of the host. Nothing checks that its version matches the local one.
 - `flows`: flow settings for this host, shaped like the `flows` section of a design file. It is the
-  lowest layer above the flow defaults. A locator setting (`pdk_root`) reaches the host from here
+  layer just above the user file. A locator setting (`pdk_root`) reaches the host from here
   only; a local value is never sent.
 
 A cocotb testbench names its Python packages in `tb.python_packages`. The host installs them at the
@@ -546,6 +553,7 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `error.code` | Do |
 | --- | --- |
 | `unknown_setting`, `invalid_value`, `invalid_quantity`, `boolean_text`, `list_text`, `required_setting`, `conflicting_keys`, `removed_setting`, `removed_alias`, `unsupported_setting`, `shared_setting_conflict` (no launch; `error.node` is the flow) | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
+| `invalid_local_settings` (a private file `config.yaml` or `*.local.yaml` is invalid) | The message names the file and the key. Fix the file, or pass `--no-config`. |
 | `invalid_design`, `design_file_not_found`, `unknown_target`, `target_required` (the project's `default_target` is no target of the design: pass `--target` or `--no-target`), `unknown_design`, `design_name_required`, `use_design_name` (a design file that the project lists: use `--design-name`), `several_project_files`, `invalid_project`, `removed_alias`, `removed_key` (a design or project key that was removed), `fetch_failed` (a Git dependency could not be resolved or fetched: pin its `commit`, or check the URL), `dependency_cycle` (the dependencies lead back to a design on the chain that the message names: remove one entry of the cycle) | The message names the key (`rtl.sources:`) or the file, and the key to write. Check the file against `xeda design-schema`. |
 | `flow_not_found`, `design_file_not_found`, `project_file_not_found`, `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, unknown option, removed option. The message suggests close matches. |
 | `invalid_chain`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |

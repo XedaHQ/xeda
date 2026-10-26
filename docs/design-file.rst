@@ -1044,8 +1044,9 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
   values", so where the design and the target write the same key, the value of the target wins,
   key by key. The ``flows.nextpnr.board`` of a target replaces the ``flows.nextpnr.board`` of the
   design without an error, and a ``seed`` that the target does not write stays the design's. A
-  setting can come from these places, lowest first: the defaults of the flow, the project file,
-  the design file, the target, the command line (``-s``) and the API. So ``-s seed=9`` and an API
+  setting can come from these places, lowest first: the defaults of the flow, your user file, the
+  project file, the design file, the target, the project-local file, the command line (``-s``) and
+  the API. So ``-s seed=9`` and an API
   override still win over a target. The loader records the name of the selected target, and a
   design update cannot set or change it. Two flows of one run that disagree about a setting
   they share, such as ``yosys_fpga`` and ``nextpnr`` that name different boards, are a different
@@ -1183,3 +1184,58 @@ A design file that you give by path follows three rules:
    ``./xeda_run`` when no project is used.
 
 ``--target NAME`` selects one target and ``--no-target`` selects none.
+
+.. _private-files:
+
+Private settings files
+======================
+
+Two files hold settings that you do not check in. Xeda reads them in ``xeda run`` and
+``xeda dse``, and nothing else reads them.
+
+* The user file is ``${XDG_CONFIG_HOME:-~/.config}/xeda/config.yaml``. Its settings are defaults
+  for every run of yours. Xeda ignores an empty or relative ``XDG_CONFIG_HOME``.
+* The project-local file is ``xedaproject.local.yaml`` beside the project file (the name is the
+  name of the project file without its suffix, and ``.local.yaml``). Its settings override the
+  checked-in files for one checkout. Keep it out of version control. Xeda looks for it beside the
+  project file only, never in a parent directory, and never for a design file that you give as the
+  ``DESIGN`` argument.
+
+Both files have the same keys. Any other key is an error that names the file, and a ``designs`` key
+is an error: a private file never declares a design.
+
+.. code-block:: yaml
+
+    flows:
+      vivado_synth:
+        nthreads: 8
+      openroad:
+        pdk_root: /data/pdks
+    env:
+      XILINXD_LICENSE_FILE: 2100@license.example.org
+    run_root: /scratch/xeda_run
+
+``flows``
+  The settings by flow name, as in a project file. An entry for a flow that is not in the run is
+  ignored. A relative path in this table is relative to the directory of the file.
+``env``
+  Environment variables, as text. A name in both files takes the value of the project-local file.
+  Xeda reads this table and keeps it with the other private settings.
+``run_root``
+  Where the runs go, relative to the directory of the file. The project-local file wins over the
+  user file.
+
+The run root of a command is, from the highest source to the lowest: ``--run-root``,
+``XEDA_RUN_ROOT``, the ``run_root`` of the project-local file, that of the user file, that of the
+project file, and ``./xeda_run``. The place where you keep your runs is a fact of your machine, so
+your choice wins over the one that the project file checks in.
+
+``--config PATH`` reads the file ``PATH`` in place of the user file. A file that does not exist
+adds no settings. ``--no-config`` reads neither the user file nor the project-local file. The two
+options exclude each other. Neither one changes which project file Xeda reads. A file that exists
+and is invalid is an error (``invalid_local_settings``). In Python, ``xeda.local_settings()`` reads
+the files as the command line does, and ``run()`` and ``plan()`` take the result as
+``local_settings``. The library reads no private file by itself.
+
+With ``--remote``, Xeda merges the layers on your machine and sends the result. The host reads none
+of your private files.

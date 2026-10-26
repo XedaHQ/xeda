@@ -342,7 +342,8 @@ targets:
 - Where design and target both write a key, the target wins with no error (its
   `flows.nextpnr.board` replaces the design's); other keys stay. Mappings merge at every depth,
   `sources` append, any other list replaces. A null or empty `flows` table or section adds
-  nothing. Layers, lowest first: flow defaults, project, design, target, `-s`, API.
+  nothing. Layers, lowest first: flow defaults, user file, host profile, project, design, target,
+  project-local file, `-s`, API.
 - A short form means its table in every merge (`clock: CLK` is `clock.port: CLK`; `fpga: <part>`
   is `fpga.part: <part>`). A target's `clock` refines the design's first clock, its `clocks`
   replaces all, `clock: null` means none. A value
@@ -405,8 +406,9 @@ flows:
 ```
 
 - Top-level keys: `designs`, `flows`, `run_root` (relative to the project file; default
-  `xeda_run` beside it; the CLI uses the selected project's run root unless `--run-root` or
-  `XEDA_RUN_ROOT` is set, else `./xeda_run` when no project is used) and `default_target`. Any other key fails with
+  `xeda_run` beside it; the CLI uses the selected project's run root unless `--run-root`,
+  `XEDA_RUN_ROOT` or a `run_root` of the project-local or user file is set, else `./xeda_run` when
+  no project is used) and `default_target`. Any other key fails with
   `ProjectError: ... unknown key(s) ...; a project has 'designs', 'flows', 'run_root',
   'default_target'`. The singular `design` and `flow` were removed (`removed_alias`).
 - `designs` is a list (a single table is `invalid_project`). An entry is a table with a `name` (each name once; its root is the project's directory), or `{file: hw/fifo.yaml}`, which
