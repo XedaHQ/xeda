@@ -24,6 +24,14 @@ flatten
 {% if settings.stop_after != "rtl" -%}
 
 {% if not pass_only -%}
+{#- No FPGA tool reads a formal cell or a `$print` cell: Vivado and nextpnr do not place them. The
+    RTL outputs above keep them, since a simulation can use those. Removal comes before synthesis,
+    so the logic that only feeds an assertion goes away with it. Pass-only mode adds no step to
+    the pass, so it keeps them. #}
+log -stdout ** Removing formal and print cells **
+chformal -remove
+delete t:$print
+
 {% if settings.pre_synth_opt -%}
 log -stdout ** Pre-synthesis optimization **
 opt -undriven -purge -keepdc -noff

@@ -236,7 +236,9 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             "and gives ABC9 a delay derived from the clock. Every flag of the pass itself "
             "(`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) applies in either "
             "mode. A setting that would add a step before or after the pass, or make it read "
-            "differently from `yosys <files>`, is refused.",
+            "differently from `yosys <files>`, is refused. The mode does not remove the formal "
+            "cells and the `$print` cells (made by `assert` and `$display`) that Xeda removes "
+            "before synthesis otherwise, so the netlists keep them.",
         )
         flatten: Optional[bool] = Field(
             None,

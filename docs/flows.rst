@@ -984,6 +984,13 @@ resources, and its effect on area and timing differs from design to design. iCE4
 and SPRAM inference are available as the ``ice40_dsp`` and ``ice40_spram`` settings of
 ``yosys_fpga``.
 
+``yosys_fpga`` removes the formal cells (``$check``, ``$assert``, ``$assume`` and ``$cover``) and
+the ``$print`` cells that an immediate ``assert`` or a ``$display`` makes, after it writes the RTL
+outputs and before synthesis. No FPGA tool reads them, so the netlists, the utilization report and
+the timing report do not hold them. ``synth_pass_only`` adds no step to the pass, so it keeps them.
+``yosys`` keeps them as well. The ``sta`` and ``ltp`` analyses run on a copy of the design and
+never change a netlist.
+
 ``stop_after: rtl`` (``yosys`` has it too) elaborates the design, writes the RTL outputs
 (``rtl_json``, ``rtl_verilog`` and ``rtl_graph``) and stops before synthesis. The run succeeds,
 with no netlist and no report. Xeda refuses, before anything runs, a setting that asks for what
