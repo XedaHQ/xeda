@@ -356,3 +356,29 @@ def test_an_empty_working_directory_of_a_generator_exists_on_the_host(tmp_path, 
     assert world.runs == 1
     cwd, _design_root, _storage = world.where
     assert cwd.endswith("/work")
+
+
+def test_the_host_plans_the_identity_of_a_design_that_merges_units_with_content(
+    tmp_path, remote_host
+):
+    """The units carry parameters, defines, clocks and written sources, and the design merges
+    them. The node on the host has the identity of the node in the plan of this side."""
+    design_file = _rich_dependency(tmp_path)
+    outcome = remote_request(tmp_path, design_file, "vivado_synth", flow_settings=SETTINGS)
+    if outcome.error is not None:
+        raise outcome.error
+    assert outcome.success, outcome.document
+    local = DefaultRunner(tmp_path / "plan_only", display_results=False).plan(
+        "vivado_synth", design_file, flow_settings=SETTINGS
+    )
+    assert outcome.document["nodes"][-1]["record"]["identity"] == (
+        local.node("vivado_synth").flowrun_hash
+    )
+    # a dry run on the host plans the same node
+    dry = remote_request(
+        tmp_path, design_file, "vivado_synth", flow_settings=SETTINGS, dry_run=True
+    )
+    if dry.error is not None:
+        raise dry.error
+    planned = dry.document["plan"]["nodes"]
+    assert [n["name"] for n in planned] == [n.name for n in local.nodes]
