@@ -86,6 +86,9 @@ the lowest to the highest precedence:
    ``flow_settings``".
 7. the API, with ``flow_overrides``
 
+The project file is a layer only for a design that you select from it with ``--design-name``. A
+design file that you give as the ``DESIGN`` argument does not get the ``flows`` of a project.
+
 The layers merge key by key. ``-s clock.freq=100MHz`` changes that one clock setting
 section from the design file and does not replace the whole section. A higher layer replaces only
 the keys that it writes. This holds for a target as well: its value wins over the value of the
@@ -928,7 +931,7 @@ error, even when they are equal. Xeda reports the error before it checks either 
     place, even when equal.
 
 A project file given with ``--xedaproject project.yaml`` holds the same ``flows.<flow>.inputs``
-sections, below those of the design:
+sections, below those of a design that you select from it with ``--design-name``:
 
 .. code-block:: yaml
 

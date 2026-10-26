@@ -404,12 +404,20 @@ flows:
     clock.period: 5 ns
 ```
 
-- Top-level keys: `designs` and `flows`. Any other key fails with
-  `ProjectFileError: ... unknown key(s) ...; a project has 'designs', 'flows'`. The singular
-  `design` and `flow` were removed.
-- Each design entry and each flow section follows the rules of a design file, dotted keys
-  included. A dotted key cannot reach into `designs` from the project's root.
+- Top-level keys: `designs`, `flows`, `run_root` (relative to the project file; default
+  `xeda_run` beside it) and `default_target`. Any other key fails with
+  `ProjectError: ... unknown key(s) ...; a project has 'designs', 'flows', 'run_root',
+  'default_target'`. The singular `design` and `flow` were removed (`removed_alias`).
+- A `designs` entry is a table with a `name` (each name once), or `{file: hw/fifo.yaml}`, which
+  holds nothing else and takes the name of that design file. Each table entry and each flow
+  section follows the rules of a design file, dotted keys included. A dotted key cannot reach
+  into `designs` from the project's root.
 - Xeda finds the file as `--xedaproject FILE`, else the one `xedaproject.yaml`, `.yml` or `.toml`
-  in the start directory. Two of these names in one directory is a `ProjectFileError`.
-- With more than one design, name one: `xeda run vivado_synth --design-name sqrt`. Without a
-  name, the error is `DesignNotSpecified`.
+  in the start directory. Two of these names in one directory is a `ProjectError`
+  (`several_project_files`).
+- Select a design of the project with `--design-name sqrt`: the only way. A design file given as
+  `DESIGN` never gets the project's `flows`; if a `file` entry lists it, the run is refused
+  (`use_design_name`, "use --design-name <name>"). Without a name, a project with one design
+  is not guessed: the CLI needs `DESIGN` or `--design-name`.
+- `--target T` selects a target, `--no-target` selects none, and neither selects the project's
+  `default_target` for a design of the project (`target_required` if the design lacks it).

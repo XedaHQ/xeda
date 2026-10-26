@@ -1141,10 +1141,29 @@ Several designs in one project
 ==============================
 
 A ``xedaproject.yaml`` can hold several designs, plus top-level ``flows`` settings that Xeda merges
-into each design. ``xedaproject.yml`` and ``xedaproject.toml`` are also accepted. Automatic
-discovery needs exactly one of these names in the directory. Select a design with
-``--design-name``. When the project has several designs and you give no name, Xeda asks you to
-choose one.
+into each design that it selects. ``xedaproject.yml`` and ``xedaproject.toml`` are also accepted.
+Automatic discovery needs exactly one of these names in the directory.
 
-A project file has the keys ``designs`` and ``flows``. Any other key at its root is an error that
-names the accepted keys.
+A project file has these keys. Any other key at its root is an error that names the accepted keys.
+
+``designs``
+  The designs. An entry is a table in the form of a design file, with a ``name``. An entry
+  ``{file: <path>}`` names a design file instead, relative to the project file, and holds no other
+  key. Each name is used once.
+``flows``
+  The settings that the designs of the project share.
+``run_root``
+  Where the runs of the project go, relative to the project file. The default is ``xeda_run``
+  beside the project file.
+``default_target``
+  The target that Xeda selects for a design of the project when you give neither ``--target`` nor
+  ``--no-target``. A design that has no such target is an error: select a target, or pass
+  ``--no-target``.
+
+Select a design of the project with ``--design-name NAME``. This is the only way to run a design
+of a project. A design file that you give as the ``DESIGN`` argument never gets the ``flows`` of
+the project. If the project lists that file in a ``file`` entry, Xeda refuses it and names the
+option to use: ``--design-name <name>``. A design file that the project does not list runs without
+the project.
+
+``--target NAME`` selects one target and ``--no-target`` selects none.
