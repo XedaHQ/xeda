@@ -422,8 +422,9 @@ def test_a_refused_delivery_leaves_the_mirror_whole_and_unlocked(
 def test_a_failed_delivery_keeps_the_result_the_mirror_and_the_copies_in_the_document(
     tmp_path, remote_host, monkeypatch
 ):
-    """As a local run does: the copies made before the error stay in the document. The remote
-    result and the places in the mirror stay too, and the mirror stays whole."""
+    """As a local run does: the document lists every planned delivery, and only the copy made
+    before the error is delivered. The remote result and the places in the mirror stay too, and
+    the mirror stays whole."""
     import xeda.deliver
     from xeda.deliver import Deliveries
 
@@ -454,8 +455,12 @@ def test_a_failed_delivery_keeps_the_result_the_mirror_and_the_copies_in_the_doc
     (node,) = [n for n in document["nodes"] if n["name"] == "vivado_synth"]
     assert node["run_dir"] == str(mirror)
     assert node["outcome"] == "passed"  # what the remote run reported
-    (delivered,) = node["deliveries"]
-    assert Path(delivered["destination"]).is_relative_to(tmp_path / "got")
+    (delivered,) = [entry for entry in node["deliveries"] if entry["delivered"]]
+    assert len(node["deliveries"]) > 1  # the failed copy and those after it are listed too
+    assert Path(delivered["destination"]) == made[0]
+    assert all(
+        Path(entry["destination"]).is_relative_to(tmp_path / "got") for entry in node["deliveries"]
+    )
     assert Path(delivered["destination"]).is_file() and delivered["delivered"] is True
     assert (mirror / "results.json").is_file()  # the mirror stays whole
 
