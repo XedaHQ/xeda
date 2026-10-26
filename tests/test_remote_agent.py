@@ -434,25 +434,28 @@ def test_a_fetch_follows_a_link_only_inside_the_run_directory(tmp_path, toolchai
     agent.sync(DESIGN, "launch-1")
     agent.send(launch_message(tmp_path, "launch-1", path_setup(toolchain)))
     result = agent.get("result", whole=True)
-    assert result["result"]["success"] is True
-    run_path = Path(result["result"]["run_path"])
+    assert result["result"]["outcome"] == "passed"
+    (node,) = [node for node in result["result"]["nodes"] if node["name"] == "nextpnr"]
+    run_path = Path(node["run_dir"])
+    artifacts = node["record"]["artifacts"]
+    leads_out, leads_in = artifacts["log"], artifacts["report"]
     secret = tmp_path / "secret.txt"
     secret.write_text("not the run's\n")
-    (run_path / "outside.log").symlink_to(secret)
-    (run_path / "inside.log").symlink_to("settings.json")
-    results = json.loads((run_path / "results.json").read_text())
-    results.setdefault("artifacts", {}).update(outside="outside.log", inside="inside.log")
-    (run_path / "results.json").write_text(json.dumps(results))
+    # The fetch takes the names from the record of the launch: a tool left links at two of them.
+    (run_path / leads_out).unlink()
+    (run_path / leads_out).symlink_to(secret)
+    (run_path / leads_in).unlink()
+    (run_path / leads_in).symlink_to(run_path / "settings.json")
     skipped: list = []
     files = fetched(agent, skipped=skipped)
-    assert files["top/nextpnr/inside.log"] == (run_path / "settings.json").read_bytes()
-    assert "top/nextpnr/outside.log" not in files
+    assert files[f"top/nextpnr/{leads_in}"] == (run_path / "settings.json").read_bytes()
+    assert f"top/nextpnr/{leads_out}" not in files
     assert not [content for content in files.values() if b"not the run's" in content]
     assert skipped == [
         {
             "node": "nextpnr",
-            "place": "outside.log",
-            "source": str(run_path / "outside.log"),
+            "place": leads_out,
+            "source": str(run_path / leads_out),
             "target": os.path.realpath(secret),
         }
     ]
