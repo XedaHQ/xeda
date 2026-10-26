@@ -428,13 +428,15 @@ def list_fields():
 def loader_takes_a_bare_string(model, name) -> bool:
     """Whether the model's validators read the text `x` as an item of the list field, rather
     than refuse it as a value that is no list."""
-    from pydantic import ValidationError
+    from pydantic import BaseModel, ValidationError
 
     # A frozen model refuses an assignment before it validates the value, so probe a copy of the
     # model that is not frozen: its fields and validators are the same.
     probe = type(model.__name__, (model,), {"model_config": ConfigDict(frozen=False)})
     try:
-        probe.__pydantic_validator__.validate_assignment(probe.model_construct(), name, "x")
+        # (`Design` refuses `model_construct`: such a design has no root)
+        empty = BaseModel.model_construct.__func__(probe)  # type: ignore[attr-defined]
+        probe.__pydantic_validator__.validate_assignment(empty, name, "x")
     except ValidationError as error:
         return all(e["type"] not in ("list_type", "tuple_type") for e in error.errors())
     return True
