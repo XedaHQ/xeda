@@ -790,7 +790,7 @@ def test_the_remote_plans_the_edges_of_the_local_plan(tmp_path, case, hashed):
         tmp_path, prepared, local_root, case["flow"], hashed
     )
     assert _wiring(remote_plan, remote_root) == _wiring(prepared.plan, local_root)
-    shipped = _shipped(package)["flow"]
+    shipped = _shipped(package)["flows"]
     holding = {name for name, section in shipped.items() if "inputs" in section}
     if case.get("shipped_inputs") is False:
         assert not holding  # the chain binds the input, and the remote gets the chain

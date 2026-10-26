@@ -206,7 +206,7 @@ def test_every_setting_of_a_section_reaches_the_remote(tmp_path, cls):
             remote_inputs=PurePosixPath(remote_root),
         )
         _sync(package, remote_root)
-        shipped = _shipped(package)["flow"][cls.name]
+        shipped = _shipped(package)["flows"][cls.name]
         where = f"{cls.name}: {'.'.join(path)}"
         # the section keeps its keys: none is lost, and none is new
         assert set(shipped) == local.model_fields_set, where
@@ -245,7 +245,7 @@ def test_a_removed_setting_is_still_refused_on_the_remote(tmp_path, cls):
             cls.Settings.from_input(section, design_root=root, runner_cwd=root)
         # the flow is not in the plan, so the request had no reason to refuse it here
         package = package_unplanned(design, cls.name, section, tmp_path)
-        shipped = _shipped(package)["flow"][cls.name]
+        shipped = _shipped(package)["flows"][cls.name]
         assert shipped == section
         with pytest.raises(FlowSettingsError) as remote:
             cls.Settings.from_input(shipped, design_root=root, runner_cwd=root)
@@ -279,7 +279,7 @@ def test_every_declared_input_of_a_flow_can_ship_its_binding(tmp_path, cls):
         {},
     )
     package = _package(design, {}, tmp_path, bindings=(layer,))
-    shipped = _shipped(package)["flow"]
+    shipped = _shipped(package)["flows"]
     if inputs:
         assert shipped[cls.name][INPUTS_KEY] == {
             name: f"p{index}.out" for index, name in enumerate(inputs)
