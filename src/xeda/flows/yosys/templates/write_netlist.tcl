@@ -6,14 +6,21 @@ tee -o "final_check.log" check {% if settings.check_assert %} -assert {% endif %
 
 yosys log -stdout "Writing stat to {{artifacts["utilization_report"]|tcl_quote}}"
 tee -q -o {{artifacts["utilization_report"]|path}} stat {% if (artifacts.utilization_report|string).endswith(".json") %} -json {% endif %} {% if settings.liberty is defined and settings.liberty %} {% for lib in settings.liberty %} -liberty {{lib|path}} {% endfor %} {% elif settings.gates is defined and settings.gates %} -tech cmos {% endif %}
+{# An analysis runs on a copy of the design, so that it never changes what the script writes.
+    The `sta` pass derives every parametrized cell type that it meets. The derived library cell
+    has processes, which `write_json` refuses, and the netlist gets a definition that no cell
+    uses. -#}
+{% if settings.sta or settings.ltp -%}
+yosys design -push-copy
 {% if settings.sta -%}
 yosys log -stdout "Writing timing report to {{artifacts["timing_report"]|tcl_quote}}"
 tee -o {{artifacts["timing_report"]|path}} ltp
 tee -a {{artifacts["timing_report"]|path}} sta
 {% endif -%}
-
 {% if settings.ltp -%}
 tee -o ltp.out ltp
+{% endif -%}
+yosys design -pop
 {% endif -%}
 
 {% if settings.debug or settings.verbose > 1 -%}
