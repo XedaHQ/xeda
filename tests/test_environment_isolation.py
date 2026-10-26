@@ -149,3 +149,37 @@ def test_the_scan_sees_every_way_of_writing_the_environment(source: str) -> None
 )
 def test_the_scan_leaves_reads_and_copies_alone(source: str) -> None:
     assert not writes(ast.parse(source))
+
+
+def test_no_test_reads_the_user_config_of_the_machine() -> None:
+    """The suite points `XDG_CONFIG_HOME` at an empty directory (`conftest.py`), so a
+    `config.yaml` or `remotes.yaml` of the person who runs the tests changes no result, and a
+    command line in a subprocess finds none either. `HOME` is left as it is."""
+    import os
+    import subprocess
+    import sys
+
+    from xeda.remote.profile import config_directory
+
+    home = Path(os.environ["XDG_CONFIG_HOME"])
+    assert home.is_absolute() and home.is_dir() and not any(home.iterdir())
+    assert config_directory() == home / "xeda"
+    found = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from xeda.remote.profile import config_directory; print(config_directory())",
+        ],
+        cwd=TESTS,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert Path(found.stdout.strip()) == home / "xeda"
+
+
+def test_a_test_may_point_the_user_config_somewhere_else(tmp_path, monkeypatch) -> None:
+    from xeda.remote.profile import config_directory
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "mine"))
+    assert config_directory() == tmp_path / "mine" / "xeda"

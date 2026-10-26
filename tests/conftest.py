@@ -193,6 +193,26 @@ def _environment_is_left_as_found():
         pytest.fail(f"the test left these environment variables changed: {changed}")
 
 
+@pytest.fixture(scope="session")
+def _empty_user_config_home(tmp_path_factory) -> Path:
+    """An empty directory that stands for `$XDG_CONFIG_HOME`: it holds no `xeda/config.yaml` and
+    no `xeda/remotes.yaml`. One per worker; nothing writes into it."""
+    return tmp_path_factory.mktemp("empty_user_config")
+
+
+@pytest.fixture(autouse=True)
+def _no_test_reads_the_user_config(
+    monkeypatch, _empty_user_config_home, _environment_is_left_as_found
+):
+    """The `config.yaml` and the `remotes.yaml` of the person who runs the tests are private
+    settings of the command line and `local_settings()`. They must not change a result or direct
+    a write, in this process or in a subprocess, so `XDG_CONFIG_HOME` names an empty directory
+    through `monkeypatch` (a subprocess inherits it). `HOME` stays as it is. A test of the user
+    config sets `XDG_CONFIG_HOME` itself. This fixture depends on the environment guard, so that
+    the guard sees the environment before the change and after `monkeypatch` has undone it."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(_empty_user_config_home))
+
+
 # ----------------------------------------------------------------- the flow registry
 
 
