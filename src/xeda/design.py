@@ -1259,7 +1259,9 @@ def _generated_name(entry: str, parts: tuple[str, ...]) -> str:
     if not parts or Path(*parts).is_absolute() or parts[0] == "..":
         raise ValueError(
             f"the generated source `{entry}` is a name in the output of the generator, such as "
-            "`gen/top.v`, and not a path to a place outside it"
+            "`gen/top.v`, and not a path to a place outside it. Without `generated_sources` "
+            "every entry of `rtl.sources` is the generator's: list the generated entries in it to "
+            "keep a hand-written one"
         )
     return "/".join(parts)
 
@@ -1307,6 +1309,7 @@ def generated_declarations(
     for entry in entries:
         text: str | None = None
         stated: Any = None
+        file_table = False  # a `file` must exist, so it is a written source
         if isinstance(entry, (str, os.PathLike)):
             text = os.fspath(entry)
         elif isinstance(entry, Mapping) and not isinstance(entry, FileResource):
@@ -1317,11 +1320,15 @@ def generated_declarations(
                 value = entry.get("file", entry.get("path"))
                 if isinstance(value, (str, os.PathLike)):
                     text, stated = os.fspath(value), entry.get("type")
+                    file_table = "file" in entry
         if text is None:
             seen_declaration = seen_declaration or isinstance(entry, Source)
             result.append(entry)
             continue
         parts = _entry_parts(text, root)
+        if file_table and not owners:
+            result.append(entry)
+            continue
         if not owners:
             generated = True
         else:
@@ -1342,6 +1349,12 @@ def generated_declarations(
         if not generated:
             result.append(entry)
             continue
+        if file_table:
+            raise ValueError(
+                f"`{text}` is a `file`, which must exist when the design loads, and "
+                "`generated_sources` makes it the generator's: write it as `path` if the "
+                "generator writes it, or take it out of `generated_sources` if you wrote it"
+            )
         name = _generated_name(text, parts)
         declared = Source.declaration(name, _declared_type(name, stated), stated=stated is not None)
         if declared not in result:

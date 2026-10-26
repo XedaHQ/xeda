@@ -80,7 +80,7 @@ def test_a_pattern_takes_its_type_from_its_extension(tmp_path, pattern, suffix):
 def test_a_stated_type_wins_and_a_pattern_with_no_definite_type_needs_one(tmp_path):
     design = _design(
         tmp_path,
-        [{"path": "gen/*", "type": "Verilog"}, {"file": "gen/x.v", "type": "SystemVerilog"}],
+        [{"path": "gen/*", "type": "Verilog"}, {"path": "gen/x.v", "type": "SystemVerilog"}],
     )
     assert [(str(s.path), s.type.name) for s in design.rtl.sources] == [
         ("gen/*", "Verilog"),
@@ -181,3 +181,30 @@ def test_a_flow_that_takes_other_types_hashes_a_design_with_a_declaration(tmp_pa
     assert design.parts_hash({"rtl"}, {SourceType.Vhdl})
     with pytest.raises(FileNotFoundError, match="generator has not run"):
         design.parts_hash({"rtl"})
+
+
+def test_a_file_table_is_a_written_source_even_when_every_entry_is_generated(tmp_path):
+    """A `file` must exist when the design loads, so it can never be a declaration. With an empty
+    `generated_sources` the other entries are the generator's, and this one stays written."""
+    design = _design(tmp_path, [{"file": "top.v"}, "gen/a.v", {"path": "gen/b.v"}])
+    assert [(s.generated, s.located) for s in design.rtl.sources] == [
+        (False, True),
+        (True, False),
+        (True, False),
+    ]
+
+
+def test_a_file_table_that_generated_sources_owns_is_refused(tmp_path):
+    with pytest.raises(DesignValidationError, match=r"`lib/a.v`.*must exist.*path"):
+        _design(tmp_path, [{"file": "lib/a.v"}, "gen/a.v"], ["lib", "gen"])
+
+
+def test_a_written_entry_of_a_generator_design_gets_a_message_that_names_generated_sources(
+    tmp_path,
+):
+    from xeda.generation import MissingGenerated
+
+    message = str(MissingGenerated("lib/a.v", "the generator of design 'd' (gen.py)"))
+    assert "`generated_sources`" in message and "lib/a.v" in message
+    with pytest.raises(DesignValidationError, match="generated_sources"):
+        _design(tmp_path, ["/abs/outside.v"])

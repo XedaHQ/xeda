@@ -271,11 +271,10 @@ def _generated_design(root: Path, sources, generator=None) -> Design:
         ["out.vhd"],
         ["$DESIGN_ROOT/out.vhd"],
         ["$DESIGN_DIR/out.vhd"],
-        [{"file": "out.vhd"}],
         [{"path": "out.vhd"}],
         "out.vhd",  # the scalar shorthand
     ],
-    ids=["relative", "design_root", "design_dir", "file_table", "path_table", "scalar"],
+    ids=["relative", "design_root", "design_dir", "path_table", "scalar"],
 )
 def test_a_generated_source_is_the_same_declaration_however_it_is_spelled(generated, sources):
     """The generator has not run when the design loads, so its output is a declaration: the name

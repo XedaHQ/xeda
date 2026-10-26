@@ -139,3 +139,36 @@ def test_the_remote_node_has_the_identity_of_the_local_plan(tmp_path, remote_hos
         local.node("vivado_synth").flowrun_hash
     )
     assert world.runs == 1, "the plan on this side generated nothing"
+
+
+def _world_with_a_dependency(tmp_path: Path) -> World:
+    """A design whose own sources are generated (`generated_sources` is empty) and whose local
+    dependency brings a written source."""
+    world = _world(tmp_path, extra="dependencies:\n  - dep/dep.yaml\n")
+    (world.root / "dep").mkdir()
+    (world.root / "dep" / "lib.v").write_text("module lib; endmodule\n")
+    (world.root / "dep" / "dep.yaml").write_text(
+        "name: dep\nrtl:\n  sources: [lib.v]\n  top: lib\n"
+    )
+    return world
+
+
+def test_the_package_says_what_is_written_and_what_is_generated(tmp_path):
+    world = _world_with_a_dependency(tmp_path)
+    design = world.load()
+    assert [s.generated for s in design.rtl.sources] == [False, True]
+    document, package = _document(tmp_path, design)
+    assert document["rtl"]["sources"] == [
+        {"file": "dep/lib.v", "type": "Verilog"},
+        {"path": "gen/top.v", "type": "Verilog"},
+    ]
+    assert "dep/lib.v" in package.files
+
+
+def test_a_written_source_of_a_dependency_travels_beside_a_generated_one(tmp_path, remote_host):
+    world = _world_with_a_dependency(tmp_path)
+    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    if outcome.error is not None:
+        raise outcome.error
+    assert outcome.success, outcome.document
+    assert world.runs == 1

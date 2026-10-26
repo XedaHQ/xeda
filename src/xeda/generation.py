@@ -107,7 +107,9 @@ class MissingGenerated(XedaException):
     def __init__(self, declaration: str, generator: str) -> None:
         super().__init__(
             f"the generated source `{declaration}` matches no file in the output of "
-            f"{generator}: check that the generator writes it, or remove it from `rtl.sources`"
+            f"{generator}: check that the generator writes it, or remove it from `rtl.sources`. "
+            "If you wrote the file yourself, list only the generated entries in "
+            "`generated_sources` of the generator: with none, every entry is the generator's"
         )
         self.declaration = declaration
 
