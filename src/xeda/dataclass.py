@@ -1281,7 +1281,8 @@ class XedaBaseModel(BaseModel):
         of pydantic would read `true`, `yes`, `on`, `y` and `1` as `True`, but a setting accepts
         exactly its declared type. The command line is no exception: its text is read as a
         boolean before it reaches a model (`setting_text`). A number is refused for a field that
-        takes a boolean or text too (`Union[bool, str]`). `true` and `false` given to a
+        takes a boolean or text too (`Union[bool, str]`), and so is the text `true` or `false`
+        (a waveform setting reads it as a boolean, `waveform_value`). `true` and `false` given to a
         deliverable that is no waveform are refused too. Every model of Xeda shares this rule:
         flow settings, the design and nested models. The input is only read and never
         rewritten."""
@@ -1312,6 +1313,20 @@ class XedaBaseModel(BaseModel):
                 continue
             if isinstance(value, str):
                 message = boolean_text_message(value)
+                if (
+                    value.lower() in ("true", "false")
+                    and waveform_format_of(cls, names[key]) is None
+                    and _is_boolean_or_text_annotation(field_annotation(cls, names[key]))
+                ):
+                    # Beside a name, `true` is text that stands for a name, never the switch.
+                    problems.append(
+                        InitErrorDetails(
+                            type=PydanticCustomError("boolean_text", message),
+                            loc=(key,),
+                            input=value,
+                        )
+                    )
+                    continue
             elif isinstance(value, (int, float)) and not isinstance(value, bool):
                 message = f"`{value}` is a number, not a boolean: write `true` or `false`"
                 if _is_boolean_or_text_annotation(field_annotation(cls, names[key])):

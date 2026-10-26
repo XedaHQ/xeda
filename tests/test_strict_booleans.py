@@ -11,6 +11,7 @@ from xeda.cli import cli
 from xeda.dataclass import ValidationError, _is_boolean_annotation, validation_errors
 from xeda.design import Design, DesignValidationError
 from xeda.flow import FlowSettingsError
+from xeda.flow_runner.settings_layers import merge_layers
 from xeda.flows import VivadoSynth
 from xeda.utils import try_convert_to_primitives
 
@@ -189,10 +190,14 @@ def test_a_number_is_not_a_boolean_beside_text(number):
         settings.gui = number
 
 
-@pytest.mark.parametrize("text, expected", [("true", True), ("FALSE", False), ("dve", "dve")])
-def test_true_and_false_text_beside_a_name_is_a_boolean(text, expected):
-    """`-s gui=true` is the boolean, not the name `true` of a GUI."""
+@pytest.mark.parametrize("text", ["true", "FALSE"])
+def test_true_and_false_text_beside_a_name_is_refused(text):
+    """`gui` takes a boolean or the name of a GUI. The text `true` is neither, and the command
+    line writes the boolean (`-s gui=true`, read before the model sees it)."""
     from xeda.flows import Vcs
 
-    settings = Vcs.Settings.from_input({"gui": text, "debug_access": text})
-    assert settings.gui == expected and settings.debug_access == expected
+    with pytest.raises(FlowSettingsError, match="is text, not a boolean"):
+        Vcs.Settings.from_input({"gui": text})
+    assert Vcs.Settings.from_input({"gui": "dve"}).gui == "dve"
+    merged = merge_layers([f"gui={text}"], settings_cls=Vcs.Settings)
+    assert Vcs.Settings.from_input(merged).gui is (text.lower() == "true")
