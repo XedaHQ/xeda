@@ -258,7 +258,10 @@ class RunRecord:
     dependencies: tuple[Mapping[str, str | None], ...] = field(default=())
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "outcome", Outcome(self.outcome))
+        outcome = Outcome(self.outcome)
+        if outcome not in OUTCOMES:
+            raise ValueError(f"a record cannot hold the outcome `{outcome}`")
+        object.__setattr__(self, "outcome", outcome)
         for name in (
             "configuration",
             "metrics",
