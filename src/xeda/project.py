@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 import yaml
 
-from .dataclass import SecondSpelling, removed_message
+from .dataclass import SecondSpelling, removed_inputs_in, removed_message
 from .design import (
     DESIGN_FILE_FORMATS,
     Design,
@@ -169,16 +169,7 @@ class Project:
             design = Design._load_file(entry.file, project_layer=layer)
         else:
             assert entry.table is not None
-            data = thaw(entry.table)
-            root = self.root
-            if "design_root" in data:
-                given = data.pop("design_root")
-                if not (isinstance(given, (str, os.PathLike)) and os.fspath(given)):
-                    raise DesignValidationError(
-                        [("design_root", f"not a path: {given!r}", "", "value_error")], data=data
-                    )
-                root = self.root / given
-            design = Design._built(root, data, project_layer=layer)
+            design = Design._built(self.root, thaw(entry.table), project_layer=layer)
         wanted = self.default_target if target is UNSET else target
         if wanted is None:
             return design
@@ -343,4 +334,8 @@ def _entry(file: Path, root: Path, index: int, table: dict[str, Any]) -> _Entry:
     name = table.get("name")
     if not isinstance(name, str) or not name:
         raise _invalid(file, f"design entry {index} needs a `name`, a text")
+    # The keys that a design file refuses are refused here too. The root of an entry is the
+    # directory of the project file; a design with another root is a `file` entry.
+    for path, message, kind in removed_inputs_in(Design, table):
+        raise _invalid(file, f"design entry {index} ({name}): {message}", code=kind)
     return _Entry(name, table=freeze(table))

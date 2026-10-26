@@ -47,7 +47,7 @@ are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` 
 | `targets` | One overlay per board. |
 | `dependencies` | Other designs: a design file path, or `git+<url>#<design file in the repository>`. A URL without `git+` is refused. Planning reads them; see below. |
 
-Relative paths resolve against the design file's directory (the design root). `design_root` is refused in a design file (a design entry of a project file may still set it, relative to the project file). In Python: `Design.load(path, target=None)` or `Design(name=..., root=..., rtl={...})`.
+Relative paths resolve against the design file's directory (the design root). `design_root` is refused in a design file and in a design entry of a project file (`removed_key`); a design with another root is a `file` entry of the project. In Python: `Design.load(path, target=None)` or `Design(name=..., root=..., rtl={...})`.
 A design is immutable: `d.with_updates({"tb.parameters.W": 8})` and `d.with_target("t")` return new
 designs; `d.to_dict()` is the effective design in the shape of a file.
 
@@ -408,7 +408,7 @@ flows:
   `xeda_run` beside it) and `default_target`. Any other key fails with
   `ProjectError: ... unknown key(s) ...; a project has 'designs', 'flows', 'run_root',
   'default_target'`. The singular `design` and `flow` were removed (`removed_alias`).
-- A `designs` entry is a table with a `name` (each name once), or `{file: hw/fifo.yaml}`, which
+- `designs` is a list (a single table is `invalid_project`). An entry is a table with a `name` (each name once; its root is the project's directory), or `{file: hw/fifo.yaml}`, which
   holds nothing else and takes the name of that design file. Each table entry and each flow
   section follows the rules of a design file, dotted keys included. A dotted key cannot reach
   into `designs` from the project's root.

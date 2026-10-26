@@ -355,6 +355,14 @@ def test_designs_is_a_list_and_a_single_table_shows_the_list_form(tmp_path):
         assert invalid_project(tmp_path, text).code == "invalid_project"
 
 
+def test_an_inline_entry_cannot_give_the_root(tmp_path):
+    error = invalid_project(
+        tmp_path, "designs: [{name: d, design_root: sub, rtl: {sources: []}}]\n"
+    )
+    assert error.code == "removed_key"
+    assert "design entry 0 (d)" in str(error) and "`design_root` was removed" in str(error)
+
+
 def test_a_design_entry_that_is_not_a_table_names_its_position_and_type(tmp_path):
     error = invalid_project(tmp_path, "designs: [a.yaml]\n")
     assert error.code == "invalid_project"

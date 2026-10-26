@@ -60,8 +60,9 @@ Top level
 
 The design root is the directory of the design file. Every relative path in the file resolves
 against it, wherever you run Xeda. A design file has no key for the root: Xeda refuses
-``design_root`` there. A design entry of a project file may still set ``design_root``, relative to
-the project file.
+``design_root`` there and in a design entry of a project file. The root of a design entry is the
+directory of the project file. A design with another root is a ``file`` entry, and its root is the
+directory of that file.
 
 .. list-table::
    :header-rows: 1
@@ -1147,7 +1148,7 @@ Automatic discovery needs exactly one of these names in the directory.
 A project file has these keys. Any other key at its root is an error that names the accepted keys.
 
 ``designs``
-  The designs. An entry is a table in the form of a design file, with a ``name``. An entry
+  The designs, as a list. An entry is a table in the form of a design file, with a ``name``. An entry
   ``{file: <path>}`` names a design file instead, relative to the project file, and holds no other
   key. Each name is used once.
 ``flows``

@@ -318,10 +318,9 @@ def test_a_project_s_design_generates_once(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.v"])
     spec = json.loads(generated.file.read_text())
-    spec["design_root"] = str(generated.root)
-    other = {"name": "other", "design_root": str(generated.root), "rtl": {"sources": ["gen.py"]}}
+    other = {"name": "other", "rtl": {"sources": []}}
     project = tmp_path / "xedaproject.json"
-    project.write_text(json.dumps({"designs": [spec, other]}))
+    project.write_text(json.dumps({"designs": [{"file": "design/design.json"}, other]}))
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     flow = runner.run(
         "vivado_synth",

@@ -262,7 +262,6 @@ def _project(directory: Path) -> str:
     import yaml
 
     design = yaml.safe_load((directory / "knight.yaml").read_text())
-    design["design_root"] = str(directory)
     path = directory / "xedaproject.yaml"
     path.write_text(yaml.safe_dump({**PROJECT, "designs": [design]}))
     return str(path)
@@ -687,7 +686,7 @@ def _write_design(root: Path, flows: dict | None) -> Path:
 def _write_project(root: Path, flows: dict, design_flows: dict | None) -> str:
     import yaml
 
-    design = {"name": "d", "design_root": str(root), "rtl": {"sources": [], "top": "t"}}
+    design = {"name": "d", "rtl": {"sources": [], "top": "t"}}
     if design_flows:
         design["flows"] = design_flows
     path = root / "xedaproject.yaml"

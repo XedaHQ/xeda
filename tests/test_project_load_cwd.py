@@ -11,17 +11,12 @@ import sys
 import textwrap
 from pathlib import Path
 
-import pytest
-
 PROJECT = """\
 designs:
   - name: plain
     rtl.sources: [src/top.v]
     rtl.top: top
-  - name: nested
-    design_root: sub
-    rtl.sources: [a.v]
-    rtl.top: a
+  - file: sub/nested.yaml
 flows:
   yosys:
     clocks.main_clock.period: 4 ns
@@ -77,6 +72,7 @@ def _project(tmp_path: Path) -> Path:
     (root / "sub").mkdir()
     (root / "src" / "top.v").write_text("module top; endmodule\n")
     (root / "sub" / "a.v").write_text("module a; endmodule\n")
+    (root / "sub" / "nested.yaml").write_text("name: nested\nrtl: {sources: [a.v], top: a}\n")
     (root / "xedaproject.yaml").write_text(PROJECT)
     return root / "xedaproject.yaml"
 
@@ -103,7 +99,7 @@ def test_the_sources_of_a_design_resolve_against_the_directory_of_the_project_fi
     assert [Path(p) for p in reached["plain"]["sources"]] == [root / "src" / "top.v"]
 
 
-def test_a_relative_design_root_of_an_entry_resolves_against_the_directory_of_the_project_file(
+def test_the_root_of_a_file_entry_is_the_directory_of_its_file_below_the_project_file(
     tmp_path,
 ):
     project_file = _project(tmp_path)
@@ -144,20 +140,3 @@ def test_a_relative_project_path_is_read_once_when_the_project_is_loaded(tmp_pat
     reached = json.loads(result.stdout)
     assert [str(Path(p).resolve()) for p in reached[:2]] == [root, root]
     assert all(Path(p).is_absolute() for p in reached)
-
-
-@pytest.mark.parametrize("value", [123, False, 0, ""])
-def test_a_design_root_that_is_not_a_path_is_reported_as_a_design_error(tmp_path, value):
-    """A `design_root` of a project entry that is not a path is a design error that names the
-    key: not a bare `TypeError`, and not the project's directory in its place."""
-    from xeda.design import DesignValidationError
-    from xeda.project import Project
-
-    file = tmp_path / "xedaproject.yaml"
-    file.write_text(
-        json.dumps(
-            {"designs": [{"name": "d", "design_root": value, "rtl": {"sources": [], "top": "top"}}]}
-        )
-    )
-    with pytest.raises(DesignValidationError, match="design_root"):
-        Project.load(file).design("d")
