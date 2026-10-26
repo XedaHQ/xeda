@@ -1069,22 +1069,24 @@ def read_xeda_results(document: Mapping[str, Any], half: str) -> dict[str, Any]:
 
 
 def node_results(document: Mapping[str, Any], flow: str) -> dict[str, Any]:
-    """Return the area, the cell count and the run time from the results of the flow `flow` in a
+    """Return the area, the cell count and the run time from the record of the flow `flow` in a
     chain, read from the run directory of its node. Return `{}` when there is no such node or no
-    results file."""
+    record that this Xeda reads (a file that an older Xeda wrote gives nothing)."""
+    from xeda.errors import RecordError
+    from xeda.records import read_record
+
     for node in document.get("nodes") or []:
         if node.get("flow") == flow and node.get("run_path"):
+            run_dir = Path(node["run_path"])
             try:
-                loaded = json.loads((Path(node["run_path"]) / "results.json").read_text())
-            except (OSError, ValueError):
+                # The run root only locates the producers of the inputs, which this does not read.
+                record = read_record(run_dir, run_root=run_dir.parent)
+            except RecordError:
                 return {}
-            # Only a record of schema 1 is read; a file that an older Xeda wrote gives nothing.
-            if not isinstance(loaded, dict) or loaded.get("schema_version") != 1:
-                return {}
-            metrics = loaded.get("metrics") or {}
-            found = {key: metrics[key] for key in ("area", "cells") if key in metrics}
-            if "runtime" in loaded:
-                found["runtime"] = loaded["runtime"]
+            found: dict[str, Any] = {
+                key: record.metric(key) for key in ("area", "cells") if key in record.metric_info
+            }
+            found["runtime"] = record.runtime
             return found
     return {}
 
