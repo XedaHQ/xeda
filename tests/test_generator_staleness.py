@@ -348,9 +348,7 @@ def test_chisel_identity_and_run_share_the_selected_mill_and_bloop_commands(tmp_
     mill = root / "mill"
     mill.write_text("#!/bin/sh\nexit 0\n")
     mill.chmod(0o755)
-    mill_generator = ChiselGenerator(
-        build_system="mill", project="core", cwd=str(root), sources=[source]
-    )
+    mill_generator = ChiselGenerator(build_system="mill", project="core", cwd=".", sources=[source])
     mill_command = mill_generator.execution_command(root)
     assert mill_command == ["./mill", "core.run"]
     assert mill_generator.execution_executable_path(root) == mill.resolve()
@@ -369,7 +367,7 @@ def test_chisel_identity_and_run_share_the_selected_mill_and_bloop_commands(tmp_
     bloop_generator = ChiselGenerator(
         build_system="bloop",
         project="core",
-        cwd=str(root),
+        cwd=".",
         env={"PATH": str(bin_dir)},
         sources=[source],
     )

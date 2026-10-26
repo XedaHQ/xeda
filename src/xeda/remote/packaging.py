@@ -317,14 +317,10 @@ def package_inputs(
             if recipe_of.cwd is not None:
                 # The generator starts there, so the directory exists on the host even when no
                 # file of the package lies in it. It is the directory the recipe names, as the
-                # recipe spells it: a link is not resolved, and a name that leaves the root, or is
-                # absolute, is not made.
+                # recipe spells it: a link is not resolved. The design refuses a `cwd` that
+                # leaves its root when it loads.
                 named = Path(os.path.normpath(recipe_of.cwd))
-                if (
-                    not named.is_absolute()
-                    and named.parts[:1] not in ((".",), ("..",))
-                    and (unit.root_path / named).is_dir()
-                ):
+                if named != Path(".") and (unit.root_path / named).is_dir():
                     directories.add((base / named).as_posix())
         tb["sources"] = packaged_sources(unit.tb.sources, unit, base)
         tb["top"] = unit.tb.top

@@ -190,3 +190,36 @@ def test_a_written_entry_of_a_generator_design_gets_a_message_that_names_generat
     assert "`generated_sources`" in message and "lib/a.v" in message
     with pytest.raises(DesignValidationError, match="generated_sources"):
         _design(tmp_path, ["/abs/outside.v"])
+
+
+@pytest.mark.parametrize("cwd", ["/tmp", "/", "..", "../elsewhere", "build/../..", "a/../../b"])
+def test_a_generator_cwd_outside_the_design_root_is_refused_when_the_design_loads(tmp_path, cwd):
+    with pytest.raises(DesignValidationError) as error:
+        _design(tmp_path, ["gen/top.v"], cwd=cwd)
+    message = str(error.value)
+    assert "cwd" in message and "below the design root" in message and cwd in message
+
+
+@pytest.mark.parametrize("cwd", [".", "build", "build/work", "a/../b", "./build"])
+def test_a_generator_cwd_below_the_design_root_is_accepted(tmp_path, cwd):
+    design = _design(tmp_path, ["gen/top.v"], cwd=cwd)
+    assert design.rtl.generator is not None
+
+
+def test_a_dependency_generator_cwd_is_judged_against_the_root_of_the_dependency(tmp_path):
+    dep = tmp_path / "app" / "dep"
+    dep.mkdir(parents=True)
+    (dep / "gen.py").write_text("")
+    (dep / "dep.yaml").write_text(
+        "name: dep\nrtl:\n  sources: [gen/a.v]\n  top: a\n  generator:\n"
+        f"    executable: {sys.executable!r}\n    args: [gen.py]\n    sources: [gen.py]\n"
+        "    cwd: ..\n"
+    )
+    (tmp_path / "app" / "top.v").write_text("module top; endmodule\n")
+    with pytest.raises(DesignValidationError, match="cwd.*below the design root"):
+        Design(
+            name="app",
+            design_root=tmp_path / "app",
+            rtl={"sources": ["top.v"], "top": "top"},
+            dependencies=["dep/dep.yaml"],
+        )

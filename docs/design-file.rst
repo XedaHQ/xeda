@@ -612,8 +612,9 @@ The words after the executable (``args``, or the words of ``command`` after the 
 A shell command line (``shell``) reads both variables from its environment. A relative executable,
 and a relative entry of ``PATH``, resolve against the design root, or against ``cwd`` when the
 recipe has one. A generator that must run in another directory, for example because a build tool
-finds its project there, sets ``cwd`` (a directory below the design root). A Chisel generator starts in the design root unless ``cwd`` says
-otherwise, because ``mill`` and ``bloop`` find their build files in their working directory. Pass
+finds its project there, sets ``cwd`` (a directory below the design root; an absolute ``cwd``, or
+one that leaves the root, is refused when the design loads). A Chisel generator starts in the
+design root unless ``cwd`` says otherwise, because ``mill`` and ``bloop`` find their build files in their working directory. Pass
 the storage to it with ``args``:
 
 .. code-block:: yaml

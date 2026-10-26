@@ -68,7 +68,8 @@ names and digests of the generator's `sources` and its executable. The generator
 storage (a Chisel generator in the design root; `cwd` below the design root overrides), with
 `DESIGN_ROOT` and `XEDA_GENERATED` in its environment; the words after the executable expand both
 (`args: ["$DESIGN_ROOT/gen.py", "$XEDA_GENERATED/out"]`; a relative executable resolves against the
-design root or `cwd`). It runs again when its executable, its `sources` (a directory counts as
+design root or `cwd`; `cwd` is a directory below the design root, and an absolute one or one that
+leaves it is refused at load). It runs again when its executable, its `sources` (a directory counts as
 every file in it), a generated file or the digest of its inherited environment changes
 (`always_runs`, or no `sources`: every launch; `--rebuild-all` forces it). `generated_sources`
 names the entries of `rtl.sources` it writes when it writes only some (an entry is wholly generated

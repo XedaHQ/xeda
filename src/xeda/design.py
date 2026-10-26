@@ -1575,6 +1575,21 @@ class Generator(XedaBaseModel):
             )
         return self
 
+    @field_validator("cwd")
+    @classmethod
+    def _cwd_is_below_the_design_root(cls, value):
+        """The working directory of a generator is a directory below the design root of the
+        design that states it. It is judged by its text: an absolute path, or one that leaves the
+        root after normalization (`..`), is refused."""
+        if value is not None:
+            normalized = os.path.normpath(value)
+            if os.path.isabs(value) or normalized == ".." or normalized.startswith(".." + os.sep):
+                raise ValueError(
+                    f"`cwd` is {value!r}: give a directory below the design root, such as "
+                    "`build` (a relative path that stays inside it)"
+                )
+        return value
+
     @field_validator("env")
     @classmethod
     def _env_leaves_the_names_xeda_sets(cls, value):
