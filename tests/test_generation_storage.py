@@ -745,3 +745,16 @@ def test_the_lease_ends_when_the_end_of_a_launch_is_interrupted(
     (storage,) = world.storages()
     assert _probe(storage, "exclusive") == "free"
     assert runner._generation is None
+
+
+def test_a_plan_sees_the_files_of_a_generated_input_as_the_launch_does(tmp_path):
+    """The launch hands the files that a declaration matched to the declared input. The plan
+    maps the names in the same way, so a node that the launch reuses is `fresh` in the plan."""
+    flow = input_reader_flow()
+    world = World(tmp_path)
+    assert world.launch(flow).outcome is Outcome.PASSED
+    state = world.runner().plan_with_freshness(flow, world.load())[1][flow.name]
+    assert (state.state, state.reason) == ("fresh", "")
+    again = world.launch(flow)
+    assert again.nodes[flow.name].disposition.value == "reused"
+    assert world.runs == 1

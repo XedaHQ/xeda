@@ -194,6 +194,7 @@ def _wire_inputs(
     plan: Plan,
     node: PlanNode,
     handed: dict[tuple[str, str], tuple[OutputEntry, ...]],
+    generation: launch_generation.Generation | None = None,
 ) -> None:
     """Set the declared inputs of the flow to what the plan wires.
 
@@ -204,7 +205,12 @@ def _wire_inputs(
     for selected in node.inputs:
         if declared_inputs(node.flow_class)[selected.name].is_design:
             continue  # the flow reads the design as `self.design`; the input stays unset
-        paths = list(selected.sources)
+        # a generated source of the plan is a name: the files are those it matched in the storage
+        paths = [
+            file
+            for source in selected.sources
+            for file in launch_generation.located_paths(generation, source)
+        ]
         for ref in selected.references:
             found = handed.get((ref.node, ref.output))
             paths += (
@@ -222,6 +228,7 @@ def _records(
     node: PlanNode,
     settings: Flow.Settings,
     entries: dict[tuple[str, str], tuple[OutputEntry, ...]],
+    generation: launch_generation.Generation | None = None,
 ) -> tuple[DeclaredInputRecord, ...]:
     """Return the input records of the node as a launch would build them.
 
@@ -240,6 +247,11 @@ def _records(
             for ref in selected.references
         )
         handed = [entry.path for ref in references for entry in ref.entries]
+        sources = [
+            file
+            for source in selected.sources
+            for file in launch_generation.located_paths(generation, source)
+        ]
         first = plan.node(selected.references[0].node) if selected.references else None
         records.append(
             DeclaredInputRecord(
@@ -249,7 +261,7 @@ def _records(
                 output=selected.output,
                 producer_hash=first.flowrun_hash if first else None,
                 producer_path=str(first.run_path) if first else None,
-                paths=(*map(str, selected.sources), *handed),
+                paths=(*map(str, sources), *handed),
                 references=references,
                 binding_origin=selected.binding_origin,
                 binding_location=selected.binding_location,
@@ -411,7 +423,8 @@ def judge_node(
                 lacks = lacks or NodeFreshness("unknown", found)
             else:
                 entries[(ref.node, ref.output)] = found
-    _wire_inputs(flow, plan, node, entries)
+    stored = generation.generation if generation is not None else None
+    _wire_inputs(flow, plan, node, entries, stored)
     # A launch hands over the outputs before it prepares anything or asks the flow anything. One
     # it cannot hand over stops the launch.
     if lacks is not None:
@@ -455,7 +468,7 @@ def judge_node(
         input_settings=settings,
         run_root=run_root,
         registered=registered,
-        declared=_records(plan, node, settings, entries),
+        declared=_records(plan, node, settings, entries, stored),
         dependency_run_ids={},
         digests=digests,
     )
