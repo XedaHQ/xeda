@@ -3633,7 +3633,9 @@ class Design(XedaBaseModel):
             cls = model_with_allow_extra(cls)
         try:
             recorded_target = None
+            units: tuple[Design, ...] = ()
             if packaged:
+                units = cls._packaged_units(design_dict, design_file.parent)
                 recorded_target = design_dict.pop("target", None)
                 problem = None if recorded_target is None else target_name_problem(recorded_target)
                 if problem:
@@ -3666,6 +3668,8 @@ class Design(XedaBaseModel):
                 design_root = dr
             if design_root is None:
                 design_root = design_file.parent
+            if units:
+                design_dict["generation_units"] = units
             design = cls(design_root=design_root, **design_dict)
             design._source_file = design_file.absolute()
             return design
@@ -3680,6 +3684,39 @@ class Design(XedaBaseModel):
         except Exception as e:
             log.error("Error processing design file: %s", absolute_file)
             raise e
+
+    @classmethod
+    def _packaged_units(cls, document: dict[str, Any], base: Path) -> tuple[Design, ...]:
+        """Take the dependencies whose generators the host runs out of a packaged `document`, and
+        build them, each with its root below `base`; dependencies come first.
+
+        A source that a dependency's generator writes is `{path, type, generated_by: <index>}` in
+        a document of the design or of a later unit: the index is that of the unit. It becomes a
+        declaration owned by that unit."""
+        built: list[Design] = []
+
+        def owned(rtl: dict[str, Any]) -> None:
+            rtl["sources"] = [
+                (
+                    Source.declaration(
+                        entry["path"],
+                        source_type_named(entry["type"]),
+                        owner=built[entry["generated_by"]].root_path.as_posix(),
+                    )
+                    if isinstance(entry, dict) and "generated_by" in entry
+                    else entry
+                )
+                for entry in rtl.get("sources", [])
+            ]
+
+        for unit in document.pop("generation_units", []):
+            unit = dict(unit)
+            root = base / unit.pop("design_root")
+            owned(unit["rtl"])
+            built.append(cls(design_root=root, **unit))
+        if built:
+            owned(document["rtl"])
+        return tuple(built)
 
     @classmethod
     def expanded(cls, data: Mapping[str, Any]) -> dict[str, Any]:

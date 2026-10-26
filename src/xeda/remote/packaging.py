@@ -59,31 +59,33 @@ class InputPackage:
 
 def refuse_unsendable_generator(design: Design) -> Generator | None:
     """Return the generator of `design`, or None if it has none. Refuse a generator that the
-    package cannot carry: one that declares no `sources`.
+    package cannot carry, also one of a dependency: one that declares no `sources`.
 
-    The host runs the generator, and only the files and directories that its recipe declares
+    The host runs the generators, and only the files and directories that a recipe declares
     travel with it. A generator that declares none would run on the host without what it reads,
     and its output would be wrong or fail far from the cause. The refusal names the generator and
     says what to declare (`DesignValidationError`). It needs no connection, so a request makes it
     at planning."""
-    generator = generator_of(design.rtl, root=design.root_path)
-    if generator is not None and not generator.sources:
-        raise DesignValidationError(
-            [
-                (
-                    "rtl -> generator",
-                    f"{generator.describe(design.name, design.root_path)} declares no "
-                    "`sources`, so `--remote` cannot know which files to send with it: declare "
-                    "its `sources` (the files and directories it reads) in `rtl.generator`",
-                    "",
-                    "value_error",
-                )
-            ],
-            data=design.model_dump(mode="json"),
-            design_root=design.root_path,
-            design_name=design.name,
-        )
-    return generator
+    for unit in (*design.generation_units, design):
+        generator = generator_of(unit.rtl, root=unit.root_path)
+        if generator is not None and not generator.sources:
+            raise DesignValidationError(
+                [
+                    (
+                        "rtl -> generator",
+                        f"{generator.describe(unit.name, unit.root_path)} declares no "
+                        "`sources`, so `--remote` cannot know which files to send with it: "
+                        "declare its `sources` (the files and directories it reads) in "
+                        "`rtl.generator`",
+                        "",
+                        "value_error",
+                    )
+                ],
+                data=unit.model_dump(mode="json"),
+                design_root=unit.root_path,
+                design_name=unit.name,
+            )
+    return generator_of(design.rtl, root=design.root_path)
 
 
 def package_inputs(
@@ -207,7 +209,10 @@ def package_inputs(
         for src in sources:
             if src.generated and not src.located:
                 # The generator of the host writes it: no file travels, the declaration does.
-                packaged.append({"path": src.output_name, "type": str(src.type)})
+                declared: Dict[str, Any] = {"path": src.output_name, "type": str(src.type)}
+                if src.owner is not None:
+                    declared["generated_by"] = unit_index(src.owner)
+                packaged.append(declared)
                 continue
             relative = design.relative_to_root(src.file)
             if relative is not None and archived_in_place(src.file, relative):
@@ -261,26 +266,52 @@ def package_inputs(
             identified(seen, "parameter", counted[name])
         return parameters
 
-    def packaged_generator_input(local: Path) -> str:
-        """Package a file or a directory that the generator reads, and return its name for the
-        recipe: relative to the design root where it lies under it, else in a place of its own.
+    def unit_index(owner: str) -> int:
+        """The index of the unit of generation whose root is `owner`."""
+        return [unit.root_path.as_posix() for unit in design.generation_units].index(owner)
+
+    def packaged_generator_input(local: Path, unit: Design, base: Path) -> str:
+        """Package a file or a directory that the generator of `unit` reads, below `base` in the
+        inputs of the host, and return its name for the recipe: relative to the root of the unit
+        where it lies under it, else in a place of its own.
 
         A directory counts as every file in it, and its empty directories travel too."""
-        relative = design.relative_to_root(local)
+        relative = unit.relative_to_root(local)
         if relative is None:
             digest = hashlib.sha256(str(local).encode()).hexdigest()[:16]
             relative = Path("_generator_inputs") / digest / local.name
         if local.is_dir():
-            directories.add(relative.as_posix())
+            directories.add((base / relative).as_posix())
             for entry in directory_files(local, [run_root], VCS_METADATA, follow_links=True):
-                place = relative / entry.relative_to(local)
+                place = base / relative / entry.relative_to(local)
                 if entry.is_dir():
                     directories.add(place.as_posix())
                 elif entry.is_file():
                     places.setdefault(place, entry)
         elif local.is_file():
-            places.setdefault(relative, local)
+            places.setdefault(base / relative, local)
         return relative.as_posix()
+
+    def packaged_unit(index: int, unit: Design) -> Dict[str, Any]:
+        """The document of a dependency whose generator the host runs, with its inputs packaged
+        below `_units/<index>`, which is its design root there."""
+        base = Path("_units") / str(index)
+        recipe_of = generator_of(unit.rtl, root=unit.root_path)
+        assert recipe_of is not None
+        recipe = thaw(unit.rtl.generator)
+        recipe["sources"] = [packaged_generator_input(p, unit, base) for p in recipe_of.sources]
+        declared = []
+        for src in unit.rtl.sources:
+            if src.generated and not src.located:
+                entry: Dict[str, Any] = {"path": src.output_name, "type": str(src.type)}
+                if src.owner is not None:
+                    entry["generated_by"] = unit_index(src.owner)
+                declared.append(entry)
+        return {
+            "name": unit.name,
+            "design_root": base.as_posix(),
+            "rtl": {"sources": declared, "top": unit.rtl.top, "generator": recipe},
+        }
 
     rtl["sources"] = packaged_sources(design.rtl.sources)
     rtl["defines"] = thaw(design.rtl.defines)
@@ -290,7 +321,9 @@ def package_inputs(
     rtl["clocks"] = [dict(clk) for clk in design.rtl.clocks]
     if generator is not None:
         recipe = thaw(design.rtl.generator)
-        recipe["sources"] = [packaged_generator_input(path) for path in generator.sources]
+        recipe["sources"] = [
+            packaged_generator_input(path, design, Path(".")) for path in generator.sources
+        ]
         rtl["generator"] = recipe
     tb["sources"] = packaged_sources(design.tb.sources)
     tb["top"] = design.tb.top
@@ -305,6 +338,10 @@ def package_inputs(
         tb["python_packages"] = list(design.tb.python_packages)
     new_design["rtl"] = rtl
     new_design["tb"] = tb
+    if design.generation_units:
+        new_design["generation_units"] = [
+            packaged_unit(index, unit) for index, unit in enumerate(design.generation_units)
+        ]
 
     def packaged_path(value: Any) -> Any:
         if not isinstance(value, (str, os.PathLike)) or not os.fspath(value):

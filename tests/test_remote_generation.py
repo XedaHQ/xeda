@@ -172,3 +172,92 @@ def test_a_written_source_of_a_dependency_travels_beside_a_generated_one(tmp_pat
         raise outcome.error
     assert outcome.success, outcome.document
     assert world.runs == 1
+
+
+# ---------------------------------------------------------------- generators of dependencies
+
+
+def _chain(tmp_path: Path, depth: int = 2, own: bool = False):
+    from .test_dependency_generation import Chain
+
+    chain = Chain(tmp_path, depth=depth, own=own)
+    return chain
+
+
+def _chain_document(tmp_path: Path, chain) -> tuple[dict, object]:
+    return _document(tmp_path, chain.load())
+
+
+def test_the_package_carries_each_unit_with_its_recipe_and_inputs(tmp_path):
+    chain = _chain(tmp_path)
+    document, package = _chain_document(tmp_path, chain)
+    units = document["generation_units"]
+    assert [u["name"] for u in units] == ["lib2", "lib1"]
+    assert [u["design_root"] for u in units] == ["_units/0", "_units/1"]
+    assert all(u["rtl"]["generator"]["sources"] == ["gen.py", "spec.txt"] for u in units)
+    assert sorted(package.files) == sorted(
+        ["top.v", *(f"_units/{i}/{name}" for i in (0, 1) for name in ("gen.py", "spec.txt"))]
+    )
+    # the design lists the generated sources of its dependencies, each with its unit
+    sources = document["rtl"]["sources"]
+    assert {(e["path"], e.get("generated_by")) for e in sources if "path" in e} == {
+        ("gen/lib1.v", 1),
+        ("gen/lib2.v", 0),
+    }
+    assert {"file": "top.v", "type": "Verilog"} in sources
+    assert units[1]["rtl"]["sources"] == [
+        {"path": "gen/lib2.v", "type": "Verilog", "generated_by": 0},
+        {"path": "gen/lib1.v", "type": "Verilog"},
+    ]
+    assert units[0]["rtl"]["sources"] == [{"path": "gen/lib2.v", "type": "Verilog"}]
+
+
+def test_a_dependency_generator_without_sources_cannot_be_sent(tmp_path):
+    chain = _chain(tmp_path, depth=1)
+    path = tmp_path / "lib1" / "lib1.yaml"
+    path.write_text(path.read_text().replace("    sources: [gen.py, spec.txt]\n", ""))
+    with pytest.raises(DesignValidationError, match="lib1.*declares no `sources`"):
+        _chain_document(tmp_path, chain)
+
+
+def test_the_host_generates_the_generators_of_dependencies_in_order(tmp_path, remote_host):
+    chain = _chain(tmp_path, depth=2, own=True)
+    text = chain.design_file.read_text().replace(
+        "  top: top\n", "  top: top\n  clocks: [{port: clk}]\n", 1
+    )
+    chain.design_file.write_text(text)
+    outcome = remote_request(tmp_path, chain.design_file, "vivado_synth", flow_settings=SETTINGS)
+    if outcome.error is not None:
+        raise outcome.error
+    assert outcome.success, outcome.document
+    assert chain.ran == ["lib2", "lib1", "top"]
+    host_root = remote_host.workspace() / "xeda_run" / ".generated"
+    assert {p.name for p in host_root.iterdir() if p.is_dir()} == {"lib1", "lib2", "top"}
+    assert not (tmp_path / "local" / "xeda_run" / ".generated").exists()
+    # the second request reuses the storages of the host; `--rebuild-all` regenerates them all
+    again = remote_request(tmp_path, chain.design_file, "vivado_synth", flow_settings=SETTINGS)
+    assert again.success and chain.ran == ["lib2", "lib1", "top"]
+    forced = remote_request(
+        tmp_path, chain.design_file, "vivado_synth", flow_settings=SETTINGS, rebuild_all=True
+    )
+    assert forced.success and chain.ran == ["lib2", "lib1", "top"] * 2
+
+
+def test_the_remote_node_of_a_design_with_dependency_generators_has_the_local_identity(
+    tmp_path, remote_host
+):
+    chain = _chain(tmp_path, depth=1)
+    text = chain.design_file.read_text().replace(
+        "  top: top\n", "  top: top\n  clocks: [{port: clk}]\n", 1
+    )
+    chain.design_file.write_text(text)
+    outcome = remote_request(tmp_path, chain.design_file, "vivado_synth", flow_settings=SETTINGS)
+    if outcome.error is not None:
+        raise outcome.error
+    local = DefaultRunner(tmp_path / "plan_only", display_results=False).plan(
+        "vivado_synth", chain.design_file, flow_settings=SETTINGS
+    )
+    assert (
+        outcome.document["nodes"][-1]["record"]["identity"]
+        == local.node("vivado_synth").flowrun_hash
+    )
