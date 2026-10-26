@@ -263,16 +263,15 @@ def test_side_effecting_loading_is_refused_or_planned_without_effect(tmp_path, k
         cwd=tmp_path,
     )
     document = json_stdout(proc)
-    if kind in ("git", "local"):
-        # A Git dependency is fetched while the design loads, and a dependency that has a
-        # generator is refused: a plan refuses both before they have an effect.
+    if kind == "git":
+        # A Git dependency is fetched while the design loads: a plan refuses it before it has
+        # an effect.
         assert proc.returncode == 2, proc.stderr
         assert document["outcome"] is None
         assert document["error"]["code"] == "invalid_design"
-        expected = "Git dependency fetch" if kind == "git" else "generator"
-        assert expected in document["error"]["message"]
+        assert "Git dependency fetch" in document["error"]["message"]
     else:
-        # A generator runs in the launch, never in a plan.
+        # A generator, also one of a dependency, runs in the launch, never in a plan.
         assert proc.returncode == 0, proc.stderr
         assert document["success"] is True
     assert not sentinel.exists()

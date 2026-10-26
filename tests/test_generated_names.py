@@ -181,3 +181,13 @@ def test_a_generated_source_needs_its_name_and_a_written_source_has_none(tmp_pat
         Source({"path": str(tmp_path / "top.v")}, SourceType.Verilog, generated=True)
     with pytest.raises(ValueError, match="output_name"):
         Source({"path": str(tmp_path / "top.v")}, SourceType.Verilog, output_name="top.v")
+
+
+def test_a_declaration_has_an_owner_and_the_same_name_of_two_owners_is_two_declarations() -> None:
+    mine = Source.declaration("gen/top.v", SourceType.Verilog)
+    theirs = Source.declaration("gen/top.v", SourceType.Verilog, owner="/dep")
+    assert mine.owner is None and theirs.owner == "/dep"
+    assert mine != theirs and hash(mine) != hash(theirs)
+    assert theirs == Source.declaration("gen/top.v", SourceType.Verilog, owner="/dep")
+    assert theirs.with_owner("/other").owner == "/other" and theirs.owner == "/dep"
+    assert theirs.as_json_value() == "gen/top.v", "a dump holds no owner"

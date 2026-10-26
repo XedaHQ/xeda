@@ -676,7 +676,7 @@ def test_the_lease_is_of_the_files_the_judgment_under_it_found(tmp_path, monkeyp
 
     monkeypatch.setattr(launch_generation, "generate", stale)
     with generated(world.load(), run_root=world.run_root.resolve(), environ=dict(os.environ)) as g:
-        assert g is not None and dict(g.matches) == {"gen/top.v": ("gen/top.v",)}
+        assert g is not None and dict(g.by_owner[None].matches) == {"gen/top.v": ("gen/top.v",)}
 
 
 def test_a_scrub_refuses_a_storage_that_became_a_link_after_the_confirmation(tmp_path):
@@ -761,7 +761,7 @@ def test_a_plan_sees_the_files_of_a_generated_input_as_the_launch_does(tmp_path)
 
 
 def test_a_generated_source_is_named_and_hashed_whatever_the_run_root_is(tmp_path):
-    from xeda.flow_runner.launch_generation import execution_design, generate
+    from xeda.flow_runner.launch_generation import Generations, execution_design, generate
 
     seen = []
     for run_root in (tmp_path / "one" / "xeda_run", tmp_path / "elsewhere" / "deeper" / "run"):
@@ -769,7 +769,7 @@ def test_a_generated_source_is_named_and_hashed_whatever_the_run_root_is(tmp_pat
         run_root.mkdir(parents=True)
         design = world.load()
         generation = generate(design, run_root=run_root.resolve(), environ=dict(os.environ))
-        executable = execution_design(design, generation)
+        executable = execution_design(design, Generations.single(generation))
         (source,) = executable.rtl.sources
         seen.append(
             (

@@ -1533,9 +1533,10 @@ class Flow(metaclass=ABCMeta):
         #: What the run reads of its design (`flow_runner.configuration`): the configuration
         #: that the plan froze for its node.
         self.configuration: Mapping[str, Any] = FrozenDict()
-        #: The key of the storage of the design generator that the run reads (the launcher sets
-        #: it), or None when the design has no generator.
-        self.generation_key: Optional[str] = None
+        #: The key of the storage of each generator whose output the run reads (the launcher sets
+        #: it), by owner: None for the generator of the design, and the root of the dependency
+        #: for the generator of a dependency.
+        self.generation_keys: Mapping[Optional[str], str] = {}
         self.declared_input_records: tuple[Any, ...] = ()
 
         if isinstance(settings, dict):

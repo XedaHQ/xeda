@@ -966,6 +966,11 @@ class Source(FileResource):
     #: storage or a run directory depends on where the run root is. It is no part of the table of
     #: a source in a design file.
     output_name: str | None
+    #: The generator that writes a generated source, when it is not the generator of the design
+    #: that lists the source: the root of the dependency whose generator it is. A design that
+    #: merges a dependency lists the dependency's generated sources with the owner set, and the
+    #: execution copy names their files in the storage of that owner. None: the design's own.
+    owner: str | None
 
     def __init__(
         self,
@@ -975,6 +980,7 @@ class Source(FileResource):
         *,
         generated: bool = False,
         output_name: str | None = None,
+        owner: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Build a design source while retaining its stated type."""
@@ -1007,9 +1013,12 @@ class Source(FileResource):
         attributes["_stated"] = {"type": str(self.type)} if typ is not None else {}
         attributes["generated"] = generated
         attributes["output_name"] = output_name
+        attributes["owner"] = owner
 
     @classmethod
-    def declaration(cls, name: str, typ: SourceType, *, stated: bool = False) -> Source:
+    def declaration(
+        cls, name: str, typ: SourceType, *, stated: bool = False, owner: str | None = None
+    ) -> Source:
         """Return the declaration of a generated source: a `name` or pattern in the output of the
         design's generator.
 
@@ -1024,7 +1033,15 @@ class Source(FileResource):
         attributes["_stated"] = {"type": str(typ)} if stated else {}
         attributes["generated"] = True
         attributes["output_name"] = name
+        attributes["owner"] = owner
         return source
+
+    def with_owner(self, owner: str | None) -> Source:
+        """Return this declaration with another owner (see `owner`)."""
+        assert self.file is None, "only a declaration changes owner"
+        return Source.declaration(
+            str(self.output_name), self.type, stated=bool(self._stated), owner=owner
+        )
 
     @property
     def located(self) -> bool:
@@ -1058,6 +1075,7 @@ class Source(FileResource):
                 and self.file is None
                 and other.file is None
                 and self.output_name == other.output_name
+                and self.owner == other.owner
                 and self.type is other.type
             )
         return super().__eq__(other)
@@ -1065,7 +1083,7 @@ class Source(FileResource):
     def __hash__(self) -> int:
         # Added attributes do not change semantic identity.
         if self.file is None:
-            return hash(("declaration", self.output_name))
+            return hash(("declaration", self.output_name, self.owner))
         return super().__hash__()
 
     def __str__(self) -> str:
@@ -3053,6 +3071,22 @@ class Design(XedaBaseModel):
         json_schema_extra={"hidden_from_schema": True},
     )
 
+    # The designs, dependencies of this one, whose generators the launch runs, dependencies
+    # first. A dependency design is a unit with its own root, recipe and configuration. It is no
+    # part of a dump of the design: a document of a remote run holds its units apart.
+    # (Typed as `Any`, because a model that contains itself has no flat schema.)
+    generation_units: Tuple[Any, ...] = Field(
+        (), exclude=True, json_schema_extra={"hidden_from_schema": True}
+    )
+
+    @field_validator("generation_units")
+    @classmethod
+    def _units_are_designs(cls, value):
+        for unit in value:
+            if not isinstance(unit, Design):
+                raise ValueError(f"a unit of generation is a Design, not {type(unit).__name__}")
+        return value
+
     #: A design whose `flows` is `null` has none.
     field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"flows": unspecified}
 
@@ -3434,23 +3468,37 @@ class Design(XedaBaseModel):
         clocks = self.rtl.clocks
         tb_sources = self.tb.sources
         tb_top = self.tb.top
+        units: dict[str, Design] = {
+            unit.root_path.as_posix(): unit for unit in self.generation_units
+        }
         for dep in self.dependencies:
             try:
                 dep_design = dep.fetch_design()
             except ValueError as e:
                 kind = MISSING_FILE_ERROR if isinstance(e, MissingFile) else "value_error"
                 raise invalid("dependencies", str(e), kind) from e
-            if dep_design.rtl.generator is not None:
-                raise invalid(
-                    "dependencies",
-                    f"the dependency {dep_design.name!r} has a generator, and a generator runs "
-                    "only for the design that a launch is asked for: generate its sources in "
-                    "this design, or build the dependency first",
-                )
             log.info("adding dependency sources from %s", dep_design.name)
+            # The generator of a dependency writes the sources it declares, in a storage of its
+            # own. The merged design lists them with the dependency as their owner, and keeps the
+            # dependency (and the dependencies it merged) as a unit of generation, dependencies
+            # first.
+            owner = dep_design.root_path.as_posix()
+            dep_sources = tuple(
+                (
+                    src.with_owner(owner)
+                    if src.generated and not src.located and src.owner is None
+                    else src
+                )
+                for src in dep_design.rtl.sources
+            )
+            for unit in (
+                *dep_design.generation_units,
+                *([dep_design] if dep_design.rtl.generator is not None else []),
+            ):
+                units.setdefault(unit.root_path.as_posix(), unit)
             pos = dep.rtl.pos
             if pos == -1:  # -1 means append 'after' the last element
-                sources.extend(dep_design.rtl.sources)
+                sources.extend(dep_sources)
                 if not top and dep_design.rtl.top:
                     top = dep_design.rtl.top
                 if not parameters and dep_design.rtl.parameters:
@@ -3460,17 +3508,32 @@ class Design(XedaBaseModel):
             else:
                 if pos < 0:
                     pos += 1  # afterwards: pos=-2 means the position 'before' the last element
-                sources[pos:pos] = dep_design.rtl.sources
+                sources[pos:pos] = dep_sources
             sources = _distinct_sources(sources)
             if not tb_sources and dep_design.tb.sources:
                 tb_sources = dep_design.tb.sources
             if not tb_top and dep_design.tb.top:
                 tb_top = dep_design.tb.top
+        owners: dict[str, str | None] = {}
+        for src in sources:
+            if src.generated and not src.located:
+                name = str(src.output_name)
+                if owners.setdefault(name, src.owner) != src.owner:
+                    raise invalid(
+                        "dependencies",
+                        f"two generators declare the generated source `{name}`: the design and "
+                        "its dependencies must name the outputs of their generators apart",
+                    )
         rtl = {name: getattr(self.rtl, name) for name in Rtl.model_fields}
         rtl.update(sources=sources, top=top, parameters=parameters, clocks=clocks)
         tb = {name: getattr(self.tb, name) for name in Testbench.model_fields}
         tb.update(sources=tb_sources, top=tb_top)
-        return {"rtl": rtl, "tb": tb, "dependencies": ()}
+        return {
+            "rtl": rtl,
+            "tb": tb,
+            "dependencies": (),
+            "generation_units": tuple(units.values()),
+        }
 
     def header_dirs(self, rtl: bool = True, tb: bool = False) -> List[Path]:
         """Return the directory of every Verilog or SystemVerilog header that the design lists.

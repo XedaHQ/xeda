@@ -422,7 +422,7 @@ class _LaunchGeneration:
     """The design of a launch, as the caller gave it and as the flows get it."""
 
     declared: Design
-    generation: launch_generation.Generation | None
+    generation: launch_generation.Generations | None
     #: The declared design, with the files that its generator wrote in place of its generated
     #: sources (`launch_generation.execution_design`).
     execution: Design
@@ -1357,10 +1357,10 @@ class FlowLauncher:
             try:
                 flow.design_hash = design_hash
                 flow.configuration = node.configuration
-                flow.generation_key = (
-                    self._generation.generation.key
+                flow.generation_keys = (
+                    dict(self._generation.generation.keys)
                     if self._generation is not None and self._generation.generation is not None
-                    else None
+                    else {}
                 )
                 flow.flow_hash = flowrun_hash
                 flow.settings_hash = settings_hash

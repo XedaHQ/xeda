@@ -917,6 +917,9 @@ def _outputs_of(flow: Flow) -> dict[str, OutputRecord]:
     return outputs
 
 
+_NO_OWNER: Any = object()
+
+
 def _design_source(flow: Flow, path: Path) -> Any:
     """Return the source of the design of `flow` that is the file at `path`, or None."""
     for part in ("rtl", "tb"):
@@ -992,6 +995,16 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
                 )
             continue
         sources = tuple(_input_source(flow, path) for path in declared.paths)
+        # the key of the storage that wrote the first generated source that the input reads
+        owner = next(
+            (
+                found.owner
+                for path in declared.paths
+                if (found := _design_source(flow, Path(path))) is not None and found.generated
+            ),
+            _NO_OWNER,
+        )
+        generation = None if owner is _NO_OWNER else flow.generation_keys.get(owner)
         inputs.append(
             InputRecord(
                 name=declared.name,
@@ -1000,7 +1013,7 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
                 output=declared.output,
                 producer_run_id=None,
                 producer_run_dir=None,
-                generation=flow.generation_key if any(item.generated for item in sources) else None,
+                generation=generation,
                 sources=sources,
             )
         )

@@ -523,7 +523,7 @@ def test_a_launch_generates_again_until_nothing_changes_while_it_reads(tmp_path)
     world = _world_reading(tmp_path, "bytecode")
     world.run_root.mkdir()
     with generated(world.load(), run_root=world.run_root.resolve(), environ=dict(os.environ)) as g:
-        assert g is not None and (g.storage / RECORD_NAME).is_file()
+        assert g is not None and (g.by_owner[None].storage / RECORD_NAME).is_file()
     assert world.runs == 2
 
 

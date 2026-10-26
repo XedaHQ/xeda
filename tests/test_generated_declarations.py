@@ -133,24 +133,6 @@ def test_the_environment_of_a_generator_may_not_set_the_variables_xeda_sets(tmp_
         _design(tmp_path, ["gen/top.v"], env={"XEDA_GENERATED": "/x"})
 
 
-def test_a_dependency_with_a_generator_is_refused(tmp_path):
-    dep = tmp_path / "dep"
-    dep.mkdir()
-    (dep / "gen.py").write_text("")
-    (dep / "dep.yaml").write_text(
-        f"name: dep\nrtl:\n  sources: [gen/a.v]\n  top: a\n  generator:\n"
-        f"    executable: {sys.executable!r}\n    args: [gen.py]\n    sources: [gen.py]\n"
-    )
-    (tmp_path / "top.v").write_text("module top; endmodule\n")
-    with pytest.raises(DesignValidationError, match="has a generator"):
-        Design(
-            name="d",
-            design_root=tmp_path,
-            rtl={"sources": ["top.v"], "top": "top"},
-            dependencies=["dep/dep.yaml"],
-        )
-
-
 def test_generated_sources_keep_their_place_in_the_order(tmp_path):
     design = _design(tmp_path, ["gen/a.v", "gen/*.sv", "gen/b.v"])
     assert [s.output_name for s in design.rtl.sources] == ["gen/a.v", "gen/*.sv", "gen/b.v"]

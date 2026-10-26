@@ -194,7 +194,7 @@ def _wire_inputs(
     plan: Plan,
     node: PlanNode,
     handed: dict[tuple[str, str], tuple[OutputEntry, ...]],
-    generation: launch_generation.Generation | None = None,
+    generation: launch_generation.Generations | None = None,
 ) -> None:
     """Set the declared inputs of the flow to what the plan wires.
 
@@ -228,7 +228,7 @@ def _records(
     node: PlanNode,
     settings: Flow.Settings,
     entries: dict[tuple[str, str], tuple[OutputEntry, ...]],
-    generation: launch_generation.Generation | None = None,
+    generation: launch_generation.Generations | None = None,
 ) -> tuple[DeclaredInputRecord, ...]:
     """Return the input records of the node as a launch would build them.
 
