@@ -643,22 +643,24 @@ def _selected_project(xedaproject: Any, design: Any) -> Project | None:
     return project
 
 
-def _project_for_launcher(project: Project | None, design: Any) -> str | None:
-    """Return the project file that the launcher reads: only a design that the project holds
-    comes from it. A design file given on its own gets no project layer."""
-    return None if project is None or design is not None else str(project.path)
+def _project_for_launcher(project: Project | None) -> str | None:
+    """Return the project file that the launcher is given. A design that the project holds comes
+    from it. A design file given on its own gets no project layer, and the project is still a
+    file of the launch: it supplies the run root, and no delivery may replace it."""
+    return None if project is None else str(project.path)
 
 
 def _cli_run_root(run_root: Path, project: Project | None) -> Path:
-    """Return the run root of this command, highest first: `--run-root`, `XEDA_RUN_ROOT`, the
-    `run_root` that the project file gives, then `./xeda_run` (the default of `run_root`).
+    """Return the run root of this command, highest first: `--run-root`, `XEDA_RUN_ROOT`, the run
+    root of the project (`Project.run_root`: its `run_root` key, else `xeda_run` beside the
+    project file), then `./xeda_run` when no project is used.
 
     A run root is a fact of the machine, so a choice on the command line or in the environment
     wins over the project's suggestion. The private settings files of the user and of the
     project enter between the environment and the project file."""
     source = click.get_current_context().get_parameter_source("run_root")
     chosen = source not in (None, ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP)
-    if chosen or project is None or not project._run_root_given:  # pylint: disable=protected-access
+    if chosen or project is None:
         return run_root
     return project.run_root
 
@@ -1043,14 +1045,11 @@ def run(
     else:
         flow_settings = []
 
-    # The positional DESIGN argument, then --design-name.
+    # The positional DESIGN argument is a design file, and --design-name names a design of the
+    # project. Neither selects the only design of the project (`project.design()`).
+    if design_file and design_name:
+        raise click.UsageError("give DESIGN or --design-name, not both", ctx=ctx)
     design = Path(design_file) if design_file else design_name
-    if not design:
-        raise click.UsageError(
-            "No design specified. Pass a design file as the DESIGN argument, or name one with "
-            "--design-name.",
-            ctx=ctx,
-        )
 
     if remote == "":
         # An empty `XEDA_REMOTE` is the same as an unset one. An empty `--remote` is a mistake:
@@ -1139,7 +1138,13 @@ def run(
         project = _selected_project(xedaproject, design_file)
     except Exception as e:
         not_started(e)
-    project_for_launcher = _project_for_launcher(project, design_file)
+    if not design and project is None:
+        raise click.UsageError(
+            "No design specified. Pass a design file as the DESIGN argument, or name one with "
+            "--design-name.",
+            ctx=ctx,
+        )
+    project_for_launcher = _project_for_launcher(project)
     run_root = _cli_run_root(run_root, project)
     if fetch_all and not remote:
         raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
@@ -1536,6 +1541,8 @@ def dse(
         # From here on, stdout belongs to the JSON document.
         machine_readable_mode()
 
+    if design and design_name:
+        raise click.UsageError("give DESIGN or --design-name, not both")
     dse: Dse | None = None
     selected_target = _selected_target(target, no_target)
 
@@ -1612,7 +1619,7 @@ def dse(
         )
         best = dse.run(
             flow,
-            xedaproject=_project_for_launcher(project, design),
+            xedaproject=_project_for_launcher(project),
             design=design or design_name,
             flow_settings=list(flow_settings),
             target=selected_target,

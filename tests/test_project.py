@@ -867,14 +867,23 @@ def test_the_run_root_option_and_variable_win_over_the_project(tmp_path, monkeyp
     assert run_path_of(json.loads(result.stdout)).is_relative_to((tmp_path / "given").resolve())
 
 
-def test_a_project_without_a_run_root_leaves_the_default(tmp_path, monkeypatch):
+def test_a_project_without_a_run_root_key_supplies_xeda_run_beside_it(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
+    design_file(tmp_path, "other.yaml")
     project = write_project(repo, {"designs": [{"name": "d", "rtl": rtl()}]})
     monkeypatch.chdir(tmp_path)
-    result, document = invoke(
-        "run", "vivado_synth", "--xedaproject", str(project), "--design-name", "d", "--dry-run",
-        *PART,
-    )  # fmt: skip
+    for design in (("--design-name", "d"), (str(tmp_path / "other.yaml"),)):
+        result, document = invoke(
+            "run", "vivado_synth", "--xedaproject", str(project), *design, "--dry-run", *PART
+        )
+        assert result.exit_code == 0, document
+        assert run_path_of(document).is_relative_to((repo / "xeda_run").resolve())
+
+
+def test_without_a_project_the_run_root_is_xeda_run_here(tmp_path, monkeypatch):
+    design_file(tmp_path, "other.yaml")
+    monkeypatch.chdir(tmp_path)
+    result, document = invoke("run", "vivado_synth", "other.yaml", "--dry-run", *PART)
     assert run_path_of(document).is_relative_to((tmp_path / "xeda_run").resolve())
 
 
@@ -904,3 +913,95 @@ def test_the_project_run_root_is_used_by_dse_and_the_remote_mirror(tmp_path, mon
          "--remote", "host", "--run-root", str(tmp_path / "given"), *PART],
     )  # fmt: skip
     assert seen["run_root"] == (tmp_path / "given").resolve()
+
+
+# -------------------------------------------------------- the design a command selects
+
+
+def test_a_positional_design_and_design_name_exclude_each_other(tmp_path, monkeypatch):
+    cli_project(tmp_path, monkeypatch)
+    arguments = ("run", "vivado_synth", "other.yaml", "--design-name", "inline", "--dry-run")
+    result, document = invoke(*arguments, *PART)
+    assert result.exit_code == 2 and document["outcome"] is None and document["spec"] is None
+    assert document["error"]["code"] == "usage_error"
+    assert "give DESIGN or --design-name, not both" in document["error"]["message"]
+    result = CliRunner().invoke(cli, list(arguments))
+    assert result.exit_code == 2 and "give DESIGN or --design-name, not both" in result.output
+    assert not (tmp_path / "xeda_run").exists()
+
+
+def test_dse_takes_the_same_exclusion(tmp_path, monkeypatch):
+    cli_project(tmp_path, monkeypatch)
+    result = CliRunner().invoke(
+        cli, ["dse", "vivado_synth", "other.yaml", "--design-name", "inline"]
+    )
+    assert result.exit_code == 2 and "give DESIGN or --design-name, not both" in result.output
+
+
+def test_the_only_design_of_a_project_is_selected_without_a_name_on_the_command_line(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, {"designs": [{"name": "solo", "rtl": rtl()}]})
+    result, document = invoke("run", "vivado_synth", "--dry-run", *PART)
+    assert result.exit_code == 0, document
+    assert document["design"] == "solo"
+
+
+def test_a_project_with_several_designs_needs_a_name_on_the_command_line(tmp_path, monkeypatch):
+    cli_project(tmp_path, monkeypatch)
+    result, document = invoke("run", "vivado_synth", "--dry-run", *PART)
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "design_name_required"
+    assert "fifo, inline" in document["error"]["message"]
+
+
+def test_no_design_and_no_project_is_the_usage_error_it_was(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result, document = invoke("run", "vivado_synth", "--dry-run", *PART)
+    assert result.exit_code == 2 and document["error"]["code"] == "usage_error"
+    assert "No design specified" in document["error"]["message"]
+
+
+# ------------------------------------------- the project file of a design file is protected
+
+
+def test_the_command_line_hands_the_launcher_the_project_of_a_design_file(tmp_path, monkeypatch):
+    """The project supplies the run root, so it is a file of the launch, whichever design runs."""
+    path = cli_project(tmp_path, monkeypatch)
+    seen = []
+
+    class Recording(DefaultRunner):
+        def resolve_run(self, flow, design=None, xedaproject=None, *args, **kwargs):
+            seen.append((design, xedaproject))
+            raise RuntimeError("recorded")
+
+    monkeypatch.setattr(xeda.cli, "DefaultRunner", Recording)
+    CliRunner().invoke(cli, ["run", "vivado_synth", "other.yaml", *PART])
+    CliRunner().invoke(cli, ["run", "vivado_synth", "--design-name", "fifo", *PART])
+    assert [Path(project) for _design, project in seen] == [path, path]
+
+
+def test_a_project_is_a_launch_input_of_a_design_file_without_a_layer(tmp_path, monkeypatch):
+    path = cli_project(tmp_path, monkeypatch)
+    runner = DefaultRunner(tmp_path / "run")
+    request = runner._request("vivado_synth", "other.yaml", xedaproject=str(path))
+    assert str(path) not in dict(request.origins), "its settings stay out of the design's layers"
+    assert set(runner._launch_inputs) == {path.resolve(), (tmp_path / "other.yaml").resolve()}
+
+
+def test_a_remote_run_without_a_design_takes_the_only_design_of_the_project(tmp_path, monkeypatch):
+    from xeda.remote import client
+
+    monkeypatch.chdir(tmp_path)
+    project = write_project(tmp_path, {"designs": [{"name": "solo", "rtl": rtl()}]})
+    seen = {}
+
+    def fake_run_remote(chain, **arguments):
+        seen.update(arguments)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(client, "run_remote", fake_run_remote)
+    CliRunner().invoke(cli, ["run", "vivado_synth", "--remote", "host", *PART])
+    assert seen["design"] is None and Path(seen["xedaproject"]) == project
+    assert seen["run_root"] == project.parent.resolve() / "xeda_run"
