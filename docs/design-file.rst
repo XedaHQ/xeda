@@ -1230,8 +1230,9 @@ The run root of a command is, from the highest source to the lowest: ``--run-roo
 project file, and ``./xeda_run``. The place where you keep your runs is a fact of your machine, so
 your choice wins over the one that the project file checks in.
 
-``--config PATH`` reads the file ``PATH`` in place of the user file. A file that does not exist
-adds no settings. ``--no-config`` reads neither the user file nor the project-local file. The two
+``--config PATH`` reads the file ``PATH`` in place of the user file. A ``PATH`` that does not exist
+is an error (``invalid_local_settings``). The user file and the project-local file may be missing:
+then they add no settings. ``--no-config`` reads neither the user file nor the project-local file. The two
 options exclude each other. Neither one changes which project file Xeda reads. A file that exists
 and is invalid is an error (``invalid_local_settings``). In Python, ``xeda.local_settings()`` reads
 the files as the command line does, and ``run()`` and ``plan()`` take the result as

@@ -143,7 +143,7 @@ project `flows.<flow>`, design `flows.<flow>`, selected target's `flows.<flow>`,
 `flows`, `-s`, API. The user file is `$XDG_CONFIG_HOME/xeda/config.yaml` (`~/.config/xeda/`); the
 project-local file is `xedaproject.local.yaml` beside the project file. Both are private (keep
 the second out of Git), have the keys `flows`, `env` and `run_root`, and are read by `xeda run` and
-`xeda dse` only. A `designs` key or any unknown key is `invalid_local_settings`. `--config FILE`
+`xeda dse` only. A `designs` key or any unknown key is `invalid_local_settings`. `--config FILE` (must exist)
 replaces the user file; `--no-config` reads neither file. A design file given as `DESIGN` gets the
 user file and no project-local file. Run root, highest first: `--run-root`, `XEDA_RUN_ROOT`,
 project-local `run_root`, user `run_root`, project `run_root`, `./xeda_run`. They merge key by key, so `-s clock.freq=100MHz` refines a nested

@@ -91,11 +91,13 @@ def local_settings(
     Without `config`, the user file is `$XDG_CONFIG_HOME/xeda/config.yaml` (`~/.config/xeda` when
     that variable is empty or relative). With `project`, the project-local file is the one beside
     `project.path`. `config=PATH` reads the file `PATH` in place of the user file; a relative
-    `PATH` resolves against the current directory now, once. `config=None` reads no private file.
-    The host profiles are always read, from `remotes.yaml` beside the default user file.
+    `PATH` resolves against the current directory now, once, and a `PATH` that does not exist is an
+    error. `config=None` reads no private file. The host profiles are always read, from
+    `remotes.yaml` beside the default user file.
 
-    A file that does not exist is no layer. Raises `ProjectError` (`invalid_local_settings`) for a
-    file that is malformed, and `RemoteConfigError` for malformed host profiles."""
+    The default user file and the project-local file may be missing: a missing one is no layer.
+    Raises `ProjectError` (`invalid_local_settings`) for a file that is malformed, for a `PATH`
+    that does not exist, and for malformed host profiles."""
     # The names of the layers are in `settings_layers`, which the launcher imports: import it here
     # so that this module stays below the launcher.
     from .flow_runner.settings_layers import PROJECT_LOCAL_ORIGIN, USER_CONFIG_ORIGIN
@@ -107,6 +109,8 @@ def local_settings(
         user_path = (
             config_directory() / USER_FILE_NAME if config is UNSET else Path(config).absolute()
         )
+        if config is not UNSET and not user_path.exists():
+            raise _invalid(USER_CONFIG_ORIGIN, user_path, "no such file")
         user = _read(user_path, USER_CONFIG_ORIGIN)
         if project is not None:
             local_path = project.path.with_name(project.path.stem + LOCAL_FILE_SUFFIX)

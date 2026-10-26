@@ -192,6 +192,10 @@ def _non_default(option: click.Option, tmp_path: Path) -> list:
             project = tmp_path / "project.yaml"
             project.write_text("flows: {}\n")
             return [option.opts[0], str(project)]
+        if option.name == "config":  # the command line reads the file it names, which must exist
+            config = tmp_path / "config.yaml"
+            config.write_text("flows: {}\n")
+            return [option.opts[0], str(config)]
         if option.type.exists:
             return [option.opts[0], str(SQRT)]
         return [option.opts[0], str(tmp_path / option.name)]

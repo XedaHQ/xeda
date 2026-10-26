@@ -168,11 +168,6 @@ def test_config_names_the_file_in_place_of_the_user_file(tmp_path, private_home)
     assert ls.run_root == (tmp_path / "repo" / "local")
 
 
-def test_a_config_file_that_does_not_exist_is_no_layer(tmp_path):
-    ls = local_settings(config=tmp_path / "nope.yaml")
-    assert ls.user == {} and ls.user_file is None
-
-
 def test_no_config_reads_neither_private_file(tmp_path, private_home):
     user_file(private_home, {"run_root": "u", "flows": {"yosys": {"abc9": True}}})
     project = project_of(tmp_path, run_root="checked_in")
@@ -275,7 +270,7 @@ def test_the_host_profiles_are_read_in_every_case(tmp_path, private_home):
     for ls in (
         local_settings(),
         local_settings(project, config=None),
-        local_settings(project, config=tmp_path / "other.yaml"),
+        local_settings(project, config=write(tmp_path / "other.yaml", {})),
     ):
         assert ls.host_profiles["venona"]["root"] == "~/x"
         assert set(ls.host_profiles) == {"venona"}
@@ -717,3 +712,31 @@ def test_a_remote_request_carries_the_private_layers_in_its_sections(tmp_path):
         local_settings=ls,
     )  # fmt: skip
     assert prepared.sections[_ReadsInstalled.name]["text"] == "local"
+
+
+def test_a_config_file_that_does_not_exist_is_an_error(tmp_path):
+    missing = tmp_path / "nope.yaml"
+    with pytest.raises(errors.ProjectError) as raised:
+        local_settings(config=missing)
+    assert raised.value.code == "invalid_local_settings"
+    assert str(missing) in str(raised.value) and "no such file" in str(raised.value)
+
+
+def test_the_default_user_file_and_the_project_local_file_may_be_missing(tmp_path):
+    project = project_of(tmp_path)
+    ls = local_settings(project)
+    assert ls.user_file is None and ls.local_file is None
+
+
+def test_the_command_line_refuses_a_config_file_that_does_not_exist(tmp_path):
+    path = write_project(tmp_path / "repo", {"designs": [{"name": "d", "rtl": rtl()}]})
+    missing = tmp_path / "nope.yaml"
+    result = CliRunner().invoke(
+        cli,
+        ["run", "vivado_synth", "--xedaproject", str(path), "--design-name", "d", *PART,
+         "--dry-run", "--config", str(missing), "--json"],
+    )  # fmt: skip
+    document = json.loads(result.stdout)
+    assert result.exit_code == 2
+    assert document["error"]["code"] == "invalid_local_settings"
+    assert str(missing) in document["error"]["message"]

@@ -667,8 +667,7 @@ def _config_options(func):
         type=click.Path(dir_okay=False, resolve_path=True, path_type=Path),
         default=None,
         help="Read this file in place of the user config file, "
-        "$XDG_CONFIG_HOME/xeda/config.yaml (~/.config/xeda/config.yaml). A file that does not "
-        "exist adds no settings.",
+        "$XDG_CONFIG_HOME/xeda/config.yaml (~/.config/xeda/config.yaml). The file must exist.",
     )(func)
 
 
