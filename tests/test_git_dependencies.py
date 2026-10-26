@@ -953,3 +953,36 @@ def test_a_refusal_from_the_settings_alone_starts_no_git_process(tmp_path, remot
         else:
             runner.launch_flow(Verilator, Design.from_file(design_file), TWO_WAVEFORMS)
     assert len(git_log()) == started and not (tmp_path / "xeda_run" / ".dependencies").exists()
+
+
+def test_a_source_that_moves_to_another_dependency_is_another_origin_of_an_input(tmp_path):
+    """The sole routed configuration of `fpga_pack` comes from a dependency. It is another node
+    when it comes from the other entry, though its path in its root is the same."""
+    for name in ("one", "two"):
+        lib = tmp_path / name
+        lib.mkdir()
+        (lib / "x.config").write_text("config\n")
+        (lib / f"{name}.yaml").write_text(
+            yaml.safe_dump(
+                {"name": name, "rtl": {"sources": [{"file": "x.config", "type": "EcpConfig"}]}}
+            )
+        )
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "o.v").write_text("module o; endmodule\n")
+    (tmp_path / "other" / "other.yaml").write_text(
+        yaml.safe_dump({"name": "other", "rtl": {"sources": ["o.v"]}})
+    )
+    identities = []
+    for order in (["one", "other"], ["other", "one"]):
+        root = tmp_path / "-".join(order)
+        root.mkdir()
+        (root / "d.yaml").write_text(
+            yaml.safe_dump({"name": "d", "dependencies": [f"../{n}/{n}.yaml" for n in order]})
+        )
+        plan = DefaultRunner(root / "xeda_run", display_results=False).plan(
+            "fpga_pack", str(root / "d.yaml"), flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+        )
+        node = plan.node("fpga_pack")
+        assert [i.origin for i in node.inputs if i.name == "config"] == ["source"]
+        identities.append(node.flowrun_hash)
+    assert identities[0] != identities[1]
