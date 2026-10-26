@@ -158,3 +158,6 @@ tests_run_dir/
 
 # Editor backups (draw.io)
 .$*.bkp
+
+# Vim swap files
+*.swp
