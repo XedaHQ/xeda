@@ -960,9 +960,9 @@ class FlowLauncher:
         The launch holds the shared lease of the storage of each Git dependency that the design
         merged, from here on, so no fetch replaces its files while a tool reads them."""
         for record in design.resolved_dependencies:
-            if record.checkout is not None:
+            if record.storage is not None:
                 self._leases.enter_context(
-                    storage_lock(record.checkout, exclusive=False, run_root=self.run_root)
+                    storage_lock(record.storage, exclusive=False, run_root=self.run_root)
                 )
         generation = self._leases.enter_context(
             launch_generation.generated(

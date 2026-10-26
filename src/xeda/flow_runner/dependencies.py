@@ -9,7 +9,8 @@ the plan and the launch, and the `Design` that the caller gave keeps its referen
 A Git dependency is kept in the run root, in storage that its commit names:
 `<run root>/.dependencies/<key>/`, where `<key>` is the first 16 hexadecimal digits of the SHA-256
 of the repository (without user name and password) and the full commit hash. The storage holds
-the files of the commit and the record `dependency.yaml`. It is complete or absent: a fetch
+the files of the commit in `checkout/` and the record `dependency.yaml` beside it, so a repository
+can hold a file of that name. It is complete or absent: a fetch
 writes into a temporary directory and renames it into place. The key names the content, so Xeda
 never writes a complete storage again. Xeda removes no storage. It is a cache, and the directory
 can be deleted by hand while no launch runs.
@@ -56,6 +57,7 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "DEPENDENCIES_DIRECTORY",
+    "CHECKOUT",
     "RECORD_NAME",
     "dependency_key",
     "dependency_storage",
@@ -66,8 +68,11 @@ __all__ = [
 
 #: The directory of dependency storage in the run root.
 DEPENDENCIES_DIRECTORY = ".dependencies"
-#: The record in each storage: `{repository, commit, fetched}`, the repository redacted.
+#: The record in each storage, beside the checkout: `{repository, commit, fetched}`, the repository
+#: redacted.
 RECORD_NAME = "dependency.yaml"
+#: The directory of the files of the commit in each storage.
+CHECKOUT = "checkout"
 #: The number of hexadecimal digits of the key of a storage.
 KEY_LENGTH = 16
 
@@ -200,28 +205,29 @@ def resolve_reference(ref: GitReference, *, run_root: Path, field: str = "depend
 
 
 def fetch(ref: GitReference, commit: str, *, run_root: Path, field: str = "dependencies") -> Path:
-    """Return the storage of `commit` of the repository of `ref`, fetching it if it is not there.
+    """Return the checkout of `commit` of the repository of `ref`, fetching it if it is not there.
 
-    A complete storage is never written again. Otherwise the fetch holds the exclusive lock of
-    the storage, so two launches fetch one commit once. It writes into a temporary directory under
-    `.dependencies/`, checks out `commit` there, and renames the directory into place. A failure
-    removes the temporary directory and raises `DesignError` with the code `fetch_failed` and
-    `field`. The run root exists."""
+    The storage of the commit holds the checkout, `<storage>/checkout/`, and the record of the
+    fetch beside it. A complete storage is never written again. Otherwise the fetch holds the
+    exclusive lock of the storage, so two launches fetch one commit once. It writes into a
+    temporary directory under `.dependencies/`, checks out `commit` there, and renames the
+    directory into place. A failure removes the temporary directory and raises `DesignError` with
+    the code `fetch_failed` and `field`. The run root exists."""
     storage = dependency_storage(run_root, dependency_key(ref.repo_url, commit))
     if _complete(storage):
-        return storage
+        return storage / CHECKOUT
     with storage_lock(storage, exclusive=True, run_root=run_root):
         if _complete(storage):
-            return storage
+            return storage / CHECKOUT
         owner = _owner(run_root)
         partial = owner.unlinked(
             Path(run_root)
             / DEPENDENCIES_DIRECTORY
             / f".partial-{storage.name}-{secrets.token_hex(4)}"
         )
-        owner.writable(partial).mkdir(parents=True)
+        owner.writable(partial / CHECKOUT).mkdir(parents=True)
         try:
-            _clone(ref, commit, partial, owner, field)
+            _clone(ref, commit, partial / CHECKOUT, owner, field)
             record = {
                 "repository": redacted_url(ref.repo_url),
                 "commit": commit,
@@ -234,7 +240,7 @@ def fetch(ref: GitReference, commit: str, *, run_root: Path, field: str = "depen
         except BaseException:
             owner.remove(partial)
             raise
-    return storage
+    return storage / CHECKOUT
 
 
 def _clone(ref: GitReference, commit: str, into: Path, owner: RunDirectory, field: str) -> None:
@@ -317,9 +323,9 @@ def _local_design(design: Design, ref: DesignReference, field: str) -> Design:
     return Design.from_file(path)
 
 
-def _git_design(ref: GitReference, storage: Path, field: str) -> Design:
-    """Load the design file of a Git dependency from its storage."""
-    path = _within(storage, ref.design_file)
+def _git_design(ref: GitReference, checkout: Path, field: str) -> Design:
+    """Load the design file of a Git dependency from its checkout."""
+    path = _within(checkout, ref.design_file)
     if path is None or not path.is_file():
         raise _failure(
             ref,
@@ -363,9 +369,9 @@ def _merge(
                 dependency_pin(redacted_url(ref.repo_url), ref.branch, ref.design_file)
             )
             commit = pinned or resolve_reference(ref, run_root=root, field=field)
-            storage = fetch(ref, commit, run_root=root, field=field)
-            loaded = _git_design(ref, storage, field)
-            checkout = Path(os.path.realpath(storage))
+            files = fetch(ref, commit, run_root=root, field=field)
+            loaded = _git_design(ref, files, field)
+            checkout = Path(os.path.realpath(files))
             slots[index] = DependencyRecord(
                 redacted_url(ref.repo_url), ref.branch, commit, ref.design_file, checkout
             )
@@ -389,7 +395,7 @@ def merged_design(design: Design, *, run_root: RunRoot) -> Design:
     again (a remote host gets the commits that the client resolved). A local dependency
     is a design file on disk, relative to the root of the design that lists it. It must exist
     now. A Git dependency is resolved to a commit (`resolve_reference`) and fetched (`fetch`), and
-    its design file is read from the storage. The dependencies of a dependency merge before it
+    its design file is read from the checkout. The dependencies of a dependency merge before it
     does.
 
     The result lists every entry in `Design.resolved_dependencies` at its index, its position in

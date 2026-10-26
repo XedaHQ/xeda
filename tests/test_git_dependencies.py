@@ -202,8 +202,8 @@ def test_planning_writes_only_dependency_storage(tmp_path, remote):
         # the run root, its marker, and the dependency storage with its lock file
         assert path in (root, storage_root) or path.parent == root or storage_root in path.parents
     storage = root / DEPENDENCIES_DIRECTORY / dependency_key(remote.url, remote.first)
-    assert (storage / "dep.yaml").is_file() and (storage / "dependency.yaml").is_file()
-    assert not (storage / ".git").exists()
+    assert (storage / "checkout" / "dep.yaml").is_file() and (storage / "dependency.yaml").is_file()
+    assert not (storage / "checkout" / ".git").exists()
     assert [p.name for p in (root / DEPENDENCIES_DIRECTORY).iterdir() if "partial" in p.name] == []
     record = yaml.safe_load((storage / "dependency.yaml").read_text())
     assert record["commit"] == remote.first and record["repository"] == remote.url
@@ -906,3 +906,20 @@ def test_a_design_file_does_not_write_the_commits_of_a_remote_package(tmp_path):
     )
     with pytest.raises(DesignValidationError, match="Xeda writes `dependency_commits`"):
         Design.from_file(tmp_path / "d.yaml")
+
+
+def test_a_file_of_the_repository_named_like_the_record_is_kept(tmp_path, remote):
+    """The record of a fetch lies beside the checkout, so a repository can hold a file of that
+    name at its root."""
+    (remote.work / "dependency.yaml").write_text("name: the repository's own file\n")
+    commit = remote.commit("a file named like the record")
+    _git("push", "--quiet", "origin", "main", cwd=remote.work)
+    plan = _plan(tmp_path, _design_file(tmp_path, _pinned(remote, commit)))
+    storage = tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY / dependency_key(remote.url, commit)
+    assert (
+        storage / "checkout" / "dependency.yaml"
+    ).read_text() == "name: the repository's own file\n"
+    assert yaml.safe_load((storage / "dependency.yaml").read_text())["commit"] == commit
+    assert {"dependency": 0, "path": "src/a.v", "type": "Verilog"} in _configuration(plan)["rtl"][
+        "sources"
+    ]

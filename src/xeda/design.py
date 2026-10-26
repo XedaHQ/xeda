@@ -2705,6 +2705,11 @@ class DependencyRecord:
     design_file: str
     checkout: Path | None
 
+    @property
+    def storage(self) -> Path | None:
+        """The storage that holds the checkout of a Git dependency, or None. A launch leases it."""
+        return None if self.checkout is None else self.checkout.parent
+
     def as_mapping(self) -> dict[str, str | None]:
         """The record as a run record holds it (`RunRecord.dependencies`): no checkout."""
         return {

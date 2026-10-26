@@ -829,8 +829,8 @@ A reference can say ``branch`` (a branch or a tag) or ``commit``. Without one, i
 ``HEAD`` of the repository. A ``commit`` is a full hash (40 hexadecimal digits, or 64 in a SHA-256
 repository). An abbreviated hash is refused when the design loads.
 
-Xeda keeps the files of a commit in ``<run root>/.dependencies/<key>/``, with the record
-``dependency.yaml``. The key names the repository and the commit, so a storage never changes after
+Xeda keeps the files of a commit in ``<run root>/.dependencies/<key>/checkout/``, with the record
+``dependency.yaml`` beside it. The key names the repository and the commit, so a storage never changes after
 Xeda has written it. A fetch writes into a temporary directory and renames it into place, so a
 storage is complete or absent. Two launches that need one commit fetch it once.
 
