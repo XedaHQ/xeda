@@ -852,7 +852,7 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
   the selected target included, as an override of any other list does. The designs of a project
   take overrides in the same way.
 * A target name starts with a letter and holds only letters, digits, ``_`` and ``-``. It is not
-  the name or an alias of a flow. There is one spelling, ``targets.<name>``. A design file has no
+  the name of a flow. There is one spelling, ``targets.<name>``. A design file has no
   ``target`` key.
 * A selected target yields an ordinary design, with the same hash and results as the file written
   out flat with the keys of the target applied by hand. The name of the target is reported

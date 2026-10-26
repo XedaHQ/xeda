@@ -225,9 +225,7 @@ def _parse_request_words(
                 index += 1
                 continue
             if not getattr(param, "is_flag", False):
-                if param.name == "design_file_opt":
-                    explicit_design = True
-                elif param.name == "design_name":
+                if param.name == "design_name":
                     explicit_design = True
                 if has_attached_value:
                     if is_current and not is_settings:
@@ -345,7 +343,7 @@ def _parse_request_words(
     design_params = {
         param.name: param
         for param in command.params
-        if param.name in {"design_file", "design_file_opt", "design_name"}
+        if param.name in {"design_file", "design_name"}
     }
     unset = getattr(click.core, "UNSET", None)
     explicit_design = explicit_design or any(

@@ -151,7 +151,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 ### Adding or changing a flow
 
 - Add the class to the import list and to `__all__` in `xeda/flows/__init__.py`
-  (`tests/test_flow_registry.py`). After a change to flows, aliases, I/O, settings models, or
+  (`tests/test_flow_registry.py`). After a change to flows, I/O, settings models, or
   `action_reason`, run `python tools/generate_flow_catalog.py` and commit the catalog
   (`tests/test_flow_catalog.py`).
 - OpenROAD flows: every OpenROAD process (`openroad` runs two or three) starts with the restart

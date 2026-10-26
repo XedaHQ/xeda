@@ -366,8 +366,8 @@ def input_names(model: Type[BaseModel]) -> Dict[str, str]:
 
 # Shorthand forms and the tables they stand for
 #
-# A key that takes a table often takes other forms too: a clock as a port name, `fpga` as a part
-# number, `parameters` as a list of `{name, value}` objects. Each form means exactly one table.
+# A key that takes a table often takes other forms too: a clock as a port name, `vhdl` as a
+# standard, `parameters` as a list of `{name, value}` objects. Each form means exactly one table.
 # When two layers meet (a target over its design, a settings layer over the one below), both
 # sides are read as the tables they stand for. Then the merge decides whether to merge them key
 # by key or to replace one by the other. A model says what its forms mean in one place: its

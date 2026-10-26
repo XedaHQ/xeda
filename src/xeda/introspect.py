@@ -595,7 +595,7 @@ def settings_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     """Return the settings of a flow, plus the raw JSON Schema.
 
     `fields` has one entry for each top-level setting, including the settings that every flow
-    shares (`ncpus`, `dockerized`, ...). After a settings group, it has one entry for each field
+    shares (`nthreads`, `dockerized`, ...). After a settings group, it has one entry for each field
     of the group, depth first in declaration order. Its `name` is the dotted path that `-s` and a
     design file accept, and its `group` is the top-level setting that holds the group.
 
@@ -1017,7 +1017,7 @@ def _open_property_sets(node: Any) -> None:
     """Drop `additionalProperties: false` throughout the input schema.
 
     The models set `extra = forbid`, so pydantic emits a closed property set. A design file is
-    not closed in that sense: it may use dotted-key shorthand (`clock.port`, `hdl.vhdl.standard`,
+    not closed in that sense: it may use dotted-key shorthand (`language.vhdl.standard`,
     `fpga.part`) that `Design.from_file` expands before the model sees it. The closed set would
     reject files that load without error. The loader still rejects unknown keys once it has
     expanded the file.

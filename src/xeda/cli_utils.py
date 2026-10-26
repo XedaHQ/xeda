@@ -358,7 +358,6 @@ class XedaHelpGroup(ColorizedGroup):
 #: The code of a file that a path parameter of `run` names and that does not exist.
 _MISSING_FILE_CODES = {
     "design_file": "design_file_not_found",
-    "design_file_opt": "design_file_not_found",
     "xedaproject": "project_file_not_found",
 }
 

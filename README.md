@@ -73,7 +73,7 @@ flows:
     clocks.main_clock.period: 5 ns
 ```
 
-A dotted key stands for a nested table: `clocks.main_clock.period: 5 ns` is a `clock` table with the key
+A dotted key stands for a nested table: `clocks.main_clock.period: 5 ns` is a table `clocks.main_clock` with the key
 `period`. The command line uses the same keys, for example `-s clocks.main_clock.period=4.5ns`.
 
 A `.py` testbench source makes the testbench a cocotb one. The clock period is a setting of each

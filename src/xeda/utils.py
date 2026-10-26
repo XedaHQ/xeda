@@ -807,7 +807,7 @@ def get_hierarchy(dct: Dict[str, Any], path: Union[str, List[str]]) -> Optional[
 
 
 def set_hierarchy(dct: Dict[str, Any], path, value) -> None:
-    """Set `value` in `dct` at `path`, a dotted key (`"clock.period"`) or its parts, making a
+    """Set `value` in `dct` at `path`, a dotted key (`"fpga.part"`) or its parts, making a
     table of each key before the last. A dict `value` is set key by key, so a dotted key in it is
     a path too.
 

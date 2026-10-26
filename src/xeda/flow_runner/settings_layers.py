@@ -269,7 +269,7 @@ def _merge_settings_layer(
 ) -> dict[str, Any]:
     """Merge one parsed layer into `base`, with its nested settings.
 
-    A value that is a shorthand form of a table (`fpga` as a part number) means exactly that
+    A value that is a shorthand form of a table (`vhdl: "08"`) means exactly that
     table. Where it meets a table, from below or above, the two merge key by key. Where it
     meets nothing, it stays as written. A form that is no table (`WHOLE`), and a value that is
     no form at all, replace what is below them. So does a list, unless `append` is set and the
