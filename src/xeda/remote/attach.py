@@ -99,7 +99,7 @@ def _attach(
                 raise RemoteProtocolError(f"The agent on {host} sent a bad `attached` record.")
             number = found["id"]
             record = read_record(mirror_root, number)
-            _fill(run, record)
+            _fill(run, record, mirror_root)
             run.launch_id = number
             _say_which(host, found, launch_id)
             local = _Local(
@@ -156,13 +156,14 @@ def _attach(
     return outcome
 
 
-def _fill(run: _Run, record: LaunchRecord) -> None:
-    """Give the run the names of the request that the record holds."""
+def _fill(run: _Run, record: LaunchRecord, mirror_root: Path) -> None:
+    """Give the run the names of the request that the record holds, and the mirror `mirror_root`
+    of the host."""
     run.chain, run.flow, run.design = record.chain, record.flow, record.design
     run.target, run.debug, run.request = record.target, record.debug, record.request
     run.design_name, run.settings = record.design_name, record.settings
     run.local_root = Path(record.local_root)
-    run.mirror_root = run.local_root / f"@{run.host}"
+    run.mirror_root = mirror_root
     run.nodes = [
         (name, flow, Path(path)) for (name, flow), path in zip(record.nodes, record.run_paths)
     ]
