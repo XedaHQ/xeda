@@ -814,8 +814,9 @@ join those of the design, and its ``rtl.top``, ``rtl.parameters``, ``rtl.clocks`
 fill the ones that the design leaves out. Loading a design reads no dependency and starts no Git
 command. Planning reads them: ``xeda run`` (also with ``--dry-run``), ``xeda dse`` and the Python
 calls that plan fetch a Git dependency into the run root first, and then merge it. With ``--remote``
-the host plans, so the host fetches the dependency into its own run root. This is the one case in
-which planning writes to the run root.
+both machines plan: yours resolves the dependency and fetches it, so it needs access to the Git
+server, and the host then fetches the commit that yours resolved into its own run root. This is the
+one case in which planning writes to the run root.
 
 .. code-block:: yaml
 

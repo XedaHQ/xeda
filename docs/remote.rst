@@ -87,8 +87,11 @@ These limits apply to every remote run:
   the generator of a Git dependency after the fetch.
 * The dependencies of the design (see :ref:`git-dependencies`) keep their order. The host merges
   them once, as Xeda does on your machine, so both plans have the same indexes and the same
-  hashes. A Git dependency travels as its reference, and the host fetches it into its own run
-  root. A local dependency travels as a design document and the files it declares.
+  hashes. Your machine plans first, so it needs access to the Git server: it resolves each Git
+  dependency and fetches it into its own run root. A Git dependency travels as its reference with
+  the commit that your machine resolved, and the host fetches exactly that commit into its own run
+  root. A branch that moves between the two plans changes nothing, and the record on both sides
+  names the branch as you wrote it. A local dependency travels as a design document and the files it declares.
 
 The first run
 =============

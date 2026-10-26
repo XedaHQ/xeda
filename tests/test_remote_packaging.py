@@ -313,6 +313,7 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
         remote_inputs=PurePosixPath(remote_dir),
         bindings=prepared.plan.bindings,
         request=prepared.plan.request,
+        resolved=prepared.design.resolved_dependencies,
     )
     _sync(package, remote_dir)
     remote_root = tmp_path / "remote" / "xeda_run"

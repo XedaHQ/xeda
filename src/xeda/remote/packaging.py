@@ -19,12 +19,14 @@ from ..dataclass import AtomicName, BaseModel, is_locator, opaque_key_fields_of,
 from ..design import (
     Design,
     DesignPart,
+    DependencyRecord,
     DesignValidationError,
     FileResource,
     Generator,
     GitReference,
     Source,
     generator_of,
+    redacted_url,
 )
 from ..flow import FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
@@ -125,6 +127,7 @@ def package_inputs(
     host_flows: Mapping[str, Mapping[str, Any]] | None = None,
     bindings: Sequence[BindingLayer] = (),
     request: FlowRequest | None = None,
+    resolved: Sequence[DependencyRecord] = (),
 ) -> InputPackage:
     """Return the files and the design document that the remote needs for this request.
 
@@ -325,6 +328,7 @@ def package_inputs(
             places.setdefault(base / relative, local)
         return relative.as_posix()
 
+    pinned = {(d.repository, d.reference, d.design_file): d.commit for d in resolved if d.commit}
     dependency_bases: Dict[Path, Path] = {}
     dependency_documents: Dict[str, str] = {}
 
@@ -343,7 +347,8 @@ def package_inputs(
         dumped = unit.model_dump(mode="json")["dependencies"]
         for ref, entry in zip(unit.dependencies, dumped):
             if isinstance(ref, GitReference):
-                entries.append(entry)
+                commit = pinned.get((redacted_url(ref.repo_url), ref.branch, ref.design_file))
+                entries.append({**entry, "commit": ref.commit or commit})
                 continue
             dependency = Design.from_file(unit.root_path / ref.uri)
             file = dependency.generation_label

@@ -483,3 +483,40 @@ def test_a_generator_that_cannot_be_sent_is_refused_before_any_git_process(
     assert said in str(outcome.error)
     assert len(git_log()) == started, "a Git command was started"
     assert world.runs == 0 and not connected(remote_host)
+
+
+# ------------------------------------------- the host fetches the commit that the client resolved
+
+
+def test_the_host_fetches_the_commit_the_client_resolved(
+    tmp_path, remote_host, remote, git_log, monkeypatch
+):
+    """A branch that moves on the server between the plan of the client and the plan of the host
+    changes nothing: the package holds the commit of the client, and the host fetches that one."""
+    import xeda.flow_runner.dependencies as dependencies
+    from xeda.flow_runner.dependencies import dependency_key
+
+    git = f"git+{remote.url}?branch=main#dep.yaml"
+    world = _world(tmp_path, extra=f"dependencies:\n  - {git}\n")
+    first, fetched = remote.first, dependencies.fetch
+    moved: list[str] = []
+
+    def fetch_then_move_the_branch(*args, **kwargs):
+        storage = fetched(*args, **kwargs)
+        if not moved:  # the fetch of the client: the branch moves once it has been planned
+            moved.append(remote.advance())
+        return storage
+
+    monkeypatch.setattr(dependencies, "fetch", fetch_then_move_the_branch)
+    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    if outcome.error is not None:
+        raise outcome.error
+    assert outcome.success, outcome.document
+    (second,) = moved
+    assert second != first
+    stored = {p.name for p in (remote_host.workspace() / "xeda_run" / ".dependencies").iterdir()}
+    assert dependency_key(remote.url, first) in stored
+    assert dependency_key(remote.url, second) not in stored, "the host fetched the moved branch"
+    # the provenance is the same on both sides: the branch as written, and the commit it ran with
+    (record,) = outcome.document["nodes"][-1]["record"]["dependencies"]
+    assert (record["reference"], record["commit"]) == ("main", first)

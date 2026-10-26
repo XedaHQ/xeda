@@ -1537,6 +1537,7 @@ def _run(
                 host_flows=profile.flows,
                 bindings=plan.bindings,
                 request=plan.request,
+                resolved=prepared.prepared.design.resolved_dependencies,
             )
             launch = LaunchRequest(
                 chain=run.chain,
