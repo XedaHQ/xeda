@@ -570,7 +570,7 @@ def test_a_flow_tool_sees_a_terminal_in_a_terminal(terminal, tmp_path, monkeypat
     tool = Tool(sys.executable, version_flag=None)
     assert tool.console_colors
     tool._run_directory = RunDirectory.unlaunched(tmp_path)
-    tool.run("-c", PROGRESS)
+    tool.run("-c", PROGRESS, cwd=tmp_path)
     lines = log_lines(tmp_path / "logs" / f"{Path(sys.executable).name}.log")
     assert lines[0] == "stdout is a terminal: True | stderr is a terminal: True"
     assert lines[-1] == "FAIL"
