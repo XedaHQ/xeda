@@ -22,7 +22,9 @@ root `R`, and the workspace is `R/v1/ws/<key>/` with the directories `inputs/<de
    "exit": n, "survivors": n}`. `survivors` counts the processes that SIGKILL did not remove.
    While the launch runs, the client sends `H` frames, and `C` to cancel it.
 4. client: `J {"fetch": {"fetch_all": bool}}` (or none, for a dry run). The agent answers
-   `J {"files": [entries]}` and then the tar of these files as `DATA` frames and an `END` frame.
+   `J {"files": [entries], "skipped": [skipped sources]}` and then the tar of these files as `DATA`
+   frames and an `END` frame. A skipped source is an artifact that a symbolic link leads out of its
+   run directory: nothing of it is sent (`fetch.SkippedSource`).
 5. client: `J {"bye": true}`. The agent releases the lock and exits with status 0.
 
 A launch with `"keep_running": true` in the `launch` frame survives the session. The child
