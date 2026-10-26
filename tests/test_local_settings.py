@@ -752,3 +752,26 @@ def test_remote_commands_still_report_malformed_host_profiles_as_remote_config_e
     path = write(tmp_path / "remotes.yaml", "hosts: [")
     with pytest.raises(RemoteConfigError):
         read_host_profiles(path)
+
+
+@pytest.mark.parametrize("which", ["user", "local"])
+def test_a_flow_name_that_is_no_flow_in_a_private_file_is_refused_naming_the_file(tmp_path, which):
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
+    file = tmp_path / ("config.yaml" if which == "user" else "x.local.yaml")
+    ls = LocalSettings(**{which: {"vivadosynth": {"nthreads": 3}}, f"{which}_file": file})
+    with pytest.raises(errors.FlowNotFoundError) as raised:
+        DefaultRunner(tmp_path / "run").plan(_ReadsInstalled, design, local_settings=ls)
+    assert raised.value.code == "flow_not_found" and raised.value.name == "vivadosynth"
+    assert "vivado_synth" in raised.value.suggestions
+    assert str(file) in str(raised.value)
+
+
+def test_a_flow_name_that_is_no_flow_in_the_other_layers_is_still_left_alone(tmp_path):
+    design = Design(
+        name="d",
+        root=tmp_path,
+        rtl={"sources": [], "top": "t"},
+        flows={"a_plugin_not_installed": {"x": 1}},
+    )
+    plan = DefaultRunner(tmp_path / "run").plan(_ReadsInstalled, design)
+    assert plan.requested == _ReadsInstalled.name

@@ -1217,7 +1217,7 @@ is an error: a private file never declares a design.
 
 ``flows``
   The settings by flow name, as in a project file. An entry for a flow that is not in the run is
-  ignored. A relative path in this table is relative to the directory of the file.
+  ignored, but a name that is no flow is an error that names the file. A relative path in this table is relative to the directory of the file.
 ``env``
   Environment variables, as text. A name in both files takes the value of the project-local file.
   Xeda reads this table and keeps it with the other private settings.

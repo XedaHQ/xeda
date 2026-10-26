@@ -79,6 +79,7 @@ from ..utils import (
     unique,
 )
 from ..version import __version__
+from ..errors import FlowNotFoundError as PublicFlowNotFoundError
 from ..errors import ProjectError
 from ..project import Project
 from ..types import UNSET, Unset
@@ -2339,7 +2340,21 @@ class FlowLauncher:
         """Return the label, the sections and the bindings of the `flows` table of a private file.
 
         A relative path of the file resolves against the directory of the file, once. A table
-        that no file gave resolves against the design root, like the design's own."""
+        that no file gave resolves against the design root, like the design's own. A private
+        file is one file for many runs, so it may hold a section for any flow, but a name that is
+        no flow is an error that names the file."""
+        for name in table:
+            check_flow_name(name)
+            if _get_flow_class_if_known(name) is None:
+                close = _flow_name_suggestions(name)
+                raise PublicFlowNotFoundError(
+                    f"Flow '{name}' in {label} was not found."
+                    + (f" Did you mean: {', '.join(close)}?" if close else "")
+                    + " Run `xeda list-flows` to see all available flows.",
+                    code="flow_not_found",
+                    name=name,
+                    suggestions=close,
+                )
         sections, bindings = split_bindings(thaw(table), location=label)
         if file is not None and sections and file.parent.resolve() != design.root:
             sections = anchored_sections(
