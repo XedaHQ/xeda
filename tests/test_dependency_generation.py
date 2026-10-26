@@ -14,6 +14,7 @@ import pytest
 
 from xeda import Design
 from xeda.design import DesignValidationError
+from xeda.flow_runner.dependencies import merged_design
 from xeda.flow_runner.launch_generation import generating_units, inspect_generation
 from xeda.outcomes import Outcome
 
@@ -93,6 +94,10 @@ class Chain:
     def load(self) -> Design:
         return Design.from_file(self.design_file)
 
+    def merged(self) -> Design:
+        """The design with its dependencies merged in, as planning merges them."""
+        return merged_design(self.load(), run_root=None)
+
     def runner(self, **settings):
         from xeda.flow_runner import DefaultRunner
 
@@ -119,7 +124,7 @@ class Chain:
 
 def test_the_design_lists_the_generated_sources_of_its_dependency_with_their_owner(tmp_path):
     chain = Chain(tmp_path)
-    design = chain.load()
+    design = chain.merged()
     sources = design.rtl.sources
     assert [s.generated for s in sources] == [True, False]
     generated = [s for s in sources if s.generated]
@@ -226,7 +231,7 @@ def test_two_generators_may_not_declare_one_name(tmp_path):
         + chain._generator("top")
     )
     with pytest.raises(DesignValidationError, match="two generators declare"):
-        chain.load()
+        chain.merged()
 
 
 def test_inspecting_a_design_without_a_generator_anywhere_finds_none(tmp_path):
@@ -300,7 +305,7 @@ def test_a_storage_whose_key_changed_while_another_unit_generated_is_not_leased(
         + "Path(os.environ['DESIGN_ROOT'], '..', 'lib2', 'spec.txt').write_text('two\\n')\n"
     )
     chain.run_root.mkdir()
-    design = chain.load()
+    design = chain.merged()
     with generated(design, run_root=chain.run_root.resolve(), environ=dict(os.environ)) as held:
         assert held is not None
         for owner, unit in generating_units(design):
@@ -334,7 +339,7 @@ def test_two_dependency_designs_in_one_directory_are_two_units(tmp_path):
     from xeda.spec import Spec
 
     log, design_file = two_designs_in_one_directory(tmp_path)
-    design = Design.from_file(design_file)
+    design = merged_design(Design.from_file(design_file), run_root=None)
     assert [unit.name for _, unit in generating_units(design)] == ["a", "b"]
     assert len({owner for owner, _ in generating_units(design)}) == 2
     assert len({s.owner for s in design.rtl.sources if s.generated}) == 2

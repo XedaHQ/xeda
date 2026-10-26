@@ -19,6 +19,7 @@ from click.testing import CliRunner
 
 from xeda.cli import cli
 from xeda.design import DesignValidationError
+from xeda.errors import DesignError
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.dse import Dse
@@ -28,21 +29,6 @@ from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remo
 from .tool_utils import use_fake_tools
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
-
-
-@pytest.fixture
-def clones(monkeypatch):
-    """Where `git clone` was asked to clone: a stand-in that clones nothing."""
-    import git.repo
-
-    asked: list[Path] = []
-
-    def clone_from(url, to_path, **kwargs):
-        asked.append(Path(to_path))
-        raise AssertionError(f"nothing is cloned here: {url}")
-
-    monkeypatch.setattr(git.repo.Repo, "clone_from", staticmethod(clone_from))
-    return asked
 
 
 #: Appends a line to the counter its first argument names, then writes each file named after it
@@ -325,21 +311,6 @@ def test_a_testbench_file_the_generator_writes_is_refused_when_the_design_loads(
     assert generated.runs == 0
 
 
-def test_a_git_dependency_is_not_fetched_by_a_plan_and_no_generator_runs(
-    tmp_path, monkeypatch, clones
-):
-    """A Git dependency is fetched while the design loads, and a plan refuses that. The refusal
-    starts no generator and clones nothing."""
-    monkeypatch.chdir(tmp_path)
-    generated = Generated(
-        tmp_path, ["gen/top.edf"], dependencies=["git+https://example.com/u/lib.git#lib.toml"]
-    )
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with pytest.raises(DesignValidationError, match="Git dependency fetch"):
-        runner.plan("yosys_fpga", str(generated.file), flow_settings=dict(XILINX))
-    assert generated.runs == 0 and clones == []
-
-
 def test_a_project_s_design_is_chosen_once(tmp_path, monkeypatch):
     """A design chosen from a project (the command line's menu) is asked for once."""
     use_fake_tools(monkeypatch)
@@ -433,11 +404,9 @@ def test_the_choice_among_a_project_s_designs_with_one_name_is_kept(tmp_path, mo
     assert generated.runs == 1
 
 
-def test_a_local_dependency_the_generator_writes_is_refused_when_the_design_loads(
-    tmp_path, monkeypatch
-):
-    """The design file of a local dependency must exist when the design loads, and the generator
-    has not run: the launch is refused, and the generator does not run."""
+def test_a_local_dependency_the_generator_writes_is_refused_at_planning(tmp_path, monkeypatch):
+    """The design file of a local dependency must exist when planning starts, and the generator
+    has not run: the launch is refused, naming the generator, and the generator does not run."""
     monkeypatch.chdir(tmp_path)
     generated = Generated(
         tmp_path,
@@ -446,8 +415,9 @@ def test_a_local_dependency_the_generator_writes_is_refused_when_the_design_load
         dependencies=["gen/dep.toml"],
     )
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with pytest.raises(DesignValidationError, match="dep.toml"):
+    with pytest.raises(DesignError, match="dep.toml") as refused:
         runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+    assert refused.value.code == "design_file_not_found" and "gen.py" in str(refused.value)
     assert generated.runs == 0
 
 
@@ -462,7 +432,7 @@ def test_a_remote_launch_refuses_a_local_dependency_the_generator_writes(
         dependencies=["gen/dep.toml"],
     )
     outcome = remote_request(tmp_path, generated.file, "vivado_synth", flow_settings=dict(XILINX))
-    assert isinstance(outcome.error, DesignValidationError)
+    assert isinstance(outcome.error, DesignError)
     assert generated.runs == 0 and not connected(remote_host)
 
 

@@ -214,8 +214,8 @@ def test_dry_run_leaves_existing_unmarked_roots_unchanged(tmp_path, root_kind, v
     assert _state(tmp_path, exclude=[]) == before
 
 
-@pytest.mark.parametrize("kind", ["command", "arguments", "mapping", "project", "git", "local"])
-def test_side_effecting_loading_is_refused_or_planned_without_effect(tmp_path, kind):
+@pytest.mark.parametrize("kind", ["command", "arguments", "mapping", "project", "local"])
+def test_a_generator_is_planned_without_effect(tmp_path, kind):
     root = tmp_path / "d"
     root.mkdir()
     (root / "blink.v").write_text(BLINK)
@@ -229,8 +229,6 @@ def test_side_effecting_loading_is_refused_or_planned_without_effect(tmp_path, k
         rtl["generator"] = ["touch", "generated"]
     elif kind == "mapping":
         rtl["generator"] = {"executable": "touch", "args": ["generated"]}
-    else:
-        spec["dependencies"] = ["git+https://example.invalid/repo.git#d.toml"]
     design = root / "d.json"
     design.write_text(json.dumps(spec))
     args = [str(design)]
@@ -263,17 +261,9 @@ def test_side_effecting_loading_is_refused_or_planned_without_effect(tmp_path, k
         cwd=tmp_path,
     )
     document = json_stdout(proc)
-    if kind == "git":
-        # A Git dependency is fetched while the design loads: a plan refuses it before it has
-        # an effect.
-        assert proc.returncode == 2, proc.stderr
-        assert document["outcome"] is None
-        assert document["error"]["code"] == "invalid_design"
-        assert "Git dependency fetch" in document["error"]["message"]
-    else:
-        # A generator, also one of a dependency, runs in the launch, never in a plan.
-        assert proc.returncode == 0, proc.stderr
-        assert document["success"] is True
+    # A generator, also one of a dependency, runs in the launch, never in a plan.
+    assert proc.returncode == 0, proc.stderr
+    assert document["success"] is True
     assert not sentinel.exists()
     assert not (tmp_path / "xeda_run").exists()
     assert not (tmp_path / "out").exists()

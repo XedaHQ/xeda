@@ -949,15 +949,20 @@ def _input_source(flow: Flow, path: str) -> InputSource:
 
     source = _design_source(flow, Path(path))
     generated = source is not None and source.generated
+    dependency = None if source is None else source.dependency
     return InputSource(
         path=(
             cast(str, source.output_name)
             if generated
-            else root_relative_text(flow.design.root_path, Path(path))
+            else (
+                source.dependency_place
+                if dependency is not None
+                else root_relative_text(flow.design.root_path, Path(path))
+            )
         ),
         generated=generated,
         digest=_source_digest(flow, Path(path)),
-        dependency=None,
+        dependency=dependency,
     )
 
 
@@ -1092,5 +1097,5 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
         finished=finished.astimezone(timezone.utc),
         runtime=float(runtime),
         inherited_variables=(),
-        dependencies=(),
+        dependencies=tuple(d.as_mapping() for d in flow.design.resolved_dependencies),
     )

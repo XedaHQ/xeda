@@ -138,9 +138,9 @@ def package_inputs(
     host_flows = host_flows or {}
     refuse_unsendable_generator(design)
     path_identities: dict[str, dict[str, str]] = {}
-    # `mode="json"`: the fields kept as they are (`dependencies` and its `local_cache` /
-    # `clone_dir`) hold `Path`s, which a python-mode dump leaves as objects for the encoder
-    # to stringify by luck rather than by rule.
+    # `mode="json"`: a field kept as it is may hold a `Path`, which a python-mode dump leaves as an
+    # object for the encoder to stringify by luck rather than by rule. The Git dependencies that
+    # the design still has travel as references; the host fetches them.
     # The design a target yielded, with the name of the target. The remote plans the same run
     # directories as this side (`<design>/<target>/<flow>`), and a design file may not write
     # `target`, but a packaged document may (`Design.from_file`).

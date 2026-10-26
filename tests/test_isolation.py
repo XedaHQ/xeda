@@ -1931,6 +1931,21 @@ def _python_deletions(package: Path) -> Counter:
 #: Every deletion in xeda's Python code outside `RunDirectory`, reviewed: what it removes, and
 #: why that is only ever xeda's own. A new one, or a second copy of one, fails the oracle.
 REVIEWED_PY_DELETIONS = {
+    ("flow_runner/dependencies.py", "owner.remove(partial)"): (
+        1,
+        "RunDirectory.remove of the temporary directory of a failed fetch, which only this fetch "
+        "names, under the exclusive lock of the storage",
+    ),
+    ("flow_runner/dependencies.py", 'owner.remove(into / ".git")'): (
+        1,
+        "RunDirectory.remove of the Git directory in the temporary directory of a fetch, which "
+        "holds the URL and is no part of the content",
+    ),
+    ("flow_runner/dependencies.py", "os.rename(partial, storage)"): (
+        1,
+        "publish a complete temporary directory under the storage name, under the exclusive lock "
+        "of the storage, through the link-refusing path guard",
+    ),
     ("flows/xilinx.py", "temporary.remove(bba)"): (
         1,
         "RunDirectory.remove on the generator's own BBA in guarded cache scratch",
@@ -2534,6 +2549,12 @@ _OUTSIDE_RUNS = "not a run directory's"
 #: Every raw write by name, why it cannot write through a link into a file of the user's:
 #: `(file, line, reason)`. Everything else xeda writes goes through `replacing_file`.
 REVIEWED_WRITES = [
+    (
+        "flow_runner/dependencies.py",
+        "os.rename(partial, storage)",
+        "a complete dependency storage, written in a temporary directory and published under its "
+        "key and the exclusive lock of the storage; the path is named through `unlinked`",
+    ),
     (
         "flows/xilinx.py",
         "temporary.rename(entry)",

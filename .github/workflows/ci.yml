@@ -124,7 +124,8 @@ jobs:
   #   file locks (flock): test_read_locks (run-directory leases), test_storage_locks and
   #     test_generation_storage (leases of the storage of a generator, named pipes),
   #     test_target_scrub (scrub, which also handles links), test_generator_staleness (two
-  #     processes generate one storage), test_external_cache (six processes fill one cache)
+  #     processes generate one storage), test_git_dependencies (the lease and the fetch of a
+  #     dependency storage), test_external_cache (six processes fill one cache)
   #   file-system clocks and file metadata: test_digest, test_trace_inputs, test_trace_soundness
   #     (racy timestamps, inode change times)
   #   file copying (fcopyfile): test_utils, test_delivery
@@ -182,6 +183,7 @@ jobs:
           tests/test_read_locks.py
           tests/test_storage_locks.py
           tests/test_generation_storage.py
+          tests/test_git_dependencies.py
           tests/test_target_scrub.py
           tests/test_generator_staleness.py
           tests/test_external_cache.py

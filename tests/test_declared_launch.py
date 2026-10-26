@@ -264,11 +264,7 @@ def test_changed_binding_provenance_invalidates_the_same_file_set(tmp_path, desi
     }.get(binding, "declared input bindings changed") in again.stale_reason
 
 
-def test_planning_runs_no_generator_and_refuses_git_loading_before_any_effect(
-    tmp_path, monkeypatch
-):
-    from xeda.design import DesignValidationError
-
+def test_planning_runs_no_generator_and_writes_nothing(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     path = tmp_path / "d.toml"
     path.write_text(
@@ -276,14 +272,6 @@ def test_planning_runs_no_generator_and_refuses_git_loading_before_any_effect(
     )
     assert _runner(tmp_path).plan(_Taker, path)
     assert not (tmp_path / "generated").exists()
-    assert not (tmp_path / "xeda_run").exists()
-
-    path.write_text(
-        'name="d"\ndependencies=["git+https://example.invalid/repo.git#d.toml"]\n'
-        '[rtl]\nsources=[]\ntop="t"\n'
-    )
-    with pytest.raises(DesignValidationError, match="Git dependency fetch"):
-        _runner(tmp_path).plan(_Taker, path)
     assert not (tmp_path / "xeda_run").exists()
 
 

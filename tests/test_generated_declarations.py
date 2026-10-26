@@ -12,6 +12,7 @@ import pytest
 
 from xeda import Design
 from xeda.design import DesignValidationError, SourceType, generator_of
+from xeda.flow_runner.dependencies import merged_design
 
 
 def _design(root: Path, sources, generated_sources=None, **recipe) -> Design:
@@ -227,10 +228,12 @@ def test_a_dependency_generator_cwd_is_judged_against_the_root_of_the_dependency
         "    cwd: ..\n"
     )
     (tmp_path / "app" / "top.v").write_text("module top; endmodule\n")
+    design = Design(
+        name="app",
+        design_root=tmp_path / "app",
+        rtl={"sources": ["top.v"], "top": "top"},
+        dependencies=["dep/dep.yaml"],
+    )
+    # planning reads the dependency, and the design of the dependency is refused as it loads
     with pytest.raises(DesignValidationError, match="cwd.*below the design root"):
-        Design(
-            name="app",
-            design_root=tmp_path / "app",
-            rtl={"sources": ["top.v"], "top": "top"},
-            dependencies=["dep/dep.yaml"],
-        )
+        merged_design(design, run_root=None)

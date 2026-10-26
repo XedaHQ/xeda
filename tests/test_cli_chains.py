@@ -216,19 +216,14 @@ def _dse_runner(tmp_path):
     return Dse(_DeclaredOptimizer, run_root=tmp_path / "mirror", variations={}, max_workers=1)
 
 
-def test_a_chain_given_to_dse_clones_no_git_dependency(tmp_path, monkeypatch):
+def test_a_chain_given_to_dse_fetches_no_git_dependency(tmp_path, monkeypatch):
     """The refusal needs only the flow name, so it comes before the
-    design is loaded, which would clone a git dependency into the run root first."""
-    import git.repo
-
-    cloned = []
-    monkeypatch.setattr(
-        git.repo.Repo, "clone_from", staticmethod(lambda *args, **kwargs: cloned.append(args))
-    )
+    design is loaded, which could fetch a git dependency into the run root first."""
+    fetched = _fetches(monkeypatch)
     design = _git_dependency_design(tmp_path)
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
         _dse_runner(tmp_path).run("__input_maker+__taker", design)
-    assert not cloned and not (tmp_path / "mirror").exists()
+    assert not fetched and not (tmp_path / "mirror").exists()
 
 
 _MADE = "__input_maker.made"
@@ -241,39 +236,29 @@ _BINDING_SPELLINGS = {
 
 
 @pytest.mark.parametrize("spelling", sorted(_BINDING_SPELLINGS))
-def test_a_binding_of_the_requested_node_given_to_dse_clones_no_git_dependency(
+def test_a_binding_of_the_requested_node_given_to_dse_fetches_no_git_dependency(
     tmp_path, monkeypatch, spelling
 ):
     """The requested node is always reached, so its explicit binding is refused with no design
-    loaded at all: nothing is cloned and no run root is made."""
-    import git.repo
-
-    cloned = []
-    monkeypatch.setattr(
-        git.repo.Repo, "clone_from", staticmethod(lambda *args, **kwargs: cloned.append(args))
-    )
+    loaded at all: nothing is fetched and no run root is made."""
+    fetched = _fetches(monkeypatch)
     design = _git_dependency_design(tmp_path)
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
         _dse_runner(tmp_path).run("__taker", design, **_BINDING_SPELLINGS[spelling])
-    assert not cloned and not (tmp_path / "mirror").exists()
+    assert not fetched and not (tmp_path / "mirror").exists()
 
 
-def test_a_project_binding_of_the_requested_node_given_to_dse_clones_no_git_dependency(
+def test_a_project_binding_of_the_requested_node_given_to_dse_fetches_no_git_dependency(
     tmp_path, monkeypatch
 ):
-    import git.repo
-
-    cloned = []
-    monkeypatch.setattr(
-        git.repo.Repo, "clone_from", staticmethod(lambda *args, **kwargs: cloned.append(args))
-    )
+    fetched = _fetches(monkeypatch)
     (tmp_path / "xedaproject.yaml").write_text(
         yaml.safe_dump({"flows": {"__taker": {"inputs": {"made": _MADE}}}})
     )
     design = _git_dependency_design(tmp_path)
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
         _dse_runner(tmp_path).run("__taker", design)
-    assert not cloned and not (tmp_path / "mirror").exists()
+    assert not fetched and not (tmp_path / "mirror").exists()
 
 
 def test_a_saved_binding_of_another_node_is_not_refused_before_the_design_loads(tmp_path):
@@ -294,6 +279,16 @@ def test_a_chain_given_to_dse_is_refused_even_for_a_missing_design(tmp_path):
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
         _dse_runner(tmp_path).run("__input_maker+__taker", tmp_path / "missing.yaml")
     assert not (tmp_path / "mirror").exists()
+
+
+def _fetches(monkeypatch):
+    """The calls that resolve or fetch a Git dependency: any call is a mistake."""
+    import xeda.flow_runner.dependencies as dependencies
+
+    calls: list[object] = []
+    for name in ("resolve_reference", "fetch"):
+        monkeypatch.setattr(dependencies, name, lambda *args, **kwargs: calls.append(args))
+    return calls
 
 
 def _git_dependency_design(tmp_path):
@@ -319,22 +314,17 @@ def _git_dependency_design(tmp_path):
         ("no_such_flow", "no_such_flow"),
     ],
 )
-def test_a_malformed_request_is_refused_before_a_git_dependency_is_cloned(
+def test_a_malformed_request_is_refused_before_a_git_dependency_is_fetched(
     tmp_path, monkeypatch, request_text, error
 ):
     """A request that cannot be parsed is refused on the flow text alone, as the command line
-    does, not after the design's git dependency was cloned into the run root."""
-    import git.repo
-
+    does, not after the design's git dependency was fetched into the run root."""
     from xeda.flow_runner.default_runner import FlowLauncher
 
-    cloned = []
-    monkeypatch.setattr(
-        git.repo.Repo, "clone_from", staticmethod(lambda *args, **kwargs: cloned.append(args))
-    )
+    fetched = _fetches(monkeypatch)
     with pytest.raises(Exception, match=error):
         FlowLauncher(tmp_path / "run").run(request_text, _git_dependency_design(tmp_path))
-    assert not cloned and not (tmp_path / "run").exists()
+    assert not fetched and not (tmp_path / "run").exists()
 
 
 def test_a_malformed_request_is_refused_even_for_a_missing_design(tmp_path):

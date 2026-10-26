@@ -625,7 +625,6 @@ def _plan(
     hashed_run_dirs: bool,
     clean: bool,
     rebuild_all: bool,
-    dry_run: bool,
     outputs_to: Optional[Path],
     overwrite_outputs: bool,
     confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
@@ -654,7 +653,6 @@ def _plan(
         target=run.target,
         host_flows=profile.flows,
         host=destination_text,
-        planning=dry_run,
     )
     run.target = prepared.target
     run.design_name = prepared.design.name
@@ -1491,7 +1489,6 @@ def _run(
             hashed_run_dirs=hashed_run_dirs,
             clean=clean,
             rebuild_all=rebuild_all,
-            dry_run=dry_run,
             outputs_to=outputs_to,
             overwrite_outputs=overwrite_outputs,
             confirm_overwrite=confirm_overwrite,
@@ -1521,8 +1518,10 @@ def _run(
             workspace = PurePosixPath(facts.root) / LAYOUT / "ws" / key
             inputs_dir = workspace / "inputs" / design.name
             remote_run_root = workspace / "xeda_run"
+            # The host plans too, and fetches the Git dependencies into its own run root, so the
+            # package holds their references and no file that this side fetched.
             package = package_inputs(
-                design,
+                prepared.prepared.declared,
                 prepared.prepared.sections,
                 {node.name for node in plan.nodes},
                 run_root=local_root,

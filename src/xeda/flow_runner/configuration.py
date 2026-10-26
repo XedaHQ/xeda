@@ -12,7 +12,8 @@ the launcher recomputes it from the same view of the design, and the record of a
 The shape is that of a part of `Design.to_dict()`:
 
 - for each part of `Flow.design_parts` (`rtl`, `tb`): its metadata (`Design.part_metadata`) and,
-  for a node that reads the design's sources, its `sources`, a list of `{path, type}`;
+  for a node that reads the design's sources, its `sources`, a list of `{path, type}` (a file of a
+  Git dependency also says which dependency, and its path is in the checkout);
 - `language`, when the node reads `rtl`;
 - for a design that a converter derives, the conversion (`converted_from`, `transforms`,
   `produces`) and no `sources`.
@@ -63,16 +64,20 @@ def source_entries(
     """Return the `{path, type}` of each source in `scope` (None: all), in design order.
 
     The path is the place from the design root (`Design.source_place`), and the entry holds no
-    content. A generated source is its declaration, as the design states it: a name or a pattern
-    in the output of the generator (`gen/*.v`), never the files that it matches, so the entry is
-    the same before and after the generator has run. With `ownership`, an entry of a generated
-    source also says `generated: true`, so that a written file and a generated one of one name
+    content. A file of a Git dependency is `{dependency, path, type}`: the index of the
+    dependency, and the path in its checkout. The commit is no part of it. A generated source is
+    its declaration, as the design states it: a name or a pattern in the output of the generator
+    (`gen/*.v`), never the files that it matches, so the entry is the same before and after the
+    generator has run. With `ownership`, an entry of a generated source also says
+    `generated: true`, so that a written file and a generated one of one name
     differ."""
     entries: list[dict[str, Any]] = []
     for source in sources:
         if scope is not None and source.type not in scope:
             continue
         entry: dict[str, Any] = {"path": design.source_place(source), "type": source.type.name}
+        if source.dependency is not None:
+            entry["dependency"] = source.dependency
         if ownership:
             entry["generated"] = source.generated
         entries.append(entry)

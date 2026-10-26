@@ -1,6 +1,6 @@
 """An exception that is built and dropped does nothing.
 
-`ValueError("...")` on a line of its own is a check that never fails: `GitReference.fetch_design`
+`ValueError("...")` on a line of its own is a check that never fails: a Git fetch
 dropped one this way and went on with no repository, and `run_bloop` dropped another. Ruff's
 `PLW0133` (enforced by `tox -e ruff`) finds this for the built-in exceptions only, so this scan
 covers the rest: every exception class xeda defines, found through the bases the classes name.

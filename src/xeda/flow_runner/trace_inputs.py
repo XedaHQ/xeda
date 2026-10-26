@@ -77,6 +77,7 @@ from .run_lock import lock_file
 from .trace import (
     RESERVED_FILES,
     DeclaredInputRecord,
+    DependencyCommit,
     Expectation,
     OutputEntry,
     ProgramRecord,
@@ -671,6 +672,7 @@ def expected_run(
         dependency_runs=dict(dependency_run_ids),
         declared_inputs=tuple(declared),
         settings_hash=settings_hash,
+        dependencies=tuple((d.repository, d.commit) for d in design.resolved_dependencies),
     )
 
 
@@ -1069,6 +1071,7 @@ def build_trace(
         xeda_version=expected.xeda_version,
         xeda_code=expected.xeda_code,
         flow_code=expected.flow_code,
+        dependencies=[DependencyCommit(repository=r, commit=c) for r, c in expected.dependencies],
         programs=_programs(programs, previous),
         dependency_runs=dict(expected.dependency_runs),
         setting_locations={key: list(value) for key, value in expected.setting_locations.items()},

@@ -16,6 +16,7 @@ import pytest
 from xeda import Design
 from xeda.design import DesignValidationError
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.dependencies import merged_design
 from xeda.remote.packaging import package_inputs
 
 from .generation_world import World
@@ -38,8 +39,9 @@ def _world(tmp_path: Path, **options) -> World:
 
 
 def _document(tmp_path: Path, design: Design) -> dict:
+    # The design as a remote request packages it: local dependencies merged, Git ones as references.
     package = package_inputs(
-        design,
+        merged_design(design, run_root=None, git=False),
         {},
         {"vivado_synth"},
         run_root=tmp_path / "run_root",
@@ -181,7 +183,7 @@ def _world_with_a_dependency(tmp_path: Path) -> World:
 
 def test_the_package_says_what_is_written_and_what_is_generated(tmp_path):
     world = _world_with_a_dependency(tmp_path)
-    design = world.load()
+    design = merged_design(world.load(), run_root=None, git=False)
     assert [s.generated for s in design.rtl.sources] == [False, True]
     document, package = _document(tmp_path, design)
     assert document["rtl"]["sources"] == [

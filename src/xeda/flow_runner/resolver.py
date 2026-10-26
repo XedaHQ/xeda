@@ -718,6 +718,46 @@ def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, An
     return ordinary
 
 
+def check_settings_without_design(
+    flow_request: FlowRequest,
+    settings: Mapping[str, Any] | Flow.Settings,
+    sections: Mapping[str, Any],
+    *,
+    design_root: Path,
+    runner_cwd: Path,
+) -> None:
+    """Validate the names and the values of the settings of every flow that a request may use,
+    before planning reads the design.
+
+    These are the checks that a design cannot change: a setting that no flow has, and a value of
+    the wrong type. They run for the flows of the chain and for each flow that those flows may
+    take as a producer, on the settings without their shared leaves (`SHARED_SETTINGS`), which
+    agree along the edges of the graph that planning resolves. So a request that is wrong in
+    itself is refused before planning fetches a Git dependency. Resolution repeats the checks."""
+    requested = flow_request.requested
+    flows: dict[str, type[Flow]] = {}
+    for element in flow_request.elements:
+        flows[element.flow_class.name] = element.flow_class
+        flows.update(transitive_dependencies(element.flow_class))
+    for name, flow_cls in flows.items():
+        if flow_cls is requested:
+            if isinstance(settings, Flow.Settings):
+                continue  # a model is validated already
+            given = settings
+        else:
+            given = compose_flow_settings(flow_cls, [sections])
+        try:
+            settings_in_context(
+                flow_cls,
+                _nonshared_input(flow_cls, given),
+                design_root=design_root,
+                runner_cwd=runner_cwd,
+            )
+        except FlowSettingsError as error:
+            suggest_dependency_node(requested, error)
+            raise
+
+
 def _shared_locations(
     raw: _Located, cls: type[Flow], context: dict[str, Any]
 ) -> dict[tuple[str, ...], _Leaf]:

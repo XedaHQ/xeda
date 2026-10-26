@@ -25,7 +25,6 @@ import socket
 import stat
 import sys
 from collections.abc import Iterable, Mapping, Sequence
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -275,19 +274,14 @@ def _record_written(
     document["written"], document["unreadable"] = _written(snapshot, plan, launched)
 
 
-def load_packaged_design(launcher: Any, path: Path, *, dry_run: bool) -> Any:
+def load_packaged_design(path: Path) -> Any:
     """Load the design document that the local xeda packaged (`Design.from_file(packaged=True)`).
 
-    The document is loaded as the launcher loads a design file: where the run root keeps what a
-    load keeps in it, and with no side effect for a dry run. The load runs no generator: the
-    launch does."""
-    from ..design import Design, loading_in_run_root, refusing_load_side_effects
+    The load runs no generator and reads no dependency: the launch does. A Git dependency of the
+    design is fetched into the run root of this host when the launch plans."""
+    from ..design import Design
 
-    with (
-        loading_in_run_root(launcher.load_run_root),
-        refusing_load_side_effects() if dry_run else nullcontext(),
-    ):
-        return Design.from_file(path, packaged=True)
+    return Design.from_file(path, packaged=True)
 
 
 def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseException]]:
@@ -338,7 +332,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             display_results=False,
             debug=debug,
         )
-        loaded = load_packaged_design(launcher, design, dry_run=request.dry_run)
+        loaded = load_packaged_design(design)
         arguments: Dict[str, Any] = dict(design=loaded)
         with using_path_identities(request.path_identities):
             if request.dry_run:

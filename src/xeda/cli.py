@@ -919,7 +919,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     default=False,
     help="Print the resolved plan: each flow in execution order, its run directory, what a "
     "launch would do with it, its input origins and the outputs switched on for consumers. "
-    "Run nothing, generators included. Refuse a design that needs a Git dependency fetch.",
+    "Run nothing, generators included. Fetch the Git dependencies of the design.",
 )
 @click.option(
     "--json",

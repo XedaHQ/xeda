@@ -245,7 +245,7 @@ def require_ghdl() -> None:
 
 
 def require_git() -> None:
-    """The `git` program, which GitPython runs to clone a repository."""
+    """The `git` program, which Xeda runs to fetch a Git dependency."""
     _require_command("git", ["git", "--version"])
 
 

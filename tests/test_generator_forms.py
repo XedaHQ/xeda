@@ -17,6 +17,7 @@ import pytest
 
 from xeda import Design
 from xeda.design import POSIX_SHELL, DesignValidationError, Rtl, generator_of
+from xeda.flow_runner.dependencies import merged_design
 from xeda.flow_runner.launch_generation import generate
 from xeda.generation import GenerationError
 
@@ -170,12 +171,19 @@ def test_a_dependency_does_not_switch_cocotb_on_for_a_testbench_that_refused_it(
     root = tmp_path / "d"
     _dependency(root, tb=False)
     (root / "my_tests.py").write_text("# tests\n")
-    design = Design(
-        name="d",
-        design_root=root,
-        rtl={"sources": ["lib.v"], "top": "lib"},
-        tb={"sources": [{"file": "my_tests.py", "type": "Cocotb"}], "top": "lib", "cocotb": False},
-        dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
+    design = merged_design(
+        Design(
+            name="d",
+            design_root=root,
+            rtl={"sources": ["lib.v"], "top": "lib"},
+            tb={
+                "sources": [{"file": "my_tests.py", "type": "Cocotb"}],
+                "top": "lib",
+                "cocotb": False,
+            },
+            dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
+        ),
+        run_root=None,
     )
     assert design.tb.cocotb is None and design.dependencies == ()
     alone = Design(
@@ -190,11 +198,14 @@ def test_a_dependency_does_not_switch_cocotb_on_for_a_testbench_that_refused_it(
 def test_a_cocotb_source_from_a_dependency_does_not_switch_cocotb_on(tmp_path):
     root = tmp_path / "d"
     _dependency(root, tb=True)
-    design = Design(
-        name="d",
-        design_root=root,
-        rtl={"sources": ["lib.v"], "top": "lib"},
-        dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
+    design = merged_design(
+        Design(
+            name="d",
+            design_root=root,
+            rtl={"sources": ["lib.v"], "top": "lib"},
+            dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
+        ),
+        run_root=None,
     )
     assert [source.file.name for source in design.tb.sources] == ["cocotb_tests.py"]
     assert design.tb.cocotb is None

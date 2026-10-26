@@ -195,6 +195,8 @@ def test_the_design_loads_again_from_its_own_dump(design):
 
 
 def test_a_dependency_is_merged_into_a_design_that_cannot_change(tmp_path):
+    from xeda.flow_runner.dependencies import merged_design
+
     root = tmp_path / "d"
     (root / "dep").mkdir(parents=True)
     for name in ("top.v", "dep/lib.v", "dep/lib_tb.v"):
@@ -203,12 +205,15 @@ def test_a_dependency_is_merged_into_a_design_that_cannot_change(tmp_path):
         "name: dep\nrtl:\n  sources: [lib.v, ../top.v]\n  top: lib\n  parameters: {W: 4}\n"
         "  clocks: [{port: dclk}]\ntb:\n  sources: [lib_tb.v]\n  top: lib_tb\n"
     )
-    design = Design(
+    declared = Design(
         name="d",
         design_root=root,
         rtl={"sources": ["top.v"]},
         dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
     )
+    design = merged_design(declared, run_root=None)
+    assert [source.file.name for source in declared.rtl.sources] == ["top.v"]
+    assert len(declared.dependencies) == 1, "the design as given keeps its references"
     assert [source.file.name for source in design.rtl.sources] == ["top.v", "lib.v"]
     assert (design.rtl.top, dict(design.rtl.parameters)) == ("lib", {"W": 4})
     assert [dict(clock) for clock in design.rtl.clocks] == [{"port": "dclk", "name": "dclk"}]

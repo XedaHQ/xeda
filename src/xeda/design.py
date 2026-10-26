@@ -67,7 +67,7 @@ from .dataclass import (
 from .digest import content_digest
 from .frozen import Frozen, FrozenDict, FrozenModel, freeze, thaw
 from .proc_utils import run_child
-from .run_dir import DIR_NAME_HASH_LEN, RunDirectory, run_directory_name
+from .run_dir import DIR_NAME_HASH_LEN, run_directory_name
 from .utils import (
     hierarchical_merge,
     ConflictingKeys,
@@ -971,6 +971,12 @@ class Source(FileResource):
     #: merges a dependency lists the dependency's generated sources with the owner set, and the
     #: execution copy names their files in the storage of that owner. None: the design's own.
     owner: str | None
+    #: The index of the Git dependency (`DependencyRecord`) whose checkout holds a written source,
+    #: and its path relative to that checkout. Both are None for any other source. The identity
+    #: of a run counts such a source by these two, since its place in the run root holds the
+    #: commit.
+    dependency: int | None
+    dependency_place: str | None
 
     def __init__(
         self,
@@ -1014,6 +1020,8 @@ class Source(FileResource):
         attributes["generated"] = generated
         attributes["output_name"] = output_name
         attributes["owner"] = owner
+        attributes["dependency"] = None
+        attributes["dependency_place"] = None
 
     @classmethod
     def declaration(
@@ -1034,6 +1042,8 @@ class Source(FileResource):
         attributes["generated"] = True
         attributes["output_name"] = name
         attributes["owner"] = owner
+        attributes["dependency"] = None
+        attributes["dependency_place"] = None
         return source
 
     def with_owner(self, owner: str | None) -> Source:
@@ -1042,6 +1052,14 @@ class Source(FileResource):
         return Source.declaration(
             str(self.output_name), self.type, stated=bool(self._stated), owner=owner
         )
+
+    def in_dependency(self, index: int, place: str) -> Source:
+        """Return this written source as a file of the Git dependency `index`, at `place` in its
+        checkout (see `dependency`)."""
+        assert not self.generated, "only a written source is a file of a checkout"
+        marked = object.__new__(type(self))
+        vars(marked).update(vars(self), dependency=index, dependency_place=place)
+        return marked
 
     @property
     def located(self) -> bool:
@@ -2460,69 +2478,12 @@ class TbDep(XedaBaseModel):
     pos: int = 0
 
 
-#: Where a Git dependency without a `clone_dir` is cloned, under the run root.
-DEPENDENCY_CLONES = ".dependencies"
-
-
-@dataclass(frozen=True)
-class LoadContext:
-    """What a launcher lends to the designs it loads: access to the run root.
-
-    `run_root(True)` creates and marks the run root. `run_root(False)` returns the run root if it
-    is already there, and `None` if not. A load asks for a run root to create only to keep
-    something there, never to look for one. So a load that keeps nothing creates nothing, and a
-    pure plan never asks.
-
-    A load keeps one thing in the run root: the directory that a Git dependency without a
-    `clone_dir` is cloned into (`DEPENDENCY_CLONES`). It outlives a design that fails after it,
-    because the work it records was done. A load runs no generator: generation is part of a
-    launch (`flow_runner.launch_generation`)."""
-
-    run_root: Callable[[bool], Optional[Path]]
-
-
-#: How a design load reaches the run root. The launcher sets it around the loading of its designs
-#: (`loading_in_run_root`), and it is unset elsewhere.
-load_context: ContextVar[Optional[LoadContext]] = ContextVar("load_context", default=None)
-
-_planning_load: ContextVar[bool] = ContextVar("planning_load", default=False)
-
-
-@contextmanager
-def refusing_load_side_effects() -> Iterator[None]:
-    """Refuse the fetch of a Git dependency while loading a design for a pure plan."""
-    token = _planning_load.set(True)
-    try:
-        yield
-    finally:
-        _planning_load.reset(token)
-
-
-@contextmanager
-def loading_in_run_root(provider: Callable[[bool], Optional[Path]]) -> Iterator[None]:
-    """Let the designs loaded meanwhile keep what a load keeps in a run root (the clone of a Git
-    dependency) in the run root that `provider` names.
-
-    A load asks `provider` only when something is kept there, and only then may the run root be
-    created."""
-    token = load_context.set(LoadContext(provider))
-    try:
-        yield
-    finally:
-        load_context.reset(token)
-
-
 class DesignReference(XedaBaseModel):
     model_config = ConfigDict(frozen=True)
 
     uri: str
     rtl: RtlDep = RtlDep()
     tb: TbDep = TbDep()
-    #: The directory where a Git dependency is cloned (`<local_cache>/<host>/<name>`, see
-    #: `clone_name_parts`) when it names no `clone_dir`. When unset, a launcher clones into its
-    #: run root (`loading_in_run_root`). A directory that the user configures here is the user's
-    #: to direct: Xeda clones and pulls there.
-    local_cache: Optional[Path] = None
 
     @field_validator("uri")
     @classmethod
@@ -2578,23 +2539,6 @@ class DesignReference(XedaBaseModel):
             return GitReference(**data)  # type: ignore
         return DesignReference(**data)  # type: ignore
 
-    def fetch_design(self) -> Design:
-        # The path is relative to the root of the design that lists this dependency.
-        design_path = design_relative_root() / self.uri
-        if not design_path.exists():
-            raise MissingFile(f"file {redacted_url(str(design_path))} does not exist!")
-        return Design.from_file(design_path)
-
-
-#: The number of hexadecimal digits of the digest of what is cloned, which end the name of its
-#: directory.
-CLONE_DIGEST_LENGTH = 16
-#: The most characters that a readable part of a clone directory's name keeps. A readable part is
-#: a host, or a repository path with its branch or commit.
-CLONE_NAME_LIMIT = 80
-#: A drive (`C:`) at the start of a path component. On Windows, it replaces the path before it.
-_DRIVE_PREFIX = re.compile(r"[A-Za-z]:")
-
 
 #: The user name and password of a URL's authority (`scheme://user:password@host`), up to its
 #: last `@`.
@@ -2639,107 +2583,8 @@ def _shown_dependencies(data: Mapping[str, Any]) -> Mapping[str, Any]:
     return {**data, "dependencies": [shown(entry) for entry in dependencies]}
 
 
-def _clone_name_text(what: str, text: str, *, drive: bool = True) -> str:
-    """Refuse text that names a place outside the directory it is joined onto: a `.` or `..`
-    component, a drive such as `C:` at the start of a component, a leading `/`, a backslash or
-    a NUL. A path that is absolute, or drive-qualified, replaces the one it is joined onto.
-    `drive=False` leaves out the drive: a host and its port (`h:8443`) are one component."""
-    if not isinstance(text, str):
-        raise ValueError(f"the Git {what} must be a string, not {text!r}")
-    parts = text.split("/")
-    if (
-        text.startswith("/")
-        or "\\" in text
-        or "\0" in text
-        or any(part in (".", "..") or (drive and _DRIVE_PREFIX.match(part)) for part in parts)
-    ):
-        raise ValueError(
-            f"the Git {what} {text!r} has a `.` or `..` component, a drive such as `C:`, a "
-            "leading `/`, a backslash or a NUL: it would name a directory outside the clone cache"
-        )
-    return text
-
-
-def _clone_token(text: str) -> str:
-    """Return `text` as one readable, filename-safe part of a directory name.
-
-    Each run of characters other than ASCII letters, digits, `.` and `-` becomes one `_`.
-    Nothing starts or ends with `.` or `_`, and no more than `CLONE_NAME_LIMIT` characters are
-    kept."""
-    folded = re.sub(r"[^A-Za-z0-9.-]+", "_", text).strip("._")
-    return folded[:CLONE_NAME_LIMIT].rstrip("._")
-
-
-def clone_name_parts(
-    repo_url: str, commit: Optional[str], branch: Optional[str]
-) -> tuple[str, str]:
-    """Return the names of the two directories that a Git reference is cloned into,
-    `<host>/<name>`.
-
-    `<name>` is the repository path and the commit (or else the branch), folded into one
-    readable token, then `_` and a digest of what is cloned: the repository URL, the branch and
-    the commit. Folding cannot keep two paths apart (`a/b` and `a_b` read alike), so the digest
-    does. Each reference gets its own directory, and the same reference always gets the same
-    one. The directory is one level below its host's, so no clone lies inside another.
-
-    `_clone_name_text` refuses a host, path, commit or branch that names a place outside the
-    cache, before it is folded. The path must not be empty. The host and its port (`h:8443`)
-    fold into one token, so a host that reads as a drive is not refused. The user name and the
-    password of a URL (`https://user:password@host/...`) are not part of a name, because a name
-    shows in paths and logs. The digest still covers the whole URL, so URLs that differ only in
-    those are cloned apart.
-    """
-    uri = urlparse(repo_url)
-    if not uri.netloc:
-        raise ValueError(f"invalid URL: {redacted_url(repo_url)}")
-    host = _clone_name_text("host", uri.netloc.rpartition("@")[2], drive=False)
-    path = _clone_name_text("repository path", uri.path.lstrip("/"))
-    if not path:
-        raise ValueError(f"the Git URL {redacted_url(repo_url)!r} names no repository path")
-    if commit:
-        reference = "commit=" + _clone_name_text("commit", commit)
-    elif branch:
-        reference = _clone_name_text("branch", branch)
-    else:
-        reference = ""
-    identity = json.dumps([repo_url, branch or None, commit or None])
-    digest = hashlib.sha256(identity.encode()).hexdigest()[:CLONE_DIGEST_LENGTH]
-    readable = _clone_token(f"{path}_{reference}")
-    name = f"{readable}_{digest}" if readable else digest
-    return _clone_token(host) or "host", name
-
-
-def clone_location(
-    cache: Union[str, Path],
-    repo_url: str,
-    commit: Optional[str],
-    branch: Optional[str],
-    *,
-    owner: Optional[RunDirectory] = None,
-) -> Path:
-    """Return where a Git reference is cloned: `<cache>/<host>/<name>` (`clone_name_parts`).
-
-    The location lies inside `cache`, and a name that would leave it is refused. A cache under a
-    run root is named through its `owner` (the run root as a `RunDirectory`) by
-    `RunDirectory.unlinked`, the one rule that every cache there follows: inside the run root and
-    reached through no symbolic link. A cache that the user named (`local_cache`) is the user's
-    to direct, so only the names are checked against it.
-    """
-    host, name = clone_name_parts(repo_url, commit, branch)
-    location = Path(cache) / host / name
-    root = design_relative_root()
-    base = os.path.abspath(root / cache)
-    inside = os.path.abspath(root / location)
-    try:
-        contained = inside != base and os.path.commonpath([base, inside]) == base
-    except ValueError:  # another drive, as on Windows
-        contained = False
-    if not contained:
-        raise ValueError(
-            f"{redacted_url(repo_url)} would be cloned to {location}, outside the clone cache "
-            f"{cache}"
-        )
-    return owner.unlinked(location) if owner is not None else location
+#: A full Git commit hash: 40 hexadecimal digits, or 64 in a SHA-256 repository.
+_FULL_COMMIT = re.compile(r"(?:[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})")
 
 
 class GitReference(DesignReference):
@@ -2755,20 +2600,23 @@ class GitReference(DesignReference):
     design_file: str
     commit: Optional[str] = None
     branch: Optional[str] = None
-    clone_dir: Optional[Path] = None
 
-    @field_validator("clone_dir", mode="before")
+    #: The keys that name where a clone goes. Xeda keeps every Git dependency in the run root.
+    removed_inputs: ClassVar[Dict[str, str]] = {
+        "clone_dir": "a local dependency that names the design file in a checkout you manage",
+        "local_cache": "a local dependency that names the design file in a checkout you manage",
+    }
+
+    @field_validator("commit")
     @classmethod
-    def validate_clone_dir(cls, value, info):
-        values = info.data if isinstance(info.data, dict) else {}
-        repo_url = values.get("repo_url")
-        if not value and repo_url:
-            local_cache = values.get("local_cache")
-            if local_cache:
-                return clone_location(
-                    local_cache, repo_url, values.get("commit"), values.get("branch")
-                )
-        return value
+    def _a_commit_is_complete(cls, value: Optional[str]) -> Optional[str]:
+        """Accept a full commit hash only: an abbreviated one names different commits over time."""
+        if value is not None and not _FULL_COMMIT.fullmatch(value):
+            raise ValueError(
+                f"the commit {value!r} is not a full commit hash: write the full commit hash "
+                "(40 hexadecimal digits, or 64 for a SHA-256 repository)"
+            )
+        return value.lower() if value is not None else None
 
     @model_validator(mode="before")
     @classmethod
@@ -2783,7 +2631,8 @@ class GitReference(DesignReference):
                 raise ValueError("a git dependency URI must be a string")
             # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
             uri = urlparse(uri_str)
-            if not uri.scheme or not uri.netloc:
+            # A `file` URL has no host: `file:///srv/lib.git`.
+            if not uri.scheme or not (uri.netloc or (uri.scheme == "file" and uri.path)):
                 raise ValueError(f"invalid git URL: {redacted_url(uri_str)}")
             # The design file path is relative to the repository root.
             design_file_path = uri.fragment.lstrip("/.")  # Removes /, ../, etc.
@@ -2818,15 +2667,6 @@ class GitReference(DesignReference):
         }
         merged = {k: v for k, v in derived.items() if v is not None}
         result = {**derived, **merged, **values}
-        if isinstance(result.get("repo_url"), str) and not result.get("clone_dir"):
-            # Names are checked where they name a directory: a `clone_dir` is used as given,
-            # and then nothing is named from the URL, the branch or the commit. A branch or a
-            # commit that is not text is the field's own error, reported at the field.
-            named = [
-                value if isinstance(value, str) else None
-                for value in (result.get("commit"), result.get("branch"))
-            ]
-            clone_name_parts(result["repo_url"], *named)
         if not result.get("uri"):
             # The mapping form (`{repo_url: ..., design_file: ...}`) that
             # `DesignReference.from_data()` routes here carries no `uri`, but the base class
@@ -2845,67 +2685,56 @@ class GitReference(DesignReference):
             )
         return result
 
-    def fetch_design(self) -> Design:
-        import git
-        from git.repo import Repo
 
-        if _planning_load.get():
-            raise ValueError("Cannot plan a design that needs a Git dependency fetch")
-        clone_dir = self.clone_dir
-        if clone_dir is None:
-            cache = self.local_cache
-            owner = None
-            if cache is None:
-                context = load_context.get()
-                run_root = context.run_root(True) if context is not None else None
-                if run_root is not None:
-                    cache = run_root / DEPENDENCY_CLONES
-                    owner = RunDirectory(run_root, run_root)
-            if cache is None:
-                raise ValueError(
-                    f"{redacted_url(self.repo_url)} needs a directory to be cloned into: give "
-                    "its `clone_dir` (or `local_cache`), or load the design through xeda run / "
-                    "a launcher, which clones into its run root"
-                )
-            clone_dir = clone_location(cache, self.repo_url, self.commit, self.branch, owner=owner)
-        # A relative `clone_dir` or `local_cache` is relative to the design root.
-        clone_dir = design_relative_root() / clone_dir
-        repo = None
-        if clone_dir.exists():
-            try:
-                repo = Repo(clone_dir)
-                if not repo.git_dir:
-                    raise ValueError(f"repo={repo} is missing 'git_dir'")
-                log.info("Updating existing git repository at %s", clone_dir)
-                repo.remotes.origin.fetch()
-                if not self.commit:
-                    repo.git.pull()
-            except git.InvalidGitRepositoryError:
-                log.error("Path %s is not a valid git repository.", clone_dir)
-        if repo is None:
-            log.info(
-                "Cloning git repository url:%s branch:%s commit:%s",
-                redacted_url(self.repo_url),
-                self.branch,
-                self.commit,
-            )
-            repo = Repo.clone_from(
-                self.repo_url,
-                clone_dir,
-                depth=1,
-                branch=self.branch,
-            )
-        if repo is None:
-            raise ValueError("repo is None!")
-        if self.commit:
-            log.info("Checking out commit: %s", self.commit)
-            repo.git.checkout(self.commit)
-        elif self.branch:
-            log.info("Checking out branch: %s", self.branch)
-            repo.git.checkout(self.branch)
+@dataclass(frozen=True)
+class DependencyRecord:
+    """A Git dependency as planning resolved it: the repository, the reference as written, the
+    commit that the reference named, and where the checkout of that commit is.
 
-        design_path = clone_dir / self.design_file
-        return Design.from_file(design_path)
+    `repository` has no user name and no password (`redacted_url`). `reference` is the branch or
+    tag as written, and `None` for a pinned commit or the `HEAD` of the repository.
+    `design_file` is the path of the design file in the repository. `checkout` is the resolved
+    directory of the checkout in the dependency storage."""
+
+    repository: str
+    reference: str | None
+    commit: str
+    design_file: str
+    checkout: Path
+
+    def as_mapping(self) -> dict[str, str | None]:
+        """The record as a run record holds it (`RunRecord.dependencies`): no checkout."""
+        return {
+            "repository": self.repository,
+            "reference": self.reference,
+            "commit": self.commit,
+            "design_file": self.design_file,
+        }
+
+
+@dataclass(frozen=True)
+class MergedDependency:
+    """A dependency of a design, as `Design.merged_with` takes it: the reference, the design that
+    it names (with the dependencies of that design merged), and, for a Git dependency, the index
+    of its `DependencyRecord` and its checkout (resolved)."""
+
+    reference: DesignReference
+    design: Design
+    index: int | None = None
+    checkout: Path | None = None
+
+    def placed(self, source: Source) -> Source:
+        """Return `source`, a source of the design of this dependency, as the merged design lists
+        it: a written file in the checkout of a Git dependency is counted by its place there."""
+        if (
+            self.index is None
+            or self.checkout is None
+            or source.generated
+            or source.dependency is not None
+            or not source.path.is_relative_to(self.checkout)
+        ):
+            return source
+        return source.in_dependency(self.index, source.path.relative_to(self.checkout).as_posix())
 
 
 DesignType = TypeVar("DesignType", bound="Design")
@@ -3036,8 +2865,6 @@ class _GitReferenceInput(TypedDict):
     uri: NotRequired[str]
     branch: NotRequired[Optional[str]]
     commit: NotRequired[Optional[str]]
-    clone_dir: NotRequired[Optional[Path]]
-    local_cache: NotRequired[Optional[Path]]
     rtl: NotRequired[RtlDep]
     tb: NotRequired[TbDep]
 
@@ -3095,6 +2922,23 @@ class Design(XedaBaseModel):
     generation_units: Tuple[Any, ...] = Field(
         (), exclude=True, json_schema_extra={"hidden_from_schema": True}
     )
+
+    # The Git dependencies that the sources of this design come from, in the order of their index
+    # (`Source.dependency`): set by planning, when it merges them. It is no part of a dump of the
+    # design.
+    resolved_dependencies: Tuple[Any, ...] = Field(
+        (), exclude=True, json_schema_extra={"hidden_from_schema": True}
+    )
+
+    @field_validator("resolved_dependencies")
+    @classmethod
+    def _resolved_are_records(cls, value):
+        for record in value:
+            if not isinstance(record, DependencyRecord):
+                raise ValueError(
+                    f"a resolved dependency is a DependencyRecord, not {type(record).__name__}"
+                )
+        return value
 
     @field_validator("generation_units")
     @classmethod
@@ -3451,15 +3295,6 @@ class Design(XedaBaseModel):
                     _design_errors(e.errors()), data=data, design_root=design_root
                 ) from e
 
-            if self.dependencies:
-                merged = self._merged_with_dependencies(invalid)
-                try:
-                    self._validate({**data, **merged}, merged=True)
-                except ValidationError as e:
-                    raise DesignValidationError(
-                        _design_errors(e.errors()), data=data, design_root=design_root
-                    ) from e
-
     @property
     def generation_label(self) -> str:
         """Return the text that tells this design apart as a unit of generation and as the owner
@@ -3471,25 +3306,24 @@ class Design(XedaBaseModel):
             return Path(os.path.normpath(self._source_file)).as_posix()
         return f"{self.root_path.as_posix()}::{self.name}"
 
-    def _validate(self, data: dict[str, Any], *, merged: bool = False) -> None:
-        """Validate `data` into this design.
+    def merged_with(
+        self,
+        merged: Sequence[MergedDependency],
+        remaining: Sequence[DesignReference] = (),
+        resolved: Sequence[DependencyRecord] = (),
+    ) -> Design:
+        """Return this design with the designs of `merged`, its dependencies, merged in.
 
-        `merged` says that `data` is the design again, with its dependencies merged in: what the
-        first validation derived (the cocotb settings of a testbench) stays as it was."""
-        self.__pydantic_validator__.validate_python(
-            data, self_instance=self, context={"merged": merged}
-        )
+        The result lists the sources, top module, parameters and clocks of the dependencies, and
+        keeps the dependencies that have generators as units of generation. `remaining` are the
+        references that stay to be merged later (a Git dependency before its fetch), and
+        `resolved` the Git dependencies that the sources of the result come from, in the order of
+        their index (`Source.dependency`). A record that kept merged dependencies as well would
+        merge them again when it is read back (a `settings.json`, the package of a remote run) and
+        duplicate sources. The sources of the result are checked as a design's own are: a file
+        that the design and a dependency both list is listed once.
 
-    def _merged_with_dependencies(
-        self, invalid: Callable[..., DesignValidationError]
-    ) -> dict[str, Any]:
-        """Return the fields of the design as they are with the dependencies merged in.
-
-        The design holds the sources, top module, parameters and clocks of its dependencies
-        itself afterwards, and no dependency. A record that kept the dependencies as well would
-        merge them again on every reload (a `settings.json`, the package of a remote run) and
-        duplicate sources. The result is the input of a second validation, so a file that the
-        design and a dependency both list is compiled once."""
+        This design is not changed. `DesignValidationError` says what is wrong."""
         sources = list(self.rtl.sources)
         top = self.rtl.top
         parameters = self.rtl.parameters
@@ -3497,12 +3331,8 @@ class Design(XedaBaseModel):
         tb_sources = self.tb.sources
         tb_top = self.tb.top
         units: dict[str, Design] = {unit.generation_label: unit for unit in self.generation_units}
-        for dep in self.dependencies:
-            try:
-                dep_design = dep.fetch_design()
-            except ValueError as e:
-                kind = MISSING_FILE_ERROR if isinstance(e, MissingFile) else "value_error"
-                raise invalid("dependencies", str(e), kind) from e
+        for entry in merged:
+            dep_design, dep = entry.design, entry.reference
             log.info("adding dependency sources from %s", dep_design.name)
             # The generator of a dependency writes the sources it declares, in a storage of its
             # own. The merged design lists them with the dependency as their owner, and keeps the
@@ -3513,7 +3343,7 @@ class Design(XedaBaseModel):
                 (
                     src.with_owner(owner)
                     if src.generated and not src.located and src.owner is None
-                    else src
+                    else entry.placed(src)
                 )
                 for src in dep_design.rtl.sources
             )
@@ -3537,29 +3367,52 @@ class Design(XedaBaseModel):
                 sources[pos:pos] = dep_sources
             sources = _distinct_sources(sources)
             if not tb_sources and dep_design.tb.sources:
-                tb_sources = dep_design.tb.sources
+                tb_sources = tuple(entry.placed(src) for src in dep_design.tb.sources)
             if not tb_top and dep_design.tb.top:
                 tb_top = dep_design.tb.top
+        invalid = DesignValidationError
         owners: dict[str, str | None] = {}
         for src in sources:
             if src.generated and not src.located:
                 name = str(src.output_name)
                 if owners.setdefault(name, src.owner) != src.owner:
                     raise invalid(
-                        "dependencies",
-                        f"two generators declare the generated source `{name}`: the design and "
-                        "its dependencies must name the outputs of their generators apart",
+                        [
+                            (
+                                "dependencies",
+                                f"two generators declare the generated source `{name}`: the "
+                                "design and its dependencies must name the outputs of their "
+                                "generators apart",
+                                "",
+                                "value_error",
+                            )
+                        ],
+                        design_root=self.root_path,
+                        design_name=self.name,
                     )
         rtl = {name: getattr(self.rtl, name) for name in Rtl.model_fields}
         rtl.update(sources=sources, top=top, parameters=parameters, clocks=clocks)
         tb = {name: getattr(self.tb, name) for name in Testbench.model_fields}
         tb.update(sources=tb_sources, top=tb_top)
-        return {
-            "rtl": rtl,
-            "tb": tb,
-            "dependencies": (),
-            "generation_units": tuple(units.values()),
-        }
+        try:
+            with loading_in_design_root(self.root_path):
+                checked_rtl = Rtl.model_validate(rtl)
+                checked_tb = Testbench.model_validate(tb, context={"merged": True})
+        except ValidationError as e:
+            raise DesignValidationError(
+                _design_errors(e.errors()), design_root=self.root_path, design_name=self.name
+            ) from e
+        result = self.model_copy(
+            update={
+                "rtl": checked_rtl,
+                "tb": checked_tb,
+                "dependencies": tuple(remaining),
+                "generation_units": tuple(units.values()),
+                "resolved_dependencies": tuple(resolved),
+            }
+        )
+        result.invalidate_cached_properties()
+        return result
 
     def header_dirs(self, rtl: bool = True, tb: bool = False) -> List[Path]:
         """Return the directory of every Verilog or SystemVerilog header that the design lists.
@@ -3929,7 +3782,13 @@ class Design(XedaBaseModel):
         A remote launch moves some of the paths. Then the host counts the value as the client
         does (`path_identity`, role `parameter`).
         """
-        roots = [("DESIGN_ROOT", self.root_path)] if self.design_root else []
+        # A path in the checkout of a Git dependency counts relative to it, first: the checkout
+        # may lie below the design root (a run root there), and holds the commit in its name.
+        roots = [
+            (f"DEPENDENCY_{index}", record.checkout)
+            for index, record in enumerate(self.resolved_dependencies)
+        ]
+        roots += [("DESIGN_ROOT", self.root_path)] if self.design_root else []
 
         def counted(value: Any) -> Any:
             value = thaw(value)
@@ -3972,6 +3831,8 @@ class Design(XedaBaseModel):
             fingerprint["generated"] = source.output_name
         else:
             fingerprint["path"] = self.source_place(source)
+            if source.dependency is not None:
+                fingerprint["dependency"] = source.dependency
         return fingerprint
 
     def source_place(self, source: Source) -> str:
@@ -3981,10 +3842,14 @@ class Design(XedaBaseModel):
         A remote launch moves the sources outside the design root. Then the host counts the
         place as the client does (`path_identity`, role `source`). A generated source has no path
         from the design root: its place is its name in the output of its producer (the name or
-        pattern that a design file declares)."""
+        pattern that a design file declares). A file of a Git dependency has its path in the
+        checkout of the dependency (`Source.dependency_place`): the place of the checkout in the
+        run root holds the commit, which the identity of a run does not count."""
         if source.generated:
             assert source.output_name is not None
             return source.output_name
+        if source.dependency_place is not None:
+            return source.dependency_place
         known = path_identity(source.file, "source")
         return known if known is not None else root_relative_text(self.root_path, source.file)
 
