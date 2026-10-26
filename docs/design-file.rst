@@ -665,6 +665,51 @@ that matches none fails the node that reads it, with the code ``missing_generate
 that names the entry. The flows see the files that the entries match, in sorted order, in the
 place of the entries. The design that you gave stays as it was.
 
+Copying the generated sources into the design
+---------------------------------------------
+
+The generated sources stay in the storage, and the flows read them there. To have a copy in your
+design tree (to commit it, or to read it in an editor), give the generator ``outputs_to``:
+
+.. code-block:: yaml
+
+    name: soc
+    rtl:
+      sources: [gen/soc.v]
+      top: soc
+      generator:
+        executable: python3
+        args: ["$DESIGN_ROOT/soc.py", "$XEDA_GENERATED"]
+        sources: [soc.py]
+        outputs_to: $DESIGN_ROOT/rtl
+
+``outputs_to``
+    A directory that receives one copy of each generated file, under its name in the output of the
+    generator: ``gen/soc.v`` goes to ``rtl/gen/soc.v``. Give a location: an absolute path, or a
+    path below ``$DESIGN_ROOT``, ``$DESIGN_DIR`` or ``$PWD``. A relative path is an error that
+    says to write ``$DESIGN_ROOT/<path>``.
+
+This is a delivery, like a deliverable setting that you give a location (see :doc:`flows`). Xeda
+makes the copies at the end of a launch that passed, and each one is a delivery of the first flow
+of the launch that reads the generated sources, listed under the key ``generator``. The copies
+follow the rules of every delivery:
+
+* A copy that Xeda made and you did not change is replaced. A file that you changed, or any other
+  file in the way, needs your answer or ``--overwrite-outputs``, and Xeda asks before it runs the
+  generator when it can.
+* Xeda never copies onto an input of the launch, into a directory that a setting reads, into a run
+  root, over a directory, or through a symbolic link.
+* Xeda never copies to a place where an entry of the design's sources would read the file: an entry
+  of ``rtl.sources``, of ``tb.sources`` or of the ``sources`` of a generator (a pattern, a name or
+  a directory). The file would be a source of the next run. The error names the entry. A copy that
+  restores a generated entry is fine, because the design reads that entry from the storage and
+  never from the tree.
+* A failed launch makes no copy.
+
+The destination is no part of any identity: it is not in the key of the storage, and a change to
+it runs nothing again. A generator of a dependency may have its own ``outputs_to``. ``$DESIGN_ROOT``
+is then the root of the dependency.
+
 When the generator runs
 -----------------------
 
@@ -772,7 +817,9 @@ declare its ``sources``. So is a generator with a declared input outside the roo
 (also for a dependency): place the input below the design root. A local launch has no such limit.
 A path inside a word of ``args``, or in an executable, that names a file
 on your machine names nothing on the host: name files through ``$DESIGN_ROOT``, and list them in
-``sources``. ``--rebuild-all`` and ``--clean`` regenerate on the host.
+``sources``. ``--rebuild-all`` and ``--clean`` regenerate on the host. ``--remote`` refuses ``outputs_to`` at
+planning, as it refuses a deliverable setting with a location: the host would copy to that path on
+the host, not into your design tree.
 
 A generator written as a command line or as a list declares nothing that it reads, so it runs in
 every launch. Write it as a table with ``sources`` to have it judged. A table with ``shell`` may

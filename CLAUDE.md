@@ -262,6 +262,11 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   check that reads no value a dependency supplies, into `<run root>/.dependencies/<key>/` (the one
   write of a plan, never removed by Xeda), and a local dependency must exist then
   (`tests/test_git_dependencies.py`). Print a URL only via `design.redacted_url`.
+- `rtl.generator.outputs_to` is a delivery (key `generator`) of the first node that reads the generated
+  sources, by the same code as every delivery; it is no part of any identity
+  (`tests/test_generator_deliveries.py`). No delivery goes where a source entry of the design would read
+  it (`Design.source_entries`, `deliver.ReadInputs.source_entry_reading`,
+  `tests/test_delivery_source_entries.py`).
 
 ### Templates, tools and the CLI
 

@@ -192,6 +192,7 @@ jobs:
           tests/test_trace_soundness.py
           tests/test_utils.py
           tests/test_delivery.py
+          tests/test_generator_deliveries.py
           tests/test_trace_directories.py
           tests/test_run_directory.py
           tests/test_run_directory_rule.py

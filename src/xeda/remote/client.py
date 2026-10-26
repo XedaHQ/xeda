@@ -56,8 +56,8 @@ from ..deliver import (
     recorded_artifacts,
     split_deliveries,
 )
-from ..design import names_a_design_file
-from ..flow_runner import DefaultRunner
+from ..design import generator_of, names_a_design_file
+from ..flow_runner import DefaultRunner, launch_generation
 from ..flow_runner.chains import parse_request
 from ..errors import RecordError, SpecError
 from ..flow_runner.default_runner import PreparedRequest
@@ -607,6 +607,16 @@ def _check_deliverables(prepared: PreparedRequest, design_name: str) -> None:
                 "name in the run directory (or unset) and receive the outputs with "
                 "--outputs-to DIR",
                 before_run=True,
+            )
+    # The copies of generated sources go to a place in the local design tree, which the host does
+    # not reach: the host would write them where the same path leads on the host.
+    for _owner, unit in launch_generation.generating_units(prepared.design):
+        generator = generator_of(unit.rtl, root=unit.root_path)
+        if generator is not None and generator.outputs_to is not None:
+            raise DeliveryError(
+                f"`rtl.generator.outputs_to` of {unit.name} names a location "
+                f"({generator.outputs_to}): with --remote, the host would deliver there, on the "
+                "host. Remove it for a remote run, and run the generator here to get the copies"
             )
     # The output names, checked as a local launch checks them.
     split_deliveries(plan.node(plan.requested).settings, design_name)

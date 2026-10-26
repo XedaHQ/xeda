@@ -81,6 +81,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     "DELIVERY_FORMAT",
     "DELIVERY_RECORD_SUFFIX",
+    "GENERATOR",
     "OUTPUTS_TO",
     "RESERVED_NAMES",
     "Conflict",
@@ -106,6 +107,8 @@ DELIVERY_RECORD_SUFFIX = ".delivered.json"
 DELIVERY_FORMAT = 1
 #: The key under which a delivery that `--outputs-to` asked for is reported.
 OUTPUTS_TO = "--outputs-to"
+#: The key under which a copy of a generated source (`rtl.generator.outputs_to`) is reported.
+GENERATOR = "generator"
 #: The names that Xeda keeps for itself in a run directory. An output never takes one.
 RESERVED_NAMES = frozenset({"settings.json", "results.json", "trace.json", "trace.json.tmp"})
 
@@ -142,12 +145,14 @@ class OutputExistsError(DeliveryError):
 class Delivery:
     """An output of a run, `name` in its run directory, to copy to `destination`.
 
-    The setting or option `key` asked for the copy.
+    The setting or option `key` asked for the copy. `root` is the directory that holds `name`
+    when it is not the run directory: the generation storage, for a generated source.
     """
 
     key: str
     name: PurePath
     destination: Path
+    root: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -323,6 +328,8 @@ def _written_as(owner: str, delivery: Delivery) -> str:
     """
     if delivery.key == OUTPUTS_TO:
         return f"`{OUTPUTS_TO}` ({delivery.name})"
+    if delivery.key == GENERATOR:
+        return f"`rtl.generator.outputs_to` ({delivery.name})"
     return f"`flows.{owner}.{delivery.key}`" if owner else f"`{delivery.key}`"
 
 
@@ -702,7 +709,8 @@ def _outside(delivery: Delivery, source: Path, run_dir: Path) -> Optional[Path]:
     A tool may leave a symbolic link in its run directory, at the source or on the way to it.
     What a link leads to outside the run directory is not an output of the run, so Xeda never
     delivers it, a file or a directory alike. For `--outputs-to`, which delivers the artifacts
-    in bulk, the caller skips such a source. A delivery that a setting names raises a
+    in bulk (and for the generated sources of `rtl.generator.outputs_to`), the caller skips such
+    a source. A delivery that a setting names raises a
     `DeliveryError`, because the user asked for that output at that location. A link that leads
     to a file or a directory inside the run directory delivers what it leads to. A link that
     leads nowhere, or into a cycle, has nothing to deliver and raises a `DeliveryError` too.
@@ -715,7 +723,7 @@ def _outside(delivery: Delivery, source: Path, run_dir: Path) -> Optional[Path]:
             output_problem=True,
         )
     target = leads_out(source, run_dir)
-    if target is None or delivery.key == OUTPUTS_TO:
+    if target is None or delivery.key in (OUTPUTS_TO, GENERATOR):
         return target
     raise _refused_outside(delivery, str(source), str(target))
 
@@ -830,6 +838,11 @@ class Deliveries:
         self.run_path = Path(run_path)
         self.run_root = Path(os.path.realpath(run_root))
         self.named = list(named)
+        #: The copies of generated sources that this node delivers (`rtl.generator.outputs_to`).
+        #: The launch sets them: before the generator runs they hold the destinations that the
+        #: declared names give, and afterward the files that the generation matched
+        #: (`Delivery.root`).
+        self.generated: list[Delivery] = []
         #: Every file that the flows of the launch read, shared by the launch (`ReadInputs`).
         self.inputs = inputs
         #: The name of the flow whose deliveries these are. It says how a setting was asked for.
@@ -908,7 +921,7 @@ class Deliveries:
             destination.is_dir()
             and not destination.is_symlink()
             and str(destination) not in self.record["directories"]
-            and delivery in self.named
+            and (delivery in self.named or delivery.key == GENERATOR)
         ):
             return "a directory: name the file the output is copied to"
         return None
@@ -1079,7 +1092,7 @@ class Deliveries:
         `--outputs-to` expects to deliver, from the artifacts of the last run.
         """
         refusals: list[str] = []
-        for delivery in [*self.named, *predicted]:
+        for delivery in [*self.named, *self.generated, *predicted]:
             destination = _located(delivery.destination)
             refusal = self._refusal(destination, delivery)
             if refusal is not None:
@@ -1105,7 +1118,7 @@ class Deliveries:
         self.refuse(predicted)
         conflicts: list[Conflict] = []
         states: dict[Path, _State] = {}
-        for delivery in [*self.named, *predicted]:
+        for delivery in [*self.named, *self.generated, *predicted]:
             destination = _located(delivery.destination)
             why = self._why_not_ours(destination)
             if why is not None:
@@ -1136,9 +1149,11 @@ class Deliveries:
         """
         self.pending = []
         self.skipped = []
-        for delivery in [*self.named, *extra]:
-            source = Path(source_root) / delivery.name
-            known = (outside or {}).get(PurePath(delivery.name))
+        for delivery in [*self.named, *self.generated, *extra]:
+            root = Path(source_root) if delivery.root is None else delivery.root
+            source = root / delivery.name
+            # A source that the remote fetch skipped lies in the run directory, never in a storage.
+            known = (outside or {}).get(PurePath(delivery.name)) if delivery.root is None else None
             if known is not None:
                 if delivery.key != OUTPUTS_TO:
                     raise _refused_outside(delivery, *known)
@@ -1147,10 +1162,10 @@ class Deliveries:
             if not os.path.lexists(source):
                 raise DeliveryError(
                     f"`{delivery.key}` names {delivery.destination}, but the run wrote no "
-                    f"{delivery.name} in {source_root}",
+                    f"{delivery.name} in {root}",
                     output_problem=True,
                 )
-            target = _outside(delivery, source, Path(source_root))
+            target = _outside(delivery, source, root)
             if target is not None:
                 self._skip(delivery, str(source), str(target))
                 continue
@@ -1167,12 +1182,14 @@ class Deliveries:
             self.pending += [(delivery, src, dest, content_digest(src)) for src, dest in pairs]
 
     def _skip(self, delivery: Delivery, source: str, target: str) -> None:
-        """Skip a delivery of `--outputs-to` whose source leads out of the run directory."""
+        """Skip a delivery of `--outputs-to`, or of a generator, whose source leads out of the run
+        directory or of the generation storage."""
         log.warning(
-            "%s leads to %s, outside the run directory, through a symbolic link that the tool "
-            "left: not copied to %s",
+            "%s leads to %s, outside %s, through a symbolic link that the tool left: not copied "
+            "to %s",
             source,
             target,
+            "the run directory" if delivery.root is None else "the generation storage",
             delivery.destination,
         )
         self.skipped.append(Delivered(delivery.key, Path(source), delivery.destination, "skipped"))
@@ -1392,7 +1409,8 @@ class Deliveries:
             if content_digest(temporary) != sha:
                 raise DeliveryError(
                     f"{source} changed after its run -- did another launch run in "
-                    f"{self.run_path} meanwhile? -- so it is not delivered to {destination}",
+                    f"{delivery.root or self.run_path} meanwhile? -- so it is not delivered to "
+                    f"{destination}",
                     output_problem=True,
                 )
             os.replace(temporary, destination)

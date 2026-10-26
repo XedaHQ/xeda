@@ -59,7 +59,7 @@ are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` 
 | `clock` | One clock: `clock.port: clk`, or `clock: clk`. |
 | `clocks` | A list of clocks for several clocks. |
 | `attributes` | HDL attributes, `attribute -> (object -> value)`. |
-| `generator` | What writes the sources, in the launch before the first flow: a shell command line (`generator: "python soc.py"`, kept as `{shell: ...}`), a list of arguments (`[python3, soc.py]`, kept as `{executable: python3, args: [soc.py]}`), or a table with one of `shell`, `command`, `executable` (two of them, or `shell` with `args`, is an error) and `sources`, `generated_sources`, `always_runs`. |
+| `generator` | What writes the sources, in the launch before the first flow: a shell command line (`generator: "python soc.py"`, kept as `{shell: ...}`), a list of arguments (`[python3, soc.py]`, kept as `{executable: python3, args: [soc.py]}`), or a table with one of `shell`, `command`, `executable` (two of them, or `shell` with `args`, is an error) and `sources`, `generated_sources`, `always_runs`, `outputs_to`. |
 
 A generator runs in the launch, never when a design loads, into a storage
 `<run root>/.generated/<design>/<key>/` (with the record `generation.yaml`); the design tree is never
@@ -78,7 +78,11 @@ entry is a name or pattern in its output, typed by its extension or by `type:`; 
 file fails the node that reads it (`missing_generated`). A failing generator is the launch error
 `generator_failed` (every node skipped). A plan runs nothing: a node that reads generated sources is
 `unknown` ("the generator has not run") until the storage is current. `--remote` sends the recipe and
-its declared `sources`; a generator without `sources`, or with an input outside its design root, is refused. A dependency with a generator is
+its declared `sources`; a generator without `sources`, or with an input outside its design root, or with `outputs_to`, is refused. `outputs_to` (a location: absolute, or below `$DESIGN_ROOT`, `$DESIGN_DIR` or `$PWD`; a relative path is refused) names a
+directory that gets a copy of each generated file under its name in the output (`gen/top.v` -> `<outputs_to>/gen/top.v`). It is a
+delivery like a deliverable setting given a location (at the end of a passed launch, key `generator`; a changed copy needs
+`--overwrite-outputs`; never onto an input, over a directory, through a link, or where an entry of `rtl.sources`, `tb.sources` or
+the generator's `sources` would read it), and no part of any identity. A dependency with a generator is
 generated too, first, into its own storage; the same names may not be declared twice. A generator may write Bluespec:
 `bsc` converts the generated files like hand-written ones. Each flow after `bsc` runs again only if
 one of its own inputs changed, such as the Verilog that `bsc` writes or a source that `bsc` passes

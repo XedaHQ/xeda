@@ -24,13 +24,15 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePath
 from types import MappingProxyType
+from typing import Any
 
 from ..dataclass import ValidationError
+from ..deliver import GENERATOR, Delivery
 from ..design import Design, Generator, Source, SourceType, already_listed, generator_of
 from ..flow import Flow
 from ..frozen import FrozenDict
@@ -64,8 +66,11 @@ __all__ = [
     "generated",
     "generation_key",
     "inspect_generation",
+    "generated_deliveries",
     "located_paths",
     "missing_declarations",
+    "planned_deliveries",
+    "reading_nodes",
     "reads_generated",
 ]
 
@@ -513,3 +518,66 @@ def located_paths(generations: Generations | None, path: Path) -> list[Path]:
         if names is not None:
             return [generation.storage / name for name in names]
     return [path]
+
+
+def delivery_directory(unit: Design, start_directory: Path) -> Path | None:
+    """Return the directory that receives the copies of the generated sources of `unit`
+    (`Generator.outputs_to`, with every path variable expanded), or None for a recipe without one.
+
+    `start_directory` is what `$PWD` stands for."""
+    generator = generator_of(unit.rtl, root=unit.root_path)
+    return (
+        None if generator is None else generator.delivery_directory(unit.root_path, start_directory)
+    )
+
+
+def reading_nodes(nodes: Iterable[Any], design: Design) -> dict[str | None, Any]:
+    """Return, for each generator of `design` and its dependencies (by owner), the first node of
+    `nodes` (in plan order) that reads a source that generator writes.
+
+    That node delivers the copies of the generated sources: one node does, so no destination is
+    named twice. A node reads the generated sources of the types it takes (`reads_generated`)."""
+    found: dict[str | None, Any] = {}
+    for node in nodes:
+        for source in reads_generated(design, node.flow_class, node.settings):
+            found.setdefault(source.owner, node)
+    return found
+
+
+def planned_deliveries(design: Design, start_directory: Path) -> dict[str | None, list[Delivery]]:
+    """Return the copies of generated sources whose destinations are known before the generator
+    runs, by owner: one for each declared name that is no pattern.
+
+    A pattern names its files only once the generator has written them (`generated_deliveries`).
+    The copies name no storage yet (`Delivery.root`), so they serve the checks that come before
+    the generator, never a copy."""
+    planned: dict[str | None, list[Delivery]] = {}
+    for owner, unit in generating_units(design):
+        directory = delivery_directory(unit, start_directory)
+        if directory is None:
+            continue
+        planned[owner] = [
+            Delivery(GENERATOR, PurePath(name), directory / name)
+            for name in declarations(unit)
+            if "*" not in name
+        ]
+    return planned
+
+
+def generated_deliveries(
+    design: Design, generations: Generations, start_directory: Path
+) -> dict[str | None, list[Delivery]]:
+    """Return the copies of generated sources to make, by owner: one for each file that a
+    declaration matched in the storage of its generator, under its name in the output."""
+    found: dict[str | None, list[Delivery]] = {}
+    for owner, unit in generating_units(design):
+        directory = delivery_directory(unit, start_directory)
+        generation = generations.by_owner.get(owner)
+        if directory is None or generation is None:
+            continue
+        names = sorted({name for matched in generation.matches.values() for name in matched})
+        found[owner] = [
+            Delivery(GENERATOR, PurePath(name), directory / name, generation.storage)
+            for name in names
+        ]
+    return found

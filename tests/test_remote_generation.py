@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from xeda import Design
+from xeda.deliver import DeliveryError
 from xeda.design import DesignValidationError
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.dependencies import merged_design
@@ -121,6 +122,18 @@ def test_a_remote_request_for_such_a_generator_is_refused_before_connecting(tmp_
     assert isinstance(outcome.error, DesignValidationError)
     assert "declare its `sources`" in str(outcome.error)
     assert world.runs == 0 and not connected(remote_host)
+
+
+def test_a_remote_request_refuses_the_copies_of_generated_sources_before_connecting(
+    tmp_path, remote_host
+):
+    """The host would deliver them to the same path on the host, never into the local tree."""
+    world = _world(tmp_path, generator={"outputs_to": "$DESIGN_ROOT/copies"})
+    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    assert isinstance(outcome.error, DeliveryError)
+    assert "rtl.generator.outputs_to" in str(outcome.error) and "--remote" in str(outcome.error)
+    assert world.runs == 0 and not connected(remote_host)
+    assert not (world.root / "copies").exists()
 
 
 def test_the_host_generates_into_its_own_run_root(tmp_path, remote_host):

@@ -415,6 +415,9 @@ xeda run vivado_synth blinky.yaml --outputs-to ./out
 - A delivery never replaces a directory, a design source or a file the run reads. Two outputs for
   one destination are refused before any tool runs. An existing file is replaced without asking
   only if it is Xeda's own unchanged earlier delivery; otherwise pass `--overwrite-outputs`.
+- `rtl.generator.outputs_to` (a location) is a delivery of the same kind: the generated sources are copied
+  there under their names in the generator's output, key `generator`. A delivery is also refused where an
+  entry of `rtl.sources`, `tb.sources` or the generator's `sources` would read the file.
 - `--post-cleanup-purge` moves the output instead of copying it, when it can.
 
 ## Remote runs
@@ -481,7 +484,7 @@ Behavior:
   that holds it.
 - Refused before any connection: `--post-cleanup`, `--post-cleanup-purge` (use `xeda remote clean`),
   `--scrub` (a remote launch cannot ask for the confirmation),
-  a deliverable setting that names a location (use `--outputs-to`), a chain with a programmer
+  a deliverable setting or `rtl.generator.outputs_to` that names a location (use `--outputs-to`), a chain with a programmer
   flow (`openfpgaloader`; run the part before it with `--remote`, then program locally with a
   binding to the fetched file), `--fetch-all` or `--keep-running` without `--remote`, and
   `--keep-running` with `--dry-run`.

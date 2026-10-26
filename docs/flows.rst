@@ -736,6 +736,22 @@ deliver, so ``--outputs-to`` is refused before anything runs. The error names th
 delivers the bitstream (``-s flows.vivado_synth.bitstream=$PWD/<file>``). ``--dry-run`` shows the
 graph and runs no tool.
 
+Deliveries
+----------
+
+Three things ask Xeda to copy a file to a place that you name: a deliverable setting that you give
+a location, ``--outputs-to`` for the outputs of the last flow, and ``outputs_to`` in the
+``generator`` of a design for the generated sources (see :doc:`design-file`). They are one
+mechanism. Xeda copies at the end of a launch that passed, and never after a failure. It replaces a
+copy that it made and that is unchanged. A file in the way that is not such a copy needs your
+answer, or ``--overwrite-outputs``. Xeda never copies onto an input of the launch, into a
+directory that a setting reads, into a run root, over a directory, or through a symbolic link, and
+no two deliveries of a launch go to one file. It also never copies to a place where an entry of the
+design's sources (``rtl.sources``, ``tb.sources`` or the ``sources`` of the generator) would read
+the file, because the file would become a source of the next run. The error names the entry. All
+this is checked before any tool runs, as far as the destinations are known then. A destination is
+no part of the identity of a run.
+
 Input sources and saved bindings
 --------------------------------
 

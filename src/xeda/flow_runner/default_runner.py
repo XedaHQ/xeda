@@ -1067,6 +1067,7 @@ class FlowLauncher:
         design: Design,
         deliveries: Sequence[Delivery],
         run_path: Path,
+        start_directory: Path,
     ) -> None:
         """Make now the checks that every flow of the plan makes of its deliveries at its turn.
 
@@ -1090,7 +1091,12 @@ class FlowLauncher:
         again with it at its turn. That finds the record that this check anchored, so the
         destination is read once in the launch, and the check asks again only about a file that
         changed meanwhile. At its turn, under its lock, the flow reads the delivery record again
-        if another launch wrote it meanwhile."""
+        if another launch wrote it meanwhile.
+
+        The copies of generated sources (`rtl.generator.outputs_to`) belong to the first flow
+        that reads them. The destinations that the declared names give are checked now, before
+        the generator runs. The names that a pattern matches are known once it has run
+        (`_place_generated_deliveries`)."""
         # What no answer could allow comes first, for every flow of the plan: a file that a flow
         # reads and that lies in its own run directory, which Xeda empties and rewrites. A flow
         # checks it again at its turn, for a file made since.
@@ -1102,6 +1108,10 @@ class FlowLauncher:
             )
         outputs_to = self.settings.outputs_to
         own = self._deliveries_of(run_path, deliveries, requested.name)
+        generated = self._generated_by_node(
+            plan, launch_generation.planned_deliveries(design, start_directory), design
+        )
+        own.generated = generated.get(requested.node_key, [])
         own.check_outputs_to(outputs_to)
         predicted = (
             outputs_to_deliveries(recorded_artifacts(run_path, self.run_root), run_path, outputs_to)
@@ -1116,11 +1126,15 @@ class FlowLauncher:
                 known = [*deliveries, *predicted]
             else:
                 known = split_deliveries(planned.settings, design.name)
-                if known:
+                if known or planned.node_key in generated:
                     ahead[planned.node_key] = self._deliveries_of(
                         planned.run_path, known, planned.name
                     )
-            copies += [(planned.name, d, d.destination) for d in known]
+                    ahead[planned.node_key].generated = generated.get(planned.node_key, [])
+            copies += [
+                (planned.name, d, d.destination)
+                for d in [*known, *generated.get(planned.node_key, [])]
+            ]
         for producer in ahead.values():
             producer.refuse()
         refuse_shared_destinations(copies, before_run=True)
@@ -1129,6 +1143,65 @@ class FlowLauncher:
         own.check(predicted)
         ahead[requested.node_key] = own
         self._deliveries_ahead = ahead
+
+    @staticmethod
+    def _generated_by_node(
+        plan: Plan, by_owner: Mapping[str | None, Sequence[Delivery]], design: Design
+    ) -> dict[NodeKey, list[Delivery]]:
+        """Group the copies of generated sources (by the owner of their generator) by the node
+        that delivers them: the first node of the plan that reads sources of that generator."""
+        readers = launch_generation.reading_nodes(plan.nodes, design)
+        grouped: dict[NodeKey, list[Delivery]] = {}
+        for owner, copies in by_owner.items():
+            reader = readers.get(owner)
+            if reader is not None and copies:
+                grouped.setdefault(reader.node_key, []).extend(copies)
+        return grouped
+
+    def _place_generated_deliveries(
+        self, plan: Plan, design: Design, start_directory: Path
+    ) -> None:
+        """Give each node its copies of the generated sources, now that the generator has run, and
+        check them as the other deliveries are checked.
+
+        The copies are the files that the declarations matched in the storage. They replace the
+        destinations that the declared names gave (`_check_deliveries_ahead`), and add those of
+        the patterns. Nothing of the plan has run yet, so a refusal or a question still comes
+        before any tool of a flow."""
+        generation = self._generation.generation if self._generation else None
+        if generation is None:
+            return
+        by_node = self._generated_by_node(
+            plan,
+            launch_generation.generated_deliveries(design, generation, start_directory),
+            design,
+        )
+        touched: list[Deliveries] = []
+        for node in plan.nodes:
+            copies = by_node.get(node.node_key)
+            ahead = self._deliveries_ahead.get(node.node_key)
+            if copies is None and (ahead is None or not ahead.generated):
+                continue
+            if ahead is None:
+                ahead = self._deliveries_ahead[node.node_key] = self._deliveries_of(
+                    node.run_path, [], node.name
+                )
+            ahead.generated = copies or []
+            touched.append(ahead)
+        if not touched:
+            return
+        refuse_shared_destinations(
+            (
+                (other.owner, copy, copy.destination)
+                for other in self._deliveries_ahead.values()
+                for copy in [*other.named, *other.generated]
+            ),
+            before_run=True,
+        )
+        for ahead in touched:
+            ahead.refuse()
+        for ahead in touched:
+            ahead.check()
 
     def _deliveries_of(self, run_path: Path, named: Sequence[Delivery], owner: str) -> Deliveries:
         """Return the deliveries `named` of the flow `owner` that runs in `run_path`.
@@ -1254,7 +1327,7 @@ class FlowLauncher:
                 register_read_settings(
                     self._read_inputs, planned.settings, planned.run_path, self.run_root
                 )
-            self._check_deliveries_ahead(plan, node, design, deliveries, run_path)
+            self._check_deliveries_ahead(plan, node, design, deliveries, run_path, runner_cwd)
         refuse_inputs_inside(
             run_path, flow_name, [*design_files(design), *setting_files(input_settings)]
         )
@@ -1263,6 +1336,7 @@ class FlowLauncher:
             # the first producer and before any lock of a run directory (a lock of the storage
             # is taken first by every launch, so two launches cannot wait for each other).
             self._enter_generation(design)
+            self._place_generated_deliveries(plan, design, runner_cwd)
         # What the flows read: the design with the files of its generated sources in place.
         execution = self._execution_of(design)
         design_hash = execution.parts_hash(
