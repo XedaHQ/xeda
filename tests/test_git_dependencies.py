@@ -787,9 +787,53 @@ def _names(plan) -> list[str]:
     return [Path(s["path"]).name for s in _configuration(plan)["rtl"]["sources"]]
 
 
+def test_an_index_is_the_position_in_the_dependencies_of_the_design(tmp_path, remote):
+    """The Git dependency is the second entry, so it is dependency 1 in the configuration."""
+    plan = _plan(tmp_path, _mixed(tmp_path, remote, "local first"))
+    sources = _configuration(plan)["rtl"]["sources"]
+    assert {"dependency": 1, "path": "src/a.v", "type": "Verilog"} in sources
+    assert {"path": "lib/b.v", "type": "Verilog"} in sources
+
+
+def test_dependencies_merge_in_the_order_they_are_listed(tmp_path, remote):
+    """A source list with `pos: 0` puts the later dependency first, whichever kind it is."""
+    local_first = _plan(tmp_path / "one", _mixed(_dir(tmp_path / "one"), remote, "local first"))
+    git_first = _plan(tmp_path / "two", _mixed(_dir(tmp_path / "two"), remote, "git first"))
+    assert _names(local_first) == ["a.v", "b.v", "top.v"]
+    assert _names(git_first) == ["b.v", "a.v", "top.v"]
+
+
 def _dir(path: Path) -> Path:
     path.mkdir()
     return path
+
+
+def test_the_record_lists_every_entry_at_its_index(tmp_path, remote, toy):
+    design = Design.from_file(_mixed(tmp_path, remote, "git first"))
+    flow = _runner(tmp_path).launch_flow(toy, design, {})
+    assert flow.succeeded
+    record = read_record(flow.run_path, run_root=tmp_path / "xeda_run")
+    assert [dict(d) for d in record.dependencies] == [
+        {
+            "repository": remote.url,
+            "reference": None,
+            "commit": remote.first,
+            "design_file": "dep.yaml",
+        },
+        {"repository": None, "reference": None, "commit": None, "design_file": "lib/lib.yaml"},
+    ]
+    sources = {s.path: s.dependency for item in record.inputs for s in item.sources}
+    assert sources == {"top.v": None, "src/a.v": 0, "lib/b.v": None}
+
+
+def test_a_failed_fetch_names_the_entry_in_the_dependencies(tmp_path, remote):
+    design_file = _mixed(tmp_path, remote, "local first")
+    spec = yaml.safe_load(design_file.read_text())
+    spec["dependencies"][1]["uri"] = spec["dependencies"][1]["uri"].replace(remote.first, "0" * 40)
+    design_file.write_text(yaml.safe_dump(spec))
+    with pytest.raises(DesignError) as failed:
+        _plan(tmp_path, design_file)
+    assert failed.value.field == "dependencies[1]"
 
 
 def test_a_path_in_a_checkout_counts_under_the_index_of_its_entry(tmp_path):
@@ -807,3 +851,15 @@ def test_a_path_in_a_checkout_counts_under_the_index_of_its_entry(tmp_path):
     design = design.model_copy(update={"resolved_dependencies": (local, git)})
     design.invalidate_cached_properties()
     assert design.part_metadata("rtl")["parameters"] == {"ROM": "$DEPENDENCY_1/rom.mem"}
+
+
+def test_a_request_that_is_wrong_in_itself_reads_no_dependency(tmp_path, remote, git_log):
+    """The settings are checked before any dependency is read: a missing local design file does
+    not hide the mistake in the settings, and nothing is fetched."""
+    design_file = _mixed(tmp_path, remote, "local first")
+    (tmp_path / "lib" / "lib.yaml").unlink()
+    with pytest.raises(Exception, match="no_such_setting"):
+        _runner(tmp_path).plan(
+            "yosys_fpga", str(design_file), flow_settings={**XILINX, "no_such_setting": 1}
+        )
+    assert git_log() == []

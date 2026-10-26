@@ -359,7 +359,7 @@ A dependency adds its `rtl.sources` and `tb.sources` to the design's, and fills 
 - Local: the path of a design file, relative to the design. It must exist when planning starts: a generator cannot write it (`design_file_not_found`).
 - Git: `git+<url>[?branch=<name>|commit=<hash>]#<design file>`, or a table with `repo_url`, `design_file`, `branch`, `commit`. `commit` is a full hash; an abbreviated one is refused. Planning fetches it into `<run root>/.dependencies/<key>/`, which is never changed or removed by Xeda (delete it by hand while no launch runs). `clone_dir` and `local_cache` were removed (`removed_key`).
 - A pinned `commit` already fetched needs no network. A branch, a tag or no reference is resolved by `git ls-remote` at every planning; a failure is `fetch_failed` (field `dependencies[<n>]`). Pin a commit to work offline.
-- The commit is no part of the identity, but another commit makes the run stale ("dependency <repository> now at <commit>"). `results.json` has `dependencies` (`repository`, `reference`, `commit`, `design_file`).
+- The commit is no part of the identity, but another commit makes the run stale ("dependency <repository> now at <commit>"). `results.json` has `dependencies`, one per entry in the listed order (`repository`, `reference`, `commit`, `design_file`; a local entry has `design_file` only). Entries merge in the order listed, local and Git alike.
 
 ## Paths and environment variables
 

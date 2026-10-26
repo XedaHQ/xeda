@@ -59,6 +59,7 @@ from ..deliver import (
 from ..design import names_a_design_file
 from ..flow_runner import DefaultRunner
 from ..flow_runner.chains import parse_request
+from ..flow_runner.dependencies import merged_design
 from ..errors import RecordError, SpecError
 from ..flow_runner.default_runner import PreparedRequest
 from ..flow_runner.settings_layers import command_line_table
@@ -1519,9 +1520,10 @@ def _run(
             inputs_dir = workspace / "inputs" / design.name
             remote_run_root = workspace / "xeda_run"
             # The host plans too, and fetches the Git dependencies into its own run root, so the
-            # package holds their references and no file that this side fetched.
+            # package holds their references and no file that this side fetched. The local
+            # dependencies are files on this side only: they go as sources of the design.
             package = package_inputs(
-                prepared.prepared.declared,
+                merged_design(prepared.prepared.declared, run_root=None, git=False),
                 prepared.prepared.sections,
                 {node.name for node in plan.nodes},
                 run_root=local_root,

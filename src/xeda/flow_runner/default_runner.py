@@ -284,8 +284,8 @@ class _Request:
     api_overrides: dict[str, Any]
     flow_request: FlowRequest
     binding_layers: tuple[BindingLayer, ...]
-    #: The design as a remote host takes it: the local dependencies merged in, the Git
-    #: dependencies as references. The host fetches them into its own run root.
+    #: The design as the caller gave it, before planning merged its dependencies. A remote
+    #: request packages it with the Git dependencies as references.
     declared: Design
 
 
@@ -301,7 +301,7 @@ class PreparedRequest:
     plan: Plan
     flow_request: FlowRequest
     target: str | None
-    #: The design as a remote host takes it (`_Request.declared`).
+    #: The design as the caller gave it (`_Request.declared`).
     declared: Design
 
 
@@ -2282,7 +2282,7 @@ class FlowLauncher:
 
     def _with_dependencies(self, request: _Request) -> _Request:
         """Return `request` with the dependencies of its design merged in. The design of the
-        plan and the launch is the merged one, and `declared` stays what a remote host takes."""
+        plan and the launch is the merged one, and `declared` stays as the caller gave it."""
         merged = self._merged(request.design)
         return request if merged is request.design else replace(request, design=merged)
 
@@ -2418,9 +2418,6 @@ class FlowLauncher:
         assert isinstance(
             design, Design
         ), f"BUG: design should be of type Design but was {type(design)}"
-        # A local dependency is a design file on disk: read it now. A Git dependency stays a
-        # reference until planning has made the checks that need no value of a dependency.
-        design = dependencies.merged_design(design, run_root=None, git=False)
 
         # Merge the own settings of an embedded
         # or project-selected design too. One origin per file, each normalized on its own:

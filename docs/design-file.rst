@@ -843,16 +843,18 @@ storage is complete or absent. Two launches that need one commit fetch it once.
   nor any log line or path shows a user name or a password of the URL.
 - The commit is no part of the identity of a run. The identity holds the sources of a dependency by
   their path in its checkout. Another commit makes the runs that used the dependency stale: the
-  reason is ``dependency <repository> now at <commit>``. The record of a run lists the Git
-  dependencies (``repository``, ``reference``, ``commit`` and ``design_file``), and a source from a
-  dependency names the dependency it came from.
+  reason is ``dependency <repository> now at <commit>``. The record of a run lists every entry of
+  ``dependencies`` at its position (``repository``, ``reference``, ``commit`` and ``design_file``;
+  a local entry has a ``design_file`` only), and a source from a Git dependency names the entry it
+  came from.
 
 Xeda never removes dependency storage. It is a cache of fixed content. You can delete
 ``<run root>/.dependencies/`` by hand while no launch runs. The keys ``clone_dir`` and
 ``local_cache`` were removed: to use a checkout that you manage, name its design file as a local
 dependency.
 
-A local dependency, the path of a design file, is relative to the design that lists it. The file
+Planning merges the entries of ``dependencies``, local and Git, in the order they are listed. A local
+dependency, the path of a design file, is relative to the design that lists it. The file
 must exist when planning starts. A generator runs after planning, so it cannot write the design
 file of a dependency: list the files that the generator writes as sources of the design instead.
 
