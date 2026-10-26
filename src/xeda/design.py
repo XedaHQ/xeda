@@ -71,6 +71,7 @@ from .run_dir import DIR_NAME_HASH_LEN, run_directory_name
 from .utils import (
     hierarchical_merge,
     ConflictingKeys,
+    LOCATION_FORMS,
     XedaException,
     expand_env_vars,
     expand_hierarchy,
@@ -78,6 +79,7 @@ from .utils import (
     flows_table_problems,
     location_free,
     path_identity,
+    path_variables,
     removesuffix,
     semantic_hash,
     settings_to_dict,
@@ -1564,6 +1566,15 @@ class Generator(XedaBaseModel):
         "the generator's or wholly written by hand: a pattern that would match both is an "
         "error. A generator's entry is a name (or a pattern) in the output of the generator.",
     )
+    outputs_to: Optional[Path] = Field(
+        None,
+        description="A directory that receives a copy of the generated sources, each under its "
+        "name in the output of the generator (`gen/top.v` goes to `<outputs_to>/gen/top.v`). "
+        "Give a location: an absolute path, or a path below `$DESIGN_ROOT`, `$DESIGN_DIR` or "
+        "`$PWD`. The copy is made at the end of a launch that passed, as every delivery is "
+        "(`--overwrite-outputs` replaces a changed copy). The flows never read the copy, and it "
+        "is no part of any identity.",
+    )
 
     removed_inputs: ClassVar[Dict[str, str]] = {"use": SecondSpelling("`class`")}
 
@@ -1607,6 +1618,30 @@ class Generator(XedaBaseModel):
                     "`build` (a relative path that stays inside it)"
                 )
         return value
+
+    @field_validator("outputs_to", mode="before")
+    @classmethod
+    def _outputs_to_is_a_location(cls, value):
+        """A location for the copies: absolute once the path variables expand.
+
+        `$DESIGN_ROOT` and `$DESIGN_DIR` expand to the root of the design that is being loaded.
+        `$PWD` stays as written, because loading has no start directory; the launch expands it
+        (`delivery_directory`). Any other variable expands from the environment. A relative
+        value is refused with the form to write instead."""
+        if value is None:
+            return None
+        if not isinstance(value, (str, os.PathLike)) or not os.fspath(value):
+            raise ValueError("`outputs_to` is a directory: give a location")
+        text = os.fspath(value)
+        root = _loading_root.get()
+        expanded = _expand_design_path(text, root if root is not None else Path(os.sep))
+        if not expanded.is_absolute() and not re.match(r"\$\{?PWD\b", text):
+            hint = (
+                f"write `$DESIGN_ROOT/{text}` to deliver below the design root, or give another "
+                f"location ({LOCATION_FORMS})"
+            )
+            raise ValueError(f"`outputs_to` is {text!r}, which is not a location: {hint}")
+        return text if root is None else str(expanded)
 
     @field_validator("env")
     @classmethod
@@ -1703,6 +1738,18 @@ class Generator(XedaBaseModel):
     #: Whether the working directory of a generator without `cwd` is the design root. Otherwise
     #: it is the storage that holds the output of the generator.
     runs_in_design_root: ClassVar[bool] = False
+
+    def delivery_directory(self, design_root: Path, start_directory: Path) -> Path | None:
+        """Return the directory that receives the copies of the generated sources (`outputs_to`)
+        with every path variable expanded, or None when the recipe names none.
+
+        `start_directory` is the directory that `$PWD` stands for."""
+        if self.outputs_to is None:
+            return None
+        return expand_env_vars(
+            str(self.outputs_to),
+            path_variables({"design_root": design_root, "runner_cwd": start_directory}),
+        )
 
     def lookup_directory(self, design_root: Path) -> Path:
         """Return the directory that a relative executable and a relative `PATH` entry resolve

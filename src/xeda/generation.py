@@ -195,10 +195,13 @@ def executable_identity(
 def recipe_identity(generator: Generator) -> dict[str, Any]:
     """Return the recipe as it is written: the part of the generation key that the generator
     states. Its `env` is part of it, as is its working directory. Its inputs are not: their
-    content is, in `input_digests`."""
+    content is, in `input_digests`. The place that receives copies of its output (`outputs_to`)
+    is not: it does not change what the generator writes."""
     return {
         "class": type(generator).__name__,
-        "recipe": generator.model_dump(mode="json", exclude={"sources", "generated_sources"}),
+        "recipe": generator.model_dump(
+            mode="json", exclude={"sources", "generated_sources", "outputs_to"}
+        ),
     }
 
 
