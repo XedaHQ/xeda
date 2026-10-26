@@ -342,3 +342,17 @@ def test_a_unit_carries_its_whole_configuration_to_the_host(tmp_path, remote_hos
     here = {generation_key(unit)[0] for _owner, unit in generating_units(design)}
     assert len(here) == 2, "two units that differ in a parameter have two keys"
     assert on_host == here, "the host computes the keys of this side"
+
+
+def test_an_empty_working_directory_of_a_generator_exists_on_the_host(tmp_path, remote_host):
+    world = _world(tmp_path, generator={"cwd": "work"})
+    (world.root / "work").mkdir()
+    document, package = _document(tmp_path, world.load())
+    assert "work" in package.directories
+    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    if outcome.error is not None:
+        raise outcome.error
+    assert outcome.success, outcome.document
+    assert world.runs == 1
+    cwd, _design_root, _storage = world.where
+    assert cwd.endswith("/work")

@@ -314,6 +314,12 @@ def package_inputs(
                 packaged_generator_input(path, unit, base) for path in recipe_of.sources
             ]
             rtl["generator"] = recipe
+            if recipe_of.cwd is not None:
+                # The generator starts there, so the directory exists on the host even when no
+                # file of the package lies in it.
+                relative = unit.relative_to_root((unit.root_path / recipe_of.cwd).resolve())
+                if relative not in (None, Path(".")) and (unit.root_path / relative).is_dir():
+                    directories.add((base / relative).as_posix())
         tb["sources"] = packaged_sources(unit.tb.sources, unit, base)
         tb["top"] = unit.tb.top
         tb["cocotb"] = thaw(unit.tb.cocotb)
