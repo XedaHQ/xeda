@@ -16,11 +16,12 @@ Vivado. Chains and bindings: `SKILL.md`. Failures: `troubleshooting.md`.
 `nextpnr` always writes its configuration (an ECP5 `out_of_context` run has none); a missing one
 after the tool exits fails the run (`reported_failure`, naming the setting and path).
 
-`yosys_fpga` reads SystemVerilog with the slang plugin (`systemverilog: slang`, the default): one
-`read_slang` reads all Verilog and SystemVerilog sources, always with `--extern-modules` and
-`--best-effort-hierarchy`. `read_systemverilog_flags` refuses those two and the flags the script
-sets itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`). `systemverilog: default` uses the
-yosys reader (`read_verilog -sv`).
+`yosys_fpga` reads SystemVerilog with the slang plugin (`systemverilog: slang`, the default): when
+the design has a SystemVerilog source, one `read_slang` reads all Verilog and SystemVerilog sources,
+always with `--best-effort-hierarchy`. `read_systemverilog_flags` refuses that flag, the flags the
+script sets itself (`--top`, `-D`, `--define-macro`, `-I`, `--include-directory`, `-G`,
+`--blackboxed-module`) and `--extern-modules` (always on in yosys-slang, deprecated). A design with
+Verilog sources only, or `systemverilog: default`, uses the yosys reader (`read_verilog`).
 
 ## Xilinx 7-series (openXC7 1.0)
 

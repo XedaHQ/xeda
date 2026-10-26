@@ -13183,7 +13183,7 @@
       "read_systemverilog_flags": {
         "children": false,
         "assignable": true,
-        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--extern-modules`, `--best-effort-hierarchy`) is refused."
+        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--best-effort-hierarchy`) is refused, and so is `--extern-modules`, which is always on in yosys-slang."
       },
       "check_assert": {
         "children": false,
@@ -14814,7 +14814,7 @@
       "read_systemverilog_flags": {
         "children": false,
         "assignable": true,
-        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--extern-modules`, `--best-effort-hierarchy`) is refused."
+        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--best-effort-hierarchy`) is refused, and so is `--extern-modules`, which is always on in yosys-slang."
       },
       "check_assert": {
         "children": false,
@@ -15880,7 +15880,7 @@
       "read_systemverilog_flags": {
         "children": false,
         "assignable": true,
-        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--extern-modules`, `--best-effort-hierarchy`) is refused."
+        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--best-effort-hierarchy`) is refused, and so is `--extern-modules`, which is always on in yosys-slang."
       },
       "check_assert": {
         "children": false,
