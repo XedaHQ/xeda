@@ -483,6 +483,41 @@ def test_a_removed_option_names_its_successor(tmp_path, option, command, success
     assert f"`{option}` was removed: use {successor}" in click.unstyle(result.output)
 
 
+#: A removed option that took a value, a value for it, and the text after "use " in the message.
+REMOVED_VALUE_OPTIONS = [
+    ("--flow-settings", ["run", "vivado_synth", "d.yaml"], "a=b", "-s or --settings"),
+    ("--flow-settings", ["dse", "vivado_synth"], "a=b", "-s or --settings"),
+    ("--design", ["run", "vivado_synth"], "d.yaml", "the positional DESIGN argument"),
+    ("--design-file", ["dse", "vivado_synth"], "d.yaml", "the positional DESIGN argument"),
+    ("--init_freq_low", ["dse", "vivado_synth"], "100", "--init-freq-low"),
+    ("--init_freq_high", ["dse", "vivado_synth"], "200", "--init-freq-high"),
+]
+
+
+@pytest.mark.parametrize("joined", [True, False], ids=["joined", "separate"])
+@pytest.mark.parametrize(
+    ("option", "command", "value", "successor"),
+    REMOVED_VALUE_OPTIONS,
+    ids=[f"{command[0]} {option}" for option, command, _, _ in REMOVED_VALUE_OPTIONS],
+)
+def test_a_removed_option_with_its_old_value_names_its_successor(
+    tmp_path, option, command, value, successor, joined
+):
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    design = tmp_path / "d.yaml"
+    design.write_text("name: d\n")
+    value = str(design) if value == "d.yaml" else value
+    given = [f"{option}={value}"] if joined else [option, value]
+    args = [str(design) if arg == "d.yaml" else arg for arg in command] + given
+    result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code == 2, result.output
+    assert f"`{option}` was removed: use {successor}" in click.unstyle(result.output)
+
+
 def test_the_removed_debug_variable_names_itself(monkeypatch):
     from click.testing import CliRunner
 

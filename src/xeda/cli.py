@@ -171,7 +171,7 @@ def _removed_option(
 
     def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
         if value is not None:
-            given = param.opts[0] if value else param.secondary_opts[0]
+            given = param.secondary_opts[0] if value is False else param.opts[0]
             if gone is not None:
                 raise click.UsageError(f"`{given}` was removed: {gone}; delete it", ctx=ctx)
             text = replacement if value or false_replacement is None else false_replacement
@@ -193,24 +193,33 @@ def _removed_debug_option(ctx: click.Context, param: click.Parameter, value: Any
 
 
 def _removed_options(
-    replacement: str | None, *names: str, callback: Any = None, envvar: str | None = None
+    replacement: str | None,
+    *names: str,
+    callback: Any = None,
+    envvar: str | None = None,
+    took_value: bool = False,
 ):
     """Return the decorator that adds a hidden option for each of the removed `names`.
 
     Each option says what replaced it, in the words of `_removed_option`, and names the spelling
-    that was given."""
+    that was given. An option that `took_value` accepts an optional value, so that the old
+    command line `--name=value` or `--name value` gets this message too."""
 
     def decorator(func):
         for name in reversed(names):
+            # A flag, or an option whose value may be left out (`flag_value`).
+            kind: dict[str, Any] = (
+                {"is_flag": False, "flag_value": ""} if took_value else {"is_flag": True}
+            )
             func = click.option(
                 name,
                 "removed_" + name.lstrip("-").replace("-", "_") + "_option",
-                is_flag=True,
                 default=None,
                 hidden=True,
                 expose_value=False,
                 envvar=envvar if name.startswith("--") else None,
                 callback=callback or _removed_option(replacement or ""),
+                **kind,
             )(func)
         return func
 
@@ -788,7 +797,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     ),
     help="Path to Xeda project file. By default, discover one xedaproject.yaml, .yml or .toml.",
 )
-@_removed_options("the positional DESIGN argument", "--design-file", "--design")
+@_removed_options("the positional DESIGN argument", "--design-file", "--design", took_value=True)
 @click.option(
     "--design-name",
     help="Specify design.name in case multiple designs are available in a project file.",
@@ -819,7 +828,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
         "", gone="a design file holds the keys of the design and nothing else"
     ),
 )
-@_removed_options("-s or --settings", "--flow-settings")
+@_removed_options("-s or --settings", "--flow-settings", took_value=True)
 @click.option(
     "--settings",
     "-s",
@@ -1310,7 +1319,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     default=None,
     required=False,
 )
-@_removed_options("-s or --settings", "--flow-settings")
+@_removed_options("-s or --settings", "--flow-settings", took_value=True)
 @click.option(
     "--settings",
     "-s",
@@ -1352,7 +1361,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     "value wins over the design's and the project's. The order, lowest first, is defaults < "
     "project < design < target < -s < API.",
 )
-@_removed_options("the positional DESIGN argument", "--design", "--design-file")
+@_removed_options("the positional DESIGN argument", "--design", "--design-file", took_value=True)
 @click.option(
     "--design-allow-extra/--no-design-allow-extra",
     is_flag=True,
@@ -1412,8 +1421,8 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     "--init-freq-high",
     type=float,
 )
-@_removed_options("--init-freq-low", "--init_freq_low")
-@_removed_options("--init-freq-high", "--init_freq_high")
+@_removed_options("--init-freq-low", "--init_freq_low", took_value=True)
+@_removed_options("--init-freq-high", "--init_freq_high", took_value=True)
 @_removed_options(None, "--debug", "-d", callback=_removed_debug_option)
 @click.option(
     "--json",
