@@ -307,7 +307,9 @@ keeps the files as the host wrote them. Xeda checks each file against its SHA-25
 atomically. A symbolic link at ``@<host>``, at a design or at a target below it makes Xeda
 refuse the run before it writes or deletes anything there, as for a local run root (see
 :doc:`run-directories`). The mirror holds no ``trace.json``, so a local run never reuses a
-mirror directory.
+mirror directory. An artifact that a symbolic link on the host leads out of its run directory
+does not come back: the results name its place in the mirror, where no file lies (see "Outputs
+where you name them" in :doc:`run-directories`).
 
 The records ``results.json`` and ``settings.json`` of each mirror directory are written again with
 the paths of your machine, where Xeda can map a path:
@@ -335,8 +337,9 @@ By default Xeda fetches, for every flow of the plan:
 * everything below ``reports/``.
 
 For the flow that the request names, it also fetches the declared outputs and the artifacts. A
-flow that failed returns only the files that its run wrote, and no declared outputs. A file outside
-the run directory comes back only from a flow that succeeded, under ``_external/<digest>/``.
+flow that failed returns only the files that its run wrote, and no declared outputs. Xeda never
+reads or sends a file outside the run directory of the host: an artifact there keeps its path on
+the host in the results, and a warning names it.
 
 ``--fetch-all`` fetches every file of the run directories, ``trace.json`` excepted. Use it to look
 at the intermediate files of a tool.

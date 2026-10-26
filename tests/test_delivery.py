@@ -1955,6 +1955,37 @@ def test_a_failed_remote_run_delivers_nothing(world):
         assert ("deliveries" in results) is success
 
 
+def test_a_remote_artifact_that_a_link_leads_out_is_skipped_as_a_local_one_is(world, caplog):
+    """The remote did not send an artifact that a link leads out of its run directory, and said
+    where it leads (`SkippedSource`). Its delivery is skipped with the warning of a local skip,
+    and the node lists it as "skipped"; the other artifacts are delivered."""
+    from xeda.deliver import Deliveries, ReadInputs
+    from xeda.remote.fetch import SkippedSource, deliver_fetched
+
+    root = ensure_run_root(world.root)
+    assert root is not None
+    mirror = root / "@host" / "d" / "flow"
+    mirror.mkdir(parents=True)
+    (mirror / "a.txt").write_text("fetched\n")
+    results: dict = {"success": True}
+    delivery = Deliveries(mirror, root, inputs=ReadInputs())
+    artifacts = {"a": "/remote/run/a.txt", "log": "/remote/run/tool.log"}
+    skipped = [SkippedSource("flow", "tool.log", "/remote/run/tool.log", "/etc/secret")]
+    got = world.user / "got"
+    with caplog.at_level(logging.WARNING, logger="xeda.deliver"):
+        deliver_fetched(
+            delivery, results, artifacts, "/remote/run", mirror, outputs_to=got, skipped=skipped
+        )
+    assert (got / "a.txt").read_text() == "fetched\n"
+    assert not os.path.lexists(got / "tool.log")
+    assert {d["to"]: d["state"] for d in results["deliveries"]} == {
+        str(got / "tool.log"): "skipped",
+        str(got / "a.txt"): "delivered",
+    }
+    (warning,) = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert "/remote/run/tool.log" in warning and "/etc/secret" in warning
+
+
 @pytest.fixture
 def sqrt_copy(tmp_path, monkeypatch):
     work = tmp_path / "work"

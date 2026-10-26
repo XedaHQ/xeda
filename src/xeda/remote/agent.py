@@ -22,7 +22,9 @@ root `R`, and the workspace is `R/v1/ws/<key>/` with the directories `inputs/<de
    "exit": n, "survivors": n}`. `survivors` counts the processes that SIGKILL did not remove.
    While the launch runs, the client sends `H` frames, and `C` to cancel it.
 4. client: `J {"fetch": {"fetch_all": bool}}` (or none, for a dry run). The agent answers
-   `J {"files": [entries]}` and then the tar of these files as `DATA` frames and an `END` frame.
+   `J {"files": [entries], "skipped": [skipped sources]}` and then the tar of these files as `DATA`
+   frames and an `END` frame. A skipped source is an artifact that a symbolic link leads out of its
+   run directory: nothing of it is sent (`fetch.SkippedSource`).
 5. client: `J {"bye": true}`. The agent releases the lock and exits with status 0.
 
 A launch with `"keep_running": true` in the `launch` frame survives the session. The child
@@ -1353,6 +1355,7 @@ class Session:
         document = self.result if isinstance(self.result, dict) else {}
         request = self.request
         files: dict[str, Path] = {}
+        skipped: list[Any] = []
         if request is not None and document.get("nodes"):
             named = {element.get("node") for element in document.get("request") or []}
             written = document.get("written") or {}
@@ -1370,11 +1373,17 @@ class Session:
                         frozenset(written[name]) if name in written else None,
                     )
                 )
-            files = select_fetch(
+            selection = select_fetch(
                 Path(request.run_root), nodes, fetch_all=bool(body.get("fetch_all", False))
             )
+            files, skipped = selection.files, selection.skipped
         entries = build_manifest(files)
-        self.send_json({"files": [entry.as_json_value() for entry in entries]})
+        self.send_json(
+            {
+                "files": [entry.as_json_value() for entry in entries],
+                "skipped": [source.as_json_value() for source in skipped],
+            }
+        )
         sink = io.BufferedWriter(_FrameSink(self.send), buffer_size=_DATA_FRAME)
         write_tar(entries, files, {}, sink)
         sink.flush()

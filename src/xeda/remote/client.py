@@ -75,6 +75,7 @@ from .errors import (
     RemoteProtocolError,
 )
 from .fetch import (
+    SkippedSource,
     deliver_fetched,
     publish_mirror,
     remote_read_inputs,
@@ -895,13 +896,20 @@ def _launch_result(agent: _Agent, document: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _fetch(agent: _Agent, fetch_all: bool) -> tuple[list[Entry], DataReader]:
+def _fetch(agent: _Agent, fetch_all: bool) -> tuple[list[Entry], list[SkippedSource], DataReader]:
     step = "fetching the results"
     agent.send({"fetch": {"fetch_all": fetch_all}}, step)
-    listing = agent.expect("files", step)
-    if not isinstance(listing, list):
-        raise RemoteProtocolError(f"The agent on {agent.host} sent a bad `files` list.")
+    document = agent.message(step)
+    listing, skipped = document.get("files"), document.get("skipped")
+    if set(document) != {"files", "skipped"} or not isinstance(listing, list):
+        raise RemoteProtocolError(
+            f"The agent on {agent.host} sent {sorted(document)} while {step}, and not a `files` "
+            "list with a `skipped` list."
+        )
+    if not isinstance(skipped, list):
+        raise RemoteProtocolError(f"The agent on {agent.host} sent a bad `skipped` list.")
     entries = [Entry.from_json_value(item) for item in listing]
+    sources = [SkippedSource.from_json_value(item) for item in skipped]
 
     def other(kind: bytes, payload: bytes) -> None:
         if kind == LOG:
@@ -909,7 +917,7 @@ def _fetch(agent: _Agent, fetch_all: bool) -> tuple[list[Entry], DataReader]:
         else:
             raise RemoteProtocolError(f"frame {kind!r} inside the fetched data")
 
-    return entries, DataReader(agent.stdout, on_frame=other)
+    return entries, sources, DataReader(agent.stdout, on_frame=other)
 
 
 def _follow_running(agent: _Agent, running: Dict[str, Any]) -> Dict[str, Any]:
@@ -1466,10 +1474,20 @@ def _delivery_failure_document(
     document = _mirror_document(
         result, rewritten, host=run.host, mirror_root=mirror_root, remote_run_root=remote_run_root
     )
-    for node in document.get("nodes") or []:
-        if node.get("node") == local.requested:
-            node["deliveries"] = list(rewritten.get("deliveries") or [])
+    _deliveries_of_the_node(document, rewritten, local.requested)
     return _local_design(document, run, local.design_name)
+
+
+def _deliveries_of_the_node(
+    document: Dict[str, Any], rewritten: Optional[Dict[str, Any]], requested: str
+) -> None:
+    """Put the deliveries that this side made from the mirror (`rewritten["deliveries"]`) into
+    the node that was delivered, as a local run has them. The host made none of them."""
+    if rewritten is None or "deliveries" not in rewritten:
+        return
+    for node in document.get("nodes") or []:
+        if node.get("node") == requested:
+            node["deliveries"] = list(rewritten.get("deliveries") or [])
 
 
 def _finish(
@@ -1500,7 +1518,7 @@ def _finish(
             ", ".join(places),
         )
     try:
-        entries, reader = _fetch(agent, fetch_all)
+        entries, skipped, reader = _fetch(agent, fetch_all)
     except BaseException:
         _discard_mirrors(local, mirror_root, local_root, nodes)
         raise
@@ -1528,6 +1546,7 @@ def _finish(
             requested_dir: Optional[Path] = None
             rewritten: Optional[Dict[str, Any]] = None
             remote_deliverables: Any = None
+            requested_skips: list[SkippedSource] = []
             success = bool(result.get("success"))
             if isinstance(results, dict) and results and result.get("run_path"):
                 requested = local.requested
@@ -1536,7 +1555,14 @@ def _finish(
                 mirror_dir = mirror_root / _place_below(
                     remote_run_root, remote_run_dir, "the run directory"
                 )
-                rewritten = rewrite_results(results, remote_run_dir, mirror_dir, written=written)
+                requested_skips = [source for source in skipped if source.node == requested]
+                rewritten = rewrite_results(
+                    results,
+                    remote_run_dir,
+                    mirror_dir,
+                    written=written,
+                    skipped={source.place for source in requested_skips},
+                )
                 requested_dir = mirror_dir
                 output_paths = [str(path) for path in declared_output_files(results)]
                 remote_deliverables = (
@@ -1570,6 +1596,7 @@ def _finish(
                         result["run_path"],
                         requested_dir,
                         outputs_to=outputs_to,
+                        skipped=requested_skips,
                     )
                 except Exception:
                     run.delivered = _delivery_failure_document(
@@ -1584,6 +1611,7 @@ def _finish(
     document = _mirror_document(
         result, rewritten, host=run.host, mirror_root=mirror_root, remote_run_root=remote_run_root
     )
+    _deliveries_of_the_node(document, rewritten, local.requested)
     return RemoteOutcome(_local_design(document, run, local.design_name), success)
 
 

@@ -449,7 +449,9 @@ Behavior:
   `--remote` with each character outside `[A-Za-z0-9._@-]` replaced by `_`. Every flow of the plan
   gets `results.json`, `settings.json`, the top-level `*.log` files and `reports/`; the requested
   flow also its declared outputs and artifacts. A failed flow returns only the files its run wrote.
-  A file outside the run directory comes from a flow that succeeded, under `_external/<digest>/`.
+  An artifact outside the run directory never comes back; the results keep its path on the host.
+  An artifact that a symbolic link leads out of the run directory does not come back either: the
+  results name its place in the mirror, where no file lies, and `--outputs-to` skips it.
   `--fetch-all` fetches every file except `trace.json`. The mirror has no `trace.json`, so a local
   run never reuses it. Paths in `results.json` and `settings.json` name the mirror where Xeda can
   map them. `.launches/<id>.json` in the mirror is the record that `attach` needs.
