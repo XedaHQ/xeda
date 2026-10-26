@@ -1898,9 +1898,7 @@ class FlowLauncher:
 
         # The layers that a request reads bindings from, taken out as `_request` takes them.
         explicit = (
-            _explicit(flow_settings)
-            if isinstance(flow_settings, Flow.Settings)
-            else settings_to_dict(flow_settings)
+            _explicit(flow_settings) if isinstance(flow_settings, Flow.Settings) else flow_settings
         )
         cli_sections, cli_own = split_flow_sections(
             explicit, requested.name, flow_class_for=_get_flow_class_if_known
@@ -2480,8 +2478,10 @@ class FlowLauncher:
             assert isinstance(
                 flow_settings, (list, tuple, Mapping)
             ), "flow_settings should be a list, tuple or dict"
-            flow_settings = settings_to_dict(flow_settings)
+            # The items stay as given: the table of `settings_to_dict` keeps one value for a key
+            # that two items give, and `split_flow_sections` refuses such a pair.
             explicit_flow_settings = flow_settings
+            flow_settings = settings_to_dict(flow_settings)
         if not isinstance(flow_overrides, dict):
             flow_overrides = settings_to_dict(flow_overrides)
         assert isinstance(

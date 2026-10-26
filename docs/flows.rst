@@ -161,6 +161,13 @@ A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an err
 ``timing`` and ``timing.x``, and so is the same pair in the other order. The same holds in a
 design file, a target, ``--design-updates`` and a ``flows`` table.
 
+One command line gives a setting one value. If two items set one setting to different values, for
+example ``-s fpga.part=A -s fpga.part=B`` or ``-s fpga.part=A flows.yosys_fpga.fpga.part=B``, Xeda
+refuses the run. The error quotes the items as you wrote them and lists every such pair. An item
+that you repeat with the same value is one item. Xeda compares the value text as you wrote it, so
+``seed=1`` and ``seed=01`` are two values. Settings in different layers (a design file and the
+command line) still replace each other, in the order of the list at the start of this section.
+
 .. _opaque-keys:
 
 Some settings hold a dictionary whose keys are names that a tool defines or that a netlist gives.

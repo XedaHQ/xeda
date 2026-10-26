@@ -166,6 +166,9 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   `<flow> is not part of this run: its settings are unused` for a default producer that a source or
   binding displaced and no line for other flows. `-s flows.<flow>.*` must name a flow of the run,
   else `unknown_flow`: `-s flows.bsc.<key>` on a design without Bluespec sources is refused.
+- One setting, one value per command line: two `-s` items that set one leaf to different values
+  (also `-s k=A` with `-s flows.<requested>.k=B`) fail with `conflicting_keys`, listing every pair.
+  An exact repeat is one item; compare text (`1` and `01` differ).
 - A setting of a settings group has a dotted name, such as `abc.strategy` or
   `sequential.clock_gating.enabled` for `yosys`. Its `tier` (`common`, `advanced` or
   `expert`) says how often a user needs it; it affects the listing, never what Xeda

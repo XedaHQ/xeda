@@ -549,6 +549,67 @@ def _sets_value(value: Any) -> bool:
     return value is not None and not (isinstance(value, Mapping) and not value)
 
 
+def _given_leaves(
+    layer: Mapping[str, Any] | Sequence[Any],
+    requested: str,
+    flow_class_for: Callable[[str], Any | None] | None,
+) -> dict[tuple[str, tuple[str, ...]], list[tuple[str, str, Any]]]:
+    """Return what a command-line layer gives, by the leaf it sets.
+
+    A leaf is the canonical path of a setting in the node that the item addresses: `-s key` and
+    `-s flows.<requested>.key` are one leaf of the requested node. Each leaf maps to the items
+    that set it, in the order given, as `(item as written, key as written, value)`. The value of
+    an item that is text is the text after the first `=`, so two values are equal when their
+    text is. An item is read alone, so a repeat is not lost to the replacement of
+    `utils.set_hierarchy`."""
+    pieces = [[item] for item in layer] if isinstance(layer, (list, tuple)) else [layer]
+    leaves: dict[tuple[str, tuple[str, ...]], list[tuple[str, str, Any]]] = {}
+
+    def settings_of(name: str) -> type[XedaBaseModel] | None:
+        found = flow_class_for(name) if flow_class_for is not None else None
+        return found.Settings if found is not None else None
+
+    for piece in pieces:
+        table = settings_to_dict(piece)  # type: ignore[arg-type]
+        sections = merge_flow_sections(
+            table.pop("flows", None), flow_class_for=flow_class_for, location=COMMAND_LINE_ORIGIN
+        )
+        text = piece[0] if isinstance(piece, list) and isinstance(piece[0], str) else None
+        for node, content in ((requested, table), *sections.items()):
+            prefix = "" if content is table else f"flows.{node}."
+            for path, (written, value) in _leaves(content, settings_of(node)).items():
+                shown = text if text is not None else f"{prefix}{written}={value}"
+                given = text.split("=", 1)[1] if text is not None else value
+                leaves.setdefault((node, path), []).append((shown, f"{prefix}{written}", given))
+    return leaves
+
+
+def _repeated_leaves(
+    leaves: Mapping[tuple[str, tuple[str, ...]], list[tuple[str, str, Any]]],
+) -> list[tuple[str | None, str | None, str | None, str | None]]:
+    """Return a problem for each pair of items that set one leaf to different values.
+
+    An item that repeats the value of an earlier item is the same item. The pairs follow the order
+    in which the values were given."""
+    problems: list[tuple[str | None, str | None, str | None, str | None]] = []
+    for items in leaves.values():
+        distinct: list[tuple[str, str, Any]] = []
+        for item in items:
+            if all(item[2] != other[2] for other in distinct):
+                distinct.append(item)
+        for index, (shown, written, _value) in enumerate(distinct):
+            for other, _written, _other_value in distinct[index + 1 :]:
+                problems.append(
+                    (
+                        written.removeprefix("flows."),
+                        f"`-s {shown}` and `-s {other}` set one setting to two values; give one",
+                        None,
+                        "conflicting_keys",
+                    )
+                )
+    return problems
+
+
 def split_flow_sections(
     layer: Mapping[str, Any],
     requested: str,
@@ -556,9 +617,12 @@ def split_flow_sections(
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """Split a command-line layer into `flows.<node>.*` sections and the requested flow's own.
 
-    `-s key` and `-s flows.<requested>.key` name one leaf (one setting). The same value twice is accepted. Two different values are an error that names
-    both spellings. The two spellings are one origin for the rule of `utils.set_hierarchy` as
-    well: a key is a value or a table, so a value in one spelling and a key inside it in the
+    This function owns the rule of one value for one setting on the command line. `-s key` and
+    `-s flows.<requested>.key` name one leaf (one setting), and so does every other spelling of a
+    leaf of a node. Two items that set one leaf to different values are an error that names them
+    as written, and one error holds every such pair. An item that repeats an earlier one, value
+    included, is that item. The two spellings are one origin for the rule of `utils.set_hierarchy`
+    as well: a key is a value or a table, so a value in one spelling and a key inside it in the
     other (`A` and `A.B`) are an error that names both."""
     own = settings_to_dict(layer)  # type: ignore[arg-type]
     sections = merge_flow_sections(
@@ -584,18 +648,13 @@ def split_flow_sections(
                 ],
                 settings_cls if settings_cls is not None else requested,
             )
+    problems = _repeated_leaves(_given_leaves(layer, requested, flow_class_for))
     requested_leaves = _leaves(sections.get(requested, {}), settings_cls)
-    problems: list[tuple[str | None, str | None, str | None, str | None]] = []
     for path, (written, value) in _leaves(own, settings_cls).items():
         spelled = f"`-s {written}={value}`"
         for other_path, (other, other_value) in requested_leaves.items():
             qualified = f"`-s flows.{requested}.{other}={other_value}`"
-            if other_path == path:
-                if other_value != value:
-                    message = f"{spelled} and {qualified} set one setting to two values; give one"
-                else:
-                    continue
-            elif _is_inside(path, other_path) and _sets_value(value):
+            if _is_inside(path, other_path) and _sets_value(value):
                 message = f"{spelled} sets a value, and {qualified} sets a key inside it; give one"
             elif _is_inside(other_path, path) and _sets_value(other_value):
                 message = f"{qualified} sets a value, and {spelled} sets a key inside it; give one"
