@@ -522,8 +522,9 @@ def test_the_converter_runs_before_the_flow_is_built_and_the_flow_reads_what_it_
     # (`mkTop.v`) before any of it.
     after = events[verified + 1 :]
     assert after[:4] == [("check", derived_names), "design hash", "construct", "init"]
-    # the record of the run asks for the design scope again, after the run
-    assert after[-2:] == [("reader runs", derived_names), "design hash"]
+    # the design scope is read again before the run, for the configuration in its identity, and
+    # nothing follows the run
+    assert after[-1] == ("reader runs", derived_names)
     assert [event for event in after[4:] if event != "design hash"] == [
         ("reader runs", derived_names)
     ]
