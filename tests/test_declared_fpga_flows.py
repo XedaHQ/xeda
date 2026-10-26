@@ -210,10 +210,12 @@ def test_nextpnr_switches_on_the_netlist_it_reads(tmp_path, monkeypatch, tools):
 
 
 def _files(tmp_path: Path, nextpnr_part: str, yosys_part: str) -> Path:
+    """Write the design file `d/blink.toml` and the project that lists it as the design `blink`."""
     root = tmp_path / "d"
     root.mkdir()
     (root / "blink.v").write_text(BLINK)
     (tmp_path / PROJECT_FILE).write_text(
+        "designs: [{file: d/blink.toml}]\n"
         f"flows:\n  nextpnr:\n    fpga: {{part: {nextpnr_part}}}\n"
     )
     design_file = root / "blink.toml"
@@ -229,7 +231,7 @@ def test_devices_that_differ_in_two_files_are_an_error_naming_both(tmp_path, mon
     `[flows.yosys_fpga] fpga`."""
     design_file = _files(tmp_path, OTHER_PART, PART)
     with pytest.raises(FlowSettingsError) as raised:
-        _runner(tmp_path, monkeypatch).run("nextpnr", str(design_file))
+        _runner(tmp_path, monkeypatch).run("nextpnr", "blink")
     message = str(raised.value)
     for text in (PART, OTHER_PART, str(tmp_path / PROJECT_FILE), str(design_file)):
         assert text in message, text
@@ -237,9 +239,9 @@ def test_devices_that_differ_in_two_files_are_an_error_naming_both(tmp_path, mon
 
 
 def test_a_device_given_on_the_command_line_is_the_whole_run_s(tmp_path, monkeypatch, tools):
-    design_file = _files(tmp_path, OTHER_PART, PART)
+    _files(tmp_path, OTHER_PART, PART)
     runner = _runner(tmp_path, monkeypatch)
-    nextpnr = runner.run("nextpnr", str(design_file), flow_settings=[f"fpga.part={PART}"])
+    nextpnr = runner.run("nextpnr", "blink", flow_settings=[f"fpga.part={PART}"])
     assert nextpnr is not None and nextpnr.succeeded
     assert nextpnr.settings.fpga.part == PART
     assert producers_of(runner, nextpnr)[0].settings.fpga.part == PART
@@ -369,8 +371,8 @@ def test_cli_device_leaf_preserves_section_origins(tmp_path, monkeypatch, tools,
         design_file.read_text() + 'clocks.main_clock.uncertainty = "0.3 ns"\nflatten = false\n'
     )
     runner = _runner(tmp_path, monkeypatch)
-    plan = runner.plan("nextpnr", design_file, flow_settings=[f"{cli_leaf}={PART}"])
-    flow = runner.run("nextpnr", design_file, flow_settings=[f"{cli_leaf}={PART}"])
+    plan = runner.plan("nextpnr", "blink", flow_settings=[f"{cli_leaf}={PART}"])
+    flow = runner.run("nextpnr", "blink", flow_settings=[f"{cli_leaf}={PART}"])
     assert flow.succeeded
     (producer,) = producers_of(runner, flow)
     assert flow.settings.fpga.part == producer.settings.fpga.part == PART
@@ -568,7 +570,16 @@ def test_cli_device_conflict_names_both_files_and_override_wins(tmp_path, cli_le
     import subprocess
 
     spec = _files(tmp_path, OTHER_PART, PART)
-    command = [sys.executable, "-c", _CLI_STANDINS, "run", "nextpnr", str(spec), "--json"]
+    command = [
+        sys.executable,
+        "-c",
+        _CLI_STANDINS,
+        "run",
+        "nextpnr",
+        "--design-name",
+        "blink",
+        "--json",
+    ]
     env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
     refused = subprocess.run(
         command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=HANG_GUARD

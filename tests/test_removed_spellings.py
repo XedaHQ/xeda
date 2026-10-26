@@ -16,7 +16,7 @@ from pydantic import BaseModel
 import xeda.flows  # noqa: F401  (registers the built-in flows)
 from xeda.cli_types import ChainChoice, FlowChoice
 from xeda.flow_runner.settings_layers import RENAMED_FLOWS
-from xeda.xedaproject import REMOVED_PROJECT_KEYS
+from xeda.project import REMOVED_PROJECT_KEYS, Project
 from xeda.dataclass import SecondSpelling, XedaBaseModel, field_type
 from xeda.design import (
     Clock,
@@ -34,7 +34,7 @@ from xeda.flow_runner import FlowNotFoundError, get_flow_class
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.error_codes import public_error, settings_codes
 from xeda.flow_runner.settings_layers import merge_flow_sections
-from xeda.xedaproject import ProjectFileError, XedaProject
+from xeda.errors import ProjectError
 
 #: The flows of Xeda. A test module may register a flow of its own, named with a leading `_`.
 FLOWS = sorted(
@@ -374,8 +374,8 @@ def test_a_removed_project_key_names_its_successor(tmp_path, spelling, given, co
     file = tmp_path / "xedaproject.json"
     file.write_text(json.dumps(given))
 
-    with pytest.raises(ProjectFileError, match=f"`{spelling}` was removed: use {successor}") as bad:
-        XedaProject.from_file(file)
+    with pytest.raises(ProjectError, match=f"`{spelling}` was removed: use {successor}") as bad:
+        Project.load(file)
 
     error = public_error(bad.value)
     assert (type(error).__name__, error.code) == ("ProjectError", code)
@@ -622,7 +622,7 @@ def test_a_dotted_removed_project_key_is_refused_as_the_key_it_expands_to(
     file = tmp_path / "xedaproject.yaml"
     file.write_text(text)
 
-    with pytest.raises(ProjectFileError, match=f"`{key}` was removed: use {successor}") as bad:
-        XedaProject.from_file(file)
+    with pytest.raises(ProjectError, match=f"`{key}` was removed: use {successor}") as bad:
+        Project.load(file)
 
     assert public_error(bad.value).code == "removed_alias"

@@ -723,9 +723,15 @@ def test_nextpnr_yosys_was_removed_and_names_its_replacement(tmp_path, monkeypat
     with pytest.raises(Exception, match=message):
         if origin == "project":
             project = tmp_path / "project.yaml"
-            project.write_text("flows:\n  nextpnr:\n    yosys:\n      flatten: true\n")
+            project.write_text(
+                "designs:\n  - name: blink\n    rtl: {sources: [blink.v], top: blink}\n"
+                "flows:\n  nextpnr:\n    yosys:\n      flatten: true\n"
+            )
             runner.plan(
-                Nextpnr, design, xedaproject=str(project), flow_settings=[f"fpga.part={ICE40_PART}"]
+                Nextpnr,
+                "blink",
+                xedaproject=str(project),
+                flow_settings=[f"fpga.part={ICE40_PART}"],
             )
         elif origin == "cli":
             runner.plan(

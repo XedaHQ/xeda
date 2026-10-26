@@ -219,7 +219,7 @@ import json
 from pathlib import Path
 
 from xeda.design import Design
-from xeda.xedaproject import XedaProject
+from xeda.project import Project
 
 DESIGN = {
     "language": {"vhdl": {"standard": "2008"}},
@@ -269,12 +269,18 @@ def _design_file(tmp_path: Path, data: dict, target: str | None = None) -> Desig
 
 
 def _project(
-    tmp_path: Path, entry: dict, flows: dict | None = None, target: str | None = None, **options
+    tmp_path: Path,
+    entry: dict,
+    flows: dict | None = None,
+    target: str | None = None,
+    design_updates: dict | None = None,
 ) -> Design:
     path = _root(tmp_path) / "xedaproject.json"
     path.write_text(json.dumps({"designs": [{"name": "d", **entry}], "flows": flows or {}}))
-    design = XedaProject.from_file(path, **options).get_design(0, target)
-    assert design is not None and design.target == target
+    design = Project.load(path).design(target=target)
+    if design_updates:
+        design = design.with_updates(design_updates)
+    assert design.target == target
     return design
 
 
@@ -323,7 +329,7 @@ def test_a_dotted_key_in_a_projects_flows_means_the_same(tmp_path):
     for name, table in (("nested", nested), ("dotted", dotted)):
         path = tmp_path / name / "xedaproject.json"
         path.write_text(json.dumps({"flows": table}))
-        flows[name] = XedaProject.from_file(path).flows
+        flows[name] = Project.load(path).flows
     assert flows["dotted"] == flows["nested"]
 
 
@@ -342,7 +348,7 @@ import textwrap
 
 from xeda.design import DesignValidationError
 from xeda.flow_runner import DefaultRunner
-from xeda.xedaproject import ProjectFileError
+from xeda.errors import ProjectError
 
 BOTH_WAYS = r"`{dotted}` and `{table}: \{{\.\.\.\}}` both set keys of `{table}`: write one of them"
 #: a table written both ways inside a flow section, the way the report in the field wrote it
@@ -430,10 +436,10 @@ def test_a_project_file_refuses_it_naming_the_file(tmp_path, dotted_first):
 
     table = r"flows\.vivado_synth"
     both_ways = BOTH_WAYS.format(dotted=table + r"\.fpga\.part", table=table)
-    with pytest.raises(ValueError, match=rf"project file {re.escape(str(path))}: {both_ways}"):
-        XedaProject.from_file(path)
+    with pytest.raises(ProjectError, match=rf"{re.escape(str(path))}.*{both_ways}"):
+        Project.load(path)
     design = _yaml_design(tmp_path / "design")
-    with pytest.raises(ProjectFileError, match=rf"{re.escape(str(path))}.*{both_ways}"):
+    with pytest.raises(ProjectError, match=rf"{re.escape(str(path))}.*{both_ways}"):
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
             "vivado_synth", design, xedaproject=str(path)
         )
@@ -447,8 +453,8 @@ def test_a_project_design_entry_refuses_it_at_the_key(tmp_path):
         "    tb.top: tb\n    tb:\n      sources: []\n"
     )
 
-    with pytest.raises(ValueError, match=BOTH_WAYS.format(dotted="tb.top", table="tb")):
-        XedaProject.from_file(path).get_design(0)
+    with pytest.raises(ProjectError, match=BOTH_WAYS.format(dotted="tb.top", table="tb")):
+        Project.load(path)
 
 
 @pytest.mark.parametrize("origin", ["flow settings", "flow overrides", "design overrides"])

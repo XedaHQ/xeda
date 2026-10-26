@@ -3191,6 +3191,10 @@ class Design(XedaBaseModel):
     #: The design file that `load` read (absolute), or `None` for any other design. It is no
     #: field: a saved design, a hash and a comparison of settings never see it.
     _source_file: Optional[Path] = PrivateAttr(default=None)
+    #: The `flows` table of the project that selected this design, with the text that names the
+    #: project file (`Project.design`), or `None` for any other design. It is no field and no
+    #: part of the configuration: the launcher reads it as the project layer of the settings.
+    _project_layer: Optional[tuple[str, Mapping[str, Any]]] = PrivateAttr(default=None)
     #: The directory that a relative path in the design resolves against (absolute).
     _root: Path = PrivateAttr()
     #: The design as written, with its dotted keys expanded and its `targets` still in it: what
@@ -3302,8 +3306,8 @@ class Design(XedaBaseModel):
         """
         data = dict(data)
 
-        def invalid(loc: str, msg: str) -> DesignValidationError:
-            return DesignValidationError([(loc, msg, "", "value_error")], data=data)
+        def invalid(loc: str, msg: str, kind: str = "value_error") -> DesignValidationError:
+            return DesignValidationError([(loc, msg, "", kind)], data=data)
 
         if "target" in data:
             raise invalid("target", NO_SINGULAR_TARGET)
@@ -3320,6 +3324,7 @@ class Design(XedaBaseModel):
                 raise invalid(
                     "targets",
                     f"target {target!r} was asked for, but the design has no `targets`",
+                    "unknown_target",
                 )
             return data
         targets = data.pop("targets")
@@ -3348,6 +3353,7 @@ class Design(XedaBaseModel):
                 f"{target!r} is not a target of the design"
                 + (f" (did you mean {close[0]!r}?)" if close else "")
                 + f". Its targets are: {names}",
+                "unknown_target",
             )
         overlay = overlays[target]
         try:
@@ -3555,6 +3561,7 @@ class Design(XedaBaseModel):
         remove: Sequence[str] = (),
         recorded_target: str | None = None,
         source_file: Path | None = None,
+        project_layer: tuple[str, Mapping[str, Any]] | None = None,
     ) -> None:
         """Set up this design: the one place that builds a design value.
 
@@ -3628,6 +3635,7 @@ class Design(XedaBaseModel):
         self._updates = tuple(freeze(deepcopy(dict(update))) for update in updates)
         self._replay = tuple(updates if replay is None else replay)
         self._source_file = source_file
+        self._project_layer = project_layer
 
     @classmethod  # type: ignore[no-redef]
     def model_construct(cls, *args: Any, **values: Any) -> Any:  # type: ignore[override]
@@ -3787,6 +3795,7 @@ class Design(XedaBaseModel):
             updates=(*self._updates, updates),
             replay=(*self._replay, step),
             source_file=self._source_file,
+            project_layer=self._project_layer,
         )
 
     def with_target(self: DesignType, target: str | None) -> DesignType:
@@ -3801,6 +3810,7 @@ class Design(XedaBaseModel):
             updates=self._updates,
             replay=self._replay,
             source_file=self._source_file,
+            project_layer=self._project_layer,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -4035,12 +4045,14 @@ class Design(XedaBaseModel):
         allow_extra: bool = False,
         remove_extra: Sequence[str] = (),
         packaged: bool = False,
+        project_layer: tuple[str, Mapping[str, Any]] | None = None,
     ) -> DesignType:
         """Load a design file as `load` does, with what only the launcher needs.
 
         `updates` are applied over the selected target, in order. `allow_extra` makes a class
         that tolerates keys a design does not have, and `remove_extra` removes the named keys
-        from the file first.
+        from the file first. `project_layer` is the layer of the project that selected the file
+        (`Project.design`).
 
         `packaged` is for the document that the local xeda wrote for a remote host
         (`xeda.remote.packaging`) and only for the remote launch entry. Such a document holds
@@ -4084,6 +4096,7 @@ class Design(XedaBaseModel):
                 remove=() if allow_extra else remove_extra,
                 recorded_target=recorded_target,
                 source_file=design_file,
+                project_layer=project_layer,
             )
         except DesignValidationError as e:
             raise DesignValidationError(  # add the design file to the emitted exception

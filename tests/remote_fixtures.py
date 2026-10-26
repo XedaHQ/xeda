@@ -339,7 +339,6 @@ def remote_request(tmp_path: Path, design: Any, chain: str = "nextpnr", **overri
         design_updates=[],
         design_allow_extra=False,
         target=None,
-        select_design_in_project=None,
         hashed_run_dirs=False,
         clean=False,
         rebuild_all=False,

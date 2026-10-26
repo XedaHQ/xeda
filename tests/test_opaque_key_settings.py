@@ -36,6 +36,7 @@ from xeda.flow_runner.settings_layers import _atomic_table, merge_layers
 from xeda.flows import VivadoAltSynth, VivadoProject, VivadoSynth
 from xeda.utils import ConflictingKeys, settings_to_dict
 
+from .project_files import project_listing
 from .tool_utils import fake_calls, use_fake_tools
 
 PART = "xc7a12tcsg325-1"
@@ -216,27 +217,23 @@ def origin_target_overrides_design(tmp_path):
 
 
 def origin_project_file(tmp_path):
-    project = tmp_path / "xedaproject.yaml"
-    project.write_text(
-        yaml.safe_dump({"flows": flows_section({SYNTH_NAME: 0}, {IMPL_NAME: "Explore"})})
-    )
+    path = write_design(tmp_path, yaml.safe_dump(design_data(), sort_keys=False))
+    project = project_listing(path, flows_section({SYNTH_NAME: 0}, {IMPL_NAME: "Explore"}))
     # the project's section is the lowest origin; the design adds the device
-    return planned(
-        tmp_path,
-        design_from(tmp_path, design_data()),
-        xedaproject=str(project),
-    )
+    return planned(tmp_path, "d", xedaproject=project)
 
 
 def origin_project_file_text(tmp_path):
+    write_design(tmp_path, yaml.safe_dump(design_data(), sort_keys=False))
     project = tmp_path / "xedaproject.yaml"
     project.write_text(
+        "designs: [{file: d.yaml}]\n"
         "flows:\n  vivado_synth:\n"
         f"    fpga.part: {PART}\n    clocks.main_clock.period: 5.5 ns\n"
         f"    set_synth_properties.{SYNTH_NAME}: 0\n"
         f"    set_impl_properties.{IMPL_NAME}: Explore\n"
     )
-    return planned(tmp_path, design_from(tmp_path, design_data()), xedaproject=str(project))
+    return planned(tmp_path, "d", xedaproject=str(project))
 
 
 def origin_design_updates(tmp_path):
@@ -429,14 +426,13 @@ def test_names_one_of_which_starts_the_other_are_both_kept_across_origins(tmp_pa
 
 
 def test_a_project_a_design_and_a_target_merge_their_names(tmp_path):
-    project = tmp_path / "xedaproject.yaml"
-    project.write_text(yaml.safe_dump({"flows": flows_section({"A.B": 2}, {})}))
     data = design_data(
         {"vivado_synth": {"set_synth_properties": {"A": 1}}},
         targets={"board": {"flows": {"vivado_synth": {"set_synth_properties": {"A.C": 3}}}}},
     )
     path = write_design(tmp_path, yaml.safe_dump(data, sort_keys=False))
-    settings = planned(tmp_path, path, xedaproject=str(project), target="board")
+    project = project_listing(path, flows_section({"A.B": 2}, {}))
+    settings = planned(tmp_path, "d", xedaproject=project, target="board")
     assert prefix_names(settings) == {"A": "1", "A.B": "2", "A.C": "3"}
 
 

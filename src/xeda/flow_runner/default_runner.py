@@ -31,7 +31,6 @@ from typing import (
     cast,
 )
 
-import yaml
 
 from ..artifacts import iter_artifact_paths
 from ..dataclass import XedaBaseModel, model_validator
@@ -79,7 +78,10 @@ from ..utils import (
     unique,
 )
 from ..version import __version__
-from ..xedaproject import PROJECT_FILE_NAMES, ProjectFileError, XedaProject, resolve_project_file
+from ..errors import ProjectError
+from ..project import Project
+from ..types import UNSET, Unset
+from ..xedaproject import PROJECT_FILE_NAMES, resolve_project_file
 from .bindings import (
     LOCAL_REQUESTS_ONLY,
     BindingLayer,
@@ -238,27 +240,15 @@ sys.modules[__name__].__class__ = _LauncherModule
 __all__ = [
     "DIR_NAME_HASH_LEN",
     "DefaultRunner",
-    "DesignNotFoundError",
     "FlowNotFoundError",
     "FlowRunner",
-    "ProjectFileError",
+    "ProjectError",
     "add_file_logger",
     "remove_file_logger",
     "get_flow_class",
 ]
 
 log = logging.getLogger(__name__)
-
-
-class DesignNotFoundError(ProjectFileError):
-    """The design to run cannot be determined.
-
-    None was given and there is no project to take one from, or the project has no designs, or
-    it has none of the given name. `code` is the code of the `xeda.errors.ProjectError` that it
-    becomes."""
-
-    def __init__(self, message: str, *, code: str) -> None:
-        super().__init__(message, code=code)
 
 
 #: Launcher settings that Xeda refuses, with what to use instead. Giving one is an error that
@@ -347,56 +337,6 @@ def _get_flow_class_if_known(flow_name: str) -> Type[Flow] | None:
         return get_flow_class(flow_name)
     except FlowNotFoundError:
         return None
-
-
-class _RecordingProject:
-    """A project that notes the position of the design that `get_design` was asked for last.
-
-    It notes the position whether the call gave a name or a position, and even when building the
-    design failed."""
-
-    def __init__(self, project: XedaProject) -> None:
-        self._project = project
-        self.chosen: int | None = None
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._project, name)
-
-    def get_design(
-        self, name_or_idx: str | int | None = None, target: str | None = None
-    ) -> Design | None:
-        # Noted before the design is built: a build that raises (a file that the generator
-        # writes is not there yet) has still been chosen.
-        self.chosen = self._project.design_index(name_or_idx)
-        return self._project.get_design(name_or_idx, target)
-
-
-def _choosing_once(
-    select: Callable[[XedaProject, Any, str | None], Design | None],
-) -> Callable[[XedaProject, Any, str | None], Design | None]:
-    """Return `select`, the chooser of the design of a project, wrapped so that it is asked once.
-
-    It is asked once however many times the request is loaded (`FlowLauncher._judged_request`
-    loads a design twice when it would generate). The later loads take the design that was
-    chosen first, by its position in the project (names may repeat), loaded anew."""
-    chosen: list[int] = []
-
-    def choose(project: XedaProject, name: Any, target: str | None) -> Design | None:
-        if chosen:
-            return project.get_design(chosen[0], target)
-        recording = _RecordingProject(project)
-        selected = None
-        try:
-            selected = select(cast(XedaProject, recording), name, target)
-        finally:  # an answer is kept when building the design failed, as it is when it did not
-            if selected is not None and recording.chosen is None:
-                # A chooser that built the design by itself.
-                recording.chosen = project.design_index(selected.name)
-            if recording.chosen is not None:
-                chosen.append(recording.chosen)
-        return selected
-
-    return choose
 
 
 FlowLauncherType = TypeVar("FlowLauncherType", bound="FlowLauncher")
@@ -1918,60 +1858,13 @@ class FlowLauncher:
             plan=plan,
         )
 
-    @staticmethod
-    def _design_from_project(
-        xeda_project: XedaProject | None,
-        xedaproject: str,
-        name: Any,
-        select_design_in_project=None,
-        target: str | None = None,
-    ) -> Design:
-        """Return the design called `name` in the project.
-
-        When no name is given, return its only design (or the one that the user selects). Raise
-        a `DesignNotFoundError` that says why there is none."""
-        if not xeda_project:
-            given = f"'{name}' is not a design file, and" if name else "No design was given, and"
-            raise DesignNotFoundError(
-                f"{given} there is no project file ({', '.join(PROJECT_FILE_NAMES)}) in "
-                f"{Path.cwd()} to take a design from. Give a design file (.yaml, .yml, .toml "
-                "or .json).",
-                code="project_file_not_found",
-            )
-        names = xeda_project.design_names
-        if not xeda_project.designs:
-            raise DesignNotFoundError(
-                f'The project file "{xedaproject}" has no designs. Give a design file instead.',
-                code="invalid_project",
-            )
-        log.info("Available designs in the project file: %s", ", ".join(names))
-        selected: Design | None = None
-        if name:
-            selected = xeda_project.get_design(str(name), target)
-            if selected is None:
-                raise DesignNotFoundError(
-                    f"Design '{name}' is not in the project file \"{xedaproject}\". "
-                    f"Its designs are: {', '.join(names)}.",
-                    code="unknown_design",
-                )
-        elif len(xeda_project.designs) == 1:
-            selected = xeda_project.get_design(target=target)
-        elif select_design_in_project:
-            selected = select_design_in_project(xeda_project, name, target)
-        if selected is None:
-            raise DesignNotFoundError(
-                f'No design was given or selected among those of "{xedaproject}": '
-                f"{', '.join(names)}.",
-                code="design_name_required",
-            )
-        return selected
-
     def _refuse_unaccepted_request(
         self,
         flow: Union[Type[Flow], str, FlowRequest],
         flow_settings: Any,
         flow_overrides: Any,
         xedaproject: str | Path | None,
+        design: Any = None,
     ) -> None:
         """Refuse, before anything is loaded, what a launcher that takes no requests refuses.
 
@@ -2024,11 +1917,16 @@ class FlowLauncher:
                 kind="api",
             )[1],
         ]
-        project_path = resolve_project_file(xedaproject)
-        if project_path is not None:
+        # Only a design that the project selects gets the project layer.
+        from_project = not (
+            isinstance(design, (Design, dict, Path))
+            or (isinstance(design, str) and names_a_design_file(design))
+        )
+        project_path = resolve_project_file(xedaproject, self._start)
+        if project_path is not None and from_project:
             try:
-                project = XedaProject.from_file(project_path, skip_designs=True)
-            except (OSError, ValueError, yaml.YAMLError):
+                project: Project | None = Project.load(project_path)
+            except ProjectError:
                 project = None  # `_request` reports it, before it loads any design
             if project is not None:
                 layers.append(
@@ -2053,11 +1951,10 @@ class FlowLauncher:
             Tuple[str, ...],
             Mapping[str, Any],
         ] = [],
-        select_design_in_project=None,
         design_updates: Union[Iterable[str], Dict[str, Any], None] = None,
         design_allow_extra: bool = False,
         design_remove_fields: List[str] = [],
-        target: str | None = None,
+        target: str | None | Unset = UNSET,
     ) -> Optional[Flow]:
         """Load and compose a request, then execute its resolved declared graph.
 
@@ -2068,7 +1965,6 @@ class FlowLauncher:
             xedaproject,
             flow_settings,
             flow_overrides,
-            select_design_in_project,
             design_updates,
             design_allow_extra,
             design_remove_fields,
@@ -2093,11 +1989,10 @@ class FlowLauncher:
             Tuple[str, ...],
             Mapping[str, Any],
         ] = [],
-        select_design_in_project=None,
         design_updates: Union[Iterable[str], Dict[str, Any], None] = None,
         design_allow_extra: bool = False,
         design_remove_fields: List[str] = [],
-        target: str | None = None,
+        target: str | None | Unset = UNSET,
     ) -> Tuple[_Request, Plan]:
         """Load, compose and check a request as `run()` does before it launches, and launch nothing.
 
@@ -2106,14 +2001,15 @@ class FlowLauncher:
         # Where requests are not taken (`Dse`), refuse before loading what needs no design.
         # What does need it is listed there, and refused below, once the request is resolved.
         if not self.accepts_bindings:
-            self._refuse_unaccepted_request(flow, flow_settings, flow_overrides, xedaproject)
+            self._refuse_unaccepted_request(
+                flow, flow_settings, flow_overrides, xedaproject, design
+            )
         request, plan = self._judged_request(
             flow,
             design,
             xedaproject,
             flow_settings,
             flow_overrides,
-            select_design_in_project,
             design_updates,
             design_allow_extra,
             design_remove_fields,
@@ -2145,11 +2041,10 @@ class FlowLauncher:
         xedaproject: str | None = None,
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
-        select_design_in_project=None,
         design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
         design_remove_fields: list[str] = [],
-        target: str | None = None,
+        target: str | None | Unset = UNSET,
     ) -> Plan:
         """Plan what `run()` would execute.
 
@@ -2162,7 +2057,6 @@ class FlowLauncher:
             xedaproject,
             flow_settings,
             flow_overrides,
-            select_design_in_project,
             design_updates,
             design_allow_extra,
             design_remove_fields,
@@ -2176,10 +2070,9 @@ class FlowLauncher:
         design: str | Path | Design | dict[str, Any] | None = None,
         xedaproject: str | None = None,
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
-        select_design_in_project=None,
         design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
-        target: str | None = None,
+        target: str | None | Unset = UNSET,
         *,
         host_flows: Mapping[str, Mapping[str, Any]] | None = None,
         host: str | None = None,
@@ -2201,14 +2094,13 @@ class FlowLauncher:
         the settings and before any dependency is read, so before a Git dependency is resolved or
         fetched. A remote request refuses here what needs no value of a dependency."""
         if not self.accepts_bindings:
-            self._refuse_unaccepted_request(flow, flow_settings, [], xedaproject)
+            self._refuse_unaccepted_request(flow, flow_settings, [], xedaproject, design)
         request, plan = self._judged_request(
             flow,
             design,
             xedaproject,
             flow_settings,
             [],
-            select_design_in_project,
             design_updates,
             design_allow_extra,
             [],
@@ -2235,11 +2127,10 @@ class FlowLauncher:
         xedaproject: str | None = None,
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
-        select_design_in_project=None,
         design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
         design_remove_fields: list[str] = [],
-        target: str | None = None,
+        target: str | None | Unset = UNSET,
     ) -> tuple[Plan, dict[str, NodeFreshness]]:
         """Return `plan()` and what `run()` would do with each node.
 
@@ -2253,7 +2144,6 @@ class FlowLauncher:
             xedaproject,
             flow_settings,
             flow_overrides,
-            select_design_in_project,
             design_updates,
             design_allow_extra,
             design_remove_fields,
@@ -2278,11 +2168,10 @@ class FlowLauncher:
         xedaproject: str | None,
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings,
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any],
-        select_design_in_project,
         design_updates: Iterable[str] | dict[str, Any] | None,
         design_allow_extra: bool,
         design_remove_fields: list[str],
-        target: str | None,
+        target: str | None | Unset,
     ) -> tuple[_Request, Plan]:
         request, plan = self._judged_request(
             flow,
@@ -2290,7 +2179,6 @@ class FlowLauncher:
             xedaproject,
             flow_settings,
             flow_overrides,
-            select_design_in_project,
             design_updates,
             design_allow_extra,
             design_remove_fields,
@@ -2331,12 +2219,11 @@ class FlowLauncher:
         xedaproject: str | None,
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings,
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any],
-        select_design_in_project,
         design_updates: Iterable[str] | dict[str, Any] | None,
         design_allow_extra: bool,
         design_remove_fields: list[str],
         *,
-        target: str | None,
+        target: str | None | Unset,
         before_fetch: Callable[[Design], None] | None = None,
         host_layer: tuple[str, Mapping[str, Any]] | None = None,
     ) -> tuple[_Request, Plan]:
@@ -2353,15 +2240,12 @@ class FlowLauncher:
         resolved plan. All of it comes before the generator runs."""
         if design_updates is not None and not isinstance(design_updates, dict):
             design_updates = list(design_updates)
-        if select_design_in_project is not None:
-            select_design_in_project = _choosing_once(select_design_in_project)
         request = self._request(
             flow,
             design,
             xedaproject,
             flow_settings,
             flow_overrides,
-            select_design_in_project,
             design_updates,
             design_allow_extra,
             design_remove_fields,
@@ -2434,12 +2318,11 @@ class FlowLauncher:
         xedaproject: str | None = None,
         flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
-        select_design_in_project=None,
         design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
         design_remove_fields: list[str] = [],
         *,
-        target: str | None = None,
+        target: str | None | Unset = UNSET,
         host_layer: tuple[str, Mapping[str, Any]] | None = None,
     ) -> _Request:
         """Load the design and the layers of settings of a request, and return the request.
@@ -2461,80 +2344,80 @@ class FlowLauncher:
         else:
             flow_class = flow
             flow_request = FlowRequest((ChainElement(flow_class),))
-        # Take the default flow settings from the project file even if a design file is given.
-        xeda_project = None
-        flows_settings: Dict[str, Any] = {}
         if not design_updates:
             design_updates = {}
         if not isinstance(design_updates, dict):
             design_updates = list(design_updates)
             design_updates = settings_to_dict(design_updates)
-        design_not_in_project = False
-        project_path = resolve_project_file(xedaproject)
-        # The name messages use when there is no project file.
-        xedaproject = str(project_path) if project_path is not None else PROJECT_FILE_NAMES[0]
+        # A project is read to select a design from it, or to tell a design file that it
+        # references from one that it does not. A design that is not selected from the project
+        # (a file, a table, a built design) never gets the project layer.
+        project_path = resolve_project_file(xedaproject, self._start)
         given_file = (
             Path(design)
-            if isinstance(design, (str, Path)) and names_a_design_file(design)
+            if isinstance(design, (str, Path))
+            and (isinstance(design, Path) or names_a_design_file(design))
             else None
         )
-        if design is not None:
-            if isinstance(design, (Design, dict, Path)):
-                design_not_in_project = True
-            elif names_a_design_file(design):
-                # A design file, whether or not it exists: `Design.load` says what is wrong
-                # with it, rather than a project reporting a design of that name missing.
-                design_not_in_project = True
-                design = Path(design)
-        if Path(xedaproject).exists():
-            try:
-                xeda_project = XedaProject.from_file(
-                    xedaproject,
-                    skip_designs=design_not_in_project,
-                    design_updates=design_updates,
-                    design_allow_extra=design_allow_extra,
-                    design_remove_extra=design_remove_fields,
-                )
-            except (OSError, ValueError, yaml.YAMLError) as e:
-                # Unreadable, not TOML/JSON/YAML (the decode errors are `ValueError`s), or not
-                # a project's contents.
-                raise ProjectFileError(
-                    f'Cannot load project file "{Path(xedaproject).absolute()}": {e}'
-                ) from e
-            flows_settings = xeda_project.flows
-        if design and design_not_in_project:
-            if isinstance(design, (str, Path)):
+        if given_file is not None or isinstance(design, dict):
+            if given_file is not None:
+                if project_path is not None:
+                    referenced = Project.load(project_path).referenced_name(
+                        self._start / given_file
+                    )
+                    if referenced is not None:
+                        raise ProjectError(
+                            f'The design file "{given_file}" is the design {referenced!r} of the '
+                            f'project file "{project_path}". Select a design of a project with '
+                            f"--design-name {referenced}.",
+                            code="use_design_name",
+                            path=project_path,
+                        )
                 # An invalid design file raises, as a design from a project does: the caller
                 # reports it (`xeda run --json` names the error instead of "did not complete").
                 design = Design._load_file(
-                    design,
+                    given_file,
                     updates=(design_updates,) if design_updates else (),
                     allow_extra=design_allow_extra,
                     remove_extra=design_remove_fields,
-                    target=target,
+                    target=None if target is UNSET else target,
                 )
-
-            elif isinstance(design, dict):
+            else:
                 # The keyword arguments of `Design(...)`, `root` among them. A dictionary
                 # `target` selects the design's target.
-                keywords = dict(design)
+                keywords = dict(cast(dict, design))
                 if "target" in keywords:
                     raise DesignValidationError(
                         [("target", NO_SINGULAR_TARGET, "", "value_error")], data=keywords
                     )
-                design = Design(**keywords, target=target)
+                design = Design(**keywords, target=None if target is UNSET else target)
                 if design_updates:
                     design = design.with_updates(design_updates)
-            elif target is not None:
+        elif isinstance(design, Design):
+            if target is not UNSET and target is not None:
                 raise ValueError(
                     f"target {target!r} was asked for, but the design is already built: "
                     "select the target where the design is loaded (`Design.load(..., "
                     "target=...)`)"
                 )
         else:
-            design = self._design_from_project(
-                xeda_project, xedaproject, design, select_design_in_project, target
+            if project_path is None:
+                given = (
+                    f"'{design}' is not a design file, and"
+                    if design
+                    else "No design was given, and"
+                )
+                raise ProjectError(
+                    f"{given} there is no project file ({', '.join(PROJECT_FILE_NAMES)}) in "
+                    f"{self._start} to take a design from. Give a design file (.yaml, .yml, "
+                    ".toml or .json).",
+                    code="project_file_not_found",
+                )
+            design = Project.load(project_path).design(
+                str(design) if design else UNSET, target=target
             )
+            if design_updates:
+                design = design.with_updates(design_updates)
         # Recover supplied contributions without treating model-created nested defaults as
         # explicit producer settings. Actual nested edits still count.
         from .resolver import _explicit
@@ -2569,10 +2452,18 @@ class FlowLauncher:
         # Merge the own settings of an embedded
         # or project-selected design too. One origin per file, each normalized on its own:
         # origin decides first, nesting only within one origin (`compose_flow_settings`).
-        project_label = str(Path(xedaproject).absolute())
-        design_label = str(given_file.absolute()) if given_file else f"the design {design.name}"
-        if xeda_project is not None and not design_not_in_project:
+        # The project layer is the one the design carries: only a design that a project selected
+        # has it.
+        layer = design._project_layer
+        project_label, flows_settings = (layer[0], thaw(layer[1])) if layer else ("", {})
+        if given_file is not None:
+            design_label = str(given_file.absolute())
+        elif layer is not None and design._source_file is not None:
+            design_label = str(design._source_file)
+        elif layer is not None:
             design_label = f"{project_label}: design {design.name}"
+        else:
+            design_label = f"the design {design.name}"
         host_label, host_table = host_layer if host_layer is not None else ("", {})
         host_sections, host_bindings = split_bindings(host_table, location=host_label)
         project_sections, project_bindings = split_bindings(flows_settings, location=project_label)
@@ -2610,7 +2501,7 @@ class FlowLauncher:
             )
         file_origins = [
             *([host_sections] if host_layer is not None else []),
-            project_sections,
+            *([project_sections] if layer else []),
             design_sections,
         ]
         origins = [*file_origins, cli_sections, api_sections]
@@ -2633,7 +2524,7 @@ class FlowLauncher:
         # The files that this launch was given: never the destination of an output.
         self._launch_inputs = [
             path.resolve()
-            for path in (given_file, Path(xedaproject))
+            for path in (given_file, project_path)
             if path is not None and path.is_file()
         ]
         return _Request(
@@ -2645,7 +2536,7 @@ class FlowLauncher:
                 (label, deepcopy(section))
                 for label, section in (
                     *(((host_label, host_sections),) if host_layer is not None else ()),
-                    (project_label, project_sections),
+                    *(((project_label, project_sections),) if layer else ()),
                     (design_label, design_sections),
                 )
             ),

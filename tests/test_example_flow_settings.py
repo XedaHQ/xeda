@@ -20,7 +20,7 @@ from xeda.flow_runner import get_flow_class
 from xeda.flow_runner.bindings import default_nodes, effective_bindings, split_bindings
 from xeda.frozen import thaw
 from xeda.utils import toml_load
-from xeda.xedaproject import XedaProject
+from xeda.project import Project
 from xeda.yaml_loader import load_yaml
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
@@ -67,11 +67,11 @@ def _targets(path):
 
 def _flow_sections(path, index, target):
     if path.stem == "xedaproject":
-        project = XedaProject.from_file(path)
+        project = Project.load(path)
         if target is None:
             yield from (project.flows or {}).items()
-        design = project.get_design(index, target=target)
-        yield from ((thaw(design.flows) if design else None) or {}).items()
+        design = project.design(project.designs[index], target=target)
+        yield from (thaw(design.flows) or {}).items()
     else:
         yield from thaw(Design.load(path, target=target).flows or {}).items()
 

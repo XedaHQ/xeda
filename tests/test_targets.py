@@ -25,7 +25,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.settings_layers import merge_flow_sections, registered_flow
 from xeda.flows import VivadoSynth
 from xeda.utils import settings_to_dict
-from xeda.xedaproject import XedaProject
+from xeda.project import Project
 
 from .tool_utils import use_fake_tools
 
@@ -215,11 +215,10 @@ def test_a_sources_override_replaces_the_design_s_sources(
 
 
 def test_a_sources_override_replaces_a_project_design_s_sources_and_a_target_s(tmp_path):
-    project = XedaProject.from_file(
-        project_file(tmp_path), design_updates={"rtl": {"sources": ["por_sync.v"]}}
+    project = Project.load(project_file(tmp_path))
+    design = project.design("knight", target="arty").with_updates(
+        {"rtl": {"sources": ["por_sync.v"]}}
     )
-    design = project.get_design("knight", target="arty")
-    assert design is not None
     assert source_names(design.rtl.sources) == ["por_sync.v"]
     assert source_names(design.tb.sources) == ["knight_tb.v"]
 
@@ -232,9 +231,9 @@ def test_design_updates_cannot_change_or_hide_the_selected_target(tmp_path, repo
 
 
 def test_project_design_updates_cannot_forge_the_selected_target(tmp_path):
-    project = XedaProject.from_file(project_file(tmp_path), design_updates={"target": "another"})
+    project = Project.load(project_file(tmp_path))
     with pytest.raises(DesignValidationError, match="cannot be updated"):
-        project.get_design("knight", target="ulx3s")
+        project.design("knight", target="ulx3s").with_updates({"target": "another"})
 
 
 # ------------------------------------------------------------------------------ selection
@@ -442,20 +441,20 @@ def project_file(tmp_path: Path) -> Path:
 
 
 def test_a_project_design_takes_a_target_the_same_way(tmp_path):
-    project = XedaProject.from_file(project_file(tmp_path))
-    design = project.get_design("knight", target="ulx3s")
-    assert design is not None and design.target == "ulx3s"
+    project = Project.load(project_file(tmp_path))
+    design = project.design("knight", target="ulx3s")
+    assert design.target == "ulx3s"
     flat = Design.load(RESOURCES / "knight_ulx3s_flat.yaml")
     assert design.rtl_hash == flat.rtl_hash and design.flows == flat.flows
     with pytest.raises(DesignValidationError, match="arty, ulx3s"):
-        project.get_design("knight", target="nexys")
-    base = project.get_design("knight")
-    assert base is not None and base.target is None
+        project.design("knight", target="nexys")
+    base = project.design("knight")
+    assert base.target is None
     assert [s.file.name for s in base.rtl.sources] == ["knight.v", "por_sync.v"]
     with pytest.raises(DesignValidationError, match="no `targets`"):
-        project.get_design("plain", target="arty")
-    plain = project.get_design("plain")
-    assert plain is not None and plain.target is None
+        project.design("plain", target="arty")
+    plain = project.design("plain")
+    assert plain.target is None
 
 
 # ------------------------------------------------------------------------------ the launcher and CLI
@@ -625,7 +624,7 @@ def test_an_unknown_target_is_a_document_that_names_the_targets(tmp_path, monkey
     monkeypatch.chdir(tmp_path)
     result, document = invoke("run", "vivado_synth", str(KNIGHT), "--target", "nexys")
     assert result.exit_code == 2 and document["outcome"] is None
-    assert document["error"]["code"] == "invalid_design"
+    assert document["error"]["code"] == "unknown_target"
     assert "arty, ulx3s" in document["error"]["message"]
     assert not (tmp_path / "xeda_run").exists()
 
@@ -635,7 +634,7 @@ def test_a_target_for_a_design_without_targets_is_a_document(tmp_path, monkeypat
     path = write_design(tmp_path, BASE)
     result, document = invoke("run", "vivado_synth", str(path), "--target", "arty")
     assert result.exit_code == 2 and document["outcome"] is None
-    assert document["error"]["code"] == "invalid_design"
+    assert document["error"]["code"] == "unknown_target"
     assert "no `targets`" in document["error"]["message"]
     assert not (tmp_path / "xeda_run").exists()
 
@@ -732,9 +731,8 @@ def planned_nextpnr(tmp_path: Path, design: str, target: str | None = None, **la
 
 def test_a_target_overrides_the_design_and_only_where_it_writes(tmp_path):
     """defaults < project < design < target < command line < API, key by key."""
-    project = XedaProject.from_file(layered_project(tmp_path))
-    plain, target = project.get_design("plain"), project.get_design("layered", "ulx3s")
-    assert plain is not None and target is not None
+    project = Project.load(layered_project(tmp_path))
+    plain, target = project.design("plain"), project.design("layered", target="ulx3s")
     # Design-level keys: the target's value wins; what it does not write stays the design's.
     assert plain.rtl.parameters == {"WIDTH": 8, "DEPTH": 2} and plain.rtl.defines == {
         "A": 1,

@@ -1353,11 +1353,11 @@ EXAMPLE_FILES = sorted(
 def _example_requests(path: Path):
     """Each design `path` holds, with every flow its sections or its project's name and the
     project's section for that flow."""
-    from xeda.xedaproject import XedaProject
+    from xeda.project import Project
 
     if path.stem == "xedaproject":
-        project = XedaProject.from_file(path)
-        designs = [project.get_design(i) for i in range(len(project.designs))]
+        project = Project.load(path)
+        designs = [project.design(name) for name in project.designs]
         shared = project.flows or {}
     else:
         designs, shared = [Design.load(path)], {}

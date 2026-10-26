@@ -28,7 +28,7 @@ from xeda.design import (
 )
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, Nvc
-from xeda.xedaproject import XedaProject
+from xeda.project import Project
 
 from .tool_utils import require_ghdl, require_nvc
 
@@ -130,7 +130,7 @@ def test_a_project_design_is_refused(design_dir: Path) -> None:
         yaml.safe_dump({"designs": [design_data({"file": "tb.vhd", "standard": "08"})]})
     )
     with pytest.raises(DesignValidationError, match="language.vhdl.standard"):
-        XedaProject.from_file(project).get_design("d")
+        Project.load(project).design("d")
 
 
 def test_the_command_line_reports_it_as_a_document(design_dir: Path, monkeypatch) -> None:

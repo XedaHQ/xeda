@@ -30,7 +30,7 @@ from xeda.frozen import thaw
 from xeda.flow_runner.settings_layers import compose_flow_settings
 from xeda.flows import GhdlSim, VivadoSynth, Yosys
 from xeda.utils import json_encodable, settings_to_dict
-from xeda.xedaproject import XedaProject
+from xeda.project import Project
 
 from .settings_samples import PROBES
 from .test_targets import BASE, RESOURCES, flows_as_read
@@ -745,12 +745,10 @@ def test_the_same_overrides_give_the_same_design_through_a_project_and_a_design_
     and a design file are the same design."""
     data = overlay(BASE, design)
     from_file = Design.load(write_design(tmp_path, data)).with_updates(overrides)
-    project = XedaProject.from_file(write_project(tmp_path, data), design_updates=overrides)
-    from_project = project.get_design(from_file.name)
-    assert from_project is not None, project.design_names
+    project = Project.load(write_project(tmp_path, data))
+    from_project = project.design(data["name"]).with_updates(overrides)
     assert from_project.to_dict() == from_file.to_dict()
-    assert project.design_names == [from_file.name]
-    assert project.designs == [data], "the entries stay as written"
+    assert project.designs == (data["name"],)
 
 
 @pytest.mark.parametrize("merged", ["plain", "a target", "overrides"])
@@ -775,11 +773,3 @@ def test_remove_extra_removes_the_named_key(tmp_path, merged):
         path, target=target, updates=[overrides] if overrides else [], remove_extra=["authors"]
     )
     assert removed.authors == () and removed.flows == kept.flows
-
-
-def test_design_remove_extra_of_a_project_removes_the_named_key(tmp_path):
-    data = {**BASE, "flows": {"vivado_synth": {"fpga": {"part": PART}}}}
-    path = write_project(tmp_path, data)
-    project = XedaProject.from_file(path, design_remove_extra=["flows"])
-    assert ["flows" in entry for entry in project.designs] == [False]
-    assert project.get_design(0).flows == {}  # type: ignore[union-attr]

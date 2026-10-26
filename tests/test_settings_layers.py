@@ -23,7 +23,7 @@ from xeda.flow_runner.settings_layers import (
     merge_layers,
 )
 from xeda.flows import Nextpnr, VivadoPostsynthSim, VivadoSynth
-from xeda.xedaproject import XedaProject
+from xeda.project import Project
 
 from .project_files import PROJECT_FILE
 from .remote_fixtures import fake_remote, fake_ssh, remote_host, remote_request
@@ -260,12 +260,13 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
     _write(
         tmp_path / PROJECT_FILE,
         """
+        designs: [{file: d.yaml}]
         flows:
           vivado_postsynth_sim: {timeout: 1, nthreads: 1}
           vivado_synth: {fail_timing: true, nthreads: 2, out_of_context: true}
     """,
     )
-    design = _write(
+    _write(
         tmp_path / "d.yaml",
         """
         name: d
@@ -278,7 +279,7 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run(
             "vivado_postsynth_sim",
-            design,
+            "d",
             flow_settings=["nthreads=5", "flows.vivado_synth.fail_timing=false"],
         )
     assert launched["settings"] == {"timeout": 1, "nthreads": "5"}
@@ -367,10 +368,8 @@ def test_embedded_project_design_paths_are_relative_to_the_project_file(tmp_path
         """,
     )
 
-    project = XedaProject.from_file(project_path)
-    design = project.get_design("d")
+    design = Project.load(project_path).design("d")
 
-    assert design is not None
     assert design.root == tmp_path.resolve()
     assert design.rtl.sources[0].path == (tmp_path / "top.v").resolve()
 
@@ -851,10 +850,13 @@ def test_a_command_line_dependency_setting_beats_the_producers_file_value(
 def test_an_unknown_setting_in_a_lower_layer_is_still_reported(tmp_path, monkeypatch):
     """The merge keeps every name, so a higher layer never hides an unknown one."""
     monkeypatch.chdir(tmp_path)
-    _write(tmp_path / PROJECT_FILE, "flows:\n  nextpnr:\n    no_such_setting: 1\n")
     design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
+    _write(
+        tmp_path / PROJECT_FILE,
+        f"designs: [{{file: {design.name}}}]\nflows:\n  nextpnr:\n    no_such_setting: 1\n",
+    )
     with pytest.raises(FlowSettingsError, match="no_such_setting"):
-        DefaultRunner(tmp_path / "run").run("nextpnr", design, flow_settings=["seed=3"])
+        DefaultRunner(tmp_path / "run").run("nextpnr", design.stem, flow_settings=["seed=3"])
 
 
 def test_a_misdirected_setting_suggests_the_node_it_belongs_to(tmp_path, monkeypatch):

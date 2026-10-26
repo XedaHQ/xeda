@@ -254,7 +254,7 @@ def test_a_design_name_the_project_lacks_is_reported_cleanly(tmp_path, json_flag
     if json_flag:
         assert_unstarted_document(proc, "unknown_design", "nosuch", "sqrt")
     else:
-        assert_one_critical_line(proc, "DesignNotFoundError", "nosuch", "sqrt")
+        assert_one_critical_line(proc, "ProjectError", "nosuch", "sqrt")
 
 
 @pytest.mark.parametrize("json_flag", [False, True], ids=["text", "json"])
@@ -265,7 +265,7 @@ def test_a_design_name_without_a_project_is_reported_as_such(tmp_path, json_flag
     if json_flag:
         assert_unstarted_document(proc, "project_file_not_found", PROJECT_FILE)
     else:
-        assert_one_critical_line(proc, "DesignNotFoundError", PROJECT_FILE)
+        assert_one_critical_line(proc, "ProjectError", PROJECT_FILE)
 
 
 @pytest.mark.parametrize(
@@ -285,11 +285,11 @@ def test_a_project_file_that_cannot_be_loaded_is_reported_cleanly(tmp_path, cont
 def test_the_runner_raises_xeda_exceptions_for_user_errors(tmp_path):
     """Library callers get the same typed errors the CLI reports."""
     from xeda.flow_runner import DefaultRunner
-    from xeda.flow_runner.default_runner import DesignNotFoundError
+    from xeda.errors import ProjectError
 
     project = _project(tmp_path)
     runner = DefaultRunner(tmp_path / "run")
-    with pytest.raises(DesignNotFoundError, match="nosuch") as raised:
+    with pytest.raises(ProjectError, match="nosuch") as raised:
         runner.run("ghdl_sim", "nosuch", xedaproject=str(project))
     assert isinstance(raised.value, XedaException)
     # a string with a design-file suffix is a design file, whatever its case -- and the loader

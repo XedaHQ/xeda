@@ -27,6 +27,7 @@ from xeda import Design
 from xeda.cli import cli
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner, get_flow_class
+from xeda.project import Project
 from xeda.frozen import thaw
 from xeda.flow_runner.bindings import split_bindings
 from xeda.flow_runner.chains import complete_request, parse_request
@@ -459,13 +460,16 @@ def test_a_binding_that_says_what_the_defaults_say_changes_nothing(tmp_path):
 def test_a_chain_replaces_the_bindings_a_design_and_a_named_project_saved(tmp_path):
     root = _stage(tmp_path, "bound_demo.yaml", "project.yaml")
     design, project = root / "bound_demo.yaml", root / "project.yaml"
-    both = ["--xedaproject", project]
+    # the project selects the design: it applies to no design file given on its own
+    project.write_text("designs: [{file: bound_demo.yaml}]\n" + project.read_text())
+    name = Project.load(project).designs[0]
+    both = ["--design-name", name, "--xedaproject", project]
     # alone, the design's binding is the one in force (a project's ranks below it)
-    saved = _planned("nextpnr", design, *both)
+    saved = _planned("nextpnr", *both)
     netlist = _input(saved, "nextpnr", "netlist")
     assert netlist["binding_origin"] == "file" and str(design) in netlist["binding_location"]
     # a chain replaces both, and the plan lists what it replaced: the project's, then the design's
-    chain = _planned("yosys_fpga+nextpnr", design, *both)
+    chain = _planned("yosys_fpga+nextpnr", *both)
     netlist = _input(chain, "nextpnr", "netlist")
     assert netlist["binding_origin"] == "chain"
     assert "chain position 1 (yosys_fpga) -> 2 (nextpnr)" in netlist["binding_location"]

@@ -38,7 +38,7 @@ from xeda.records import ErrorInfo, decode_record
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import RunRootError, ensure_run_root
 from xeda.utils import ConflictingKeys, ExecutableNotFound, NonZeroExitCode, ToolException
-from xeda.xedaproject import ProjectFileError
+from xeda.errors import ProjectError
 
 from . import test_failure_results as failing
 from .record_documents import record_document
@@ -212,7 +212,7 @@ def test_a_node_failure_has_its_code(exc, code, exit_status):
             "reported_failure",
         ),
         (DesignFileParseError("d.yaml", "not YAML"), "reported_failure"),
-        (ProjectFileError("no project file", code="project_file_not_found"), "reported_failure"),
+        (ProjectError("no project file", code="project_file_not_found"), "reported_failure"),
         (FlowException("flow"), "reported_failure"),
         (ToolException("tool too old"), "reported_failure"),
         (DeliveryError("refused"), "reported_failure"),
@@ -587,12 +587,10 @@ def test_a_refusal_of_unsupported_settings_has_the_unsupported_code(tmp_path):
 
 
 def test_a_project_error_keeps_its_code_through_pickling():
-    from xeda.flow_runner.default_runner import DesignNotFoundError
-
-    error = DesignNotFoundError("no design", code="unknown_design")
+    error = ProjectError("no design", code="unknown_design")
     again = pickle.loads(pickle.dumps(error))
     assert (type(again), again.code, str(again)) == (
-        DesignNotFoundError,
+        ProjectError,
         "unknown_design",
         "no design",
     )

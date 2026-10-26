@@ -332,11 +332,13 @@ class Dse(FlowLauncher):
         #: prints nothing: the command line passes a callback that shows the results.
         self.best_so_far: Optional[Callable[[FlowOutcome], None]] = None
 
-    def _refuse_unaccepted_request(self, flow, flow_settings, flow_overrides, xedaproject) -> None:
+    def _refuse_unaccepted_request(
+        self, flow, flow_settings, flow_overrides, xedaproject, design=None
+    ) -> None:
         """Refuse a clock-writing optimizer on an OpenROAD flow or a chain that ends in one, then
         what a chain or a binding brings, before anything is loaded."""
         _refuse_openroad(self.optimizer, flow)
-        super()._refuse_unaccepted_request(flow, flow_settings, flow_overrides, xedaproject)
+        super()._refuse_unaccepted_request(flow, flow_settings, flow_overrides, xedaproject, design)
 
     @log_context.with_launch_context
     def run_flow(

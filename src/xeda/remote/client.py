@@ -76,6 +76,7 @@ from ..outcomes import (
 from ..proc_utils import TOOL_OUTPUT, tool_output_stream
 from ..records import CANCELED, ErrorInfo, RunRecord, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
+from ..types import Unset
 from ..xedaproject import resolve_project_file
 from .constants import HEARTBEAT, LAYOUT
 from .environment import CodeSnapshot, DependencySpec, code_snapshot, dependency_spec
@@ -528,7 +529,8 @@ class _Run:
     chain: str
     flow: str
     design: Any
-    target: Optional[str]
+    #: The target as the user gave it; the plan replaces it with the target it selected.
+    target: Optional[str] | Unset
     host: str
     debug: bool
     launcher: Optional[DefaultRunner] = None
@@ -636,7 +638,6 @@ def _plan(
     xedaproject: Any,
     design_updates: Any,
     design_allow_extra: bool,
-    select_design_in_project: Any,
     hashed_run_dirs: bool,
     clean: bool,
     rebuild_all: bool,
@@ -662,7 +663,6 @@ def _plan(
         design=run.design,
         xedaproject=xedaproject,
         flow_settings=flow_settings,
-        select_design_in_project=select_design_in_project,
         design_updates=design_updates,
         design_allow_extra=design_allow_extra,
         target=run.target,
@@ -1048,7 +1048,7 @@ def _record_launch(
             requested=prepared.requested,
             design_name=prepared.prepared.design.name,
             design=str(design) if isinstance(design, (str, Path)) else None,
-            target=run.target,
+            target=run.target if isinstance(run.target, str) else None,
             request=run.request,
             local_root=str(local_root),
             settings=run.settings,
@@ -1114,7 +1114,8 @@ def _spec_fields(run: _Run) -> Dict[str, Any]:
     return spec_document(
         flow=run.chain,
         **design_info(run.design, run.design_name or (launcher.design_name if launcher else None)),
-        target=run.target or (launcher.target if launcher is not None else None),
+        target=(run.target if isinstance(run.target, str) else None)
+        or (launcher.target if launcher is not None else None),
         settings=run.settings,
     )
 
@@ -1274,8 +1275,7 @@ def run_remote(
     xedaproject: Any,
     design_updates: Any,
     design_allow_extra: bool,
-    target: Optional[str],
-    select_design_in_project: Any,
+    target: Optional[str] | Unset,
     hashed_run_dirs: bool,
     clean: bool,
     rebuild_all: bool,
@@ -1319,7 +1319,6 @@ def run_remote(
             xedaproject=xedaproject,
             design_updates=design_updates,
             design_allow_extra=design_allow_extra,
-            select_design_in_project=select_design_in_project,
             hashed_run_dirs=hashed_run_dirs,
             clean=clean,
             rebuild_all=rebuild_all,
@@ -1471,7 +1470,6 @@ def _run(
     xedaproject: Any,
     design_updates: Any,
     design_allow_extra: bool,
-    select_design_in_project: Any,
     hashed_run_dirs: bool,
     clean: bool,
     rebuild_all: bool,
@@ -1502,7 +1500,6 @@ def _run(
             xedaproject=xedaproject,
             design_updates=design_updates,
             design_allow_extra=design_allow_extra,
-            select_design_in_project=select_design_in_project,
             hashed_run_dirs=hashed_run_dirs,
             clean=clean,
             rebuild_all=rebuild_all,

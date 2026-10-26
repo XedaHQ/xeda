@@ -39,10 +39,17 @@ def _runner(tmp_path) -> DefaultRunner:
 
 
 def _project(tmp_path, flows) -> str:
+    """A project with the design `plain` and the design `own`, whose own `__maker` section says
+    `design`."""
     # not in the current directory, where a project file is found by itself
     path = tmp_path / "project" / "xedaproject.yaml"
     path.parent.mkdir(exist_ok=True)
-    path.write_text(yaml.safe_dump({"flows": flows}))
+    rtl = {"sources": [], "top": "t"}
+    designs = [
+        {"name": "plain", "rtl": rtl},
+        {"name": "own", "rtl": rtl, "flows": {"__maker": {"text": "design\n"}}},
+    ]
+    path.write_text(yaml.safe_dump({"designs": designs, "flows": flows}))
     return str(path)
 
 
@@ -60,23 +67,15 @@ def test_host_layer_is_the_lowest(tmp_path):
     assert _text(only_host) == "host\n"
     assert only_host.sections["__maker"]["text"] == "host\n"
 
-    with_project = runner.prepare_request(
-        _Taker, _design(tmp_path), project, host_flows=host, host=HOST
-    )
+    with_project = runner.prepare_request(_Taker, "plain", project, host_flows=host, host=HOST)
     assert _text(with_project) == "project\n"
 
-    with_design = runner.prepare_request(
-        _Taker,
-        _design(tmp_path, __maker={"text": "design\n"}),
-        project,
-        host_flows=host,
-        host=HOST,
-    )
+    with_design = runner.prepare_request(_Taker, "own", project, host_flows=host, host=HOST)
     assert _text(with_design) == "design\n"
 
     on_command_line = runner.prepare_request(
         _Taker,
-        _design(tmp_path, __maker={"text": "design\n"}),
+        "own",
         project,
         ["flows.__maker.text=cli"],
         host_flows=host,
@@ -90,7 +89,7 @@ def test_host_layer_merges_key_by_key_with_the_layers_above(tmp_path):
     project = _project(tmp_path, {"__maker": {"text": "project\n"}})
 
     prepared = _runner(tmp_path).prepare_request(
-        _Taker, _design(tmp_path), project, host_flows=host, host=HOST
+        _Taker, "plain", project, host_flows=host, host=HOST
     )
 
     assert prepared.plan.node("__maker").settings.nthreads == 8

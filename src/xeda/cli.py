@@ -23,6 +23,7 @@ from .cli_types import (
 from .flow_catalog import flow_names
 from .pdk_cli import add_pdk_commands
 from .remote.commands import add_remote_commands
+from .types import UNSET, Unset
 
 # Click resolves completion before invoking command callbacks. Share the declarations below,
 # but keep execution and help-rendering dependencies out of a completion process.
@@ -43,7 +44,6 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         print_results,
         print_run_tables,
         resolve_format,
-        select_design_in_project,
     )
     from .console import console
     from .deliver import Conflict
@@ -605,6 +605,14 @@ Example: xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
 """
 
 
+def _selected_target(target: str | None, no_target: bool) -> str | None | Unset:
+    """Return what `--target` and `--no-target` select: a target, no target (`None`), or `UNSET`
+    when neither was given, so that the project's `default_target` applies."""
+    if target is not None and no_target:
+        raise click.UsageError("`--target` and `--no-target` exclude each other.")
+    return None if no_target else UNSET if target is None else target
+
+
 def _interactive(json_flag: bool) -> bool:
     """Return whether a question may be asked: stdin and stderr are terminals, and the output is
     not machine-readable."""
@@ -806,9 +814,17 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "--target",
     metavar="NAME",
     help="Select one of the design's `targets` (`targets.NAME` in the design file). Without "
-    "this option, Xeda uses the design itself, with no target. For each key a target sets, its "
+    "this option, a design of a project (--design-name) uses the `default_target` of the "
+    "project, and any other design uses no target. For each key a target sets, its "
     "value wins over the design's and the project's. The order, lowest first, is defaults < "
     "project < design < target < -s < API.",
+)
+@click.option(
+    "--no-target",
+    is_flag=True,
+    default=False,
+    help="Select no target: use the design itself, even when the project has a "
+    "`default_target`.",
 )
 @_removed_options("--design-updates", "--design-overrides", took_value=True)
 @click.option(
@@ -947,6 +963,7 @@ def run(
     # design: Optional[str] = None,
     design_name: Optional[str] = None,
     target: str | None = None,
+    no_target: bool = False,
     design_updates: Iterable[str] = tuple(),
     log_level: Optional[int] = None,
     detailed_logs: bool = False,
@@ -999,6 +1016,7 @@ def run(
                 ctx=ctx,
             )
         remote = None
+    selected_target = _selected_target(target, no_target)
     if fetch_all and not remote:
         raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
     if keep_running and not remote:
@@ -1036,8 +1054,7 @@ def run(
             xedaproject=xedaproject,
             design_updates=design_updates,
             design_allow_extra=False,
-            target=target,
-            select_design_in_project=select_design_in_project,
+            target=selected_target,
             hashed_run_dirs=hashed_run_dirs,
             clean=clean,
             rebuild_all=rebuild_all,
@@ -1167,9 +1184,8 @@ def run(
                 xedaproject=xedaproject,
                 design=design,
                 flow_settings=flow_settings,
-                select_design_in_project=select_design_in_project,
                 design_updates=design_updates,
-                target=target,
+                target=selected_target,
             )
         except KeyboardInterrupt:
             canceled_before_start()
@@ -1213,9 +1229,8 @@ def run(
             xedaproject=xedaproject,
             design=design or design_name,
             flow_settings=flow_settings,
-            select_design_in_project=select_design_in_project,
             design_updates=design_updates,
-            target=target,
+            target=selected_target,
         )
     except KeyboardInterrupt:
         canceled_before_start()
@@ -1359,9 +1374,17 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     "--target",
     metavar="NAME",
     help="Select one of the design's `targets` (`targets.NAME` in the design file). Without "
-    "this option, Xeda uses the design itself, with no target. For each key a target sets, its "
+    "this option, a design of a project (--design-name) uses the `default_target` of the "
+    "project, and any other design uses no target. For each key a target sets, its "
     "value wins over the design's and the project's. The order, lowest first, is defaults < "
     "project < design < target < -s < API.",
+)
+@click.option(
+    "--no-target",
+    is_flag=True,
+    default=False,
+    help="Select no target: use the design itself, even when the project has a "
+    "`default_target`.",
 )
 @_removed_options("the positional DESIGN argument", "--design", "--design-file", took_value=True)
 @click.option(
@@ -1450,6 +1473,7 @@ def dse(
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
     target: str | None = None,
+    no_target: bool = False,
     log_level: Optional[int] = None,
     detailed_logs: bool = True,
     json_flag: bool = False,
@@ -1460,6 +1484,7 @@ def dse(
         machine_readable_mode()
 
     dse: Dse | None = None
+    selected_target = _selected_target(target, no_target)
 
     def dse_failure(error_type: str, message: str, exc: Optional[BaseException] = None) -> None:
         log.critical("%s", message)
@@ -1536,8 +1561,7 @@ def dse(
             xedaproject=xedaproject,
             design=design or design_name,
             flow_settings=list(flow_settings),
-            select_design_in_project=select_design_in_project,
-            target=target,
+            target=selected_target,
         )
     except SystemExit:
         raise

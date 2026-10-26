@@ -25,6 +25,7 @@ from xeda.utils import ConflictingKeys
 
 from .openroad_utils import openroad_design, openroad_settings, register_openroad_flows
 from .tiny_platform import tiny_store
+from .project_files import project_listing
 
 NAME = "u_core.reg_1"
 DEEP_NAME = "u_top.u_core.u_alu.reg_1"
@@ -47,14 +48,14 @@ def plan_openroad(
             design.read_text() + yaml.safe_dump({"flows": {"openroad": design_flows}})
         )
     kwargs: dict[str, Any] = {}
+    selected: Path | str = design
     if project_flows is not None:
-        project = tmp_path / "xedaproject.yaml"
-        project.write_text(yaml.safe_dump({"flows": {"openroad": project_flows}}))
-        kwargs["xedaproject"] = str(project)
+        kwargs["xedaproject"] = project_listing(design, {"openroad": project_flows})
+        selected = "counter"
     given = dict(text.split("=", 1) for text in [*openroad_settings(store), *texts])
     with register_openroad_flows():
         plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
-            "openroad", design, flow_settings=given, **kwargs
+            "openroad", selected, flow_settings=given, **kwargs
         )
     return plan.nodes[-1].settings
 

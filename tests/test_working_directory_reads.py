@@ -84,7 +84,6 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
         "flow_runner/default_runner.py",
         "FlowLauncher.__init__",
     ): "the directory a launcher starts in",
-    ("flow_runner/default_runner.py", "FlowLauncher._design_from_project"): "an error message",
     ("flow_runner/default_runner.py", "FlowLauncher._launch"): "relative setting paths",
     ("flow_runner/default_runner.py", "FlowLauncher._validate_plan"): "relative setting paths",
     ("flow_runner/default_runner.py", "FlowLauncher.plan_with_freshness"): "relative setting paths",

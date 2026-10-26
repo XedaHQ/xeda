@@ -7,7 +7,8 @@ import yaml
 
 from xeda.design import Design, DesignFileParseError, DesignValidationError
 from xeda.frozen import thaw
-from xeda.xedaproject import XedaProject
+from xeda.errors import ProjectError
+from xeda.project import Project
 from xeda.yaml_loader import load_yaml
 
 pytestmark = pytest.mark.python_compat
@@ -57,7 +58,7 @@ def test_core_scalars_in_real_files(tmp_path, token, expected, project):
     path.write_text(
         "designs:\n- " + body.replace("\n", "\n  ").rstrip() + "\n" if project else body
     )
-    design = XedaProject.from_file(path).get_design(0) if project else Design.load(path)
+    design = Project.load(path).design() if project else Design.load(path)
     actual = design.rtl.parameters["P"]
     assert type(actual) is type(expected)
     if isinstance(expected, float) and math.isnan(expected):
@@ -75,8 +76,8 @@ def test_duplicate_keys_name_the_file_line_and_key(tmp_path, project):
         else "name: probe\nrtl:\n  sources: []\n  parameters:\n    WIDTH: 8\n    WIDTH: 16\n"
     )
     path.write_text(body)
-    with pytest.raises(yaml.MarkedYAMLError if project else DesignFileParseError) as raised:
-        (XedaProject.from_file if project else Design.load)(path)
+    with pytest.raises(ProjectError if project else DesignFileParseError) as raised:
+        (Project.load if project else Design.load)(path)
     message = str(raised.value)
     assert str(path) in message
     assert "duplicate" in message.lower()
@@ -90,8 +91,8 @@ def test_duplicate_keys_name_the_file_line_and_key(tmp_path, project):
 def test_non_string_keys_are_rejected_before_model_processing(tmp_path, key, project):
     path = tmp_path / ("xedaproject.yml" if project else "probe.yml")
     path.write_text(f"flows: {{nextpnr: {{{key}: 1}}}}\n")
-    with pytest.raises(yaml.MarkedYAMLError if project else DesignFileParseError) as raised:
-        (XedaProject.from_file if project else Design.load)(path)
+    with pytest.raises(ProjectError if project else DesignFileParseError) as raised:
+        (Project.load if project else Design.load)(path)
     assert "mapping keys must be strings" in str(raised.value)
     assert str(path) in str(raised.value)
 
@@ -235,5 +236,5 @@ def test_malformed_source_indentation_has_a_clear_error(tmp_path, sources, error
 def test_multiple_yaml_documents_are_rejected(tmp_path, project):
     path = tmp_path / ("xedaproject.yaml" if project else "probe.yaml")
     path.write_text("name: first\n---\nname: second\n")
-    with pytest.raises(yaml.MarkedYAMLError if project else DesignFileParseError):
-        (XedaProject.from_file if project else Design.load)(path)
+    with pytest.raises(ProjectError if project else DesignFileParseError):
+        (Project.load if project else Design.load)(path)

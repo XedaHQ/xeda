@@ -229,9 +229,6 @@ def test_same_cli_input_in_unqualified_and_qualified_forms_is_an_error_even_when
 
 def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(tmp_path):
     project = tmp_path / "xedaproject.yaml"
-    project.write_text(
-        yaml.safe_dump({"flows": {_Taker.name: {"inputs": {"made": "__maker"}, "quiet": False}}})
-    )
     design = tmp_path / "design.yaml"
     design.write_text(
         yaml.safe_dump(
@@ -242,9 +239,21 @@ def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(
             }
         )
     )
+    project.write_text(
+        yaml.safe_dump(
+            {
+                "designs": [{"file": "design.yaml"}],
+                "flows": {_Taker.name: {"inputs": {"made": "__maker"}, "quiet": False}},
+            }
+        )
+    )
     runner = DefaultRunner(tmp_path / "runs")
     request = runner._request(
-        _Taker, design, str(project), {"inputs.made": "__maker"}, {"inputs.made": "__maker.made"}
+        _Taker,
+        "binding_design",
+        str(project),
+        {"inputs.made": "__maker"},
+        {"inputs.made": "__maker.made"},
     )
     assert "inputs" not in request.settings
     assert all("inputs" not in section for section in request.sections.values())
@@ -268,7 +277,14 @@ def test_pc1_is_checked_at_the_request_boundary(tmp_path, origin, reference):
         name="d", root=tmp_path, rtl={"sources": []}, flows=bindings if origin == "design" else {}
     )
     project = tmp_path / "project.yaml"
-    project.write_text(yaml.safe_dump({"flows": bindings if origin == "project" else {}}))
+    project.write_text(
+        yaml.safe_dump(
+            {
+                "designs": [{"name": "d", "rtl": {"sources": []}}],
+                "flows": bindings if origin == "project" else {},
+            }
+        )
+    )
     runner = DefaultRunner(tmp_path / "runs")
     label = {"CLI": "command line", "design": "design d", "project": str(project), "API": "API"}[
         origin
@@ -277,7 +293,7 @@ def test_pc1_is_checked_at_the_request_boundary(tmp_path, origin, reference):
     def request():
         return runner._request(
             parse_request("__chain_simple_producer+__chain_simple_consumer"),
-            design,
+            "d" if origin == "project" else design,
             str(project),
             {"inputs.netlist": reference} if origin == "CLI" else {},
             {"inputs.netlist": reference} if origin == "API" else {},

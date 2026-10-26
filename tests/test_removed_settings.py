@@ -10,6 +10,8 @@ from xeda.flow import Flow, FlowSettingsError, registered_flows
 from xeda.dataclass import SecondSpelling, removed_message
 from xeda.flows import Openroad
 
+from .project_files import project_listing
+
 FLOWS = sorted({cls for _, cls in registered_flows.values()}, key=lambda c: c.name)
 
 
@@ -142,7 +144,7 @@ def test_a_project_s_open_xc7_section_is_an_error_naming_the_replacement(tmp_pat
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     with pytest.raises(FlowNotFoundError) as error:
-        runner.run("yosys_fpga", xedaproject=str(project), select_design_in_project="d")
+        runner.run("yosys_fpga", "d", xedaproject=str(project))
     assert str(error.value) == REMOVED_OPEN_XC7
     assert not (tmp_path / "run").exists()
 
@@ -322,9 +324,8 @@ def test_clock_period_was_removed_at_every_origin(tmp_path, monkeypatch, origin)
     base = ["fpga.part=xc7a100tcsg324-1"]
     with pytest.raises(Exception, match=re.escape(CLOCK_PERIOD_REMOVED)):
         if origin == "project":
-            project = tmp_path / "project.yaml"
-            project.write_text("flows:\n  vivado_synth:\n    clock_period: 5.0\n")
-            runner.plan("vivado_synth", design, xedaproject=str(project), flow_settings=base)
+            project = project_listing(design_file, {"vivado_synth": {"clock_period": 5.0}})
+            runner.plan("vivado_synth", "top", xedaproject=project, flow_settings=base)
         elif origin == "cli":
             runner.plan("vivado_synth", design, flow_settings=[*base, "clock_period=5.0"])
         elif origin == "flows-cli":

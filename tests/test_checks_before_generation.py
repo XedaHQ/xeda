@@ -311,8 +311,9 @@ def test_a_testbench_file_the_generator_writes_is_refused_when_the_design_loads(
     assert generated.runs == 0
 
 
-def test_a_project_s_design_is_chosen_once(tmp_path, monkeypatch):
-    """A design chosen from a project (the command line's menu) is asked for once."""
+def test_a_project_s_design_generates_once(tmp_path, monkeypatch):
+    """A design selected from a project is loaded twice when it generates, and the generator
+    runs once."""
     use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.v"])
@@ -321,21 +322,14 @@ def test_a_project_s_design_is_chosen_once(tmp_path, monkeypatch):
     other = {"name": "other", "design_root": str(generated.root), "rtl": {"sources": ["gen.py"]}}
     project = tmp_path / "xedaproject.json"
     project.write_text(json.dumps({"designs": [spec, other]}))
-    asked = []
-
-    def select(project, name, target):
-        asked.append(name)
-        return project.get_design("generated", target)
-
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     flow = runner.run(
         "vivado_synth",
+        spec["name"],
         xedaproject=str(project),
         flow_settings=dict(XILINX),
-        select_design_in_project=select,
     )
     assert flow is not None and flow.succeeded
-    assert asked == [None]
     assert generated.runs == 1
 
 
@@ -371,37 +365,6 @@ def test_a_source_given_as_both_file_and_path_is_refused_as_it_is(tmp_path, monk
     with pytest.raises(DesignValidationError, match="mutually exclusive"):
         runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
     assert generated.runs == 0
-
-
-def test_the_choice_among_a_project_s_designs_with_one_name_is_kept(tmp_path, monkeypatch):
-    """Two designs may have one name; the chooser's answer is replayed by position, not by the
-    name, which finds the first."""
-    use_fake_tools(monkeypatch)
-    monkeypatch.chdir(tmp_path)
-    generated = Generated(tmp_path, ["gen/top.v"])
-    spec = json.loads(generated.file.read_text())
-    spec["design_root"] = str(generated.root)
-    first = {**spec, "rtl": {**spec["rtl"], "top": "first"}}
-    second = {**spec, "rtl": {**spec["rtl"], "top": "second"}}
-    project = tmp_path / "xedaproject.json"
-    project.write_text(json.dumps({"designs": [first, second]}))
-    asked = []
-
-    def select(project, name, target):
-        asked.append(name)
-        return project.get_design(1, target)
-
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.run(
-        "vivado_synth",
-        xedaproject=str(project),
-        flow_settings=dict(XILINX),
-        select_design_in_project=select,
-    )
-    assert flow is not None and flow.succeeded
-    assert asked == [None]
-    assert flow.design.rtl.top == "second"
-    assert generated.runs == 1
 
 
 def test_a_local_dependency_the_generator_writes_is_refused_at_planning(tmp_path, monkeypatch):

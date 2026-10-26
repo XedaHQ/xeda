@@ -13,7 +13,7 @@ import pytest
 from xeda.dataclass import ConfigDict
 from xeda.design import Design, Source, DesignValidationError, SourceType
 from xeda.introspect import JSON_SCHEMA_DIALECT, design_schema
-from xeda.xedaproject import XedaProject
+from xeda.project import Project
 from xeda.yaml_loader import load_yaml
 
 from .design_edits import design_of
@@ -313,14 +313,14 @@ def test_model_schema_is_still_available():
     ids=lambda p: str(p.relative_to(EXAMPLES_DIR)),
 )
 def test_embedded_example_designs_validate_against_the_published_schema(path):
-    project = XedaProject.from_file(path)
+    project = Project.load(path)
     raw = load_design_file(path)
     designs = raw.get("designs", [])
     if isinstance(designs, dict):
         designs = [designs]
     assert designs
     for index, data in enumerate(designs):
-        assert project.get_design(index) is not None
+        assert project.design(project.designs[index]) is not None
         errors = list(validator().iter_errors(data))
         assert not errors, f"{path}, design {index}: {[e.message for e in errors]}"
 

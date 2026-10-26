@@ -183,17 +183,11 @@ def test_declared_dse_conflicts_fail_before_logs_or_worker_creation(tmp_path, mo
     from xeda.flow import FlowSettingsError
 
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d",
-        root=tmp_path,
-        rtl={"sources": [], "top": "t"},
-        flows={"__synth": {"fpga": {"part": "LFE5U-85F-6BG381C"}}},
-    )
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     with pytest.raises(FlowSettingsError, match="disagree"):
         runner.run(
             _DsePlace,
-            design,
+            "d",
             flow_overrides={},
             flow_settings={},
             xedaproject=str(_write_dse_project(tmp_path)),
@@ -226,8 +220,13 @@ def test_declared_dse_adjustments_are_resolved_before_any_write(tmp_path, monkey
 
 
 def _write_dse_project(tmp_path):
+    """A project with the design `d`, whose own section disagrees with the project's."""
     path = tmp_path / "project.toml"
-    path.write_text('[flows.__dse_place]\nfpga.part = "LFE5U-25F-6BG256C"\n')
+    path.write_text(
+        "[designs]\nname = 'd'\n[designs.rtl]\nsources = []\ntop = 't'\n"
+        "[designs.flows.__synth]\nfpga.part = 'LFE5U-85F-6BG381C'\n"
+        '[flows.__dse_place]\nfpga.part = "LFE5U-25F-6BG256C"\n'
+    )
     return path
 
 

@@ -17,7 +17,7 @@ import pytest
 
 from xeda.deliver import DeliveryError
 from xeda.flow import FlowException, FlowSettingsError
-from xeda.flow_runner.default_runner import ProjectFileError
+from xeda.errors import ProjectError
 from xeda.flow_runner.run_lock import lock_file
 from xeda.remote import client
 from xeda.remote.errors import RemoteConnectionError
@@ -87,7 +87,7 @@ def test_a_remote_run_takes_dash_s_flows_node_key_as_a_local_run_does(
 def test_a_remote_run_refuses_a_directory_with_two_project_files_as_a_local_run_does(
     tmp_path, remote_host, monkeypatch
 ):
-    """One discovery rule for both: more than one project file is a `ProjectFileError` naming
+    """One discovery rule for both: more than one project file is a `ProjectError` naming
     them, before anything connects."""
     monkeypatch.chdir(tmp_path)
     design = _nextpnr_design(tmp_path)
@@ -95,7 +95,7 @@ def test_a_remote_run_refuses_a_directory_with_two_project_files_as_a_local_run_
     (tmp_path / TOML_PROJECT_FILE).write_text("[flows]\n")
     for request in (design, "d"):
         outcome = remote_request(tmp_path, request, "nextpnr")
-        assert isinstance(outcome.error, ProjectFileError)
+        assert isinstance(outcome.error, ProjectError)
         assert re.search(rf"{PROJECT_FILE}.*{TOML_PROJECT_FILE}.*keep one", str(outcome.error))
     assert not connected(remote_host)
 
@@ -106,7 +106,7 @@ def test_a_remote_run_reports_a_missing_project_file_as_a_local_run_does(
 ):
     monkeypatch.chdir(tmp_path)
     outcome = remote_request(tmp_path, _nextpnr_design(tmp_path), "nextpnr", xedaproject=given)
-    assert isinstance(outcome.error, ProjectFileError)
+    assert isinstance(outcome.error, ProjectError)
     assert re.search(r"Cannot open project file .*missing.*no such file", str(outcome.error))
     assert not connected(remote_host)
 

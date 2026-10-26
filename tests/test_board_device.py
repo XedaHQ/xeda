@@ -26,7 +26,7 @@ from xeda.flow_runner.settings_layers import COMMAND_LINE_ORIGIN, transitive_dep
 from xeda.flows import Openfpgaloader
 from xeda.introspect import boards_info
 
-from .project_files import PROJECT_FILE
+from .project_files import project_listing
 from .settings_samples import flow_classes
 
 PRODUCT_FLOWS = [cls for cls, _name in flow_classes()]
@@ -86,7 +86,7 @@ def _write_design(
     return path
 
 
-def _plan(tmp_path: Path, request: str, design: Path, **kwargs):
+def _plan(tmp_path: Path, request: str, design: Path | str, **kwargs):
     """Plan `request` as `xeda run --dry-run` does: nothing is created, not even the run root."""
     run_root = tmp_path / "run"
     try:
@@ -159,10 +159,7 @@ def test_a_board_alone_gives_every_node_that_shares_the_device_its_part(
     if origin == "design":
         flows = {node: {"board": board}}
     elif origin == "project":
-        project = root / PROJECT_FILE
         root.mkdir()
-        project.write_text(yaml.safe_dump({"flows": {node: {"board": board}}}))
-        kwargs["xedaproject"] = str(project)
     elif origin == "target":
         targets = {"arty": {"flows": {node: {"board": board}}}}
         kwargs["target"] = "arty"
@@ -188,8 +185,12 @@ def test_a_board_alone_gives_every_node_that_shares_the_device_its_part(
         board, part = "MY_BOARD", custom_part
         flows = {node: {"board": board, "custom_boards_file": "boards.yaml"}}
     design = _write_design(root, flows, targets, bluespec=request_.startswith("bsc+"))
+    selected: Path | str = design
+    if origin == "project":
+        kwargs["xedaproject"] = project_listing(design, {node: {"board": board}})
+        selected = "blinky"
 
-    plan = _plan(tmp_path, request_, design, **kwargs)
+    plan = _plan(tmp_path, request_, selected, **kwargs)
 
     devices = {
         planned.name: planned.settings.fpga.part

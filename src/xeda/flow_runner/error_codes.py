@@ -53,7 +53,6 @@ from ..utils import (
     NonZeroExitCode,
     XedaException,
 )
-from ..xedaproject import ProjectFileError
 from .chains import ChainRefusal
 
 #: The code of a launch-level error: the outputs of a launch were not delivered.
@@ -247,7 +246,12 @@ def _chain_refusal(exc: ChainRefusal) -> errors.ChainError:
 
 #: The code of a design error, by the type of its first finding. Any other type is an invalid
 #: design.
-_DESIGN_CODES = {"removed_alias": "removed_alias", "removed_key": "removed_key"}
+_DESIGN_CODES = {
+    "removed_alias": "removed_alias",
+    "removed_key": "removed_key",
+    "unknown_target": "unknown_target",
+    "target_required": "target_required",
+}
 
 
 def _design_error(exc: DesignValidationError) -> errors.DesignError:
@@ -324,8 +328,6 @@ def public_error(exc: BaseException) -> errors.XedaError:
             problem=exc.reason,
             path=Path(exc.file),
         )
-    if isinstance(exc, ProjectFileError):
-        return errors.ProjectError(str(exc), code=exc.code)
     if isinstance(exc, Exception):
         remote = _remote_error(exc)
         if remote is not None:
