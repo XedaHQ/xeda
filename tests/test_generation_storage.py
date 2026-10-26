@@ -637,3 +637,43 @@ def test_a_generated_source_passes_through_a_converter_by_its_name(tmp_path):
     assert again.outcome is Outcome.PASSED, again.error
     assert {n.disposition for n in again.nodes.values()} == {Disposition.REUSED}
     assert world.runs == 1
+
+
+# ---------------------------------------------------------------- the lease is of a current storage
+
+
+def test_a_generator_that_changes_what_it_reads_on_every_run_fails_the_launch(tmp_path):
+    """Nothing vouches for its output, so the launch refuses it and does not read a storage that
+    the judgment under the lease did not accept."""
+    flow = reader_flow()
+    world = World(tmp_path)
+    script = (world.root / "gen.py").read_text()
+    (world.root / "gen.py").write_text(
+        script
+        + "with open(os.environ['DESIGN_ROOT'] + '/spec.txt', 'a') as spec:\n"
+        + "    spec.write('more\\n')\n"
+    )
+    result = world.launch(flow)
+    assert result.outcome is Outcome.FAILED
+    assert result.error is not None and result.error.code == "generator_failed"
+    assert "changes what it reads" in result.error.message
+    assert [n.outcome for n in result.nodes.values()] == [Outcome.SKIPPED]
+
+
+def test_the_lease_is_of_the_files_the_judgment_under_it_found(tmp_path, monkeypatch):
+    """The files of the generation that just ran may be stale when the lease is taken: the
+    storage is described by what the judgment under the lease returns."""
+    from xeda.flow_runner import launch_generation
+    from xeda.flow_runner.launch_generation import Generation, generated
+
+    world = World(tmp_path)
+    world.run_root.mkdir()
+    real = launch_generation.generate
+
+    def stale(*args, **kwargs):
+        found = real(*args, **kwargs)
+        return Generation(found.storage, found.key, {"gen/top.v": ()}, found.description)
+
+    monkeypatch.setattr(launch_generation, "generate", stale)
+    with generated(world.load(), run_root=world.run_root.resolve(), environ=dict(os.environ)) as g:
+        assert g is not None and dict(g.matches) == {"gen/top.v": ("gen/top.v",)}

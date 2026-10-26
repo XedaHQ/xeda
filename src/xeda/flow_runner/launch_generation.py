@@ -265,13 +265,17 @@ def generated(
     The lease keeps any other launch from regenerating or removing the storage while the
     launch reads it. Xeda cannot turn the exclusive lock of the generation into the shared
     lease, so it releases the first and takes the second, and then judges the storage again: a
-    launch that regenerated in between left a current storage, or the loop generates again."""
+    launch that regenerated in between left a current storage, or the loop generates again. The
+    block gets the files that this judgment found, and never a storage that it did not accept
+    (one that went, or whose inherited environment changed, or whose generator changes what it
+    reads while it runs): after `ATTEMPTS` tries the launch fails with a `GenerationError`."""
     if design.rtl.generator is None:
         yield None
         return
     environ = dict(os.environ) if environ is None else environ
     forced = rebuild_all
-    for attempt in range(ATTEMPTS):
+    reason: str | None = None
+    for _attempt in range(ATTEMPTS):
         generation = generate(design, run_root=run_root, rebuild_all=forced, environ=environ)
         assert generation is not None
         with storage_lock(generation.storage, exclusive=False, run_root=run_root):
@@ -283,19 +287,17 @@ def generated(
                 environ,
                 judging=False,
             )
-            if reason is None or attempt == ATTEMPTS - 1:
-                if reason is not None:
-                    log.warning(
-                        "%s changes what it reads while it runs, so Xeda cannot vouch for its "
-                        "output and runs it again in the next launch (%s)",
-                        generation.description,
-                        reason,
-                    )
+            if reason is None:
                 yield Generation(
-                    generation.storage, generation.key, generation.matches, generation.description
+                    generation.storage, generation.key, matches, generation.description
                 )
                 return
         forced = False
+    raise GenerationError(
+        f"{generation.description} left no output that Xeda could vouch for after {ATTEMPTS} "
+        f"tries: {reason}. A generator that changes what it reads while it runs (a file it "
+        "writes into a directory in its `sources`) cannot be judged: name only what it reads"
+    )
 
 
 def execution_design(design: Design, generation: Generation | None) -> Design:
