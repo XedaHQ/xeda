@@ -261,3 +261,22 @@ def test_the_remote_node_of_a_design_with_dependency_generators_has_the_local_id
         outcome.document["nodes"][-1]["record"]["identity"]
         == local.node("vivado_synth").flowrun_hash
     )
+
+
+def test_two_dependency_designs_in_one_directory_are_two_units_on_the_host(tmp_path, remote_host):
+    from .test_dependency_generation import two_designs_in_one_directory
+
+    log, design_file = two_designs_in_one_directory(tmp_path)
+    text = design_file.read_text().replace(
+        "  top: top\n", "  top: top\n  clocks: [{port: clk}]\n", 1
+    )
+    design_file.write_text(text)
+    document, package = _document(tmp_path, Design.from_file(design_file))
+    assert [u["name"] for u in document["generation_units"]] == ["a", "b"]
+    outcome = remote_request(tmp_path, design_file, "vivado_synth", flow_settings=SETTINGS)
+    if outcome.error is not None:
+        raise outcome.error
+    assert outcome.success, outcome.document
+    assert sorted(log.read_text().split()) == ["a", "b"]
+    host_root = remote_host.workspace() / "xeda_run" / ".generated"
+    assert {p.name for p in host_root.iterdir() if p.is_dir()} == {"a", "b"}

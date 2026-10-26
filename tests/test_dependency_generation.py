@@ -123,10 +123,9 @@ def test_the_design_lists_the_generated_sources_of_its_dependency_with_their_own
     sources = design.rtl.sources
     assert [s.generated for s in sources] == [True, False]
     generated = [s for s in sources if s.generated]
-    assert generated[0].owner == (tmp_path / "lib1").resolve().as_posix()
-    assert [(owner, unit.name) for owner, unit in generating_units(design)] == [
-        ((tmp_path / "lib1").resolve().as_posix(), "lib1")
-    ]
+    label = (tmp_path / "lib1" / "lib1.yaml").absolute().as_posix()
+    assert generated[0].owner == label
+    assert [(owner, unit.name) for owner, unit in generating_units(design)] == [(label, "lib1")]
 
 
 def test_a_dependency_that_generates_is_generated_and_read(tmp_path):
@@ -308,3 +307,43 @@ def test_a_storage_whose_key_changed_while_another_unit_generated_is_not_leased(
             assert held.by_owner[owner].key == generation_key(unit)[0]
     assert len(chain.storages("lib2")) == 2
     assert chain.ran.count("lib2") == 2
+
+
+def two_designs_in_one_directory(tmp_path: Path) -> tuple[Path, Path]:
+    """`lib/a.yaml` and `lib/b.yaml`: two dependency designs in one directory, each with a
+    generator that writes its own module. `top` merges both."""
+    chain = Chain(tmp_path, depth=1)
+    library = tmp_path / "lib"
+    library.mkdir()
+    (library / "gen.py").write_text(SCRIPT)
+    (library / "spec.txt").write_text("one\n")
+    for name in ("a", "b"):
+        (library / f"{name}.yaml").write_text(chain._library(name, None))
+    top = tmp_path / "top2"
+    top.mkdir()
+    (top / "top.v").write_text("module top; endmodule\n")
+    (top / "top2.yaml").write_text(
+        "name: top2\ndependencies: [../lib/a.yaml, ../lib/b.yaml]\nrtl:\n  sources: [top.v]\n  top: top\n"
+    )
+    return chain.log, top / "top2.yaml"
+
+
+def test_two_dependency_designs_in_one_directory_are_two_units(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+    from xeda.flow_runner.launch_result import launch_result
+    from xeda.spec import Spec
+
+    log, design_file = two_designs_in_one_directory(tmp_path)
+    design = Design.from_file(design_file)
+    assert [unit.name for _, unit in generating_units(design)] == ["a", "b"]
+    assert len({owner for owner, _ in generating_units(design)}) == 2
+    assert len({s.owner for s in design.rtl.sources if s.generated}) == 2
+    flow = reader_flow()
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    result = launch_result(
+        runner, Spec(flow.name, design), lambda: runner.run_flow(flow, design, {})
+    )
+    assert result.outcome is Outcome.PASSED, result.error
+    seen = result.nodes[flow.name].record.metrics["seen"]
+    assert "module a;" in seen and "module b;" in seen
+    assert sorted(log.read_text().split()) == ["a", "b"]

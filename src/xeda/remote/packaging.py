@@ -268,7 +268,7 @@ def package_inputs(
 
     def unit_index(owner: str) -> int:
         """The index of the unit of generation whose root is `owner`."""
-        return [unit.root_path.as_posix() for unit in design.generation_units].index(owner)
+        return [unit.generation_label for unit in design.generation_units].index(owner)
 
     def packaged_generator_input(local: Path, unit: Design, base: Path) -> str:
         """Package a file or a directory that the generator of `unit` reads, below `base` in the

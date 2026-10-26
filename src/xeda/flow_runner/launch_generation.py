@@ -148,7 +148,7 @@ def generating_units(design: Design) -> list[tuple[str | None, Design]]:
     before that: the units of the design come first, then the design itself. Each is paired with
     its owner (None for the design itself)."""
     units: list[tuple[str | None, Design]] = [
-        (unit.root_path.as_posix(), unit) for unit in design.generation_units
+        (unit.generation_label, unit) for unit in design.generation_units
     ]
     if design.rtl.generator is not None:
         units.append((None, design))

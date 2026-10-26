@@ -3443,6 +3443,17 @@ class Design(XedaBaseModel):
                         _design_errors(e.errors()), data=data, design_root=design_root
                     ) from e
 
+    @property
+    def generation_label(self) -> str:
+        """Return the text that tells this design apart as a unit of generation and as the owner
+        of generated sources: its design file, or, for a design built in code, its root and name.
+
+        Two dependency designs in one directory have two labels, and one design file listed twice
+        has one."""
+        if self._source_file is not None:
+            return Path(os.path.normpath(self._source_file)).as_posix()
+        return f"{self.root_path.as_posix()}::{self.name}"
+
     def _validate(self, data: dict[str, Any], *, merged: bool = False) -> None:
         """Validate `data` into this design.
 
@@ -3468,9 +3479,7 @@ class Design(XedaBaseModel):
         clocks = self.rtl.clocks
         tb_sources = self.tb.sources
         tb_top = self.tb.top
-        units: dict[str, Design] = {
-            unit.root_path.as_posix(): unit for unit in self.generation_units
-        }
+        units: dict[str, Design] = {unit.generation_label: unit for unit in self.generation_units}
         for dep in self.dependencies:
             try:
                 dep_design = dep.fetch_design()
@@ -3482,7 +3491,7 @@ class Design(XedaBaseModel):
             # own. The merged design lists them with the dependency as their owner, and keeps the
             # dependency (and the dependencies it merged) as a unit of generation, dependencies
             # first.
-            owner = dep_design.root_path.as_posix()
+            owner = dep_design.generation_label
             dep_sources = tuple(
                 (
                     src.with_owner(owner)
@@ -3495,7 +3504,7 @@ class Design(XedaBaseModel):
                 *dep_design.generation_units,
                 *([dep_design] if dep_design.rtl.generator is not None else []),
             ):
-                units.setdefault(unit.root_path.as_posix(), unit)
+                units.setdefault(unit.generation_label, unit)
             pos = dep.rtl.pos
             if pos == -1:  # -1 means append 'after' the last element
                 sources.extend(dep_sources)
@@ -3701,7 +3710,7 @@ class Design(XedaBaseModel):
                     Source.declaration(
                         entry["path"],
                         source_type_named(entry["type"]),
-                        owner=built[entry["generated_by"]].root_path.as_posix(),
+                        owner=built[entry["generated_by"]].generation_label,
                     )
                     if isinstance(entry, dict) and "generated_by" in entry
                     else entry
