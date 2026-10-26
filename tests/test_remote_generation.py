@@ -61,21 +61,46 @@ def test_the_package_carries_the_recipe_the_declared_inputs_and_the_declarations
     assert "gen/top.v" not in package.files and "unrelated.txt" not in package.files
 
 
-def test_a_directory_and_a_file_outside_the_design_that_the_recipe_names_travel(tmp_path):
-    world = _world(
-        tmp_path, generator={"sources": ["spec.txt", "gen.py", "templates", "../lib/tool.py"]}
-    )
+def test_a_directory_that_the_recipe_names_travels_whole(tmp_path):
+    world = _world(tmp_path, generator={"sources": ["spec.txt", "gen.py", "templates"]})
     (world.root / "templates").mkdir()
     (world.root / "templates" / "a.in").write_text("a\n")
+    document, package = _document(tmp_path, world.load())
+    assert document["rtl"]["generator"]["sources"] == ["spec.txt", "gen.py", "templates"]
+    assert sorted(package.files) == sorted(["spec.txt", "gen.py", "templates/a.in"])
+
+
+def test_a_generator_input_outside_the_design_root_cannot_be_sent(tmp_path, remote_host):
+    world = _world(tmp_path, generator={"sources": ["spec.txt", "gen.py", "../lib/tool.py"]})
     (tmp_path / "lib").mkdir()
     (tmp_path / "lib" / "tool.py").write_text("# tool\n")
-    document, package = _document(tmp_path, world.load())
-    names = document["rtl"]["generator"]["sources"]
-    assert names[:3] == ["spec.txt", "gen.py", "templates"]
-    outside = names[3]
-    assert outside.startswith("_generator_inputs/") and outside.endswith("/tool.py")
-    assert sorted(package.files) == sorted(["spec.txt", "gen.py", "templates/a.in", outside])
-    assert package.files[outside].read_text() == "# tool\n"
+    with pytest.raises(DesignValidationError) as error:
+        _document(tmp_path, world.load())
+    text = str(error.value)
+    assert str(tmp_path / "lib" / "tool.py") in text and "below the design root" in text
+    # a request refuses it at planning: no connection, no generator
+    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    assert isinstance(outcome.error, DesignValidationError)
+    assert world.runs == 0 and not connected(remote_host)
+    # a local launch is not changed
+    from xeda.flow_runner.launch_generation import generate
+
+    world.run_root.mkdir()
+    assert generate(world.load(), run_root=world.run_root.resolve(), environ=dict(os.environ))
+
+
+def test_a_dependency_generator_input_outside_its_root_cannot_be_sent(tmp_path):
+    chain = _chain(tmp_path, depth=1)
+    path = tmp_path / "lib1" / "lib1.yaml"
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "tool.py").write_text("# tool\n")
+    path.write_text(
+        path.read_text().replace(
+            "sources: [gen.py, spec.txt]", "sources: [gen.py, ../shared/tool.py]"
+        )
+    )
+    with pytest.raises(DesignValidationError, match=r"lib1.*tool\.py.*below the design root"):
+        _chain_document(tmp_path, chain)
 
 
 def test_a_generator_without_sources_cannot_be_sent(tmp_path):

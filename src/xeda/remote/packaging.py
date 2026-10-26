@@ -57,30 +57,41 @@ class InputPackage:
     directories: list[str] = field(default_factory=list)
 
 
+def _unsendable(unit: Design, generator: Generator) -> str | None:
+    """Return why the package cannot carry the generator of `unit`, or None."""
+    name = generator.describe(unit.name, unit.root_path)
+    if not generator.sources:
+        return (
+            f"{name} declares no `sources`, so `--remote` cannot know which files to send with "
+            "it: declare its `sources` (the files and directories it reads) in `rtl.generator`"
+        )
+    outside = [path for path in generator.sources if unit.relative_to_root(path) is None]
+    if outside:
+        return (
+            f"{name} reads {outside[0]}, which lies outside the design root {unit.root_path}, "
+            "and `--remote` sends only what lies below the design root: place it below the "
+            "design root (a copy or a link inside it) and name it in `sources`"
+        )
+    return None
+
+
 def refuse_unsendable_generator(design: Design) -> Generator | None:
     """Return the generator of `design`, or None if it has none. Refuse a generator that the
-    package cannot carry, also one of a dependency: one that declares no `sources`.
+    package cannot carry, also one of a dependency: one that declares no `sources`, or one with a
+    declared input outside the root of its design.
 
     The host runs the generators, and only the files and directories that a recipe declares
-    travel with it. A generator that declares none would run on the host without what it reads,
-    and its output would be wrong or fail far from the cause. The refusal names the generator and
-    says what to declare (`DesignValidationError`). It needs no connection, so a request makes it
-    at planning."""
+    travel with it, each at its place below the root of its design. A generator that declares none
+    would run on the host without what it reads, and its output would be wrong or fail far from
+    the cause. The refusal names the generator and says what to do (`DesignValidationError`). It
+    needs no connection and runs nothing, so a request makes it at planning. A local launch has no
+    such limit."""
     for unit in (*design.generation_units, design):
         generator = generator_of(unit.rtl, root=unit.root_path)
-        if generator is not None and not generator.sources:
+        problem = None if generator is None else _unsendable(unit, generator)
+        if problem is not None:
             raise DesignValidationError(
-                [
-                    (
-                        "rtl -> generator",
-                        f"{generator.describe(unit.name, unit.root_path)} declares no "
-                        "`sources`, so `--remote` cannot know which files to send with it: "
-                        "declare its `sources` (the files and directories it reads) in "
-                        "`rtl.generator`",
-                        "",
-                        "value_error",
-                    )
-                ],
+                [("rtl -> generator", problem, "", "value_error")],
                 data=unit.model_dump(mode="json"),
                 design_root=unit.root_path,
                 design_name=unit.name,
@@ -275,14 +286,11 @@ def package_inputs(
 
     def packaged_generator_input(local: Path, unit: Design, base: Path) -> str:
         """Package a file or a directory that the generator of `unit` reads, below `base` in the
-        inputs of the host, and return its name for the recipe: relative to the root of the unit
-        where it lies under it, else in a place of its own.
+        inputs of the host, and return its name for the recipe: relative to the root of the unit.
 
         A directory counts as every file in it, and its empty directories travel too."""
         relative = unit.relative_to_root(local)
-        if relative is None:
-            digest = hashlib.sha256(str(local).encode()).hexdigest()[:16]
-            relative = Path("_generator_inputs") / digest / local.name
+        assert relative is not None, "an input outside the design root is refused at planning"
         if local.is_dir():
             directories.add((base / relative).as_posix())
             for entry in directory_files(local, [run_root], VCS_METADATA, follow_links=True):

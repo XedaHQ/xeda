@@ -81,7 +81,8 @@ These limits apply to every remote run:
   with a binding to the fetched bitstream.
 * A design generator runs on the host, into a storage under the run root of the host. Xeda sends
   the recipe and the files and directories that it declares in its ``sources``. A generator that
-  declares none is refused (see :ref:`generators`).
+  declares none, or one whose input lies outside its design root, is refused (see
+  :ref:`generators`).
 
 The first run
 =============

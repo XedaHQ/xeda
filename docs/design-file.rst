@@ -766,7 +766,9 @@ The host runs the whole launch, so the host runs the generator, into the storage
 run root. Xeda sends the recipe of the generator, and the files and directories that it declares
 in ``sources``, and nothing else of the design tree. A generator that declares no ``sources`` is
 refused for ``--remote`` at planning, with an error that names the generator and asks you to
-declare its ``sources``. A path inside a word of ``args``, or in an executable, that names a file
+declare its ``sources``. So is a generator with a declared input outside the root of its design
+(also for a dependency): place the input below the design root. A local launch has no such limit.
+A path inside a word of ``args``, or in an executable, that names a file
 on your machine names nothing on the host: name files through ``$DESIGN_ROOT``, and list them in
 ``sources``. ``--rebuild-all`` and ``--clean`` regenerate on the host.
 
