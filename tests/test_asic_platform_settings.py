@@ -32,6 +32,7 @@ from xeda.platforms import PdkNotInstalled
 from .flow_registry import preserved_flow_registry
 from .io_flows import _Maker, _Taker
 from .settings_samples import flow_classes
+from .setting_texts import text_items
 
 TINY = Path(__file__).parent / "resources" / "platforms" / "tiny"
 COMMIT = "6b305a712966be72d8908695c04398acdbe273ca"
@@ -522,9 +523,7 @@ def test_a_setting_the_platform_cannot_use_is_refused_at_planning(tmp_path, sett
     with pytest.raises(FlowSettingsException, match=message):
         _plan(tmp_path, root, settings)
     with pytest.raises(FlowSettingsException):
-        _runner(tmp_path).run_flow(
-            _AsicTaker, _design(root), dict(item.split("=", 1) for item in settings)
-        )
+        _runner(tmp_path).run_flow(_AsicTaker, _design(root), text_items(settings))
     assert not (tmp_path / "run").exists()
 
 

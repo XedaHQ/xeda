@@ -32,6 +32,7 @@ from .openroad_utils import (
 )
 from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import fake_calls, require_tclsh, use_fake_openroad
+from .setting_texts import text_items
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
 GOLDEN = Path(__file__).parent / "resources" / "openroad" / "grt_defaults.tcl"
@@ -151,8 +152,8 @@ def plan(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None, resid
     line gives them, and `typed` gives the leaves that are no text, by dotted key."""
     store = tiny_store(tmp_path)
     given = tiny_settings(store, residue=residue or TINY_OPENROAD_RESIDUE)
-    given = {key: str(value) for key, value in given.items()}
-    given |= dict(text.split("=", 1) for text in texts)
+    given = text_items(f"{key}={value}" for key, value in given.items())
+    given |= text_items(texts)
     given |= typed or {}
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
         "openroad_grt", openroad_design(tmp_path / "design"), flow_settings=given
@@ -1353,7 +1354,7 @@ def test_a_change_of_a_global_route_setting_runs_the_route_again_and_not_the_flo
     tmp_path, monkeypatch
 ):
     runner, design, settings, _ = launch(tmp_path, monkeypatch)
-    given = dict(s.split("=", 1) for s in settings) | {"router.seed": "5"}
+    given = text_items(settings) | {"router.seed": 5}
     _, states = runner.plan_with_freshness("openroad_grt", Design.load(design), flow_settings=given)
     assert states["openroad_place"].state == "fresh"
     assert states["openroad_cts"].state == "fresh"
@@ -1424,7 +1425,7 @@ def test_a_failed_route_leaves_a_failed_database_and_no_trace(tmp_path, monkeypa
     _, states = runner.plan_with_freshness(
         "openroad_grt",
         Design.load(design),
-        flow_settings=dict(s.split("=", 1) for s in settings),
+        flow_settings=text_items(settings),
     )
     assert states["openroad_cts"].state == "fresh"
     assert states["openroad_grt"].state != "fresh"

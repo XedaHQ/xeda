@@ -44,6 +44,7 @@ from .openroad_utils import (
 )
 from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import fake_calls, fake_returns, require_tclsh, use_fake_openroad
+from .setting_texts import text_items
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
 GOLDEN = Path(__file__).parent / "resources" / "openroad" / "route_defaults.tcl"
@@ -903,7 +904,7 @@ def plan(tmp_path: Path, *texts: str):
     """Plan `openroad` on the tiny platform with the four flows registered. `texts` are
     `KEY=VALUE` settings as the command line gives them."""
     store = tiny_store(tmp_path)
-    given = dict(text.split("=", 1) for text in [*openroad_settings(store), *texts])
+    given = text_items([*openroad_settings(store), *texts])
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
         "openroad", openroad_design(tmp_path / "design"), flow_settings=given
     )
@@ -2011,9 +2012,8 @@ def test_every_method_plans_on_a_platform_with_rules(tmp_path, method):
     store = tiny_store(tmp_path)
     (store / "tiny" / RCX_RULES).write_text("rules\n")
     residue = variant_residue(tmp_path, rules=True, supply=SUPPLY)
-    given = dict(
-        text.split("=", 1)
-        for text in [
+    given = text_items(
+        [
             *openroad_settings(store, platform_file=str(residue)),
             f"extraction.method={method}",
         ]
@@ -2587,10 +2587,7 @@ def plan_gds(tmp_path: Path, *texts: str, layout: bool = True):
         (store / "tiny" / KLAYOUT_TECH).write_text(KLAYOUT_TECH_TEXT)
     residue = variant_residue(tmp_path, rules=False, supply=None, layout=True)
     settings = {"platform_file": str(residue)}
-    given = dict(
-        text.split("=", 1)
-        for text in [*openroad_settings(store, **(settings if layout else {})), *texts]
-    )
+    given = text_items([*openroad_settings(store, **(settings if layout else {})), *texts])
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
         "openroad", openroad_design(tmp_path / "design"), flow_settings=given
     )

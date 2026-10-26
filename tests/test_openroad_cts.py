@@ -31,6 +31,7 @@ from .openroad_utils import (
 )
 from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import fake_calls, require_tclsh, use_fake_openroad
+from .setting_texts import text_items
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
 GOLDEN = Path(__file__).parent / "resources" / "openroad" / "cts_defaults.tcl"
@@ -127,7 +128,7 @@ def plan(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None, reque
     """Plan `openroad_cts` on the tiny platform. `texts` are `KEY=VALUE` settings as the command
     line gives them, and `typed` gives the leaves that are no text, by dotted key."""
     store = tiny_store(tmp_path)
-    given = dict(text.split("=", 1) for text in [*openroad_settings(store), *texts])
+    given = text_items([*openroad_settings(store), *texts])
     given |= typed or {}
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
         request, openroad_design(tmp_path / "design"), flow_settings=given
@@ -1082,7 +1083,7 @@ def test_a_change_of_a_clock_tree_setting_runs_the_clock_tree_again_and_not_the_
     tmp_path, monkeypatch
 ):
     runner, design, settings, _ = launch(tmp_path, monkeypatch)
-    given = dict(s.split("=", 1) for s in settings) | {"sink_clustering.mode": "off"}
+    given = text_items(settings) | {"sink_clustering.mode": "off"}
     _, states = runner.plan_with_freshness("openroad_cts", Design.load(design), flow_settings=given)
     assert states["openroad_place"].state == "fresh"
     assert states["openroad_cts"].state != "fresh"
@@ -1142,7 +1143,7 @@ def test_a_failed_cts_stage_leaves_a_failed_database_and_no_trace(tmp_path, monk
     _, states = runner.plan_with_freshness(
         "openroad_cts",
         Design.load(design),
-        flow_settings=dict(s.split("=", 1) for s in settings),
+        flow_settings=text_items(settings),
     )
     assert states["openroad_place"].state == "fresh"
     assert states["openroad_cts"].state != "fresh"
@@ -1171,7 +1172,7 @@ def test_the_placement_is_not_run_again_after_a_failed_clock_tree(tmp_path, monk
 def test_a_dry_run_judges_the_files_of_the_placement(tmp_path, monkeypatch):
     runner, design_file, settings, _ = launch(tmp_path, monkeypatch)
     design = Design.load(design_file)
-    given = dict(s.split("=", 1) for s in settings)
+    given = text_items(settings)
     _, states = runner.plan_with_freshness("openroad_cts", design, flow_settings=given)
     assert {name: state.state for name, state in states.items()} == {
         "openroad_place": "fresh",

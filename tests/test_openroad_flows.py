@@ -37,6 +37,7 @@ from .test_openroad_final import (
     fake_klayout,
     variant_residue,
 )
+from .setting_texts import text_items
 from .tiny_platform import TINY_RESIDUE, tiny_store
 from .tool_utils import (
     fake_returns,
@@ -60,7 +61,7 @@ def plan(tmp_path: Path, flow: str, *settings: str, typed: dict | None = None, *
     is a number (`wire_rc`) cannot come as text, so `typed` gives such leaves by dotted key."""
     store = tiny_store(tmp_path)
     texts = [*openroad_settings(store), *settings]
-    given = dict(text.split("=", 1) for text in texts) | (typed or {})
+    given = text_items(texts) | (typed or {})
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
         flow, openroad_design(tmp_path / "design", **design), flow_settings=given
     )
@@ -673,7 +674,7 @@ def test_a_second_launch_is_fresh_and_a_dry_run_agrees(tmp_path, monkeypatch, ch
         assert first is not None and first.succeeded and not first.reused
         again = runner.run("openroad", design, flow_settings=settings)
         assert again is not None and again.succeeded and again.reused
-        given = dict(text.split("=", 1) for text in settings)
+        given = text_items(settings)
         _, states = runner.plan_with_freshness("openroad", Design.load(design), flow_settings=given)
         assert {name: state.state for name, state in states.items()} == dict.fromkeys(
             NAMES, "fresh"
@@ -833,7 +834,7 @@ def test_a_comment_edit_of_a_bluespec_source_reruns_bsc_and_nothing_after_it(tmp
         "name: counter\nrtl:\n  sources: [Counter.bsv]\n  top: mkCounter\n  clocks: [{port: CLK}]\n"
     )
     design = tmp_path / "design" / "design.yaml"
-    given = dict(text.split("=", 1) for text in chain_settings(tmp_path, "fail_timing=false"))
+    given = text_items(chain_settings(tmp_path, "fail_timing=false"))
     names = ["bsc", "yosys", *NAMES]
     project = empty_project(tmp_path)
 
