@@ -374,9 +374,9 @@ def test_qor_suggestions_are_written_under_the_run_directorys_reports(
     assert Path(call[-1]) == reports / "qor_suggestions.rqs"
 
 
-def _recorded_output(flow_dir: Path, name: str) -> Path:
+def _recorded_output(run_root: Path, flow_dir: Path, name: str) -> Path:
     """The path of a declared output as the node's own `results.json` records it."""
-    stored = recorded_outputs(read_record(flow_dir, run_root=flow_dir.parent))
+    stored = recorded_outputs(read_record(flow_dir, run_root=run_root))
     return Path(stored[name]["path"])
 
 
@@ -398,11 +398,15 @@ def test_postsynth_sim_simulates_what_its_synthesis_registered(
     assert sim is not None and sim.succeeded
     synth_dir = sim.run_path.parent / "vivado_synth"
     calls = fake_calls(sim.run_path)
-    netlist = _recorded_output(synth_dir, "netlist_timing" if timing_sim else "netlist")
+    netlist = _recorded_output(
+        tmp_path / "run", synth_dir, "netlist_timing" if timing_sim else "netlist"
+    )
     assert [call[-1] for call in calls if call[:2] == ["exec", "xvlog"]] == [str(netlist)]
     (xelab,) = [call for call in calls if call[:2] == ["exec", "xelab"]]
     sdf = [word for word in xelab if word.startswith("uut=")]
-    assert sdf == ([f"uut={_recorded_output(synth_dir, 'sdf')}"] if timing_sim else [])
+    assert sdf == (
+        [f"uut={_recorded_output(tmp_path / 'run', synth_dir, 'sdf')}"] if timing_sim else []
+    )
     assert ("-sdfmax" in xelab) is timing_sim
     # the functional netlist instantiates UNISIM primitives, the timing one SIMPRIM primitives
     libraries = [name for flag, name in zip(xelab, xelab[1:]) if flag == "-L" and name != "work"]
@@ -453,8 +457,8 @@ def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
     assert power is not None and power.succeeded
     synth_dir = power.run_path.parent / "vivado_synth"
     sim_dir = power.run_path.parent / "vivado_postsynth_sim"
-    checkpoint = _recorded_output(synth_dir, "checkpoint_route")
-    activity = _recorded_output(sim_dir, "timing_saif")
+    checkpoint = _recorded_output(tmp_path / "run", synth_dir, "checkpoint_route")
+    activity = _recorded_output(tmp_path / "run", sim_dir, "timing_saif")
     assert activity == sim_dir / "outputs" / "sqrt.saif", "the conventional name"
     assert activity.is_file()
     # the simulation, on the fake Vivado, records the activity file it writes

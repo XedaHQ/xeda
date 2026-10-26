@@ -23,6 +23,7 @@ from xeda.flows.openroad.grt import EffectiveGrt, effective
 from xeda.flows.openroad.grt_groups import PinAccessGroup, RouterGroup
 from xeda.platforms.model import CellPort
 
+from .record_documents import assert_metrics_recorded
 from .openroad_utils import (
     openroad_design,
     openroad_settings,
@@ -1288,8 +1289,9 @@ def test_a_launch_reports_the_recorded_metrics_of_the_global_route(tmp_path, mon
     _, _, _, flow = launch(tmp_path, monkeypatch)
     document = json.loads((Path(flow.run_path) / "results.json").read_text())
     assert document["outcome"] == "passed"
-    # the record holds the described metrics; the rest of the results is in memory
-    results = {**flow.results, **document["metrics"]}
+    # the record holds the described metrics, with the values of the run
+    assert_metrics_recorded(flow)
+    results = flow.results
     assert results["worst_slack"] == pytest.approx(-0.247746)
     assert results["wns"] == pytest.approx(-0.247746)
     assert results["tns"] == pytest.approx(-11.083)

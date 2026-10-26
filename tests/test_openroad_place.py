@@ -32,6 +32,7 @@ from xeda.flows.openroad.place import EffectivePlace, effective
 from xeda.flows.openroad.place_pdn import PdnStripe
 from xeda.platforms.model import CellPort, Pdn, Track
 
+from .record_documents import assert_metrics_recorded
 from .openroad_utils import (
     openroad_design,
     openroad_settings,
@@ -3915,8 +3916,9 @@ def test_a_launch_runs_the_commands_in_order_and_reports_the_recorded_metrics(
     assert (run_dir / "place.odb").is_file() and (run_dir / "place.sdc").is_file()
     document = json.loads((run_dir / "results.json").read_text())
     assert document["outcome"] == "passed"
-    # the record holds the described metrics; the rest of the results is in memory
-    results = {**flow.results, **document["metrics"]}
+    # the record holds the described metrics, with the values of the run
+    assert_metrics_recorded(flow)
+    results = flow.results
     assert results["worst_slack"] == pytest.approx(-0.1835)
     assert results["wns"] == pytest.approx(-0.1835)
     assert results["tns"] == pytest.approx(-7.7916)

@@ -523,7 +523,7 @@ def test_the_converter_runs_before_the_flow_is_built_and_the_flow_reads_what_it_
     after = events[verified + 1 :]
     assert after[:4] == [("check", derived_names), "design hash", "construct", "init"]
     # the record of the run asks for the design scope again, after the run
-    assert ("reader runs", derived_names) in after[4:]
+    assert after[-2:] == [("reader runs", derived_names), "design hash"]
     assert [event for event in after[4:] if event != "design hash"] == [
         ("reader runs", derived_names)
     ]

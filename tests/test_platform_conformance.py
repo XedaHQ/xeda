@@ -36,6 +36,7 @@ from xeda.platforms.derive import derive
 from xeda.platforms.providers import verify_pin
 from xeda.platforms.upstream import read_upstream
 
+from .record_documents import assert_metrics_recorded
 from .tool_utils import (
     pdk_pair_id,
     pdk_test_pairs,
@@ -387,7 +388,8 @@ def test_real_yosys_maps_a_counter_to_the_cells_of_the_platform(pair, tmp_path):
     require_yosys()
     _, _, located, derived, upstream = _layers(name, provider)
     flow, used = _synthesize(name, provider, tmp_path, COUNTER)
-    results = flow.results  # the record holds the described metrics only
+    assert_metrics_recorded(flow)
+    results = flow.results
     assert results["platform"]["name"] == name
     assert results["platform"]["provider"] == located.provider
     netlist = (flow.run_path / "netlist.v").read_text()
@@ -419,7 +421,8 @@ def test_real_yosys_uses_no_cell_that_the_platform_excludes(pair, tmp_path):
     assert excluded, "the platform excludes cells"
     flow, used = _synthesize(name, provider, tmp_path, ADDER_AND_LATCH)
     assert used
-    results = flow.results  # the record holds the described metrics only
+    assert_metrics_recorded(flow)
+    results = flow.results
     assert results["platform"]["sources"]["dont_use_cells"] == model.sources["dont_use_cells"]
     hit = sorted({cell for cell in used for pattern in excluded if fnmatchcase(cell, pattern)})
     assert not hit, hit

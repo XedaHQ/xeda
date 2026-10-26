@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Mapping, Sequence
 
-from xeda.records import RECORD_SCHEMA_VERSION
+from xeda.frozen import thaw
+from xeda.records import RECORD_SCHEMA_VERSION, read_record
 
 #: A digest that no file has, for a test that never checks one.
 NO_DIGEST = "0" * 32
@@ -69,3 +71,16 @@ def record_document(
     }
     document.update(fields)
     return document
+
+
+def assert_metrics_recorded(flow: Any) -> None:
+    """Assert that the `results.json` of `flow` holds each described metric of its results, with
+    the value that the run reported: a metric that the record lost fails here, though the results
+    in memory still have it."""
+    record = read_record(flow.run_path, run_root=flow.record.run_root)
+    for key in type(flow).results_description:
+        value = flow.results.get(key)
+        if value is None:
+            continue
+        assert key in record.metric_info, f"the record of {flow.name} has no metric {key}"
+        assert thaw(record.metric(key)) == json.loads(json.dumps(value)), key
