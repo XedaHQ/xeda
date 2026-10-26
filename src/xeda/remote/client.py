@@ -1545,6 +1545,7 @@ def _run(
                 inputs_dir=str(inputs_dir),
                 run_root=str(remote_run_root),
                 path_identities=package.path_identities,
+                dependency_commits=package.dependency_commits,
                 hashed_run_dirs=hashed_run_dirs,
                 clean=clean,
                 rebuild_all=rebuild_all,

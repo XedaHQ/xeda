@@ -26,7 +26,6 @@ from ..design import (
     GitReference,
     Source,
     generator_of,
-    dependency_pin,
 )
 from ..flow import FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
@@ -34,6 +33,7 @@ from ..flow.flow import map_keyed_path_leaves
 from ..flow_runner.bindings import INPUTS_KEY, BindingLayer, written_bindings
 from ..flow_runner.chains import FlowRequest
 from ..flow_runner.default_runner import _get_flow_class_if_known
+from ..flow_runner.dependencies import dependency_pin
 from ..listing import VCS_METADATA, directory_files
 from ..frozen import thaw
 from ..utils import json_encodable, location_free, location_roots
@@ -58,6 +58,10 @@ class InputPackage:
     #: The directories of the inputs that hold no file, relative to the inputs directory. The
     #: remote makes them, since a manifest lists files only.
     directories: list[str] = field(default_factory=list)
+    #: The commit that this side resolved each Git reference of the design to, by
+    #: `dependency_pin`: the host fetches those commits (`using_pinned_commits`), also for the
+    #: Git dependencies of a Git dependency, which the design document does not list.
+    dependency_commits: dict[str, str] = field(default_factory=dict)
 
 
 def _unsendable(unit: Design, generator: Generator) -> str | None:
@@ -414,8 +418,6 @@ def package_inputs(
         for d in resolved
         if d.repository is not None and d.commit
     }
-    if commits:
-        new_design["dependency_commits"] = commits
 
     def packaged_path(value: Any) -> Any:
         if not isinstance(value, (str, os.PathLike)) or not os.fspath(value):
@@ -588,4 +590,4 @@ def package_inputs(
     # the innermost ones: making a directory makes the ones it lies in
     inner = {parent for place in candidates for parent in place.parents}
     empty = sorted(place.as_posix() for place in candidates - inner)
-    return InputPackage(design_file, files, generated, path_identities, empty)
+    return InputPackage(design_file, files, generated, path_identities, empty, commits)

@@ -25,6 +25,7 @@ password of a URL: they pass through `redacted_url`.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import hashlib
 import json
@@ -32,7 +33,8 @@ import logging
 import os
 import re
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextvars import ContextVar
 from pathlib import Path
 
 import yaml
@@ -43,7 +45,6 @@ from ..design import (
     DesignReference,
     GitReference,
     MergedDependency,
-    dependency_pin,
     generator_of,
     redacted_url,
 )
@@ -60,10 +61,12 @@ __all__ = [
     "CHECKOUT",
     "RECORD_NAME",
     "dependency_key",
+    "dependency_pin",
     "dependency_storage",
     "fetch",
     "merged_design",
     "resolve_reference",
+    "using_pinned_commits",
 ]
 
 #: The directory of dependency storage in the run root.
@@ -346,6 +349,31 @@ def _git_design(ref: GitReference, checkout: Path, field: str) -> Design:
     return Design.from_file(path)
 
 
+def dependency_pin(repository: str, branch: str | None, design_file: str) -> str:
+    """Return the name of a Git reference in the table of pinned commits: its repository (as
+    `redacted_url` shows it), its branch or tag as written, and its design file. The name is a
+    digest, so a table of names is a table of plain keys."""
+    text = json.dumps([repository, branch, design_file])
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+#: The commits that planning fetches instead of resolving a reference, by `dependency_pin`.
+_pinned: ContextVar[Mapping[str, str]] = ContextVar("pinned_commits", default={})
+
+
+@contextlib.contextmanager
+def using_pinned_commits(commits: Mapping[str, str]) -> Iterator[None]:
+    """Fetch the Git dependencies that `commits` name at those commits while the block runs.
+
+    A remote host plans with the commits that the client resolved, which the package carries
+    beside the design. A reference that the table does not name is resolved as usual."""
+    token = _pinned.set(dict(commits))
+    try:
+        yield
+    finally:
+        _pinned.reset(token)
+
+
 #: Where Git dependencies are fetched: a run root, or a function that makes it when the first Git
 #: dependency needs it, so that a design without one makes none.
 RunRoot = Path | Callable[[], Path] | None
@@ -398,8 +426,8 @@ def merged_design(design: Design, *, run_root: RunRoot) -> Design:
     """Return `design` with the sources and the metadata of its dependencies merged in.
 
     The entries of `design.dependencies` merge in the order they are listed. A Git reference that
-    `design.dependency_commits` names is fetched at that commit, at any depth, and is not resolved
-    again (a remote host gets the commits that the client resolved). A local dependency
+    the commits of `using_pinned_commits` name is fetched at that commit, at any depth, and is
+    not resolved again (a remote host gets the commits that the client resolved). A local dependency
     is a design file on disk, relative to the root of the design that lists it. It must exist
     now. A Git dependency is resolved to a commit (`resolve_reference`) and fetched (`fetch`), and
     its design file is read from the checkout. The dependencies of a dependency merge before it
@@ -414,6 +442,4 @@ def merged_design(design: Design, *, run_root: RunRoot) -> Design:
     change, and a design without dependencies is returned as it is."""
     if not design.dependencies:
         return design
-    return _merge(
-        design, run_root, [None] * len(design.dependencies), None, design.dependency_commits
-    )
+    return _merge(design, run_root, [None] * len(design.dependencies), None, _pinned.get())

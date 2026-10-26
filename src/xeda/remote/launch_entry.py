@@ -62,6 +62,9 @@ class LaunchRequest(XedaBaseModel):
     #: The identity text of every shipped path, by its path here and its role
     #: (`using_path_identities`).
     path_identities: Dict[str, Dict[str, str]]
+    #: The commit that the local xeda resolved each Git reference to, by
+    #: `dependency_pin` (`using_pinned_commits`). The launch fetches those commits.
+    dependency_commits: Dict[str, str] = {}
     hashed_run_dirs: bool
     clean: bool
     rebuild_all: bool
@@ -297,6 +300,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     # module is imported (the agent imports `LaunchRequest` and nothing else).
     from ..cli import setup_logger
     from ..utils import using_path_identities
+    from ..flow_runner.dependencies import using_pinned_commits
     from ..flow_runner import DefaultRunner
     from ..flow_runner.chains import parse_request
     from ..flow_runner.error_codes import public_error, request_error_info
@@ -334,7 +338,10 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
         )
         loaded = load_packaged_design(design)
         arguments: Dict[str, Any] = dict(design=loaded)
-        with using_path_identities(request.path_identities):
+        with (
+            using_path_identities(request.path_identities),
+            using_pinned_commits(request.dependency_commits),
+        ):
             if request.dry_run:
                 plan, freshness = launcher.plan_with_freshness(request.chain, **arguments)
                 check_identity({n.name: n.flowrun_hash for n in plan.nodes}, request.expected)

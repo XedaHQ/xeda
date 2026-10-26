@@ -903,14 +903,17 @@ def test_a_git_dependency_of_a_local_dependency_is_fetched(tmp_path, remote):
     assert (tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY).is_dir()
 
 
-def test_a_design_file_does_not_write_the_commits_of_a_remote_package(tmp_path):
+def test_the_commits_of_a_remote_package_are_no_part_of_a_design(tmp_path):
+    """The pinned commits travel beside the design document, never in a `Design`: a design file
+    cannot pass them."""
+    assert "dependency_commits" not in Design.model_fields
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     (tmp_path / "d.yaml").write_text(
         yaml.safe_dump(
             {"name": "d", "rtl": {"sources": ["top.v"]}, "dependency_commits": {"abc": "a" * 40}}
         )
     )
-    with pytest.raises(DesignValidationError, match="Xeda writes `dependency_commits`"):
+    with pytest.raises(DesignValidationError, match="dependency_commits"):
         Design.from_file(tmp_path / "d.yaml")
 
 
