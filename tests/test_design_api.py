@@ -471,3 +471,31 @@ def test_the_package_of_a_remote_run_keeps_a_name_and_a_name_inside_it_apart(tmp
         "A": 1,
         "A.B": 2,
     }
+
+
+def _pattern_design(root: Path) -> Design:
+    (root / "src").mkdir(exist_ok=True)
+    (root / "src" / "a.v").write_text("module a; endmodule\n")
+    (root / "tb.sv").write_text("module tb; endmodule\n")
+    return Design(
+        name="a",
+        root=root,
+        rtl={"sources": ["src/*.v"], "top": "a", "parameters": {"W": 1}},
+        tb={"sources": ["tb.sv"], "top": "tb"},
+    )
+
+
+def test_an_update_keeps_the_entries_that_named_the_sources(tmp_path):
+    design = _pattern_design(tmp_path)
+    entries = design.source_entries()
+    assert [entry.text for entry in entries] == ["src/*.v", "tb.sv"]
+    for changed in (
+        design.with_updates({}),
+        design.with_updates({"rtl.parameters.W": 2}),
+        design.with_updates({"tb": {"top": "other"}}).with_updates({"rtl.top": "b"}),
+    ):
+        assert changed.source_entries() == entries
+        assert changed.rtl.sources == design.rtl.sources
+    replaced = design.with_updates({"rtl.sources": ["tb.sv"]})
+    assert [entry.text for entry in replaced.source_entries()] == ["tb.sv", "tb.sv"]
+    assert [s.path.name for s in replaced.rtl.sources] == ["tb.sv"]

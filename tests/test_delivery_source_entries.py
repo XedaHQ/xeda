@@ -172,6 +172,26 @@ def test_a_delivery_that_a_source_entry_would_read_is_refused_before_any_tool(
     assert not (tmp_path / "xeda_run" / ".generated").exists(), "no generator ran"
 
 
+@pytest.mark.parametrize("change", ["parameters", "target", "nothing"])
+def test_a_delivery_is_still_refused_after_the_design_is_updated(tmp_path, deliverer, change):
+    """`with_updates` and `with_target` keep the entries that named the sources, so the rule still
+    sees `src/*.v` and not the one file that matched it."""
+    design = _design(
+        tmp_path / "design",
+        rtl={"sources": ["src/*.v"]},
+        targets={"t": {"rtl": {"defines": {"A": 1}}}},
+    )
+    changed = {
+        "parameters": lambda: design.with_updates({"rtl.parameters.W": 2}),
+        "target": lambda: design.with_target("t"),
+        "nothing": lambda: design.with_updates({}),
+    }[change]()
+    assert changed.source_entries() == design.source_entries()
+    with pytest.raises(DeliveryError, match=r"`src/\*.v` entry of `rtl.sources`"):
+        _launch(tmp_path, deliverer, changed, design.root / "src" / "new.v")
+    assert not RUNS
+
+
 def test_the_refusal_names_the_part_of_the_entry(tmp_path, deliverer):
     design = _design(tmp_path / "design", tb={"sources": ["tb/*.vhd"]})
     with pytest.raises(DeliveryError, match=r"`tb/\*.vhd` entry of `tb.sources`"):

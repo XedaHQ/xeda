@@ -3706,7 +3706,8 @@ class Design(XedaBaseModel):
         A testbench with a `Cocotb` source and no cocotb table has said `cocotb: false`: a design
         derives the table from the source when `cocotb` is missing, so the refusal is written.
         In the `python` mode the names of a merged flow table stay whole (`AtomicName`), so an
-        update merges as the layers of a design did. In the `json` mode they are written with plain
+        update merges as the layers of a design did, and the sources stay `Source` objects with
+        their entries (`Design.source_entries`). In the `json` mode they are written with plain
         dots, as a design file writes them, and a reload reads the same names. Without
         `plain_names` the escaped text stays, as the package of a remote run needs it: the host
         reads the text as the names of the table that the layers merged (`escaped_names_atomic`),
@@ -3714,6 +3715,12 @@ class Design(XedaBaseModel):
         document = self.model_dump(mode=mode, exclude={"root", "target", "targets", "updates"})
         if mode == "json" and plain_names:
             document["flows"] = _plain_names(document["flows"])
+        if mode == "python":
+            # The sources stay the objects that the design holds, each with the entries that
+            # named it, and not the files they stand for.
+            document["rtl"]["sources"] = list(self.rtl.sources)
+            if "tb" in document:
+                document["tb"]["sources"] = list(self.tb.sources)
         tb = document.get("tb")
         if (
             isinstance(tb, dict)
