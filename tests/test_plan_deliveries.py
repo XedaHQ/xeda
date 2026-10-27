@@ -27,7 +27,7 @@ from xeda.dataclass import Field, deliverable
 from xeda.deliver import Deliveries, DeliveryError, OutputExistsError
 from xeda.design import SourceType
 from xeda.flow import Flow, FlowDependencyFailure, In, Out, registered_flows
-from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner import DefaultRunner, launch_locks
 from xeda.flow_runner.run_lock import lock_file
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import ensure_run_root
@@ -276,34 +276,42 @@ def test_a_file_changed_after_the_question_was_answered_is_asked_about_again(wor
     assert asked == [([], "the user's file\n"), ([_ReadsDir.name], edited)]
 
 
-def _delivers_meanwhile(world, tmp_path, destination: Path) -> None:
-    """While the first producer's tool runs, another launch of the second producer alone delivers
-    its file to `destination`: two launches of one run directory, as two terminals would make."""
-    DURING_RUN.append(
-        lambda: _runner(tmp_path).launch_flow(
-            _Delivers, world.design, {"netlist": str(destination)}
-        )
-    )
+def _delivers_meanwhile(world, tmp_path, destination: Path, monkeypatch) -> None:
+    """After this launch has made its checks ahead and before it takes its locks, another launch
+    of the second producer alone delivers its file to `destination`: two launches of one run
+    directory, as two terminals would make. (Once the locks are taken, no other launch enters.)"""
+    hint = launch_locks.NodeLocks.hint
+    once = []
+
+    def other_launch_first(self):
+        if not once:
+            once.append(True)
+            _runner(tmp_path).launch_flow(_Delivers, world.design, {"netlist": str(destination)})
+        return hint(self)
+
+    monkeypatch.setattr(launch_locks.NodeLocks, "hint", other_launch_first)
 
 
-def test_a_file_another_launch_delivered_meanwhile_is_still_xeda_s_own_at_its_turn(world, tmp_path):
+def test_a_file_another_launch_delivered_meanwhile_is_still_xeda_s_own_at_its_turn(
+    world, tmp_path, monkeypatch
+):
     """The checks made ahead for a producer are made again at its turn with the same object. What
     that object read of the delivery record when the launch started is no longer what the record
     says: the other launch has written its delivery there since."""
     destination = world.user / "n.v"
-    _delivers_meanwhile(world, tmp_path, destination)
+    _delivers_meanwhile(world, tmp_path, destination, monkeypatch)
     flow = _launch(world, delivers={"netlist": str(destination)})
     assert flow.succeeded and destination.read_text() == "net\n"
     assert RUNS.count(_Delivers.name) == 1, "the other launch ran it, and this one found it fresh"
 
 
 def test_a_record_another_launch_wrote_meanwhile_is_not_lost_when_this_launch_writes_it(
-    world, tmp_path
+    world, tmp_path, monkeypatch
 ):
     """What this launch writes of the record is what it read under the producer's lock plus its
     own deliveries: an entry the other launch made in between stays."""
     theirs, ours = world.user / "two.v", world.user / "three.v"
-    _delivers_meanwhile(world, tmp_path, theirs)
+    _delivers_meanwhile(world, tmp_path, theirs, monkeypatch)
     assert _launch(world, delivers={"netlist": str(ours)}).succeeded
     RUNS.clear()
     again = _runner(tmp_path).launch_flow(_Delivers, world.design, {"netlist": str(theirs)})
