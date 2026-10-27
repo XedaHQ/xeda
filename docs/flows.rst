@@ -299,9 +299,11 @@ With ``inherit_env: false``:
 
 A flow that runs in Docker (``docker: true``) also gets the variables that the ``docker`` client
 needs to find its daemon (``DOCKER_HOST``, ``DOCKER_CONTEXT``, ``DOCKER_CONFIG`` and
-``DOCKER_CERT_PATH``) from the caller. The container is different. It gets only the ``env`` table
-of your private settings files, then the ``env`` setting, then the variables that the flow sets
-itself. No variable of the caller enters a container.
+``DOCKER_CERT_PATH``) from the caller. The container is different. It gets ``DISPLAY``
+(``host.docker.internal:0``), then the ``env`` table of your private settings files, then the
+``env`` setting, then the variables that the flow sets itself. Each of these can replace
+``DISPLAY``. Last, ``PWD`` is set to the working directory of the tool in the container. No
+variable of the caller enters a container.
 
 Neither mode is hermetic. A tool can read a file, a home directory or a program that Xeda does not
 track. ``inherit_env: false`` only reduces what the tool receives.

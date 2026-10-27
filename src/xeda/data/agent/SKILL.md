@@ -420,7 +420,8 @@ Every flow has `env` (a table of text variables, part of the identity) and `inhe
 only the essential variables (`PATH`, `HOME`, `LANG`, `LC_*`, ...) and the flow's tool and license
 variables (`locator_variables`, plus the `DOCKER_*` client variables with `docker`). Then come the
 `env` of the private settings files, then `env`, then the variables the flow sets. A Docker
-container gets only those last three. Neither mode is hermetic.
+container gets only `DISPLAY` (`host.docker.internal:0`, replaceable), those last three, and `PWD`
+(its working directory). Neither mode is hermetic.
 
 The inherited values a node uses are freshness evidence, not identity: a changed value runs the
 node again, and the stale reason names a variable, never a value. Shell, terminal, login and
