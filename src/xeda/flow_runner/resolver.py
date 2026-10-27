@@ -88,6 +88,7 @@ SHARED_SETTINGS = (
     "pdk_root",
     "hierarchical",
     "wire_rc",
+    "out_of_context",
 )
 #: Shared settings that name a file or a directory. They are compared by the resolved path, a
 #: relative one against the design root.

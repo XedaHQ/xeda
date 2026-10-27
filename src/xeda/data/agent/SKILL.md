@@ -265,11 +265,12 @@ the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings that fix it.
 
 Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
 `platform`, `corner`, `dont_use_cells`, `platform_file`, `liberty`, `pdk_provider`, `pdk_version`,
-`pdk_root`, `hierarchical`, `wire_rc`, where both nodes declare them) must agree. `platform` is a
-bundled name; `platform_file` and `pdk_root` compare by resolved path; `liberty` compares as the
+`pdk_root`, `hierarchical`, `wire_rc`, `out_of_context`, where both nodes declare them) must
+agree. `platform` is a bundled name; `platform_file` and `pdk_root` compare by resolved path; `liberty` compares as the
 list of resolved paths in order; an unset `pdk_provider` or `pdk_version` is filled in from the
 platform before hashing. `hierarchical` and `wire_rc` are the
-OpenROAD flows' (the database stores neither). Disjoint leaves combine; two values for one leaf
+OpenROAD flows' (the database stores neither). `out_of_context` must be the same in `yosys_fpga`
+and `nextpnr`, and only ECP5 takes it in `nextpnr`. Disjoint leaves combine; two values for one leaf
 fail and name both origins. A command-line leaf (`-s fpga.part=...` or
 `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group. A shared setting written under
 a flow that is not in the run reaches no node.

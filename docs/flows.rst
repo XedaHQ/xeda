@@ -580,7 +580,7 @@ those checked records, for producers that ran now and producers that Xeda reused
 
 Along a declared edge, shared settings (``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
 ``prjxray_db``, ``platform``, ``corner``, ``dont_use_cells``, ``platform_file``, ``liberty``, ``pdk_provider``,
-``pdk_version``, ``pdk_root``, ``hierarchical`` and ``wire_rc``) must agree where both endpoints
+``pdk_version``, ``pdk_root``, ``hierarchical``, ``wire_rc`` and ``out_of_context``) must agree where both endpoints
 declare them. A ``platform`` is
 the name of a bundled platform. ``platform_file`` and ``pdk_root`` are paths: Xeda compares them by
 the resolved path, and a relative path is relative to the design root. Xeda compares a ``corner``
@@ -996,8 +996,10 @@ netlist has no IO buffers and no clock buffer that the synthesis inserted. Xilin
 passes insert no such buffers, so the setting changes nothing there. ``synth_flags`` must not
 repeat these flags, and for Lattice it must not give ``-iopad``. Xeda refuses either one before
 anything runs. Use the setting for utilization estimates and block netlists. A Nexus netlist
-without IO buffers is no input for ``nextpnr``, which refuses it. ``vivado_impl`` implements a
-Xilinx netlist without them, and Vivado inserts the IO buffers itself. The Xilinx pass stops with an
+without IO buffers is no input for ``nextpnr``, which refuses it. ``out_of_context`` is a shared
+setting, so ``yosys_fpga`` and ``nextpnr`` in one chain must agree on it before anything runs, and
+``nextpnr`` takes it for ECP5 only. ``vivado_impl`` declares no ``out_of_context``. It implements
+a Xilinx netlist without IO buffers, and Vivado inserts the IO buffers itself. The Xilinx pass stops with an
 error on a top module that has tri-state buffers.
 
 ``yosys_fpga`` removes the formal cells (``$check``, ``$assert``, ``$assume`` and ``$cover``) and

@@ -19,11 +19,13 @@ import re
 
 import pytest
 
-from xeda.flow import FlowSettingsError
+from xeda.flow import FlowSettingsError, FlowSettingsException
+from xeda.flow_runner import DefaultRunner
 from xeda.flows import YosysFpga
 
 from .test_yosys_fpga_clean_netlist import MAPPED_CELLS, XC7, _cells_of, _netlist, _synthesize
 from .test_yosys_fpga_flags import RELEASES, TARGETS
+from .test_refusals_at_planning import _design
 from .tool_utils import require_yosys
 
 #: The flags that `out_of_context` adds, by target of `test_yosys_fpga_flags.TARGETS`.
@@ -167,6 +169,78 @@ def test_xilinx_takes_iopad_without_a_conflict() -> None:
 def test_the_planning_check_needs_no_device() -> None:
     """Without `fpga`, `required_settings` names what is missing; this check says nothing."""
     YosysFpga.check_settings_supported(YosysFpga.Settings(out_of_context=True))
+
+
+# ------------------------------------------------------------------- along a declared edge
+
+NEXUS = "LIFCL-40-9BG400C"
+ECP5 = "LFE5U-25F-6BG256C"
+
+
+def _plan(tmp_path, part, **sides):
+    """Plan `yosys_fpga+nextpnr` with `out_of_context` set as `sides` says (a flow that is not in
+    `sides` leaves it unset); no tool starts."""
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    settings = [f"fpga={part}"]
+    settings += [f"flows.{flow}.out_of_context={str(on).lower()}" for flow, on in sides.items()]
+    plan = runner.plan("yosys_fpga+nextpnr", _design(tmp_path / "design"), flow_settings=settings)
+    assert not (tmp_path / "runs").exists(), "planning writes no run directory"
+    return plan
+
+
+def test_out_of_context_is_a_shared_setting() -> None:
+    from xeda.flow_runner.resolver import SHARED_SETTINGS
+
+    assert SHARED_SETTINGS[-1] == "out_of_context"
+
+
+@pytest.mark.parametrize("yosys_fpga,nextpnr", [(True, False), (False, True)])
+@pytest.mark.parametrize("part", [NEXUS, ECP5])
+def test_two_values_for_one_chain_are_refused(tmp_path, part, yosys_fpga, nextpnr) -> None:
+    with pytest.raises(FlowSettingsError) as refused:
+        _plan(tmp_path, part, yosys_fpga=yosys_fpga, nextpnr=nextpnr)
+    text = str(refused.value)
+    assert "disagrees with" in text
+    assert "yosys_fpga out_of_context=" in text and "nextpnr out_of_context=" in text
+
+
+@pytest.mark.parametrize("only", ["yosys_fpga", "nextpnr"])
+def test_a_value_on_one_side_reaches_the_other_on_ecp5(tmp_path, only) -> None:
+    """The setting is agreed along the edge, so one node that gives it sets it for both."""
+    plan = _plan(tmp_path, ECP5, **{only: True})
+    assert {node.name: node.settings.out_of_context for node in plan.nodes} == {
+        "yosys_fpga": True,
+        "nextpnr": True,
+    }
+
+
+@pytest.mark.parametrize("sides", [{"yosys_fpga": True}, {"nextpnr": True}, {"both": True}])
+def test_a_nexus_block_cannot_be_placed_by_nextpnr(tmp_path, sides) -> None:
+    """The value reaches `nextpnr`, and `nextpnr-nexus` takes no `out_of_context`: the plan is
+    refused, whichever node gives the value."""
+    if "both" in sides:
+        sides = {"yosys_fpga": True, "nextpnr": True}
+    with pytest.raises(FlowSettingsException, match="nextpnr-nexus does not take out_of_context"):
+        _plan(tmp_path, NEXUS, **sides)
+
+
+def test_an_ecp5_block_agreed_on_both_sides_is_planned(tmp_path) -> None:
+    plan = _plan(tmp_path, ECP5, yosys_fpga=True, nextpnr=True)
+    assert [node.name for node in plan.nodes] == ["yosys_fpga", "nextpnr"]
+
+
+def test_the_default_agrees_on_both_sides(tmp_path) -> None:
+    _plan(tmp_path, NEXUS)
+
+
+def test_vivado_impl_declares_no_out_of_context_and_is_left_alone(tmp_path) -> None:
+    """`vivado_impl` takes the netlist of `yosys_fpga` as it is and inserts the buffers itself."""
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    runner.plan(
+        "yosys_fpga+vivado_impl",
+        _design(tmp_path / "design"),
+        flow_settings=["fpga=xc7a35tcsg324-1", "flows.yosys_fpga.out_of_context=true"],
+    )
 
 
 # --------------------------------------------------------------------------- the real yosys
