@@ -241,7 +241,7 @@ Synthesize a design for an FPGA device with Yosys.
 
 Required settings: `fpga`
 
-69 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
+70 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
 Reports: `lut`, `ff`, `dsp`, `lut_use.logic`, `lut_use.ram`, `lut_use.srl`, `lut_basis.stage`, `lut_basis.method`, `latch`, `bram.ramb18`, `bram.ramb36`, `cell_types`
 

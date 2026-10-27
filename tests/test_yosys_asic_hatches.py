@@ -302,6 +302,17 @@ def test_a_flag_that_the_script_gives_to_slang_is_refused(flag):
     assert flag.split("=")[0] in error[1] and "`read_systemverilog_flags`" in error[1]
 
 
+def test_the_refusal_of_extern_modules_says_that_slang_always_has_it_on():
+    """yosys-slang has `--extern-modules` always on and warns that the flag is deprecated, so
+    the script does not give it, and the refusal does not say that it does."""
+    settings = Yosys.Settings(systemverilog="slang", read_systemverilog_flags=["--extern-modules"])
+    with pytest.raises(FlowSettingsError) as refused:
+        Yosys.check_settings_supported(settings)
+    (error,) = [e for e in refused.value.errors if e[0] == "read_systemverilog_flags"]
+    assert "always on in yosys-slang" in error[1], error[1]
+    assert "gives it" not in error[1], error[1]
+
+
 @pytest.mark.parametrize("flow", [Yosys, YosysFpga, YosysSim])
 def test_the_check_of_the_slang_flags_is_the_same_in_every_yosys_flow(flow):
     given: dict[str, Any] = {"systemverilog": "slang", "read_systemverilog_flags": ["--top=x"]}
@@ -350,7 +361,7 @@ def test_the_flags_reach_the_slang_reader_before_the_source(tmp_path, script_for
     )
     (line,) = [line for line in script.splitlines() if "read_slang" in line]
     assert re.search(
-        r"read_slang --extern-modules --best-effort-hierarchy\s+--ignore-timing --compat=vcs\s+.*m\.sv",
+        r"read_slang --best-effort-hierarchy\s+--ignore-timing --compat=vcs\s+.*m\.sv",
         line,
     ), line
 

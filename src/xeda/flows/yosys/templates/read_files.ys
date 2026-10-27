@@ -69,7 +69,7 @@ read_verilog {{lib.flags|join(" ")}} {{lib.path|read_path}}
             {%- for sv in slang_files %}
 log -stdout ** Reading {{sv}} **
             {%- endfor %}
-read_slang --extern-modules --best-effort-hierarchy{% if settings.read_systemverilog_flags %} {{settings.read_systemverilog_flags|join(" ")}}{% endif %} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{slang_files|map("verbatim_path")|join(" ")}}{% if slang_params %}{% for key, value in parameters.items() %} -G {{key}}={{value|esc}}{% endfor %}{% endif %}
+read_slang --best-effort-hierarchy{% if settings.read_systemverilog_flags %} {{settings.read_systemverilog_flags|join(" ")}}{% endif %} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{slang_files|map("verbatim_path")|join(" ")}}{% if slang_params %}{% for key, value in parameters.items() %} -G {{key}}={{value|esc}}{% endfor %}{% endif %}
         {%- endif %}
     {% elif src.type.name == "Verilog" -%}
 log -stdout ** Reading {{src}} **

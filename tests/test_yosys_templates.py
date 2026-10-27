@@ -36,7 +36,8 @@ TCL_RESIDUE = {
     "escaped quote": re.compile(r'\\"'),
     "escaped bracket": re.compile(r"\\\["),
     "argument expansion": re.compile(r"\{\*\}"),
-    "variable reference": re.compile(r"\$\w+"),
+    # `t:$print` is a selection by cell type, which yosys scripts use
+    "variable reference": re.compile(r"(?<!t:)\$\w+"),
     "set command": re.compile(r"^\s*set\s+\w+\s", re.MULTILINE),
     "procs (TCL-only alias)": re.compile(r"^\s*procs\b", re.MULTILINE),
     "exit (not a yosys command)": re.compile(r"^\s*exit\b", re.MULTILINE),
@@ -239,6 +240,86 @@ def test_template_writes_json_without_verilog(flow_cls, script_format, tmp_path:
         lines = _command_lines(script, unset)
         assert lines and lines[0] < json_write, f"{unset!r} must come before write_json"
     assert not _command_lines(script, "write_verilog")
+
+
+@FLOW_FORMATS
+def test_an_analysis_runs_on_a_copy_of_the_design_and_no_netlist_is_written_there(
+    flow_cls, script_format, tmp_path: Path
+) -> None:
+    """`ltp` and `sta` (the timing report and the `ltp` setting) run between `design -push-copy`
+    and `design -pop`, so that an analysis changes nothing that the flow writes. The `sta` pass
+    derives every parametrized cell type that it meets, and the derived cell has processes."""
+    settings = _settings_for(flow_cls, sta=True, ltp=True, write_blif="netlist.blif")
+    script = _render(flow_cls, settings, tmp_path)
+    (push,) = _command_lines(script, "design -push-copy")
+    (pop,) = _command_lines(script, "design -pop")
+    assert push < pop
+    # the timing report runs `ltp` and `sta`, and the `ltp` setting runs `ltp` once more
+    analyses = _tee_lines(script, "ltp") + _tee_lines(script, "sta")
+    assert len(analyses) == 3
+    assert all(push < n < pop for n in analyses), "an analysis lies outside the copy"
+    writers = (*NETLIST_WRITERS, *(["write_edif"] if flow_cls is YosysFpga else []))
+    for writer in writers:
+        lines = _command_lines(script, writer)
+        assert lines, f"the script has no {writer}"
+        assert not any(push < n < pop for n in lines), f"{writer} lies inside the copy"
+
+
+def _tee_lines(script: str, command: str) -> list[int]:
+    """The line numbers of the `tee ... <command>` lines of a script."""
+    return [
+        n
+        for n, line in enumerate(script.splitlines())
+        if re.match(rf"^\s*(?:yosys\s+)?tee\b.*\s{command}$", line)
+    ]
+
+
+@FLOW_FORMATS
+def test_without_an_analysis_the_script_copies_nothing(
+    flow_cls, script_format, tmp_path: Path
+) -> None:
+    script = _render(flow_cls, _settings_for(flow_cls), tmp_path)
+    assert not _command_lines(script, "design -push-copy")
+    assert not _command_lines(script, "design -pop")
+
+
+def test_yosys_fpga_removes_formal_and_print_cells_after_the_rtl_outputs_and_before_synthesis(
+    tmp_path: Path,
+) -> None:
+    settings = _fpga_settings(rtl_verilog="rtl.v", sta=True)
+    script = _render(YosysFpga, settings, tmp_path)
+    (remove,) = _command_lines(script, "chformal")
+    (delete,) = _command_lines(script, "delete")
+    assert "chformal -remove" in script.splitlines()[remove]
+    assert "delete t:$print" in script.splitlines()[delete]
+    rtl = min(_command_lines(script, "write_verilog"))  # the RTL output comes first
+    synth = [n for n, line in enumerate(script.splitlines()) if line.startswith("synth_xilinx")]
+    assert len(synth) == 1
+    assert rtl < remove < synth[0], "the RTL outputs keep the cells, synthesis does not see them"
+    assert delete < synth[0]
+    assert all(remove < n for n in _tee_lines(script, "sta"))
+
+
+def test_yosys_fpga_pass_only_adds_no_step_that_removes_cells(tmp_path: Path) -> None:
+    settings = dict(
+        fpga=FPGA(part="xc7a12tcsg325-1"),
+        synth_pass_only=True,
+        read_verilog_flags=[],
+        systemverilog="default",
+    )
+    script = _render(YosysFpga, settings, tmp_path)
+    assert not _command_lines(script, "chformal")
+    assert not _command_lines(script, "delete")
+
+
+@FLOW_FORMATS
+def test_only_yosys_fpga_removes_formal_and_print_cells(
+    flow_cls, script_format, tmp_path: Path
+) -> None:
+    """The generic `yosys` flow without a liberty library keeps them: its netlist may feed a
+    simulation."""
+    script = _render(flow_cls, _settings_for(flow_cls), tmp_path)
+    assert bool(_command_lines(script, "chformal")) is (flow_cls is YosysFpga)
 
 
 def test_a_flat_xilinx_synthesis_writes_its_edif_netlist_with_bus_ranges(tmp_path: Path) -> None:

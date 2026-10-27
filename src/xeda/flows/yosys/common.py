@@ -276,7 +276,8 @@ class YosysBase(Flow):
             "instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` "
             "reads when the design has a SystemVerilog source. A flag that the script gives to "
             "`read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, "
-            "`--extern-modules`, `--best-effort-hierarchy`) is refused.",
+            "`--best-effort-hierarchy`) is refused, and so is `--extern-modules`, which is always "
+            "on in yosys-slang.",
         )
         check_assert: bool = Field(
             True,

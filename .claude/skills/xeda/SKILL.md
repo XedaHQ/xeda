@@ -147,6 +147,12 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   Put the design before `-s`, or end the options with `--`.
 - A dotted key reaches a nested setting. `-s flows.<flow>.<key>=<value>` sets any flow of the run (a
   producer too); `-s <key>` and `-s flows.<requested>.<key>` are one setting.
+- Sections for flows outside the run differ by layer. A file (design, target, project) may keep a
+  `flows.<flow>` for any known flow (a removed flow is an error): it is ignored, with the INFO line
+  `<flow> is not part of this run: its settings are unused` for a default producer that a source or
+  binding displaced and no line for other flows. `-s flows.<flow>.*` must name the requested flow, a
+  flow of the chain or bindings, or a default producer, else `unknown_flow`. A converter counts as a default producer (`bsc` for any flow that reads
+  Verilog), so `-s flows.bsc.<key>` passes a run of a SystemVerilog design, checked but unused.
 - A setting of a settings group has a dotted name, such as `abc.strategy` or
   `sequential.clock_gating.enabled` for `yosys`. Its `tier` (`common`, `advanced` or
   `expert`) says how often a user needs it; it affects the listing, never what Xeda
@@ -275,11 +281,12 @@ the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings that fix it.
 
 Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
 `platform`, `corner`, `dont_use_cells`, `platform_file`, `liberty`, `pdk_provider`, `pdk_version`,
-`pdk_root`, `hierarchical`, `wire_rc`, where both nodes declare them) must agree. `platform` is a
-bundled name; `platform_file` and `pdk_root` compare by resolved path; `liberty` compares as the
+`pdk_root`, `hierarchical`, `wire_rc`, `out_of_context`, where both nodes declare them) must
+agree. `platform` is a bundled name; `platform_file` and `pdk_root` compare by resolved path; `liberty` compares as the
 list of resolved paths in order; an unset `pdk_provider` or `pdk_version` is filled in from the
 platform before hashing. `hierarchical` and `wire_rc` are the
-OpenROAD flows' (the database stores neither). Disjoint leaves combine; two values for one leaf
+OpenROAD flows' (the database stores neither). `out_of_context` must be the same in `yosys_fpga`
+and `nextpnr`, and only ECP5 takes it in `nextpnr`. Disjoint leaves combine; two values for one leaf
 fail and name both origins. A command-line leaf (`-s fpga.part=...` or
 `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group. A shared setting written under
 a flow that is not in the run reaches no node.
@@ -412,7 +419,11 @@ root `${XDG_CACHE_HOME:-~/.cache}/xeda/v1`, without administrator rights.
 Access:
 
 - `HOST` is an OpenSSH destination: an alias of `~/.ssh/config`, `user@host` or
-  `ssh://user@host:port`. Text that is empty, starts with `-` or has a space is `RemoteConfigError`.
+  `ssh://user@host:port`. Text that starts with `-` or has a space is `RemoteConfigError`.
+- An unset or empty `XEDA_REMOTE` runs locally. A program that must run locally, whatever the
+  environment, runs `XEDA_REMOTE= xeda run ...` or `env -u XEDA_REMOTE xeda run ...`. An empty
+  `--remote ''` is a usage error (exit 2), and an empty `HOST` of `xeda remote check`, `attach` or
+  `cancel` is `RemoteConfigError`.
 - The local client must be OpenSSH `ssh` (Xeda uses `ssh -G`, ControlMaster, `ssh -O check|exit`)
   on Linux or macOS. Native Windows is refused (use WSL). The local Python must be CPython.
 - Authentication is the user's `ssh` configuration: keys, agent, `ProxyJump`, certificates. Xeda

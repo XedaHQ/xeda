@@ -303,7 +303,7 @@ IDENTITY_PINS = [
         YosysFpga,
         "yosys_fpga",
         {"fpga.part": "xc7a100tcsg324-1", "clock.freq": "125 MHz"},
-        "c198e8be903e03680398ca23e735a956546cbfe08c9468011859086839b1a3a2",
+        "ac970556706d61384cbdac6fdaca090a23e14a438d38695f21a5065fe01cdf47",
         id="yosys_fpga",
     ),
     pytest.param(

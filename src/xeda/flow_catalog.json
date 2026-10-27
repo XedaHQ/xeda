@@ -13183,7 +13183,7 @@
       "read_systemverilog_flags": {
         "children": false,
         "assignable": true,
-        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--extern-modules`, `--best-effort-hierarchy`) is refused."
+        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--best-effort-hierarchy`) is refused, and so is `--extern-modules`, which is always on in yosys-slang."
       },
       "check_assert": {
         "children": false,
@@ -14814,7 +14814,7 @@
       "read_systemverilog_flags": {
         "children": false,
         "assignable": true,
-        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--extern-modules`, `--best-effort-hierarchy`) is refused."
+        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--best-effort-hierarchy`) is refused, and so is `--extern-modules`, which is always on in yosys-slang."
       },
       "check_assert": {
         "children": false,
@@ -15489,7 +15489,7 @@
           "false",
           "true"
         ],
-        "help": "Omit the preparation and cleanup that Xeda adds around the `synth_<family>` pass, which does its own elaboration and mapping. Pass flags and explicit ABC9 script choices apply in either mode. The flow reads the sources as a bare `yosys <files>` does, so the mode requires `read_verilog_flags: []`, `systemverilog: default` (the built-in reader of yosys) and no `read_systemverilog_flags`. It reads a Verilog source with plain `read_verilog` and a SystemVerilog source with `read_verilog -sv`, as the `type` of the source says. Yosys does the same by file suffix, unless the design gives a `type` that contradicts the suffix. To compare with a native yosys invocation, also match source paths and order. When false, Xeda elaborates and optimizes around the pass and gives ABC9 a delay derived from the clock. Every flag of the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) applies in either mode. A setting that would add a step before or after the pass, or make it read differently from `yosys <files>`, is refused."
+        "help": "Omit the preparation and cleanup that Xeda adds around the `synth_<family>` pass, which does its own elaboration and mapping. Pass flags and explicit ABC9 script choices apply in either mode. The flow reads the sources as a bare `yosys <files>` does, so the mode requires `read_verilog_flags: []`, `systemverilog: default` (the built-in reader of yosys) and no `read_systemverilog_flags`. It reads a Verilog source with plain `read_verilog` and a SystemVerilog source with `read_verilog -sv`, as the `type` of the source says. Yosys does the same by file suffix, unless the design gives a `type` that contradicts the suffix. To compare with a native yosys invocation, also match source paths and order. When false, Xeda elaborates and optimizes around the pass and gives ABC9 a delay derived from the clock. Every flag of the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) applies in either mode. A setting that would add a step before or after the pass, or make it read differently from `yosys <files>`, is refused. The mode does not remove the formal cells and the `$print` cells (made by `assert` and `$display`) that Xeda removes before synthesis otherwise, so the netlists keep them."
       },
       "abc9": {
         "children": false,
@@ -15558,6 +15558,15 @@
           "true"
         ],
         "help": "Do not use LUT RAM cells."
+      },
+      "out_of_context": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Synthesize the design as a block that a larger design instantiates: the netlist has no IO buffers and no clock buffer that the synthesis inserted. Xilinx gets `-noiopad -noclkbuf`, Gowin `-noiopads` and Nexus `-noiopad`. ECP5 and iCE40 insert no such buffers, so the setting changes nothing there. Use it for utilization estimates and block netlists, not for a netlist that `nextpnr` places on its own: `nextpnr` for Nexus refuses it. `synth_flags` must not repeat these flags, and for Lattice it must not give `-iopad`. The pass for Xilinx stops with an error on a top module with tri-state buffers."
       },
       "nowidelut": {
         "children": false,
@@ -15880,7 +15889,7 @@
       "read_systemverilog_flags": {
         "children": false,
         "assignable": true,
-        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--extern-modules`, `--best-effort-hierarchy`) is refused."
+        "help": "Flags passed to the SystemVerilog front-end selected by `systemverilog`, `uhdm` or `slang`. The built-in reader (`default`) takes `read_verilog_flags` instead. With `slang`, they also apply to the Verilog sources, which the same `read_slang` reads when the design has a SystemVerilog source. A flag that the script gives to `read_slang` itself (`--top`, `-D`, `-I`, `-G`, `--blackboxed-module`, `--best-effort-hierarchy`) is refused, and so is `--extern-modules`, which is always on in yosys-slang."
       },
       "check_assert": {
         "children": false,

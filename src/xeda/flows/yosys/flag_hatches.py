@@ -109,7 +109,7 @@ OWNED_FLAGS: Dict[str, Dict[str, Owner]] = {
         "--include-directory": _fixed(_HEADERS),
         "-G": _fixed("the script gives the parameters of the design to `read_slang`", joined=True),
         "--blackboxed-module": _setting("black_box"),
-        "--extern-modules": _fixed("the script gives it to every `read_slang` command"),
+        "--extern-modules": _fixed("it is always on in yosys-slang"),
         "--best-effort-hierarchy": _fixed("the script gives it to every `read_slang` command"),
     },
 }

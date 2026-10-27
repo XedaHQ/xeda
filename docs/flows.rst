@@ -122,7 +122,13 @@ refuses its removed settings. Each error names the setting to use, or says why t
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its producers. When ``nextpnr`` is the requested flow, ``-s flows.nextpnr.seed=2`` and
 ``-s seed=2`` are the same setting, and giving both different values is an error. A flow that is
-not part of the run is an error too, with a list of close matches.
+not part of the run is an error too, with a list of close matches. ``-s`` can also name a default
+producer of the requested flow that a source or a binding of the design displaces, and a converter
+that could feed it. Xeda checks those settings and then does not use them: it logs ``<flow> is not
+part of this run: its settings are unused``. So ``-s flows.bsc.<key>`` is accepted in a run of a
+design that has no Bluespec source. A flow of a chain or of a binding is part of the run too. A
+design, target or project file can keep a ``flows.<flow>`` section for any flow that Xeda knows, and
+Xeda ignores the sections of the flows that do not run. A section of a removed flow is an error.
 
 A ``flows`` table maps flow names to mappings of settings, wherever it is written: in a design
 file, a target, a project file, on the command line or through the API. ``flows`` is a mapping,
@@ -574,7 +580,7 @@ those checked records, for producers that ran now and producers that Xeda reused
 
 Along a declared edge, shared settings (``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
 ``prjxray_db``, ``platform``, ``corner``, ``dont_use_cells``, ``platform_file``, ``liberty``, ``pdk_provider``,
-``pdk_version``, ``pdk_root``, ``hierarchical`` and ``wire_rc``) must agree where both endpoints
+``pdk_version``, ``pdk_root``, ``hierarchical``, ``wire_rc`` and ``out_of_context``) must agree where both endpoints
 declare them. A ``platform`` is
 the name of a bundled platform. ``platform_file`` and ``pdk_root`` are paths: Xeda compares them by
 the resolved path, and a relative path is relative to the design root. Xeda compares a ``corner``
@@ -985,6 +991,25 @@ resources, and its effect on area and timing differs from design to design. iCE4
 and SPRAM inference are available as the ``ice40_dsp`` and ``ice40_spram`` settings of
 ``yosys_fpga``.
 
+``out_of_context: true`` synthesizes the design as a block that a larger design instantiates. The
+netlist has no IO buffers and no clock buffer that the synthesis inserted. Xilinx gets
+``-noiopad -noclkbuf``, Gowin gets ``-noiopads``, and Nexus gets ``-noiopad``. The ECP5 and iCE40
+passes insert no such buffers, so the setting changes nothing there. ``synth_flags`` must not
+repeat these flags, and for Lattice it must not give ``-iopad``. Xeda refuses either one before
+anything runs. Use the setting for utilization estimates and block netlists. A Nexus netlist
+without IO buffers is no input for ``nextpnr``, which refuses it. ``out_of_context`` is a shared
+setting, so ``yosys_fpga`` and ``nextpnr`` in one chain must agree on it before anything runs, and
+``nextpnr`` takes it for ECP5 only. ``vivado_impl`` declares no ``out_of_context``. It implements
+a Xilinx netlist without IO buffers, and Vivado inserts the IO buffers itself. The Xilinx pass stops with an
+error on a top module that has tri-state buffers.
+
+``yosys_fpga`` removes the formal cells (``$check``, ``$assert``, ``$assume`` and ``$cover``) and
+the ``$print`` cells that an immediate ``assert`` or a ``$display`` makes, after it writes the RTL
+outputs and before synthesis. No FPGA tool reads them, so the netlists, the utilization report and
+the timing report do not hold them. ``synth_pass_only`` adds no step to the pass, so it keeps them.
+``yosys`` keeps them as well. The ``sta`` and ``ltp`` analyses run on a copy of the design and
+never change a netlist.
+
 ``stop_after: rtl`` (``yosys`` has it too) elaborates the design, writes the RTL outputs
 (``rtl_json``, ``rtl_verilog`` and ``rtl_graph``) and stops before synthesis. The run succeeds,
 with no netlist and no report. Xeda refuses, before anything runs, a setting that asks for what
@@ -1269,7 +1294,14 @@ generator keeps its raw name alone. A run that misses its timing constraint fail
 site and one of A-D) that the placement occupies. A location whose two outputs are both used counts
 once, and LUTs used as distributed RAM or shift registers are included. ``yosys_fpga`` estimates it
 from the mapped primitives (``lut_use.logic``, ``lut_use.ram``, ``lut_use.srl``) before packing.
-The two numbers differ for one design, and neither is certified comparable with the utilization
+The estimate counts the LUTs that each primitive takes, not the cells. ``LUT1`` to ``LUT6``,
+``CFGLUT5`` and ``INV`` count one each, and ``LUT6_2`` counts two. A shift register counts one. A
+distributed RAM or ROM counts the LUTs that its bits need, for example four for ``RAM64M``. So
+``lut`` is not the sum of the ``LUT1`` to ``LUT6`` entries of ``cell_types``, which holds the
+number of cells of each type. Vivado can merge an ``INV`` into the LUT or the invertible pin that it
+drives, so for a design with many ``INV`` cells the estimate is high.
+
+The count of ``nextpnr`` and the estimate of ``yosys_fpga`` differ for one design, and neither is certified comparable with the utilization
 report of Vivado. Compare a design against itself across settings or seeds with one toolchain, and
 not across toolchains. The same holds for ``fmax``: the timing model of nextpnr is not the model of
 Vivado (see :ref:`flow-results`).
@@ -1623,7 +1655,12 @@ When these sources include a SystemVerilog source and ``systemverilog`` is ``sla
 ``read_slang`` reads all their Verilog and SystemVerilog sources together, in design order, as
 OpenROAD-flow-scripts does. The sources are then one compilation. A module or a package that one
 file declares is known in all the others. ``read_systemverilog_flags`` apply to that command, and
-``read_verilog_flags`` do not apply to the Verilog sources it reads. The ``yosys_sim`` flow reads
+``read_verilog_flags`` do not apply to the Verilog sources it reads. The command always has
+``--best-effort-hierarchy``. ``read_systemverilog_flags`` cannot repeat it or a flag that the
+script sets itself (``--top``, ``-D``, ``--define-macro``, ``-I``, ``--include-directory``, ``-G``
+and ``--blackboxed-module``), and Xeda refuses such a flag before the run. It refuses
+``--extern-modules`` too: yosys-slang always has it on and warns that the flag is deprecated. The
+``yosys_sim`` flow reads
 SystemVerilog with the built-in reader unless ``systemverilog`` says otherwise.
 
 When ``read_slang`` reads the design and its top module is not VHDL, the command also sets the

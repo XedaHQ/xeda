@@ -11,7 +11,9 @@ a chain, bindings, a target, ``--outputs-to`` and ``--dry-run``.
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --remote cluster
 
 ``HOST`` is any OpenSSH destination: an alias from ``~/.ssh/config``, ``user@host`` or
-``ssh://user@host:port``. The ``XEDA_REMOTE`` environment variable gives the same value. The host
+``ssh://user@host:port``. The ``XEDA_REMOTE`` environment variable gives the same value. An empty
+``XEDA_REMOTE`` is the same as an unset one, and the request runs locally. So a script that must run
+locally can run ``XEDA_REMOTE= xeda run ...``. An empty ``--remote`` is a usage error. The host
 needs no Xeda. The first run installs it under one directory of the host (see `The first run`_).
 The results arrive in ``<run root>/@HOST/`` (see `The local mirror`_).
 
@@ -588,8 +590,10 @@ Errors
     the fetch repeats.
 
 ``RemoteConfigError``
-    The file ``remotes.yaml`` or one of its entries is not valid, or the text of ``--remote`` is
-    empty, starts with ``-`` or has a space. The message names the file, the host and the field.
+    The file ``remotes.yaml`` or one of its entries is not valid, or the text of ``--remote``
+    starts with ``-`` or has a space, or the host of ``xeda remote check``, ``attach`` or ``cancel``
+    is empty. The message names the file, the host and the field. An empty ``--remote`` of ``xeda
+    run`` is a usage error instead (exit status 2).
     The error also appears when the remote root has a character that Xeda cannot put in a command
     line (a double quote, a backslash, ``$``, a backquote or ``!``). Set ``root`` to another path.
 

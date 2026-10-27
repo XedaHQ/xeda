@@ -52,7 +52,18 @@ LOGGING = {"logger", "log", "echo"}
 #: Every command xeda renders that `yosys -p 'synth_<target>' <sources>` does not. Each is
 #: either omitted under `synth_pass_only` or refused outright; the plan enumerates them with the
 #: cell counts each one moves. `scratchpad` covers both ABC9 tweaks (`flow3`, the target delay).
-DEVIATIONS = {"hierarchy", "check", "proc", "flatten", "opt_clean", "opt", "scratchpad", "prep"}
+DEVIATIONS = {
+    "hierarchy",
+    "check",
+    "proc",
+    "flatten",
+    "opt_clean",
+    "opt",
+    "scratchpad",
+    "prep",
+    "chformal",
+    "delete",
+}
 
 
 @pytest.fixture
@@ -965,8 +976,11 @@ def test_the_deviations_the_plan_enumerates_are_the_ones_the_default_script_rend
     default = set(_commands(_launch(tmp_path, PARTS["xilinx"]), "ys"))
     mode = set(_commands(_launch(tmp_path, PARTS["xilinx"], synth_pass_only=True), "ys"))
     # `flatten`: xeda's recipe flattens for Xilinx by default, the pass alone does not -- and
-    # Vivado reads a flat EDIF netlist only, which only a flattened Xilinx synthesis writes
+    # Vivado reads a flat EDIF netlist only, which only a flattened Xilinx synthesis writes.
+    # `chformal` and `delete`: xeda's recipe removes the formal and `$print` cells before the pass
     assert default - mode == {
+        "chformal",
+        "delete",
         "hierarchy",
         "check",
         "proc",

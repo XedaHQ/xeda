@@ -16,7 +16,18 @@ Vivado. Chains and bindings: `SKILL.md`. Failures: `troubleshooting.md`.
 `nextpnr` always writes its configuration (an ECP5 `out_of_context` run has none); a missing one
 after the tool exits fails the run (`reported_failure`, naming the setting and path).
 
+`yosys_fpga` reads SystemVerilog with the slang plugin (`systemverilog: slang`, the default): when
+the design has a SystemVerilog source, one `read_slang` reads all Verilog and SystemVerilog sources,
+always with `--best-effort-hierarchy`. `read_systemverilog_flags` refuses that flag, the flags the
+script sets itself (`--top`, `-D`, `--define-macro`, `-I`, `--include-directory`, `-G`,
+`--blackboxed-module`) and `--extern-modules` (always on in yosys-slang, deprecated). A design with
+Verilog sources only, or `systemverilog: default`, uses the yosys reader (`read_verilog`).
+
 ## Xilinx 7-series (openXC7 1.0)
+
+The `open_xc7` flow (also `openxc7`) is removed: `fpga_pack` builds the bitstream through
+`yosys_fpga` and `nextpnr`, and `openfpgaloader` programs it. Its `prjxray_db_dir` is now the
+shared setting `prjxray_db` of `nextpnr` and `fpga_pack`; `prjxray_db_dir` is `extra_forbidden`.
 
 Put openXC7's `bin` first on `PATH` (`yosys`, `nextpnr-himbaechel`, `fpga-as`). Give the full part:
 device, package and speed grade.
