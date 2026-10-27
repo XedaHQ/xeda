@@ -81,6 +81,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   changed one with `model_copy(update=...)` and call `invalidate_cached_properties()`
   (`tests/test_frozen_design.py`). A launch leaves no process-wide state
   (`tests/test_isolation.py` sweeps it, `tests/test_shared_state.py` has its offenders).
+- No flow reads `os.environ`: a launch takes one `EnvironmentSnapshot`; tools and Xeda's own reads
+  use the node's admitted view (`flow_runner/environment.py`, `tests/test_tool_environment.py`).
 - `init()` runs even for a fresh flow: no dependency, no input read, no file written. A file it
   or `prepare_inputs()` registers in `Flow.implicit_inputs` needs a `locate_prepared_inputs()`
   counterpart, since `--dry-run` never calls `init()` (`tests/test_prepare_inputs.py`,
