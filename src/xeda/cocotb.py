@@ -1,7 +1,6 @@
 import logging
 import os
 import re
-import sys
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -17,7 +16,7 @@ from .dataclass import (
     field_validator,
 )
 from .design import Design, SourceType
-from .tool import Tool
+from .tool import Tool, ToolException
 from .units import count
 
 log = logging.getLogger(__name__)
@@ -424,6 +423,26 @@ class Cocotb(CocotbSettings, Tool):
         compiles it), so without this prefix every cocotb run would write into the user's tree."""
         return self.working_directory() / "__pycache__"
 
+    def check_python_packages(self, python_bin: str, packages: List[str]) -> None:
+        """Check testbench distributions in the Python that cocotb will embed."""
+        if not packages:
+            return
+        script = (
+            "import importlib.metadata as metadata\n"
+            "import sys\n"
+            "for name in sys.argv[1:]:\n"
+            "    try:\n"
+            "        metadata.version(name)\n"
+            "    except metadata.PackageNotFoundError:\n"
+            "        print(name)\n"
+        )
+        missing = self.derive(python_bin).probe_stdout("-B", "-c", script, *packages)
+        if missing:
+            raise ToolException(
+                f"`tb.python_packages` lists missing distributions in cocotb's Python at "
+                f"{python_bin}: {', '.join(missing.splitlines())}"
+            )
+
     def env(self, design: Design) -> Dict[str, Any]:
         """Return the environment a simulator needs to run the design's cocotb testbench.
 
@@ -433,7 +452,6 @@ class Cocotb(CocotbSettings, Tool):
         """
         environ: Dict[str, Any] = dict()
         if design.tb.cocotb:
-            self.discard_results()
             if design.tb is None or not design.tb.sources:
                 raise ValueError("'design.tb.cocotb' is set, but 'design.tb.sources' is empty.")
             if not design.tb.top:
@@ -468,6 +486,16 @@ class Cocotb(CocotbSettings, Tool):
             if top_cocotb_source:
                 py_path.append(str(top_cocotb_source.parent))
             toplevel = cocotb_toplevel(design)
+            python_bin = os.environ.get("PYGPI_PYTHON_BIN") or self.probe_stdout(
+                "--python-bin", raise_on_error=False
+            )
+            if not python_bin:
+                raise ToolException(
+                    "cocotb-config did not report its Python executable; install a supported "
+                    "cocotb version or set PYGPI_PYTHON_BIN"
+                )
+            self.check_python_packages(python_bin, design.tb.python_packages)
+            self.discard_results()
             environ = {
                 "MODULE": coco_module,
                 "COCOTB_TEST_MODULES": coco_module,
@@ -480,11 +508,7 @@ class Cocotb(CocotbSettings, Tool):
                 "PYTHONPYCACHEPREFIX": str(self.pycache_prefix()),
                 "COCOTB_RESULTS_FILE": str(self.results_xml),
                 "COCOTB_RESOLVE_X": self.resolve_x,
-                "PYGPI_PYTHON_BIN": os.environ.get(
-                    # Use the current Python executable if not set in the environment
-                    "PYGPI_PYTHON_BIN",
-                    os.path.abspath(sys.executable),
-                ),
+                "PYGPI_PYTHON_BIN": python_bin,
             }
             if self.coverage:
                 environ["COVERAGE"] = 1

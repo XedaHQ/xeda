@@ -203,9 +203,10 @@ The section is also accepted as ``test`` or ``tests``. It takes the same ``sourc
        ``.py`` source is present, so ``cocotb: true`` is usually redundant.
    * - ``python_packages``
      - A list of the Python packages that the testbench imports, for example ``cocotb``. Give
-       only the distribution name, with no version and no extras. A simulation flow refuses the
-       design, at planning, when one of them is not installed in the Python environment that
-       runs Xeda. A remote run installs the same versions on the host (see :doc:`remote`).
+       only the distribution name, with no version and no extras. A cocotb simulation checks
+       these packages in the Python environment selected by ``cocotb-config`` when it starts.
+       Other simulations check the Python environment that runs Xeda during planning. A remote
+       run installs the versions found in Xeda's local environment on the host (see :doc:`remote`).
 
 .. _sources:
 

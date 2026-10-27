@@ -1,4 +1,5 @@
 import re
+import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
@@ -9,6 +10,7 @@ from xeda.cocotb import TestResults as CocotbTestResults  # alias: pytest collec
 from xeda.flow import SimFlow
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import __builtin_flows__
+from xeda.tool import ToolException
 
 from .tool_utils import require_cocotb, require_ghdl, require_nvc, require_verilator
 
@@ -251,7 +253,12 @@ def test_sim_time_unit_is_honored(tmp_path, unit, value, expected_ns):
 # --------------------------------------------------------------------- GPI_USERS (cocotb >= 2.1)
 
 
-def _fake_cocotb_config(entry_point=None, libpython="/usr/lib/libpython3.so", version="2.1.0"):
+def _fake_cocotb_config(
+    entry_point=None,
+    libpython="/usr/lib/libpython3.so",
+    version="2.1.0",
+    python_bin="/project/.venv/bin/python",
+):
     """Stand in for `cocotb-config`, which answers differently across cocotb versions."""
 
     def run_get_stdout(self, *args, **kwargs):
@@ -259,6 +266,8 @@ def _fake_cocotb_config(entry_point=None, libpython="/usr/lib/libpython3.so", ve
             return entry_point  # None on cocotb < 2.1, which rejects the flag
         if "--libpython" in args:
             return libpython
+        if "--python-bin" in args:
+            return python_bin
         if "--version" in args:
             return version
         return None
@@ -315,10 +324,14 @@ def test_gpi_users_agrees_with_the_installed_cocotb(monkeypatch):
 # ------------------------------------------------------------------- test selection (`testcase`)
 
 
-def _testcase_env(tmp_path, monkeypatch, version: str, testcase) -> Dict[str, Any]:
+def _testcase_env(
+    tmp_path, monkeypatch, version: str, testcase, python_bin="/project/.venv/bin/python"
+) -> Dict[str, Any]:
     """The simulator environment for `testcase`, as a cocotb reporting `version` gets it."""
     monkeypatch.delenv("GPI_USERS", raising=False)
-    monkeypatch.setattr(Cocotb, "run_get_stdout", _fake_cocotb_config(version=version))
+    monkeypatch.setattr(
+        Cocotb, "run_get_stdout", _fake_cocotb_config(version=version, python_bin=python_bin)
+    )
     (tmp_path / "dut.sv").write_text("module dut; endmodule\n")
     (tmp_path / "tb_dut.py").write_text("")
     design = Design(
@@ -329,6 +342,46 @@ def _testcase_env(tmp_path, monkeypatch, version: str, testcase) -> Dict[str, An
     )
     monkeypatch.setattr(Cocotb, "working_directory", lambda self: tmp_path)
     return Cocotb(sim_name="verilator", testcase=testcase).env(design)  # type: ignore
+
+
+def test_cocotb_uses_its_own_python_when_xeda_runs_elsewhere(tmp_path, monkeypatch):
+    """The simulator must import cocotb from the environment that supplied cocotb-config."""
+    monkeypatch.delenv("PYGPI_PYTHON_BIN", raising=False)
+    python_bin = str(tmp_path / "cocotb-python")
+    assert python_bin != sys.executable
+    env = _testcase_env(tmp_path, monkeypatch, "2.1.0", [], python_bin=python_bin)
+    assert env["PYGPI_PYTHON_BIN"] == python_bin
+
+
+def test_cocotb_respects_an_explicit_python_override(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYGPI_PYTHON_BIN", "/override/python")
+    env = _testcase_env(tmp_path, monkeypatch, "2.1.0", [])
+    assert env["PYGPI_PYTHON_BIN"] == "/override/python"
+
+
+def test_cocotb_explains_an_unsupported_python_bin_query(tmp_path, monkeypatch):
+    monkeypatch.delenv("PYGPI_PYTHON_BIN", raising=False)
+    original = _fake_cocotb_config()
+
+    def config(self, *args, raise_on_error=True, **kwargs):
+        if args == ("--python-bin",):
+            if raise_on_error:
+                raise RuntimeError("cocotb-config rejected --python-bin")
+            return None
+        return original(self, *args, raise_on_error=raise_on_error, **kwargs)
+
+    monkeypatch.setattr(Cocotb, "run_get_stdout", config)
+    (tmp_path / "dut.sv").write_text("module dut; endmodule\n")
+    (tmp_path / "tb_dut.py").write_text("")
+    design = Design(
+        name="dut",
+        design_root=tmp_path,
+        rtl={"sources": ["dut.sv"], "top": "dut"},
+        tb={"sources": ["tb_dut.py"], "cocotb": True},
+    )
+    monkeypatch.setattr(Cocotb, "working_directory", lambda self: tmp_path)
+    with pytest.raises(ToolException, match="set PYGPI_PYTHON_BIN"):
+        Cocotb(sim_name="verilator").env(design)
 
 
 @pytest.mark.parametrize("version", ["2.0.0", "2.1.0", "3.0.0.dev0"])
