@@ -585,8 +585,10 @@ Errors
     the fetch repeats.
 
 ``RemoteConfigError``
-    The file ``remotes.yaml`` or one of its entries is not valid, or the text of ``--remote`` is
-    empty, starts with ``-`` or has a space. The message names the file, the host and the field.
+    The file ``remotes.yaml`` or one of its entries is not valid, or the text of ``--remote``
+    starts with ``-`` or has a space, or the host of ``xeda remote check``, ``attach`` or ``cancel``
+    is empty. The message names the file, the host and the field. An empty ``--remote`` of ``xeda
+    run`` is a usage error instead (exit status 2).
     The error also appears when the remote root has a character that Xeda cannot put in a command
     line (a double quote, a backslash, ``$``, a backquote or ``!``). Set ``root`` to another path.
 
