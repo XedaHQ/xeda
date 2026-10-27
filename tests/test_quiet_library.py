@@ -7,7 +7,6 @@ which node they belong to, also when launches run at once in several threads.
 """
 
 import logging
-import subprocess
 import sys
 import threading
 import warnings
@@ -273,6 +272,23 @@ def test_launches_that_run_at_once_in_two_threads_tag_their_own_records():
         assert {(r.xeda_launch_id, r.xeda_node) for r in mine} == {(launch_id, name)}
 
 
+def test_the_error_output_of_a_tool_without_a_log_keeps_the_launch_and_node(tmp_path):
+    """The error output of a tool whose output goes to a file is logged by another thread. Its
+    records still name the launch and the node that started the tool."""
+    script = "import sys; print('to the file'); print('on stderr', file=sys.stderr)"
+    started: list[str] = []
+
+    def launch() -> None:
+        with launch_context() as launch_id, running_node("node"):
+            started.append(launch_id)
+            run_process(sys.executable, ["-c", script], stdout=tmp_path / "out.txt", cwd=tmp_path)
+
+    records = _collected(launch)
+    mine = [r for r in records if r.getMessage().endswith("on stderr")]
+    assert len(mine) == 1
+    assert (mine[0].xeda_launch_id, mine[0].xeda_node) == (started[0], "node")
+
+
 def test_a_record_outside_a_launch_has_no_launch_id():
     record = logging.LogRecord("xeda.x", logging.INFO, __file__, 1, "outside", None, None)
     logging.getLogger("xeda").handle(record)
@@ -318,7 +334,7 @@ def test_a_logs_entry_that_is_no_directory_costs_a_log_and_not_the_run(tmp_path,
 
 def test_a_failing_generator_leaves_its_output_in_the_log(tmp_path, caplog):
     with caplog.at_level(logging.INFO, logger="xeda"):
-        with pytest.raises(subprocess.CalledProcessError):
+        with pytest.raises(NonZeroExitCode) as raised:
             run_child(
                 [sys.executable, "-c", "print('why it failed'); raise SystemExit(3)"],
                 source="generator",
@@ -326,6 +342,7 @@ def test_a_failing_generator_leaves_its_output_in_the_log(tmp_path, caplog):
                 cwd=tmp_path,
             )
     assert "generator: why it failed" in caplog.text
+    assert raised.value.exit_code == 3 and "why it failed" in str(raised.value)
 
 
 def test_a_helper_with_no_log_says_the_end_of_its_output_when_it_fails(capfd):

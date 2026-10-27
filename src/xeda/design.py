@@ -67,7 +67,6 @@ from .proc_utils import run_child
 from .run_dir import DIR_NAME_HASH_LEN, RunDirectory, run_directory_name
 from .utils import (
     ConflictingKeys,
-    NonZeroExitCode,
     XedaException,
     expand_env_vars,
     expand_hierarchy,
@@ -1409,25 +1408,19 @@ class Generator(XedaBaseModel):
             # Pass it separately to preserve argv[0] and symlink-alias behavior for wrappers.
             executable = str(self.execution_executable_path(root, cmd))
         log.info("Running command: '%s'", " ".join(cmd))
-        # Check the status here, not in `subprocess.run`, so that a failing generator raises
-        # `NonZeroExitCode`, like the other two spellings of a generator, and not a raw
-        # `CalledProcessError`.
-        wanted = self.check if check is None else check
         # The output of the generator goes where tool output goes (`run_child`): it does not
         # corrupt a `--json` document and does not reach the standard streams of a library caller.
-        p = run_child(
+        # A failing generator raises `NonZeroExitCode`, as the other two spellings of a generator.
+        return run_child(
             cmd,
             source=cmd[0] if cmd else "generator",
             cwd=self.working_directory(root),
             executable=executable,
-            check=False,
+            check=self.check if check is None else check,
             stdout=stdout,
             stderr=stderr,
             env=self.env,
         )
-        if wanted and p.returncode:
-            raise NonZeroExitCode(cmd, p.returncode)
-        return p
 
     @property
     def name(self) -> str:
@@ -2970,12 +2963,14 @@ class Design(XedaBaseModel):
                     if _planning_load.get():
                         raise ValueError("Cannot plan a design that needs a generator")
                     log.info("Running generator command: %s", generator)
-                    exit_code = run_child(
-                        generator, source="generator", shell=True, cwd=design_root, env=env
-                    ).returncode
-                    if exit_code != 0:
-                        log.error("Generator '%s' failed with exit code %d", generator, exit_code)
-                        raise NonZeroExitCode(generator, exit_code)
+                    run_child(
+                        generator,
+                        source="generator",
+                        shell=True,
+                        check=True,
+                        cwd=design_root,
+                        env=env,
+                    )
                 elif isinstance(generator, (dict, Generator)):
                     if isinstance(generator, (dict)):
                         clazz = generator.get("class") or generator.get("use")

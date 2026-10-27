@@ -16,6 +16,7 @@ import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
+import contextvars
 from contextvars import ContextVar
 from pathlib import Path
 from typing import IO, Any, Dict, Iterator, List, Literal, Optional, TextIO, Tuple, Union, cast
@@ -145,30 +146,35 @@ def run_child(
     The child writes where `child_stdout()` says (its own standard error as before). In `"log"`
     mode its output, error output included, goes to the `xeda` logger at INFO, one record for
     each line, with `source` in front, and `stdout` of the result is empty. A caller that gives
-    `stdout` gets it as it is."""
+    `stdout` gets it as it is. With `check`, a nonzero exit raises `NonZeroExitCode`, which says
+    the last lines of the output in `"log"` mode."""
+    check = kwargs.pop("check", False)
+    tail: list[str] = []
     if stdout is not None or TOOL_OUTPUT.get() == "terminal":
-        return subprocess.run(
+        done = subprocess.run(
             command, cwd=cwd, stdout=child_stdout() if stdout is None else stdout, **kwargs
         )
-    if kwargs.get("stderr") is None:
-        kwargs["stderr"] = subprocess.STDOUT
-    check = kwargs.pop("check", False)
-    done = subprocess.run(
-        command,
-        cwd=cwd,
-        stdout=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-        **kwargs,
-    )
-    # The lines are logged before a failure is raised: they say why the child failed.
-    for line in (done.stdout or "").splitlines():
-        log.info("%s: %s", source, line)
-    done.stdout = ""
-    if check:
-        done.check_returncode()
+    else:
+        if kwargs.get("stderr") is None:
+            kwargs["stderr"] = subprocess.STDOUT
+        done = subprocess.run(
+            command,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            **kwargs,
+        )
+        # The lines are logged before a failure is raised: they say why the child failed.
+        lines = (done.stdout or "").splitlines()
+        for line in lines:
+            log.info("%s: %s", source, line)
+        done.stdout = ""
+        tail = lines[-OUTPUT_TAIL_LINES:]
+    if check and done.returncode != 0:
+        raise _nonzero_exit(command, done.returncode, tail)
     return done
 
 
@@ -607,13 +613,17 @@ def _finish(
         assert timeout is not None
         raise ProcessTimeout(command, timeout)
     if check and proc.returncode != 0:
-        if tail:
-            raise NonZeroExitCode(
-                command,
-                proc.returncode,
-                "The last lines of its output:\n" + "\n".join(tail),
-            )
-        raise NonZeroExitCode(command, proc.returncode)
+        raise _nonzero_exit(command, proc.returncode, tail)
+
+
+def _nonzero_exit(command: Any, exit_code: int, tail: Sequence[str]) -> NonZeroExitCode:
+    """Return the error of a command that exited with `exit_code`. It says `tail`, the last lines
+    of the output of a command that has no log."""
+    if tail:
+        return NonZeroExitCode(
+            command, exit_code, "The last lines of its output:\n" + "\n".join(tail)
+        )
+    return NonZeroExitCode(command, exit_code)
 
 
 def _run_inherited(
@@ -741,9 +751,7 @@ def _run_copying(
             pump = None
             if errors_apart:
                 assert proc.stderr is not None and tool_log is not None
-                pump = threading.Thread(
-                    target=_copy_errors, args=(proc.stderr, tool_log, show, name), daemon=True
-                )
+                pump = _context_thread(_copy_errors, proc.stderr, tool_log, show, name)
                 pump.start()
             terminal_fd = _stdout_terminal_fd() if show else None
             with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
@@ -772,6 +780,14 @@ def _run_copying(
             if pump is not None:
                 pump.join(PROCESS_STOP_GRACE)
             _finish(command, proc, deadline, check, timeout, tail)
+
+
+def _context_thread(target: Any, *args: Any) -> threading.Thread:
+    """Return a daemon thread that runs `target(*args)` in a copy of the current context, so
+    that its log records carry the launch and the node of the caller."""
+    return threading.Thread(
+        target=contextvars.copy_context().run, args=(target, *args), daemon=True
+    )
 
 
 def _copy_errors(pipe: IO[str], tool_log: _LogFile | None, show: bool, name: str) -> None:
@@ -830,9 +846,7 @@ def _run_to_file(
         ) as proc:
             log.debug("Started %s[%d]", command[0], proc.pid)
             assert proc.stderr is not None
-            pump = threading.Thread(
-                target=_copy_errors, args=(proc.stderr, tool_log, show, name), daemon=True
-            )
+            pump = _context_thread(_copy_errors, proc.stderr, tool_log, show, name)
             pump.start()
             with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
                 log.info("Standard output is redirected to: %s", os.path.abspath(stdout))
