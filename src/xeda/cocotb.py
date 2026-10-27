@@ -423,6 +423,26 @@ class Cocotb(CocotbSettings, Tool):
         compiles it), so without this prefix every cocotb run would write into the user's tree."""
         return self.working_directory() / "__pycache__"
 
+    def check_python_packages(self, python_bin: str, packages: List[str]) -> None:
+        """Check testbench distributions in the Python that cocotb will embed."""
+        if not packages:
+            return
+        script = (
+            "import importlib.metadata as metadata\n"
+            "import sys\n"
+            "for name in sys.argv[1:]:\n"
+            "    try:\n"
+            "        metadata.version(name)\n"
+            "    except metadata.PackageNotFoundError:\n"
+            "        print(name)\n"
+        )
+        missing = self.derive(python_bin).probe_stdout("-B", "-c", script, *packages)
+        if missing:
+            raise ToolException(
+                f"`tb.python_packages` lists missing distributions in cocotb's Python at "
+                f"{python_bin}: {', '.join(missing.splitlines())}"
+            )
+
     def env(self, design: Design) -> Dict[str, Any]:
         """Return the environment a simulator needs to run the design's cocotb testbench.
 
@@ -432,7 +452,6 @@ class Cocotb(CocotbSettings, Tool):
         """
         environ: Dict[str, Any] = dict()
         if design.tb.cocotb:
-            self.discard_results()
             if design.tb is None or not design.tb.sources:
                 raise ValueError("'design.tb.cocotb' is set, but 'design.tb.sources' is empty.")
             if not design.tb.top:
@@ -475,6 +494,8 @@ class Cocotb(CocotbSettings, Tool):
                     "cocotb-config did not report its Python executable; install a supported "
                     "cocotb version or set PYGPI_PYTHON_BIN"
                 )
+            self.check_python_packages(python_bin, design.tb.python_packages)
+            self.discard_results()
             environ = {
                 "MODULE": coco_module,
                 "COCOTB_TEST_MODULES": coco_module,

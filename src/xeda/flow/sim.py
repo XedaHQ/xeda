@@ -464,17 +464,19 @@ class SimFlow(Flow, metaclass=ABCMeta):
         `tb.top`, unless the simulator knows what to run without it
         (`runs_without_testbench_top`). Otherwise the simulator would simulate `rtl.top`, which
         has no stimulus. A simulator with an `sdf` setting needs the instance that an SDF file
-        annotates: `sdf.root`, or else `tb.uut`. Every package of `tb.python_packages` must be
-        installed in the Python environment that runs Xeda."""
+        annotates: `sdf.root`, or else `tb.uut`. A non-cocotb testbench needs every package of
+        `tb.python_packages` in the Python environment that runs Xeda. Cocotb checks its selected
+        Python when the simulator starts, since planning does not start tools."""
         super().check_design_supported(design, settings)
-        for package in design.tb.python_packages:
-            try:
-                metadata.version(package)
-            except metadata.PackageNotFoundError:
-                raise FlowSettingsException(
-                    f"`tb.python_packages` lists `{package}`, but it is not installed. Install "
-                    "it in the Python environment that runs Xeda."
-                ) from None
+        if not design.tb.cocotb:
+            for package in design.tb.python_packages:
+                try:
+                    metadata.version(package)
+                except metadata.PackageNotFoundError:
+                    raise FlowSettingsException(
+                        f"`tb.python_packages` lists `{package}`, but it is not installed. "
+                        "Install it in the Python environment that runs Xeda."
+                    ) from None
         if design.tb.cocotb and not cls.cocotb_sim_name:
             # API callers may have loaded only their own simulator. Include built-ins too.
             from importlib import import_module

@@ -8,6 +8,8 @@ tb:
   sources:
     - "fifo_tb.py"
   top: fifo_tb
+  python_packages:
+    - cocotb-coverage
 flows:
   verilator:
     timing: false
