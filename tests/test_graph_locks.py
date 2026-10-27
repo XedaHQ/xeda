@@ -22,6 +22,7 @@ from xeda.errors import LeaseHeldError
 from xeda.flow_runner import DefaultRunner, launch_generation, launch_locks, run_lock
 from xeda.flow_runner.dse.dse_runner import Dse
 from xeda.flow_runner.dse.fmax import FmaxOptimizer
+from xeda.flow_runner.scrub import scrub_design, scrub_generations, scrub_runs
 from xeda.flow_runner.run_lock import (
     LockRequest,
     LockWaitCanceled,
@@ -42,6 +43,8 @@ from .flow_registry import preserved_flow_registry
 from .generation_world import World, reader_flow
 from .io_flows import _Maker, _Taker
 from .test_storage_locks import PROBE, _probe
+from .test_target_scrub import FLOW as SCRUB_FLOW
+from .test_target_scrub import Tree
 from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no run-directory locks")
@@ -975,3 +978,32 @@ def test_a_sweep_is_refused_by_a_thread_that_holds_a_lock(tmp_path):
         with pytest.raises(LeaseHeldError) as caught:
             sweep.run_flow(_Maker, _design(tmp_path), {})
     assert caught.value.code == "lease_held"
+
+
+def test_a_scrub_is_refused_by_a_thread_that_holds_a_lock(tmp_path):
+    tree = Tree(tmp_path)
+    with run_lock.run_dir_read_lock(tree.root / "other" / "flow", tree.root):
+        with pytest.raises(LeaseHeldError) as caught:
+            scrub_design(SCRUB_FLOW, tree.design, run_root=tree.root, confirm=lambda _: True)
+        assert caught.value.code == "lease_held"
+        with pytest.raises(LeaseHeldError):
+            scrub_runs(SCRUB_FLOW, tree.design, run_root=tree.root, confirm=lambda _: True)
+        with pytest.raises(LeaseHeldError):
+            scrub_generations("d", run_root=tree.root, confirm=lambda _: True)
+    assert all(path.exists() for path in tree.everything), "a refused scrub removes nothing"
+
+
+def test_a_scrub_holds_one_lock_at_a_time(tmp_path, monkeypatch):
+    """Scrub waits for each lock, so it never keeps one while it waits for the next."""
+    tree = Tree(tmp_path)
+    me = (os.getpid(), threading.get_ident())
+    most: list[int] = [0]
+
+    def count(_path: Path) -> None:
+        held = sum(1 for key in run_lock._held if key[:2] == me)
+        most[0] = max(most[0], held)
+
+    monkeypatch.setattr(run_lock, "acquired_hook", count)
+    result = scrub_design(SCRUB_FLOW, tree.design, run_root=tree.root, confirm=lambda _: True)
+    assert sorted(result.removed) == sorted(tree.everything)
+    assert most[0] == 1

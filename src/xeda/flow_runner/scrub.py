@@ -25,7 +25,7 @@ from ..run_dir import (
 )
 from ..generation import GENERATION_DIRECTORY
 from ..utils import unique
-from .run_lock import run_dir_lock, storage_lock
+from .run_lock import refuse_if_held, run_dir_lock, storage_lock
 
 log = logging.getLogger(__name__)
 
@@ -422,7 +422,11 @@ def scrub_runs(
     never reaches the directory of another target. Each directory is removed as a run directory
     claimed under `run_root` (default: the parent of `dir`), the real run root, so none that
     leads out of it is ever removed. The links to it that the listing found (`_listed`) go with
-    it. A link named like a run directory that is none is logged and left alone."""
+    it. A link named like a run directory that is none is logged and left alone.
+
+    Scrub takes one exclusive lock at a time and waits for it, so a thread that holds a lock of
+    Xeda is refused (`LeaseHeldError`)."""
+    refuse_if_held()
     if run_root is None:
         run_root = dir.parent
     root = run_root.resolve()
@@ -467,7 +471,11 @@ def scrub_design(
     reason. A `target` that is no target name is a `RunDirectoryError`, before anything is
     looked at. So is a symbolic link at the design or the named target (`refuse_link_on_way`);
     the error names it. A link found at a target below the design is not followed: it is logged
-    and returned as `skipped`."""
+    and returned as `skipped`.
+
+    Scrub takes one exclusive lock at a time and waits for it, so a thread that holds a lock of
+    Xeda is refused (`LeaseHeldError`)."""
+    refuse_if_held()
     root = run_root.resolve()
     design_dir = _rooted_path(design_dir, run_root, root)
     run_root = root
@@ -512,7 +520,9 @@ def scrub_generations(
     is removed, because the library never asks. Each storage is removed under its exclusive lock,
     which a launch holds in the shared mode for as long as it reads the storage. So scrub waits
     for every launch that reads a storage before it removes that storage. A storage that is gone
-    when its turn comes is reported as `gone`."""
+    when its turn comes is reported as `gone`. A thread that holds a lock of Xeda is refused
+    (`LeaseHeldError`), because scrub waits for each lock."""
+    refuse_if_held()
     run_root = run_root.resolve()
     base = run_root / GENERATION_DIRECTORY / design_name
     refuse_link_on_way(base, run_root)
