@@ -828,7 +828,7 @@ def test_a_launch_that_waits_for_its_first_lock_observes_cancellation(tmp_path, 
     waiting = threading.Event()
     monkeypatch.setattr(run_lock, "wait_hook", lambda path: waiting.set())
     runner = DefaultRunner(root, display_results=False)
-    runner.canceled = waiting.is_set
+    runner._canceled = waiting.is_set
     monkeypatch.setattr(_Maker, "run", lambda self: pytest.fail("it ran"))
     with run_lock.run_dir_lock(root / "d" / "__maker", root):
         launch, outcome = _in_thread(lambda: runner.launch_flow(_Maker, design, {}))
@@ -846,7 +846,7 @@ def test_a_delivery_that_waits_for_a_destination_observes_cancellation(tmp_path,
     waiting = threading.Event()
     monkeypatch.setattr(run_lock, "wait_hook", lambda path: waiting.set())
     runner = DefaultRunner(root, display_results=False, outputs_to=destination)
-    runner.canceled = waiting.is_set
+    runner._canceled = waiting.is_set
     with destination_lock(destination / "made.txt", root):
         launch, outcome = _in_thread(lambda: runner.launch_flow(_Maker, design, {}))
         _join(launch)

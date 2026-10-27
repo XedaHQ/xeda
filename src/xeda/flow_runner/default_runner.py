@@ -468,7 +468,7 @@ class FlowLauncher:
         self._restarts = 0
         #: Told while the launch waits for a lock. When it says yes, the wait ends and the launch
         #: releases everything (`run_lock.LockWaitCanceled`).
-        self.canceled: Callable[[], bool] | None = None
+        self._canceled: Callable[[], bool] | None = None
         #: How many flows `launched` held when the current launch began.
         self._launched_before = 0
         #: The replacements the user confirmed in the current launch, each as the file was then.
@@ -1021,7 +1021,7 @@ class FlowLauncher:
             stack=self._leases,
             participants=self._node_locks,
             leases=leases,
-            canceled=self.canceled,
+            canceled=self._canceled,
         )
         self._locks = settled.locks
         execution = launch_generation.execution_design(design, settled.generations)
@@ -1079,7 +1079,7 @@ class FlowLauncher:
                 with acquire_all(
                     [r for _flow, delivery in deliveries for r in delivery.lock_requests()],
                     run_root=self.run_root,
-                    canceled=self.canceled,
+                    canceled=self._canceled,
                     wait_in_order=True,
                 ):
                     for flow, delivery in deliveries:
