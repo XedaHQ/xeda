@@ -472,6 +472,34 @@ def test_the_lock_of_a_destination_lies_under_the_run_root(tmp_path):
     assert not destination.parent.exists(), "the lock makes nothing at the destination"
 
 
+def test_a_locks_directory_that_is_a_link_is_refused_before_anything_is_made(tmp_path):
+    root, _, _ = _tree(tmp_path)
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / ".locks").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(RunDirectoryError, match="symbolic link"):
+        destination_lock(tmp_path / "user" / "result.txt", root).__enter__()
+    assert list(outside.iterdir()) == [], "nothing is made where the link leads"
+    assert not (tmp_path / "user").exists()
+
+
+def test_a_launch_whose_locks_directory_is_a_link_delivers_nothing(tmp_path):
+    root = ensure_run_root(tmp_path / "xeda_run")
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / ".locks").symlink_to(outside, target_is_directory=True)
+    user = tmp_path / "user"
+    user.mkdir()
+    runner = DefaultRunner(root, display_results=False, outputs_to=user)
+    with pytest.raises(RunDirectoryError, match="symbolic link"):
+        runner.launch_flow(_Maker, design, {})
+    assert list(outside.iterdir()) == [], "nothing is made where the link leads"
+    assert not (user / "made.txt").exists()
+
+
 def test_two_spellings_of_one_destination_are_one_lock(tmp_path, monkeypatch):
     root, _, _ = _tree(tmp_path)
     user = tmp_path / "user"

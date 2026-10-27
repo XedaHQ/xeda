@@ -234,6 +234,9 @@ def _resolve(request: LockRequest, run_root: Path | None) -> _Target:
         file = _destination_lock_file(request.path, run_root)
     else:
         file = lock_file(request.path, run_root)
+    if run_root is not None:
+        # Before any directory is made: a link at `.locks` or below would send it elsewhere.
+        RunDirectory(run_root, run_root).unlinked(file)
     file.parent.mkdir(parents=True, exist_ok=True)
     return _Target(request, file, _resource_key(file))
 
