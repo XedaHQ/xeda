@@ -82,6 +82,7 @@ class Quartus(FpgaSynthFlow):
     """Compile a design for an Intel FPGA with Quartus."""
 
     executables = ("quartus_sh",)
+    locator_variables = ("QUARTUS_ROOTDIR", "LM_LICENSE_FILE")
 
     artifacts_description = describe_artifacts(
         "log",

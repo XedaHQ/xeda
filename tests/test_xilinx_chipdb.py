@@ -2,6 +2,7 @@
 
 import builtins
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -137,7 +138,7 @@ def generation(prefix, tmp_path):
 def _prepare(api, generation):
     prefix, owned, _mode, _calls = generation
     layout, selection = _selection(api, prefix)
-    return api.prepare_chipdb(layout, selection, owned)
+    return api.prepare_chipdb(layout, selection, owned, environment=dict(os.environ))
 
 
 def test_generated_cache_is_atomic_immutable_and_shared(api, generation):
@@ -154,7 +155,7 @@ def test_generated_cache_is_atomic_immutable_and_shared(api, generation):
     assert manifest["inputs"]["bbasm_digest"] == identity.bbasm_digest
     states = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in chipdb.parent.iterdir()}
     other = RunDirectory.claimed(owned.run_root / "other/consumer", owned.run_root)
-    assert api.prepare_chipdb(layout, selection, other) == chipdb
+    assert api.prepare_chipdb(layout, selection, other, environment=dict(os.environ)) == chipdb
     assert states == {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in states}
     assert before == {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}
     assert not list(prefix.rglob("__pycache__"))
@@ -244,7 +245,7 @@ def test_explicit_read_only_chipdb_needs_no_owned_cache(api, prefix, tmp_path):
     before = _identity_and_content_state(chipdb)
     layout, selection = _selection(api, prefix, chipdb=chipdb)
     owned = RunDirectory.unlaunched(tmp_path / "unlaunched")
-    assert api.prepare_chipdb(layout, selection, owned) == chipdb
+    assert api.prepare_chipdb(layout, selection, owned, environment=dict(os.environ)) == chipdb
     assert _identity_and_content_state(chipdb) == before
     assert not owned.path.exists()
 
@@ -256,7 +257,7 @@ def test_automatic_generation_requires_a_marked_claimed_root(api, generation, tm
         RunDirectory.claimed(tmp_path / "d", tmp_path),
     ):
         with pytest.raises(FlowFatalError, match="claimed|marked"):
-            api.prepare_chipdb(layout, selection, owned)
+            api.prepare_chipdb(layout, selection, owned, environment=dict(os.environ))
 
 
 def test_inputs_changed_during_generation_are_not_published(api, generation, monkeypatch):
@@ -279,13 +280,14 @@ def test_inputs_changed_during_generation_are_not_published(api, generation, mon
 def test_two_processes_share_one_generation(api, generation):
     prefix, owned, _mode, calls = generation
     script = (
-        "import sys\nfrom pathlib import Path\n"
+        "import os, sys\nfrom pathlib import Path\n"
         "from xeda.flows.xilinx import find_xilinx_layout, select_xilinx, prepare_chipdb\n"
         "from xeda.run_dir import RunDirectory\n"
         "layout = find_xilinx_layout(Path(sys.argv[1]))\n"
         "selection = select_xilinx('xc7a100tcsg324-1', layout)\n"
         "root = Path(sys.argv[2])\n"
-        "print(prepare_chipdb(layout, selection, RunDirectory.claimed(root / sys.argv[3], root)))\n"
+        "print(prepare_chipdb(layout, selection, RunDirectory.claimed(root / sys.argv[3], root),\n"
+        "      environment=dict(os.environ)))\n"
     )
     processes = [
         subprocess.Popen(

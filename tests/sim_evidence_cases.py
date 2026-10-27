@@ -32,6 +32,11 @@ def _placed(directory: Path, path):
     return None if path is None else directory / path
 
 
+def _with_fake_state(kwargs, variable: str, state: str):
+    """Pass a fake tool state through the environment of the child process."""
+    return {**kwargs, "env": {**(kwargs.get("env") or {}), variable: state}}
+
+
 @dataclass(frozen=True)
 class SimCase:
     flow: str
@@ -180,7 +185,9 @@ def launch_case(
                 )
             return original(tool, executable, *args, **kwargs)
         if case.flow == "vcs" and name in ("vlogan", "vhdlan", "vcs", "simv"):
-            monkeypatch.setenv("XEDA_FAKE_VCS_STATE", "finish5" if positive else "silent")
+            kwargs = _with_fake_state(
+                kwargs, "XEDA_FAKE_VCS_STATE", "finish5" if positive else "silent"
+            )
             result = original(tool, executable, *args, **kwargs)
             if name == "simv" or name == "vcs" and "-R" in words:
                 assert (cwd / "fake_vcs.runtime").read_text() == "runtime executed"
@@ -191,10 +198,14 @@ def launch_case(
         if case.backend in ("vcs", "vcsi") and Path(executable).parent.name == "sim_build":
             (cwd / executable).unlink(missing_ok=True)
             (cwd / executable).symlink_to(FAKE.resolve())
-            monkeypatch.setenv("XEDA_FAKE_VCS_STATE", "finish5" if positive else "silent")
+            kwargs = _with_fake_state(
+                kwargs, "XEDA_FAKE_VCS_STATE", "finish5" if positive else "silent"
+            )
             return use_fake_vcs_execute(original, tool, executable, args, kwargs)
         if (case.flow == "modelsim" or case.backend in ("modelsim", "questa")) and name == "vsim":
-            monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", "finish0" if positive else "silent")
+            kwargs = _with_fake_state(
+                kwargs, "XEDA_FAKE_MODELSIM_STATE", "finish0" if positive else "silent"
+            )
             result = original(tool, executable, *args, **kwargs)
             assert (cwd / "fake_vsim.runtime").read_text().strip() == "runtime executed"
             (cwd / "oracle.runtime").write_text("runtime executed")
@@ -226,7 +237,9 @@ def launch_case(
             (cwd / "oracle.runtime").write_text("runtime executed")
             return ""
         if name == "vivado" and "-source" in words and case.flow.startswith("vivado"):
-            monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish0" if positive else "silent")
+            kwargs = _with_fake_state(
+                kwargs, "XEDA_FAKE_XSIM_STATE", "finish0" if positive else "silent"
+            )
             result = original(tool, executable, *args, **kwargs)
             assert (cwd / "fake_xsim.runtime").is_file()
             (cwd / "oracle.runtime").write_text("runtime executed")

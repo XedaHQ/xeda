@@ -73,6 +73,7 @@ from ..records import ErrorInfo
 from ..version import __version__
 from .code_digest import CodeDigests
 from .configuration import configuration_hash
+from .environment import EnvironmentSnapshot, environment_evidence
 from .run_lock import lock_file
 from .trace import (
     RESERVED_FILES,
@@ -644,6 +645,7 @@ def expected_run(
     declared: Sequence[DeclaredInputRecord],
     dependency_run_ids: Mapping[str, str],
     digests: CodeDigests,
+    environment: EnvironmentSnapshot,
 ) -> Expectation:
     """Return what a run of a flow would consume now, from explicit data.
 
@@ -653,7 +655,12 @@ def expected_run(
     `prepare_inputs()` (`Flow.locate_prepared_inputs` says where they are without making them).
     `declared` are its input records with what the producers handed over, and
     `dependency_run_ids` are the runs consumed, as provenance. `digests` holds the code digests
-    of the launch (`code_digest.CodeDigests`), which a launch keeps for its length and no longer."""
+    of the launch (`code_digest.CodeDigests`), which a launch keeps for its length and no longer.
+    `environment` is the snapshot of the launch: the digest of what the node inherits is part of
+    what it would consume."""
+    environment_digest, environment_names = environment_evidence(
+        environment, input_settings, flow_class
+    )
     return Expectation(
         flow=name,
         flowrun_hash=flowrun_hash,
@@ -675,6 +682,8 @@ def expected_run(
         dependencies=tuple(
             (d.repository, d.commit) for d in design.resolved_dependencies if d.commit is not None
         ),
+        environment_digest=environment_digest,
+        environment_names=tuple(environment_names),
     )
 
 
@@ -718,6 +727,7 @@ def expectation(
         registered=flow.implicit_inputs if registered is None else registered,
         declared=getattr(flow, "declared_input_records", ()),
         dependency_run_ids=dependency_runs(producers, run_root),
+        environment=flow.environment,
         digests=digests,
     )
 
@@ -1078,6 +1088,8 @@ def build_trace(
         xeda_code=expected.xeda_code,
         flow_code=expected.flow_code,
         dependencies=[DependencyCommit(repository=r, commit=c) for r, c in expected.dependencies],
+        environment_digest=expected.environment_digest,
+        environment_names=list(expected.environment_names),
         programs=_programs(programs, previous),
         dependency_runs=dict(expected.dependency_runs),
         setting_locations={key: list(value) for key, value in expected.setting_locations.items()},

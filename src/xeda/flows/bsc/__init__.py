@@ -962,15 +962,6 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 'set unspecified_to to "0", "1" or "A"'
             )
 
-    def _warn_about_environment(self) -> None:
-        """Warn that `BSC_OPTIONS` makes the run depend on more than the settings."""
-        if "BSC_OPTIONS" in os.environ:
-            log.warning(
-                "BSC_OPTIONS is set (%r): bsc prepends it to every command line, so the run "
-                "does not depend on its settings alone",
-                os.environ["BSC_OPTIONS"],
-            )
-
     def _prepare_dirs(self, out_dir: Path) -> None:
         """Create the directories bsc writes to, and remove what an earlier run left in them: the
         Verilog modules it generated always, and its packages with `cleanup_bobjs`. bsc writes
@@ -1165,7 +1156,6 @@ class Bsc(BscFlow):
         assert isinstance(self.settings, self.Settings)
         self.check_design_supported(self.design, self.settings)
         self.check_settings_supported(self.settings)
-        self._warn_about_environment()
         _ = self.bsc  # constructing it checks its version: an old bsc fails before anything runs
 
     def _vendor_verilog_dirs(self) -> list[str | Path]:
@@ -1674,7 +1664,6 @@ class BscSim(BscFlow, SimFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
         self.check_settings_supported(ss)
-        self._warn_about_environment()
         _ = self.bsc  # constructing it checks its version: an old bsc fails before anything runs
         if ss.simulator == "verilator":
             _ = self._verilator()

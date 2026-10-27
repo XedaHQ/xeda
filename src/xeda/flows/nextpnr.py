@@ -848,7 +848,11 @@ class Nextpnr(FpgaSynthFlow):
         if layout.chipdb is None:
             self._chipdb_identity = chipdb_identity(layout, selection)
         self._chipdb = prepare_chipdb(
-            layout, selection, self.run_directory, getattr(self, "_chipdb_identity", None)
+            layout,
+            selection,
+            self.run_directory,
+            getattr(self, "_chipdb_identity", None),
+            environment=self.process_environment(),
         )
         self.implicit_inputs.append(self._chipdb)
 

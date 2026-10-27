@@ -30,6 +30,8 @@ def test_the_settings_of_every_flow_are_the_contract_set():
         "lib_paths",
         "docker",
         "docker_image",
+        "env",
+        "inherit_env",
     }
 
 

@@ -14,7 +14,7 @@ import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from pprint import PrettyPrinter
@@ -109,6 +109,7 @@ from .chains import ChainElement, FlowRequest, parse_request
 from .layer_paths import anchored_sections
 from .code_digest import CodeDigests
 from .configuration import configuration_hash, design_configuration_hash
+from .environment import EnvironmentSnapshot
 from .error_codes import error_info
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
@@ -290,6 +291,8 @@ class _Request:
     #: The design as the caller gave it, before planning merged its dependencies. A remote
     #: request packages it with the Git dependencies as references.
     declared: Design
+    #: The private `env` of the local settings that the request was given (`LocalSettings.env`).
+    private_env: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -493,6 +496,11 @@ class FlowLauncher:
         self._read_inputs = ReadInputs()
         #: The code digests of the current launch (`code_digest.CodeDigests`).
         self._code_digests = CodeDigests()
+        #: The environment of the current launch, read once at its start
+        #: (`environment.EnvironmentSnapshot`). A sweep gives its workers one snapshot
+        #: (`_pinned_environment`), which they keep instead of reading again.
+        self._environment: EnvironmentSnapshot | None = None
+        self._pinned_environment: EnvironmentSnapshot | None = None
         self._delivered_files = DeliveredFiles()
         #: The deliveries of the current launch's flows, made when it has finished.
         self._pending_deliveries: List[Tuple[Flow, Deliveries]] = []
@@ -871,6 +879,10 @@ class FlowLauncher:
             self._generation_state = launch_generation.GenerationState()
             self._node_locks = None
             self._restarts = 0
+            request = self._request_context
+            self._environment = self._pinned_environment or EnvironmentSnapshot.take(
+                request.private_env if request is not None else {}
+            )
         while True:
             if top_level:
                 self._claims = set()
@@ -991,7 +1003,8 @@ class FlowLauncher:
         exclusive (`launch_locks.NeedsExclusive`)."""
         rebuild_all = self.settings.rebuild_all or self.settings.clean
         run_root = self.run_root
-        environ = dict(os.environ)
+        assert self._environment is not None
+        environ = dict(self._environment.inherited)
         if self._node_locks is None:
             self._node_locks = launch_locks.NodeLocks(
                 {planned.name: planned.run_path for planned in plan.nodes},
@@ -1004,7 +1017,7 @@ class FlowLauncher:
                     clean=self._run_dir_policy().clean,
                     debug=self.debug or self.settings.debug,
                     run_path=self.run_path_of,
-                    environ=environ,
+                    environment=self._environment,
                 ),
                 everything_runs=rebuild_all,
             )
@@ -1507,6 +1520,7 @@ class FlowLauncher:
                 run_path,
                 runner_cwd=runner_cwd,
                 run_directory=run_directory,
+                environment=self._environment,
             )
             untouched = False
             failure: BaseException | None = None
@@ -2306,6 +2320,7 @@ class FlowLauncher:
             clean=self._run_dir_policy().clean,
             debug=self.debug or self.settings.debug,
             run_path=self.run_path_of,
+            environment=EnvironmentSnapshot.take(request.private_env),
         )
         return plan, states
 
@@ -2763,6 +2778,7 @@ class FlowLauncher:
             flow_request,
             binding_layers,
             design,
+            dict(local_settings.env) if local_settings is not None else {},
         )
 
 

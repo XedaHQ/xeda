@@ -40,6 +40,7 @@ from .test_openroad_final import (
 from .setting_texts import text_items
 from .tiny_platform import TINY_RESIDUE, tiny_store
 from .tool_utils import (
+    failing_tool_commands,
     fake_returns,
     require_bsc,
     require_tclsh,
@@ -569,8 +570,7 @@ def test_a_failed_stage_reruns_alone(tmp_path, monkeypatch, chain):
     trace. The stages after it are blocked, and the stage before it stays fresh. The next launch,
     without the failure, runs the failed stage and the two after it again and not the first."""
     settings = ["flows.openroad.fail_timing=false"]
-    with monkeypatch.context() as failing:
-        failing.setenv("XEDA_FAKE_TOOL_FAIL", "clock_tree_synthesis")
+    with failing_tool_commands(monkeypatch, tmp_path, "clock_tree_synthesis"):
         result, document = xeda_run(tmp_path, *settings)
     assert result.exit_code == 1 and document["outcome"] == "failed"
     assert document["error"]["node"] == "openroad_cts"

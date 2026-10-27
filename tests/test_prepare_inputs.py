@@ -42,7 +42,9 @@ class _ChipdbTaker(_Taker):
     def prepare_inputs(self):
         assert self.inputs.made.read_text() == "made\n"
         assert _probe(self.inputs.made.parent) == "blocked"
-        self.chipdb = xilinx.prepare_chipdb(*self._layout(), self.run_directory)
+        self.chipdb = xilinx.prepare_chipdb(
+            *self._layout(), self.run_directory, environment=self.process_environment()
+        )
         self.implicit_inputs.append(self.chipdb)
 
     def run(self):
@@ -504,7 +506,7 @@ def test_a_launch_forms_the_identity_of_the_installation_once(tmp_path, monkeypa
     monkeypatch.setattr(module, "select_xilinx", lambda *a, **k: object())
     monkeypatch.setattr(module, "chipdb_identity", lambda *a: formed.append(1) or "identity")
     monkeypatch.setattr(
-        module, "prepare_chipdb", lambda layout, sel, rd, identity=None: tmp_path / "a.bin"
+        module, "prepare_chipdb", lambda layout, sel, rd, identity=None, **kw: tmp_path / "a.bin"
     )
     monkeypatch.setattr(
         module,

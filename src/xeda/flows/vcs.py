@@ -1,5 +1,4 @@
 import logging
-import os
 from pathlib import Path
 from typing import ClassVar, Dict, List, Literal, Optional, Union
 
@@ -36,6 +35,7 @@ class Vcs(SimFlow):
     """
 
     executables = ("vcs", "vlogan", "vhdlan", "fsdb2vcd", "vpd2vcd")
+    locator_variables = ("VCS_HOME", "SNPSLMD_LICENSE_FILE", "LM_LICENSE_FILE", "*_LICENSE_FILE")
 
     artifacts_description = describe_artifacts(
         "log",
@@ -338,8 +338,8 @@ class Vcs(SimFlow):
                 )
             stop_time = f"{stop_fs}fs"
         env = {
-            "VCS_TARGET_ARCH": os.environ.get("VCS_TARGET_ARCH", "amd64"),
-            "VCS_ARCH_OVERRIDE": os.environ.get("VCS_ARCH_OVERRIDE", "linux"),
+            "VCS_TARGET_ARCH": self.env_view.get("VCS_TARGET_ARCH", "amd64"),
+            "VCS_ARCH_OVERRIDE": self.env_view.get("VCS_ARCH_OVERRIDE", "linux"),
         }
         vlogan_args = list(ss.vlogan_flags)
         vhdlan_args = list(ss.vhdlan_flags)

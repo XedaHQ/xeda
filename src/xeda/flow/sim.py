@@ -10,7 +10,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Literal, Mapping, Optional, Union
 
-from ..cocotb import Cocotb, CocotbSettings
+from ..cocotb import Cocotb, CocotbSettings, cocotb_variable_problem
 from ..dataclass import (
     COMPRESSED_FORMATS,
     Field,
@@ -477,6 +477,11 @@ class SimFlow(Flow, metaclass=ABCMeta):
                         f"`tb.python_packages` lists `{package}`, but it is not installed. "
                         "Install it in the Python environment that runs Xeda."
                     ) from None
+        if design.tb.cocotb is not None and cls.cocotb_sim_name and settings is not None:
+            for name in settings.env:
+                problem = cocotb_variable_problem(name)
+                if problem is not None:
+                    raise FlowSettingsException(f"{cls.name}: {problem}", code="invalid_value")
         if design.tb.cocotb is not None and not cls.cocotb_sim_name:
             # API callers may have loaded only their own simulator. Include built-ins too.
             from importlib import import_module

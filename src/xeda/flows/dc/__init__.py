@@ -50,6 +50,7 @@ class Dc(AsicSynthFlow):
     """Synthesize a design for an ASIC with Synopsys Design Compiler."""
 
     executables = ("dc_shell",)
+    locator_variables = ("SNPSLMD_LICENSE_FILE", "LM_LICENSE_FILE")
 
     artifacts_description = describe_artifacts(
         "log",

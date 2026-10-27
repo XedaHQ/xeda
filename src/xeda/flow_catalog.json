@@ -76,6 +76,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -676,6 +691,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "docker": {
         "children": false,
@@ -1332,6 +1362,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -1624,6 +1669,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -1865,6 +1925,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -2080,6 +2155,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "docker": {
         "children": false,
@@ -2415,6 +2505,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -2703,6 +2808,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -2937,6 +3057,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -3104,6 +3239,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "docker": {
         "children": false,
@@ -3680,6 +3830,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -4005,6 +4170,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -4320,6 +4500,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "docker": {
         "children": false,
@@ -5176,6 +5371,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -5794,6 +6004,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "docker": {
         "children": false,
@@ -6415,6 +6640,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "docker": {
         "children": false,
@@ -8362,6 +8602,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -8699,6 +8954,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "docker": {
         "children": false,
@@ -9043,6 +9313,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -9364,6 +9649,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "docker": {
         "children": false,
@@ -9781,6 +10081,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -10127,6 +10442,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "docker": {
         "children": false,
@@ -10505,6 +10835,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -10718,6 +11063,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "docker": {
         "children": false,
@@ -11132,6 +11492,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -11368,6 +11743,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "docker": {
         "children": false,
@@ -11785,6 +12175,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -11931,6 +12336,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "ghdl.env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "ghdl.inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "ghdl.docker": {
         "children": false,
@@ -13242,6 +13662,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -13439,6 +13874,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "ghdl.env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "ghdl.inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "ghdl.docker": {
         "children": false,
@@ -14224,6 +14674,21 @@
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
       },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
       "docker": {
         "children": false,
         "assignable": true,
@@ -14396,6 +14861,21 @@
         "children": false,
         "assignable": true,
         "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "ghdl.env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "ghdl.inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
       },
       "ghdl.docker": {
         "children": false,

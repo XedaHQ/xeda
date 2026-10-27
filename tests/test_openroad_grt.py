@@ -31,7 +31,7 @@ from .openroad_utils import (
     run_fake_openroad,
 )
 from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
-from .tool_utils import fake_calls, require_tclsh, use_fake_openroad
+from .tool_utils import failing_tool_commands, fake_calls, require_tclsh, use_fake_openroad
 from .setting_texts import text_items
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
@@ -1410,8 +1410,7 @@ def test_a_failed_route_leaves_a_failed_database_and_no_trace(tmp_path, monkeypa
     _, settings = launch_settings(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design")
-    with monkeypatch.context() as failing:
-        failing.setenv("XEDA_FAKE_TOOL_FAIL", "global_route")
+    with failing_tool_commands(monkeypatch, tmp_path, "global_route"):
         failed = runner.run("openroad_grt", design, flow_settings=settings)
     assert failed is None or not failed.succeeded
     (grt_dir,) = (tmp_path / "xeda_run").rglob("openroad_grt")
@@ -1441,8 +1440,7 @@ def test_the_failure_of_the_process_names_the_flow_the_script_and_the_error(tmp_
     use_fake_openroad(monkeypatch)
     _, settings = launch_settings(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with monkeypatch.context() as failing:
-        failing.setenv("XEDA_FAKE_TOOL_FAIL", "global_route")
+    with failing_tool_commands(monkeypatch, tmp_path, "global_route"):
         runner.run("openroad_grt", openroad_design(tmp_path / "design"), flow_settings=settings)
     (grt_dir,) = (tmp_path / "xeda_run").rglob("openroad_grt")
     message = json.loads((grt_dir / "results.json").read_text())["error"]["message"]

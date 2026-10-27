@@ -723,6 +723,22 @@ def require_iverilog() -> None:
 FAKE_TOOLS_DIR = Path(__file__).parent / "fake_tools"
 
 
+@contextmanager
+def failing_tool_commands(
+    monkeypatch: pytest.MonkeyPatch, directory: Path, commands: str
+) -> Iterator[None]:
+    """Make the fake OpenROAD fail the `commands` (a Tcl list) inside the block. The launches
+    inside and outside the block have the same environment, so a node that ran before the failure
+    stays up to date (the environment of a node is part of its trace)."""
+    path = directory / "fake-tool-fail.txt"
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL_FILE", str(path))
+    path.write_text(commands)
+    try:
+        yield
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def use_fake_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     """Put the fake tools first on PATH for the rest of the test."""
     loader = FAKE_TOOLS_DIR / "openFPGALoader"

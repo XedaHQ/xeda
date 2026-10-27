@@ -2510,11 +2510,11 @@ def test_a_failed_merge_reports_the_errors_of_the_script(tmp_path, monkeypatch):
 def test_a_missing_klayout_is_a_tool_error(tmp_path, monkeypatch):
     empty = tmp_path / "empty"
     empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))  # the flow reads the environment when it is made
     flow = gds_flow(tmp_path)
     in_run_directory(flow, monkeypatch)
     flow.set_final_outputs()
     Path(flow.run_path, "final.def").write_text("VERSION 5.8 ;\n")
-    monkeypatch.setenv("PATH", str(empty))
     with pytest.raises(ExecutableNotFound):
         flow.run_gds()
 

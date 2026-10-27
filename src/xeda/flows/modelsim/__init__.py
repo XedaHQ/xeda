@@ -48,6 +48,7 @@ class Modelsim(SimFlow):
     """
 
     executables = ("vsim",)
+    locator_variables = ("MODEL_TECH", "LM_LICENSE_FILE", "MGLS_LICENSE_FILE")
 
     artifacts_description = describe_artifacts("log")
 

@@ -923,10 +923,16 @@ def test_a_file_a_flow_resolves_in_init_is_an_input_before_any_reuse(
     try:
         for start in (first, second):
             monkeypatch.chdir(start if spelling.startswith("$PWD") else first)
-            monkeypatch.setenv("ABC_DIR", str(start))
+            # The variable is an input of the node too: when it names the file, it changes with
+            # the file, and the changed environment is the first reason.
+            monkeypatch.setenv("ABC_DIR", str(start if "ABC_DIR" in spelling else first))
             flow, out = _launch(root, ProbeAbc, settings)
         assert not flow.reused, "the script resolved from the first start directory was reused"
-        assert flow.stale_reason == f"new input: {(second / 'map.abc').resolve()}"
+        assert flow.stale_reason == (
+            "the inherited environment changed: a value changed"
+            if "ABC_DIR" in spelling
+            else f"new input: {(second / 'map.abc').resolve()}"
+        )
         assert out == "strash; map\n"
         flow, _ = _launch(root, ProbeAbc, settings)
         assert flow.reused

@@ -28,6 +28,7 @@ from ...utils import (
 )
 from ... import log_context, proc_utils
 from ..chains import FlowRequest, parse_request
+from ..environment import EnvironmentSnapshot
 from ..default_runner import (
     FlowLauncher,
     add_file_logger,
@@ -519,6 +520,11 @@ class Dse(FlowLauncher):
             },
         )
         worker._request_context = self._request_context
+        # One snapshot of the environment for the whole exploration: every point judges and
+        # starts its processes by the same environment.
+        worker._pinned_environment = EnvironmentSnapshot.take(
+            self._request_context.private_env if self._request_context is not None else {}
+        )
         worker._launch_inputs = list(self._launch_inputs)
         executioner = Executioner(
             worker,

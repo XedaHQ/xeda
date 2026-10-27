@@ -30,7 +30,7 @@ from .openroad_utils import (
     run_fake_openroad,
 )
 from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
-from .tool_utils import fake_calls, require_tclsh, use_fake_openroad
+from .tool_utils import failing_tool_commands, fake_calls, require_tclsh, use_fake_openroad
 from .setting_texts import text_items
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
@@ -1126,8 +1126,7 @@ def test_a_failed_cts_stage_leaves_a_failed_database_and_no_trace(tmp_path, monk
     _, settings = launch_settings(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design")
-    with monkeypatch.context() as failing:
-        failing.setenv("XEDA_FAKE_TOOL_FAIL", "clock_tree_synthesis")
+    with failing_tool_commands(monkeypatch, tmp_path, "clock_tree_synthesis"):
         failed = runner.run("openroad_cts", design, flow_settings=settings)
     assert failed is None or not failed.succeeded
     (cts_dir,) = (tmp_path / "xeda_run").rglob("openroad_cts")
@@ -1159,8 +1158,7 @@ def test_the_placement_is_not_run_again_after_a_failed_clock_tree(tmp_path, monk
     _, settings = launch_settings(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design")
-    with monkeypatch.context() as failing:
-        failing.setenv("XEDA_FAKE_TOOL_FAIL", "clock_tree_synthesis")
+    with failing_tool_commands(monkeypatch, tmp_path, "clock_tree_synthesis"):
         runner.run("openroad_cts", design, flow_settings=settings)
     (place_dir,) = (tmp_path / "xeda_run").rglob("openroad_place")
     placed = (place_dir / "place.odb").stat().st_mtime_ns

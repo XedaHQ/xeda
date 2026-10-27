@@ -138,6 +138,7 @@ class Vivado(Flow, metaclass=ABCMeta):
     """Base class of the AMD Vivado synthesis and simulation flows."""
 
     executables = ("vivado",)
+    locator_variables = ("XILINX_VIVADO", "XILINXD_LICENSE_FILE", "LM_LICENSE_FILE")
 
     artifacts_description = describe_artifacts("log")
 

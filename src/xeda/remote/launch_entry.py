@@ -327,6 +327,8 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
         # The one chdir of Xeda: this is the entry point of a dedicated process, so it changes the
         # state of no other process.
         os.chdir(inputs_dir)
+        # The launcher reads the environment of this process once per launch. This process runs
+        # on the host, in the environment that the agent gave it, so the snapshot is the host's.
         launcher = DefaultRunner(
             request.run_root,
             rebuild_all=request.rebuild_all,

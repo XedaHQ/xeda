@@ -316,10 +316,10 @@
     },
     "corner": null,
     "defines": {},
-    "verbosity": "normal",
     "docker": false,
     "docker_image": null,
     "dont_use_cells": [],
+    "env": {},
     "finish": {
      "allow_tristate": false,
      "buffer_cell": null,
@@ -343,12 +343,13 @@
      "clean_before_analyze": true,
      "clocks": {},
      "diagnostics": true,
-     "verbosity": "normal",
      "docker": false,
      "docker_image": null,
      "elab_flags": [],
      "elab_werror": false,
+     "env": {},
      "expect_failure": false,
+     "inherit_env": true,
      "lib_paths": [],
      "no_assert_cover": false,
      "no_formal": true,
@@ -360,6 +361,7 @@
      "syn_bindings": true,
      "synopsys": false,
      "vendor_library": null,
+     "verbosity": "normal",
      "verilog_output": null,
      "warn_flags": [
       "--warn-binding",
@@ -387,6 +389,7 @@
      "keep_min_cost": null,
      "separator": null
     },
+    "inherit_env": true,
     "keep_hierarchy": [],
     "lib_paths": [],
     "liberty": [
@@ -486,6 +489,7 @@
     "techmap_files": [],
     "top_is_vhdl": null,
     "use_slang_plugin": true,
+    "verbosity": "normal",
     "verilog_lib": [],
     "write_blif": null
    },

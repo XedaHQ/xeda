@@ -94,7 +94,6 @@
      "testcase": []
     },
     "debug_traces": false,
-    "verbosity": "normal",
     "docker": false,
     "docker_image": null,
     "elab_debug": null,
@@ -108,7 +107,9 @@
      "-pulse_int_e 0",
      "-debug typical"
     ],
+    "env": {},
     "fail_severity": "error",
+    "inherit_env": true,
     "initialize_zeros": false,
     "lib_paths": [
      [
@@ -160,9 +161,9 @@
      "default_max_output_delay": null,
      "default_min_input_delay": null,
      "default_min_output_delay": null,
-     "verbosity": "normal",
      "docker": false,
      "docker_image": null,
+     "env": {},
      "extra_reports": false,
      "fail_critical_warning": false,
      "fail_timing": true,
@@ -190,6 +191,7 @@
       },
       "strategy": ""
      },
+     "inherit_env": true,
      "lib_paths": [],
      "no_console": false,
      "no_log": false,
@@ -218,6 +220,7 @@
      "tcl_files": [],
      "tcl_shell": false,
      "timeout_seconds": 7200,
+     "verbosity": "normal",
      "write_checkpoint": false,
      "write_netlist": false,
      "xdc_files": []
@@ -229,6 +232,7 @@
     "vcd": null,
     "vcd_level": 0,
     "vcd_scope": "",
+    "verbosity": "normal",
     "work_lib": "work",
     "xelab_log": "xeda_xelab.log"
    },
@@ -1567,9 +1571,9 @@
     "default_max_output_delay": null,
     "default_min_input_delay": null,
     "default_min_output_delay": null,
-    "verbosity": "normal",
     "docker": false,
     "docker_image": null,
+    "env": {},
     "extra_reports": false,
     "fail_critical_warning": false,
     "fail_timing": true,
@@ -1618,6 +1622,7 @@
      },
      "strategy": ""
     },
+    "inherit_env": true,
     "lib_paths": [],
     "no_console": false,
     "no_log": false,
@@ -1658,6 +1663,7 @@
     "tcl_files": [],
     "tcl_shell": false,
     "timeout_seconds": 7200,
+    "verbosity": "normal",
     "write_checkpoint": false,
     "write_netlist": true,
     "xdc_files": []

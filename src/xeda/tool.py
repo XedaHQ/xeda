@@ -9,6 +9,7 @@ import tempfile
 import uuid
 import weakref
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Union
 
 from .console import console
@@ -116,8 +117,12 @@ class Docker(XedaBaseModel):
         cwd: Path | None = None,
         log_to: Path | None = None,
         log_append: bool = False,
+        client_env: Optional[Dict[str, Any]] = None,
     ) -> Union[str, None]:
         """Run the tool in a Docker container.
+
+        `env` is the environment of the container, written to its environment file. `client_env`
+        is the environment of the `docker` client; None is the environment of this process.
 
         The container works in `cwd`, which must be an absolute directory, and mounts it
         writable. It sees the resolved path of that directory, as a process that changed into it
@@ -210,7 +215,7 @@ class Docker(XedaBaseModel):
             return run_process(
                 self.cli,
                 cmd,
-                env=None,
+                env=client_env,
                 stdout=stdout,
                 check=check,
                 print_command=print_command,
@@ -224,7 +229,7 @@ class Docker(XedaBaseModel):
                 log_append=log_append,
             )
         except FileNotFoundError as e:
-            path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
+            path = (client_env or os.environ).get("PATH", "")
             raise ExecutableNotFound(
                 e.filename, self.__class__.__qualname__, path, *e.args
             ) from None
@@ -738,6 +743,7 @@ class Tool(XedaBaseModel):
             highlight_rules = highlight_rules or self.highlight_rules
         else:
             highlight_rules = None
+        flow = self._live_flow()
         if self.docker and self.dockerized:
             # The container sees the physical directory (`Docker.run`), and so do its read-only
             # mounts, which are compared with it.
@@ -745,7 +751,8 @@ class Tool(XedaBaseModel):
             return self.docker.run(
                 executable,
                 *args,
-                env=env,
+                env=env if flow is None else flow.container_environment(env or {}),
+                client_env=None if flow is None else flow.process_environment(),
                 stdout=stdout,
                 check=check,
                 read_only=self._read_only_directories(container_directory),
@@ -758,7 +765,9 @@ class Tool(XedaBaseModel):
                 log_to=log_to,
                 log_append=log_append,
             )
-        if env is not None:
+        if flow is not None:
+            env = flow.process_environment(env or {})
+        elif env is not None:
             env = {**os.environ, **env}
         try:
             return run_process(
@@ -778,10 +787,16 @@ class Tool(XedaBaseModel):
                 log_append=log_append,
             )
         except FileNotFoundError as e:
-            path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")
+            path = (env if env is not None else os.environ).get("PATH")
             raise ExecutableNotFound(
                 e.filename, self.__class__.__qualname__, path, *e.args
             ) from None
+
+    def environment_view(self) -> Mapping[str, str]:
+        """Return the environment that Xeda reads for this tool: the view of its flow
+        (`Flow.env_view`). A tool outside a flow reads the environment of this process."""
+        flow = self._live_flow()
+        return flow.env_view if flow is not None else dict(os.environ)
 
     def run_get_stdout(
         self,
