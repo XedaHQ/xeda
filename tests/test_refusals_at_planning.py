@@ -199,12 +199,12 @@ CASES: dict[str, Case] = {
     "yosys-fpga-out-of-context-repeats-a-flag": Case(
         YosysFpga,
         r"`-noiopad` in `synth_flags`.*out_of_context",
-        {"fpga": "xc7a35tcpg236-1", "out_of_context": True, "synth_flags": ["-noiopad"]},
+        {"fpga": {"part": "xc7a35tcpg236-1"}, "out_of_context": True, "synth_flags": ["-noiopad"]},
     ),
     "yosys-fpga-out-of-context-contradicting-flag": Case(
         YosysFpga,
         r"`-iopad` in `synth_flags`.*out_of_context",
-        {"fpga": "LFE5U-25F-6BG256C", "out_of_context": True, "synth_flags": ["-iopad"]},
+        {"fpga": {"part": "LFE5U-25F-6BG256C"}, "out_of_context": True, "synth_flags": ["-iopad"]},
     ),
     "yosys-sim-stop-time": Case(YosysSim, "cannot enforce stop_time", {"stop_time": "1us"}),
     "yosys-platform-with-gates": Case(

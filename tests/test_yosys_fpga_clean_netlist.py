@@ -72,10 +72,12 @@ def _synthesize(tmp_path: Path, source: str, fpga: dict[str, str], **settings: A
     design = Design(
         name="top",
         design_root=root,
-        rtl={"sources": ["top.sv"], "top": "top", "clock": {"port": "clock"}},
+        rtl={"sources": ["top.sv"], "top": "top", "clocks": [{"port": "clock"}]},
     )
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-        YosysFpga, design, {"fpga": fpga, "clock": {"period": "10 ns"}, **settings}
+        YosysFpga,
+        design,
+        {"fpga": fpga, "clocks": {"main_clock": {"period": "10 ns"}}, **settings},
     )
     assert flow is not None and flow.succeeded, "yosys_fpga did not synthesize the design"
     return flow

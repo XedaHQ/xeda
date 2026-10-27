@@ -181,7 +181,7 @@ def _plan(tmp_path, part, **sides):
     """Plan `yosys_fpga+nextpnr` with `out_of_context` set as `sides` says (a flow that is not in
     `sides` leaves it unset); no tool starts."""
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
-    settings = [f"fpga={part}"]
+    settings = [f"fpga.part={part}"]
     settings += [f"flows.{flow}.out_of_context={str(on).lower()}" for flow, on in sides.items()]
     plan = runner.plan("yosys_fpga+nextpnr", _design(tmp_path / "design"), flow_settings=settings)
     assert not (tmp_path / "runs").exists(), "planning writes no run directory"
@@ -239,7 +239,7 @@ def test_vivado_impl_declares_no_out_of_context_and_is_left_alone(tmp_path) -> N
     runner.plan(
         "yosys_fpga+vivado_impl",
         _design(tmp_path / "design"),
-        flow_settings=["fpga=xc7a35tcsg324-1", "flows.yosys_fpga.out_of_context=true"],
+        flow_settings=["fpga.part=xc7a35tcsg324-1", "flows.yosys_fpga.out_of_context=true"],
     )
 
 
