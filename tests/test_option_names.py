@@ -47,25 +47,31 @@ def _invoke(args, env=None):
 # ------------------------------------------------------------------------------ removed names
 
 
+def _refused(command, document, message):
+    """Check the document of a usage error. `run` prints the document of a launch that did not
+    start, with the code `usage_error`. Every other command prints `success` and the error type."""
+    if command == "run":
+        assert document["outcome"] is None and document["spec"] is None
+        assert document["error"]["code"] == "usage_error"
+        assert document["error"]["message"] == message
+    else:
+        assert document["success"] is False
+        assert document["error"] == {"type": "UsageError", "message": message}
+
+
 @pytest.mark.parametrize("command", COMMANDS)
 def test_the_removed_root_option_names_its_replacement(start, command):
     result, document = _invoke([*COMMANDS[command], "--xeda-run-dir", str(start / "r")])
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"] == {
-        "type": "UsageError",
-        "message": "`--xeda-run-dir` was removed: use --run-root",
-    }
+    assert result.exit_code == 2
+    _refused(command, document, "`--xeda-run-dir` was removed: use --run-root")
     assert not (start / "r").exists()
 
 
 @pytest.mark.parametrize("command", COMMANDS)
 def test_the_removed_root_variable_names_its_replacement(start, command):
     result, document = _invoke(COMMANDS[command], env={"XEDA_RUN_DIR": str(start / "r")})
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"] == {
-        "type": "UsageError",
-        "message": "`XEDA_RUN_DIR` was removed: use XEDA_RUN_ROOT",
-    }
+    assert result.exit_code == 2
+    _refused(command, document, "`XEDA_RUN_DIR` was removed: use XEDA_RUN_ROOT")
     assert not (start / "r").exists()
 
 
@@ -105,7 +111,7 @@ def test_the_removed_root_property_names_its_replacement(tmp_path):
 def test_names_that_never_shipped_get_click_s_suggestion(start, given, suggested):
     """`--rebuild` and `--run-dirs` never shipped: no removal message, click's own answer."""
     result, document = _invoke([*COMMANDS["run"], *given])
-    assert result.exit_code != 0 and document["error"]["type"] == "NoSuchOption"
+    assert result.exit_code == 2 and document["error"]["code"] == "usage_error"
     assert document["error"]["message"].startswith(f"No such option '{given[0]}'. (Did you mean")
     assert suggested in document["error"]["message"]
 
@@ -199,9 +205,9 @@ def test_the_launcher_options_are_named_as_its_settings(start, monkeypatch):
     seen: list = []
 
     class Recording(DefaultRunner):
-        def run(self, *args, **kwargs):
+        def resolve_run(self, *args, **kwargs):
             seen.append({"run_root": self.run_root, **self.settings.model_dump()})
-            return None
+            raise RuntimeError("the configuration is recorded; launch nothing")
 
     monkeypatch.setattr(cli_module, "DefaultRunner", Recording)
     fields = set(DefaultRunner.Settings.model_fields) | {

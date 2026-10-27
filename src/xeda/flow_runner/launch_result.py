@@ -20,14 +20,14 @@ from typing import Protocol
 from ..deliver import Delivered, Delivery, DeliveryError
 from ..flow import Flow
 from ..outcomes import DeliveryRecord, Disposition, NodeResult, Outcome, Result, aggregate
-from ..records import INTERNAL_ERROR, PRODUCER_FAILED, ErrorInfo
+from ..records import CANCELED, INTERNAL_ERROR, PRODUCER_FAILED, ErrorInfo
 from ..spec import Spec
 from .error_codes import CLEANUP_FAILED, DELIVERY_FAILED, error_info
 from .resolver import Plan, PlanNode
 
 log = logging.getLogger(__name__)
 
-__all__ = ["LaunchCollector", "LaunchRunner", "launch_result"]
+__all__ = ["LaunchCollector", "LaunchRunner", "failed_result", "launch_result"]
 
 #: The outcomes of a producer that stop its consumers.
 _STOPS_CONSUMERS = frozenset(
@@ -68,6 +68,11 @@ class LaunchCollector:
         self.ended: dict[str, _Ended] = {}
         #: The nodes whose launch has begun and not yet closed, the innermost last.
         self._attempts: list[PlanNode] = []
+        #: The node a refusal made before its run (`DeliveryError.before_run`) stopped, and the
+        #: refusal. It is the innermost node that the refusal left.
+        self.refused: tuple[PlanNode, Exception] | None = None
+        #: The node that was running when an interrupt left the launch (the innermost one).
+        self.interrupted: PlanNode | None = None
         #: When each node finished its producers and began its own execution.
         self._own_start: dict[str, float] = {}
         #: The failures of the end of the launch.
@@ -103,9 +108,15 @@ class LaunchCollector:
         interrupt is no outcome: neither is noted."""
         node = self._attempts[depth] if len(self._attempts) > depth else None
         del self._attempts[depth:]
-        if node is None or not isinstance(error, Exception):
+        if node is None:
+            return
+        if not isinstance(error, Exception):
+            if isinstance(error, KeyboardInterrupt) and self.interrupted is None:
+                self.interrupted = node
             return
         if isinstance(error, DeliveryError) and error.before_run:
+            if self.refused is None:
+                self.refused = (node, error)
             return
         end = self.ended.get(node.name)
         if end is None:
@@ -127,23 +138,8 @@ class LaunchCollector:
         pending: Sequence[tuple[Delivery, Path, Path, str]],
         delivered: Sequence[Delivered],
     ) -> None:
-        """Note the deliveries of `flow`: `pending` is what its launch had to deliver, and
-        `delivered` is what reached its destination, with the deliveries that Xeda skipped (an
-        artifact of `--outputs-to` that a link leads out of the run directory). A skipped
-        delivery is noted as not delivered."""
-        made = {(done.key, done.destination) for done in delivered if done.state != "skipped"}
-        self._deliveries[id(flow)] = tuple(
-            DeliveryRecord(
-                key=named.key,
-                destination=destination,
-                delivered=(named.key, _located(destination)) in made,
-            )
-            for named, _source, destination, _digest in pending
-        ) + tuple(
-            DeliveryRecord(key=done.key, destination=done.destination, delivered=False)
-            for done in delivered
-            if done.state == "skipped"
-        )
+        """Note the deliveries of `flow` (`delivery_records`)."""
+        self._deliveries[id(flow)] = delivery_records(pending, delivered)
 
     def deliveries_of(self, flow: Flow) -> tuple[DeliveryRecord, ...]:
         """Return the deliveries noted for `flow`."""
@@ -166,11 +162,45 @@ class LaunchCollector:
         root = self.ended.get(self.plan.nodes[-1].name)
         return root is not None and root.error is error
 
+    def settle(self, error: Exception) -> bool:
+        """Count `error`, which left the launch with no outcome of a node, as the failure of the
+        node it was refused at, if the launch had started. Return whether it did.
+
+        A refusal made before the run of a node, once an earlier node has ended, is a failure of
+        that node in a launch that started. A refusal before any node ended is a request that
+        was refused: it stays an exception."""
+        if self.refused is None or self.refused[1] is not error or not self.ended:
+            return False
+        self.ended[self.refused[0].name] = _Ended(None, error, 0.0)
+        return True
+
 
 class LaunchRunner(Protocol):
     """The part of the launcher that `launch_result` reads: the collector of the current launch."""
 
     collector: LaunchCollector
+
+
+def delivery_records(
+    pending: Sequence[tuple[Delivery, Path, Path, str]], delivered: Sequence[Delivered]
+) -> tuple[DeliveryRecord, ...]:
+    """Return the deliveries of a node. `pending` is what its launch had to deliver, and
+    `delivered` is what reached its destination, with the deliveries that Xeda skipped (an
+    artifact of `--outputs-to` that a link leads out of the run directory). A pending delivery
+    that did not reach its destination, and a skipped one, are not delivered."""
+    made = {(done.key, done.destination) for done in delivered if done.state != "skipped"}
+    return tuple(
+        DeliveryRecord(
+            key=named.key,
+            destination=destination,
+            delivered=(named.key, _located(destination)) in made,
+        )
+        for named, _source, destination, _digest in pending
+    ) + tuple(
+        DeliveryRecord(key=done.key, destination=done.destination, delivered=False)
+        for done in delivered
+        if done.state == "skipped"
+    )
 
 
 def _located(path: Path) -> Path:
@@ -201,6 +231,7 @@ def _blocked(node: PlanNode, blocker: str, message: str) -> NodeResult:
         ),
         deliveries=(),
         run_dir=node.run_path,
+        flow=node.flow_class.name,
     )
 
 
@@ -221,6 +252,7 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
             error=error_info(error, node=node.name),
             deliveries=(),
             run_dir=node.run_path,
+            flow=node.flow_class.name,
         )
     if flow.blocked_by is not None:
         return _blocked(node, flow.blocked_by, str(error))
@@ -244,6 +276,7 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
             error=record.error,
             deliveries=deliveries,
             run_dir=node.run_path,
+            flow=node.flow_class.name,
         )
     # An exception left the node after the run passed, or the run left no record: nothing vouches
     # for the node, and the exception says why.
@@ -268,6 +301,7 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
         error=cause,
         deliveries=deliveries,
         run_dir=node.run_path,
+        flow=node.flow_class.name,
     )
 
 
@@ -298,6 +332,7 @@ def _not_reached(plan: Plan, node: PlanNode, done: Mapping[str, NodeResult]) -> 
         error=None,
         deliveries=(),
         run_dir=node.run_path,
+        flow=node.flow_class.name,
     )
 
 
@@ -338,14 +373,16 @@ def launch_result(runner: LaunchRunner, spec: Spec, launch: Callable[[], object]
     A node that fails, is rejected or is blocked is an outcome in the `Result`, not an exception.
     So is a failure to deliver the outputs at the end. An exception that left the launch before
     it reported anything propagates: a request that was refused before the plan, a refusal of a
-    delivery before the run, a bug. So does `KeyboardInterrupt`: an interrupt is no outcome, and
-    the node that it interrupted left no record to read (`results.json` is replaced as a whole)."""
+    delivery before the run of its first node, a bug. A refusal at the turn of a later node is the
+    failure of that node (`LaunchCollector.settle`). So does `KeyboardInterrupt`: an interrupt is
+    no outcome, and the node that it interrupted left no record to read (`results.json` is
+    replaced as a whole)."""
     before = runner.collector
     try:
         launch()
     except Exception as raised:
         collector = runner.collector
-        if collector is before or not collector.accounts_for(raised):
+        if collector is before or not (collector.accounts_for(raised) or collector.settle(raised)):
             raise
     collector = runner.collector
     plan = collector.plan
@@ -361,6 +398,68 @@ def launch_result(runner: LaunchRunner, spec: Spec, launch: Callable[[], object]
         )
     roots = (plan.nodes[-1].name,)
     launch_error = _launch_error(collector, nodes, roots)
+    outcome, error = aggregate(nodes, roots, launch_error)
+    return Result(
+        launch_id=uuid.uuid4().hex,
+        spec=spec,
+        roots=roots,
+        outcome=outcome,
+        error=error,
+        nodes=nodes,
+    )
+
+
+def failed_result(
+    runner: LaunchRunner,
+    spec: Spec,
+    plan: Plan | None,
+    launch_error: ErrorInfo,
+    *,
+    interrupted: bool = False,
+) -> Result:
+    """Return the result of a launch that an exception ended outside the nodes.
+
+    The nodes are those of the plan of the launch, or of `plan` if the launch reported none: a node
+    that ended keeps its outcome, and a node that did not start is `skipped` or `blocked`. With
+    `interrupted`, the node that was running is `canceled`. `launch_error` is the error of the
+    launch, and it decides the outcome."""
+    collector = runner.collector
+    ended = collector.ended if collector.plan is not None else {}
+    plan = collector.plan or plan
+    nodes: dict[str, NodeResult] = {}
+    for node in plan.nodes if plan is not None else ():
+        assert plan is not None
+        end = ended.get(node.name)
+        # A node that ended before the interrupt left its attempt keeps its end.
+        running = interrupted and (
+            (end is None and collector.interrupted is node)
+            or (end is not None and isinstance(end.error, KeyboardInterrupt))
+        )
+        if end is not None and not running:
+            nodes[node.name] = _ended_node(node, end, collector)
+        elif running:
+            nodes[node.name] = NodeResult(
+                name=node.name,
+                outcome=Outcome.CANCELED,
+                disposition=Disposition.RAN,
+                reason="",
+                blocked_by=None,
+                elapsed=0.0,
+                record=None,
+                error=ErrorInfo(
+                    code=CANCELED,
+                    message=f"`{node.name}` was running when the launch was interrupted",
+                    node=node.name,
+                    exit_status=None,
+                    log=None,
+                ),
+                deliveries=(),
+                run_dir=node.run_path,
+                flow=node.flow_class.name,
+            )
+        else:
+            nodes[node.name] = _not_reached(plan, node, nodes)
+    roots = (plan.nodes[-1].name,) if plan is not None else ()
     outcome, error = aggregate(nodes, roots, launch_error)
     return Result(
         launch_id=uuid.uuid4().hex,

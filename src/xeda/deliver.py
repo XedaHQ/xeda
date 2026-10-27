@@ -68,7 +68,7 @@ from .listing import directory_files
 from .errors import RecordError
 from .flow import Flow, FlowSettingsError
 from .flow.flow import WrittenLeaf, map_written_leaves, output_name, resolved_template
-from .records import read_record, stored_outputs
+from .records import RunRecord, read_record, stored_outputs
 from .run_root import is_run_root
 from .utils import XedaException, copy_fd, json_encodable, with_json_keys
 
@@ -455,6 +455,12 @@ def recorded_artifacts(run_dir: Path, run_root: Path) -> Any:
         record = read_record(run_dir, run_root=run_root)
     except RecordError:
         return {}
+    return artifacts_of(record)
+
+
+def artifacts_of(record: RunRecord) -> Any:
+    """Return the artifact and declared-output paths of `record`: what `outputs_to_deliveries`
+    reads. The artifacts are names in the run directory, and the outputs are paths in it."""
     outputs = [path for files in stored_outputs(record).values() for path, _digest in files]
     artifacts = dict(record.artifacts)
     return {"artifacts": artifacts, "outputs": outputs} if outputs else artifacts

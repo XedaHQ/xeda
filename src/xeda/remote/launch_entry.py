@@ -4,14 +4,15 @@
 launch holds (`take_locks`), and then reads `<launch dir>/request.json` (a `LaunchRequest`),
 plans the request, checks that this plan is the one the local xeda made, runs it, and writes
 `<launch dir>/result.json`. The agent starts this module on the remote host. The launch holds the
-locks until it ends. The exit status is 0 when the launch succeeded and 1 when it did not. The
-result is in `result.json` in both cases.
+locks until it ends. The exit status is 0 when the launch passed, 1 when it did not, 2 when the
+request is invalid and 130 when the launch was interrupted. The result is in `result.json` in every case.
 
-`result.json` is the document that `xeda run --json` prints (or the dry-run document), so the
-local xeda can report it as it reports a local run. It has two more keys for a launch that was
-not a dry run. `written` holds the files that this launch wrote, for each node that ran.
-`unreadable` holds the directories under a run directory that could not be read, so that the
-files under them are not in `written`.
+`result.json` is the document that `xeda run --json` prints (`Result.to_dict`), or the dry-run
+document, so the local xeda can report it as it reports a local run. It has two more keys for a
+launch that was not a dry run. `written` holds the files that this launch wrote, for each node
+that ran. `unreadable` holds the directories under a run directory that could not be read, so
+that the files under them are not in `written`. `named` holds the names of the nodes that the
+request names: their declared outputs and artifacts come back.
 
 The launch ends with a result even when it ends in `SystemExit` or another `BaseException`. The
 entry writes the failure document first and then raises the exception again.
@@ -200,22 +201,31 @@ def take_locks(hand_over: int) -> List[int]:
     return taken
 
 
-def early_failure(message: str, error_type: str) -> Dict[str, Any]:
-    """The result document of a launch that ended before it knew its request: no flow, no
-    design."""
-    return {
-        "flow": None,
-        "design": None,
-        "design_file": None,
-        "target": None,
-        "success": False,
-        "results": {},
-        "error": {"type": error_type, "message": message},
-        "request": [],
-        "nodes": [],
-        "written": {},
-        "unreadable": {},
-    }
+def early_failure(message: str) -> Dict[str, Any]:
+    """The result document of a launch that ended before it knew its request: no spec, no nodes.
+
+    The code of its error is `remote_failed`."""
+    from ..outcomes import Outcome, run_document
+    from ..records import ErrorInfo
+
+    document = run_document(
+        outcome=Outcome.FAILED,
+        error=ErrorInfo(
+            code="remote_failed",
+            message=message,
+            node=None,
+            exit_status=None,
+            log=None,
+        ),
+        launch_id=None,
+        spec=None,
+        roots=(),
+        nodes=(),
+    )
+    document["written"] = {}
+    document["unreadable"] = {}
+    document["named"] = []
+    return document
 
 
 def write_result(launch_dir: Path, document: Mapping[str, Any]) -> None:
@@ -289,29 +299,28 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     runs in the directory of its design."""
     # The launcher and the CLI helpers load the whole of Xeda, so they load here and not when this
     # module is imported (the agent imports `LaunchRequest` and nothing else).
-    from ..cli import (
-        _failure_document,
-        _failure_of,
-        _run_document,
-        setup_logger,
-    )
+    from ..cli import setup_logger
     from ..flow.flow import using_path_identities
     from ..flow_runner import DefaultRunner
     from ..flow_runner.chains import parse_request
+    from ..flow_runner.error_codes import public_error, request_error_info
+    from ..flow_runner.launch_result import failed_result, launch_result
+    from ..errors import SpecError
     from ..introspect import design_info, plan_info, request_info
+    from ..outcomes import Outcome, run_document, spec_document
+    from ..records import CANCELED, ErrorInfo
+    from ..spec import Spec
 
     debug = request.log_level <= logging.DEBUG
-    flow = request.chain
-    elements: List[Dict[str, Any]] = []
     launcher: Optional[DefaultRunner] = None
     design: Optional[Path] = None
     plan: Any = None
     snapshot: Optional[RunDirectorySnapshot] = None
+    loaded: Any = None
+    parsed: Any = None
     try:
         setup_logger(request.log_level, request.detailed_logs)
         parsed = parse_request(request.chain)
-        flow = parsed.requested.name
-        elements = request_info(parsed)
         inputs_dir = Path(request.inputs_dir)
         design = inputs_dir / request.design_file
         # The one chdir of Xeda: this is the entry point of a dedicated process, so it changes the
@@ -335,46 +344,101 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
                 plan, freshness = launcher.plan_with_freshness(request.chain, **arguments)
                 check_identity({n.name: n.flowrun_hash for n in plan.nodes}, request.expected)
                 return {
-                    "flow": flow,
+                    "flow": parsed.requested.name,
                     **design_info(design, launcher.design_name),
                     "target": plan.context.target,
                     "success": True,
                     "dry_run": True,
-                    "request": elements,
+                    "request": request_info(parsed),
                     "plan": plan_info(plan, freshness),
                 }, None
             plan = launcher.plan(request.chain, **arguments)
             check_identity({n.name: n.flowrun_hash for n in plan.nodes}, request.expected)
             snapshot = RunDirectorySnapshot(_node_directories(plan).values())
-            f = launcher.run(request.chain, **arguments)
-        success = bool(f and f.results.success)
-        document = _run_document(
-            flow,
-            design,
-            f,
-            success,
-            launcher.launched,
-            launcher.last_plan,
-            launcher.target,
-            launcher.design_name,
-        )
-        document["request"] = elements
+            result = launch_result(
+                launcher,
+                Spec(request.chain, loaded),
+                lambda: launcher.run(request.chain, **arguments),
+            )
+        document = result.to_dict()
         _record_written(document, snapshot, plan, launcher.launched)
+        document["named"] = [element["node"] for element in request_info(parsed)]
         return document, None
     except BaseException as e:  # pylint: disable=broad-except
-        if isinstance(e, KeyboardInterrupt):
-            error = ("KeyboardInterrupt", "The launch was interrupted.")
+        interrupted = isinstance(e, KeyboardInterrupt)
+        if interrupted:
+            error = ErrorInfo(
+                code=CANCELED,
+                message="The launch was interrupted.",
+                node=None,
+                exit_status=None,
+                log=None,
+            )
         elif isinstance(e, Exception):
-            error = _failure_of(e, flow, debug)
+            error = request_error_info(
+                e, code="remote_failed" if isinstance(e, RemoteError) else None
+            )
         else:
-            error = (type(e).__name__, f"The launch ended with {type(e).__name__}: {e!r}.")
-        log.critical("%s", error[1])
-        document = _failure_document(flow, design, launcher, None, *error, elements)
+            error = ErrorInfo(
+                code="internal_error",
+                message=f"The launch ended with {type(e).__name__}: {e!r}.",
+                node=None,
+                exit_status=None,
+                log=None,
+            )
+        log.critical("%s", error.message)
+        refused = isinstance(e, Exception) and isinstance(public_error(e), SpecError)
+        if launcher is not None and loaded is not None and plan is not None and not refused:
+            # Every planned node keeps what the launch did with it: a node that passed stays
+            # passed, the node that was running is canceled by an interrupt, and any other
+            # node is skipped or blocked.
+            document = failed_result(
+                launcher, Spec(request.chain, loaded), plan, error, interrupted=interrupted
+            ).to_dict()
+        else:
+            document = run_document(
+                outcome=None if refused else Outcome.CANCELED if interrupted else Outcome.FAILED,
+                error=error,
+                launch_id=None,
+                spec=spec_document(
+                    flow=request.chain,
+                    **design_info(
+                        design,
+                        (
+                            launcher.design_name
+                            if launcher is not None
+                            else Path(request.design_file).stem
+                        ),
+                    ),
+                    target=None,
+                    settings={},
+                ),
+                roots=[],
+                nodes=[],
+            )
         if not request.dry_run:
             _record_written(
                 document, snapshot, plan, launcher.launched if launcher is not None else ()
             )
+            document["named"] = (
+                [element["node"] for element in request_info(parsed)] if parsed is not None else []
+            )
         return document, None if isinstance(e, Exception | KeyboardInterrupt) else e
+
+
+def exit_status(document: Mapping[str, Any]) -> int:
+    """Return the exit status of a launch with the result `document`: 0 for a launch that
+    passed, 130 for one that was interrupted, 2 for a request that started no launch because it
+    is invalid, and 1 for any other launch."""
+    if document.get("dry_run"):
+        return 0 if document.get("success") else 1
+    error = document.get("error") or {}
+    outcome = document.get("outcome")
+    if outcome == "passed":
+        return 0
+    if error.get("code") == "canceled":
+        return 130
+    return 2 if outcome is None else 1
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -392,7 +456,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except RemoteError as e:
         message = str(e)
         print(message, file=sys.stderr)
-        write_result(launch_dir, early_failure(message, type(e).__name__))
+        write_result(launch_dir, early_failure(message))
         return 1
     try:
         request = LaunchRequest.model_validate_json(
@@ -402,15 +466,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         # Nothing is known of the request, so the document has no flow and no design.
         message = f"{REQUEST_FILE} is not a launch request: {type(e).__name__}: {e}"
         print(message, file=sys.stderr)
-        write_result(launch_dir, early_failure(message, type(e).__name__))
+        write_result(launch_dir, early_failure(message))
         return 1
     document, raised = execute(request)
     write_result(launch_dir, document)
     if raised is not None:
         raise raised
-    if document.get("error", {}).get("type") == "KeyboardInterrupt":
-        return 130
-    return 0 if document["success"] else 1
+    return exit_status(document)
 
 
 if __name__ == "__main__":

@@ -380,7 +380,7 @@ def test_a_bare_period_on_the_command_line_fails_with_the_unit_message_in_json(t
         timeout=HANG_GUARD,
     )
     document = json.loads(proc.stdout)
-    assert proc.returncode != 0
-    assert document["success"] is False
+    assert proc.returncode == 2
+    assert document["outcome"] is None and document["nodes"] == []
     assert "needs a unit" in json.dumps(document["error"])
     assert "clock" in json.dumps(document["error"])

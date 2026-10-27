@@ -146,9 +146,9 @@ def test_the_command_line_launches_the_nodes_planning_names(tmp_path, where):
     result = CliRunner().invoke(cli, ["run", "__place", str(path), "--json"])
 
     document = json.loads(result.stdout)
-    assert result.exit_code == 0 and document["success"], document
+    assert result.exit_code == 0 and document["outcome"] == "passed", document
     launched = [
-        (node["flow"], json.loads(Path(node["run_path"], "results.json").read_text())["identity"])
+        (node["flow"], json.loads(Path(node["run_dir"], "results.json").read_text())["identity"])
         for node in document["nodes"]
     ]
     assert launched == planned
@@ -364,7 +364,7 @@ def test_a_conflict_on_the_command_line_names_the_command_line_and_flow_settings
         arguments += ["-s", item]
     result = CliRunner().invoke(cli, arguments)
     document = json.loads(result.stdout)
-    assert result.exit_code != 0 and document["success"] is False, document
+    assert result.exit_code == 2 and document["outcome"] is None, document
     assert f"in {COMMAND_LINE}" in document["error"]["message"], document
 
 

@@ -1017,9 +1017,9 @@ def test_the_command_line_dry_run_follows_rebuild_all_like_the_launch(
     assert planned.exit_code == 0, planned.output
     assert json.loads(planned.stdout)["success"] is True
     refused = CliRunner().invoke(cli, [*base, option])
-    assert refused.exit_code != 0
+    assert refused.exit_code == 2
     document = json.loads(refused.stdout)
-    assert document["success"] is False
+    assert document["outcome"] is None
     assert "Cannot plan a design that needs a generator" in document["error"]["message"]
     assert world.runs == 1
 

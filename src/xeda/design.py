@@ -47,6 +47,7 @@ from .dataclass import (
     WHOLE,
     AliasChoices,
     Field,
+    PrivateAttr,
     SerializeAsAny,
     ValidationError,
     XedaBaseModel,
@@ -2627,6 +2628,23 @@ class Design(XedaBaseModel):
     #: A design whose `flows` is `null` has none.
     field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"flow": unspecified}
 
+    #: The design file that `from_file` read (absolute), or `None` for any other design. It is no
+    #: field: a saved design, a hash and a comparison of settings never see it.
+    _source_file: Optional[Path] = PrivateAttr(default=None)
+
+    def __eq__(self, other: object) -> bool:
+        """Two designs are equal when their fields are: the file a design was read from says
+        nothing about it."""
+        if not isinstance(other, Design):
+            return NotImplemented
+        return (
+            type(self) is type(other)
+            and self.__pydantic_extra__ == other.__pydantic_extra__
+            and all(getattr(self, name) == getattr(other, name) for name in type(self).model_fields)
+        )
+
+    __hash__ = None  # type: ignore[assignment]
+
     @field_validator("name", mode="after")
     @classmethod
     def _name_is_a_directory_name(cls, value: str) -> str:
@@ -3309,7 +3327,9 @@ class Design(XedaBaseModel):
                 design_root = dr
             if design_root is None:
                 design_root = design_file.parent
-            return cls(design_root=design_root, **design_dict)
+            design = cls(design_root=design_root, **design_dict)
+            design._source_file = design_file.absolute()
+            return design
         except DesignValidationError as e:
             raise DesignValidationError(  # add design_file to the emitted exception
                 e.errors,

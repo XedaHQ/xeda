@@ -580,7 +580,6 @@ class FlowLauncher:
         self.design_name: str | None = None
         self._plans: dict[int, tuple[Plan, Any, Any]] = {}
         self._planned_completed: dict[tuple[int, NodeKey], Flow] = {}
-        self.last_plan: Plan | None = None
         #: What the current launch reports as it goes on (`launch_result.launch_result` reads it).
         self.collector = LaunchCollector()
         self._completed_runs: dict[Path, tuple[Flow, CompletedRun]] = {}
@@ -1902,6 +1901,47 @@ class FlowLauncher:
         """Load and compose a request, then execute its resolved declared graph.
 
         `target` selects one of the `targets` of the design, as `Design.from_file` does."""
+        request, plan = self.resolve_run(
+            flow,
+            design,
+            xedaproject,
+            flow_settings,
+            flow_overrides,
+            select_design_in_project,
+            design_overrides,
+            design_allow_extra,
+            design_remove_fields,
+            target=target,
+        )
+        return self.run_resolved(request, plan)
+
+    @with_debug_logging
+    def resolve_run(
+        self,
+        flow: Union[Type[Flow], str],
+        design: Union[str, Path, Design, Dict[str, Any], None] = None,
+        xedaproject: Optional[str] = None,
+        flow_settings: Union[
+            List[str],
+            Tuple[str, ...],
+            Mapping[str, Any],
+            Flow.Settings,
+        ] = [],
+        flow_overrides: Union[
+            List[str],
+            Tuple[str, ...],
+            Mapping[str, Any],
+        ] = [],
+        select_design_in_project=None,
+        design_overrides: Union[Iterable[str], Dict[str, Any], None] = None,
+        design_allow_extra: bool = False,
+        design_remove_fields: List[str] = [],
+        target: str | None = None,
+    ) -> Tuple[_Request, Plan]:
+        """Load, compose and check a request as `run()` does before it launches, and launch nothing.
+
+        Return the request, which holds the loaded design, and its plan. `run_resolved` launches
+        them."""
         # Where requests are not taken (`Dse`), refuse before loading what needs no design.
         # What does need it is listed there, and refused below, once the request is resolved.
         if not self.accepts_bindings:
@@ -1919,8 +1959,11 @@ class FlowLauncher:
             target=target,
         )
         self._refuse_unaccepted_plan(request, plan)
-        #: The plan this run follows, for reporting.
-        self.last_plan = plan
+        return request, plan
+
+    @with_debug_logging
+    def run_resolved(self, request: _Request, plan: Plan) -> Optional[Flow]:
+        """Execute the request and plan that `resolve_run` returned."""
         previous, self._request_context = self._request_context, request
         try:
             return self.run_flow(

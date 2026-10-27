@@ -135,7 +135,7 @@ The query commands accept `--json`. So do `run`, `dse` and `scrub`: they then wr
 and logs to stderr, and stdout holds one JSON document:
 
 ```bash
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json | jq '.results.fmax'
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json | jq '.nodes[-1].record.metrics.fmax'
 ```
 
 Xeda also ships a skill for coding agents. Its flow catalog comes from the installed version:

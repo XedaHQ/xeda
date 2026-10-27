@@ -889,33 +889,40 @@ def test_the_registered_flow_names_come_from_xeda() -> None:
     assert isinstance(names, frozenset)
 
 
-def test_the_synthesis_results_of_xeda_become_a_row_part() -> None:
-    document = {
-        "success": True,
-        "results": {
-            "success": True,
-            "tools": [{"executable": "yosys", "version": "0.69+post"}],
-            "runtime": 0.8,
-            "area": 506.996,
-            "cells": 357,
-            "flow_hash": "f",
-            "settings_hash": "s",
-            "design_hash": "d",
-            "run_path": "/w/xeda_run/nangate45_gcd/yosys",
-        },
+def run_document(metrics: dict[str, Any], *, runtime: float = 0.8, flow: str = "yosys") -> dict:
+    """The `--json` document of a xeda run that passed: one node, with a record."""
+    return {
+        "schema_version": 1,
+        "outcome": "passed",
+        "error": None,
+        "roots": [flow],
+        "nodes": [
+            {
+                "name": flow,
+                "flow": flow,
+                "run_dir": f"/w/xeda_run/nangate45_gcd/{flow}",
+                "record": {
+                    "schema_version": 1,
+                    "identity": "f",
+                    "runtime": runtime,
+                    "metrics": metrics,
+                },
+            }
+        ],
     }
+
+
+def test_the_synthesis_results_of_xeda_become_a_row_part() -> None:
+    document = run_document({"area": 506.996, "cells": 357})
     part = tool.read_xeda_results(document, "synthesis")
     assert part["yosys_area"] == 506.996 and part["yosys_cells"] == 357
     assert part["runtime_s"] == 0.8
-    assert part["tools"] == {"yosys": "0.69+post"}
     assert part["flow_hash"] == "f" and part["run_path"].endswith("/yosys")
 
 
 #: The results of the last flow of a real run (nangate45 gcd, the chain from the sources), cut
 #: down to the keys that carry a number. `wns` is the worst slack clipped at zero.
 OPENROAD_RESULTS: dict[str, Any] = {
-    "success": True,
-    "runtime": 60.08,
     "worst_slack": -0.15848,
     "wns": -0.15848,
     "tns": -7.03717,
@@ -934,7 +941,7 @@ OPENROAD_RESULTS: dict[str, Any] = {
 
 
 def test_the_openroad_results_of_xeda_become_the_orfs_metrics() -> None:
-    document = {"success": True, "results": OPENROAD_RESULTS}
+    document = run_document(OPENROAD_RESULTS, runtime=60.08, flow="openroad")
     part = tool.read_xeda_results(document, "both")
     assert part["metrics"] == {
         "finish__timing__setup__ws": -0.15848,
@@ -957,13 +964,13 @@ def test_the_openroad_results_of_xeda_become_the_orfs_metrics() -> None:
 def test_a_positive_slack_stays_positive_in_the_metrics() -> None:
     """ORFS reports the worst slack as it is, and the `wns` of xeda stops at zero."""
     results = {**OPENROAD_RESULTS, "worst_slack": 0.2, "wns": 0.0}
-    part = tool.read_xeda_results({"success": True, "results": results}, "both")
+    part = tool.read_xeda_results(run_document(results, runtime=60.08), "both")
     assert part["metrics"]["finish__timing__setup__ws"] == 0.2
 
 
 def test_a_result_that_a_run_lacks_leaves_its_optional_metric_out() -> None:
     results = {k: v for k, v in OPENROAD_RESULTS.items() if k not in ("fmax", "core_area")}
-    part = tool.read_xeda_results({"success": True, "results": results}, "both")
+    part = tool.read_xeda_results(run_document(results, runtime=60.08), "both")
     assert "finish__timing__fmax" not in part["metrics"]
     assert "finish__design__core__area" not in part["metrics"]
 
@@ -984,7 +991,7 @@ def test_a_result_that_a_run_lacks_leaves_its_optional_metric_out() -> None:
 def test_a_missing_required_result_is_named(key: str, metric: str) -> None:
     results = {k: v for k, v in OPENROAD_RESULTS.items() if k != key}
     with pytest.raises(tool.ParityError) as error:
-        tool.read_xeda_results({"success": True, "results": results}, "pnr")
+        tool.read_xeda_results(run_document(results), "pnr")
     assert f"`{key}`" in str(error.value) and metric in str(error.value)
 
 
@@ -994,8 +1001,7 @@ def test_every_required_metric_has_a_result_of_xeda() -> None:
     assert mapped <= set(tool.METRIC_KEYS)
 
 
-def test_the_results_of_a_node_are_read_from_its_run_directory(tmp_path: Path) -> None:
-    run = tmp_path / "xeda_run" / "d" / "yosys"
+def test_the_results_of_a_node_are_read_from_its_record() -> None:
     record = record_document(
         metrics={"area": 506.9, "cells": 357},
         metric_info={
@@ -1004,19 +1010,22 @@ def test_the_results_of_a_node_are_read_from_its_run_directory(tmp_path: Path) -
         },
         runtime=1.5,
     )
-    write(run / "results.json", json.dumps(record))
     document = {
         "nodes": [
-            {"node": "yosys", "flow": "yosys", "run_path": str(run)},
-            {"node": "openroad", "flow": "openroad", "run_path": str(tmp_path / "none")},
+            {"name": "yosys", "flow": "yosys", "run_dir": "/w/yosys", "record": record},
+            {"name": "openroad", "flow": "openroad", "run_dir": "/w/none", "record": None},
         ]
     }
     assert tool.node_results(document, "yosys") == {"area": 506.9, "cells": 357, "runtime": 1.5}
-    assert tool.node_results(document, "openroad") == {}, "no results file"
+    assert tool.node_results(document, "openroad") == {}, "no record"
     assert tool.node_results(document, "openroad_cts") == {}, "no such node"
     assert tool.node_results({}, "yosys") == {}
-    write(run / "results.json", json.dumps({"area": 506.9, "cells": 357, "runtime": 1.5}))
-    assert tool.node_results(document, "yosys") == {}, "a file that an older Xeda wrote"
+    old = {
+        "nodes": [
+            {"name": "yosys", "flow": "yosys", "run_dir": "/w/yosys", "record": {"area": 506.9}}
+        ]
+    }
+    assert tool.node_results(old, "yosys") == {}, "a record that an older Xeda wrote"
 
 
 def test_the_times_of_a_half_split_at_the_synthesis() -> None:
@@ -1026,8 +1035,13 @@ def test_the_times_of_a_half_split_at_the_synthesis() -> None:
 
 
 def test_a_failed_xeda_run_gives_the_error() -> None:
-    document = {"success": False, "error": {"type": "FlowFatalError", "message": "boom"}}
-    with pytest.raises(tool.ParityError, match="FlowFatalError.*boom"):
+    document = {
+        "outcome": "failed",
+        "error": {"code": "reported_failure", "message": "boom"},
+        "roots": [],
+        "nodes": [],
+    }
+    with pytest.raises(tool.ParityError, match="reported_failure.*boom"):
         tool.read_xeda_results(document, "synthesis")
 
 

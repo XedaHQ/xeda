@@ -96,6 +96,14 @@ def _error(run: subprocess.CompletedProcess) -> dict[str, str]:
     return document["error"]
 
 
+def _run_error(run: subprocess.CompletedProcess) -> dict[str, str]:
+    """The error of a `xeda run --json` document of a request that started no launch."""
+    assert run.returncode == 2, run.stdout + run.stderr
+    document = json.loads(run.stdout)
+    assert document["outcome"] is None and document["nodes"] == [], document
+    return document["error"]
+
+
 def _no_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     """Only the fake tools (and this Python) on PATH: no real tool can run."""
     monkeypatch.setenv(
@@ -184,8 +192,8 @@ def test_a_users_directory_as_the_run_root_is_refused(tmp_path, option):
     )  # fmt: skip
 
     assert _tree(tmp_path / "myrundir") == before, run.stdout + run.stderr
-    error = _error(run)
-    assert error["type"] == "RunRootError", error
+    error = _run_error(run)
+    assert error["code"] == "invalid_run_root", error
     assert str(tmp_path / "myrundir") in error["message"], error
     assert RUN_ROOT_MARKER in error["message"], error
     assert canary.read_text() == "the user's own data\n"
@@ -322,7 +330,7 @@ def test_a_design_named_dotdot_is_refused_and_the_users_directory_survives(tmp_p
 
     assert canary.read_text() == "the user's own file\n", run.stdout + run.stderr
     assert sorted(p.name for p in canary.parent.iterdir()) == ["keep.txt"]
-    error = _error(run)
+    error = _run_error(run)
     assert "design name" in error["message"], error
 
 

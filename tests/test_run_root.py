@@ -182,7 +182,7 @@ def test_a_run_adds_only_its_run_root_to_the_start_directory(sqrt):
         ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"],
         catch_exceptions=False,
     )
-    assert json.loads(result.stdout)["success"], result.stdout
+    assert json.loads(result.stdout)["outcome"] == "passed", result.stdout
     assert sorted(p.name for p in sqrt.iterdir()) == sorted([*before, "xeda_run"])
     assert is_run_root(sqrt / "xeda_run")
 
@@ -208,8 +208,11 @@ def test_an_unmarked_run_root_is_refused_with_a_json_document(sqrt, tmp_path, co
     }[command]
     result = CliRunner().invoke(cli, [*args, "--run-root", str(mine), "--json"])
     document = json.loads(result.stdout)
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"]["type"] == "RunRootError"
+    assert result.exit_code != 0
+    if command == "run":
+        assert document["outcome"] is None and document["error"]["code"] == "invalid_run_root"
+    else:
+        assert document["success"] is False and document["error"]["type"] == "RunRootError"
     assert sorted(p.name for p in mine.iterdir()) == ["notes.txt"]
 
 
@@ -224,6 +227,8 @@ def test_a_run_that_fails_at_input_creates_no_run_root(sqrt, remote):
     extra = ["--remote", "nowhere.invalid"] if remote else []
     result = CliRunner().invoke(cli, ["run", "vivado_synth", "sqrt.yaml", *extra, "--json"])
     document = json.loads(result.stdout)
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"]["type"] == "DesignValidationError", document
+    assert result.exit_code != 0 and document["outcome"] is None
+    assert document["error"]["code"] == "invalid_design", document
+    assert not document["error"]["message"].startswith("DesignValidationError"), document
+    assert "is not a design name" in document["error"]["message"], document
     assert sorted(p.name for p in sqrt.iterdir()) == before

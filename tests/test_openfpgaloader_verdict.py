@@ -1132,9 +1132,10 @@ def test_the_command_line_exits_with_1_and_the_message_in_the_json(tmp_path):
     )
     document = json.loads(proc.stdout)
     assert proc.returncode == 1
-    assert document["success"] is False and document["error"]["type"] == "FlowFailed"
-    cause = document["results"]["error"]
+    assert document["outcome"] == "failed"
+    cause = document["error"]
     assert cause["code"] == "reported_failure" and "ID Error        ID error" in cause["message"]
+    assert document["nodes"][-1]["record"]["error"] == cause
 
 
 # ------------------------------------------------------------------------------- the whole class

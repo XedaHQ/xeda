@@ -550,11 +550,11 @@ def test_two_unchanged_cli_processes_reuse_both_recorded_flows(tmp_path):
         )
         assert result.returncode == 0, result.stderr
         documents.append(json.loads(result.stdout))
-    assert [node["state"] for node in documents[0]["nodes"]] == ["ran", "ran"]
-    assert [node["state"] for node in documents[1]["nodes"]] == ["fresh", "fresh"]
-    producer = Path(documents[1]["nodes"][0]["run_path"])
+    assert [node["disposition"] for node in documents[0]["nodes"]] == ["ran", "ran"]
+    assert [node["disposition"] for node in documents[1]["nodes"]] == ["reused", "reused"]
+    producer = Path(documents[1]["nodes"][0]["run_dir"])
     record = json.loads((producer / "results.json").read_text())["outputs"]["netlist"]
-    consumer = Path(documents[1]["run_path"])
+    consumer = Path(documents[1]["nodes"][-1]["run_dir"])
     binding = json.loads((consumer / "trace.json").read_text())["declared_inputs"][0]
     assert binding["paths"] == [str(producer / name) for name in record["names"]]
 
@@ -570,8 +570,10 @@ def test_cli_device_conflict_names_both_files_and_override_wins(tmp_path, cli_le
     refused = subprocess.run(
         command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=HANG_GUARD
     )
-    assert refused.returncode != 0
-    message = json.loads(refused.stdout)["error"]["message"]
+    assert refused.returncode == 2
+    refusal = json.loads(refused.stdout)
+    assert refusal["outcome"] is None
+    message = refusal["error"]["message"]
     for text in (PART, OTHER_PART, str(spec), str(tmp_path / PROJECT_FILE)):
         assert text in message
     assert not (tmp_path / "xeda_run").exists()
@@ -585,9 +587,9 @@ def test_cli_device_conflict_names_both_files_and_override_wins(tmp_path, cli_le
     )
     assert ran.returncode == 0, ran.stderr
     document = json.loads(ran.stdout)
-    assert document["success"]
+    assert document["outcome"] == "passed"
     for node in document["nodes"]:
-        settings = json.loads((Path(node["run_path"]) / "settings.json").read_text())[
+        settings = json.loads((Path(node["run_dir"]) / "settings.json").read_text())[
             "flow_settings"
         ]
         assert settings["fpga"]["part"] == PART

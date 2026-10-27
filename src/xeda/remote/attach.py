@@ -22,6 +22,7 @@ from .client import (
     _FETCHING,
     _follow,
     _local_run_root,
+    _localized,
     _Local,
     _provision,
     _Run,
@@ -98,7 +99,8 @@ def _attach(
                 raise RemoteProtocolError(f"The agent on {host} sent a bad `attached` record.")
             number = found["id"]
             record = read_record(mirror_root, number)
-            _fill(run, record)
+            _fill(run, record, mirror_root)
+            run.launch_id = number
             _say_which(host, found, launch_id)
             local = _Local(
                 DefaultRunner(run_root, display_results=False),
@@ -114,6 +116,21 @@ def _attach(
                 _discard_mirrors(local, mirror_root, local_root)
                 raise
             run.phase = _FETCHING
+            translate = _translation(
+                remote_run_root=remote_run_root,
+                mirror_root=mirror_root,
+                inputs_dir=PurePosixPath(record.inputs_dir),
+                files=record.files,
+                generated=record.generated,
+                design_root=Path(record.design_root),
+            )
+            run.localize = lambda: _localized(
+                result,
+                run,
+                mirror_root=mirror_root,
+                remote_run_root=remote_run_root,
+                translate=translate,
+            )
             outcome = _finish(
                 agent,
                 local,
@@ -122,14 +139,7 @@ def _attach(
                 mirror_root=mirror_root,
                 local_root=local_root,
                 remote_run_root=remote_run_root,
-                translate=_translation(
-                    remote_run_root=remote_run_root,
-                    mirror_root=mirror_root,
-                    inputs_dir=PurePosixPath(record.inputs_dir),
-                    files=record.files,
-                    generated=record.generated,
-                    design_root=Path(record.design_root),
-                ),
+                translate=translate,
                 fetch_all=record.fetch_all,
                 outputs_to=None,
             )
@@ -138,7 +148,6 @@ def _attach(
             agent.close(wait=5)
             raise
         agent.close()
-    outcome.document["launch"] = {"id": number, "host": host}
     if record.delivers:
         log.info(
             "The request had --outputs-to, and attach delivers nothing. Run the original command "
@@ -147,11 +156,17 @@ def _attach(
     return outcome
 
 
-def _fill(run: _Run, record: LaunchRecord) -> None:
-    """Give the run the names of the request that the record holds."""
+def _fill(run: _Run, record: LaunchRecord, mirror_root: Path) -> None:
+    """Give the run the names of the request that the record holds, and the mirror `mirror_root`
+    of the host."""
     run.chain, run.flow, run.design = record.chain, record.flow, record.design
     run.target, run.debug, run.request = record.target, record.debug, record.request
-    run.mirror_root = Path(record.local_root) / f"@{run.host}"
+    run.design_name, run.settings = record.design_name, record.settings
+    run.local_root = Path(record.local_root)
+    run.mirror_root = mirror_root
+    run.nodes = [
+        (name, flow, Path(path)) for (name, flow), path in zip(record.nodes, record.run_paths)
+    ]
 
 
 def _say_which(host: str, found: Dict[str, Any], asked: Optional[str]) -> None:

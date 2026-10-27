@@ -484,7 +484,7 @@ def test_a_chain_and_a_command_line_binding_of_one_input_collide(tmp_path, kind)
     result, document = _xeda(
         "run", "yosys_fpga+nextpnr", root / "prebuilt_demo.yaml", "--dry-run", "-s", explicit
     )
-    assert result.exit_code != 0 and document["success"] is False
+    assert result.exit_code == 2 and document["outcome"] is None
     message = document["error"]["message"]
     assert "chain position 1 (yosys_fpga) -> 2 (nextpnr)" in message
     assert f"{COMMAND_LINE_ORIGIN}: flows.nextpnr.inputs.netlist" in message
@@ -555,13 +555,13 @@ def test_the_last_flow_owns_the_results_and_delivery_and_any_flow_is_set_by_name
         out,
         ok=True,
     )
-    assert document["flow"] == "fpga_pack" and document["success"]
-    assert [e["flow"] for e in document["request"]] == CHAIN.split("+")
-    assert [(n["node"], n["state"]) for n in document["nodes"]] == [
+    assert document["roots"] == ["fpga_pack"] and document["outcome"] == "passed"
+    assert [n["flow"] for n in document["nodes"]] == CHAIN.split("+")
+    assert [(n["name"], n["disposition"]) for n in document["nodes"]] == [
         (flow, "ran") for flow in CHAIN.split("+")
     ]
-    # the results and the exit status are the last flow's: its checked bitstream record
-    assert set(document["results"]["outputs"]) == {"bitstream"}
+    # the exit status is the last flow's: its checked bitstream record
+    assert set(document["nodes"][-1]["record"]["outputs"]) == {"bitstream"}
     # -s flows.<flow>.key reached that flow and no other
     run = tmp_path / "xeda_run/routed_demo"
     nextpnr = json.loads((run / "nextpnr/settings.json").read_text())["flow_settings"]
@@ -573,9 +573,9 @@ def test_the_last_flow_owns_the_results_and_delivery_and_any_flow_is_set_by_name
     # --outputs-to delivered the last flow's output and nothing of the producers'
     delivered = sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
     assert delivered == ["outputs/routed_demo.bit"]
-    deliveries = {n["node"]: n["deliveries"] for n in document["nodes"]}
+    deliveries = {n["name"]: n["deliveries"] for n in document["nodes"]}
     assert deliveries["yosys_fpga"] == deliveries["nextpnr"] == []
-    assert [d["setting"] for d in deliveries["fpga_pack"]] == ["--outputs-to"]
+    assert [d["key"] for d in deliveries["fpga_pack"]] == ["--outputs-to"]
 
 
 def test_the_saved_bindings_of_a_file_are_wiring_in_what_ran(tmp_path, toolchain):
@@ -583,14 +583,25 @@ def test_the_saved_bindings_of_a_file_are_wiring_in_what_ran(tmp_path, toolchain
     contain them, and the second launch is wholly fresh."""
     root = _stage(tmp_path, "routed_demo.yaml")
     result, first = _xeda("run", "fpga_pack", root / "routed_demo.yaml", ok=True)
-    assert [n["state"] for n in first["nodes"]] == ["ran"] * 3
-    assert _input(first, "fpga_pack", "config")["binding_origin"] == "file"
+    assert [n["disposition"] for n in first["nodes"]] == ["ran"] * 3
+    assert (
+        _input(_planned("fpga_pack", root / "routed_demo.yaml"), "fpga_pack", "config")[
+            "binding_origin"
+        ]
+        == "file"
+    )
+    config = next(i for i in _node(first, "fpga_pack")["record"]["inputs"] if i["name"] == "config")
+    assert (config["origin"], config["producer"], config["output"]) == (
+        "producer",
+        "nextpnr",
+        "config",
+    )
     for flow in CHAIN.split("+"):
         recorded = json.loads((tmp_path / f"xeda_run/routed_demo/{flow}/settings.json").read_text())
         assert "inputs" not in recorded["flow_settings"], flow
         assert "inputs" not in recorded["effective_flow_settings"], flow
     result, second = _xeda("run", "fpga_pack", root / "routed_demo.yaml", ok=True)
-    assert [n["state"] for n in second["nodes"]] == ["fresh"] * 3
+    assert [n["disposition"] for n in second["nodes"]] == ["reused"] * 3
 
 
 def test_outputs_are_delivered_only_after_the_whole_chain_succeeded(
@@ -603,33 +614,44 @@ def test_outputs_are_delivered_only_after_the_whole_chain_succeeded(
     monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", "fail")
     out = tmp_path / "out"
     result, document = _xeda("run", CHAIN, root / "routed_demo.yaml", "--outputs-to", out)
-    assert result.exit_code == 1 and document["success"] is False
-    assert [n["state"] for n in document["nodes"]] == ["ran", "ran", "failed"]
+    assert result.exit_code == 1 and document["outcome"] == "failed"
+    assert [(n["disposition"], n["outcome"]) for n in document["nodes"]] == [
+        ("ran", "passed"),
+        ("ran", "passed"),
+        ("ran", "failed"),
+    ]
     assert not out.exists()
 
 
 def test_a_flow_that_fails_without_a_tool_error_says_what_report_was_missing(
     tmp_path, toolchain, monkeypatch
 ):
-    """The documented split: the node's `results.json` says `missing_report`, the consumers quote
-    it as `producer_failed`, and a requested flow's own failure is `FlowFailed` at the top
-    level of the document."""
+    """The documented split: the node's `results.json` says `missing_report`, the consumers are
+    blocked, and the top level of the document gives the producer's own error."""
     root = _stage(tmp_path, "routed_demo.yaml")
     monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", "yosys")
     monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", "no-output")
     result, document = _xeda(
         "run", "yosys_fpga", root / "routed_demo.yaml", "-s", "fpga.part=LFE5U-85F-6BG381C"
     )
-    assert result.exit_code == 1 and document["error"]["type"] == "FlowFailed"
+    assert result.exit_code == 1 and document["outcome"] == "failed"
+    assert (
+        document["error"]["code"] == "missing_report" and document["error"]["node"] == "yosys_fpga"
+    )
     recorded = json.loads((tmp_path / "xeda_run/routed_demo/yosys_fpga/results.json").read_text())
     assert (
         recorded["error"]["code"] == "missing_report"
         and "reported failure" in recorded["error"]["message"]
     )
     result, document = _xeda("run", CHAIN, root / "routed_demo.yaml")
-    assert document["error"]["type"] == "FlowDependencyFailure"
-    assert "(missing_report)" in document["error"]["message"]
-    assert [n["state"] for n in document["nodes"]][0] == "failed"
+    assert (
+        document["error"]["code"] == "missing_report" and document["error"]["node"] == "yosys_fpga"
+    )
+    assert [(n["name"], n["outcome"]) for n in document["nodes"]] == [
+        ("yosys_fpga", "failed"),
+        ("nextpnr", "blocked"),
+        ("fpga_pack", "blocked"),
+    ]
 
 
 # --------------------------------------------------------- errors and suggestions the guide shows
@@ -726,7 +748,7 @@ def test_a_pass_through_link_collides_with_a_cli_binding_of_its_input(tmp_path):
         "flows.nextpnr.inputs.netlist=yosys_fpga.netlist",
         "--dry-run",
     )
-    assert result.exit_code != 0 and document["success"] is False
+    assert result.exit_code == 2 and document["outcome"] is None
     message = document["error"]["message"]
     assert (
         "The chain position 1 (yosys_fpga) -> 2 (fpga_pack), through nextpnr, binds input "
@@ -753,7 +775,7 @@ def test_a_source_that_cuts_the_graph_is_refused(tmp_path):
     (tmp_path / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
     (tmp_path / "top.config").write_text("")
     result, document = _xeda("run", "yosys_fpga+fpga_pack", design, "--dry-run")
-    assert result.exit_code != 0 and document["success"] is False
+    assert result.exit_code == 2 and document["outcome"] is None
     message = document["error"]["message"]
     assert "passes through `nextpnr`" in message and "the source of `fpga_pack.config`" in message
     # the request for the flow alone plans without `nextpnr`: its config comes from the source

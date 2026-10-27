@@ -420,7 +420,7 @@ def test_a_section_written_on_the_command_line_is_still_accepted(tmp_path):
         ("flows.verilator=3", "`flows.verilator`"),
     ],
 )
-def test_a_flows_error_on_the_command_line_is_a_json_document_and_exit_status_1(
+def test_a_flows_error_on_the_command_line_is_a_json_document_and_exit_status_2(
     tmp_path, setting, field
 ):
     design = _write_design(tmp_path)
@@ -441,9 +441,9 @@ def test_a_flows_error_on_the_command_line_is_a_json_document_and_exit_status_1(
     )
     document = json.loads(result.stdout)
 
-    assert result.exit_code == 1, result.output
-    assert document["success"] is False
-    assert document["error"]["type"] == "FlowSettingsError"
+    assert result.exit_code == 2, result.output
+    assert document["outcome"] is None
+    assert document["error"]["code"] == "invalid_value"
     assert field in document["error"]["message"]
     assert "must be a mapping" in document["error"]["message"]
     assert "Traceback" not in result.output
@@ -561,7 +561,7 @@ def test_a_key_that_is_a_value_and_a_table_is_reported_by_every_origin(
     assert not escaped, f"{origin}:\n  " + "\n  ".join(escaped)
 
 
-def test_the_command_line_names_both_keys_and_exits_with_status_1(tmp_path):
+def test_the_command_line_names_both_keys_and_exits_with_status_2(tmp_path):
     design = _write_design(tmp_path)
     for order in (["flows=3", "flows.verilator.timing=true"], ["timing.x=1", "timing=true"]):
         result = CliRunner().invoke(
@@ -569,8 +569,9 @@ def test_the_command_line_names_both_keys_and_exits_with_status_1(tmp_path):
         )
         document = json.loads(result.stdout)
 
-        assert result.exit_code == 1, result.output
-        assert document["error"]["type"] == "ConflictingKeys"
+        assert result.exit_code == 2, result.output
+        assert document["outcome"] is None
+        assert document["error"]["code"] == "conflicting_keys"
         assert "sets a key inside it: give one of them" in document["error"]["message"]
 
 

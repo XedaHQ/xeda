@@ -521,9 +521,9 @@ def test_a_destination_two_flows_name_is_refused_before_the_question_about_a_fil
     assert same.read_text() == "the user's file\n"
 
 
-def test_the_requested_flow_reads_not_run_after_a_refusal_at_a_producer_s_turn(world, monkeypatch):
-    """The refusal comes before the producer's tool, so the flow that asked for it did not run
-    either: the document says so, as it says of the producer."""
+def _refusal_at_a_producers_turn(world, monkeypatch):
+    """Run `__both`, whose producer `__delivers` refuses its delivery at its own turn, after the
+    producer `__reads_dir` ran. Return the result of the command and its document."""
     check = Deliveries.check
     seen: list[Path] = []
 
@@ -548,11 +548,26 @@ def test_the_requested_flow_reads_not_run_after_a_refusal_at_a_producer_s_turn(w
     result = CliRunner().invoke(
         cli, ["run", "__both", str(design), "--run-root", str(world.root), "--json"]
     )
-    document = json.loads(result.stdout)
-    assert result.exit_code != 0 and document["success"] is False
+    return result, json.loads(result.stdout)
+
+
+def test_a_refusal_at_a_producer_s_turn_fails_that_node_in_a_launch_that_started(
+    world, monkeypatch
+):
+    """The refusal comes before the tool of the producer, but another producer has run: the
+    launch started. The producer that was refused failed, and the flow that asked for it is
+    blocked."""
+    result, document = _refusal_at_a_producers_turn(world, monkeypatch)
+    assert result.exit_code == 1 and document["outcome"] == "failed"
     assert RUNS == [_ReadsDir.name]
-    states = {node["node"]: node["state"] for node in document["nodes"]}
-    assert states == {"__reads_dir": "ran", "__delivers": "not run", "__both": "not run"}
+    assert document["error"]["node"] == "__delivers"
+    assert document["error"]["code"] == "reported_failure"
+    states = {node["name"]: (node["outcome"], node["disposition"]) for node in document["nodes"]}
+    assert states == {
+        "__reads_dir": ("passed", "ran"),
+        "__delivers": ("failed", "ran"),
+        "__both": ("blocked", "not_run"),
+    }
 
 
 @pytest.mark.parametrize("error_class", [DeliveryError, OutputExistsError])

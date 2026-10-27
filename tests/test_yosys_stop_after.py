@@ -94,15 +94,19 @@ def test_a_stop_after_the_rtl_succeeds_with_the_outputs_it_wrote(
         *recipe["off"],
     )
     assert result.exit_code == 0, result.output
-    assert document["success"] is True, document.get("error")
-    run_path = Path(document["run_path"])
+    assert document["outcome"] == "passed", document["error"]
+    node = document["nodes"][-1]
+    run_path = Path(node["run_dir"])
+    record = node["record"]
     assert (run_path / "rtl.v").is_file() and (run_path / "rtl.json").is_file()
     # it lists what it wrote, and nothing it did not: no netlist, no report
-    artifacts = [Path(p) for p in iter_artifact_paths(document["results"]["artifacts"])]
+    artifacts = [Path(p) for p in iter_artifact_paths(record["artifacts"])]
     assert sorted(p.name for p in artifacts) == ["rtl.json", "rtl.v"], artifacts
     assert all((run_path / p).is_file() for p in artifacts)
     assert not (run_path / "reports" / "utilization.json").exists()
-    assert not document["results"].get("outputs"), "no declared output was switched on"
+    assert not any(
+        output["names"] for output in record["outputs"].values()
+    ), "no declared output was switched on"
 
 
 def _plan(tmp_path: Path, flow: str, *settings: str):
@@ -187,7 +191,7 @@ def test_a_flow_that_takes_the_netlist_cannot_follow_a_stopped_synthesis(
             f"flows.{stopped}.stop_after=rtl",
             f"flows.{stopped}.netlist_verilog=",
         )
-    assert result.exit_code != 0 and document["success"] is False
+    assert result.exit_code == 2 and document["outcome"] is None
     message = document["error"]["message"]
     taker = TAKES_THE_NETLIST.get(consumer, consumer)
     assert f"{stopped}.netlist is required by {taker}" in message

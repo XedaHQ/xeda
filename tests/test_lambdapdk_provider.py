@@ -914,8 +914,8 @@ def test_a_user_file_that_is_invalid_for_its_provider_is_a_settings_error_at_pla
         ],
     )
     document = json.loads(result.stdout)
-    assert result.exit_code != 0 and document["success"] is False
-    assert document["error"]["type"] == "FlowSettingsError"
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "shared_setting_conflict"
     assert "corners.aliases.fast" in document["error"]["message"]
     assert "platform_file" in document["error"]["message"]
 

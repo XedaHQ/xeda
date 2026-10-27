@@ -134,8 +134,8 @@ def test_dash_s_given_a_boolean_word_says_what_to_write(tmp_path, monkeypatch, s
         ["run", "vivado_synth", "-s", "fpga.part=xc7a12tcsg325-1", setting, str(SQRT), "--json"],
     )
     document = json.loads(result.stdout)
-    assert result.exit_code != 0
-    assert document["success"] is False
+    assert result.exit_code == 2
+    assert document["outcome"] is None
     key, word = setting.split("=")
     fix = "true" if word in ("yes", "on") else "false"
     assert f"`{word}` is text, not a boolean: write `{fix}`" in document["error"]["message"]

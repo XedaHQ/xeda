@@ -86,7 +86,7 @@ def test_cwd_with_remote_is_a_removed_option_under_json():
         cwd=SQRT_DESIGN.parent,
     )
     document = json.loads(proc.stdout)
-    assert proc.returncode != 0 and document["success"] is False
+    assert proc.returncode == 2 and document["outcome"] is None
     assert document["error"]["message"].startswith("`--cwd` was removed: use --outputs-to .")
 
 
@@ -250,13 +250,15 @@ def test_run_json_stdout_carries_only_the_json_document(tmp_path):
         fake_tools=True,
     )
     document = json.loads(proc.stdout)  # would raise if any tool output leaked to stdout
-    assert document["success"] is True, proc.stderr
+    assert document["outcome"] == "passed", proc.stderr
     assert proc.returncode == 0
-    assert document["flow"] == "vivado_synth"
-    assert document["design"] == "sqrt"
-    assert Path(document["run_path"]).is_dir()
-    assert Path(document["results_json"]).is_file()
-    assert document["results"]["success"] is True
+    assert document["spec"]["flow"] == "vivado_synth"
+    assert document["spec"]["design"] == "sqrt"
+    (node,) = document["nodes"]
+    run_dir = Path(node["run_dir"])
+    assert run_dir.is_dir() and (run_dir / "results.json").is_file()
+    assert node["record"]["outcome"] == "passed"
+    assert node["record"] == json.loads((run_dir / "results.json").read_text())
     # the tool actually ran, and its output went to stderr
     assert "Running `vivado" in proc.stderr
 
@@ -275,8 +277,8 @@ def test_run_design_file_option_selects_the_design(tmp_path):
     )
     document = json.loads(proc.stdout)
     assert proc.returncode == 0, proc.stderr
-    assert document["success"] is True
-    assert document["design"] == "sqrt"
+    assert document["outcome"] == "passed"
+    assert document["spec"]["design"] == "sqrt"
 
 
 def test_run_json_reports_failures_as_json_and_a_nonzero_exit(tmp_path):
@@ -291,18 +293,10 @@ def test_run_json_reports_failures_as_json_and_a_nonzero_exit(tmp_path):
         fake_tools=True,
     )
     document = json.loads(proc.stdout)
-    assert proc.returncode != 0
-    assert document["success"] is False
-    assert document["error"]["type"] == "FlowSettingsError"
+    assert proc.returncode == 2
+    assert document["outcome"] is None
+    assert document["error"]["code"] == "unknown_setting"
     assert "no_such_setting" in document["error"]["message"]
-
-
-def test_failed_run_document_includes_an_error():
-    from xeda.cli import _run_document
-
-    document = _run_document("vivado_synth", "sqrt.yaml", None, False)
-    assert document["success"] is False
-    assert document["error"]["type"] == "FlowFailed"
 
 
 def test_unknown_flow_suggests_a_close_match():
@@ -324,11 +318,11 @@ def test_clean_empties_the_run_directory_before_running(tmp_path):
     backups -- the previous run's own files are simply gone."""
     args = ("run", "vivado_synth", str(SQRT_DESIGN), "-s", "clock.period=5.5ns", "--json")
     first = json.loads(run_xeda(*args, cwd=tmp_path, fake_tools=True).stdout)
-    run_path = Path(first["run_path"])
+    run_path = Path(first["nodes"][0]["run_dir"])
     (run_path / "MARKER").write_text("from the previous run\n")
     second = json.loads(run_xeda(*args, "--clean", cwd=tmp_path, fake_tools=True).stdout)
-    assert second["success"] is True
-    assert Path(second["run_path"]) == run_path
+    assert second["outcome"] == "passed"
+    assert Path(second["nodes"][0]["run_dir"]) == run_path
     assert not (run_path / "MARKER").exists()
     # no backup directory (the run directory's lock file lives beside it)
     assert sorted(p.name for p in run_path.parent.iterdir() if p.is_dir()) == [run_path.name]

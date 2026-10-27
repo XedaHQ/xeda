@@ -1,6 +1,6 @@
 ---
 name: xeda
-description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis and place and route (yosys, Design Compiler, OpenROAD) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`FlowSettingsError`, `DesignValidationError`, `ExecutableNotFound`, `NonZeroExitCode`, `FlowFailed`).
+description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis and place and route (yosys, Design Compiler, OpenROAD) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`unknown_setting`, `invalid_design`, `executable_not_found`, `nonzero_exit`, `rejected`).
 ---
 
 # Driving Xeda
@@ -37,30 +37,46 @@ and `skipped` paths. The Python API never prompts: `scrub_design` and a launch w
 `scrub_old_runs` remove nothing unless the caller passes `confirm` / sets `confirm_scrub`.
 
 ```bash
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5ns --json | jq '.results.fmax'
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5ns --json | jq '.nodes[-1].record.metrics.fmax'
 ```
 
-The exit status is 0 on success, 1 on a failed run and 2 on a usage error. The `run` document has:
+The exit status of `run` is 0 for the outcome `passed`, 1 for any other outcome and 2 for a request
+that started no launch (an invalid setting, design, project or chain, or a usage error). A Ctrl-C
+before the launch started gives `outcome: null` too, with the code `canceled` and exit status 1.
+Other commands exit 0 or 1, and 2 for a usage error. The `run` document has exactly these keys:
 
 | Key | Value |
 | --- | --- |
-| `flow`, `design`, `design_file`, `target` | requested flow; the design's name; the design file you named (absolute, or `null`); the selected target (or `null`) |
-| `success`, `results` | verdict; the flow's results (metric keys: `xeda list-results`); `results_json` is the path of the run's record, `results.json` |
-| `run_path`, `results_json`, `settings_json` | the run directory and two of its files |
-| `request`, `nodes` | the flows asked for; every run directory touched, with `state` (`fresh`, `ran`, `failed`, `rejected again`, `blocked`, `not run`), `reason`, `deliveries`, `inputs` |
-| `error` | on failure only: `{type, message}`; see "When a run fails" |
+| `schema_version` | 1 |
+| `outcome` | `passed`, `rejected`, `failed`, `canceled`, `skipped` or `detached`; `null` when no launch started |
+| `error` | `null`, or the cause: `{code, message, node, exit_status, log}`; see "When a run fails" |
+| `launch_id` | the id of the launch; `null` when no launch started |
+| `spec` | `{flow, design, design_file, target, settings}`: the request text, the design's name, the design file you named (absolute, or `null`), the selected target (or `null`), and `-s` as a table of settings by flow name; `null` for a usage error |
+| `roots`, `nodes` | the requested node (the last flow of a chain); every planned node, producers first |
 
-Node states: `failed` (the flow ran and failed, or a problem with what its producers handed over
-stopped it), `rejected again` (the recorded rejection of an unchanged run, reported without running
-the tool), `blocked` (a producer failed, was rejected or is blocked, so the flow did not run).
+A node has `name`, `flow`, `outcome`, `disposition`, `reason`, `blocked_by`, `elapsed`, `run_dir`,
+`deliveries` (`{key, destination, delivered}`), `error` (why the node did not pass, or `null`) and
+`record`, the `results.json` object (`null` for a node that did not run or whose record could not be
+stored). The metrics are in `record.metrics`; metric keys: `xeda list-results`.
 
-A dry run adds `dry_run: true` and `plan` (`requested`, `target`, `nodes`). A plan node has `name`,
-`flow`, `run_path`, `flowrun_hash`, `settings_hash`, `inputs` (`origin`: `producer`, `source` or
-`none`; `binding_origin`), `switched_on`, `state`, `reason`, `action_reason`, `input_types` and
-`output_types`. `state` is `fresh` (reused), `stale` (runs; `reason` is the one the log gives),
-`unknown` (`reason` says why, for example `depends on yosys_fpga`), `rejected again` (the
-checks rejected the last run and nothing it consumes changed; `reason` is the recorded message, and
-the flow does not run) or `blocked` (a producer is `rejected again` or blocked; `reason` names it).
+Node `outcome`: `passed`, `rejected` (the checks rejected the results), `failed`, `canceled`,
+`blocked` (a producer did not pass, so the flow did not run; `blocked_by` names it), `skipped` (the
+launch stopped before its turn) and `detached` (a remote launch that keeps running). `disposition`:
+`ran`, `reused` (an up to date `passed` or `rejected` run, reported without running the tool),
+`shared` or `not_run`. The `outcome` of the document is `detached` if a node is detached, else
+`canceled` after a cancel, else `failed` for an error of the whole launch (`delivery_failed`,
+`cleanup_failed`, a remote failure). Otherwise it is that of the cause: the root, or the producer
+that failed or was rejected.
+
+`--dry-run --json` prints a document of its own, not the `run` document. Its keys are `flow`,
+`design`, `design_file`, `target`, `success`, `dry_run` (true), `request` and `plan` (`requested`,
+`target`, `nodes`). A plan node has `name`, `flow`, `run_path`, `flowrun_hash`, `settings_hash`,
+`inputs` (`origin`: `producer`, `source` or `none`; `binding_origin`), `switched_on`, `state`,
+`reason`, `action_reason`, `input_types` and `output_types`. `state` is `fresh` (reused), `stale`
+(runs; `reason` is the one the log gives), `unknown` (`reason` says why, for example `depends on
+yosys_fpga`), `rejected again` (the checks rejected the last run and nothing it consumes changed;
+`reason` is the recorded message, and the flow does not run) or `blocked` (a producer is `rejected
+again` or blocked; `reason` names it).
 
 ## Plan before you run
 
@@ -190,7 +206,7 @@ no flow takes). A listed netlist is your claim: Xeda does not parse it or compar
 `platform`, `liberty` or `fpga`, and the tool that reads it reports unknown cells.
 
 A chain runs flows in order and binds each output to the next flow's required input; the last flow
-is the one requested (its `results`, `--help-settings` and exit status):
+is the one requested (its record in the run document, `--help-settings` and exit status):
 
 ```bash
 xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
@@ -298,7 +314,7 @@ layer adjustments, `resize.opt_config`, `resize.global_sizing` and `design.dont_
 under `flows.openroad_place` only. Physical settings take units (`clock.period: 0.65 ns`,
 `floorplan.core_margin: 2 um`). `openroad` rejects a negative slack (`fail_timing`), design rule
 violations (`fail_drc`) and antenna violations left after the repair (`fail_antenna`), all on by
-default: `FlowFailed` with `rejected`, reported again without a tool run until something
+default: outcome `rejected`, reported again without a tool run until something
 changes. A failed stage leaves `<flow>-failed.odb` in its run directory.
 `examples/bluespec/gcd/gcd.yaml` is a working design file for nangate45: its `flows.yosys` section
 sets `platform` and `clock.period`, and `bsc` converts the design first.
@@ -339,7 +355,7 @@ the flow writes them, and:
 | File | Content |
 | --- | --- |
 | `settings.json` | `flow_settings` (the merged input) and `effective_flow_settings` (what the flow made of it; read it first when a run surprises you) |
-| `results.json` | the record of the run; a failed run writes `outcome: failed` and `error.code`/`error.message`; a run that its checks rejected keeps `trace.json`; an unchanged launch reports it again (state `rejected again`); `--rebuild-all` runs it |
+| `results.json` | the record of the run; a failed run writes `outcome: failed` and `error.code`/`error.message`; a run that its checks rejected keeps `trace.json`; an unchanged launch reports it again (outcome `rejected`, disposition `reused`); `--rebuild-all` runs it |
 | `trace.json` | what the run consumed and produced; present after a run that passed or that its checks rejected; a failure that no check rejected leaves none |
 
 ## Rebuilds
@@ -460,18 +476,22 @@ Behavior:
   run never reuses it. Paths in `results.json` and `settings.json` name the mirror where Xeda can
   map them. `.launches/<id>.json` in the mirror is the record that `attach` needs.
 - `--outputs-to DIR` delivers from the mirror after a success.
-- `--json` writes one document: the document of a run plus `remote` (the text of `--remote`) and
-  `mirror`; paths name the mirror and `design_file` is the local file. A failed remote step has
-  `remote` and no `mirror`. A remote dry run adds `uploaded` (the input files it sent), and each
-  `plan` node has `run_path` (in the mirror) and `remote_run_path`. Tool output goes to stderr.
+- `--json` writes one document: the document of a run. `run_dir` and the paths in the records name
+  the mirror, `design_file` is the local file, and `launch_id` is the id of the launch on the host.
+  A failed remote step has the outcome `failed` and the code `remote_failed`; a launch that ended
+  but could not be fetched or delivered has `remote_fetch_failed` or `delivery_failed` and keeps its
+  records; Ctrl-C gives `canceled`; `--keep-running` then Ctrl-C gives the outcome `detached` and
+  `remote_detached`. A remote dry run prints the dry-run document and adds `remote`, `mirror` and
+  `uploaded` (the input files it sent), and each `plan` node has `run_path` (in the mirror) and
+  `remote_run_path`. Tool output goes to stderr.
 - `--dry-run --remote HOST` plans and judges freshness on the host. It may install Xeda there and
   sync the inputs; it writes no run directory.
 - Ctrl-C asks the host to cancel (SIGINT, after 15 s SIGTERM, after 10 s more SIGKILL, to the
   launch and its descendants). A second Ctrl-C closes the connection, and the host cancels. A lost
   connection cancels too (heartbeat every 5 s, 30 s lease). Recovery is the same command again:
   a finished run is reused and only the fetch repeats; a canceled run starts over.
-- `--keep-running` keeps the launch on the host when the connection ends or Ctrl-C stops the
-  follow. The failure is `RemoteDetached` and the document has `launch` (`id`, `host`). Then
+- `--keep-running` keeps the launch on the host when the connection ends or Ctrl-C stops the follow.
+  The document has the outcome `detached`, the code `remote_detached` and the `launch_id`. Then
   `xeda remote attach HOST [LAUNCH_ID] [--run-root DIR] [--json]` shows the log from its start and
   fetches the result into the mirror (exit 0 on success; it delivers nothing, so run the original
   command again to deliver), and `xeda remote cancel HOST [LAUNCH_ID] [--run-root DIR] [--json]`
@@ -488,23 +508,30 @@ Behavior:
 
 ## When a run fails
 
-On failure `run` writes a document with `success: false` and `error`, and exits non-zero. Branch on
-`error.type`; `references/troubleshooting.md` has the messages and fixes.
+A launch that does not pass exits 1 with `outcome` and `error`. A request that starts no launch has
+`outcome: null`, exits 2 and has the `spec` it could read (`null` for a usage error); a Ctrl-C
+before the launch started exits 1 with the code `canceled`. Branch on
+`error.code`, a stable lower snake case text (the set is open: keep an unknown code as text).
+`references/troubleshooting.md` has the messages and fixes. `dse`, `scrub`, `pdk`, `remote check`
+and `list-*` keep their own documents: on failure they have `success: false` and
+`error.type`/`error.message`.
 
-| `error.type` | Do |
+| `error.code` | Do |
 | --- | --- |
-| `FlowSettingsError` (unknown, mistyped or removed setting), `FlowSettingsException` (the request needs what the settings or design lack: `fpga`, a source the flow reads, agreeing shared settings), `NoReadableSource` | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
-| `DesignValidationError` | The message names the key (`rtl.sources:`). Check the file against `xeda design-schema`. |
-| `BadParameter`, `UsageError` (exit 2) | Unknown flow, missing file, malformed chain, removed option. The message suggests close matches. |
-| `DesignFileParseError` | The file does not parse; the message gives the line and column. |
-| `DesignNotSpecified` | Pass the design file as the last argument, or `--design-name` for a project. |
-| `ProjectFileError` | Keep one project file with the keys `designs` and `flows`. |
-| `ExecutableNotFound` | Install the tool, or add `-s dockerized=true`. |
-| `FlowFailed` | The requested flow ran and did not succeed. `results.error` has the cause as a stable `error.code` (with `message`, `node`, `exit_status`, `log`): `nonzero_exit` (the tool exited non-zero; read its log in `run_path`), `timeout`, `executable_not_found`, `reported_failure` (the tool exited 0 and its reports or checks say it failed), `storage_error` (a file or directory error of the operating system), `missing_report` (a report the flow reads was not written by this run), `rejected` (the checks judged the results negative), `missing_output` (a declared output is missing or was not written by this run). |
-| `FlowDependencyFailure` | A producer failed, was rejected or handed over an output that could not be verified (code `producer_failed`). The message quotes the producer, its code and its message; read the producer's `results.json` when the message names it. A flow that a producer blocks does not run and writes no `results.json` (it keeps its earlier one). |
-| `RunRootError`, `RunDirectoryError`, `DeliveryError`, `OutputExistsError` | The message names the directory or setting and the fix. |
-| `NoSuccessfulRun` | `xeda dse` found no successful run. Inspect the attempted runs and adjust the search. |
-| `RemoteConnectionError`, `RemoteProvisionError`, `RemoteDependencyError`, `RemoteIncompatible`, `RemoteCanceled`, `RemoteInterrupted`, `RemoteDetached`, `RemoteFetchError`, `RemoteConfigError`, `RemoteProtocolError`, `RemoteError` | A `--remote` run failed outside the flow. The message names the step and the cause; `references/troubleshooting.md` has the fix for each type. |
+| `unknown_setting`, `invalid_value`, `invalid_quantity`, `boolean_text`, `list_text`, `required_setting`, `conflicting_keys`, `removed_setting`, `unsupported_setting`, `shared_setting_conflict` (no launch; `error.node` is the flow) | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
+| `invalid_design`, `design_file_not_found`, `unknown_target`, `unknown_design`, `invalid_project` | The message names the key (`rtl.sources:`) or the file. Check the file against `xeda design-schema`. |
+| `flow_not_found`, `design_file_not_found`, `project_file_not_found`, `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, unknown option, removed option. The message suggests close matches. |
+| `invalid_chain`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
+| `invalid_run_root`, `delivery_refused`, `delivery_failed`, `cleanup_failed` | The message names the directory or setting and the fix. |
+| `nonzero_exit` | The tool exited non-zero; read its log in `run_dir` of the node `error.node`. |
+| `timeout`, `executable_not_found` | Raise the limit. Install the tool, or add `-s dockerized=true`. |
+| `reported_failure` | The tool exited 0 and its reports or checks say it failed, or the flow raised its own error. |
+| `missing_report`, `missing_output`, `invalid_metric` | A report the flow reads or a declared output was not written by this run, or a metric is not a finite value of its type. |
+| `rejected` | The checks judged the results negative. The metrics are in the record; change the design or settings. |
+| `producer_failed` (on a `blocked` node) | A producer did not pass. The top-level `error` is the producer's own; read its `record`. A blocked flow does not run and keeps its earlier `results.json`. |
+| `remote_failed`, `remote_fetch_failed`, `remote_detached`, `canceled` | A `--remote` run failed outside the flow, could not fetch its result, keeps running on the host, or was canceled. The message names the step and the cause; `references/troubleshooting.md` has the fix. |
+| `storage_error` | A file or directory error of the operating system, or a path that leaves the run directory, ended the node (the record may be missing). Check the disk and permissions. |
+| `internal_error` | A bug of Xeda. Report it with the message. |
 
 Add `--debug` for verbose logs and a traceback. Flow names accept `vivado_synth`, `vivado-synth`
 and `VivadoSynth`; setting names are exact.

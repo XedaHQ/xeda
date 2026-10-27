@@ -170,9 +170,10 @@ def test_the_command_line_refuses_a_link_with_and_without_a_dry_run(tmp_path, ca
         ["run", SCRUBBED, str(world.design_file), "--run-root", str(world.root), *target]
         + ["--json", *arguments],
     )
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
-    assert document["success"] is False
+    assert document["outcome"] is None and document["nodes"] == []
+    assert document["error"]["code"] == "invalid_run_root"
     names_the_link(world, document["error"]["message"])
     world.unchanged()
 
