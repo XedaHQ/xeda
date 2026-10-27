@@ -801,12 +801,18 @@ def test_an_upstream_output_that_was_never_written_never_reaches_the_programmer(
 @BY_BOARD
 @pytest.mark.parametrize("mode", ["no-output", "partial", "fail"])
 def test_a_packer_that_makes_no_whole_bitstream_never_reaches_the_programmer(
-    tmp_path, toolchain, monkeypatch, board, mode
+    tmp_path, toolchain, board, mode
 ):
     design = _stage(tmp_path, board)
-    monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", board.packer)
-    monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", mode)
-    result, document = _xeda("run", CHAIN, design)
+    result, document = _xeda(
+        "run",
+        CHAIN,
+        design,
+        "-s",
+        f"flows.fpga_pack.env.XEDA_FAKE_FPGA_TOOL={board.packer}",
+        "-s",
+        f"flows.fpga_pack.env.XEDA_FAKE_FPGA_MODE={mode}",
+    )
     assert result.exit_code == 1 and document["outcome"] == "failed"
     # the refusal is the packer's: everything before it ran, and the packer itself was started
     states = _states(document)
@@ -824,12 +830,10 @@ def test_a_packer_that_makes_no_whole_bitstream_never_reaches_the_programmer(
     assert document["error"]["node"] == "fpga_pack"
     _assert_never_programmed(tmp_path, board.design)
     # the control: the same root, the same chain, the packer well -- programs, with the fake
-    monkeypatch.delenv("XEDA_FAKE_FPGA_TOOL")
-    monkeypatch.delenv("XEDA_FAKE_FPGA_MODE")
     result, good = _xeda("run", CHAIN, design)
     assert result.exit_code == 0, result.output
-    # the control's own states: the two stages the failing run completed are reused as they
-    # are, the packer that failed runs again and the programmer, never entered before, runs
+    # Only the packer's settings changed, so completed stages are reused and the packer runs again
+    # before the programmer starts.
     assert _states(good) == dict(zip(STAGES, ["reused", "reused", "ran", "ran"]))
     assert published.is_file() and published.read_bytes() == BITSTREAM
     _programmed(tmp_path, toolchain, board.design, published)
