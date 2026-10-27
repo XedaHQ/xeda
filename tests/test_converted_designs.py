@@ -540,7 +540,12 @@ def test_the_converter_runs_before_the_flow_is_built_and_the_flow_reads_what_it_
     assert [event for event in after[4:] if event != "design hash"] == [
         ("reader runs", derived_names)
     ]
-    assert "construct" not in events[:verified] and "init" not in events[:verified]
+    # The judgment that precedes the locks constructs flows from the planned design (as a dry run
+    # does) and never calls `init()`. Between the start of the converter and the verified
+    # record nothing is constructed, and the flow of the launch is constructed once, after it.
+    assert "init" not in events[:verified]
+    assert "construct" not in events[ran:verified]
+    assert after.count("construct") == 1
     assert ("check", ["mkTop.v", "ext.v"]) in events[:ran]
 
 
