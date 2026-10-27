@@ -245,7 +245,7 @@ def test_the_sweep_reaches_the_fields_of_the_models_nested_in_the_settings_of_th
     models = reachable_models(settings_models())
     fields = fields_of(models)
     for key in (
-        ("Flow.Settings", "verbose"),  # inherited by every flow
+        ("Flow.Settings", "nthreads"),  # inherited by every flow
         ("SimFlow.Settings", "timeout"),
         ("PhysicalClock", "period"),  # in a dict of models
         ("FPGA", "pins"),  # a model, Optional

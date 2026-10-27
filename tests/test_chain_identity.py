@@ -284,9 +284,9 @@ def test_a_reconfigured_producer_and_a_settings_change_keep_their_own_reasons(tm
         "__fork, which makes json_netlist, has other settings or inputs than in the last run"
     )
     own = runner.run(
-        _Left, _design(tmp_path, flows={"__fork": {"label": "x"}, "__left": {"verbose": 1}})
+        _Left, _design(tmp_path, flows={"__fork": {"label": "x"}, "__left": {"nthreads": 1}})
     )
-    assert own.stale_reason.startswith("settings changed: verbose")
+    assert own.stale_reason.startswith("settings changed: nthreads")
     assert _launched(runner, "__fork").reused
     # when the settings and the wiring both change, the settings are the reason given: a
     # binding is named only when the settings hash is the recorded one
@@ -294,7 +294,7 @@ def test_a_reconfigured_producer_and_a_settings_change_keep_their_own_reasons(tm
         _Left,
         _design(
             tmp_path,
-            flows={"__left": {"verbose": 2, "inputs": {"json_netlist": "__fork.b"}}},
+            flows={"__left": {"nthreads": 2, "inputs": {"json_netlist": "__fork.b"}}},
         ),
     )
-    assert both.stale_reason.startswith("settings changed: verbose")
+    assert both.stale_reason.startswith("settings changed: nthreads")

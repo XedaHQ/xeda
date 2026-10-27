@@ -430,7 +430,9 @@ def test_every_setting_of_the_loader_is_an_option_the_loader_has(tmp_path, fake_
     own = set(Openfpgaloader.Settings.model_fields) - set(WithFpgaBoardSettings.model_fields)
     assert own == set(ALL_LOADER_SETTINGS), "a setting of the loader that this table lacks"
     flow = _program(
-        tmp_path, _prebuilt(tmp_path), {"fpga": {"part": ECP5}, "verbose": 1, **ALL_LOADER_SETTINGS}
+        tmp_path,
+        _prebuilt(tmp_path),
+        {"fpga": {"part": ECP5}, "verbosity": "verbose", **ALL_LOADER_SETTINGS},
     )
     assert flow.succeeded
     (call,) = _calls(tmp_path, "openfpgaloader")

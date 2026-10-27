@@ -330,11 +330,11 @@ def test_settings_given_as_a_model_leave_the_design_s_sections_in_force(tmp_path
     design = _design(tmp_path, "producer")
     runner = DefaultRunner(tmp_path / door, display_results=False)
 
-    flow = getattr(runner, door)(_Place, design, _Place.Settings(verbose=1))
+    flow = getattr(runner, door)(_Place, design, _Place.Settings(nthreads=1))
 
     assert flow is not None and flow.succeeded
-    assert flow.settings.verbose == 1 and flow.settings.fpga.part == PART
-    assert _launched(runner) == _planned_with(tmp_path, design, {"verbose": 1})
+    assert flow.settings.nthreads == 1 and flow.settings.fpga.part == PART
+    assert _launched(runner) == _planned_with(tmp_path, design, {"nthreads": 1})
 
 
 # --------------------------------------------------------------------------- origin labels

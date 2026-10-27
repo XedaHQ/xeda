@@ -96,13 +96,13 @@ def test_dash_s_sets_the_last_flow_and_a_qualified_one_any_node_of_the_chain(tmp
         "__input_maker+__taker",
         _design(tmp_path),
         "-s",
-        "verbose=1",
+        "nthreads=1",
         f"flows.__input_maker.input_file={tmp_path / 'other.txt'}",
     )
     assert result.exit_code == 0, result.output
     assert document["nodes"][-1]["record"]["metrics"]["read"] == "other\n"
     settings = json.loads((tmp_path / "xeda_run/demo/__taker/settings.json").read_text())
-    assert settings["flow_settings"]["verbose"] == 1
+    assert settings["flow_settings"]["nthreads"] == 1
     bad, failure = _json(
         "run", "__input_maker+__taker", _design(tmp_path), "-s", "flows.__maker.text=x"
     )

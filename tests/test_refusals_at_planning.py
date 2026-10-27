@@ -399,7 +399,7 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         "(`run_path_of`); the path is the run root's, not the flow's settings or design",
     ),
     "xeda.flow.flow:Flow.Settings.from_input": (
-        2,
+        1,
         "validates settings given as a mapping to a flow built directly; a launched flow gets "
         "validated settings",
     ),

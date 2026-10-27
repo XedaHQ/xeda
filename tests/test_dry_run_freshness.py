@@ -206,7 +206,7 @@ class FpgaGraph(Graph):
         return "seed=3"
 
     def producer_setting(self) -> str:
-        return "flows.yosys_fpga.verbose=1"
+        return "flows.yosys_fpga.verbosity=verbose"
 
 
 # ------------------------------------------------------------------------------ the changes
