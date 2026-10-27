@@ -162,8 +162,8 @@ def test_one_setting_in_two_nodes_is_not_a_repeat():
         "nextpnr",
         registered_flow,
     )
-    assert sections["nextpnr"] == {"seed": "1", "verbose": "2"}
-    assert sections["yosys_fpga"] == {"verbose": "2"}
+    assert sections["nextpnr"] == {"seed": 1, "verbose": 2}
+    assert sections["yosys_fpga"] == {"verbose": 2}
     assert own == {}
 
 
