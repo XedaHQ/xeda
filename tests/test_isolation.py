@@ -276,7 +276,10 @@ COCOTB_SHARE = "cocotb_share"
 def stand_in_answers(world: World) -> Dict[Tuple[str, str], str]:
     """What the stand-in of `run_process` prints for a query, by program name and first argument,
     so that a flow that needs the answer reaches the tools it starts."""
-    return {("cocotb-config", "--share"): str(world.parent / COCOTB_SHARE)}
+    return {
+        ("cocotb-config", "--share"): str(world.parent / COCOTB_SHARE),
+        ("cocotb-config", "--python-bin"): sys.executable,
+    }
 
 
 def _world(parent: Path) -> World:

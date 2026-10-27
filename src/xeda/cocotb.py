@@ -1,7 +1,6 @@
 import logging
 import os
 import re
-import sys
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -17,7 +16,7 @@ from .dataclass import (
     field_validator,
 )
 from .design import Design, SourceType
-from .tool import Tool
+from .tool import Tool, ToolException
 from .units import count
 
 log = logging.getLogger(__name__)
@@ -468,6 +467,14 @@ class Cocotb(CocotbSettings, Tool):
             if top_cocotb_source:
                 py_path.append(str(top_cocotb_source.parent))
             toplevel = cocotb_toplevel(design)
+            python_bin = os.environ.get("PYGPI_PYTHON_BIN") or self.probe_stdout(
+                "--python-bin", raise_on_error=False
+            )
+            if not python_bin:
+                raise ToolException(
+                    "cocotb-config did not report its Python executable; install a supported "
+                    "cocotb version or set PYGPI_PYTHON_BIN"
+                )
             environ = {
                 "MODULE": coco_module,
                 "COCOTB_TEST_MODULES": coco_module,
@@ -480,11 +487,7 @@ class Cocotb(CocotbSettings, Tool):
                 "PYTHONPYCACHEPREFIX": str(self.pycache_prefix()),
                 "COCOTB_RESULTS_FILE": str(self.results_xml),
                 "COCOTB_RESOLVE_X": self.resolve_x,
-                "PYGPI_PYTHON_BIN": os.environ.get(
-                    # Use the current Python executable if not set in the environment
-                    "PYGPI_PYTHON_BIN",
-                    os.path.abspath(sys.executable),
-                ),
+                "PYGPI_PYTHON_BIN": python_bin,
             }
             if self.coverage:
                 environ["COVERAGE"] = 1
