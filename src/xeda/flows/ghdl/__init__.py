@@ -224,7 +224,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
                 elab_flags.extend(["-frelaxed"])
             if self.psl_in_comments:
                 analysis_flags.append("--psl")
-            if self.verbose:
+            if self.verbosity == "verbose":
                 analysis_flags.append("-v")
                 elab_flags.append("-v")
             if self.diagnostics:
@@ -775,7 +775,7 @@ class GhdlSim(Ghdl, SimFlow):
                 tb_top = (design.rtl.top,)
         run_flags += setting_flag(vpi, name="vpi")
 
-        if ss.debug:
+        if ss.verbosity == "debug":
             run_flags.extend(
                 [
                     "--trace-processes",

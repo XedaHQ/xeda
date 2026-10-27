@@ -982,7 +982,7 @@ class Openfpgaloader(FpgaSynthFlow):
             (ss.verify, "--verify"),
             (ss.skip_reset, "--skip-reset"),
             (ss.skip_load_bridge, "--skip-load-bridge"),
-            (ss.verbose > 0, "--verbose"),
+            (ss.verbosity == "verbose", "--verbose"),
         ):
             if enabled:
                 args.append(flag)

@@ -704,33 +704,25 @@ PRODUCT_FLOWS = [(cls, name) for cls, name in flow_classes() if cls.__module__.s
 #: Settings that every flow has and the framework reads for it: the setting, the module that reads
 #: it, the attribute that module reads, and what the module does with it.
 FRAMEWORK_READS: dict[str, tuple[str, str, str]] = {
-    "verbose": (
+    "verbosity": (
         "xeda.flow_runner.settings_layers",
-        "verbose",
-        "a producer takes its consumer's verbosity",
+        "verbosity",
+        "a producer takes the debug verbosity of its consumer, and the launcher's debug mode "
+        "sets it",
     ),
-    "debug": (
-        "xeda.flow_runner.settings_layers",
-        "debug",
-        "a producer takes its consumer's debug mode, and the launcher's `--debug` sets it",
+    "docker": ("xeda.tool", "docker", "a tool takes it from the flow's settings"),
+    "docker_image": (
+        "xeda.tool",
+        "docker_image",
+        "a tool takes the image from the flow's settings",
     ),
-    "quiet": (
-        "xeda.flow_runner.launch_run",
-        "is_quiet",
-        "the launcher prints a failure unless quiet",
-    ),
-    "docker": ("xeda.tool", "docker", "a tool takes the image from the flow's settings"),
-    "dockerized": ("xeda.tool", "dockerized", "a tool takes it from the flow's settings"),
-    "print_commands": ("xeda.tool", "print_commands", "a tool takes it from the flow's settings"),
-    "console_colors": ("xeda.tool", "console_colors", "a tool takes it from the flow's settings"),
 }
 
 #: Settings that every flow accepts (`xeda list-settings --all`) and that only some flows honor.
 #: A flow that ignores one takes it without effect. Each must be read by at least one flow.
 UNIVERSAL_SETTINGS: dict[str, str] = {
-    "nthreads": "advertised for every flow (`ncpus`); the tools that have a thread count get it",
+    "nthreads": "advertised for every flow; the tools that have a thread count get it",
     "lib_paths": "advertised for every flow; the tools that take library paths get them",
-    "redirect_stdout": "advertised for every flow; `Vivado.init` redirects the tool's output",
 }
 
 #: A flow that declares inputs or outputs is a node of the build graph, where the resolver agrees

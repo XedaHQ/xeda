@@ -7,7 +7,7 @@ set snapshot_name  snapshot
 
 load_feature simulator
 
-set analyze_flags "-work {{settings.work_lib|tcl_quote}} {%- if settings.debug %} -verbose 2 {%- endif %} {{settings.analyze_flags|join(' ')}}"
+set analyze_flags "-work {{settings.work_lib|tcl_quote}} {%- if settings.verbosity == "debug" %} -verbose 2 {%- endif %} {{settings.analyze_flags|join(' ')}}"
 
 puts "\n===========================( Analyzing HDL Sources )==========================="
 {%- for src in sources_read(rtl=true, tb=true) %}
@@ -51,7 +51,7 @@ puts "\n===========================( Setting up VCD )===========================
 open_vcd {{settings.vcd|tcl_word}}
 ## Vivado crashes (tested on 2020.1) when using * and shared or protected variables are present
 ## log_vcd [get_objects -r -filter { type == variable || type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } /*]
-log_vcd {%- if settings.verbose %} -verbose {%- endif %} {%- if settings.vcd_level %} -level {{settings.vcd_level}} {%- endif %} {%- if settings.vcd_scope %} {{settings.vcd_scope|tcl_word}} {%- endif %}
+log_vcd {%- if settings.verbosity == "verbose" %} -verbose {%- endif %} {%- if settings.vcd_level %} -level {{settings.vcd_level}} {%- endif %} {%- if settings.vcd_scope %} {{settings.vcd_scope|tcl_word}} {%- endif %}
 {%- endif %}
 {%- if settings.debug_traces %}
 ltrace on

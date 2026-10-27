@@ -263,8 +263,7 @@ class VivadoSim(Vivado, SimFlow):
             saif.parent.mkdir(parents=True, exist_ok=True)
         self.run_directory.remove(RUNTIME_LOG, PROCESS_LOG)
         self.run_directory.writable(RUNTIME_LOG)
-        process_log = self.run_directory.writable(self.vivado.redirect_stdout or PROCESS_LOG)
-        self.vivado.redirect_stdout = None
+        process_log = self.run_directory.writable(PROCESS_LOG)
         stop_fs = (
             int(round(convert_unit(ss.stop_time, "fs", from_unit="ns")))
             if ss.stop_time is not None

@@ -126,6 +126,7 @@ class Vcs(SimFlow):
             "compiler",
             "work_dir": NoReplacement("Xeda passed it to nothing"),
             "ucli": NoReplacement("Xeda always runs VCS with -ucli"),
+            "quiet": "`verbosity`",
         }
         simv_flags: List[str] = Field(
             [],
@@ -142,7 +143,6 @@ class Vcs(SimFlow):
             "needs. This slows elaboration.",
         )
         supress_banner: bool = Field(True, description="Suppress the VCS copyright banner (`-nc`).")
-        quiet: bool = Field(False, description="Suppress informational output from VCS.")
         vhdl_xlrm: bool = Field(
             False, description="Enable VHDL features beyond the LRM (`vhdlan -xlrm`)."
         )
@@ -364,7 +364,7 @@ class Vcs(SimFlow):
             vhdlan_args.append("-nc")
             vcs_args.append("-nc")
             simv_args.append("-nc")
-        if ss.is_quiet:
+        if ss.verbosity == "quiet":
             vlogan_args.append("-q")
             vhdlan_args.append("-q")
             vcs_args.append("-q")
@@ -411,7 +411,7 @@ class Vcs(SimFlow):
             log.info("Analyzing VHDL sources")
             self.vhdlan.run(*vhdlan_args, *(str(f) for f in vhdl_files), env=env)
         top = self.design.tb.top[0]
-        if ss.verbose:
+        if ss.verbosity == "verbose":
             vlogan_args.append("-notice")
             vhdlan_args.append("-verbose")
             vcs_args.append("-notice")

@@ -1,7 +1,7 @@
 set design_name           {{design.name|tcl_word}}
 set top                   {{design.rtl.top|tcl_word}}
 set fpga_part             {{settings.fpga.part|tcl_word}}
-{%- if settings.debug %}
+{%- if settings.verbosity == "debug" %}
 foreach key [array names quartus] {
     puts "${key}=$quartus($key)"
 }

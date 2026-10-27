@@ -851,9 +851,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
 
     def _verbosity_flags(self) -> list[str]:
         """Return `-verbose` for a verbose run and `-quiet` for a quiet one."""
-        if self.settings.verbose:
+        if self.settings.verbosity == "verbose":
             return ["-verbose"]
-        if self.settings.is_quiet:
+        if self.settings.verbosity == "quiet":
             return ["-quiet"]
         return []
 
@@ -1552,7 +1552,7 @@ class BscSim(BscFlow, SimFlow):
             None,
             gt=0,
             description="Number of C++ files compiled at once when linking a Bluesim model "
-            "(`-parallel-sim-link`). Defaults to `ncpus` when that is set, otherwise 1.",
+            "(`-parallel-sim-link`). Defaults to `nthreads` when that is set, otherwise 1.",
             json_schema_extra=count(),
         )
         c_flags: list[str] = Field(

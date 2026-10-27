@@ -23,7 +23,7 @@ tee -o ltp.out ltp
 design -pop
 {% endif -%}
 
-{% if settings.debug or settings.verbose > 1 -%}
+{% if settings.verbosity == "debug" -%}
 echo on
 {% endif -%}
 

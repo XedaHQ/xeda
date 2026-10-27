@@ -192,7 +192,7 @@ class YosysSim(YosysBase, SimFlow):
             args.extend(["-L", ss.log_file])
             log.info("Logging yosys output to %s", ss.log_file)
         # `-T -Q` come with the tool's defaults (`yosys`) unless verbose.
-        if ss.log_file and not ss.verbose and not ss.debug and not ss.is_quiet:
+        if ss.log_file and ss.verbosity == "normal":
             args.append("-q")
         depfile = self.run_path / "yosys.d"
         args += ["-E", depfile]

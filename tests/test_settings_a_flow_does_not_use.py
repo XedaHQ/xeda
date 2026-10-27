@@ -399,7 +399,11 @@ EARLIER_REMOVALS = {
     "yosys": {"clock_period"},
     "yosys_fpga": {"clock_period"},
 }
-EVERYWHERE = {"clean", "timeout_seconds", "no_console"}
+EVERYWHERE = {
+    *("clean", "timeout_seconds", "no_console"),
+    *("verbose", "quiet", "debug", "dockerized"),
+    *("redirect_stdout", "print_commands", "console_colors"),
+}
 #: The removed settings of every simulator (`SimFlow.Settings`), besides `EVERYWHERE`.
 SIMULATORS = {"waveform"}
 

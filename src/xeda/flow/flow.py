@@ -742,6 +742,12 @@ def is_unset(value: Any) -> bool:
     return isinstance(value, (str, list, tuple, set, frozenset, dict)) and len(value) == 0
 
 
+#: Why the settings that chose where tool output appears have no replacement.
+NO_OUTPUT_SETTING = NoReplacement(
+    "where the output of the tools appears is not a setting of a flow"
+)
+
+
 class Flow(metaclass=ABCMeta):
     """A flow runs one or more tools for one design with one set of settings.
 
@@ -1058,21 +1064,12 @@ class Flow(metaclass=ABCMeta):
     class Settings(XedaBaseModel):
         """The settings that affect the behavior of a flow."""
 
-        verbose: int = Field(
-            0,
-            description="Verbosity level. Higher values make the tools more talkative.",
-            json_schema_extra=count(),
-        )
-        debug: bool = Field(
-            False,
-            description="Run the flow in debug mode: verbose logging, and exceptions are re-raised "
-            "instead of being reported as a failure.",
-        )
-        quiet: bool = Field(
-            False, description="Run the flow quietly, unless `verbose` or `debug` is set."
-        )
-        redirect_stdout: bool = Field(
-            False, description="Redirect stdout from execution of tools to files."
+        verbosity: Literal["quiet", "normal", "verbose", "debug"] = Field(
+            "normal",
+            description="How much the tools say. `quiet` asks them for less. `verbose` and "
+            "`debug` ask for more, and `debug` also keeps the traces that a tool drops. The "
+            "level changes the command lines and the logs, so a run with another level is "
+            "another run.",
         )
         nthreads: Optional[int] = Field(
             None,
@@ -1103,14 +1100,12 @@ class Flow(metaclass=ABCMeta):
             "path can be none, but not both. GHDL and NVC take a relative path as relative to "
             "the design root.",
         )
-        docker: Optional[str] = Field(
+        docker: bool = Field(False, description="Run the tools in Docker.")
+        docker_image: Optional[str] = Field(
             None,
-            description="Run the tools in this Docker image, instead of the default image of the "
-            "flow.",
+            description="The Docker image to run the tools in, instead of the default image of "
+            "the flow. It has an effect only with `docker`.",
         )
-        dockerized: bool = Field(False, description="Run the tools in Docker.")
-        print_commands: bool = Field(True, description="Print the commands that the flow runs.")
-        console_colors: bool = Field(True, description="Colorize tool output on the console.")
 
         @classmethod
         def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
@@ -1146,6 +1141,13 @@ class Flow(metaclass=ABCMeta):
             "flow limits a tool's run time",
             "no_console": NoReplacement("no flow read it"),
             "ncpus": SecondSpelling("`nthreads`"),
+            "verbose": "`verbosity`",
+            "quiet": "`verbosity`",
+            "debug": "`verbosity`",
+            "dockerized": "`docker`",
+            "redirect_stdout": NO_OUTPUT_SETTING,
+            "print_commands": NO_OUTPUT_SETTING,
+            "console_colors": NO_OUTPUT_SETTING,
         }
 
         @classmethod
@@ -1234,9 +1236,6 @@ class Flow(metaclass=ABCMeta):
             try:
                 return cls.model_validate(dict(data), context=context)
             except ValidationError as e:
-                debug = data.get("debug")
-                if debug is True:
-                    raise e
                 raise FlowSettingsError(_with_case_hints(cls, e.errors()), cls, e.json()) from e
 
         @property
@@ -1300,14 +1299,6 @@ class Flow(metaclass=ABCMeta):
             (`xeda.dataclass.conventional_output`). A flow whose other settings name its outputs
             overrides this method."""
             return conventional_output(type(self), field, design)
-
-        @property
-        def is_quiet(self) -> bool:
-            """Whether the flow is quiet: `quiet`, unless `verbose` or `debug` asks for more output.
-
-            This is decided where it is read, so `quiet` keeps the value that was written and the
-            order of the three settings does not matter."""
-            return self.quiet and not (self.verbose or self.debug)
 
     class Results(Box):
         """The results of a flow, written to `results.json`."""

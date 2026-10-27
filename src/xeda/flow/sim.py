@@ -543,7 +543,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
                     sim_name=self.cocotb_sim_name or "",
                     # pydantic-mypy does not see `Tool`'s fields through the
                     # `Cocotb(CocotbSettings, Tool)` diamond; `dockerized` is a real field.
-                    dockerized=self.settings.dockerized,  # type: ignore[call-arg]
+                    dockerized=self.settings.docker,  # type: ignore[call-arg]
                 )
                 if self.uses_cocotb
                 else None

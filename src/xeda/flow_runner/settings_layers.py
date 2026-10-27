@@ -879,10 +879,9 @@ def merge_flow_sections(
 
 
 def carry_diagnostics(settings: Flow.Settings, depender: Flow.Settings) -> None:
-    """Carry `debug` and an inherited verbose level into a producer, before hashing."""
-    settings.debug |= depender.debug
-    if not settings.verbose and depender.verbose > 1:
-        settings.verbose = depender.verbose
+    """Carry the `debug` verbosity into a producer, before hashing."""
+    if depender.verbosity == "debug":
+        settings.verbosity = "debug"
 
 
 def settings_in_context(

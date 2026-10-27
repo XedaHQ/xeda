@@ -308,7 +308,7 @@ IDENTITY_PINS = [
             "clocks.main_clock.name": "main_clock",
             "clocks.main_clock.period": "10 ns",
         },
-        "d60eef71efbb6f3c35f9d8a3a1da122533ac16cc058b732c930fc5904db22db9",
+        "27e62f750885b004c694a23b94715a63f66a1ef5a6bc14ff8a34b95f64ef4543",
         id="vivado_synth",
     ),
     pytest.param(
@@ -319,14 +319,14 @@ IDENTITY_PINS = [
             "clocks.main_clock.name": "main_clock",
             "clocks.main_clock.freq": "125 MHz",
         },
-        "ac970556706d61384cbdac6fdaca090a23e14a438d38695f21a5065fe01cdf47",
+        "e6de44c34da5d9f136e330a9e1efd6a99d18bab487b75a1129706662adbdaea4",
         id="yosys_fpga",
     ),
     pytest.param(
         Nextpnr,
         "nextpnr",
         {"fpga.part": "LFE5U-25F-6BG381C", "clocks.clk": {"period": "3.3 ns", "port": "clk"}},
-        "27d04419599f2909bc75daee90b194c0e203bac884823d79e3e0e66ce05c9cda",
+        "861303d1d3306fe502e8c52e332bc684456778725431d2f8611742fb7f82bb4c",
         id="nextpnr",
     ),
     pytest.param(
@@ -344,7 +344,7 @@ IDENTITY_PINS = [
                 }
             },
         },
-        "0ed7b7739b3b7a683651aff88f2bfc6d6ff99604596cdcca970a0aa2195743f8",
+        "daf9d62ac0f4593b7bbe4bca857ed096fbb8d2ffc5c73d224d889355400b3225",
         id="quartus",
     ),
     pytest.param(
@@ -355,7 +355,7 @@ IDENTITY_PINS = [
             "clocks.main_clock.name": "main_clock",
             "clocks.main_clock.period": "2.5 ns",
         },
-        "76cdee59359d9b28d4c40942d1202c60304e297b9ed8341d37db1e383ff762c3",
+        "0eff0159ffcaf58e2d5342655869b5779033ebac683e9cb9383a2ce3c86e0e56",
         id="yosys",
     ),
 ]
@@ -385,7 +385,7 @@ def test_the_same_clock_in_another_unit_has_the_same_identity():
     assert (
         flowrun_hash("yosys", in_ps, "pin")
         == flowrun_hash("yosys", in_ns, "pin")
-        == "76cdee59359d9b28d4c40942d1202c60304e297b9ed8341d37db1e383ff762c3"
+        == "0eff0159ffcaf58e2d5342655869b5779033ebac683e9cb9383a2ce3c86e0e56"
     )
 
 

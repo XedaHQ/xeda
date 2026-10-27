@@ -615,7 +615,7 @@ def settings_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     """Return the settings of a flow, plus the raw JSON Schema.
 
     `fields` has one entry for each top-level setting, including the settings that every flow
-    shares (`nthreads`, `dockerized`, ...). After a settings group, it has one entry for each field
+    shares (`nthreads`, `docker`, ...). After a settings group, it has one entry for each field
     of the group, depth first in declaration order. Its `name` is the dotted path that `-s` and a
     design file accept, and its `group` is the top-level setting that holds the group.
 

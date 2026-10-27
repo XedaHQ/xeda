@@ -333,15 +333,12 @@ class Tool(XedaBaseModel):
             source_dirs_ = {src.path.parent for src in design.rtl.sources}
             source_dirs_ |= {src.path.parent for src in design.tb.sources}
             self.source_dirs_ = list(source_dirs_)
-            self.print_command = flow.settings.print_commands
-            self.console_colors = self.console_colors and flow.settings.console_colors
-            log.debug("flow.settings.dockerized=%s", flow.settings.dockerized)
-            self.dockerized = flow.settings.dockerized
-            if flow.settings.docker:
+            self.dockerized = flow.settings.docker
+            if flow.settings.docker_image:
                 if self.docker:
-                    self.docker.image = flow.settings.docker
+                    self.docker.image = flow.settings.docker_image
                 else:
-                    self.docker = Docker(image=flow.settings.docker)  # type: ignore
+                    self.docker = Docker(image=flow.settings.docker_image)  # type: ignore
 
         self.require_minimum_version()
         if flow is not None:

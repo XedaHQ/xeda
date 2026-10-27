@@ -55,37 +55,16 @@
       ]
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -100,34 +79,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "bobj_dir": {
         "children": false,
@@ -695,37 +656,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -740,34 +680,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "timeout": {
         "children": false,
@@ -1344,7 +1266,7 @@
       "parallel_sim_link": {
         "children": false,
         "assignable": true,
-        "help": "Number of C++ files compiled at once when linking a Bluesim model (`-parallel-sim-link`). Defaults to `ncpus` when that is set, otherwise 1."
+        "help": "Number of C++ files compiled at once when linking a Bluesim model (`-parallel-sim-link`). Defaults to `nthreads` when that is set, otherwise 1."
       },
       "c_flags": {
         "children": false,
@@ -1389,37 +1311,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -1434,34 +1335,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -1720,37 +1603,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -1765,34 +1627,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -2000,37 +1844,16 @@
       ]
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -2045,34 +1868,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -2255,37 +2060,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -2300,34 +2084,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "timeout": {
         "children": false,
@@ -2628,37 +2394,16 @@
       "verilog": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -2673,34 +2418,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -2955,37 +2682,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -3000,34 +2706,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -3228,37 +2916,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -3273,34 +2940,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "timeout": {
         "children": false,
@@ -3435,37 +3084,16 @@
       ]
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -3480,34 +3108,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -4049,37 +3659,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -4094,34 +3683,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "timeout": {
         "children": false,
@@ -4413,37 +3984,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -4458,34 +4008,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -4768,37 +4300,16 @@
       "gds": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -4813,34 +4324,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "platform": {
         "children": false,
@@ -5662,37 +5155,16 @@
       ]
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -5707,34 +5179,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "platform": {
         "children": false,
@@ -6320,37 +5774,16 @@
       "guides": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -6365,34 +5798,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "platform": {
         "children": false,
@@ -6980,37 +6395,16 @@
       ]
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -7025,34 +6419,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -8965,37 +8341,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -9010,34 +8365,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -9342,37 +8679,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Suppress informational output from VCS."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -9387,34 +8703,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "timeout": {
         "children": false,
@@ -9724,37 +9022,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -9769,34 +9046,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "timeout": {
         "children": false,
@@ -10085,37 +9344,16 @@
       "checkpoint_synth": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -10130,34 +9368,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -10540,37 +9760,16 @@
       ]
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -10585,34 +9784,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -10926,37 +10107,16 @@
       ]
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -10971,34 +10131,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -11342,37 +10484,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -11387,34 +10508,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -11595,37 +10698,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -11640,34 +10722,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -12047,37 +11111,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -12092,34 +11135,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "timeout": {
         "children": false,
@@ -12323,37 +11348,16 @@
       "sdf_min": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -12368,34 +11372,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -12778,37 +11764,16 @@
       "netlist_generic": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -12823,34 +11788,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -12964,37 +11911,16 @@
         "assignable": false,
         "help": "Settings for the ghdl-yosys plugin, used to read VHDL sources. Set automatically when the design has VHDL sources."
       },
-      "ghdl.verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "ghdl.debug": {
+      "ghdl.verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "ghdl.quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "ghdl.redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "ghdl.nthreads": {
         "children": false,
@@ -13009,34 +11935,16 @@
       "ghdl.docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "ghdl.dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "ghdl.print_commands": {
+      "ghdl.docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "ghdl.console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "ghdl.clocks": {
         "children": true,
@@ -14313,37 +13221,16 @@
       ]
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -14358,34 +13245,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "clocks": {
         "children": true,
@@ -14550,37 +13419,16 @@
         "assignable": false,
         "help": "Settings for the ghdl-yosys plugin, used to read VHDL sources. Set automatically when the design has VHDL sources."
       },
-      "ghdl.verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "ghdl.debug": {
+      "ghdl.verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "ghdl.quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "ghdl.redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "ghdl.nthreads": {
         "children": false,
@@ -14595,34 +13443,16 @@
       "ghdl.docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "ghdl.dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "ghdl.print_commands": {
+      "ghdl.docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "ghdl.console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "ghdl.clocks": {
         "children": true,
@@ -15373,37 +14203,16 @@
       "": []
     },
     "settings": {
-      "verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "debug": {
+      "verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -15418,34 +14227,16 @@
       "docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "print_commands": {
+      "docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "timeout": {
         "children": false,
@@ -15585,37 +14376,16 @@
         "assignable": false,
         "help": "Settings for the ghdl-yosys plugin, used to read VHDL sources. Set automatically when the design has VHDL sources."
       },
-      "ghdl.verbose": {
-        "children": false,
-        "assignable": true,
-        "help": "Verbosity level. Higher values make the tools more talkative."
-      },
-      "ghdl.debug": {
+      "ghdl.verbosity": {
         "children": false,
         "assignable": true,
         "values": [
-          "false",
-          "true"
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
         ],
-        "help": "Run the flow in debug mode: verbose logging, and exceptions are re-raised instead of being reported as a failure."
-      },
-      "ghdl.quiet": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Run the flow quietly, unless `verbose` or `debug` is set."
-      },
-      "ghdl.redirect_stdout": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Redirect stdout from execution of tools to files."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "ghdl.nthreads": {
         "children": false,
@@ -15630,34 +14400,16 @@
       "ghdl.docker": {
         "children": false,
         "assignable": true,
-        "help": "Run the tools in this Docker image, instead of the default image of the flow."
-      },
-      "ghdl.dockerized": {
-        "children": false,
-        "assignable": true,
         "values": [
           "false",
           "true"
         ],
         "help": "Run the tools in Docker."
       },
-      "ghdl.print_commands": {
+      "ghdl.docker_image": {
         "children": false,
         "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Print the commands that the flow runs."
-      },
-      "ghdl.console_colors": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Colorize tool output on the console."
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
       },
       "ghdl.clocks": {
         "children": true,

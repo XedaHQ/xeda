@@ -468,21 +468,11 @@ class Dse(FlowLauncher):
                 ],
                 flow_class.Settings,
             )
-        base_settings.redirect_stdout = True
-        base_settings.print_commands = False
-
         if base_settings.nthreads and base_settings.nthreads > 1:
             max_nthreads = max(2, multiprocessing.cpu_count() // self.settings.max_workers)
             base_settings.nthreads = min(base_settings.nthreads, max_nthreads)
 
-        adjustments = {
-            key: getattr(base_settings, key)
-            for key in (
-                "redirect_stdout",
-                "print_commands",
-                "nthreads",
-            )
-        }
+        adjustments = {"nthreads": base_settings.nthreads}
         candidate_input = merge_layers(flow_settings, adjustments, settings_cls=flow_class.Settings)
         adjusted_plan = self.resolve(
             flow_class,

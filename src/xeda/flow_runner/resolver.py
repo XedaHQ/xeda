@@ -1487,7 +1487,7 @@ def resolve(
         )
     assert root.settings is not None
     if debug:
-        root.settings.debug = True
+        root.settings.verbosity = "debug"
     for request in requests:
         assert request.settings is not None
         for child in request.children:

@@ -1232,9 +1232,9 @@ class Nextpnr(FpgaSynthFlow):
             if isinstance(value, Path):
                 value = self.normalize_path_to_design_root(value)
             args += setting_flag(value, name=name)
-        args += setting_flag(ss.debug)
-        args += setting_flag(ss.verbose > 0, name="verbose")  # nextpnr has one level
-        args += setting_flag(ss.is_quiet, name="quiet")
+        args += setting_flag(ss.verbosity == "debug", name="debug")
+        args += setting_flag(ss.verbosity == "verbose", name="verbose")
+        args += setting_flag(ss.verbosity == "quiet", name="quiet")
         args += setting_flag(ss.randomize_seed)
         args += setting_flag(ss.timing_allow_fail)
         args += setting_flag(ss.ignore_loops)
