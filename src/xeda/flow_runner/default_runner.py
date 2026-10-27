@@ -137,7 +137,7 @@ from .plan_freshness import (
     judge_plan,
 )
 from .scrub import ScrubConfirmation, ScrubDone, run_directory_names, scrub_runs
-from .run_lock import CompletedRun, LockSet
+from .run_lock import CompletedRun, LockSet, acquire_all
 from .settings_layers import (
     API_ORIGIN,
     COMMAND_LINE_ORIGIN,
@@ -1047,7 +1047,8 @@ class FlowLauncher:
 
         With `deliver` (the launch completed, and its requested flow succeeded or was up to
         date), deliver the outputs noted for its flows (`_defer_delivery`), in completion order,
-        while the launch keeps the locks of its nodes. Then run the deferred clean-ups, which may
+        while the launch keeps the locks of its nodes and holds the lock of every destination.
+        Then run the deferred clean-ups, which may
         remove a file that is delivered. A flow whose run directory a clean-up deletes delivers
         by moving its files. Each delivery and each clean-up is made on its own: a failure is
         logged and the next goes on."""
@@ -1070,17 +1071,33 @@ class FlowLauncher:
         reached = (
             Deliveries.sources_reached(d for _flow, d in deliveries) if deliver and purged else None
         )
-        # The launch still holds the locks of its nodes: no other launch changes their files.
-        for flow, delivery in deliveries if deliver else []:
+        # Delivery is the one phase that holds locks and waits. The launch keeps its node locks
+        # and takes the exclusive lock of every destination, and of every delivery record, in one
+        # order, once it knows all the files it delivers.
+        if deliver and deliveries:
             try:
-                flow.deliveries = delivery.deliver(move=id(flow) in purged, reached=reached)
-            except Exception as e:  # noqa: BLE001 - every delivery gets its turn
-                # `deliver()` records, and reports through `delivery.delivered`, whatever it
-                # copied before raising (an `OSError` partway through), so a `--json` reader still
-                # sees the copies that actually reached disk.
-                flow.deliveries = delivery.delivered
-                log.error("Delivering the outputs of %s failed: %s", flow.name, e)
-                self.collector.finish_failed("delivery", e, flow.run_path)
+                with acquire_all(
+                    [r for _flow, delivery in deliveries for r in delivery.lock_requests()],
+                    run_root=self.run_root,
+                    canceled=self.canceled,
+                    wait_in_order=True,
+                ):
+                    for flow, delivery in deliveries:
+                        try:
+                            flow.deliveries = delivery.deliver(
+                                move=id(flow) in purged, reached=reached
+                            )
+                        except Exception as e:  # noqa: BLE001 - every delivery gets its turn
+                            # `deliver()` records, and reports through `delivery.delivered`,
+                            # whatever it copied before raising (an `OSError` partway through),
+                            # so a `--json` reader still sees the copies that reached disk.
+                            flow.deliveries = delivery.delivered
+                            log.error("Delivering the outputs of %s failed: %s", flow.name, e)
+                            self.collector.finish_failed("delivery", e, flow.run_path)
+                            first_error = first_error or e
+            except Exception as e:  # noqa: BLE001 - the locks of the destinations were not taken
+                log.error("Delivering the outputs failed: %s", e)
+                self.collector.finish_failed("delivery", e, self.run_root)
                 first_error = first_error or e
         for (flow, delivery), (_, pending_files) in zip(deliveries, noted):
             self.collector.deliveries_noted(flow, pending_files, delivery.delivered)

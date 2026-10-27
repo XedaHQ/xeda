@@ -630,7 +630,7 @@ def test_a_record_is_read_again_only_when_its_file_changed(tmp_path):
     assert "held" in mine.record["files"], "its file did not change: what it holds still stands"
 
     theirs = deliver.Deliveries(run_path, run_root, inputs=deliver.ReadInputs())
-    theirs.record["files"]["written"] = {"by": "another launch"}
+    theirs._written_files["written"] = {"by": "another launch"}
     theirs._write_record()
     mine.reread_record()
     assert list(mine.record["files"]) == ["written"], "its file changed: what is there is read"

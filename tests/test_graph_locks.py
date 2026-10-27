@@ -5,6 +5,7 @@ none, and it waits only while it holds no lock. Delivery is the one phase that h
 waits.
 """
 
+import json
 import os
 import shutil
 import sys
@@ -16,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
+from xeda.deliver import Deliveries, DeliveryError
 from xeda.errors import LeaseHeldError
 from xeda.flow_runner import DefaultRunner, launch_generation, launch_locks, run_lock
 from xeda.flow_runner.dse.dse_runner import Dse
@@ -830,6 +832,132 @@ def test_a_launch_that_waits_for_its_first_lock_observes_cancellation(tmp_path, 
         _join(launch)
     assert isinstance(outcome[0], LockWaitCanceled)
     assert _probe(root / "d" / "__maker") == "free", "the launch holds nothing"
+
+
+def test_a_delivery_that_waits_for_a_destination_observes_cancellation(tmp_path, monkeypatch):
+    root = ensure_run_root(tmp_path / "xeda_run")
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    destination = tmp_path / "user"
+    destination.mkdir()
+    waiting = threading.Event()
+    monkeypatch.setattr(run_lock, "wait_hook", lambda path: waiting.set())
+    runner = DefaultRunner(root, display_results=False, outputs_to=destination)
+    runner.canceled = waiting.is_set
+    with destination_lock(destination / "made.txt", root):
+        launch, outcome = _in_thread(lambda: runner.launch_flow(_Maker, design, {}))
+        _join(launch)
+    assert isinstance(outcome[0], LockWaitCanceled)
+    assert not (destination / "made.txt").exists()
+    assert _probe(root / "d" / "__maker") == "free", "the launch released its node locks"
+
+
+# --------------------------------------------------------------------------------- delivery
+
+
+def test_a_delivery_keeps_the_node_locks_and_holds_each_destination_in_one_order(
+    tmp_path, monkeypatch
+):
+    root = ensure_run_root(tmp_path / "xeda_run")
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    user = tmp_path / "user"
+    user.mkdir()
+    taken: list[Path] = []
+    monkeypatch.setattr(run_lock, "acquired_hook", taken.append)
+    held: list[tuple[str, ...]] = []
+    remember = Deliveries._remember
+
+    def checked(self, *args, **kwargs):
+        locks = sorted((root / ".locks" / "deliveries").glob("*.lock"))
+        held.append(
+            (
+                _probe(root / "d" / "__maker", "exclusive"),
+                *(_probe_file(lock) for lock in locks),
+            )
+        )
+        return remember(self, *args, **kwargs)
+
+    monkeypatch.setattr(Deliveries, "_remember", checked)
+    runner = DefaultRunner(root, display_results=False, outputs_to=user)
+    assert runner.launch_flow(_Maker, design, {}).succeeded
+    assert (user / "made.txt").read_text() == "made\n"
+    # The node is reused: shared. Its destination and its record are exclusive.
+    assert held == [("blocked", "blocked", "blocked")]
+    taken = list(dict.fromkeys(taken))  # a lock held again is told again
+    deliveries = [p for p in taken if p.parent.name == "deliveries"]
+    assert len(deliveries) == 2
+    assert [run_lock._resource_key(p) for p in deliveries] == sorted(
+        run_lock._resource_key(p) for p in deliveries
+    )
+    assert all(p.parent.name != "deliveries" for p in taken[:-2]), "the destinations come last"
+
+
+def _delivering_after_both_read_the_record(monkeypatch) -> None:
+    """Make two launches read the delivery record before either one writes it."""
+    barrier = threading.Barrier(2, timeout=HANG_GUARD)
+    original = Deliveries.lock_requests
+    seen = set()
+
+    def requests(self):
+        if threading.get_ident() not in seen:
+            seen.add(threading.get_ident())
+            barrier.wait()
+        return original(self)
+
+    monkeypatch.setattr(Deliveries, "lock_requests", requests)
+
+
+def test_two_launches_that_reuse_one_node_write_both_deliveries_in_its_record(
+    tmp_path, monkeypatch
+):
+    root = ensure_run_root(tmp_path / "xeda_run")
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    users = [tmp_path / "one", tmp_path / "two"]
+    for user in users:
+        user.mkdir()
+    _delivering_after_both_read_the_record(monkeypatch)
+
+    def deliver(user: Path):
+        return DefaultRunner(root, display_results=False, outputs_to=user).launch_flow(
+            _Maker, design, {}
+        )
+
+    threads = [_in_thread(lambda user=user: deliver(user)) for user in users]
+    for thread, _outcome in threads:
+        _join(thread)
+    assert [out[0].succeeded for _thread, out in threads] == [True, True]
+    record = json.loads((root / "d" / "__maker.delivered.json").read_text())
+    assert sorted(Path(name).parent.name for name in record["files"]) == ["one", "two"]
+
+
+def test_two_launches_that_deliver_one_output_to_one_destination_ask_the_second(
+    tmp_path, monkeypatch
+):
+    """Both launches found nothing at the destination. The first copies. The second finds its
+    check out of date under the lock of the destination, and replaces nothing."""
+    root = ensure_run_root(tmp_path / "xeda_run")
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    user = tmp_path / "user"
+    user.mkdir()
+    _delivering_after_both_read_the_record(monkeypatch)
+    threads = [
+        _in_thread(
+            lambda: DefaultRunner(root, display_results=False, outputs_to=user).launch_flow(
+                _Maker, design, {}
+            )
+        )
+        for _ in range(2)
+    ]
+    for thread, _outcome in threads:
+        _join(thread)
+    results = [out[0] for _thread, out in threads]
+    refused = [r for r in results if isinstance(r, DeliveryError)]
+    assert len(refused) == 1 and "changed while the run went on" in str(refused[0])
+    assert [r.succeeded for r in results if not isinstance(r, BaseException)] == [True]
+    assert (user / "made.txt").read_text() == "made\n"
 
 
 # ------------------------------------------------------------------------------------- guards
