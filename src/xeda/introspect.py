@@ -588,6 +588,26 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
         group_class = _group_class(model_field.annotation)
         if group_class is not None:
             entries += _group_entries(group_class, name, name, name in base_field_names)
+    for name, prop in properties.items():
+        if name in cls.Settings.model_fields or not prop.get("x-xeda-input-only"):
+            continue
+        entries.append(
+            {
+                "name": name,
+                "type": type_str(prop, definitions),
+                "required": name in required,
+                "default": None,
+                "description": prop.get("description"),
+                "enum": _enum_of(prop, definitions),
+                "common": False,
+                "declared_by": f"{cls.Settings.__module__}.{cls.Settings.__qualname__}",
+                "writes": None,
+                "opaque_keys": False,
+                "json_schema": json_safe(prop),
+                "tier": "common",
+                "group": None,
+            }
+        )
     return entries
 
 
@@ -985,6 +1005,13 @@ def _add_targets(schema: dict[str, Any]) -> None:
                 k: v for k, v in deepcopy(definitions[name]).items() if k != "required"
             }
 
+    # `clock` names the design's first clock and changes it key by key, so a
+    # target's `clock` may leave out the port; `clocks` replaces the list, so its clocks are whole.
+    if "Clock" in definitions:
+        definitions["ClockOverlay"] = {
+            k: v for k, v in deepcopy(definitions["Clock"]).items() if k != "required"
+        }
+
     def overlaid(node: Any, refs: Mapping[str, str] = partial) -> Any:
         if isinstance(node, dict):
             return {
@@ -995,6 +1022,10 @@ def _add_targets(schema: dict[str, Any]) -> None:
             return [overlaid(item, refs) for item in node]
         return node
 
+    clock_refs = {**partial, "#/$defs/Clock": "#/$defs/ClockOverlay"}
+    rtl_overlay = definitions.get("RtlOverlay", {}).get("properties", {})
+    if "clock" in rtl_overlay:
+        rtl_overlay["clock"] = overlaid(rtl_overlay["clock"], clock_refs)
     properties: dict[str, Any] = {
         name: overlaid(spec, partial)
         for name, spec in root.items()
@@ -1081,6 +1112,10 @@ def _accept_clock_forms(schema: Dict[str, Any]) -> None:
     clocks = properties.get("clocks")
     if clocks and "items" in clocks:
         clocks["items"] = _widen(clocks["items"], _CLOCK_ITEM_FORMS)
+
+    clock = properties.get("clock")  # one clock: the same forms of an item
+    if clock and "anyOf" in clock:
+        clock["anyOf"] = [*clock["anyOf"], deepcopy(_CLOCK_ITEM_FORMS[-1])]
 
 
 def _accept_single_items(schema: Dict[str, Any]) -> None:

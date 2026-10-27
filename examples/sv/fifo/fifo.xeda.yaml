@@ -4,7 +4,7 @@ rtl:
   sources:
     - "fifo.sv"
   top: fifo
-  clocks: [{port: clk}]
+  clock.port: clk
 tb:
   sources:
     - "fifo_tb.sv"
@@ -18,4 +18,4 @@ flows:
   # FPGA synthesis for a Xilinx 7-series part: `xeda run yosys_fpga fifo.xeda.yaml`.
   yosys_fpga:
     fpga.part: xc7a100tftg256-2L
-    clocks.main_clock.period: 5 ns
+    clock.period: 5 ns

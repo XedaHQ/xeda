@@ -10,7 +10,7 @@ rtl:
     - "rtl/CrcCore.bs"
     - "rtl/CrcUnit.bsv"
   top: mkCrcUnit
-  clocks: [{port: CLK}]
+  clock.port: CLK
 tb:
   sources:
     - "tb/TbCrcUnit.bsv"

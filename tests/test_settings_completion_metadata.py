@@ -106,13 +106,13 @@ def completion_flow():
         yield CompletionFlow
 
 
-def test_fpga_completion_exposes_nested_fields_and_no_string_form() -> None:
+def test_fpga_completion_exposes_nested_fields_and_the_string_short_form() -> None:
     from xeda.flows.fpga_pack import FpgaPack
 
     info = settings_completion_info(FpgaPack)
 
     assert info["fpga"]["children"] is True
-    assert info["fpga"]["assignable"] is False
+    assert info["fpga"]["assignable"] is True
     assert info["fpga.part"]["assignable"] is True
     assert info["fpga.family"]["assignable"] is True
 
@@ -295,7 +295,7 @@ def test_catalog_generator_records_settings_and_default_producers() -> None:
 
     fpga_pack = catalog["fpga_pack"]
     assert fpga_pack["settings"]["fpga"]["children"] is True
-    assert fpga_pack["settings"]["fpga"]["assignable"] is False
+    assert fpga_pack["settings"]["fpga"]["assignable"] is True
     assert "default_producers" in fpga_pack
     assert "nextpnr" in fpga_pack["default_producers"]
 

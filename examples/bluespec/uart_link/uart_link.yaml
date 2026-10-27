@@ -14,7 +14,7 @@ rtl:
     - "rtl/LeanLinkTestTop.bsv"
     - "rtl/LeanLinkBoard.bsv"
   top: mkLeanLinkBoard
-  clocks: [{port: CLK}]
+  clock.port: CLK
   # Preprocessor macros (the values here are the defaults). CLK_HZ and BAUD size the PHY.
   # LL_LOGW and LL_LOGP set the window and the pages of the link: W = 2^LL_LOGW pages of
   # 2^LL_LOGP bytes. LL_LOGW is at most 7 and LL_LOGP is at least 4. Use `defines`, not
@@ -40,7 +40,7 @@ flows:
   # Vivado synthesis of the board design on its own: `xeda run vivado_synth uart_link.yaml`.
   vivado_synth:
     fpga.part: xc7a100tcsg324-1
-    clocks.main_clock.period: 10 ns
+    clock.period: 10 ns
     out_of_context: true
 # The targets with a board build for it: the pin files are in boards/ (and in ../uart_echo/boards/),
 # and the chain with `+openfpgaloader` programs it (see README.md). A pin file does not give the
@@ -52,7 +52,7 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
-        clocks.main_clock.period: 10 ns
+        clock.period: 10 ns
   # `xeda run yosys_fpga+nextpnr uart_link.yaml --target ecp5`: a resource and timing estimate,
   # no pins, at the clock and the baud rate of the ULX3S.
   ecp5:
@@ -63,7 +63,7 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: LFE5U-85F-6BG381C
-        clocks.main_clock.period: 40 ns
+        clock.period: 40 ns
       nextpnr:
         lpf_allow_unconstrained: true
   # The area of the bare core, without the PHY and the test endpoint: the top has the ports of the
@@ -77,7 +77,7 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
-        clocks.main_clock.period: 10 ns
+        clock.period: 10 ns
   core_w1:
     rtl:
       sources:
@@ -86,7 +86,7 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
-        clocks.main_clock.period: 10 ns
+        clock.period: 10 ns
   # Arty A7-100T with Vivado: `xeda run vivado_synth uart_link.yaml --target arty`. The bitstream
   # has a bare name, so it stays in the run directory; add `--outputs-to DIR` to copy it.
   # Programming: `xeda run vivado_synth+openfpgaloader uart_link.yaml --target arty`.
@@ -131,7 +131,7 @@ targets:
         fpga.part: LFE5U-85F-6BG381C
       nextpnr:
         board: ulx3s_85f
-        clocks.main_clock.freq: 25 MHz
+        clock.freq: 25 MHz
       openfpgaloader:
         board: ulx3s_85f
   # STLV7325 v2 (Kintex-7 xc7k325t) with openXC7 (put the openXC7 bin directory first on PATH):
@@ -144,7 +144,7 @@ targets:
       sources:
         - "boards/StlvLeanLink.bsv"
       top: mkStlvLeanLink
-      clocks: [{port: clk_p}]
+      clock.port: clk_p
       defines:
         CLK_HZ: 200000000
         BAUD: 3000000
@@ -153,6 +153,6 @@ targets:
         fpga.part: xc7k325tffg676-2
       nextpnr:
         board: stlv7325_v2
-        clocks.main_clock.freq: 200 MHz
+        clock.freq: 200 MHz
       openfpgaloader:
         board: stlv7325_v2

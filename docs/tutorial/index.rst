@@ -75,7 +75,7 @@ use the command line and leave the file as it is:
 
 .. code-block:: bash
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clocks.main_clock.period=4ns
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4ns
 
 To see all the settings of the flow:
 
@@ -94,7 +94,7 @@ An open-source toolchain uses ``yosys_fpga`` to synthesize and ``nextpnr`` to pl
 
 .. code-block:: bash
 
-    xeda run nextpnr examples/vhdl/sqrt/sqrt.yaml -s fpga.part=LFE5U-85F-6BG381C clocks.main_clock.period=10ns
+    xeda run nextpnr examples/vhdl/sqrt/sqrt.yaml -s fpga.part=LFE5U-85F-6BG381C clock.period=10ns
 
 4. Read the results
 ===================

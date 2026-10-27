@@ -141,7 +141,8 @@ def test_list_settings_includes_common_settings():
     assert "ncpus" not in by_name
     assert by_name["dockerized"]["common"] is True
     assert by_name["clocks"]["common"] is False
-    assert "clock" not in by_name and "clock_period" not in by_name  # removed
+    assert by_name["clock"]["json_schema"]["x-xeda-input-only"] is True
+    assert "clock_period" not in by_name
 
 
 def test_list_settings_preserves_optional_literal_choices():

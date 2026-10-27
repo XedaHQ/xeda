@@ -210,6 +210,37 @@ def _clock_mapping(value: Any) -> Mapping[str, Any] | None:
     return None
 
 
+def _canonicalize_clock_input(
+    values: dict[str, Any], settings_cls: type[XedaBaseModel]
+) -> tuple[dict[str, Any], str | None]:
+    """Normalize the single-clock spelling of one layer to `clocks`.
+
+    The returned name marks a singular override. It lets the merge apply `clock` to an existing
+    sole or named main clock, rather than adding a second clock. Giving both spellings in the
+    same layer is left unchanged on purpose, so validation still rejects the ambiguity.
+    """
+    if not _has_clock_table(settings_cls):
+        return values, None
+    present = [name for name in ("clock", "clocks") if name in values]
+    if len(present) != 1 or present[0] == "clocks":
+        return values, None
+
+    spelling = present[0]
+    raw = values.pop(spelling)
+    if raw is None:
+        # `None` means "not specified". It must not erase the clocks of a lower layer.
+        return values, None
+    mapped = _clock_mapping(raw)
+    if mapped is None:
+        # Preserve invalid input under its original name for pydantic's field-specific error.
+        values[spelling] = raw
+        return values, None
+    clock = dict(mapped)
+    name = str(clock.get("name") or "main_clock")
+    values["clocks"] = {name: dict(clock)}
+    return values, name
+
+
 def _merge_clock_values(base: Any, override: Any) -> Any:
     """Merge a `clocks` mapping, treating `period` and `freq` as alternate spellings."""
     if not isinstance(base, Mapping) or not isinstance(override, Mapping):
@@ -275,7 +306,7 @@ def _merge_settings_layer(
     no form at all, replace what is below them. So does a list, unless `append` is set and the
     model names the field in its `appended_fields`: the items of the layer then follow those
     below."""
-    canonical = dict(values)
+    canonical, singular_clock = _canonicalize_clock_input(dict(values), settings_cls)
     merged = deepcopy(dict(base))
     settings_cls.merge_inputs(merged, canonical)
 
@@ -304,7 +335,38 @@ def _merge_settings_layer(
         ):
             merged[key] = _merge_settings_layer(old_form, new_form, child_cls, append)
         elif key == "clocks" and _has_clock_table(settings_cls) and isinstance(value, Mapping):
-            merged[key] = _merge_clock_values(merged.get(key, {}), value)
+            clock_values = dict(value)
+            existing_before = merged.get("clocks")
+            existing_before = existing_before if isinstance(existing_before, Mapping) else {}
+            if singular_clock is not None:
+                existing = merged.get("clocks")
+                if isinstance(existing, Mapping) and singular_clock not in existing:
+                    if singular_clock == "main_clock" and existing:
+                        # An unnamed single-clock shorthand targets the same deterministic
+                        # main clock that SynthFlow.Settings.main_clock uses: a clock named
+                        # `main_clock` first, otherwise the first declared clock.
+                        old_name = next(iter(existing))
+                        clock_values = {old_name: next(iter(clock_values.values()))}
+                    elif len(existing) == 1:
+                        # An explicitly named higher `clock` replaces the identity of the sole
+                        # lower clock instead of leaving two clocks behind.
+                        old_name = next(iter(existing))
+                        merged["clocks"] = {singular_clock: existing[old_name]}
+                # A singular `clock` without an explicit `name` names its clock `"main_clock"`,
+                # matching the default of direct construction
+                # (`SynthFlow.Settings._synthflow_settings_root_validator`), but only when it
+                # creates a genuinely new clock entry. When it instead refines an existing
+                # clock (the redirects above, or a layer that already has a clock of the same
+                # name), the identity of the existing clock, its own `name` whatever it is,
+                # must win and not be overwritten by the synthesized default.
+                for cname, cval in clock_values.items():
+                    if (
+                        cname not in existing_before
+                        and isinstance(cval, Mapping)
+                        and not cval.get("name")
+                    ):
+                        clock_values[cname] = {**cval, "name": cname}
+            merged[key] = _merge_clock_values(merged.get(key, {}), clock_values)
         elif isinstance(old_form, Mapping) and isinstance(new_form, Mapping):
             entries = table_entries(field_type(info)) if info is not None else None
             merged[key] = (

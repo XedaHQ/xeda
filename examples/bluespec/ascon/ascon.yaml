@@ -4,7 +4,7 @@ description: >-
 rtl:
   sources: []
   top: mkAscon
-  clocks: [{port: CLK}]
+  clock.port: CLK
   defines.UNROLL_FACTOR: 1
   # Uncomment to select Ascon-128a AEAD. Hash remains Ascon-Hash v1.2.
   # defines.ASCON128A: true
@@ -23,11 +23,11 @@ flows:
   # four OpenROAD flows along the chain.
   yosys:
     platform: nangate45
-    clocks.main_clock.period: 2.0 ns
+    clock.period: 2.0 ns
   # Vivado synthesis of the module on its own: `xeda run vivado_synth ascon.yaml`.
   vivado_synth:
     fpga.part: xc7a100tcsg324-1
-    clocks.main_clock.period: 10 ns
+    clock.period: 10 ns
     out_of_context: true
 # The FPGA configurations are resource and timing estimates without pins. A board build needs an
 # I/O wrapper and constraints.
@@ -37,7 +37,7 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: LFE5U-85F-6BG381C
-        clocks.main_clock.period: 20 ns
+        clock.period: 20 ns
       nextpnr:
         lpf_allow_unconstrained: true
   # `xeda run yosys_fpga ascon.yaml --target artix7`. Synthesis only: nextpnr-himbaechel of openXC7
@@ -46,4 +46,4 @@ targets:
     flows:
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
-        clocks.main_clock.period: 10 ns
+        clock.period: 10 ns

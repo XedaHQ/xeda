@@ -9,9 +9,8 @@ from typing import Any, Dict, List, Optional, Union
 import yaml
 from importlib_resources import as_file, files
 
-from .dataclass import Field, model_validator, removed_message
+from .dataclass import Field, model_validator
 from .flow import FPGA, FpgaSynthFlow
-from .flow.fpga import FPGA_PART_TEXT
 from .utils import (
     ConflictingKeys,
     expand_env_vars,
@@ -138,8 +137,6 @@ def board_entry(name: Any, entry: Any, database: str) -> Any:
             f"Board {name!r} in {database}: `name` was removed: use "
             "`openfpgaloader_board`, the board's name in openFPGALoader"
         )
-    if isinstance(entry.get("fpga"), str):
-        raise ValueError(f"Board {name!r} in {database}: {removed_message(*FPGA_PART_TEXT, None)}")
     for key in entry:
         if key not in BOARD_ENTRY_KEYS:
             suggestions = get_close_matches(key, BOARD_ENTRY_KEYS)

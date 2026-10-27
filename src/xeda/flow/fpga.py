@@ -5,11 +5,9 @@ from typing import Any, Optional
 from ..dataclass import (
     Code,
     Field,
-    SecondSpelling,
     XedaBaseModel,
     accepts_non_mapping,
     model_validator,
-    removed_error,
 )
 from ..units import count
 from ..utils import try_convert
@@ -17,10 +15,7 @@ from ..utils import try_convert
 log = logging.getLogger(__name__)
 
 
-__all__ = ["FPGA", "FPGA_PART_TEXT"]
-
-#: The refusal of a part number written as the value of `fpga`: the name, and what to write.
-FPGA_PART_TEXT = ("fpga: <part>", SecondSpelling("`fpga.part`"))
+__all__ = ["FPGA"]
 
 
 class FPGA(XedaBaseModel):
@@ -57,15 +52,23 @@ class FPGA(XedaBaseModel):
         log.debug("fpga init! data=%s", data)
         super().__init__(**data)
 
+    @classmethod
+    def as_mapping(cls, value: Any) -> Any:
+        """Return the table that a bare string stands for, or None for any other value.
+
+        A bare string is the part number: `fpga: xc7a100tftg256-2L` means the same as
+        `fpga.part: xc7a100tftg256-2L`, in a file, on the command line and in a merge of
+        layers."""
+        return {"part": value} if isinstance(value, str) else None
+
     # This runs before all field validators.
     @model_validator(mode="before")
     @classmethod
     @accepts_non_mapping
     def _fpga_root_validator(cls, values):  # pylint: disable=no-self-argument
-        # The positional form `FPGA("xc7a...")` accepts a part number. A bare part number as the
-        # value of a field is another spelling of `part`.
-        if isinstance(values, str):
-            raise removed_error(*FPGA_PART_TEXT, values)
+        expanded = cls.as_mapping(values)
+        if expanded is not None:
+            values = expanded
         if not isinstance(values, dict):
             return values
         # An empty mapping is checked like any other: an FPGA must identify a device. Letting

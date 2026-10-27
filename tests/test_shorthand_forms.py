@@ -315,7 +315,8 @@ def test_the_sweep_walks_the_dictionaries_of_tables():
 
 def test_the_forms_that_stand_for_a_table():
     """The forms themselves, one by one."""
-    assert FPGA.as_mapping("xc7a35tcpg236-1") is None, "a part number is no form of `fpga`"
+    assert FPGA.as_mapping("xc7a35tcpg236-1") == {"part": "xc7a35tcpg236-1"}
+    assert FPGA.as_mapping(5) is None
     from xeda.design import Clock, CocotbTestbench, LanguageSettings, VhdlSettings
 
     assert Clock.as_mapping("CLK") == {"port": "CLK"}

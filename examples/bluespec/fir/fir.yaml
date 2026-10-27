@@ -7,7 +7,7 @@ rtl:
   sources:
     - "rtl/FirFilter.bsv"
   top: mkFirFilter
-  clocks: [{port: CLK}]
+  clock.port: CLK
   # Preprocessor macros. bsc gets them as `-D TAPS=11 -D SAMPLE_WIDTH=12`. Without them,
   # FirFilter.bsv uses 8 taps and 16-bit samples. Use `defines`, not `parameters`: the generated
   # mkFirFilter has no Verilog parameters for a later flow to set.

@@ -89,7 +89,7 @@ YAML, TOML or JSON file, and YAML is recommended. This is ``examples/vhdl/sqrt/s
    :language: yaml
 
 Paths are relative to the directory of the design file, so the file moves together with its
-sources. A dotted key such as ``clocks.main_clock.period`` stands for a nested table. The command line takes
+sources. A dotted key such as ``clock.period`` stands for a nested table. The command line takes
 the same keys. See :doc:`design-file` for the full reference.
 
 Run a flow
@@ -106,7 +106,7 @@ To synthesize it for an FPGA with Vivado::
 The ``flows.vivado_synth`` section of the design file holds the settings of that flow. Override
 any of them on the command line with ``-s``/``--settings``. Nested settings use dotted keys::
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clocks.main_clock.period=4.5ns impl.strategy=Performance_ExplorePostRoutePhysOpt
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns impl.strategy=Performance_ExplorePostRoutePhysOpt
 
 Xeda rejects an unknown setting, so a typo is an error. A clock setting needs a unit: ``4.5ns`` is
 a time, and ``4.5`` is an error (see :ref:`quantities`).

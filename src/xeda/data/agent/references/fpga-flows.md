@@ -41,8 +41,8 @@ flows:
   yosys_fpga:
     fpga.part: xc7a100tcsg324-1
   nextpnr:
-    clocks: [{port: clk}]
-    clocks.main_clock.freq: 100 MHz
+    clock.port: clk
+    clock.freq: 100 MHz
 ```
 
 ```bash
@@ -141,19 +141,19 @@ name: blinky
 rtl:
   sources: ["blinky.v", "blinky.xdc"]
   top: blinky
-  clocks: [{port: clk}]
+  clock.port: clk
 flows:
   yosys_fpga:
     fpga.part: xc7a100tcsg324-1
   vivado_impl:
-    clocks.main_clock.period: 10 ns
+    clock.period: 10 ns
 ```
 
 ```bash
 xeda run yosys_fpga+vivado_impl blinky.yaml -s bitstream=$PWD/blinky.bit
 ```
 
-`vivado_impl` takes its clock from `rtl.clocks` and its own `clocks.main_clock.period` (or `clocks.main_clock.freq`);
+`vivado_impl` takes its clock from `rtl.clock` and its own `clock.period` (or `clock.freq`);
 Xeda writes the `create_clock`. Clock settings under `flows.nextpnr` do not reach it, because
 `nextpnr` is not in this run.
 

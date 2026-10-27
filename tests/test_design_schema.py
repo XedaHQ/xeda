@@ -202,13 +202,14 @@ def test_generator_args_may_be_one_string_or_a_list_in_the_schema_and_the_loader
         Generator(executable="py", args=3)  # type: ignore[arg-type]
 
 
-def test_the_schema_has_no_single_clock_key_and_no_flat_rtl_key():
-    """A design takes its clocks as `rtl.clocks`; `clock` and the flat keys of `rtl` are gone."""
+def test_the_schema_advertises_the_clock_short_form_without_flat_rtl_keys():
+    """The single-clock short form belongs in `rtl`; flat RTL keys stay refused."""
     schema = design_schema()
     rtl = schema["$defs"]["Rtl"]["properties"]
     root = schema["properties"]
 
-    assert "clocks" in rtl and "clock" not in rtl and "clock_port" not in rtl
+    assert "clocks" in rtl and rtl["clock"]["x-xeda-input-only"] is True
+    assert "clock_port" not in rtl
     assert not {"sources", "top", "clock", "clocks", "parameters", "generics", "defines"} & set(
         root
     )

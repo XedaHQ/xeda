@@ -985,7 +985,7 @@ To run a flow:
 
     design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
     runner = DefaultRunner("xeda_run")
-    flow = runner.run("vivado_synth", design, flow_settings=["clocks.main_clock.period=5ns"])
+    flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5ns"])
     if flow and flow.record and flow.record.passed:
         print(flow.record.metric("fmax"))
 

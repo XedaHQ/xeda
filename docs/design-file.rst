@@ -43,8 +43,8 @@ work in a design file, in a design entry and in the ``flows`` table of a project
 and in design overrides. A key cannot be both a value and a table. ``tb: 3`` together with
 ``tb.top: x`` is an error that names both keys.
 
-Write one table in one spelling inside a mapping. ``fpga.part: P`` together with an ``fpga:``
-block in the same mapping is an error that names both spellings, in whichever order they come.
+Write one table in one spelling inside a mapping. ``clock.port: clk`` and a ``clock:`` block together are an error. So are
+``fpga.part: P`` and an ``fpga:`` block in the same mapping that names both spellings, in whichever order they come.
 Two dotted keys under one table (``fpga.part`` and ``fpga.speed``) are fine, and so is one block
 (``fpga: {part: P, speed: -6}``). Settings from separate origins, such as the design file and
 ``-s``, are not one mapping: they merge, and the higher origin wins.
@@ -133,6 +133,9 @@ Top level
    * - ``defines``
      - no
      - Verilog preprocessor macros, as a mapping.
+   * - ``clock``
+     - no
+     - One clock: ``clock.port: clk`` or ``clock: clk``.
    * - ``clocks``
      - no
      - A list of clocks. Each clock is a port name, or a table with ``port`` and, optionally,
@@ -154,14 +157,14 @@ design. A design with one clock usually needs only this:
 .. code-block:: yaml
 
     rtl:
-      clocks: [{port: clk}]
+      clock.port: clk
 
-In each flow, set ``clocks.main_clock.period`` or ``clocks.main_clock.freq`` with a unit: ``clocks.main_clock.period: 5.5 ns`` or
-``clocks.main_clock.freq: 200 MHz``. A number without a unit is an error. Units are case-sensitive, as in SI:
+In each flow, set ``clock.period`` or ``clock.freq`` with a unit: ``clock.period: 5.5 ns`` or
+``clock.freq: 200 MHz``. A number without a unit is an error. Units are case-sensitive, as in SI:
 ``200 mhz`` is an error that names ``MHz``. See :ref:`quantities` for the kinds and the units.
 
 Xeda refuses the design key ``clock_port`` and the flow setting ``clock_period``, and names the
-replacement: write ``clocks: [{port: <port>}]`` in ``rtl`` and ``clocks.<name>.period`` in a flow.
+replacement: write ``clock: <port>`` in the design and ``clock.period`` in a flow.
 
 .. _tb:
 
@@ -725,10 +728,10 @@ design file can carry the settings of several flows:
     flows:
       vivado_synth:
         fpga.part: xc7a100tftg256-2L
-        clocks.main_clock.period: 5 ns
+        clock.period: 5 ns
       yosys:
         platform: nangate45
-        clocks.main_clock.period: 10 ns
+        clock.period: 10 ns
       ghdl_sim:
         stop_time: 100us
 
@@ -782,7 +785,7 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
         - "Knight.bsv"
         - "por_sync.v"
       top: mkKnight
-      clocks: [{port: CLK}]
+      clock.port: CLK
     targets:
       arty:
         rtl.sources: ["arty.xdc"]
@@ -811,7 +814,8 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
   section by the rules of the settings layers of that flow (see :doc:`flows`). A null or empty ``flows``
   table, or flow section, adds nothing: the design's section stays as it is. Set a key to change
   it.
-* A short form means the table it stands for. When the design and the target write one key in
+* A short form means the table it stands for: ``clock: CLK`` is ``clock.port: CLK`` and
+  ``fpga: <part>`` is ``fpga.part: <part>``. When the design and the target write one key in
   different forms, Xeda reads each as that table before they merge. ``parameters`` as a list of
   ``{name, value}`` objects is the mapping they give. ``language.vhdl: "08"`` is
   ``language.vhdl: {standard: "08"}``. ``tb.cocotb: true`` is ``tb.cocotb: {}``, so it keeps the

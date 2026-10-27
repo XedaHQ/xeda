@@ -89,7 +89,7 @@ Artifacts: `log`, `simulation_log`
 
 Simulate the testbench on the routed netlist that `vivado_synth` writes. The producer `vivado_synth` runs with `write_netlist` and `write_timing_netlist`. This flow simulates the functional netlist (`netlist`). With `timing_sim`, it simulates the timing netlist (`netlist_timing`) annotated with the slow-corner SDF (`sdf`).
 
-23 flow-specific settings (plus the common ones): `xeda list-settings vivado_postsynth_sim --json`
+24 flow-specific settings (plus the common ones): `xeda list-settings vivado_postsynth_sim --json`
 
 Reports: `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `sim.evidence`
 
@@ -129,7 +129,7 @@ Synthesize, place and route a design for a Lattice FPGA with Lattice Diamond. Ru
 
 Required settings: `fpga`
 
-9 flow-specific settings (plus the common ones): `xeda list-settings diamond_synth --json`
+10 flow-specific settings (plus the common ones): `xeda list-settings diamond_synth --json`
 
 Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `ff`, `slice`, `dsp`, `bram`
 
@@ -143,7 +143,7 @@ Pack a routed FPGA design into a bitstream. The `config` input is the routed con
 
 Required settings: `fpga`
 
-7 flow-specific settings (plus the common ones): `xeda list-settings fpga_pack --json`
+8 flow-specific settings (plus the common ones): `xeda list-settings fpga_pack --json`
 
 Reports no flow-specific metrics.
 
@@ -157,7 +157,7 @@ Synthesize, implement and generate a bitstream for a design with Xilinx ISE. Run
 
 Required settings: `fpga`
 
-9 flow-specific settings (plus the common ones): `xeda list-settings ise_synth --json`
+10 flow-specific settings (plus the common ones): `xeda list-settings ise_synth --json`
 
 Reports: `minimum_period`, `fmax`, `wns`, `lut`, `ff`, `slice`
 
@@ -171,7 +171,7 @@ Place and route an FPGA design with nextpnr. The input `netlist` is a `JsonNetli
 
 Required settings: `fpga`
 
-59 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
+60 flow-specific settings (plus the common ones): `xeda list-settings nextpnr --json`
 
 Reports: `fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`, `lut_basis.stage`, `lut_basis.method`, `clock_port`, `cell_types`, `device`, `fabric`
 
@@ -183,7 +183,7 @@ Artifacts: `log`, `report`, `write`, `sdf`, `placed_svg`, `routed_svg`, `placeme
 
 Program a bitstream onto an FPGA board with openFPGALoader. The `bitstream` input is a typed `Bitstream` design source (a file built elsewhere, by any toolchain) or, by default, the `bitstream` output of `fpga_pack`. The flow builds and packs nothing itself. The settings of the earlier stages belong to their own sections (`flows.nextpnr`, `flows.fpga_pack`). The flow selects the device with `cable`, else with the name of the board in openFPGALoader (`openfpgaloader_board` in the board database) when the board has one. The flow passes the FPGA part when the part is known and either `cable` is set or no board name is passed: a Xilinx part without its speed grade, any other part as it is. Without a part, openFPGALoader detects the device. Programming the flash (`write_flash`) needs the part. The loader opens the first probe that fits the cable's USB id, before it reads any ID code, so with two boards of one kind connected it can program the wrong one. The flow chooses the probe when the run names none (no `usb_serial_num`, no `cable_index`, and none of `--ftdi-serial`, `--usb-serial-num`, `--cable-index`, `--busdev-num`, `--vid`, `--pid`, `--device` or `-d` in `extra_args`), `extra_args` gives no other cable or board, and the cable and the part are known. The cable is the `cable` setting, else the cable that openFPGALoader lists for the board. The flow asks the loader for the probes that fit the cable (`--scan-usb`). With two or more, it reads the FPGA of each (`--detect`, with `--board` when the cable comes from the board, else with `--cable`) and programs the probe whose FPGA matches the part, named by its serial number (`--ftdi-serial`). `--detect` reads the JTAG ID code and does not configure or reset the FPGA, but it opens every probe with that USB id, a debugger included. `usb_serial_num` skips it. The flow programs a probe only when exactly one probe matches and every other probe was read and shows another device. Otherwise it fails before it programs anything: no probe matches, several match, or one matches beside a probe that could not be read (that probe may be a second board with the same FPGA). The message lists each probe with its device, or why it could not be read, and the `usb_serial_num` setting that names it. Xeda does not choose a probe and warns when several probes fit the cable and Xeda cannot name one reliably: no part is known; Xeda cannot match the part to the loader's model names (iCE40, Spartan-6, MachXO3, Arria 10 and others); the cable is a bit-bang cable given with `cable` (`ft231X` or `ft232RL`); the probes are not FTDI chips; or a probe has no serial number, shares its serial with another, or the scan cannot read its serial. It also warns when the loader cannot list its boards, cables or probes, or when the scan cannot be read or could not open a probe. In these cases openFPGALoader then chooses the first probe that fits the cable. Xeda names a probe only by the serial number of an FTDI chip, because `--busdev-num` works only with libftdi 1.4 or newer, which Xeda cannot detect. The queries run in `run()` only, outside the run directory, with a time limit, and never write `openfpgaloader.log`. The flow logs its choice. The flow keeps the output of the loader in `openfpgaloader.log` in the run directory. It needs openFPGALoader 0.13.1 or newer and refuses an older loader before it builds or programs anything. The run fails when the loader exits with a nonzero status. It also fails when the output shows that the device was not programmed although the status is 0: DONE low after a Xilinx load (with the ID or CRC error that the FPGA reports), a step that printed FAIL, or an error message such as a flash that does not answer. A flash write on a Xilinx FPGA also fails unless the loader reports that it wrote the flash. The flow always runs, because it changes a device and no file. It is the only built-in flow that programs a device.
 
-19 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
+20 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
 
 Reports no flow-specific metrics.
 
@@ -197,7 +197,7 @@ Compile a design for an Intel FPGA with Quartus.
 
 Required settings: `fpga`
 
-18 flow-specific settings (plus the common ones): `xeda list-settings quartus --json`
+19 flow-specific settings (plus the common ones): `xeda list-settings quartus --json`
 
 Reports: `fmax`, `wns`, `whs`, `fmax_by_clock`, `lut`, `ff`
 
@@ -211,7 +211,7 @@ Synthesize and implement a design for an FPGA with Vivado in non-project mode. A
 
 Required settings: `fpga`
 
-28 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
+29 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
 
 Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
@@ -225,7 +225,7 @@ Place and route a netlist with AMD-Xilinx Vivado, in non-project mode. The `netl
 
 Required settings: `fpga`
 
-21 flow-specific settings (plus the common ones): `xeda list-settings vivado_impl --json`
+22 flow-specific settings (plus the common ones): `xeda list-settings vivado_impl --json`
 
 Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
@@ -239,7 +239,7 @@ Estimate post-implementation power from the switching activity of a simulation. 
 
 Required settings: `fpga`
 
-5 flow-specific settings (plus the common ones): `xeda list-settings vivado_power --json`
+6 flow-specific settings (plus the common ones): `xeda list-settings vivado_power --json`
 
 Reports: `power.total`, `power.dynamic`, `power.static`, `power.effective_tja`, `power.junction_temperature`, `power.thermal_margin`, `power.confidence`, `power.components`
 
@@ -253,7 +253,7 @@ Create an AMD-Xilinx Vivado project for the design, to work on in Vivado. The pr
 
 Required settings: `fpga`
 
-29 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
+30 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
 
 Reports no flow-specific metrics.
 
@@ -267,7 +267,7 @@ Synthesize and implement an FPGA design with AMD-Xilinx Vivado, in project mode,
 
 Required settings: `fpga`
 
-28 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
+29 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
 
 Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
@@ -281,7 +281,7 @@ Synthesize a design for an FPGA device with Yosys.
 
 Required settings: `fpga`
 
-69 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
+70 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
 Reports: `lut`, `ff`, `dsp`, `lut_use.logic`, `lut_use.ram`, `lut_use.srl`, `lut_basis.stage`, `lut_basis.method`, `latch`, `bram.ramb18`, `bram.ramb36`, `cell_types`
 
@@ -297,7 +297,7 @@ Synthesize a design for an ASIC with Synopsys Design Compiler.
 
 Required settings: `target_libraries`
 
-26 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
+27 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
 
 Reports: `fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequential`, `num_macro_bbox`
 
@@ -311,7 +311,7 @@ Read a gate-level netlist, then floorplan, place and optimize it with OpenROAD. 
 
 Required settings: `platform`
 
-27 flow-specific settings (plus the common ones): `xeda list-settings openroad_place --json`
+28 flow-specific settings (plus the common ones): `xeda list-settings openroad_place --json`
 
 Group `design`: no common settings; 2 more: `xeda list-settings openroad_place --tier expert --json`
 
@@ -345,7 +345,7 @@ Artifacts: `log`
 
 Convert a VHDL design to Verilog with `ghdl --synth`.
 
-21 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
+22 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
 
 Reports no flow-specific metrics.
 
@@ -357,7 +357,7 @@ Artifacts: `log`
 
 Synthesize a design with Yosys to a standard-cell, gate or LUT netlist.
 
-70 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
+71 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
 
 Group `hierarchy`: `hierarchy.keep_min_cost`; 3 more: `xeda list-settings yosys --tier expert --json`
 

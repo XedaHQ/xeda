@@ -15,7 +15,6 @@ from pydantic import BaseModel
 
 import xeda.flows  # noqa: F401  (registers the built-in flows)
 from xeda.cli_types import ChainChoice, FlowChoice
-from xeda.flow.fpga import FPGA_PART_TEXT
 from xeda.flow_runner.settings_layers import RENAMED_FLOWS
 from xeda.xedaproject import REMOVED_PROJECT_KEYS
 from xeda.dataclass import SecondSpelling, XedaBaseModel, field_type
@@ -105,9 +104,7 @@ def test_no_flow_has_a_second_name():
 #: `model` is a flow, `design` (a design file) or `project` (a project file).
 REMOVED_SPELLINGS = [
     # --- the settings of a flow
-    ("yosys_fpga", "clock", {"clock": {"period": "10 ns"}}, "removed_alias", "`clocks.<name>`"),
     ("nextpnr", "ncpus", {"ncpus": 4}, "removed_alias", "`nthreads`"),
-    ("vivado_synth", "fpga", {"fpga": "xc7a35t"}, "removed_alias", "`fpga.part`"),
     ("yosys", "library", {"library": ["a.lib"]}, "removed_alias", "`liberty`"),
     ("ghdl_sim", "warn_error", {"warn_error": True}, "removed_alias", "`werror`"),
     ("ghdl_sim", "elab_warn_error", {"elab_warn_error": True}, "removed_alias", "`elab_werror`"),
@@ -128,13 +125,6 @@ REMOVED_SPELLINGS = [
         {"tb": {"generics": {"W": 8}}},
         "removed_alias",
         "`tb.parameters`",
-    ),
-    (
-        "design",
-        "rtl.clock",
-        {"rtl": {"clock": {"port": "clk"}}},
-        "removed_alias",
-        "`rtl.clocks`",
     ),
     (
         "design",
@@ -187,9 +177,7 @@ REMOVED_SPELLINGS = [
 #: The same rows as a literal set, so that dropping a row, or adding one for a spelling that
 #: never existed, fails here and not silently.
 SPELLINGS_OF_TODAY = {
-    "yosys_fpga:clock",
     "nextpnr:ncpus",
-    "vivado_synth:fpga",
     "yosys:library",
     "ghdl_sim:warn_error",
     "ghdl_sim:elab_warn_error",
@@ -198,7 +186,6 @@ SPELLINGS_OF_TODAY = {
     "yosys_fpga:json_netlist",
     "design:rtl.generics",
     "design:tb.generics",
-    "design:rtl.clock",
     "design:language.vhdl.version",
     "design:language.verilog.version",
     "design:rtl.generator.use",
@@ -255,8 +242,6 @@ def test_the_table_covers_every_second_spelling_in_the_code():
     for key, replacement in REMOVED_PROJECT_KEYS.items():
         assert isinstance(replacement, SecondSpelling)
         assert ("project", key) in in_table, f"project: `{key}` has no row"
-    # The text of `fpga` is refused where the setting is declared, not in a table of names.
-    assert FPGA_PART_TEXT[0] == "fpga: <part>" and "fpga" in of_flows
     for given in RENAMED_FLOWS:
         assert given in {name for name, _ in REMOVED_FLOW_NAMES}, f"flow `{given}` has no row"
 

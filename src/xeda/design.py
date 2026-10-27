@@ -41,7 +41,7 @@ from typing import (
 from urllib.parse import parse_qs, urlparse
 
 import yaml
-from pydantic_core import ErrorDetails, InitErrorDetails, core_schema
+from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, core_schema
 from typing_extensions import TypedDict
 
 from .dataclass import (
@@ -70,6 +70,7 @@ from .generation import judging_generation
 from .proc_utils import run_child
 from .run_dir import DIR_NAME_HASH_LEN, RunDirectory, run_directory_name
 from .utils import (
+    hierarchical_merge,
     ConflictingKeys,
     XedaException,
     expand_env_vars,
@@ -1713,6 +1714,9 @@ class _GeneratorRecipe:
         )
 
 
+CLOCK_SPELLINGS = ("clock", "clocks")
+
+
 class Rtl(DesignPart):
     """The RTL: sources, top module, clocks, generator, attributes, parameters and defines."""
 
@@ -1745,32 +1749,88 @@ class Rtl(DesignPart):
     #: key that stays (`removed_alias`), or a key that is gone (`removed_key`).
     removed_inputs: ClassVar[Dict[str, str]] = {
         "generics": SecondSpelling("`rtl.parameters`"),
-        "clock": SecondSpelling("`rtl.clocks`"),
         "clock_port": "`rtl.clocks`, as `rtl.clocks: [{port: <port>}]`",
     }
     #: One clock stands for a list of one (`clock_tables`).
     single_item_fields: ClassVar[tuple[str, ...]] = ("clocks",)
 
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        """Advertise the accepted single-clock shorthand without storing duplicate state."""
+        schema = handler(core_schema)
+        properties = schema.setdefault("properties", {})
+        clock_item = deepcopy(properties["clocks"]["items"])
+        properties["clock"] = {
+            "anyOf": [clock_item, {"type": "string"}, {"type": "null"}],
+            "description": "Single design clock shorthand. Prefer an object with `port`. "
+            "`null` means no clock.",
+            "x-xeda-input-only": True,
+        }
+        return schema
+
+    @model_validator(mode="before")
+    @classmethod
+    def rtl_settings_validate(cls, values, info):  # pylint: disable=no-self-argument
+        """Normalize the single accepted clock input into the canonical `clocks` list."""
+        if info.field_name is not None and info.data is None:
+            # Assignment to a real field. The clocks field validator handles clocks itself;
+            # unrelated assignments must not reconstruct or detach the established list.
+            return values
+
+        present = [name for name in CLOCK_SPELLINGS if name in values]
+        if len(present) > 1:
+            raise ValueError(
+                "Specify only one of `clock` or `clocks`; prefer `clock` for "
+                "one clock and `clocks` for several"
+            )
+        if present:
+            spelling = present[0]
+            if spelling != "clocks":
+                value = values.pop(spelling)
+                if cls.clock_mistake(spelling, value):
+                    # Report it at the key as written, not at the `clocks` it would become.
+                    what = cls.clock_expected()
+                    raise ValidationError.from_exception_data(
+                        cls.__name__,
+                        [
+                            InitErrorDetails(
+                                type=PydanticCustomError(
+                                    "clock_form",
+                                    "{message}",
+                                    {"message": f"`{spelling}` is {what}, not {value!r:.60}"},
+                                ),
+                                loc=(spelling,),
+                                input=value,
+                            )
+                        ],
+                    )
+                values["clocks"] = cls.clock_tables(spelling, value)
+        return values
+
     @field_validator("clocks", mode="before")
     @classmethod
     def _normalize_clocks(cls, clocks):
-        return cls.clock_tables(clocks)
+        return cls.clock_tables("clocks", clocks)
 
     @classmethod
-    def clock_tables(cls, value: Any) -> list[Any]:
-        """Return the clocks that `value`, the value of `clocks`, gives.
+    def clock_tables(cls, spelling: str, value: Any) -> list[Any]:
+        """Return the clocks that `value` gives when it is written as `spelling` of the clock.
 
-        Each clock is the table it stands for. The validator reads a clock with this function,
-        and so does the merge of a target over its design (`merge_inputs`). `clocks: null` and a
-        clock `""` mean no clock. An item that is not a form of a clock is kept unchanged for
-        validation to report. Only text or a table is a clock; a number is not. A value that is
-        neither a list nor one clock raises a `ValueError`."""
-        if value is None:
-            return []
-        if isinstance(value, (str, Mapping, Clock)):
-            value = [value]
-        if not isinstance(value, (list, tuple)):
-            raise ValueError(f"Expecting 'clocks' to be a list but found {value}")
+        Each clock is the table it stands for. The validators read a clock with this function,
+        and so does the merge of a target over its design (`merge_inputs`). `clock: null` and
+        `clock: ""` mean no clock. An item that is not a form of a clock is kept unchanged for
+        validation to report. Only text or a table is a clock; a number is not. A `clocks` value
+        that is neither a list nor one clock raises a `ValueError`."""
+        if spelling == "clocks":
+            if value is None:
+                return []
+            if isinstance(value, (str, Mapping, Clock)):
+                value = [value]
+            if not isinstance(value, (list, tuple)):
+                raise ValueError(f"Expecting 'clocks' to be a list but found {value}")
+            items = value
+        else:
+            items = [value]
         # An empty table, like `null` and `""`, says nothing: there is no clock.
         return [
             (
@@ -1778,44 +1838,79 @@ class Rtl(DesignPart):
                 if isinstance(item, str)
                 else dict(item) if isinstance(item, Mapping) else item
             )
-            for item in value
+            for item in items
             if item is not None and item != "" and not (isinstance(item, Mapping) and not item)
         ]
 
     @classmethod
     def clock_expected(cls) -> str:
-        """Return, in words, what `clocks` takes."""
-        return "a list of clocks, each a port name or a table"
+        """Return, in words, what the design's `clock` takes."""
+        return "a port name or a table"
 
     @classmethod
-    def clock_mistake(cls, value: Any) -> bool:
-        """Return whether `value`, written as `clocks`, is not a list of clocks.
+    def clock_mistake(cls, spelling: str, value: Any) -> bool:
+        """Return whether `value`, written as `spelling` of the design's clock, is not a clock.
 
         A clock is a port name or a table (`clock_tables`)."""
         try:
-            tables = cls.clock_tables(value)
+            tables = cls.clock_tables(spelling, value)
         except ValueError:
             return True
         return not all(isinstance(table, (Mapping, Clock)) for table in tables)
 
     @classmethod
     def form_problems(cls, values: Mapping[str, Any]) -> list[tuple[str, Any]]:
-        """Return `clocks` of `values` when it is not a list of clocks, as written.
+        """Return the clock spellings of `values` that are not a clock, as written.
 
-        `clocks` is a tuple, so `shape_problems` does not judge its shape on its own."""
-        if "clocks" in values and cls.clock_mistake(values["clocks"]):
-            return [("clocks", values["clocks"])]
-        return []
+        `clock` is not a field, so `shape_problems` asks here."""
+        return [
+            (spelling, values[spelling])
+            for spelling in CLOCK_SPELLINGS
+            if spelling in values and cls.clock_mistake(spelling, values[spelling])
+        ]
 
     @classmethod
     def merge_inputs(cls, merged: Dict[str, Any], values: Dict[str, Any]) -> None:
-        """Merge the clocks from a higher layer (`values`) into the layer below (`merged`).
+        """Merge the design's clock from a higher layer (`values`) into the layer below (`merged`).
 
-        `clocks` in the higher layer replaces the list below. A lower `clocks` that is not a list
-        of clocks stays, and the clocks of the higher layer are dropped, so that validation
-        reports the mistake below."""
-        if "clocks" in values and "clocks" in merged and cls.clock_mistake(merged["clocks"]):
-            del values["clocks"]
+        The design's clock is `clock` or `clocks`, two input forms of one list of clocks. Where
+        `values` writes one of them and `merged` has one below, the two meet as lists of tables.
+        `clocks`, in any form, replaces the list below. `clock` refines the first design clock
+        key by key. `clock: null` means no clock, which replaces. A layer that writes two
+        spellings, or a clock that is not a form of a clock, stays as it is, so validation
+        reports it. A lower clock that is not a form of a clock is kept, and the clock of the
+        higher layer is dropped."""
+        written = [name for name in CLOCK_SPELLINGS if name in values]
+        below = [name for name in CLOCK_SPELLINGS if name in merged]
+        if not written or not below:
+            return
+        if len(written) > 1:
+            for name in below:
+                del merged[name]
+            return
+        if len(below) > 1:
+            return
+        (name,), (lower,) = written, below
+
+        def tables(spelling: str, value: Any) -> list[Any] | None:
+            try:
+                clocks = cls.clock_tables(spelling, value)
+            except ValueError:
+                return None
+            return clocks if all(isinstance(clock, Mapping) for clock in clocks) else None
+
+        lowest, higher = tables(lower, merged[lower]), tables(name, values[name])
+        if lowest is None:
+            del values[name]
+            return
+        del merged[lower]
+        if higher is None:
+            return
+        del values[name]
+        if name == "clocks" or not lowest or not higher:
+            merged["clocks"] = higher
+        else:
+            merged["clocks"] = [hierarchical_merge(dict(lowest[0]), dict(higher[0])), *lowest[1:]]
 
 
 class CocotbTestbench(XedaBaseModel):
@@ -2995,7 +3090,7 @@ class Design(XedaBaseModel):
                 # entry).
                 takes = (
                     Rtl.clock_expected()
-                    if path == ("rtl", "clocks")
+                    if path in (("rtl", "clock"), ("rtl", "clocks"))
                     else "a table or a short form of one"
                 )
                 raise invalid(".".join(path), f"takes {takes}, not {value!r:.60}")

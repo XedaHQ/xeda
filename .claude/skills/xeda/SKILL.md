@@ -37,7 +37,7 @@ and `skipped` paths. The Python API never prompts: `scrub_design` and a launch w
 `scrub_old_runs` remove nothing unless the caller passes `confirm` / sets `confirm_scrub`.
 
 ```bash
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clocks.main_clock.period=5ns --json | jq '.nodes[-1].record.metrics.fmax'
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5ns --json | jq '.nodes[-1].record.metrics.fmax'
 ```
 
 The exit status of `run` is 0 for the outcome `passed`, 1 for any other outcome and 2 for a request
@@ -102,14 +102,14 @@ language.vhdl.standard: 2008
 rtl:
   sources: ["pkg.vhdl", "sqrt.vhdl"] # in compilation order
   top: sqrt
-  clocks: [{port: clk}] # names the clock port; the period is a flow setting
+  clock.port: clk # names the clock port; the period is a flow setting
   parameters.G_IN_WIDTH: 32
 tb:
   sources: ["tb_sqrt.py"] # a .py source is a cocotb testbench
 flows:
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clocks.main_clock.period: 5 ns
+    clock.period: 5 ns
 ```
 
 - Relative paths resolve against the design file's directory.
@@ -118,9 +118,9 @@ flows:
   `{file: "top.json", type: JsonNetlist}`. A source a generator writes is `{path: "gen/top.v"}`.
 - A non-cocotb HDL testbench needs `tb.top`; simulation flows refuse the design without it
   (`ghdl_sim` finds a VHDL testbench's top itself).
-- Give the clock port in `rtl.clocks` and the period in the flow: `clocks.main_clock.period` (`5 ns`) or
-  `clocks.main_clock.freq` (`200 MHz`). For several clocks, use `rtl.clocks` and the flow's `clocks.<name>`.
-- A physical setting needs a unit: `clocks.main_clock.period: 5 ns`, `-s clocks.main_clock.period=5ns` (no space, so no
+- Give the clock port in `rtl.clock` and the period in the flow: `clock.period` (`5 ns`) or
+  `clock.freq` (`200 MHz`). For several clocks, use `rtl.clocks` and the flow's `clocks.<name>`.
+- A physical setting needs a unit: `clock.period: 5 ns`, `-s clock.period=5ns` (no space, so no
   quotes), `abc.load: 3.9 fF`. A bare number fails with `` `5` needs a unit, such as `10 ns` ``.
   `list-settings` shows the kind (`time`, `frequency`, `capacitance`, ...) as the `type` of a
   setting that takes a unit. Units are case-sensitive (`MHz`, `fF`). See "Units" in
@@ -135,11 +135,11 @@ flows:
 ## Settings
 
 Layers, lowest to highest: flow defaults, project `flows.<flow>`, design `flows.<flow>`, selected
-target's `flows.<flow>`, `-s`, API. They merge key by key, so `-s clocks.main_clock.freq=100MHz` refines a
+target's `flows.<flow>`, `-s`, API. They merge key by key, so `-s clock.freq=100MHz` refines a
 nested section. Write a flow's settings under its own `flows.<flow>` only.
 
 ```bash
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clocks.main_clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
 xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
 ```
 
@@ -318,13 +318,13 @@ Every flow needs `platform`, and the PDK files must be installed (`xeda pdk path
 --json`). A changed setting of a late flow reruns only that flow and the ones after it; a shared
 setting (`wire_rc`, `platform`) reruns every flow. The database carries the routing layers, the
 layer adjustments, `resize.opt_config`, `resize.global_sizing` and `design.dont_touch`: set them
-under `flows.openroad_place` only. Physical settings take units (`clocks.main_clock.period: 0.65 ns`,
+under `flows.openroad_place` only. Physical settings take units (`clock.period: 0.65 ns`,
 `floorplan.core_margin: 2 um`). `openroad` rejects a negative slack (`fail_timing`), design rule
 violations (`fail_drc`) and antenna violations left after the repair (`fail_antenna`), all on by
 default: outcome `rejected`, reported again without a tool run until something
 changes. A failed stage leaves `<flow>-failed.odb` in its run directory.
 `examples/bluespec/gcd/gcd.yaml` is a working design file for nangate45: its `flows.yosys` section
-sets `platform` and `clocks.main_clock.period`, and `bsc` converts the design first.
+sets `platform` and `clock.period`, and `bsc` converts the design first.
 
 ## Results
 
@@ -571,7 +571,7 @@ from xeda import Design, DefaultRunner
 from xeda.introspect import flows_info, settings_info, results_info, design_schema
 
 design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
-flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clocks.main_clock.period=5ns"])
+flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock.period=5ns"])
 if flow and flow.results.success:
     print(flow.results.fmax)
 ```

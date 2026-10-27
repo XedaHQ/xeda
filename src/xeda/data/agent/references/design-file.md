@@ -22,7 +22,7 @@ the schema leaves property sets open (dotted keys expand before validation).
 
 | Write | As |
 | --- | --- |
-| A table of at most two settings | dotted keys: `fpga.part: xc7a100tftg256-2L`, `language.vhdl.standard: 2008` |
+| A table of at most two settings | dotted keys: `clock.port: clk`, `fpga.part: xc7a100tftg256-2L` |
 | A file section: the file's root, `rtl`, `tb`, `flows`, each `flows.<flow>`, `targets`, each target, each entry of `designs` | a block |
 | `inputs`, and tables keyed by tool names (`set_synth_properties`, `set_impl_properties`, ISE `*_options`, `set_attribute`, `set_mod_attribute`, `rtl.attributes`) | a nested block |
 | A source with a type | one line: `- {file: "top.json", type: JsonNetlist}` |
@@ -56,7 +56,8 @@ are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` 
 | `top` | Top module or entity. Synthesis flows need it. |
 | `parameters` | Verilog parameters or VHDL generics of the top module. |
 | `defines` | Verilog preprocessor macros. |
-| `clocks` | A list of clocks, each a port name or a table with `port` and `name`: `clocks: [{port: clk}]`. |
+| `clock` | One clock: `clock.port: clk`, or `clock: clk`. |
+| `clocks` | A list of clocks for several clocks. |
 | `attributes` | HDL attributes, `attribute -> (object -> value)`. |
 | `generator` | What writes the sources before the flow runs: a shell command line (`generator: "python soc.py"`, kept as `{shell: ...}`), a list of arguments (`[python3, soc.py]`, kept as `{executable: python3, args: [soc.py]}`), or a table with one of `shell`, `command`, `executable` (two of them, or `shell` with `args`, is an error) and `sources`, `generated_sources`, `always_runs`. |
 
@@ -82,14 +83,14 @@ or a source that `bsc` passes through.
 
 `rtl` names the clock ports. The flow settings give the period or frequency, because they
 constrain one build. Xeda refuses the settings `clock_port` (design) and `clock_period` (flow):
-use `clocks: [{port: <port>}]` in `rtl` and `clocks.<name>.period` in a flow.
+use `clock: <port>` in the design and `clock.period` in a flow.
 
 ```yaml
 rtl:
-  clocks: [{port: clk}]
+  clock.port: clk
 flows:
   vivado_synth:
-    clocks.main_clock.period: 5 ns # clocks.main_clock.freq: 200 MHz is the same clock
+    clock.period: 5 ns # clock.freq: 200 MHz is the same clock
 ```
 
 Several clocks:
@@ -103,12 +104,12 @@ rtl:
       name: aux
 flows:
   vivado_synth:
-    clocks.main_clock.period: 5 ns
+    clock.period: 5 ns
     clocks.aux.freq: 100 MHz
 ```
 
-Clock names are keys, so they contain no dot. A flow with one clock uses the name `main_clock`
-(Yosys and nextpnr take that one, else the first clock).
+Within one settings layer give `clock` or `clocks`, not both. Across layers the higher layer's
+`clock` merges into the canonical `clocks`. Clock names are keys, so they contain no dot.
 
 A clock takes `period` (a time) or `freq` (a frequency) and derives the other; a consistent pair is
 accepted, a contradictory pair is an error. Every time and frequency needs a unit (`5.5 ns`,
@@ -133,8 +134,8 @@ case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
 | resistance | `ohm`, `kohm`, `Mohm` | `ohm` |
 | power | `nW`, `uW`, `µW` (micro sign, U+00B5), `mW`, `W` | `W` |
 
-- Write `clocks.main_clock.period: 2.5 ns` in YAML, `"2.5 ns"` as a string in TOML and JSON, and
-  `-s clocks.main_clock.period=2.5ns` on the command line (no space, so no quotes; with a space, quote the
+- Write `clock.period: 2.5 ns` in YAML, `"2.5 ns"` as a string in TOML and JSON, and
+  `-s clock.period=2.5ns` on the command line (no space, so no quotes; with a space, quote the
   item).
 - `10 ns`, `10000 ps` and `0.01 us` are one value and one run identity. `settings.json` writes
   `10 ns` for all three.
@@ -250,10 +251,10 @@ A section applies only when that flow is in the run.
 flows:
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clocks.main_clock.period: 5 ns
+    clock.period: 5 ns
   yosys:
     platform: nangate45
-    clocks.main_clock.period: 10 ns
+    clock.period: 10 ns
   ghdl_sim:
     stop_time: 100us
 ```
@@ -295,7 +296,7 @@ name: knight
 rtl:
   top: mkKnight
   sources: ["Knight.bsv", "por_sync.v"]
-  clocks: [{port: CLK}]
+  clock.port: CLK
 targets:
   arty:
     rtl:
@@ -320,8 +321,9 @@ targets:
   `flows.nextpnr.board` replaces the design's); other keys stay. Mappings merge at every depth,
   `sources` append, any other list replaces. A null or empty `flows` table or section adds
   nothing. Layers, lowest first: flow defaults, project, design, target, `-s`, API.
-- A short form means its table in every merge (`language.vhdl: "08"` is
-  `language.vhdl.standard: "08"`). A target's `rtl.clocks` replaces the design's clocks. A value
+- A short form means its table in every merge (`clock: CLK` is `clock.port: CLK`; `fpga: <part>`
+  is `fpga.part: <part>`). A target's `clock` refines the design's first clock, its `clocks`
+  replaces all, `clock: null` means none. A value
   that is no table where one is expected (`tb: 3`) is an error.
 - `--design-overrides KEY=VALUE...` merge by the same rules, except that only a target appends
   `sources`: an override's `rtl.sources` or `tb.sources` replaces the whole list.
@@ -360,7 +362,7 @@ designs:
     rtl:
       sources: ["sqrt.vhdl"]
       top: sqrt
-      clocks: [{port: clk}]
+      clock.port: clk
   - name: fifo
     rtl:
       sources: ["fifo.v"]
@@ -368,7 +370,7 @@ designs:
 flows:
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clocks.main_clock.period: 5 ns
+    clock.period: 5 ns
 ```
 
 - Top-level keys: `designs` and `flows`. Any other key fails with

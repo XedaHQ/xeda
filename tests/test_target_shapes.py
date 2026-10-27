@@ -79,6 +79,21 @@ KNIGHT_TB = {"top": "knight_tb", "sources": ["knight_tb.v"]}
 #: (id, the design's fragment, the target's fragment, the flat fragment).
 # fmt: off
 SHAPES = [
+    ("clock: name then table", rtl(clock="CLK"), rtl(clock={"name": "sys"}), rtl(clock={"port": "CLK", "name": "sys"})),
+    ("clock: table then name", rtl(clock={"port": "CLK", "name": "sys"}), rtl(clock="CLK2"), rtl(clock={"port": "CLK2", "name": "sys"})),
+    ("clock: table then table", rtl(clock={"port": "CLK"}), rtl(clock={"name": "sys"}), rtl(clock={"port": "CLK", "name": "sys"})),
+    ("clock: name then name", rtl(clock="CLK"), rtl(clock="CLK2"), rtl(clock="CLK2")),
+    ("clock: name then clocks", rtl(clock="CLK"), rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clocks=[{"port": "A"}, {"port": "B"}])),
+    ("clock: table then clocks", rtl(clock={"port": "CLK"}), rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clocks=[{"port": "A"}, {"port": "B"}])),
+    ("clock: clocks then clocks", rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clocks=[{"port": "C"}]), rtl(clocks=[{"port": "C"}])),
+    # the target's singular spelling refines the design's first clock, as a flow's `clock` does
+    ("clock: clocks then name", rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clock="C"), rtl(clocks=[{"port": "C"}, {"port": "B"}])),
+    ("clock: table then null", rtl(clock={"port": "CLK"}), rtl(clock=None), rtl(clock=None)),
+    ("clock: table then empty table", rtl(clock={"port": "CLK"}), rtl(clock={}), rtl(clocks=[])),
+    ("clock: clocks then empty clocks", rtl(clocks=[{"port": "A"}]), rtl(clocks=[{}]), rtl(clocks=[])),
+    ("clock: clocks then null", rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clock=None), rtl(clocks=[])),
+    ("clock: null then name", rtl(clock=None), rtl(clock="CLK"), rtl(clock="CLK")),
+    ("clock: one clocks then table", rtl(clocks=[{"port": "A"}]), rtl(clock={"name": "sys"}), rtl(clocks=[{"port": "A", "name": "sys"}])),
     # ---- the design's clocks: a port name, or a list of tables
     ("clocks: name then table", rtl(clocks="CLK"), rtl(clocks=[{"port": "CLK", "name": "sys"}]), rtl(clocks=[{"port": "CLK", "name": "sys"}])),
     ("clocks: table then name", rtl(clocks=[{"port": "CLK", "name": "sys"}]), rtl(clocks="CLK2"), rtl(clocks=[{"port": "CLK2"}])),

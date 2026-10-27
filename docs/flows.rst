@@ -86,7 +86,7 @@ the lowest to the highest precedence:
    ``flow_settings``".
 7. the API, with ``flow_overrides``
 
-The layers merge key by key. ``-s clocks.main_clock.freq=100MHz`` changes that one setting of the ``clocks.main_clock``
+The layers merge key by key. ``-s clock.freq=100MHz`` changes that one clock setting
 section from the design file and does not replace the whole section. A higher layer replaces only
 the keys that it writes. This holds for a target as well: its value wins over the value of the
 design for the same key, and only for the keys that the target writes.
@@ -137,7 +137,7 @@ options.
 
 The command line takes dotted keys for nested values, and you can give several at once::
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clocks.main_clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
 
 A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an error that names
 ``timing`` and ``timing.x``, and so is the same pair in the other order. The same holds in a
@@ -238,7 +238,7 @@ the unit. A few settings do not follow this rule yet. The last part of this sect
 
 Each such setting has a *kind*. The kind is what the setting measures: a time, a frequency, a
 capacitance, a length, a voltage, a resistance or a power. The kind decides which units the setting takes.
-``clocks.main_clock.period`` is a time, ``clocks.main_clock.freq`` is a frequency, and ``abc.load`` of ``yosys`` is a
+``clock.period`` is a time, ``clock.freq`` is a frequency, and ``abc.load`` of ``yosys`` is a
 capacitance. ``xeda list-settings <flow>`` shows the kind of a setting in its type column: ``time``
 and not ``string``. The JSON output shows it too (see :ref:`machine-readable-settings`).
 
@@ -260,22 +260,22 @@ In a design file, a quantity is plain text:
       top: top
       sources:
         - top.v
-      clocks: [{port: clk}]
+      clock.port: clk
     flows:
       yosys:
-        clocks.main_clock.period: 2.5 ns
+        clock.period: 2.5 ns
         liberty:
           - cells.lib
         abc:
           delay_target: 500 ps
           load: 3.9 fF
       nextpnr:
-        clocks.main_clock.freq: 400 MHz
+        clock.freq: 400 MHz
 
 In a TOML or a JSON file, write a quantity as a string: ``period = "2.5 ns"``. On the command line,
 write the number and the unit without a space. The shell then passes one word, and the item needs
-no quotes: ``-s clocks.main_clock.period=2.5ns``. With a space, quote the whole item:
-``-s "clocks.main_clock.period=2.5 ns"``. Without the quotes, the list of ``-s`` items ends at the unit, and
+no quotes: ``-s clock.period=2.5ns``. With a space, quote the whole item:
+``-s "clock.period=2.5 ns"``. Without the quotes, the list of ``-s`` items ends at the unit, and
 Xeda reports the unit as an unexpected extra argument, with a hint.
 
 Kinds and units
@@ -321,20 +321,20 @@ with the prefix ``u`` (micro) can also be written with the micro sign (U+00B5): 
 Two spellings of one value are the same value. ``10 ns``, ``10000 ps`` and ``0.01 us`` are the
 same time. Runs that differ only in such a spelling have the same identity, so Xeda reuses the
 results of one for the other. A clock written as a frequency is the same clock as one written as a
-period: ``clocks.main_clock.freq: 100 MHz`` is ``clocks.main_clock.period: 10 ns``.
+period: ``clock.freq: 100 MHz`` is ``clock.period: 10 ns``.
 
 Errors
 ~~~~~~
 
 Xeda reports a quantity that it cannot read when it plans the run, before any tool starts. The
 report names the setting and gives a message. These are the common messages. A number without a
-unit, as in ``clocks.main_clock.period: 10``, gives this message:
+unit, as in ``clock.period: 10``, gives this message:
 
 .. code-block:: text
 
     `10` needs a unit, such as `10 ns`: a bare number does not mean anything
 
-A unit of another kind, as in ``clocks.main_clock.period: 5 MHz``:
+A unit of another kind, as in ``clock.period: 5 MHz``:
 
 .. code-block:: text
 
@@ -346,19 +346,19 @@ A unit in the wrong case, as in ``abc.load: 3.9 ff``:
 
     unit `ff` in `3.9 ff`: units are case-sensitive, did you mean `fF`?
 
-Text that is no quantity at all, as in ``clocks.main_clock.period: 5 ns * 2`` or ``clocks.main_clock.period: fast``:
+Text that is no quantity at all, as in ``clock.period: 5 ns * 2`` or ``clock.period: fast``:
 
 .. code-block:: text
 
     cannot read `5 ns * 2` as a time: write one number and one unit, such as `10 ns`
 
-A unit that is not in the table, as in ``clocks.main_clock.period: 10 nanoseconds``:
+A unit that is not in the table, as in ``clock.period: 10 nanoseconds``:
 
 .. code-block:: text
 
     unknown unit `nanoseconds` in `10 nanoseconds`: a time takes one of fs, ps, ns, us, µs, ms, s, min, h
 
-A value outside the limits of the setting, as in ``clocks.main_clock.period: -1 ns``:
+A value outside the limits of the setting, as in ``clock.period: -1 ns``:
 
 .. code-block:: text
 
@@ -834,7 +834,7 @@ synthesis, bind the inputs of both flows to it:
       sources:
         - "top.v"
       top: top
-      clocks: [{port: clk}]
+      clock.port: clk
     tb:
       sources:
         - "tb.sv"
@@ -843,7 +843,7 @@ synthesis, bind the inputs of both flows to it:
     flows:
       vivado_alt_synth:
         fpga.part: xc7a35tcpg236-1
-        clocks.main_clock.period: 5 ns
+        clock.period: 5 ns
       vivado_postsynth_sim:
         inputs:
           netlist: vivado_alt_synth.netlist
@@ -873,7 +873,7 @@ binding is the only switch:
       sources:
         - "top.v"
       top: top
-      clocks: [{port: clk}]
+      clock.port: clk
     tb:
       sources:
         - "tb.sv"
@@ -882,7 +882,7 @@ binding is the only switch:
     flows:
       vivado_synth:
         fpga.part: xc7a35tcpg236-1
-        clocks.main_clock.period: 5 ns
+        clock.period: 5 ns
       vivado_power:
         inputs:
           activity: vivado_postsynth_sim.saif
@@ -1018,7 +1018,7 @@ name that nextpnr-nexus uses, such as ``LIFCL-40-9BG400C`` (``nextpnr-nexus --li
 
 ``nextpnr`` uses the timing-driven placer and router that each backend has as its default. Specify
 the actual part, package, speed grade and timing constraints before you compare results.
-``clocks.main_clock.period`` sets the frequency constraint.
+``clock.period`` sets the frequency constraint.
 
 Put pin files in ``rtl.sources`` with the types ``Lpf`` (ECP5), ``Pcf`` (iCE40), ``Pdc`` (Nexus) or
 ``Xdc`` (Xilinx). Xeda concatenates the files of the selected family in source order. When there
@@ -1041,7 +1041,7 @@ opt-in. A faster or smaller Yosys netlist alone does not show an improvement in 
 For example, list ``{file: "pins.pcf", type: Pcf}`` in ``rtl.sources``, then run::
 
     xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 \
-      -s clocks.main_clock.period=20ns -s seed=2
+      -s clock.period=20ns -s seed=2
     xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
 
 Use ``xeda list-settings <flow> --json`` with ``yosys_fpga``, ``nextpnr``, ``fpga_pack`` or
@@ -1099,7 +1099,7 @@ both ``abc9_script`` and ``flow3``. The script selection matters only when ABC9 
     xeda run fpga_pack blinky.yaml -s flows.yosys_fpga.synth_pass_only=true \
       flows.yosys_fpga.read_verilog_flags= flows.yosys_fpga.systemverilog=default
 
-The clock-derived delay is two thirds of ``clocks.main_clock.period``, in picoseconds. Yosys gives it to ABC9
+The clock-derived delay is two thirds of ``clock.period``, in picoseconds. Yosys gives it to ABC9
 as the required time of the LUT mapping (the ``-D`` option of the ``&if`` command of ABC). The Yosys
 log shows it, for example ``ABC: + &if -W 300 -D 6666.666666666668``. ABC9 can use a required time
 only when the mapped logic can meet it. If the required time is lower than the least delay that
@@ -1107,7 +1107,7 @@ ABC9 can reach, ABC9 maps for that least delay, as it does with no required time
 does not change. ABC then prints ``ABC: Warning: Cannot meet the target required times (4000.00).
 Mapping continues anyway.`` in the Yosys log. If the required time is higher, ABC9 spends the slack
 on area. The mapping can change, and it can get smaller. It can also keep its LUT count and change
-only the mix of LUT sizes. So the netlist changes with ``clocks.main_clock.period`` only when the clock is slow
+only the mix of LUT sizes. So the netlist changes with ``clock.period`` only when the clock is slow
 for the design. A design with little logic to trade can map to the same netlist at every period. A
 netlist that does not change with the clock period is therefore expected.
 
@@ -1144,12 +1144,12 @@ reads no environment variable of the ``CHIPDB_DIR`` kind. This is a design for t
         - "blinky.v"
         - "blinky.xdc"   # pins: an Xdc source, typed by its suffix
       top: blinky
-      clocks: [{port: clk}]
+      clock.port: clk
     flows:
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
       nextpnr:
-        clocks.main_clock.freq: 100 MHz
+        clock.freq: 100 MHz
 
 ``xeda run fpga_pack blinky.yaml`` synthesizes, places and routes the design, and packs
 ``outputs/blinky.bit`` in the run directory of ``fpga_pack``. Nothing is programmed. ``xeda run
@@ -1516,11 +1516,11 @@ compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The des
         - "blinky.v"
         - "blinky.xdc"   # pins: an Xdc source, typed by its suffix
       top: blinky
-      clocks: [{port: clk}]
+      clock.port: clk
     flows:
       vivado_impl:
         fpga.part: xc7a35tcpg236-1
-        clocks.main_clock.period: 10 ns
+        clock.period: 10 ns
 
 .. code-block:: bash
 
@@ -1913,7 +1913,7 @@ nested tables and dotted keys.
         - top.v
     flows:
       yosys:
-        clocks.main_clock.period: 2 ns
+        clock.period: 2 ns
         liberty:
           - cells.lib
         abc:
@@ -2062,7 +2062,7 @@ OpenROAD flows. Every other setting keeps its default:
     rtl:
       sources: []
       top: mkGcdUnit
-      clocks: [{port: CLK}]
+      clock.port: CLK
     dependencies:
       - "gcd-library.yaml"
     tb:
@@ -2077,11 +2077,11 @@ OpenROAD flows. Every other setting keeps its default:
       # four OpenROAD flows along the chain.
       yosys:
         platform: nangate45
-        clocks.main_clock.period: 1.5 ns
+        clock.period: 1.5 ns
       # Vivado synthesis of the module on its own: `xeda run vivado_synth gcd.yaml`.
       vivado_synth:
         fpga.part: xc7a100tcsg324-1
-        clocks.main_clock.period: 10 ns
+        clock.period: 10 ns
         out_of_context: true
     # The FPGA configurations are resource and timing estimates without pins. A board build needs an
     # I/O wrapper and constraints.
@@ -2091,7 +2091,7 @@ OpenROAD flows. Every other setting keeps its default:
         flows:
           yosys_fpga:
             fpga.part: LFE5U-85F-6BG381C
-            clocks.main_clock.period: 20 ns
+            clock.period: 20 ns
           nextpnr:
             lpf_allow_unconstrained: true
       # `xeda run yosys_fpga gcd.yaml --target artix7`. Synthesis only: nextpnr-himbaechel of openXC7
@@ -2100,7 +2100,7 @@ OpenROAD flows. Every other setting keeps its default:
         flows:
           yosys_fpga:
             fpga.part: xc7a100tcsg324-1
-            clocks.main_clock.period: 10 ns
+            clock.period: 10 ns
 
 The design has Bluespec sources, so ``xeda run openroad examples/bluespec/gcd/gcd.yaml`` runs
 ``bsc`` first, to convert them to Verilog (see `Converted designs`_). It plans ``bsc``, ``yosys``, ``openroad_place``,

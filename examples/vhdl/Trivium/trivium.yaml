@@ -5,7 +5,7 @@ rtl:
   sources:
     - "trivium.vhdl"
   top: trivium
-  clocks: [{port: clk}]
+  clock.port: clk
   parameters:
     G_IN_BITS: 64
     G_OUT_BITS: 64
@@ -16,7 +16,7 @@ tb:
 flows:
   vivado_synth:
     fpga.part: xc7a12tcsg325-3
-    clocks.main_clock.freq: 200 MHz
+    clock.freq: 200 MHz
   yosys_fpga:
     fpga.part: xc7a12tcsg325-3
-    clocks.main_clock.freq: 200 MHz
+    clock.freq: 200 MHz

@@ -4,12 +4,12 @@ rtl:
     - "blinky.v"
     - {file: "blinky.lpf", type: Lpf}
   top: blinky
-  clocks: [{port: clk_25mhz}]
+  clock.port: clk_25mhz
 flows:
   openfpgaloader:
-    clocks.main_clock.freq: 25 MHz
+    clock.freq: 25 MHz
   nextpnr:
     board: ulx3s_85f
   yosys_fpga:
     fpga.family: ecp5
-    clocks.main_clock.freq: 25 MHz
+    clock.freq: 25 MHz

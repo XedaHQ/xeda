@@ -1665,6 +1665,50 @@
         "children": false,
         "assignable": true,
         "help": "Path of the TLUplus (tech2itf) map file for topographical mode. Required when `topographical_mode` is true."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -1801,8 +1845,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -1896,6 +1940,50 @@
           "true"
         ],
         "help": "Let synthesis infer block RAMs. When false, memories are built from logic, and a run whose map report still shows a block RAM fails."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -2037,8 +2125,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -2110,6 +2198,50 @@
         "children": false,
         "assignable": true,
         "help": "The packed bitstream: a name in the run directory, or a location it is delivered to. By default `outputs/<design>.bit` (`.bin` for iCE40)."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -2770,6 +2902,50 @@
         "children": false,
         "assignable": true,
         "help": "Output file for the generated Verilog; by default `outputs/<design>.v`. If a directory is provided, each VHDL source file is converted to a Verilog file in that directory."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": []
@@ -2904,8 +3080,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -2997,6 +3173,50 @@
         "children": false,
         "assignable": true,
         "help": "User constraint files (.ucf) with pin and timing constraints."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -3340,8 +3560,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -3761,6 +3981,50 @@
         "children": false,
         "assignable": true,
         "help": "Xilinx placement dump in JSON (cell to tile, site and bel). It is always written in the run directory, and the LUT count is read from it. The default is `outputs/<design>_placement.json`."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -4274,8 +4538,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -4432,6 +4696,50 @@
         "children": false,
         "assignable": true,
         "help": "Extra openFPGALoader command-line arguments."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -8590,6 +8898,50 @@
           "true"
         ],
         "help": "Balance the use of the rows of different types before the legalization (`balance_row_usage`). It is for designs with rows of different heights. OpenROAD-flow-scripts runs it only when `BALANCE_ROWS` says so."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -8738,8 +9090,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -8935,6 +9287,50 @@
           "NEVER"
         ],
         "help": "When to run the final placement optimization pass after routing."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -9814,8 +10210,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -10077,6 +10473,50 @@
         "dynamic": true,
         "opaque_keys": true,
         "help": "Properties to set on the implementation run (`impl_1`), by property name. A name with dots is one key, as in `set_synth_properties`. Values may be text, numbers or booleans."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -10225,8 +10665,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -10422,6 +10862,50 @@
         "children": true,
         "assignable": true,
         "dynamic": true
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -10567,8 +11051,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -10802,6 +11286,50 @@
           "true"
         ],
         "help": "Simulate the routed timing netlist annotated with its slow-corner SDF, instead of the routed functional netlist."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -10939,8 +11467,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -11010,6 +11538,50 @@
         "children": false,
         "assignable": true,
         "help": "File the XML power report is written to."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -11148,8 +11720,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -11420,6 +11992,50 @@
           "true"
         ],
         "help": "Open the created project in the Vivado GUI, which needs a display."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -11832,8 +12448,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -12095,6 +12711,50 @@
         "dynamic": true,
         "opaque_keys": true,
         "help": "Properties to set on the implementation run (`impl_1`), by property name. A name with dots is one key, as in `set_synth_properties`. Values may be text, numbers or booleans."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -12578,6 +13238,50 @@
         "children": false,
         "assignable": true,
         "help": "Output file for the generated Verilog; by default `outputs/<design>.v`. If a directory is provided, each VHDL source file is converted to a Verilog file in that directory."
+      },
+      "ghdl.clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "ghdl.clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "ghdl.clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "ghdl.clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "ghdl.clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "ghdl.clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "ghdl.clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "ghdl.clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "ghdl.clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       },
       "systemverilog": {
         "children": false,
@@ -13511,6 +14215,50 @@
         "children": false,
         "assignable": true,
         "help": "Verilog techmap files of a mapping to a liberty library. Each one is applied with `techmap -map` at its `when` position: `pre_synth`, `post_coarse`, `pre_dff` or `post_dff`. A bare path is a map at `pre_dff`, after the latch map and before clock gating and the flip-flop mapping. Maps at one position run in the order of the list."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -13690,8 +14438,8 @@
       },
       "fpga": {
         "children": true,
-        "assignable": false,
-        "help": "FPGA device: a mapping of the FPGA fields, such as `fpga.part: xc7a100tftg256-2L`."
+        "assignable": true,
+        "help": "FPGA device. Accepts a full part identifier as a string (e.g. \"xc7a100tftg256-2L\") or a mapping of the FPGA fields. A part identifier alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes the part and keeps the other fields that the mapping wrote (a speed grade, for example)."
       },
       "fpga.part": {
         "children": false,
@@ -14076,6 +14824,50 @@
         "children": false,
         "assignable": true,
         "help": "Output file for the generated Verilog; by default `outputs/<design>.v`. If a directory is provided, each VHDL source file is converted to a Verilog file in that directory."
+      },
+      "ghdl.clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "ghdl.clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "ghdl.clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "ghdl.clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "ghdl.clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "ghdl.clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "ghdl.clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "ghdl.clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "ghdl.clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       },
       "systemverilog": {
         "children": false,
@@ -14506,6 +15298,50 @@
           "u"
         ],
         "help": "iCE40 timing model. Unset: inferred from `fpga.device` or `fpga.type`."
+      },
+      "clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       }
     },
     "default_producers": [
@@ -15023,6 +15859,50 @@
         "children": false,
         "assignable": true,
         "help": "Output file for the generated Verilog; by default `outputs/<design>.v`. If a directory is provided, each VHDL source file is converted to a Verilog file in that directory."
+      },
+      "ghdl.clock": {
+        "children": true,
+        "assignable": false,
+        "help": "Single design clock. Use `clock.period` or `clock.freq`."
+      },
+      "ghdl.clock.name": {
+        "children": false,
+        "assignable": true
+      },
+      "ghdl.clock.period": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock period, a time with a unit, such as `10 ns`. Specify `period` or `freq`; a consistent pair is also accepted."
+      },
+      "ghdl.clock.rise": {
+        "children": false,
+        "assignable": true,
+        "help": "Time of the rising edge of the clock, a time with a unit, such as `0.5 ns`."
+      },
+      "ghdl.clock.duty_cycle": {
+        "children": false,
+        "assignable": true,
+        "help": "Duty cycle, between 0.0 and 1.0 (exclusive)."
+      },
+      "ghdl.clock.uncertainty": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock uncertainty, a time with a unit, such as `0.1 ns`."
+      },
+      "ghdl.clock.skew": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock skew, a time with a unit, such as `0.05 ns`."
+      },
+      "ghdl.clock.port": {
+        "children": false,
+        "assignable": true,
+        "help": "The design port of the clock."
+      },
+      "ghdl.clock.freq": {
+        "children": false,
+        "assignable": true,
+        "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
       },
       "systemverilog": {
         "children": false,
