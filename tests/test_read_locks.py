@@ -222,8 +222,10 @@ root = Path(sys.argv[1])
 action = sys.argv[2]
 p = root / "run" / "d" / "__maker"
 original = run_lock.fcntl.flock
+told = []
 def flock(fd, mode):
-    if mode == run_lock.fcntl.LOCK_EX:
+    if mode & run_lock.fcntl.LOCK_EX and not told:
+        told.append(True)
         print("waiting", flush=True)
     return original(fd, mode)
 run_lock.fcntl.flock = flock
@@ -630,7 +632,7 @@ def test_shared_lock_acquisition_failure_is_a_clear_non_json_cli_error(tmp_path,
     original = run_lock.fcntl.flock
 
     def no_shared_locks(fd, mode):
-        if mode == run_lock.fcntl.LOCK_SH:
+        if mode & run_lock.fcntl.LOCK_SH:
             raise OSError(errno.ENOLCK, "No locks available")
         return original(fd, mode)
 

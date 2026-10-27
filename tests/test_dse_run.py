@@ -380,8 +380,10 @@ from pathlib import Path
 from xeda.flow_runner import run_lock
 from xeda.flow_runner.dse.dse_runner import _purge_run
 original = run_lock.fcntl.flock
+told = []
 def flock(fd, mode):
-    if mode == run_lock.fcntl.LOCK_EX:
+    if mode & run_lock.fcntl.LOCK_EX and not told:
+        told.append(True)
         print("waiting", flush=True)
     return original(fd, mode)
 run_lock.fcntl.flock = flock

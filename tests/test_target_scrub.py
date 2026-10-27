@@ -644,6 +644,7 @@ def test_two_scrubs_that_listed_the_same_link_candidate_both_succeed(tmp_path, m
     both_listed = threading.Barrier(2)
     both_asking = threading.Barrier(2)
     real_flock = run_lock.fcntl.flock
+    asked: set[int] = set()
     outcomes: list = []
 
     def ask(prompt="", *args, **kwargs):
@@ -651,7 +652,8 @@ def test_two_scrubs_that_listed_the_same_link_candidate_both_succeed(tmp_path, m
         return "yes"
 
     def flock_once_both_are_asking(descriptor, mode):
-        if mode == run_lock.fcntl.LOCK_EX:
+        if mode & run_lock.fcntl.LOCK_EX and threading.get_ident() not in asked:
+            asked.add(threading.get_ident())
             both_asking.wait(timeout=30)  # each has named the lock it asks for, and none holds it
         return real_flock(descriptor, mode)
 
