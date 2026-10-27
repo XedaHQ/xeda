@@ -393,7 +393,7 @@
           "false",
           "true"
         ],
-        "help": "Make resets active-high: define `BSV_POSITIVE_RESET` for the Bluespec preprocessor, and at the top of every Verilog file in `artifacts.verilog` that bsc generated or copied from its library (they take their reset polarity from it). The design's own Verilog sources are passed on unchanged, preceded by `bsv_defines.v`, the first artifact, which defines the macro for those that read it. Consider naming the port with `reset_prefix`."
+        "help": "Make resets active-high: define `BSV_POSITIVE_RESET` for the Bluespec preprocessor, and at the top of every Verilog file of the derived design that bsc generated or copied from its library (they take their reset polarity from it). The design's own Verilog sources are passed on unchanged, preceded by `bsv_defines.v`, the first file, which defines the macro for those that read it. Consider naming the port with `reset_prefix`."
       },
       "v95": {
         "children": false,
@@ -2688,7 +2688,8 @@
     "aliases": [],
     "class_name": "GhdlSynth",
     "followers": {
-      "": []
+      "": [],
+      "verilog": []
     },
     "settings": {
       "verbose": {

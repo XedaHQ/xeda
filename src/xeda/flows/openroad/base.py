@@ -29,7 +29,10 @@ from ...dataclass import (
     field_validator,
 )
 from ...design import Design
-from ...flow import Flow
+from ...flow import (
+    Flow,
+    describe_artifacts,
+)
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from ...flow.flow import FlowSettingsException
 from ...flow.settings_group import render_flags
@@ -369,6 +372,8 @@ class OpenroadStage(AsicPlatformFlow, Flow):
     declared inputs."""
 
     executables: ClassVar[tuple[str, ...]] = ("openroad",)
+
+    artifacts_description = describe_artifacts("log")
 
     reads_sources = None
     design_parts = frozenset({"rtl"})
@@ -710,11 +715,7 @@ class OpenroadStage(AsicPlatformFlow, Flow):
         except NonZeroExitCode as error:
             if isinstance(error, ProcessTimeout):
                 raise
-            raise NonZeroExitCode(
-                error.command_args,
-                error.exit_code,
-                self._failure_message(driver, log_file),
-            ) from None
+            raise error.with_message(self._failure_message(driver, log_file)) from None
 
     def _failure_message(self, driver: str, log_file: Path) -> str:
         """Return what a failed process of `driver` adds to the message of the failure: the flow,

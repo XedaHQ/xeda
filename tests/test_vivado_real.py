@@ -115,7 +115,7 @@ def test_vivado_synth_fails_when_write_bitstream_does(work_dir, capfd, waive_drc
     messages = [line for line in output if "ERROR:" in line and str(log) in line]
     if waive_drc:
         assert flow.results["status"] == "write_bitstream Complete!"
-        assert (flow.run_path / flow.artifacts["bitstream"]).is_file()
+        assert flow.outputs.bitstream is not None and flow.outputs.bitstream.is_file()
         assert not messages
     else:
         assert flow.results["status"] == "write_bitstream ERROR"
@@ -495,8 +495,10 @@ def test_vivado_impl_writes_the_routed_checkpoint_and_netlists_it_is_asked_for(w
         "sdf": "outputs/impl_timesim.sdf",
         "xdc_exported": "outputs/impl.xdc",
     }
+    plain = ("checkpoint_place", "xdc_exported")  # the files that no declared output holds
     for label, name in written.items():
-        assert flow.run_path / flow.artifacts[label] == flow.run_path / name, label
+        recorded = flow.artifacts[label] if label in plain else getattr(flow.outputs, label)
+        assert flow.run_path / recorded == flow.run_path / name, label
         assert (flow.run_path / name).stat().st_size > 0, name
     assert "(DELAYFILE" in (flow.run_path / "outputs/impl_timesim.sdf").read_text()
     assert "module blinky" in (flow.run_path / "outputs/impl_funcsim.v").read_text()

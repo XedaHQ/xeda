@@ -1,8 +1,10 @@
 """Walk the artifact trees shared by local cleanup and remote result collection.
 
-Artifacts are paths, grouped by mappings, lists or tuples. Mapping keys are labels, never
-paths; empty strings and non-path values are left alone. Walkers do not resolve paths: each
-runner knows the run directory against which relative paths must be interpreted.
+An artifact of a record is one path under a key. The walkers also take a tree of paths, grouped
+by mappings, lists or tuples, because a value in the results of a flow that is running has no
+check yet (`records.artifact_problem`). Mapping keys are labels, never paths; empty strings and
+non-path values are left alone. Walkers do not resolve paths: each runner knows the run directory
+against which relative paths must be interpreted.
 """
 
 import logging

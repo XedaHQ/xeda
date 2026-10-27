@@ -343,6 +343,12 @@ file without `schema_version` was written by an older Xeda: a launch runs that f
   `references/troubleshooting.md`.
 - `outputs` (declared output records `{path, sha}`) and `artifacts` are bookkeeping, not metrics.
   Keys that start with `_` are internal.
+- An artifact is one file of the run directory, under a documented lower snake case key
+  (`xeda list-results <flow> --json`, `artifacts`). A key is present only when the run wrote its
+  file. `log` is the output of the flow's main tool (`logs/<program>.log`), `<program>_log` that
+  of another program, `waveform` a VCD or FST, `synth_1_log` and `impl_1_log` the logs of the
+  child runs of `vivado_synth` (the error of a failed run is there). `error.log` is the key of
+  the log to read for a failure. A declared output is never an artifact.
 
 ## Run directories
 

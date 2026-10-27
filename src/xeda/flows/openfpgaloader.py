@@ -8,7 +8,14 @@ from typing import Any, ClassVar, List, Literal, Optional, Tuple, Union
 from ..board import WithFpgaBoardSettings
 from ..dataclass import Field, model_validator
 from ..design import SourceType
-from ..flow import FPGA, Flow, FlowFatalError, FpgaSynthFlow, In
+from ..flow import (
+    FPGA,
+    Flow,
+    FlowFatalError,
+    FpgaSynthFlow,
+    In,
+    describe_artifacts,
+)
 from ..records import REPORTED_FAILURE, ErrorInfo
 from ..tool import Tool
 from ..units import count, data_size
@@ -550,6 +557,8 @@ class Openfpgaloader(FpgaSynthFlow):
     """
 
     executables = ("openFPGALoader",)
+
+    artifacts_description = describe_artifacts("log")
 
     #: No setting is required, except the device to program the flash (`required_settings_for`).
     required_settings: dict[str, str] = {}

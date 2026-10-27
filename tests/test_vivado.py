@@ -338,10 +338,12 @@ def test_vivado_alt_synth_records_the_checkpoints_and_netlists_it_writes(
     calls = fake_calls(flow.run_path)
     for _, call in written.values():
         assert (call in calls) == enabled, call
+    # a declared output is no artifact: only the files that no output holds are
     recorded = {
         label: flow.artifacts[label] for label in ALT_SYNTH_OUTPUTS if label in flow.artifacts
     }
-    assert recorded == ({label: path for label, (path, _) in written.items()} if enabled else {})
+    plain = ("checkpoint_place", "xdc_exported")
+    assert recorded == ({label: written[label][0] for label in plain} if enabled else {})
 
 
 def _vivado_sim_design(root: Path) -> Design:
@@ -382,7 +384,7 @@ def test_vivado_sim_records_vcd_and_saif_as_artifacts(tmp_path, monkeypatch) -> 
     run_dir = tmp_path / "run"
     flow = DefaultRunner(run_dir).run_flow(VivadoSim, design, settings)
     assert flow is not None and flow.succeeded
-    assert Path(flow.artifacts.vcd) == Path("dump.vcd")
+    assert Path(flow.artifacts.waveform) == Path("dump.vcd")
     assert Path(flow.artifacts.saif) == Path("switching.saif")
 
     calls = fake_calls(flow.run_path)
@@ -399,7 +401,7 @@ def test_vivado_sim_does_not_record_vcd_or_saif_when_disabled(tmp_path, monkeypa
     run_dir = tmp_path / "run"
     flow = DefaultRunner(run_dir).run_flow(VivadoSim, design, {})
     assert flow is not None and flow.succeeded
-    assert "vcd" not in flow.artifacts
+    assert "waveform" not in flow.artifacts
     assert "saif" not in flow.artifacts
 
 

@@ -4,7 +4,15 @@ from typing import List, Optional
 
 from ...dataclass import WORKING, Field, waveform
 from ...design import Design, DesignValidationError, SourceType
-from ...flow import Flow, FlowSettingsException, SimFlow, describe_results, NoReplacement
+from ...flow import (
+    Flow,
+    FlowSettingsException,
+    SimFlow,
+    describe_results,
+    NoReplacement,
+    ArtifactSpec,
+    describe_artifacts,
+)
 from ...flow.sim import SimEvidence
 from ...units import convert_unit, count
 from ...utils import SDF
@@ -25,6 +33,15 @@ class VivadoSim(Vivado, SimFlow):
 
     #: `xvlog` analyzes Verilog and SystemVerilog, `xvhdl` analyzes VHDL.
     reads_sources = frozenset({SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl})
+
+    artifacts_description = describe_artifacts(
+        "log",
+        "waveform",
+        saif=ArtifactSpec(
+            "Switching activity of the simulation as a SAIF file, for a power estimate.",
+            "when the setting `saif` is set",
+        ),
+    )
 
     results_description = describe_results(
         "sim.ended_by", "sim.time", "sim.errors", "sim.warnings", "sim.evidence"
@@ -261,12 +278,6 @@ class VivadoSim(Vivado, SimFlow):
         script_path = self.copy_from_template(
             "vivado_sim.tcl", stop_fs=stop_fs, prerun_fs=prerun_fs, runtime_log=RUNTIME_LOG
         )
-        # `vivado_sim.tcl` writes these files whenever their setting is set. Record them, so that
-        # consumers such as `vivado_power` need not guess the path.
-        if ss.vcd:
-            self.artifacts.vcd = ss.vcd
-        if ss.saif:
-            self.artifacts.saif = ss.saif
         self.vivado.run(
             "-log",
             RUNTIME_LOG,
@@ -276,3 +287,9 @@ class VivadoSim(Vivado, SimFlow):
             tee=process_log,
             merge_stderr=True,
         )
+        # `vivado_sim.tcl` writes these files whenever their setting is set.
+        if ss.vcd and self.wrote_output(ss.vcd):
+            self.artifacts.waveform = ss.vcd
+        # `vivado_postsynth_sim` declares the SAIF file as an output, and so it is no artifact.
+        if ss.saif and self.wrote_output(ss.saif) and not hasattr(self.outputs, "saif"):
+            self.artifacts.saif = ss.saif

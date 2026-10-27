@@ -70,6 +70,8 @@ def report(
             log.info("Results written to %s", results_json)
         # Only now: a record that could not be stored is no record of the flow.
         flow.record = stored
+        if stored.error is not None:  # the record names the log to read
+            flow.results["error"] = stored.error.as_json_value()
 
 
 def adoptable_document(

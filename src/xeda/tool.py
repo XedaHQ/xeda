@@ -14,6 +14,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Union
 from .console import console
 from .dataclass import Field, PrivateAttr, XedaBaseModel, field_validator
 from .flow import Flow
+from .flow.metrics import log_stem
 from .proc_utils import (
     DOCKER_IMAGE_PREFIX,
     TOOL_OUTPUT,
@@ -229,17 +230,6 @@ class Docker(XedaBaseModel):
             ) from None
 
 
-#: The suffixes that a program name can have, and that its log does not keep.
-_PROGRAM_SUFFIXES = (".exe", ".bat", ".cmd", ".sh", ".py")
-
-
-def log_stem(executable: str) -> str:
-    """Return the name of the log of a program: its file name without a suffix such as `.exe`."""
-    name = Path(executable).name
-    suffix = Path(name).suffix
-    return name[: -len(suffix)] if suffix.lower() in _PROGRAM_SUFFIXES else name
-
-
 def fake_cpu_info(file=".xeda_cpuinfo", ncores=4):
     with replacing_file(file) as f:
         for i in range(ncores):
@@ -294,6 +284,10 @@ class Tool(XedaBaseModel):
     source_dirs_: List[Path] = Field(
         default_factory=list, json_schema_extra={"hidden_from_schema": True}
     )
+    #: The artifact key of the log of this tool, when it is not the default one (`log` for the main
+    #: tool of the flow, `<program>_log` for another). A program that the run builds has no fixed
+    #: name, so it sets this: `simulation_log`.
+    log_key: Optional[str] = Field(None, json_schema_extra={"hidden_from_schema": True})
     #: The run directory of the flow the tool runs for (`Flow.run_directory`). The files that Xeda
     #: writes for the tool (`env.sh`) go through it. It is None outside a flow.
     _run_directory: Any = PrivateAttr(default=None)
@@ -704,6 +698,47 @@ class Tool(XedaBaseModel):
         if tee is not None:
             tee = directory / tee
         log_to, log_append = (None, False) if stdout is True else self._tool_log(executable)
+        try:
+            return self._start(
+                executable,
+                *args,
+                env=env,
+                stdout=stdout,
+                check=check,
+                directory=directory,
+                highlight_rules=highlight_rules,
+                merge_stderr=merge_stderr,
+                timeout=timeout,
+                tee=tee,
+                log_to=log_to,
+                log_append=log_append,
+            )
+        except NonZeroExitCode as error:
+            if error.program is None:
+                error.program = executable
+            raise
+        finally:
+            flow = self._flow() if self._flow is not None else None
+            if log_to is not None and flow is not None:
+                flow.note_tool_log(executable, self.log_key)
+
+    def _start(
+        self,
+        executable: str,
+        *args: Any,
+        env: Optional[Dict[str, Any]],
+        stdout: OptionalBoolOrPath,
+        check: bool,
+        directory: Path,
+        highlight_rules: Optional[Dict[str, str]],
+        merge_stderr: bool,
+        timeout: float | None,
+        tee: Path | None,
+        log_to: Path | None,
+        log_append: bool,
+    ) -> Union[str, None]:
+        """Start the program, with its log at `log_to` (`execute` has chosen it), in
+        `directory`."""
         args = tuple(list(self.default_args) + list(args))
         if self.console_colors:
             highlight_rules = highlight_rules or self.highlight_rules

@@ -3,7 +3,14 @@ from pathlib import Path
 
 from ...dataclass import Field
 from ...design import DesignSource, RtlSettings, SourceType
-from ...flow import Flow, FlowFatalError, FpgaSynthFlow, In, Out
+from ...flow import (
+    Flow,
+    FlowFatalError,
+    FpgaSynthFlow,
+    In,
+    Out,
+    describe_artifacts,
+)
 from ...utils import SDF
 from .vivado_sim import VivadoSim
 
@@ -17,6 +24,8 @@ class VivadoPostsynthSim(VivadoSim):
     simulates the functional netlist (`netlist`). With `timing_sim`, it simulates the timing
     netlist (`netlist_timing`) annotated with the slow-corner SDF (`sdf`).
     """
+
+    artifacts_description = describe_artifacts("log", "waveform")
 
     class Settings(VivadoSim.Settings, FpgaSynthFlow.Settings):
         removed_settings = {

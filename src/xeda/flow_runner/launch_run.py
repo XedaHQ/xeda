@@ -19,10 +19,12 @@ from ..flow import Flow
 from ..flow.flow import WrittenLeaf, map_written_leaves
 from ..proc_utils import ProcessTimeout
 from ..records import (
+    INTERNAL_ERROR,
     INVALID_METRIC,
     MISSING_OUTPUT,
     REPORTED_FAILURE,
     ErrorInfo,
+    artifact_problem,
     collect_metrics,
 )
 from ..run_dir import RunDirectory, RunDirectoryError
@@ -95,6 +97,27 @@ def record_identity(flow: Flow, run_path: Path) -> None:
     flow.results.timestamp = flow.timestamp
 
 
+def drop_bad_artifacts(flow: Flow) -> list[str]:
+    """Drop the artifacts of `flow` that a record cannot hold, and return a line for each.
+
+    A flow registers an artifact as one file under a key of the grammar (`artifact_problem`). One
+    that registers a list, a table, a directory or a bad key has a bug. The flow loses that
+    artifact, so that the record of its run can be written."""
+    # An empty value (`None`, `""`, `[]`) is no artifact in either mapping, as in the copy below.
+    held = {
+        **{k: v for k, v in flow.artifacts.items() if v},
+        **{k: v for k, v in flow.results.artifacts.items() if v},
+    }
+    found = []
+    for key, value in held.items():
+        problem = artifact_problem(flow.run_path, key, value)
+        if problem is not None:
+            found.append(f"`{flow.name}` registers the artifact {key!r}: {problem}")
+            flow.artifacts.pop(key, None)
+            flow.results.artifacts.pop(key, None)
+    return found
+
+
 def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
     """Run the flow and collect its results, artifacts included.
 
@@ -121,7 +144,7 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
                 ),
                 e.exit_code,
             )
-        flow.results["error"] = error_info(e, node=flow.name).as_json_value()
+        flow.results["error"] = error_info(e, node=flow.name, flow=flow).as_json_value()
     if flow.init_time is not None:
         flow.results.runtime = time.monotonic() - flow.init_time
     reports_ok: bool | None = None
@@ -162,15 +185,34 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
     for bad in invalid:
         log.error("%s", bad)
         flow.results.pop(bad.path, None)
-    if invalid and flow.outcome != "failed":
+    # An error that the run has already (a failed tool, a rejection) stays the cause.
+    if invalid:
+        earlier = flow.outcome == "failed" or bool(flow.results.get("error"))
         flow.outcome = "failed"
-        flow.results["error"] = ErrorInfo(
-            code=INVALID_METRIC,
-            message="; ".join(str(bad) for bad in invalid),
-            node=flow.name,
-            exit_status=None,
-            log=None,
-        ).as_json_value()
+        if not earlier:
+            flow.results["error"] = ErrorInfo(
+                code=INVALID_METRIC,
+                message="; ".join(str(bad) for bad in invalid),
+                node=flow.name,
+                exit_status=None,
+                log=None,
+            ).as_json_value()
+    # A bad artifact is a bug of the flow. The node fails, and the record is written without
+    # the artifact. An earlier error stays the cause, a rejection included.
+    bad_artifacts = drop_bad_artifacts(flow)
+    for line in bad_artifacts:
+        log.error("%s", line)
+    if bad_artifacts:
+        earlier = flow.outcome == "failed" or bool(flow.results.get("error"))
+        flow.outcome = "failed"
+        if not earlier:
+            flow.results["error"] = ErrorInfo(
+                code=INTERNAL_ERROR,
+                message="; ".join(bad_artifacts),
+                node=flow.name,
+                exit_status=None,
+                log=None,
+            ).as_json_value()
     success = flow.outcome == "passed"
     if not success and not input_settings.is_quiet:
         log.debug("Failure was reported in the parsed results.")

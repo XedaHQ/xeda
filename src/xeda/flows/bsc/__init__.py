@@ -26,15 +26,18 @@ from ...dataclass import WORKING, Field, field_validator
 from ...design import Design, DesignSource, SourceType
 from ...flow import (
     DESIGN,
+    ArtifactSpec,
     Flow,
     FlowFatalError,
     FlowSettingsException,
     MetricSpec,
     Out,
     SimFlow,
+    describe_artifacts,
     describe_results,
 )
 from ...flow.derived import DerivedSources, DesignConversion, Generated, Passed
+from ...flow.metrics import program_logs
 from ...flow.sim import SimEvidence
 from .sim_evidence import (
     bluesim_evidence,
@@ -106,7 +109,8 @@ _VERILOG_INSTANCE = re.compile(
     r"\b([A-Za-z_][A-Za-z0-9_$]*)\s*(?:#\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*)?"
     r"[A-Za-z_][A-Za-z0-9_$]*\s*\("
 )
-#: With `positive_reset`, the first file of `artifacts.verilog`: it defines `BSV_POSITIVE_RESET`.
+#: With `positive_reset`, the first file of the Verilog that bsc collects: it defines
+#: `BSV_POSITIVE_RESET`.
 BSV_DEFINES_FILE = "bsv_defines.v"
 #: The macro that `positive_reset` defines.
 BSV_POSITIVE_RESET = "BSV_POSITIVE_RESET"
@@ -139,7 +143,7 @@ class _Collected:
 
     @property
     def files(self) -> list[Path]:
-        """The Verilog files of the top module (`artifacts.verilog`), each once, in order."""
+        """The Verilog files of the top module, each once, in order."""
         return unique(self.defines + self.library + self.design_verilog + self.generated)
 
 
@@ -340,6 +344,8 @@ class BscFlow(Flow, metaclass=ABCMeta):
     """Compile Bluespec with bsc: the settings and the compilation `bsc` and `bsc_sim` share."""
 
     executables: ClassVar[tuple[str, ...]] = ("bsc",)
+
+    artifacts_description = describe_artifacts("log")
 
     #: The name of the setting for the output directory, which `cleanup_bobjs` removes modules from.
     output_dir_setting: ClassVar[str]
@@ -1037,9 +1043,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 if len(found) > len(shown)
                 else ""
             )
-            raise NonZeroExitCode(
-                error.command_args, error.exit_code, f"bsc reported: {' | '.join(shown)}{more}"
-            ) from error
+            raise error.with_message(f"bsc reported: {' | '.join(shown)}{more}") from error
 
     def _top_file(self, sources: list[DesignSource], what: str) -> Path:
         """Return the file that holds the top module: the last Bluespec source."""
@@ -1053,7 +1057,7 @@ class Bsc(BscFlow):
 
     The flow compiles `rtl.sources` in order, with the package that defines `rtl.top` last. It
     generates Verilog for `rtl.top` and for every `synthesize`d module on the way.
-    `artifacts.verilog` lists the Verilog files that the top module needs: the generated modules,
+    The output `design` lists the Verilog files that the top module needs: the generated modules,
     the design's own Verilog sources, and the modules of bsc's Verilog library that it
     instantiates. The flow copies the library modules into `verilog_out_dir`, so a downstream
     synthesis or simulation flow can take the list as it is. If the generated Verilog
@@ -1111,10 +1115,10 @@ class Bsc(BscFlow):
         positive_reset: bool = Field(
             True,
             description="Make resets active-high: define `BSV_POSITIVE_RESET` for the Bluespec "
-            "preprocessor, and at the top of every Verilog file in `artifacts.verilog` that bsc "
+            "preprocessor, and at the top of every Verilog file of the derived design that bsc "
             "generated or copied from its library (they take their reset polarity from it). "
             "The design's own Verilog sources are passed on unchanged, preceded by "
-            f"`{BSV_DEFINES_FILE}`, the first artifact, which defines the macro for those "
+            f"`{BSV_DEFINES_FILE}`, the first file, which defines the macro for those "
             "that read it. "
             "Consider naming the port with `reset_prefix`.",
         )
@@ -1215,7 +1219,6 @@ class Bsc(BscFlow):
         verilog_path = self._verilog_path([*path_flags, *ss.extra_flags])
         collected = self._collect_verilog(top, top_file, vout_dir, verilog_path)
         self.results["modules"] = collected.modules
-        self.artifacts.verilog = [str(f) for f in collected.files]
         assert isinstance(self.outputs, self.Outputs)
         self.outputs.design = self._derived_sources(top, collected)
 
@@ -1424,6 +1427,16 @@ class BscSim(BscFlow, SimFlow):
         "cc",
         "sh",
         "make",
+    )
+
+    artifacts_description = describe_artifacts(
+        "log",
+        "simulation_log",
+        "waveform",
+        **program_logs("c++", "cc", when="when the simulator needs the compiler"),
+        executable=ArtifactSpec(
+            "The simulation program that bsc links.", "when the compilation and link succeed"
+        ),
     )
 
     results_description = describe_results(
@@ -1789,10 +1802,14 @@ class BscSim(BscFlow, SimFlow):
             # left, so a waveform found is this run's. Both names are in the run directory.
             self.run_directory.remove(*unique([vcd, dump]))
         self.results["simulator"] = ss.simulator
-        simulation = self.bsc.derive(str(executable), version_flag=None, minimum_version=None)
+        simulation = self.bsc.derive(
+            str(executable), version_flag=None, minimum_version=None, log_key="simulation_log"
+        )
         if ss.simulator == "iverilog":
             # Load before the compiled VVP file loads its builtin task definitions.
-            simulation = self.bsc.derive("vvp", version_flag=None, minimum_version=None)
+            simulation = self.bsc.derive(
+                "vvp", version_flag=None, minimum_version=None, log_key="simulation_log"
+            )
             sim_args = ["-i", "-n", "-m", "./iverilog_evidence.vpi", str(executable), *sim_args]
         simulation.highlight_rules = None
         try:
@@ -1826,7 +1843,7 @@ class BscSim(BscFlow, SimFlow):
                     # written through.
                     replacing_copy(self.run_file(dump), self.run_directory.writable(vcd))
                     self.run_directory.remove(dump)
-                self.artifacts.vcd = str(vcd)
+                self.artifacts.waveform = str(vcd)
                 dumped = True
         if vcd and ss.simulator == "verilator" and not dumped:
             # bsc's Verilator driver dumps on `+bscvcd`. A run that wrote nothing has no waveform.
@@ -1882,7 +1899,7 @@ class BscSim(BscFlow, SimFlow):
         )
         with replacing_file(script, encoding="utf-8") as stream:
             stream.write(text)
-        tool = ModelsimTool().derive("vsim", redirect_stdout=None)
+        tool = ModelsimTool().derive("vsim", redirect_stdout=None, log_key="simulation_log")
         tool.run(
             "-batch",
             "-logfile",
@@ -1935,7 +1952,9 @@ class BscSim(BscFlow, SimFlow):
                 "flush stdout\n"
             )
         self.run_directory.writable(RUNTIME_LOG)
-        tool = self.bsc.derive("xsim", version_flag=None, minimum_version=None)
+        tool = self.bsc.derive(
+            "xsim", version_flag=None, minimum_version=None, log_key="simulation_log"
+        )
         tool.redirect_stdout = None
         tool.run(
             str(executable) + ".xsim",

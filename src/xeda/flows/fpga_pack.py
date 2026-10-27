@@ -8,7 +8,15 @@ from tempfile import TemporaryDirectory
 from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
 from ..dataclass import Field, deliverable
 from ..design import SourceType
-from ..flow import Flow, FlowFatalError, FlowSettingsException, FpgaSynthFlow, In, Out
+from ..flow import (
+    Flow,
+    FlowFatalError,
+    FlowSettingsException,
+    FpgaSynthFlow,
+    In,
+    Out,
+    describe_artifacts,
+)
 from ..tool import Tool
 from ..utils import replacing_copy
 from .nextpnr import Nextpnr
@@ -55,6 +63,12 @@ class FpgaPack(FpgaSynthFlow):
 
     # This flow reports only the keys that every flow reports.
     results_description = {}
+
+    artifacts_description = describe_artifacts("log")
+
+    def main_executable(self) -> str:
+        """Return the packer of the family of the device."""
+        return PACKERS[Nextpnr.io_family(self.settings)][0]
 
     class Settings(WithFpgaBoardSettings):
         packer_args: list[str] = Field(
@@ -202,4 +216,3 @@ class FpgaPack(FpgaSynthFlow):
             bitstream.parent.mkdir(parents=True, exist_ok=True)
             replacing_copy(packed, bitstream)
         declared.bitstream = bitstream
-        self.artifacts["bitstream"] = bitstream

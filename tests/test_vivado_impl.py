@@ -553,7 +553,8 @@ def test_the_bitstream_is_written_and_recorded_only_when_asked(
     assert ("bitstream" in flow.results["outputs"]) is bitstream
     assert (flow.run_path / "outputs" / "blinky.bit").is_file() is bitstream
     if bitstream:
-        assert flow.artifacts["bitstream"].name == "blinky.bit"
+        assert flow.outputs.bitstream is not None and flow.outputs.bitstream.name == "blinky.bit"
+        assert "bitstream" not in flow.artifacts  # a declared output is no artifact
 
 
 def test_a_bitstream_given_a_location_is_delivered_there(tmp_path, toolchain) -> None:
@@ -748,8 +749,9 @@ def test_the_routed_checkpoint_and_netlists_are_written_and_recorded_when_switch
     enabled, tmp_path, toolchain
 ) -> None:
     """Each output is written by `implementation.tcl` exactly when its setting is on, and then it
-    is an artifact, a declared output (a file that exists, with its digest in `results.json`) and
-    nothing else is left in `checkpoints/` or `outputs/`."""
+    is a declared output (a file that exists, with its digest in `results.json`), except the
+    checkpoint after placement and the constraints, which are artifacts, and nothing else is left in `checkpoints/` or `outputs/`.
+    """
     settings = {
         **SETTINGS,
         "write_checkpoint": enabled,
@@ -793,8 +795,10 @@ def test_the_routed_checkpoint_and_netlists_are_written_and_recorded_when_switch
     for _, call in written.values():
         assert (call in calls) == enabled, call
     assert flow.artifacts.get("checkpoint_synth") is None, "the flow does no synthesis"
+    # a declared output is no artifact: the files that no output holds are
     recorded = {label: flow.artifacts[label] for label in written if label in flow.artifacts}
-    assert recorded == ({label: path for label, (path, _) in written.items()} if enabled else {})
+    plain = ("checkpoint_place", "xdc_exported")
+    assert recorded == ({label: written[label][0] for label in plain} if enabled else {})
     document = json.loads((flow.run_path / "results.json").read_text())
     declared = {"checkpoint_route", "netlist", "netlist_timing", "sdf"}
     wrote = {label for label, output in document["outputs"].items() if output["names"]}

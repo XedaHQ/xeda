@@ -6,7 +6,14 @@ from typing import Any, Callable, Dict, Literal, Optional, Set
 
 from ...dataclass import Field
 from ...design import SourceType
-from ...flow import FpgaSynthFlow, MetricSpec, NoReplacement, describe_results
+from ...flow import (
+    FpgaSynthFlow,
+    MetricSpec,
+    NoReplacement,
+    describe_results,
+    ArtifactSpec,
+    describe_artifacts,
+)
 from ...tool import Docker, Tool
 from ...types import PathLike
 from ...units import count, ratio
@@ -75,6 +82,11 @@ class Quartus(FpgaSynthFlow):
     """Compile a design for an Intel FPGA with Quartus."""
 
     executables = ("quartus_sh",)
+
+    artifacts_description = describe_artifacts(
+        "log",
+        bitstream=ArtifactSpec("The programming file (.sof) from the assembler.", "always"),
+    )
 
     #: The `quartus_sh` tool. `init()` makes one for each flow, because a tool holds the flow's
     #: settings (`dockerized`) and what it learned about the program. Neither belongs to the class.
@@ -270,8 +282,8 @@ class Quartus(FpgaSynthFlow):
         script_path = self.copy_from_template("compile.tcl")
         # `execute_flow -compile` always runs `quartus_asm`, which writes `<design_name>.sof`
         # into the project directory (the run directory).
-        self.artifacts.bitstream = f"{self.design.name}.sof"
         self.quartus_sh.run("-t", script_path)
+        self.artifacts.bitstream = f"{self.design.name}.sof"
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)

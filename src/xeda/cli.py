@@ -257,7 +257,7 @@ def list_settings(
 
 @cli.command(
     context_settings=CONTEXT_SETTINGS,
-    short_help="List the metrics a flow reports.",
+    short_help="List the metrics and artifacts a flow reports.",
 )
 @click.argument(
     "flow",
@@ -267,9 +267,11 @@ def list_settings(
 )
 @output_format_option()
 def list_results(flow, output_format: str, json_flag: bool):
-    """Show the metrics that FLOW_NAME writes to `results.json` in its run directory.
+    """Show the metrics and the artifacts that FLOW_NAME writes in its run directory.
 
-    Each metric has a path, a type and a unit. A metric in the units of the platform has no unit."""
+    The record `results.json` holds the metrics. Each metric has a path, a type and a unit. A
+    metric in the units of the platform has no unit. An artifact is a file of the run directory,
+    such as a log or a report. It has a key and a condition."""
     fmt = resolve_format(output_format, json_flag)
     info = results_info(flow)
     if fmt != "table":
@@ -292,6 +294,20 @@ def list_results(flow, output_format: str, json_flag: bool):
             escape(metric["description"]),
         )
     console.print(table)
+    if info["artifacts"]:
+        artifacts = info_table(
+            f"{info['flow']} artifacts",
+            [
+                ("Key", {"header_style": "bold green", "style": "bold"}),
+                ("When", {}),
+                ("Description", {}),
+            ],
+        )
+        for artifact in info["artifacts"]:
+            artifacts.add_row(
+                escape(artifact["key"]), escape(artifact["when"]), escape(artifact["description"])
+            )
+        console.print(artifacts)
     console.print(f"[dim]{info['note']}[/dim]")
 
 

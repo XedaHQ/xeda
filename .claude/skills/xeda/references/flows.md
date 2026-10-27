@@ -6,7 +6,7 @@ Settings are deliberately not listed here (there are several hundred). For any f
 
 ```bash
 xeda list-settings <flow> --json     # every setting: name, type, default, meaning
-xeda list-results <flow> --json      # every metric: path, type, unit, meaning
+xeda list-results <flow> --json      # every metric (path, type, unit, meaning) and artifact
 ```
 
 Flows with declared file I/O chain with `+`: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` binds each flow's declared outputs to the next flow's required inputs. "can follow" and "can be followed by" below are the declared relations; `(depends on the target)` marks one the target's family decides, and `flow.output+flow` one that needs the output named. `(through a, b)` marks a relation whose link passes through the flows `a` and `b` between the two: Xeda runs them as it does for the second flow alone. A refused chain says which chain would be valid, if any. The relations are declarations only: planning can still refuse a chain that passes (related inputs). For example, `yosys_fpga+vivado_impl+vivado_power` also needs `-s flows.vivado_postsynth_sim.inputs.<input>=vivado_impl.<input>` for each of `netlist`, `netlist_timing` and `sdf`; the refusal lists the bindings to add. A flow with no declared I/O runs alone.
@@ -21,6 +21,8 @@ Simulate a Bluespec testbench compiled by bsc, with Bluesim or a Verilog simulat
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `simulator`
 
+Artifacts: `log`, `simulation_log`, `waveform`, `c_log`, `cc_log`, `executable`
+
 ### `ghdl_sim`
 
 *aliases: `ghdl` | supports cocotb testbenches*
@@ -30,6 +32,8 @@ Simulate a VHDL design with GHDL.
 35 flow-specific settings (plus the common ones): `xeda list-settings ghdl_sim --json`
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
+
+Artifacts: `log`
 
 ### `modelsim`
 
@@ -41,6 +45,8 @@ Simulate a VHDL, Verilog, SystemVerilog or mixed-language design with Siemens Mo
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`
 
+Artifacts: `log`
+
 ### `nvc`
 
 *supports cocotb testbenches*
@@ -50,6 +56,8 @@ Simulate VHDL with NVC, using its native diagnostics and a passive VHPI end moni
 34 flow-specific settings (plus the common ones): `xeda list-settings nvc --json`
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
+
+Artifacts: `log`, `c_log`
 
 ### `vcs`
 
@@ -61,6 +69,8 @@ Simulate a design with Synopsys VCS and judge it by runtime evidence. The flow r
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`
 
+Artifacts: `log`, `simulation_log`, `vlogan_log`, `vhdlan_log`, `fsdb2vcd_log`, `vpd2vcd_log`
+
 ### `verilator`
 
 *supports cocotb testbenches | can follow: `bsc`*
@@ -70,6 +80,8 @@ Simulate a Verilog or SystemVerilog design with Verilator 5.048 or newer. Verila
 34 flow-specific settings (plus the common ones): `xeda list-settings verilator --json`
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
+
+Artifacts: `log`, `simulation_log`
 
 ### `vivado_postsynth_sim`
 
@@ -81,6 +93,8 @@ Simulate the testbench on the routed netlist that `vivado_synth` writes. The pro
 
 Reports: `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `sim.evidence`
 
+Artifacts: `log`, `waveform`
+
 ### `vivado_sim`
 
 *can follow: `bsc`*
@@ -91,6 +105,8 @@ Simulate a design with the Vivado simulator (`xsim`). `elab_debug` must keep sou
 
 Reports: `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `sim.evidence`
 
+Artifacts: `log`, `waveform`, `saif`
+
 ### `yosys_sim`
 
 *can follow: `bsc`*
@@ -100,6 +116,8 @@ Simulate a design with a CXXRTL model that Yosys generates.
 27 flow-specific settings (plus the common ones): `xeda list-settings yosys_sim --json`
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`
+
+Artifacts: `log`, `simulation_log`, `rtl_json`, `rtl_verilog`, `g_log`, `cxxrtl_cpp`, `cxxrtl_header`, `simulator`
 
 ## FPGA synthesis / implementation
 
@@ -115,6 +133,8 @@ Required settings: `fpga`
 
 Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `ff`, `slice`, `dsp`, `bram`
 
+Artifacts: `log`, `timing_report`, `place_route_report`, `map_report`, `bitstream`
+
 ### `fpga_pack`
 
 *runs first: `nextpnr` | can follow: `nextpnr` (depends on the target), `bsc` (through `yosys_fpga`, `nextpnr`), `yosys_fpga` (through `nextpnr`) | can be followed by: `openfpgaloader`*
@@ -126,6 +146,8 @@ Required settings: `fpga`
 8 flow-specific settings (plus the common ones): `xeda list-settings fpga_pack --json`
 
 Reports no flow-specific metrics.
+
+Artifacts: `log`
 
 ### `ise_synth`
 
@@ -139,6 +161,8 @@ Required settings: `fpga`
 
 Reports: `minimum_period`, `fmax`, `wns`, `lut`, `ff`, `slice`
 
+Artifacts: `log`, `place_route_report`, `synthesis_report`, `bitstream`
+
 ### `nextpnr`
 
 *runs first: `yosys_fpga` | can follow: `yosys_fpga`, `bsc` (through `yosys_fpga`) | can be followed by: `fpga_pack` (depends on the target), `openfpgaloader` (through `fpga_pack`) (depends on the target)*
@@ -151,6 +175,8 @@ Required settings: `fpga`
 
 Reports: `fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `timing_met`, `lut`, `ff`, `slice`, `bram`, `dsp`, `io`, `lut_basis.stage`, `lut_basis.method`, `clock_port`, `cell_types`, `device`, `fabric`
 
+Artifacts: `log`, `report`, `write`, `sdf`, `placed_svg`, `routed_svg`, `placement`
+
 ### `openfpgaloader`
 
 *runs first: `fpga_pack` | can follow: `fpga_pack`, `vivado_alt_synth`, `vivado_impl`, `vivado_synth`, `bsc` (through `yosys_fpga`, `nextpnr`, `fpga_pack`), `nextpnr` (through `fpga_pack`) (depends on the target), `yosys_fpga` (through `nextpnr`, `fpga_pack`) | programs a device and can only end a chain*
@@ -160,6 +186,8 @@ Program a bitstream onto an FPGA board with openFPGALoader. The `bitstream` inpu
 20 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
 
 Reports no flow-specific metrics.
+
+Artifacts: `log`
 
 ### `quartus`
 
@@ -173,6 +201,8 @@ Required settings: `fpga`
 
 Reports: `fmax`, `wns`, `whs`, `fmax_by_clock`, `lut`, `ff`
 
+Artifacts: `log`, `bitstream`
+
 ### `vivado_alt_synth`
 
 *can follow: `bsc` | can be followed by: `openfpgaloader`, `vivado_power`*
@@ -184,6 +214,8 @@ Required settings: `fpga`
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
 
 Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
+
+Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `post_synth_timing_summary_rpt`, `post_synth_hierarchical_utilization_rpt`, `post_synth_power_optimization_rpt`, `post_place_timing_summary_rpt`, `post_place_hierarchical_utilization_rpt`, `post_place_post_place_power_optimization_rpt`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_hierarchical_utilization_json`, `route_design_critpath_report_csv`, `route_design_critpath_by_delay_report_csv`, `route_design_clock_utilization_rpt`, `route_design_power_rpt`, `route_design_drc_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_power_xml`
 
 ### `vivado_impl`
 
@@ -197,6 +229,8 @@ Required settings: `fpga`
 
 Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
+Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `post_place_timing_summary_rpt`, `post_place_hierarchical_utilization_rpt`, `post_place_post_place_power_optimization_rpt`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_hierarchical_utilization_json`, `route_design_critpath_report_csv`, `route_design_critpath_by_delay_report_csv`, `route_design_clock_utilization_rpt`, `route_design_power_rpt`, `route_design_drc_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_power_xml`
+
 ### `vivado_power`
 
 *runs first: `vivado_postsynth_sim` -> `vivado_synth` | can follow: `vivado_alt_synth`, `vivado_impl`, `vivado_postsynth_sim`, `vivado_synth`, `bsc` (through `vivado_synth`, `vivado_postsynth_sim`)*
@@ -208,6 +242,8 @@ Required settings: `fpga`
 6 flow-specific settings (plus the common ones): `xeda list-settings vivado_power --json`
 
 Reports: `power.total`, `power.dynamic`, `power.static`, `power.effective_tja`, `power.junction_temperature`, `power.thermal_margin`, `power.confidence`, `power.components`
+
+Artifacts: `log`
 
 ### `vivado_project`
 
@@ -221,17 +257,21 @@ Required settings: `fpga`
 
 Reports no flow-specific metrics.
 
+Artifacts: `log`, `project`
+
 ### `vivado_synth`
 
 *can follow: `bsc` | can be followed by: `openfpgaloader`, `vivado_power`*
 
-Synthesize and implement an FPGA design with AMD-Xilinx Vivado, in project mode, in batch. The flow creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado. The implementation run stops after routing. With a `bitstream` requested, it goes on through Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. Each output has its own setting. The flow registers each file that it writes as an artifact (the label is in parentheses). `write_checkpoint` writes `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist` writes, in `outputs/route_design/`, the functional Verilog netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist` writes, in the same directory, the timing Verilog netlist `timesim.v` (`netlist_timing`) and the fast-corner and slow-corner SDF files `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`). `bitstream` writes the bitstream (`bitstream`), with a .bin file of the same name beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`). Each of these files is also a declared output, recorded in the `outputs` of `results.json` with its digest, except `xdc_exported`, which is a plain artifact. The output `sdf` is `timesim.max.sdf`. The flow fails unless each run completes the step that it was launched to. The `status` result records Vivado's own status of the run. With a bitstream requested, the flow also fails unless the bitstream exists where the flow registers it.
+Synthesize and implement an FPGA design with AMD-Xilinx Vivado, in project mode, in batch. The flow creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado. The implementation run stops after routing. With a `bitstream` requested, it goes on through Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. Each output has its own setting. The name of the declared output is in parentheses. `write_checkpoint` writes `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist` writes, in `outputs/route_design/`, the functional Verilog netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist` writes, in the same directory, the timing Verilog netlist `timesim.v` (`netlist_timing`) and the fast-corner and slow-corner SDF files `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf`). `bitstream` writes the bitstream (`bitstream`), with a .bin file of the same name beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`). The record of the run lists each of these files in its `outputs`, with its digest, except `xdc_exported`, which is an artifact. The flow fails unless each run completes the step that it was launched to. The `status` result records Vivado's own status of the run. With a bitstream requested, the flow also fails unless the bitstream exists where the flow registers it.
 
 Required settings: `fpga`
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
 
 Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
+
+Artifacts: `log`, `xdc_exported`, `synth_1_log`, `impl_1_log`, `synth_design_timing_summary_rpt`, `synth_design_timing_rpt`, `synth_design_utilization_xml`, `synth_design_hierarchical_utilization_xml`, `synth_design_critical_paths_csv`, `synth_design_critical_paths_by_delay_csv`, `place_design_timing_summary_rpt`, `place_design_timing_rpt`, `place_design_utilization_xml`, `place_design_hierarchical_utilization_xml`, `place_design_critical_paths_csv`, `place_design_critical_paths_by_delay_csv`, `phys_opt_design_timing_summary_rpt`, `phys_opt_design_timing_rpt`, `phys_opt_design_utilization_xml`, `phys_opt_design_hierarchical_utilization_xml`, `phys_opt_design_critical_paths_csv`, `phys_opt_design_critical_paths_by_delay_csv`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_critical_paths_csv`, `route_design_critical_paths_by_delay_csv`, `route_design_hierarchical_utilization_json`, `route_design_utilization_rpt`, `route_design_hierarchical_utilization_rpt`, `route_design_drc_rpt`, `route_design_route_status_rpt`, `route_design_datasheet_rpt`, `route_design_design_analysis_rpt`, `route_design_design_analysis_json`, `route_design_clock_utilization_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_qor_suggestions_rqs`, `route_design_power_xml`
 
 ### `yosys_fpga`
 
@@ -244,6 +284,8 @@ Required settings: `fpga`
 70 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
 Reports: `lut`, `ff`, `dsp`, `lut_use.logic`, `lut_use.ram`, `lut_use.srl`, `lut_basis.stage`, `lut_basis.method`, `latch`, `bram.ramb18`, `bram.ramb36`, `cell_types`
+
+Artifacts: `log`, `rtl_json`, `rtl_verilog`, `utilization_report`, `timing_report`, `netlist_verilog`
 
 ## ASIC synthesis
 
@@ -258,6 +300,8 @@ Required settings: `target_libraries`
 27 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
 
 Reports: `fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequential`, `num_macro_bbox`
+
+Artifacts: `log`, `netlist`, `netlist_vhdl`, `checkpoint`, `sdf`, `sdc`
 
 ### `openroad_place`
 
@@ -293,6 +337,8 @@ Group `detailed_placement`: `detailed_placement.improve.enabled`, `detailed_plac
 
 Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `utilization`, `power`, `area`, `hold_tns`, `platform`
 
+Artifacts: `log`
+
 ## Synthesis (generic)
 
 ### `ghdl_synth`
@@ -302,6 +348,8 @@ Convert a VHDL design to Verilog with `ghdl --synth`.
 22 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
 
 Reports no flow-specific metrics.
+
+Artifacts: `log`
 
 ### `yosys`
 
@@ -327,17 +375,21 @@ Group `finish`: `finish.tie_undefined`, `finish.tie_cells`, `finish.buffer_cell`
 
 Reports: `area`, `cells`, `cell_types`, `platform`
 
+Artifacts: `log`, `rtl_json`, `rtl_verilog`, `utilization_report`, `timing_report`, `netlist_json`
+
 ## Other
 
 ### `bsc`
 
 *can be followed by: `dc`, `diamond_synth`, `ise_synth`, `modelsim`, `quartus`, `vcs`, `verilator`, `vivado_alt_synth`, `vivado_project`, `vivado_sim`, `vivado_synth`, `yosys`, `yosys_fpga`, `yosys_sim`, `fpga_pack` (through `yosys_fpga`, `nextpnr`), `nextpnr` (through `yosys_fpga`), `openfpgaloader` (through `yosys_fpga`, `nextpnr`, `fpga_pack`), `openroad` (through `yosys`, `openroad_place`, `openroad_cts`, `openroad_grt`), `openroad_cts` (through `yosys`, `openroad_place`), `openroad_grt` (through `yosys`, `openroad_place`, `openroad_cts`), `openroad_place` (through `yosys`), `vivado_impl` (through `yosys_fpga`), `vivado_postsynth_sim` (through `vivado_synth`), `vivado_power` (through `vivado_synth`, `vivado_postsynth_sim`)*
 
-Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc. The flow compiles `rtl.sources` in order, with the package that defines `rtl.top` last. It generates Verilog for `rtl.top` and for every `synthesize`d module on the way. `artifacts.verilog` lists the Verilog files that the top module needs: the generated modules, the design's own Verilog sources, and the modules of bsc's Verilog library that it instantiates. The flow copies the library modules into `verilog_out_dir`, so a downstream synthesis or simulation flow can take the list as it is. If the generated Verilog instantiates a module that no Verilog file defines (a vendor primitive, for example), the flow leaves the module out and warns: the downstream tool must provide it. `rtl.defines` and `rtl.parameters` are passed to bsc as preprocessor macros. BH (`.bs`) sources see them only through the C preprocessor, with `cpp`. The flow converts the design for the flows that read Verilog: its output `design` is the design with the generated Verilog in place of the Bluespec sources. Every other source of `rtl` passes through, once and in the order of the design, and the rest of the design is carried unchanged.
+Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc. The flow compiles `rtl.sources` in order, with the package that defines `rtl.top` last. It generates Verilog for `rtl.top` and for every `synthesize`d module on the way. The output `design` lists the Verilog files that the top module needs: the generated modules, the design's own Verilog sources, and the modules of bsc's Verilog library that it instantiates. The flow copies the library modules into `verilog_out_dir`, so a downstream synthesis or simulation flow can take the list as it is. If the generated Verilog instantiates a module that no Verilog file defines (a vendor primitive, for example), the flow leaves the module out and warns: the downstream tool must provide it. `rtl.defines` and `rtl.parameters` are passed to bsc as preprocessor macros. BH (`.bs`) sources see them only through the C preprocessor, with `cpp`. The flow converts the design for the flows that read Verilog: its output `design` is the design with the generated Verilog in place of the Bluespec sources. Every other source of `rtl` passes through, once and in the order of the design, and the rest of the design is carried unchanged.
 
 60 flow-specific settings (plus the common ones): `xeda list-settings bsc --json`
 
 Reports: `modules`
+
+Artifacts: `log`
 
 ### `openroad`
 
@@ -366,6 +418,8 @@ Group `ir_drop`: `ir_drop.nets`; 17 more: `xeda list-settings openroad --tier ex
 Group `gds`: no common settings; 10 more: `xeda list-settings openroad --tier expert --json`
 
 Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `setup_violations`, `hold_violations`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `max_slew_violations`, `max_cap_violations`, `max_fanout_violations`, `core_area`, `die_area`, `power_internal`, `power_switching`, `power_leakage`, `drc_errors`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `wirelength`, `vias`, `instances`, `fill_cells`, `tap_cells`, `warnings`, `errors`, `parasitics`, `platform`
+
+Artifacts: `log`, `klayout_log`
 
 ### `openroad_cts`
 
@@ -399,6 +453,8 @@ Group `repair`: `repair.enabled`, `repair.fix`, `repair.setup_margin`, `repair.h
 
 Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `platform`
 
+Artifacts: `log`
+
 ### `openroad_grt`
 
 *runs first: `openroad_cts` | can follow: `openroad_cts`, `bsc` (through `yosys`, `openroad_place`, `openroad_cts`), `openroad_place` (through `openroad_cts`), `yosys` (through `openroad_place`, `openroad_cts`) | can be followed by: `openroad`*
@@ -422,3 +478,5 @@ Group `repair`: `repair.strategy`, `repair.design.enabled`, `repair.timing.enabl
 Group `antenna`: `antenna.repair`; 4 more: `xeda list-settings openroad_grt --tier expert --json`
 
 Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `global_route_wirelength`, `global_route_vias`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `platform`
+
+Artifacts: `log`

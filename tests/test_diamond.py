@@ -66,6 +66,7 @@ def test_diamond_export_produces_and_records_bitstream(tmp_path: Path, monkeypat
         "place_route_report": Path(f"{impl}.par"),
         "map_report": Path(f"{impl}.mrp"),
     }
+    assert flow.artifacts.pop("log") == "logs/diamondc.log"
     assert flow.artifacts == expected
     assert all(path.is_file() for path in expected.values())
 
@@ -82,4 +83,4 @@ def test_a_diamond_run_without_its_bitstream_fails_naming_it(tmp_path: Path, mon
     assert ["prj_run", "Export", "-impl", "Implementation0", "-task", "Bitgen"] in fake_calls(
         tmp_path
     )
-    assert not flow.artifacts
+    assert set(flow.artifacts) == {"log"}  # nothing that does not exist but the log

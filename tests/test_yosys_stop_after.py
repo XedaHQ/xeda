@@ -16,7 +16,6 @@ import yaml
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.artifacts import iter_artifact_paths
 from xeda.cli import cli
 from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
@@ -99,8 +98,9 @@ def test_a_stop_after_the_rtl_succeeds_with_the_outputs_it_wrote(
     run_path = Path(node["run_dir"])
     record = node["record"]
     assert (run_path / "rtl.v").is_file() and (run_path / "rtl.json").is_file()
-    # it lists what it wrote, and nothing it did not: no netlist, no report
-    artifacts = [Path(p) for p in iter_artifact_paths(record["artifacts"])]
+    # it lists what it wrote, and nothing it did not: the log of yosys, no netlist, no report
+    assert record["artifacts"]["log"] == "logs/yosys.log"
+    artifacts = [Path(p) for key, p in record["artifacts"].items() if key != "log"]
     assert sorted(p.name for p in artifacts) == ["rtl.json", "rtl.v"], artifacts
     assert all((run_path / p).is_file() for p in artifacts)
     assert not (run_path / "reports" / "utilization.json").exists()

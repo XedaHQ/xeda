@@ -13,7 +13,7 @@ import json
 import math
 import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
@@ -651,10 +651,13 @@ def _decode(document: Mapping[str, Any], run_dir: Path, run_root: Path) -> RunRe
                 for key in ("repository", "reference", "commit", "design_file")
             }
         )
-    artifacts = {
-        key: _file_name(name, f"artifacts.{key}")
-        for key, name in _mapping(document.get("artifacts"), "artifacts").items()
-    }
+    from .flow.metrics import ARTIFACT_KEY
+
+    artifacts = {}
+    for key, name in _mapping(document.get("artifacts"), "artifacts").items():
+        if not ARTIFACT_KEY.fullmatch(key):
+            raise _Malformed(f"`artifacts.{key}` is not a valid artifact key")
+        artifacts[key] = _file_name(name, f"artifacts.{key}")
     return RunRecord(
         schema_version=RECORD_SCHEMA_VERSION,
         run_id=_text(document.get("run_id"), "run_id"),
@@ -810,24 +813,51 @@ def name_in(run_dir: Path, path: str | os.PathLike[str]) -> str | None:
     return None
 
 
+def artifact_problem(run_path: Path, key: object, value: Any) -> str | None:
+    """Return why a flow cannot register `value` as the artifact `key`, or None if it can.
+
+    An artifact is one file, under a key of `ARTIFACT_KEY`. A list, a table, a key off the grammar
+    and a directory are not one. An empty value (`None`, `""`, `[]`) is no artifact. A path outside the run directory `run_path` or a file that is not
+    there is no problem here: the record leaves it out."""
+    from .artifacts import iter_artifact_paths
+    from .flow.metrics import ARTIFACT_KEY
+
+    if not value:  # `None`, `""`, `[]`: no artifact, in every mapping that holds it
+        return None
+    if not ARTIFACT_KEY.fullmatch(str(key)):
+        return "the key is not lower snake case"
+    leaves = list(iter_artifact_paths(value))
+    if len(leaves) > 1 or isinstance(value, (list, tuple, Mapping)):
+        return "it holds several files, and an artifact is one file"
+    for leaf in leaves:
+        name = name_in(run_path, leaf)
+        located = run_path / (name or "")
+        if name is not None and os.path.isdir(located) and not os.path.islink(located):
+            return "it is a directory, and an artifact is one file"
+    return None
+
+
 def _artifacts_of(flow: Flow) -> dict[str, str]:
     """Return the artifacts that `flow` wrote inside its run directory: key to relative name.
 
-    A key that holds one path keeps its name. A key that holds several paths (a list, or a group)
-    gets one key per path: `key[0]`, `key[1]`. A path outside the run directory is no artifact
-    of a record, and neither is a value that is no path."""
+    A path outside the run directory is no artifact of a record. Neither is a value that is no
+    path, or a file that is not there. An artifact that `artifact_problem` finds a problem with is
+    a bug of the flow, which the launcher has dropped before it asks for the record
+    (`launch_run.drop_bad_artifacts`): `ValueError`."""
     from .artifacts import iter_artifact_paths
 
     artifacts: dict[str, str] = {}
     # The launcher copies `Flow.artifacts` into the results and drops what a failed run did not
     # write, so the results are the list to record.
     for key, value in (flow.results.get("artifacts") or {}).items():
-        leaves = list(iter_artifact_paths(value))
-        grouped = isinstance(value, (list, tuple, Mapping)) or len(leaves) > 1
-        for index, leaf in enumerate(leaves):
+        problem = artifact_problem(flow.run_path, key, value)
+        if problem is not None:
+            raise ValueError(f"`{flow.name}` registers the artifact {key!r}: {problem}")
+        for leaf in iter_artifact_paths(value):
             name = name_in(flow.run_path, leaf)
-            if name is not None:
-                artifacts[f"{key}[{index}]" if grouped else str(key)] = name
+            # A key is present only when its file was written. A link counts as itself.
+            if name is not None and os.path.lexists(flow.run_path / name):
+                artifacts[str(key)] = name
     return artifacts
 
 
@@ -1041,6 +1071,15 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
                 exit_status=None,
                 log=None,
             )
+    artifacts = _artifacts_of(flow)
+    if error is not None:
+        # The log to read is the one of the child run that failed, if the flow knows one, else the
+        # one of the tool that failed, else the one of the main tool.
+        named = flow.failure_log_key()
+        if named in artifacts:
+            error = replace(error, log=named)
+        elif error.log not in artifacts:
+            error = replace(error, log="log" if "log" in artifacts else None)
     runtime = results.get("runtime")
     if runtime is None:
         runtime = 0.0 if flow.init_time is None else time.monotonic() - flow.init_time
@@ -1061,7 +1100,7 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
         metrics=_plain(metrics),
         metric_info=info,
         outputs=_outputs_of(flow),
-        artifacts=_artifacts_of(flow),
+        artifacts=artifacts,
         settings=_plain(flow.settings),
         inputs=tuple(_inputs_of(flow, run_root)),
         started=started.astimezone(timezone.utc),

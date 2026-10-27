@@ -298,33 +298,31 @@ def test_a_failed_remote_run_does_not_fetch_an_output_it_never_wrote(tmp_path, r
     assert "bitstream" not in json.loads((mirror / "results.json").read_text())["artifacts"]
 
 
-def test_a_remote_that_lists_unwritten_artifacts_cannot_make_the_client_fetch_them(
-    tmp_path, remote_host
-):
-    """A faulty remote whose failed run lists artifacts it never wrote: the remote says which
-    files its run wrote, and the client keeps only those."""
-    remote_host.load_test_flows(
-        after="from xeda.flow_runner import default_runner\n"
-        "default_runner._drop_unwritten_artifacts = id  # a no-op of one argument\n"
-    )
+def test_a_failed_remote_run_records_no_artifact_it_never_wrote(tmp_path, remote_host):
+    """The record of a failed run lists only the files that the run wrote, so the client fetches
+    no file that was never there. The log of the tool that failed is one of them."""
     remote_host.configure(env={"XEDA_FAKE_TOOL_FAIL": "launch_runs"})
     design = _sqrt_design(tmp_path / "design")
     outcome = remote_request(
-        tmp_path, design, "vivado_synth", flow_settings=[*SQRT_SETTINGS, "bitstream=top.bit"]
+        tmp_path,
+        design,
+        "vivado_synth",
+        flow_settings=[*SQRT_SETTINGS, "bitstream=top.bit", "write_netlist=true"],
     )
     assert outcome.error is None and not outcome.success, outcome.document
     mirror = _run_dir(outcome.document)
     saved = json.loads((mirror / "results.json").read_text())
-    assert "bitstream" not in saved["artifacts"]
-    assert "bitstream" not in _results(outcome.document)["artifacts"]
+    assert set(saved["artifacts"]) == {"log"}
+    assert saved["error"]["log"] == "log"
+    assert (mirror / saved["artifacts"]["log"]).is_file()
+    assert set(_results(outcome.document)["artifacts"]) == {"log"}
     assert not list(mirror.rglob("top.bit")), "a bitstream the run never wrote was fetched"
-    # the remote did list it: the faulty launcher kept it in its own record
     remote_results = json.loads(
         (
             remote_host.workspace() / "xeda_run" / "sqrt" / "vivado_synth" / "results.json"
         ).read_text()
     )
-    assert "bitstream" in remote_results["artifacts"]
+    assert set(remote_results["artifacts"]) == {"log"}
 
 
 # --- Real tools on the remote -------------------------------------------------------------------
@@ -379,7 +377,7 @@ def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remo
 
 @pytest.mark.real_tool
 def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
-    """GHDL per-source synthesis reports a list under generated_verilog."""
+    """GHDL per-source synthesis hands its Verilog files over as the list output `verilog`."""
     require_ghdl()
     remote_host.expose("ghdl")
     design_root = tmp_path / "design"
@@ -397,9 +395,9 @@ def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
     run_path = _run_dir(document)
     saved = json.loads((run_path / "results.json").read_text())
     assert document["nodes"][-1]["record"] == saved
-    listed = {key: name for key, name in saved["artifacts"].items() if "generated_verilog" in key}
-    assert list(listed) == ["generated_verilog[0]"]
-    assert (run_path / listed["generated_verilog[0]"]).is_file()
+    assert "generated_verilog" not in " ".join(saved["artifacts"])
+    names = saved["outputs"]["verilog"]["names"]
+    assert len(names) >= 1 and all((run_path / name).is_file() for name in names)
 
 
 def _mac_design(root: Path) -> Path:

@@ -74,9 +74,14 @@ def test_the_reports_and_logs_of_a_run_are_artifacts_whatever_the_working_direct
     assert flow.parse_reports()
     reports = flow.settings.reports_dir
     assert reports.parts and not reports.is_absolute()
-    found = [label for label in flow.artifacts if str(label).startswith(f"{reports}/")]
+    found = [key for key, name in flow.artifacts.items() if str(name).startswith(f"{reports}/")]
     assert found
-    assert all((flow.run_path / flow.artifacts[label]).is_file() for label in found)
+    assert all((flow.run_path / flow.artifacts[key]).is_file() for key in found)
+    # the log of each Vivado run, below the project directory
+    assert {"synth_1_log", "impl_1_log"} <= set(flow.artifacts)
+    assert all(
+        (flow.run_path / flow.artifacts[key]).is_file() for key in ("synth_1_log", "impl_1_log")
+    )
 
 
 @needs_tclsh
@@ -94,7 +99,7 @@ def test_a_run_whose_vivado_runs_complete_their_steps_succeeds(
     assert not [label for label in flow.artifacts if vs.RUN_STATUS_FILE in str(label)]
     if bitstream:
         # Vivado's `write_bitstream` step wrote it, the step's hook put it where it is registered
-        assert flow.artifacts[vs.BITSTREAM] == Path(bitstream)
+        assert flow.outputs.bitstream == flow.run_path / bitstream
         assert (flow.run_path / bitstream).is_file()
 
 
@@ -252,3 +257,53 @@ def test_every_vivado_run_a_script_launches_is_checked() -> None:
         assert waits == (["catch {wait_on_run $run}"] if launched else []), template.name
         checked += len(launched)
     assert checked == 2  # vivado_synth's synth_1 and impl_1
+
+
+@needs_tclsh
+@pytest.mark.parametrize("bitstream", [None, BITSTREAM], ids=["routed", "bitstream"])
+def test_the_log_of_each_vivado_run_is_an_artifact(tmp_path, monkeypatch, bitstream) -> None:
+    """Each child run writes `<design>.runs/<run>/runme.log`; its key is `<run>_log`."""
+    flow = _run(tmp_path, monkeypatch, **({"bitstream": bitstream} if bitstream else {}))
+    assert flow.succeeded
+    artifacts = dict(flow.record.artifacts)
+    assert artifacts["synth_1_log"] == "sqrt.runs/synth_1/runme.log"
+    assert artifacts["impl_1_log"] == "sqrt.runs/impl_1/runme.log"
+    assert artifacts["log"] == "logs/vivado.log"
+    for key in ("synth_1_log", "impl_1_log"):
+        assert (flow.run_path / artifacts[key]).is_file()
+        assert key in VivadoSynth.artifacts_description
+
+
+@needs_tclsh
+@pytest.mark.parametrize(
+    ("step", "key"),
+    [
+        ("synth_design", "synth_1_log"),
+        ("place_design", "impl_1_log"),
+        ("route_design", "impl_1_log"),
+    ],
+    ids=["synthesis", "placement", "routing"],
+)
+def test_the_error_of_a_failed_vivado_run_names_the_log_of_that_run(
+    tmp_path, monkeypatch, step, key
+) -> None:
+    """The tool exits with a failure after the script found a run that did not complete: the
+    error of the run is in the log of that run and not in the log of the Vivado process."""
+    flow = _run(tmp_path, monkeypatch, fail=[step])
+    assert not flow.succeeded
+    record = flow.record
+    assert record.error is not None and record.error.code == "nonzero_exit"
+    assert record.error.log == key
+    assert "ERROR:" in (flow.run_path / record.artifacts[key]).read_text()
+    assert "log" in record.artifacts  # the log of the Vivado process is still there
+    if key == "synth_1_log":
+        assert "impl_1_log" not in record.artifacts
+
+
+@needs_tclsh
+def test_a_failure_of_vivado_outside_a_run_names_the_log_of_the_process(
+    tmp_path, monkeypatch
+) -> None:
+    flow = _run(tmp_path, monkeypatch, fail=["create_project"])
+    assert not flow.succeeded
+    assert flow.record.error is not None and flow.record.error.log == "log"

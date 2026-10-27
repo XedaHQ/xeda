@@ -9,8 +9,14 @@ from typing import ClassVar, List, Literal, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, field_validator, waveform
 from ...design import DesignSource, SourceType, VhdlSettings
-from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
-from ...flow.metrics import COCOTB_METRICS
+from ...flow import (
+    Flow,
+    FlowSettingsException,
+    SimFlow,
+    describe_results,
+    describe_artifacts,
+)
+from ...flow.metrics import COCOTB_METRICS, program_logs
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import parse_nvc_log, read_sim_log
 from ...tool import Tool
@@ -47,6 +53,10 @@ class Nvc(SimFlow):
     """
 
     executables = ("nvc", "sh", "c++")
+
+    artifacts_description = describe_artifacts(
+        "log", **program_logs("c++", when="when the flow builds the end monitor")
+    )
 
     cocotb_sim_name = "nvc"
     #: NVC analyzes VHDL.

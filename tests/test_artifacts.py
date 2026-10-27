@@ -121,10 +121,8 @@ def test_a_failed_run_reports_only_the_artifacts_that_exist(passes, tmp_path, ca
             (self.run_path / "outputs" / "written.dcp").write_text("")
             self.artifacts.netlist = "written.v"
             self.artifacts.sdf = "never_written.sdf"
-            self.artifacts.checkpoints = [
-                self.run_path / "outputs" / "written.dcp",
-                self.run_path / "outputs" / "never_written.dcp",
-            ]
+            self.artifacts.checkpoint = self.run_path / "outputs" / "written.dcp"
+            self.artifacts.checkpoint_never = self.run_path / "outputs" / "never_written.dcp"
             self.results.artifacts["sdc"] = "never_written.sdc"
 
         def parse_reports(self) -> bool:
@@ -143,21 +141,17 @@ def test_a_failed_run_reports_only_the_artifacts_that_exist(passes, tmp_path, ca
     assert flow.succeeded == passes
     written_dcp = flow.run_path / "outputs" / "written.dcp"
     missing_dcp = flow.run_path / "outputs" / "never_written.dcp"
-    expected = {"netlist": "written.v", "checkpoints": [str(written_dcp)]}
+    expected = {"netlist": "written.v", "checkpoint": str(written_dcp)}
     if passes:
-        expected["checkpoints"].append(str(missing_dcp))
-        expected |= {"sdf": "never_written.sdf", "sdc": "never_written.sdc"}
-    saved = json.loads((flow.run_path / "results.json").read_text())
-    assert saved["outcome"] == ("passed" if passes else "failed")
-    # the record names each file relative to the run directory, and a list gets one key per file
-    named = {"netlist": "written.v", "checkpoints[0]": "outputs/written.dcp"}
-    if passes:
-        named |= {
-            "checkpoints[1]": "outputs/never_written.dcp",
+        expected |= {
+            "checkpoint_never": str(missing_dcp),
             "sdf": "never_written.sdf",
             "sdc": "never_written.sdc",
         }
-    assert saved["artifacts"] == named
+    saved = json.loads((flow.run_path / "results.json").read_text())
+    assert saved["outcome"] == ("passed" if passes else "failed")
+    # the record names each file relative to the run directory, and only a file that is there
+    assert saved["artifacts"] == {"netlist": "written.v", "checkpoint": "outputs/written.dcp"}
     assert json.loads(json.dumps(flow.results.artifacts, default=str)) == expected
 
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
@@ -169,7 +163,7 @@ def test_a_failed_run_reports_only_the_artifacts_that_exist(passes, tmp_path, ca
         assert warning.startswith("half_written failed")
         for dropped in (
             "sdf: never_written.sdf",
-            f"checkpoints: {missing_dcp}",
+            f"checkpoint_never: {missing_dcp}",
             "sdc: never_written.sdc",
         ):
             assert dropped in warning
@@ -524,17 +518,30 @@ def test_an_earlier_output_under_another_name_is_still_the_earlier_output(
 
 
 @pytest.mark.parametrize("written", [False, True], ids=["untouched", "written into"])
-def test_a_directory_output_is_the_runs_only_if_the_run_changed_it(written, tmp_path):
-    """An output may be a directory. The snapshot records directories as well as files, so an
-    earlier run's directory this run left alone is not its own -- one it wrote a file into is,
-    as a directory's own state changes when an entry is added to it."""
+def test_a_directory_is_the_runs_only_if_the_run_changed_it(written, tmp_path):
+    """The snapshot records directories as well as files, so an earlier run's directory this run
+    left alone is not its own -- one it wrote a file into is, as a directory's own state changes
+    when an entry is added to it. (A directory is no artifact, but a flow asks the question of the
+    directories that its tools fill.)"""
+
+    class NeverRuns(Flow):
+        """Only constructed."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        def run(self) -> None:
+            pass
+
     run_dir = _earlier_run_dir(tmp_path)
+    try:
+        flow = NeverRuns({}, Design.from_file(EXAMPLE), run_dir)
+    finally:
+        for name in (NeverRuns.name, NeverRuns.__name__):
+            registered_flows.pop(name, None)
+    if written:
+        (run_dir / "real" / "new.v").write_text("this run's, and longer\n")
 
-    listed = _failed_run_artifacts(
-        tmp_path, run_dir, "real", rewrite=run_dir / "real" / "new.v" if written else None
-    )
-
-    assert listed == ({"output": "real"} if written else {})
+    assert flow.wrote_output("real") is written
 
 
 @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs POSIX permissions")
@@ -648,12 +655,12 @@ def test_a_successful_vivado_synth_accepts_its_bitstream_on_a_file_system_whose_
 
 def test_a_runs_artifacts_and_results_pickle(tmp_path):
     """A flow's results cross a process boundary by pickle -- the DSE's workers return them --
-    and so may its artifacts, in every shape an artifact may take: a path, a list of them, a
-    mapping, a list of mappings. Recording each output's state as it is stored is the live
-    flow's business, and none of it goes with them."""
+    and so may its artifacts, in every form an artifact may take: a name, a `Path`, an absolute
+    path. Recording each output's state as it is stored is the live flow's business, and none
+    of it goes with them."""
 
     class ManyShapes(Flow):
-        """Declare outputs in every shape."""
+        """Declare outputs in every form."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
@@ -661,18 +668,16 @@ def test_a_runs_artifacts_and_results_pickle(tmp_path):
             for name in ("a.v", "b.v", "t.rpt"):
                 (self.run_path / name).write_text(name)
             self.artifacts.netlist = "a.v"
-            self.artifacts.sources = ["a.v", "b.v"]
-            self.artifacts.reports = {"timing": "t.rpt"}
-            self.artifacts.runs = [{"netlist": "a.v", "report": "t.rpt"}]
+            self.artifacts.source = self.run_path / "b.v"
+            self.artifacts.timing = Path("t.rpt")
 
     flow = _launch_and_forget(ManyShapes, tmp_path)
 
     assert flow.succeeded
     expected = {
         "netlist": "a.v",
-        "sources": ["a.v", "b.v"],
-        "reports": {"timing": "t.rpt"},
-        "runs": [{"netlist": "a.v", "report": "t.rpt"}],
+        "source": flow.run_path / "b.v",
+        "timing": Path("t.rpt"),
     }
     assert pickle.loads(pickle.dumps(flow.results)).artifacts == expected
     assert pickle.loads(pickle.dumps(flow.artifacts)) == expected

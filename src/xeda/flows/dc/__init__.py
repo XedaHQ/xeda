@@ -16,6 +16,8 @@ from ...flow import (
     MetricSpec,
     NoReplacement,
     describe_results,
+    ArtifactSpec,
+    describe_artifacts,
 )
 from ...tool import Tool
 from ...utils import try_convert, try_convert_to_primitives
@@ -48,6 +50,29 @@ class Dc(AsicSynthFlow):
     """Synthesize a design for an ASIC with Synopsys Design Compiler."""
 
     executables = ("dc_shell",)
+
+    artifacts_description = describe_artifacts(
+        "log",
+        netlist=ArtifactSpec("The mapped netlist as Verilog.", "when the design has a top module"),
+        netlist_vhdl=ArtifactSpec(
+            "The mapped netlist as VHDL.", "when the design has a top module"
+        ),
+        checkpoint=ArtifactSpec(
+            "The mapped design as a Design Compiler database (`.ddc`).",
+            "when the design has a top module",
+        ),
+        sdf=ArtifactSpec(
+            "Timing of the mapped design as an SDF file.", "when the design has a top module"
+        ),
+        sdc=ArtifactSpec(
+            "Constraints of the mapped design as an SDC file.", "when the design has a top module"
+        ),
+    )
+
+    def main_executable(self) -> str:
+        """Return the program of Design Compiler: the setting `dc_shell_name`."""
+        assert isinstance(self.settings, self.Settings)
+        return self.settings.dc_shell_name
 
     required_settings = {
         "target_libraries": "one or more target libraries (liberty `.db` files): "

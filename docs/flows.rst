@@ -692,9 +692,9 @@ Rules for chains
   no suggestion.
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
 * Only flows that declare their outputs can start a link: those with a nonempty ``outputs`` in
-  ``xeda list-flows --json``. Today these are ``bsc``, ``yosys_fpga``, ``nextpnr``, ``fpga_pack``,
-  ``yosys``, the OpenROAD stages, ``vivado_synth``, ``vivado_alt_synth``, ``vivado_impl`` and
-  ``vivado_postsynth_sim``. A flow that declares none (``bsc_sim``, ``vivado_project``,
+  ``xeda list-flows --json``. Today these are ``bsc``, ``ghdl_synth``, ``yosys_fpga``, ``nextpnr``,
+  ``fpga_pack``, ``yosys``, the OpenROAD stages, ``vivado_synth``, ``vivado_alt_synth``,
+  ``vivado_impl`` and ``vivado_postsynth_sim``. A flow that declares none (``bsc_sim``, ``vivado_project``,
   ``vivado_sim``, ``openfpgaloader``, ``vivado_power`` and others) ends a chain. A chain through
   it is refused: no output fits an input, or the flow after it takes no required input. No stage
   is ever fed by reading the ``artifacts`` of another flow.
@@ -1551,7 +1551,7 @@ Files of the routed design
 same names: ``write_checkpoint``, ``write_netlist`` and ``write_timing_netlist``. Each file is a
 declared output, with the same name and type as in the synthesis flows, so ``vivado_postsynth_sim``
 and ``vivado_power`` can read them. The checkpoint after placement and the exported constraints are
-artifacts and not declared outputs. There is no synthesis checkpoint, because there is no
+artifacts (``checkpoint_place`` and ``xdc_exported``) and not declared outputs. There is no synthesis checkpoint, because there is no
 synthesis.
 
 .. list-table::
@@ -2141,7 +2141,7 @@ Bluespec sources are all BH.
 ``bsc`` also makes the output ``design``: the design with the generated Verilog in place of the
 Bluespec sources. It is what the flows that read Verilog take (see `Converted designs`_).
 
-``artifacts.verilog`` of ``bsc`` is the set of files that a downstream synthesis or simulation flow
+The output ``design`` of ``bsc`` lists the files that a downstream synthesis or simulation flow
 needs. It holds the generated modules and the Verilog sources of the design itself (listed where
 they are). It also holds the modules of the bsc library and the modules imported with
 ``import "BVI"`` that the design instantiates and that are on the Verilog search path. Xeda copies

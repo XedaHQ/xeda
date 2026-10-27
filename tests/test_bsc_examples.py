@@ -22,6 +22,7 @@ from xeda.design import SourceType
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Bsc, BscSim, Yosys
 
+from .bsc_outputs import collected_verilog
 from .tool_utils import (
     require_bluesim,
     require_bsc,
@@ -95,7 +96,7 @@ def test_bsc_collects_every_verilog_file_of_the_top(design_file, generated, tmp_
     assert flow.succeeded
     top = flow.design.rtl.top
     assert flow.results["modules"][0] == top
-    files: list[str] = list(flow.artifacts.verilog)
+    files: list[str] = list(collected_verilog(flow))
     assert files and Path(files[-1]).name == f"{top}.v" and all(Path(f).is_file() for f in files)
     require_iverilog()
     subprocess.run(
@@ -118,7 +119,7 @@ def test_bsc_collects_every_verilog_file_of_the_top(design_file, generated, tmp_
 
 @pytest.mark.parametrize("design_file", EXAMPLES, ids=lambda p: p.stem)
 def test_the_generated_verilog_synthesizes(design_file, generated, tmp_path_factory, tmp_path):
-    """A downstream flow takes `artifacts.verilog` as its sources as it is."""
+    """A downstream flow takes the Verilog files that `bsc` collected as its sources as they are."""
     flow = _generate(design_file, generated, tmp_path_factory)
     assert flow.succeeded
     require_yosys()
@@ -126,7 +127,7 @@ def test_the_generated_verilog_synthesizes(design_file, generated, tmp_path_fact
     netlist_design = Design(
         name=f"{design_file.stem}_verilog",
         design_root=flow.run_path,
-        rtl={"sources": list(flow.artifacts.verilog), "top": top, "clock": "CLK"},
+        rtl={"sources": list(collected_verilog(flow)), "top": top, "clock": "CLK"},
     )
     synth = _run(Yosys, netlist_design, tmp_path)
     assert synth.succeeded

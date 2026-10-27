@@ -318,7 +318,9 @@ def test_a_chain_delivers_only_after_the_whole_graph_succeeded(tmp_path, toolcha
     flow = runner.run(chain, design)
     assert flow.succeeded and config.is_file()
     delivered = sorted(p.name for p in outputs.rglob("*") if p.is_file())
-    assert delivered and all(name.startswith("top.") for name in delivered), delivered
+    # the bitstream, and the log of the packer, which is an artifact of the requested flow
+    assert "ecppack.log" in delivered and "top.bit" in delivered
+    assert all(name.startswith("top.") or name == "ecppack.log" for name in delivered), delivered
     assert not any(
         d.destination.is_relative_to(outputs) for f in runner.launched[:-1] for d in f.deliveries
     ), "only the requested flow delivers to --outputs-to"

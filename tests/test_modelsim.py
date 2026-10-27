@@ -16,7 +16,6 @@ from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Modelsim
 from xeda.flows.modelsim import ModelsimTool
-from xeda.utils import LOCATION_FORMS
 
 from .tool_utils import fake_calls, use_fake_tools
 from .tool_utils import HANG_GUARD
@@ -84,19 +83,21 @@ def test_flags_reach_their_tools_one_word_each(tmp_path, monkeypatch) -> None:
 
 
 @needs_tclsh
-def test_outputs_to_warns_when_a_simulation_delivers_no_waveform(tmp_path, monkeypatch, caplog):
-    """`--outputs-to` copies only what a flow reported as an artifact inside its run
-    directory; a bare simulation (no `vcd`) reports none, so it silently delivered nothing there.
-    The warning names the flow and its deliverable settings (`vcd`, for a simulator)."""
+def test_outputs_to_delivers_the_log_of_a_simulation_without_a_waveform(
+    tmp_path, monkeypatch, caplog
+):
+    """`--outputs-to` copies the artifacts of the flow that are inside its run directory. A bare
+    simulation (no `vcd`) has its log, and the log is delivered: the run delivered something, so
+    nothing warns."""
     use_fake_tools(monkeypatch)
     run_dir = tmp_path / "run"
     design = _design(tmp_path / "design")
     with caplog.at_level(logging.WARNING, logger="xeda.flow_runner.launch_report"):
         flow = DefaultRunner(run_dir, outputs_to=tmp_path / "got").run_flow(Modelsim, design, {})
-    assert flow is not None and flow.succeeded and flow.deliveries == []
-    assert not (tmp_path / "got").exists()
-    assert "modelsim" in caplog.text and "vcd" in caplog.text and "delivered nothing" in caplog.text
-    assert f"Give one a location ({LOCATION_FORMS})" in caplog.text
+    assert flow is not None and flow.succeeded
+    assert [d.destination for d in flow.deliveries] == [tmp_path / "got" / "logs" / "vsim.log"]
+    assert (tmp_path / "got" / "logs" / "vsim.log").is_file()
+    assert "delivered nothing" not in caplog.text
 
 
 def test_an_hdl_testbench_without_a_top_is_rejected_when_planned(tmp_path, monkeypatch) -> None:

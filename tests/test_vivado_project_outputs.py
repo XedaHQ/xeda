@@ -104,8 +104,16 @@ def _sqrt_with_an_hdl_testbench(root: Path) -> Design:
 
 
 def _registered(flow: VivadoSynth) -> Dict[str, Path]:
-    """The project outputs `flow` registered, as recorded."""
-    return {label: Path(flow.artifacts[label]) for label in LABELS if label in flow.artifacts}
+    """The project outputs `flow` registered, as recorded: the declared outputs by their label
+    (`vs.OUTPUT_LABELS`), and the exported constraints, the one artifact among them."""
+    labelled = {label: name for name, label in vs.OUTPUT_LABELS.items()}
+    found: Dict[str, Path] = {}
+    for label in LABELS:
+        if label in flow.artifacts:
+            found[label] = Path(flow.artifacts[label])
+        elif getattr(flow.outputs, labelled.get(label, ""), None) is not None:
+            found[label] = getattr(flow.outputs, labelled[label]).relative_to(flow.run_path)
+    return found
 
 
 def _attached_hooks(calls: List[List[str]]) -> Dict[str, Tuple[str, Path]]:
@@ -260,7 +268,7 @@ def test_without_a_bitstream_the_implementation_run_stops_after_routing(
     calls = fake_calls(flow.run_path)
     assert _launched_to(calls, "impl_1") == "route_design"
     assert "WRITE_BITSTREAM" not in _attached_hooks(calls)
-    assert vs.BITSTREAM not in flow.artifacts
+    assert flow.outputs.bitstream is None and vs.BITSTREAM not in flow.artifacts
 
 
 @needs_tclsh
@@ -554,8 +562,9 @@ def test_write_netlist_alone_writes_the_functional_netlist_and_constraints_and_n
     modes = [c[c.index("-mode") + 1] for c in written if c[0] == "write_verilog"]
     assert modes == ["funcsim"]
     assert [c[0] for c in written if c[0] in ("write_sdf", "write_xdc")] == ["write_xdc"]
-    assert {vs.NETLIST, vs.XDC_EXPORTED} <= set(flow.artifacts)
-    assert not {vs.NETLIST_TIMING, vs.SDF_MIN, vs.SDF_MAX, vs.SDF} & set(flow.artifacts)
+    assert vs.XDC_EXPORTED in flow.artifacts and flow.outputs.netlist is not None
+    assert not {vs.NETLIST, vs.NETLIST_TIMING, vs.SDF_MIN, vs.SDF_MAX, vs.SDF} & set(flow.artifacts)
+    assert flow.outputs.netlist_timing is None and flow.outputs.sdf is None
 
 
 @pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)
@@ -569,8 +578,8 @@ def test_write_timing_netlist_alone_writes_the_timing_netlist_and_sdf_and_no_fun
     corners = [c[c.index("-process_corner") + 1] for c in written if c[0] == "write_sdf"]
     assert corners == (["fast", "slow"] if flow_class is VivadoSynth else ["slow"])
     assert not [c for c in written if c[0] == "write_xdc"]
-    assert vs.NETLIST not in flow.artifacts and vs.XDC_EXPORTED not in flow.artifacts
-    assert vs.NETLIST_TIMING in flow.artifacts
+    assert flow.outputs.netlist is None and vs.XDC_EXPORTED not in flow.artifacts
+    assert flow.outputs.netlist_timing is not None and flow.outputs.sdf is not None
 
 
 @pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)

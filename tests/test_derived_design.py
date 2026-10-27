@@ -543,13 +543,6 @@ def test_bsc_records_the_design_from_what_it_collected(tmp_path, capfd) -> None:
     library = shape[1:-5]
     assert library and all(kind == "G" for kind, _ in library)
     assert [name for kind, name in shape if kind == "G"][1:-2] == [name for _, name in library]
-    # artifacts.verilog lists the same Verilog files, in the same order
-    verilog = [
-        str(design.rtl.sources[item["source"]].file) if "source" in item else item["generated"]
-        for item in record["sources"]
-        if item.get("type") == "Verilog"
-    ]
-    assert verilog == flow.artifacts.verilog
     assert all(len(set(item.values())) == len(item) for item in record["sources"])
     assert (record["top"], record["kind"]) == ("mkTop", "design")
     assert record["input_design"] == design.parts_hash({"rtl", "tb"})
@@ -563,8 +556,7 @@ def test_bsc_records_the_design_from_what_it_collected(tmp_path, capfd) -> None:
 
 
 def test_the_generated_files_of_bsc_are_delivered_once_by_outputs_to(tmp_path, capfd) -> None:
-    """The generated files are listed under `artifacts.verilog` and in the record of the design
-    output. `--outputs-to` copies each file of the run directory once, and none that the design
+    """The generated files are listed in the record of the design output. `--outputs-to` copies each file of the run directory once, and none that the design
     passes through from outside it."""
     require_bsc()
     design = _design(tmp_path / "d")

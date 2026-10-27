@@ -16,12 +16,16 @@ from ...flow import (
     MetricSpec,
     Out,
     describe_results,
+    ArtifactSpec,
+    describe_artifacts,
 )
 from ...flows.ghdl import GhdlSynth
 from ...units import count
 from ...utils import ToolException, replacing_file
 from .common import (
     MINIMUM_YOSYS,
+    REPORT_ARTIFACTS,
+    RTL_ARTIFACTS,
     STOP_AFTER_DESCRIPTION,
     YosysRelease,
     YosysSynthesisBase,
@@ -171,6 +175,15 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
     """Synthesize a design for an FPGA device with Yosys."""
 
     minimum_yosys = MINIMUM_YOSYS
+
+    artifacts_description = describe_artifacts(
+        "log",
+        **RTL_ARTIFACTS,
+        **REPORT_ARTIFACTS,
+        netlist_verilog=ArtifactSpec(
+            "The synthesized netlist as Verilog.", "when the setting `netlist_verilog` is set"
+        ),
+    )
 
     results_description = describe_results(
         "lut",
@@ -1071,12 +1084,14 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 self.settings.clockgate_map
             )
         if problem is None:
-            self.artifacts.netlist_edif = self.settings.netlist_edif
+            self.netlist_files["netlist_edif"] = self.settings.netlist_edif
+        if self.settings.netlist_verilog:
+            self.artifacts.netlist_verilog = self.settings.netlist_verilog
 
     def prepare_output_parents(self) -> None:
         super().prepare_output_parents()
         assert isinstance(self.settings, self.Settings)
-        if self.artifacts.get("netlist_edif"):
+        if self.netlist_files.get("netlist_edif"):
             self.run_directory.inside(self.settings.netlist_edif).parent.mkdir(
                 parents=True, exist_ok=True
             )
@@ -1091,7 +1106,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         assert isinstance(declared, self.Outputs)
         if ss.netlist_json:
             declared.netlist = self.run_path / ss.netlist_json
-        if self.artifacts.get("netlist_edif"):
+        if self.netlist_files.get("netlist_edif"):
             declared.netlist_edif = self.run_path / ss.netlist_edif
         assert ss.fpga is not None, "checked at launch (`required_settings`)"
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt" if ss.sta else None

@@ -1339,7 +1339,9 @@ class FlowLauncher:
                         # writes nothing. Its run directory keeps its last record and trace.
                         launch_run.record_identity(flow, run_path)
                         flow.results.success = False
-                        flow.results["error"] = error_info(e, node=flow.name).as_json_value()
+                        flow.results["error"] = error_info(
+                            e, node=flow.name, flow=flow
+                        ).as_json_value()
                         flow.blocked_by = e.producer
                         raise
                     # The flow could not start: a problem with what its producers hand over, or
@@ -1348,7 +1350,7 @@ class FlowLauncher:
                     run_directory.remove(results_json)
                     launch_run.record_identity(flow, run_path)
                     flow.results.success = False
-                    flow.results["error"] = error_info(e, node=flow.name).as_json_value()
+                    flow.results["error"] = error_info(e, node=flow.name, flow=flow).as_json_value()
                     report(
                         flow,
                         derived,
@@ -1490,12 +1492,13 @@ class FlowLauncher:
                                 programs.before[name] = execution_programs.before[name]
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
                     flow.results.success = False
-                    flow.results["error"] = error_info(e, node=flow.name).as_json_value()
+                    flow.results["error"] = error_info(e, node=flow.name, flow=flow).as_json_value()
                     if flow.init_time is not None:
                         flow.results.runtime = time.monotonic() - flow.init_time
                     for k, v in flow.artifacts.items():
                         flow.results.artifacts.setdefault(k, v)
                     _drop_unwritten_artifacts(flow)
+                    launch_run.drop_bad_artifacts(flow)  # the error of the exception stays
                     try:
                         report(
                             flow,

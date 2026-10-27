@@ -638,9 +638,10 @@ Cleaning up
      - Empty the run directory of every flow before it runs, and run every flow (implies
        ``--rebuild-all``).
    * - ``--post-cleanup``
-     - After the run, keep only ``settings.json``, ``results.json``, the artifacts and the declared
-       outputs. This includes the producers, but Xeda waits until the requested flow has finished,
-       so the flow can still read their files.
+     - After the run, keep only ``settings.json``, ``results.json``, the artifacts (the tool logs
+       among them) and the declared outputs. Every other file goes, the reports that are no
+       artifact too. This includes the producers, but Xeda waits until the requested flow has
+       finished, so the flow can still read their files.
    * - ``--post-cleanup-purge``
      - After the run, remove the run directory entirely. It needs no ``--post-cleanup`` beside it.
        Every link that names the run directory beside it (see `Where it goes`_) goes with the

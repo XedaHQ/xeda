@@ -203,7 +203,8 @@ def test_remote_run_matches_a_local_run(tmp_path, remote_host):
     ):
         assert (directory / name).is_file(), name
     assert not list(mirror.rglob("trace.json")), "the mirror holds no trace"
-    assert record["artifacts"]["textcfg"] == "config.txt"
+    assert record["outputs"]["config"]["names"] == ["config.txt"]  # a declared output, no artifact
+    assert record["artifacts"]["log"] == "logs/nextpnr-ecp5.log"
     assert [node["run_dir"] for node in document["nodes"]] == [
         str(mirror / "top" / "yosys_fpga"),
         str(directory),
@@ -853,7 +854,7 @@ def test_the_records_of_the_mirror_name_the_paths_of_this_side(tmp_path, remote_
     saved = json.loads((directory / "results.json").read_text())
     # the record names its files relative to the run directory: the mirror has them where the
     # remote had them, and the document that the run printed holds the same record
-    assert saved["artifacts"]["textcfg"] == "config.txt"
+    assert saved["artifacts"]["log"] == "logs/nextpnr-ecp5.log"
     assert saved["outputs"]["config"]["names"] == ["config.txt"]
     assert _last(document)["record"] == saved
     # the design of the settings is the local one: its sources are the files that were sent

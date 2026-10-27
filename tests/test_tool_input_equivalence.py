@@ -82,8 +82,6 @@ PLATFORMS = Path(xeda.__file__).parent / "platforms"
 #: compared. A tuple of keys names each key whole.
 #: Settings that went from every flow, or from a nested flow's settings.
 _REMOVED_EVERYWHERE = {
-    "nodes/*/results/artifacts/logs/*.log": "the captured output of a tool, `logs/<program>.log`, "
-    "which a flow that registers every log of its run directory lists as an artifact",
     **{
         f"nodes/*/effective_flow_settings/{key}": "no flow read this setting: it is removed"
         for key in ("timeout_seconds", "no_console")
@@ -164,7 +162,6 @@ REVIEWED_DELTAS: dict[str, dict[tuple[str, ...] | str, str]] = {
     "vivado_postsynth_sim_functional": {**_POSTSYNTH_DELTAS},
     "vivado_postsynth_sim_timing": {
         **_POSTSYNTH_DELTAS,
-        f"{_SIM}/results/artifacts/saif": "the direct timing request's newly required activity",
         f"{_SIM}/files/<RUN>/sim/vivado_postsynth_sim/activity.saif": "the direct timing "
         "request's newly required activity; its dependence on timing annotation is tested separately",
     },
@@ -211,6 +208,89 @@ REVIEWED_RENAMES: dict[str, dict[str, str]] = {
 
 for _deltas in REVIEWED_DELTAS.values():
     _deltas.update(_REMOVED_EVERYWHERE)
+
+#: The artifact keys of the goldens that are now documented under another key: a report that was
+#: kept under the path of its file is under `<step>_<file name>`, in lower snake case.
+ARTIFACT_RENAMES: dict[str, str] = {
+    "reports/synth_design/critical_paths.csv": "synth_design_critical_paths_csv",
+    "reports/synth_design/critical_paths_by_delay.csv": "synth_design_critical_paths_by_delay_csv",
+    "reports/place_design/critical_paths.csv": "place_design_critical_paths_csv",
+    "reports/place_design/critical_paths_by_delay.csv": "place_design_critical_paths_by_delay_csv",
+    "reports/phys_opt_design/critical_paths.csv": "phys_opt_design_critical_paths_csv",
+    "reports/phys_opt_design/critical_paths_by_delay.csv": (
+        "phys_opt_design_critical_paths_by_delay_csv"
+    ),
+    "reports/route_design/critical_paths.csv": "route_design_critical_paths_csv",
+    "reports/route_design/critical_paths_by_delay.csv": "route_design_critical_paths_by_delay_csv",
+    "reports/route_design/hierarchical_utilization.xml": (
+        "route_design_hierarchical_utilization_xml"
+    ),
+    "reports/route_design/route_status.rpt": "route_design_route_status_rpt",
+    "reports/route_design/timing.rpt": "route_design_timing_rpt",
+    "reports/route_design/timing_summary.rpt": "route_design_timing_summary_rpt",
+    "reports/route_design/utilization.xml": "route_design_utilization_xml",
+}
+
+_DECLARED = "a declared output is no artifact: it is compared under `outputs`, and the files"
+_DECLARED += " that the tools are handed under `files`"
+#: The artifact keys of the goldens that are gone, and why.
+ARTIFACTS_GONE: dict[str, str] = {
+    **{
+        key: _DECLARED
+        for key in (
+            "netlist",
+            "netlist_timing",
+            "sdf_min",
+            "sdf_max",
+            "checkpoint_synth",
+            "checkpoint_route",
+            "saif",
+            "netlist_verilog",
+        )
+    },
+    "sim.runs/runme.log": "the fake Vivado writes the log of each Vivado run in the directory of "
+    "that run, and the flow keeps them as `synth_1_log` and `impl_1_log`",
+}
+
+#: The artifacts that a node of each flow has and the goldens do not: the log of the main tool of
+#: the flow, and for `vivado_synth` the log of each Vivado run and the hierarchical utilization
+#: that the flow writes as JSON while it reads the reports (the reports were listed before that).
+ARTIFACTS_ADDED: dict[str, dict[str, str]] = {
+    "vivado_synth": {
+        "log": "logs/vivado.log",
+        "synth_1_log": "sim.runs/synth_1/runme.log",
+        "impl_1_log": "sim.runs/impl_1/runme.log",
+        "route_design_hierarchical_utilization_json": (
+            "reports/route_design/hierarchical_utilization.json"
+        ),
+    },
+    "vivado_postsynth_sim": {"log": "logs/vivado.log"},
+    "vivado_power": {"log": "logs/vivado.log"},
+    "yosys": {"log": "logs/yosys.log"},
+}
+
+
+def golden_artifacts(golden: dict) -> dict:
+    """Return `golden` with the artifacts of each node under the keys of today: the renamed keys
+    renamed (`ARTIFACT_RENAMES`), the keys that are gone removed (`ARTIFACTS_GONE`) and the new
+    keys of its flow added (`ARTIFACTS_ADDED`). Every other key and every file name compares as
+    the golden has it."""
+    from copy import deepcopy
+
+    golden = deepcopy(golden)
+    for name, node in golden["nodes"].items():
+        flow = name.rsplit("/", 1)[-1]
+        results = node["results"]
+        results["artifacts"] = {
+            **{
+                ARTIFACT_RENAMES.get(key, key): file
+                for key, file in results["artifacts"].items()
+                if key not in ARTIFACTS_GONE
+            },
+            **ARTIFACTS_ADDED.get(flow, {}),
+        }
+    return golden
+
 
 #: The times of a clock are quantities with units now, and `settings.json` writes them as text
 #: (`"5 ns"`) where the goldens have the number of nanoseconds (`5.0`). The same clock is meant
@@ -610,7 +690,10 @@ def test_a_request_hands_its_tools_what_it_did_before_the_conversion(captured, n
     ), f"no golden for {name}: XEDA_TESTS_CAPTURE_GOLDENS=1 records a missing one"
     deltas = REVIEWED_DELTAS.get(name, {})
     expected = without(
-        activity_recording_delta(json.loads(path.read_text()), name, baseline=True), deltas
+        activity_recording_delta(
+            golden_artifacts(json.loads(path.read_text())), name, baseline=True
+        ),
+        deltas,
     )
     text = render(observed)
     for new, old in REVIEWED_RENAMES.get(name, {}).items():
@@ -620,6 +703,26 @@ def test_a_request_hands_its_tools_what_it_did_before_the_conversion(captured, n
 
 
 # ------------------------------------------------------------------------------ teeth
+
+
+def test_every_key_of_the_artifact_tables_is_in_a_golden() -> None:
+    """A renamed or removed artifact key that no golden holds is a stale entry: it would hide
+    nothing, and a reader would take it for a reviewed change."""
+    keys = {
+        key
+        for path in GOLDENS.glob("*.json")
+        for node in json.loads(path.read_text())["nodes"].values()
+        for key in node["results"]["artifacts"]
+    }
+    assert set(ARTIFACT_RENAMES) - keys == set()
+    assert set(ARTIFACTS_GONE) - keys == set()
+    assert set(ARTIFACT_RENAMES).isdisjoint(ARTIFACTS_GONE)
+    flows = {
+        name.rsplit("/", 1)[-1]
+        for path in GOLDENS.glob("*.json")
+        for name in json.loads(path.read_text())["nodes"]
+    }
+    assert set(ARTIFACTS_ADDED) <= flows
 
 
 def digests(record: dict[str, Any], node: str, suffix: str) -> dict[str, str]:

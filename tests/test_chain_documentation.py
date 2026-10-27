@@ -570,12 +570,12 @@ def test_the_last_flow_owns_the_results_and_delivery_and_any_flow_is_set_by_name
     assert yosys["flatten"] is True and "seed" not in yosys
     pack = json.loads((run / "fpga_pack/settings.json").read_text())["flow_settings"]
     assert "seed" not in pack and "flatten" not in pack and "inputs" not in pack
-    # --outputs-to delivered the last flow's output and nothing of the producers'
+    # --outputs-to delivered the last flow's output and log, and nothing of the producers'
     delivered = sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
-    assert delivered == ["outputs/routed_demo.bit"]
+    assert delivered == ["logs/ecppack.log", "outputs/routed_demo.bit"]
     deliveries = {n["name"]: n["deliveries"] for n in document["nodes"]}
     assert deliveries["yosys_fpga"] == deliveries["nextpnr"] == []
-    assert [d["key"] for d in deliveries["fpga_pack"]] == ["--outputs-to"]
+    assert {d["key"] for d in deliveries["fpga_pack"]} == {"--outputs-to"}
 
 
 def test_the_saved_bindings_of_a_file_are_wiring_in_what_ran(tmp_path, toolchain):

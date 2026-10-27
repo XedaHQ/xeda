@@ -29,29 +29,29 @@ yosys echo on
 
 {#- Remove the attributes once, before the script writes any netlist: from the objects of every
     module and from the modules themselves. `=*` selects the library boxes too. -#}
-{% if artifacts.get("netlist_json") or artifacts.get("netlist_verilog") or artifacts.get("netlist_edif") or settings.write_blif -%}
+{% if netlists.get("netlist_json") or netlists.get("netlist_verilog") or netlists.get("netlist_edif") or settings.write_blif -%}
 {% for attr in settings.attributes_to_unset() -%}
 yosys setattr -unset {{attr}} =*
 yosys setattr -mod -unset {{attr}} =*
 {% endfor -%}
 {% endif -%}
 
-{% if artifacts.get("netlist_json") -%}
-yosys log -stdout "Writing netlist {{artifacts.netlist_json|tcl_quote}}"
-yosys write_json {{artifacts.netlist_json|path}}
+{% if netlists.get("netlist_json") -%}
+yosys log -stdout "Writing netlist {{netlists.netlist_json|tcl_quote}}"
+yosys write_json {{netlists.netlist_json|path}}
 {% endif -%}
 
 {#- `-pvector bra` writes every bus with its range. Without it the netlist has a bus as plain
     bits, and Vivado reads member i as bit i. A yosys bus has the most significant bit as member
     0, so it comes out reversed, with no message. -#}
-{% if artifacts.get("netlist_edif") -%}
-yosys log -stdout "Writing netlist {{artifacts.netlist_edif|tcl_quote}}"
-yosys write_edif -pvector bra {{artifacts.netlist_edif|path}}
+{% if netlists.get("netlist_edif") -%}
+yosys log -stdout "Writing netlist {{netlists.netlist_edif|tcl_quote}}"
+yosys write_edif -pvector bra {{netlists.netlist_edif|path}}
 {% endif -%}
 
-{% if artifacts.get("netlist_verilog") -%}
-yosys log -stdout "Writing netlist {{artifacts.netlist_verilog|tcl_quote}}"
-yosys write_verilog {{settings.write_verilog_flags()|join(" ")}} {{artifacts.netlist_verilog|path}}
+{% if netlists.get("netlist_verilog") -%}
+yosys log -stdout "Writing netlist {{netlists.netlist_verilog|tcl_quote}}"
+yosys write_verilog {{settings.write_verilog_flags()|join(" ")}} {{netlists.netlist_verilog|path}}
 {% endif -%}
 
 {% if settings.write_blif -%}

@@ -38,6 +38,7 @@ from xeda.proc_utils import ProcessTimeout
 from xeda.run_dir import RunDirectory
 from xeda.utils import NonZeroExitCode
 
+from .bsc_outputs import collected_verilog
 from .tool_utils import (
     require_bluesim,
     require_bsc,
@@ -907,7 +908,7 @@ def test_extra_flags_reach_the_verilog_search_path_xeda_reads(tmp_path):
     flow = _run(Bsc, design, tmp_path / "run", extra_flags=["-vsearch", f"{vlib}:+"])
     assert flow is not None and flow.succeeded
     assert "add3" in flow.results["modules"]
-    assert any(Path(f).name == "add3.v" for f in flow.artifacts.verilog)
+    assert any(Path(f).name == "add3.v" for f in collected_verilog(flow))
 
 
 def test_a_link_path_with_whitespace_is_rejected_before_compiling(tmp_path):
@@ -1023,7 +1024,7 @@ def test_bsc_generates_every_module_the_top_needs(tmp_path):
     flow = _run(Bsc, design, tmp_path / "run")
     assert flow is not None and flow.succeeded
     assert flow.results["modules"] == ["mkTop", "mkAccum", "FIFO2"]
-    files = [Path(f) for f in flow.artifacts.verilog]
+    files = [Path(f) for f in collected_verilog(flow)]
     assert [f.name for f in files] == ["bsv_defines.v", "FIFO2.v", "mkAccum.v", "mkTop.v"]
     assert all(f.read_text().startswith("`define BSV_POSITIVE_RESET\n") for f in files)
     bsc = next(tool for tool in flow.results.tools if tool["executable"] == "bsc")
@@ -1045,7 +1046,7 @@ def test_a_macro_change_is_compiled(tmp_path):
         flow = _run(Bsc, design, tmp_path / "run")
         assert flow is not None and flow.succeeded
         run_paths.add(flow.run_path)
-        top = next(Path(f) for f in flow.artifacts.verilog if f.endswith("mkTop.v"))
+        top = next(Path(f) for f in collected_verilog(flow) if f.endswith("mkTop.v"))
         assert f"8'd{step}" in top.read_text()
     assert len(run_paths) == 1  # the second run met the first one's output
 
@@ -1071,7 +1072,7 @@ def test_bsc_compiles_bh(tmp_path):
     design = Design(name="t", design_root=tmp_path, rtl={"sources": ["Blink.bs"], "top": "mkBlink"})
     flow = _run(Bsc, design, tmp_path / "run")
     assert flow is not None and flow.succeeded
-    assert [Path(f).name for f in flow.artifacts.verilog] == ["bsv_defines.v", "mkBlink.v"]
+    assert [Path(f).name for f in collected_verilog(flow)] == ["bsv_defines.v", "mkBlink.v"]
 
 
 def test_a_compile_error_fails_the_run(tmp_path):
@@ -1119,7 +1120,9 @@ def test_bsc_sim_passes_and_fails(simulator, tmp_path, capfd):
     flow = _run(BscSim, design, tmp_path / "fail", simulator=simulator, vcd="fail.vcd")
     assert flow is not None and not flow.succeeded
     assert flow.results["simulator"] == simulator
-    assert Path(flow.artifacts.vcd) == Path("fail.vcd") and (flow.run_path / "fail.vcd").is_file()
+    assert (
+        Path(flow.artifacts.waveform) == Path("fail.vcd") and (flow.run_path / "fail.vcd").is_file()
+    )
 
 
 def _link_command(out: str) -> list[str]:
@@ -1224,8 +1227,8 @@ def test_without_positive_reset_the_verilog_is_left_as_generated(tmp_path):
     require_bsc()
     flow = _run(Bsc, _accum_design(tmp_path / "d"), tmp_path / "run", positive_reset=False)
     assert flow is not None and flow.succeeded
-    assert flow.artifacts.verilog
-    for path in flow.artifacts.verilog:
+    assert collected_verilog(flow)
+    for path in collected_verilog(flow):
         assert "`define BSV_POSITIVE_RESET" not in Path(path).read_text()
 
 
@@ -1240,7 +1243,7 @@ def test_verilog_filters_run_on_each_generated_file(tmp_path):
     assert flow is not None and flow.succeeded
     stamped = {
         Path(path).name: "stamped by a verilog filter" in Path(path).read_text()
-        for path in flow.artifacts.verilog
+        for path in collected_verilog(flow)
     }
     assert stamped == {"bsv_defines.v": False, "FIFO2.v": False, "mkAccum.v": True, "mkTop.v": True}
 
@@ -1279,7 +1282,7 @@ def test_cpp_hands_the_design_macros_to_bh_sources(tmp_path):
         )
         flow = _run(Bsc, design, tmp_path / f"run_{reset}", cpp=True)
         assert flow is not None and flow.succeeded
-        verilog = Path(flow.artifacts.verilog[-1]).read_text()
+        verilog = Path(collected_verilog(flow)[-1]).read_text()
         assert f"r <= `BSV_ASSIGNMENT_DELAY {reset}" in verilog
 
 
@@ -1328,7 +1331,7 @@ def test_the_submodules_of_library_modules_are_collected(tmp_path):
     flow = _run(Bsc, design, tmp_path / "run")
     assert flow is not None and flow.succeeded
     assert {"MakeResetA", "SyncResetA"} <= set(flow.results["modules"])
-    files = list(flow.artifacts.verilog)
+    files = list(collected_verilog(flow))
     subprocess.run(
         ["iverilog", "-g2005", "-o", str(tmp_path / "a.out"), "-s", "mkRstTop", *files],
         check=True,

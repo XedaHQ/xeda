@@ -16,8 +16,10 @@ from ...flow import (
     FlowException,
     FlowSettingsError,
     FlowSettingsException,
+    Out,
     SimFlow,
     SynthFlow,
+    describe_artifacts,
     describe_results,
 )
 from ...flow.metrics import COCOTB_METRICS
@@ -85,6 +87,8 @@ class Ghdl(Flow, metaclass=ABCMeta):
     """Common settings and steps of the GHDL flows."""
 
     executables = ("ghdl",)
+
+    artifacts_description = describe_artifacts("log")
 
     #: GHDL analyzes VHDL.
     reads_sources = frozenset({SourceType.Vhdl})
@@ -335,6 +339,13 @@ class GhdlSynth(Ghdl, SynthFlow):
 
     requires_physical_clocks = False
 
+    class Outputs(SynthFlow.Outputs):
+        verilog: list[Path] = Out(
+            SourceType.Verilog,
+            description="The Verilog files that `ghdl --synth` writes: one file, or one for each "
+            "VHDL source when `verilog_output` is a directory, in the order of the sources.",
+        )
+
     class Settings(Ghdl.Settings, SynthFlow.Settings):
         removed_settings: ClassVar[Dict[str, str]] = {
             **Ghdl.Settings.removed_settings,
@@ -376,10 +387,12 @@ class GhdlSynth(Ghdl, SynthFlow):
             )
 
     def run(self) -> None:
-        """Synthesize VHDL sources into Verilog artifacts."""
+        """Synthesize VHDL sources into Verilog files."""
         design = self.design
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        declared = self.outputs
+        assert isinstance(declared, self.Outputs)
         flags = self.synth_args(ss, design, one_shot_elab=False)
         flags += ["--out=verilog", "--warn-nowrite"]
         if ss.verilog_output is None:
@@ -415,7 +428,7 @@ class GhdlSynth(Ghdl, SynthFlow):
                     log.info("Generating verilog: %s", out_file)
                 with replacing_file(out_path) as f:
                     f.write(verilog)
-            self.artifacts.generated_verilog = list(outputs)
+            declared.verilog = [self.run_path / out_file for out_file in outputs]
         else:
             if not top:
                 raise FlowException("Unable to determine the top unit")
@@ -423,7 +436,7 @@ class GhdlSynth(Ghdl, SynthFlow):
             self.run_directory.writable(ss.verilog_output)
             log.info("Generating verilog: %s", ss.verilog_output)
             self.ghdl.run("synth", *flags, *top, stdout=ss.verilog_output)
-            self.artifacts.generated_verilog = [ss.verilog_output]
+            declared.verilog = [self.run_path / ss.verilog_output]
 
     def _per_source_outputs(self, output_dir: Path) -> dict[Path, DesignSource]:
         """Return the Verilog file that each VHDL source is converted to, in source order.
