@@ -64,6 +64,7 @@ from ..dataclass import (
     written_always,
     waveform_format,
     waveform_value,
+    yaml11_hint,
     written_role,
 )
 from ..design import LANGUAGE_TYPES, Design, Source, SourceType
@@ -1067,7 +1068,8 @@ class Flow(metaclass=ABCMeta):
         verbosity: Literal["quiet", "normal", "verbose", "debug"] = Field(
             "normal",
             description="How much the tools say. `quiet` asks them for less. `verbose` and "
-            "`debug` ask for more, and `debug` also keeps the traces that a tool drops. The "
+            "`debug` ask for more, and `debug` also keeps the traces that a tool drops. Each "
+            "level adds only its own options: `debug` does not add the options of `verbose`. The "
             "level changes the command lines and the logs, so a run with another level is "
             "another run.",
         )
@@ -1190,10 +1192,22 @@ class Flow(metaclass=ABCMeta):
                (`dataclass.waveform_value`): the boolean `true` stands for the name the run
                writes, a name gets the format's extension, and text that reads as a boolean
                (`true`, `yes`) is refused, as it is for a boolean setting.
+            5. `docker` is a switch: text that is no boolean word is refused with a pointer to
+               `docker_image`, the setting that takes an image.
             """
             annotation = field_annotation(cls, name)
             if annotation is None:
                 return value
+            if (
+                name == "docker"
+                and isinstance(value, str)
+                and value.strip().lower() not in ("true", "false")
+                and yaml11_hint(value) is None
+            ):
+                raise WaveformText(
+                    f"`{value}` is text, not a boolean: write `docker: true`, and give the image "
+                    f"as `docker_image: {value}`"
+                )
             if name in opaque_key_fields_of(cls):
                 value = fold_dotted_keys(value)
             waveform = waveform_format(cls, name)

@@ -6,6 +6,7 @@
 
 import json
 import pytest
+from pydantic import ValidationError
 
 from xeda import Design
 from xeda.flow import Flow, FlowSettingsError, registered_flows
@@ -46,8 +47,13 @@ def test_verbosity_takes_one_of_its_four_words(value):
 def test_docker_is_a_switch_and_the_image_has_its_own_setting():
     settings = Nextpnr.Settings.from_input({"docker": True, "docker_image": "example/nextpnr:1"})
     assert settings.docker is True and settings.docker_image == "example/nextpnr:1"
-    with pytest.raises(FlowSettingsError, match="docker"):
+    hint = r"write `docker: true`, and give the image as `docker_image: example/nextpnr:1`"
+    with pytest.raises(FlowSettingsError, match=hint):
         Nextpnr.Settings.from_input({"docker": "example/nextpnr:1"})
+    with pytest.raises(ValidationError, match=hint):
+        Nextpnr.Settings().docker = "example/nextpnr:1"
+    with pytest.raises(FlowSettingsError, match="`yes` is text, not a boolean: write `true`"):
+        Nextpnr.Settings.from_input({"docker": "yes"})  # a boolean word gets the boolean message
 
 
 @pytest.mark.parametrize(

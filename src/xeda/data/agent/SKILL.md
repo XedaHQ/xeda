@@ -182,7 +182,8 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   `-s ir_drop.instance_power.u_core.reg_1=1mW`. Quote a name with a space.
 - Settings every flow accepts (`"common": true`) are `nthreads`, `docker` (run the tools from
   their Docker image), `docker_image` (the image to use), `verbosity` (`quiet`, `normal`,
-  `verbose` or `debug`) and `lib_paths`. A flow whose tool has no matching option accepts
+  `verbose` or `debug`; each level adds only its own tool options, so `debug` does not add those
+  of `verbose`) and `lib_paths`. A flow whose tool has no matching option accepts
   `nthreads` or `lib_paths` and ignores it: only GHDL, ModelSim, NVC and the Vivado simulation
   flows read `lib_paths`. `ghdl_sim`, `ghdl_synth` and `nvc` take a relative path as relative to the
   design root. `nvc` maps `(name, path)` with `--map=name:path`, passes `(None, path)` as `-L path`

@@ -64,7 +64,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -665,7 +665,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -1320,7 +1320,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -1612,7 +1612,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -1853,7 +1853,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -2069,7 +2069,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -2403,7 +2403,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -2691,7 +2691,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -2925,7 +2925,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -3093,7 +3093,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -3668,7 +3668,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -3993,7 +3993,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -4309,7 +4309,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -5164,7 +5164,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -5783,7 +5783,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -6404,7 +6404,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -8350,7 +8350,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -8688,7 +8688,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -9031,7 +9031,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -9353,7 +9353,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -9769,7 +9769,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -10116,7 +10116,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -10493,7 +10493,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -10707,7 +10707,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -11120,7 +11120,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -11357,7 +11357,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -11773,7 +11773,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -11920,7 +11920,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "ghdl.nthreads": {
         "children": false,
@@ -13230,7 +13230,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -13428,7 +13428,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "ghdl.nthreads": {
         "children": false,
@@ -14212,7 +14212,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "nthreads": {
         "children": false,
@@ -14385,7 +14385,7 @@
           "quiet",
           "verbose"
         ],
-        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. The level changes the command lines and the logs, so a run with another level is another run."
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
       },
       "ghdl.nthreads": {
         "children": false,

@@ -240,30 +240,12 @@ matching option. Such a flow accepts ``nthreads`` or ``lib_paths`` and does noth
     effect only with ``docker: true``.
 
 ``verbosity``
-    How much the tools say: ``quiet``, ``normal`` (the default), ``verbose`` or ``debug``. A flow
-    passes the level to its tools with the options that they have. A tool without an option for a
-    level runs as it does at ``normal``. The level is part of the settings of a run, so a run with
-    another level is another run. Where the output of the tools appears is not a setting of a
-    flow.
-
-``lib_paths`` and does nothing with it.
-
-``nthreads``
-    The maximum number of threads that the tools may use.
-
-``docker``
-    Run the tools of the flow from a container image instead of the local installation. The
-    default is ``false``.
-
-``docker_image``
-    The container image to run the tools in, instead of the default image of the flow. It has an
-    effect only with ``docker: true``.
-
-``verbosity``
     How much the tools say: ``quiet``, ``normal`` (the default), ``verbose`` or ``debug``. Each
     flow passes the level to its tools in the way that the tool allows: ``quiet`` adds the quiet
     option of the tool, ``verbose`` adds its verbose option, and ``debug`` adds its debug option
-    or keeps the traces that the flow drops otherwise. The level is part of the settings of the
+    or keeps the traces that the flow drops otherwise. The levels are not a scale: each level adds
+    only its own options, so ``debug`` does not add the options of ``verbose``. A tool without an
+    option for a level runs as it does at ``normal``. The level is part of the settings of the
     run, so a run with another level is another run. ``verbose``, ``quiet`` and ``debug`` were
     three settings before. ``redirect_stdout``, ``print_commands`` and ``console_colors`` are
     gone: where the output of the tools appears is not a setting of a flow.
