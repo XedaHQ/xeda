@@ -195,7 +195,11 @@ def _destination_lock_file(destination: Path, run_root: Path) -> Path:
     The name is a hash of the identity of the destination: the device and inode of the nearest
     existing directory above it, and the names below that directory (normalized, `_leaf`). So
     two spellings of one destination share a lock, and so does a destination that does not exist
-    yet, in a directory that does not exist yet. The last component is never followed."""
+    yet, in a directory that does not exist yet. The last component is never followed.
+
+    The name changes when a directory above the destination is made. A delivery makes those
+    directories before it takes this lock (`Deliveries.make_directories`), and a call that took
+    the old name finds the change after the lock and starts again."""
     place = Path(os.path.abspath(destination))
     below = [place.name]
     directory = place.parent

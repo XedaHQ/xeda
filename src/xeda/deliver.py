@@ -1006,6 +1006,27 @@ class Deliveries:
         found.append(request("destination", self.record_path, True))
         return found
 
+    def make_directories(self) -> None:
+        """Make the missing directories above the destinations and the record of the node.
+
+        The launch calls this before it takes the locks (`lock_requests`). The lock of a
+        destination is named by the nearest directory that exists above it, so a lock taken
+        while a directory is missing would name another directory than the lock taken after the
+        copy made it. A destination that `deliver` refuses gets no directory. A directory that
+        cannot be made is left to `deliver`, which reports it for that destination alone."""
+        for delivery, _source, dest, _sha in self.pending:
+            destination = _located(dest)
+            if self._refusal(destination, delivery) is None:
+                self._make_parent(destination)
+        self._make_parent(self.record_path)
+
+    @staticmethod
+    def _make_parent(path: Path) -> None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+
     def _refusal(self, destination: Path, delivery: Delivery) -> Optional[str]:
         """Return why nothing may ever be delivered to `destination` (located), or None.
 
@@ -1522,7 +1543,9 @@ class Deliveries:
         """
         # Holding the lock from the check below through the replacement and the record: two
         # launches cannot both find the destination unchanged and both replace it. A launch has
-        # taken the lock already, and the lock is then held again at once.
+        # taken the lock already, and the lock is then held again at once. The directory above
+        # the destination is made first: the lock is named by the nearest directory that exists.
+        destination.parent.mkdir(parents=True, exist_ok=True)
         with _run_lock().destination_lock(destination, self.run_root):
             if destination.is_file() and not destination.is_symlink():
                 try:
@@ -1532,7 +1555,6 @@ class Deliveries:
                         return Delivered(delivery.key, source, destination, "unchanged")
                 except OSError:
                     pass
-            destination.parent.mkdir(parents=True, exist_ok=True)
             fd, name = tempfile.mkstemp(prefix=".xeda-delivery-", dir=destination.parent)
             temporary = Path(name)
             moved = done = False

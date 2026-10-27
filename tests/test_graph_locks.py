@@ -935,6 +935,42 @@ def test_two_launches_that_reuse_one_node_write_both_deliveries_in_its_record(
     assert sorted(Path(name).parent.name for name in record["files"]) == ["one", "two"]
 
 
+def test_a_destination_keeps_its_lock_while_the_directory_above_it_is_made(tmp_path, monkeypatch):
+    """The launch makes the missing directories before it takes the locks, so the lock of a
+    destination is the same one after the copy."""
+    root = ensure_run_root(tmp_path / "xeda_run")
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    user = tmp_path / "user" / "out"
+    taken: list[Path] = []
+    monkeypatch.setattr(run_lock, "acquired_hook", taken.append)
+    runner = DefaultRunner(root, display_results=False, outputs_to=user)
+    assert runner.launch_flow(_Maker, design, {}).succeeded
+    assert (user / "made.txt").read_text() == "made\n"
+    assert run_lock._destination_lock_file(user / "made.txt", root) in taken
+
+
+def test_two_launches_that_deliver_into_a_missing_directory_both_complete(tmp_path, monkeypatch):
+    root = ensure_run_root(tmp_path / "xeda_run")
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    users = [tmp_path / "out" / "one", tmp_path / "out" / "two"]
+    _delivering_after_both_read_the_record(monkeypatch)
+
+    def deliver(user: Path):
+        return DefaultRunner(root, display_results=False, outputs_to=user).launch_flow(
+            _Maker, design, {}
+        )
+
+    threads = [_in_thread(lambda user=user: deliver(user)) for user in users]
+    for thread, _outcome in threads:
+        _join(thread)
+    assert [out[0].succeeded for _thread, out in threads] == [True, True]
+    assert [(user / "made.txt").read_text() for user in users] == ["made\n", "made\n"]
+    record = json.loads((root / "d" / "__maker.delivered.json").read_text())
+    assert sorted(Path(name).parent.name for name in record["files"]) == ["one", "two"]
+
+
 def test_two_launches_that_deliver_one_output_to_one_destination_ask_the_second(
     tmp_path, monkeypatch
 ):

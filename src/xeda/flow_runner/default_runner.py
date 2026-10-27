@@ -1076,6 +1076,8 @@ class FlowLauncher:
         # order, once it knows all the files it delivers.
         if deliver and deliveries:
             try:
+                for _flow, delivery in deliveries:
+                    delivery.make_directories()
                 with acquire_all(
                     [r for _flow, delivery in deliveries for r in delivery.lock_requests()],
                     run_root=self.run_root,
