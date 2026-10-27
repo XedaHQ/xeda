@@ -139,7 +139,7 @@ def test_list_settings_includes_common_settings():
     assert by_name["nthreads"]["common"] is True
     assert not any("alias" in f for f in info["fields"])
     assert "ncpus" not in by_name
-    assert by_name["dockerized"]["common"] is True
+    assert by_name["docker"]["common"] is True
     assert by_name["clocks"]["common"] is False
     assert by_name["clock"]["json_schema"]["x-xeda-input-only"] is True
     assert "clock_period" not in by_name

@@ -234,7 +234,7 @@ def test_debug_does_not_change_the_generated_hardware(tmp_path):
     `-remove-unused-modules`, `-cross-info`): a debug run generates the same design."""
     design = _accum_design(tmp_path / "d")
     plain = _flow(Bsc, design, tmp_path / "a")._compile_flags("verilog")
-    debug = _flow(Bsc, design, tmp_path / "b", debug=True)._compile_flags("verilog")
+    debug = _flow(Bsc, design, tmp_path / "b", verbosity="debug")._compile_flags("verilog")
     assert plain == debug
 
 

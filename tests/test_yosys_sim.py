@@ -274,7 +274,7 @@ def test_driver_monitor_paths_use_the_execution_environment(tmp_path, monkeypatc
 
     monkeypatch.setattr(Tool, "execute", execute)
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        YosysSim, design, {"dockerized": True, "timeout": 4, "cxxrtl": {"filename": "model.cpp"}}
+        YosysSim, design, {"docker": True, "timeout": 4, "cxxrtl": {"filename": "model.cpp"}}
     )
     assert compiled and flow is not None and flow.succeeded
 

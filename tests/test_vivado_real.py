@@ -384,7 +384,7 @@ def test_xsim_native_timeout_stops_the_container(work_dir):
         name="timeout", root=root, rtl={"sources": ["tb.sv"], "top": "tb"}, tb={"top": "tb"}
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
-        VivadoSim, design, {"dockerized": True, "timeout": 90.0}
+        VivadoSim, design, {"docker": True, "timeout": 90.0}
     )
     assert not flow.succeeded
     assert flow.results["error"]["code"] == "timeout"

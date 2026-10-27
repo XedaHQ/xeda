@@ -30,7 +30,9 @@ def test_nvc_sim_py(tmp_path: Path) -> None:
     run_dir = tmp_path / "xeda_run"
     for design in design_paths:
         xeda_runner = DefaultRunner(run_dir, debug=debug)
-        flow = xeda_runner.run(Nvc, design, flow_overrides=dict(debug=debug, verbose=int(debug)))
+        flow = xeda_runner.run(
+            Nvc, design, flow_overrides=dict(verbosity="debug" if debug else "normal")
+        )
         assert flow is not None, "run_flow returned None"
         settings_json = flow.run_path / "settings.json"
         results_json = flow.run_path / "results.json"
@@ -491,7 +493,7 @@ def test_nvc_evidence_compiles_against_container_paths(tmp_path, monkeypatch):
     run_path = tmp_path / "run"
     run_path.mkdir()
     flow = Nvc(
-        {"docker": "test/nvc", "dockerized": True},
+        {"docker_image": "test/nvc", "docker": True},
         _evidence_design(tmp_path, ""),
         run_path,
         run_directory=RunDirectory.claimed(run_path, tmp_path),

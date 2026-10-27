@@ -1407,7 +1407,7 @@ def require_modelsim() -> None:
             tb={"top": "probe"},
         )
         flow = DefaultRunner(work / "runs", display_results=False).run_flow(
-            Modelsim, design, {"dockerized": True, "timeout": 60}
+            Modelsim, design, {"docker": True, "timeout": 60}
         )
         if flow is None or not flow.succeeded or flow.results.get("sim.ended_by") != "finish":
             pytest.fail(f"{image} did not provide native quiet-finish runtime evidence")

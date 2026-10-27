@@ -83,11 +83,9 @@ def test_a_number_for_a_text_field_says_to_quote_it(tmp_path):
 )
 def test_a_flow_boolean_given_a_yaml_11_word_is_a_settings_error(word, fix):
     with pytest.raises(FlowSettingsError) as raised:
-        VivadoSynth.Settings.from_input(
-            {"fpga": {"part": "xc7a12tcsg325-1"}, "print_commands": word}
-        )
+        VivadoSynth.Settings.from_input({"fpga": {"part": "xc7a12tcsg325-1"}, "docker": word})
     assert f"`{word}` is text, not a boolean: write `{fix}`" in str(raised.value)
-    assert "print_commands" in str(raised.value)
+    assert "docker" in str(raised.value)
 
 
 def _boolean_fields():
@@ -112,11 +110,11 @@ def test_every_boolean_setting_of_every_flow_refuses_text(flow, name):
 def test_assigning_a_boolean_word_fails_as_constructing_does():
     settings = VivadoSynth.Settings.from_input({"fpga": {"part": "xc7a12tcsg325-1"}})
     with pytest.raises(ValidationError) as raised:
-        settings.debug = "on"
+        settings.docker = "on"
     assert validation_errors(raised.value.errors())[0][1] == (
         "`on` is text, not a boolean: write `true`"
     )
-    assert settings.debug is False
+    assert settings.docker is False
 
 
 def test_a_yaml_11_word_for_a_non_boolean_flow_setting_says_what_to_write():
@@ -135,7 +133,7 @@ def test_try_convert_to_primitives_leaves_other_words_as_text(word):
     assert try_convert_to_primitives(word) == word
 
 
-@pytest.mark.parametrize("setting", ["debug=yes", "debug=on", "dockerized=n"])
+@pytest.mark.parametrize("setting", ["no_log=yes", "no_log=on", "docker=n"])
 def test_dash_s_given_a_boolean_word_says_what_to_write(tmp_path, monkeypatch, setting):
     use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
@@ -151,7 +149,7 @@ def test_dash_s_given_a_boolean_word_says_what_to_write(tmp_path, monkeypatch, s
     assert f"`{word}` is text, not a boolean: write `{fix}`" in document["error"]["message"]
 
 
-@pytest.mark.parametrize("setting", ["quiet=true", "quiet=TRUE", "quiet=false"])
+@pytest.mark.parametrize("setting", ["no_log=true", "no_log=TRUE", "no_log=false"])
 def test_dash_s_true_and_false_set_a_boolean(tmp_path, monkeypatch, setting):
     use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
@@ -166,10 +164,10 @@ def test_dash_s_true_and_false_set_a_boolean(tmp_path, monkeypatch, setting):
 def test_a_number_is_not_a_boolean_anywhere(tmp_path, number):
     message = f"`{number}` is a number, not a boolean: write `true` or `false`"
     with pytest.raises(FlowSettingsError, match=re.escape(message)):
-        VivadoSynth.Settings.from_input({"fpga": {"part": "xc7a12tcsg325-1"}, "debug": number})
+        VivadoSynth.Settings.from_input({"fpga": {"part": "xc7a12tcsg325-1"}, "docker": number})
     settings = VivadoSynth.Settings.from_input({"fpga": {"part": "xc7a12tcsg325-1"}})
     with pytest.raises(ValidationError, match=re.escape(message)):
-        settings.dockerized = number
+        settings.docker = number
     with pytest.raises(DesignValidationError, match=re.escape(message)):
         _design(tmp_path, f"language: {{vhdl: {{synopsys: {number}}}}}")
 

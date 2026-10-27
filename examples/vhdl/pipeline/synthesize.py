@@ -9,7 +9,7 @@ def quartus_synth():
             "quartus",
             "pipelined_adder.yaml",
             "--settings",
-            "dockerized=true",
+            "docker=true",
             "fpga.part=10CL016YU256C6G",
             "clock.period=15ns",
         ]

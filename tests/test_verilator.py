@@ -31,7 +31,7 @@ def test_verilator_sim_py(tmp_path: Path) -> None:
     for design in design_paths:
         xeda_runner = DefaultRunner(run_dir, debug=debug)
         flow = xeda_runner.run(
-            Verilator, design, flow_overrides=dict(debug=debug, verbose=int(debug))
+            Verilator, design, flow_overrides=dict(verbosity="debug" if debug else "normal")
         )
         assert flow is not None, "run_flow returned None"
         settings_json = flow.run_path / "settings.json"

@@ -298,7 +298,7 @@ def test_modelsim_has_an_opt_in_functional_capability_probe():
 @needs_tclsh
 def test_modelsim_excludes_compile_and_load_diagnostics(tmp_path, monkeypatch):
     monkeypatch.setenv("XEDA_FAKE_MODELSIM_LOAD_STATUS", "2")
-    flow, _ = _run(tmp_path, monkeypatch, {"redirect_stdout": True})
+    flow, _ = _run(tmp_path, monkeypatch, {})
     assert flow is not None and flow.succeeded
     assert flow.results["sim.errors"] == 0 and flow.results["sim.warnings"] == 0
     assert "analysis/load diagnostic" in (flow.run_path / "modelsim_runtime.log").read_text()

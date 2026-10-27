@@ -171,8 +171,8 @@ def _quartus_processes(tmp_path, monkeypatch, **settings) -> list:
 def test_quartus_runs_its_tool_in_the_container_when_the_flow_is_dockerized(
     tmp_path, monkeypatch
 ) -> None:
-    """`dockerized` reaches `quartus_sh`: the tool is the flow's, made for its settings."""
-    started = _quartus_processes(tmp_path, monkeypatch, dockerized=True)
+    """`docker` reaches `quartus_sh`: the tool is the flow's, made for its settings."""
+    started = _quartus_processes(tmp_path, monkeypatch, docker=True)
     assert not [s for s in started if s[0] == "quartus_sh"], "quartus_sh ran natively"
     in_container = [
         args for program, args in started if program == "docker" and "quartus_wrapper" in args
@@ -184,7 +184,7 @@ def test_quartus_runs_its_tool_in_the_container_when_the_flow_is_dockerized(
 def test_quartus_runs_its_tool_natively_when_the_flow_is_not_dockerized(
     tmp_path, monkeypatch
 ) -> None:
-    started = _quartus_processes(tmp_path, monkeypatch, dockerized=False)
+    started = _quartus_processes(tmp_path, monkeypatch, docker=False)
     assert [args for program, args in started if program == "quartus_sh"]
     assert not [s for s in started if s[0] == "docker"]
 
@@ -211,7 +211,7 @@ def test_quartus_synth_py(monkeypatch) -> None:
     assert path.exists()
     design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(
-        fpga=FPGA("10CL016YU256C6G"), clocks={"main_clock": {"period": "6 ns"}}, dockerized=False
+        fpga=FPGA("10CL016YU256C6G"), clocks={"main_clock": {"period": "6 ns"}}, docker=False
     )
     with tempfile.TemporaryDirectory() as run_dir:
         print("Xeda run dir: ", run_dir)

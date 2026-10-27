@@ -33,7 +33,7 @@ def test_ghdl_sim_py(tmp_path: Path) -> None:
     for design in design_paths:
         xeda_runner = DefaultRunner(run_dir, debug=debug)
         flow = xeda_runner.run(
-            GhdlSim, design, flow_overrides=dict(debug=debug, verbose=int(debug))
+            GhdlSim, design, flow_overrides=dict(verbosity="debug" if debug else "normal")
         )
         assert flow is not None, "run_flow returned None"
         settings_json = flow.run_path / "settings.json"

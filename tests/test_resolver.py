@@ -404,7 +404,7 @@ def test_deep_plan_protection_and_resolution_purity(tmp_path):
     with pytest.raises(TypeError):
         plan.context.input_settings["fpga"]["part"] = "bad"
     assert not (tmp_path / "run").exists()
-    assert all(node.settings.debug for node in plan.nodes)
+    assert all(node.settings.verbosity == "debug" for node in plan.nodes)
 
 
 def _board_place():
@@ -636,7 +636,7 @@ def test_displaced_producer_skips_launch_checks_but_checks_syntax(tmp_path, capl
 
     sources = [{"file": "net.json", "type": "JsonNetlist"}]
     caplog.set_level(logging.INFO)
-    sections = {"__synth": {"quiet": True}}
+    sections = {"__synth": {"verbosity": "quiet"}}
     plan = _plan(tmp_path, _Place, {"fpga": {"part": PART}}, sections=sections, sources=sources)
     assert [n.name for n in plan.nodes] == ["__place"]
     assert "__synth is not part of this run: its settings are unused" in caplog.text

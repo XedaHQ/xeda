@@ -354,12 +354,11 @@ def test_a_vcs_flow_makes_its_own_tools(tmp_path):
 
 
 def test_the_settings_of_a_vcs_flow_reach_its_tools(tmp_path):
-    flow = _built_vcs(tmp_path, dockerized=True, docker="example/vcs:2026", print_commands=False)
+    flow = _built_vcs(tmp_path, docker=True, docker_image="example/vcs:2026")
     for name in TOOLS:
         tool = getattr(flow, name)
         assert tool.dockerized and tool.docker is not None
         assert tool.docker.image == "example/vcs:2026"
-        assert tool.print_command is False
     assert not _built_vcs(tmp_path / "plain").vcs.dockerized
 
 

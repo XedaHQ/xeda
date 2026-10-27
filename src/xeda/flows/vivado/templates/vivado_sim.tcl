@@ -43,7 +43,7 @@ if { [catch {xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} -onfinish st
 {#- `log_vcd` runs before the pre-run, so the VCD records from time 0. `open_saif` and `log_saif`
     run after it, so the SAIF excludes the pre-run and its duration does not count it. Verified
     with Vivado 2024.2. #}
-{#- `-quiet` makes `log_vcd` ignore its errors, so the setting `quiet` never adds it:
+{#- `-quiet` makes `log_vcd` ignore its errors, so the `quiet` verbosity never adds it:
     a VCD that cannot be logged must fail the run. #}
 
 {%- if settings.vcd %}

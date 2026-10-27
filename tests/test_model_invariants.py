@@ -353,28 +353,10 @@ def _field_validators_reading_other_settings(settings_cls):
 @pytest.mark.parametrize("cls", [cls for cls, _ in FLOWS], ids=FLOW_IDS)
 def test_no_field_validator_reads_another_setting(cls):
     """A field validator sees the other settings (`info.data`) only when its *own* field is
-    validated, so its result depends on the order settings were given in: `quiet` was reset by a
-    `verbose` given with it, but not by one assigned after it. Whatever depends on several
-    settings is decided where it is read (`Flow.Settings.is_quiet`)."""
+    validated, so its result depends on the order settings were given in: a setting that a
+    second one resets would hold another value when the second is assigned after it. Whatever
+    depends on several settings is decided where it is read."""
     assert not _field_validators_reading_other_settings(cls.Settings)
-
-
-def test_quiet_verbose_and_debug_mean_the_same_whatever_order_they_are_given_in():
-    """Quiet verbose and debug mean the same whatever order they are given in."""
-    from xeda.flows import YosysFpga
-
-    Settings = YosysFpga.Settings
-    for louder in ({"verbose": 2}, {"debug": True}):
-        constructed = Settings(quiet=True, **louder)
-        assigned_after = Settings(quiet=True)
-        assigned_before = Settings(**louder)
-        for name, value in louder.items():
-            setattr(assigned_after, name, value)
-        assigned_before.quiet = True
-        settings = [constructed, assigned_after, assigned_before]
-        assert all(s.model_dump() == constructed.model_dump() for s in settings), louder
-        assert not any(s.is_quiet for s in settings), louder
-    assert Settings(quiet=True).is_quiet
 
 
 # ----------------------------------------------------------------- validators log nothing above DEBUG
