@@ -34,8 +34,8 @@ the setting ``seed``.
 
 A boolean setting accepts only ``true`` and ``false`` in a file, and only ``True`` and ``False``
 in Python. On the command line, ``-s key=true`` and ``-s key=false`` give the boolean (in any
-letter case). ``yes`` and ``1`` are errors. For example, ``debug: yes`` and
-``-s debug=on`` fail with a message that ``yes`` (or ``on``) is text and not a boolean, and that
+letter case). ``yes`` and ``1`` are errors. For example, ``docker: yes`` and
+``-s docker=on`` fail with a message that ``yes`` (or ``on``) is text and not a boolean, and that
 you should write ``true``. A field that is not a boolean gives the same advice for a word that
 YAML 1.1 reads as a boolean (``nthreads: on``).
 

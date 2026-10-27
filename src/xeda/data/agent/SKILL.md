@@ -180,11 +180,10 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   `ndr.assignments`) takes a dotted name as one key:
   `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0` or
   `-s ir_drop.instance_power.u_core.reg_1=1mW`. Quote a name with a space.
-- Settings every flow accepts (`"common": true`) include `nthreads`, `dockerized`
-  (run the tools from their Docker image), `docker`, `quiet`, `verbose`, `debug`,
-  `redirect_stdout` and `lib_paths`. A flow whose
-  tool has no matching option accepts `nthreads`, `redirect_stdout` or `lib_paths` and ignores it:
-  only the Vivado flows redirect output, and only GHDL, ModelSim, NVC and the Vivado simulation
+- Settings every flow accepts (`"common": true`) are `nthreads`, `docker` (run the tools from
+  their Docker image), `docker_image` (the image to use), `verbosity` (`quiet`, `normal`,
+  `verbose` or `debug`) and `lib_paths`. A flow whose tool has no matching option accepts
+  `nthreads` or `lib_paths` and ignores it: only GHDL, ModelSim, NVC and the Vivado simulation
   flows read `lib_paths`. `ghdl_sim`, `ghdl_synth` and `nvc` take a relative path as relative to the
   design root. `nvc` maps `(name, path)` with `--map=name:path`, passes `(None, path)` as `-L path`
   (a directory that holds library directories) and refuses an entry that has a name and no path.
@@ -566,7 +565,7 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `invalid_chain`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
 | `invalid_run_root`, `delivery_refused`, `delivery_failed`, `cleanup_failed` | The message names the directory or setting and the fix. |
 | `nonzero_exit` | The tool exited non-zero; read its log in `run_dir` of the node `error.node`. |
-| `timeout`, `executable_not_found` | Raise the limit. Install the tool, or add `-s dockerized=true`. |
+| `timeout`, `executable_not_found` | Raise the limit. Install the tool, or add `-s docker=true`. |
 | `reported_failure` | The tool exited 0 and its reports or checks say it failed, or the flow raised its own error. |
 | `missing_generated` | A source of `rtl.sources` that the generator should write matches no file in its output. Check the generator, or list only the generated entries in `generated_sources` (empty, every entry is the generator's). |
 | `generator_failed` (`error.node` is null, every node `skipped`) | The generator failed or could not be judged. The message names it and its exit status; its output is in the log. |

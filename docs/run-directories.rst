@@ -140,9 +140,8 @@ for example ``logs/vivado.log``. A program that the flow starts again adds to it
 of the flow makes the logs anew. Xeda writes these logs whatever you do with the output. There are
 three exceptions:
 
-* When the flow sends the output of a program to a file of its own (for example the
-  ``redirect_stdout`` setting of the Vivado flows), that file holds the output, and
-  ``logs/<program>.log`` holds the error output only.
+* When the flow sends the output of a program to a file of its own, that file holds the output,
+  and ``logs/<program>.log`` holds the error output only.
 * A program whose output the flow reads as a value (a version query) has no log. Its output is not
   kept.
 * If ``logs`` is a file or a link that a tool left in the run directory, Xeda writes no log for
