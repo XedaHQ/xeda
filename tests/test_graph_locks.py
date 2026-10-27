@@ -978,6 +978,26 @@ def test_a_destination_keeps_its_lock_while_the_directory_above_it_is_made(tmp_p
     assert run_lock._destination_lock_file(user / "made.txt", root) in taken
 
 
+def test_a_destination_whose_directory_cannot_be_made_gets_no_lock(tmp_path, monkeypatch):
+    """A copy never makes a directory while the launch holds its locks: that would change the
+    lock of the destination. A destination whose directory cannot be made beforehand gets no
+    lock, and its delivery raises the error."""
+    root = ensure_run_root(tmp_path / "xeda_run")
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    blocker = tmp_path / "blocker"
+    blocker.write_text("a file, not a directory\n")
+    taken: list[Path] = []
+    monkeypatch.setattr(run_lock, "acquired_hook", taken.append)
+    runner = DefaultRunner(root, display_results=False, outputs_to=blocker / "out")
+    with pytest.raises(NotADirectoryError):
+        runner.launch_flow(_Maker, design, {})
+    assert blocker.read_text() == "a file, not a directory\n"
+    record = root / "d" / "__maker.delivered.json"
+    destinations = [lock for lock in taken if "deliveries" in lock.parts]
+    assert set(destinations) == {run_lock._destination_lock_file(record, root)}
+
+
 def test_two_launches_that_deliver_into_a_missing_directory_both_complete(tmp_path, monkeypatch):
     root = ensure_run_root(tmp_path / "xeda_run")
     design = _design(tmp_path)

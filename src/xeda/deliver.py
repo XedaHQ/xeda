@@ -955,6 +955,9 @@ class Deliveries:
         #: What the node delivers, noted when it completed (`collect`): each file, where it goes,
         #: and its content digest as the run left it.
         self.pending: list[tuple[Delivery, Path, Path, str]] = []
+        #: The destinations whose missing directories `make_directories` could not make, with the
+        #: error. They get no lock, and `deliver` raises the error when it reaches one.
+        self._unprepared: dict[Path, OSError] = {}
         #: What `deliver` has copied so far in this call, even one that raises. An `OSError`
         #: partway through must not leave the copies already made unreported.
         self.delivered: list[Delivered] = []
@@ -1001,7 +1004,9 @@ class Deliveries:
         share it, so the record is locked as a destination is."""
         request = _run_lock().LockRequest
         found = [
-            request("destination", _located(dest), True) for _d, _s, dest, _sha in self.pending
+            request("destination", destination, True)
+            for _d, _s, dest, _sha in self.pending
+            if (destination := _located(dest)) not in self._unprepared
         ]
         found.append(request("destination", self.record_path, True))
         return found
@@ -1012,20 +1017,18 @@ class Deliveries:
         The launch calls this before it takes the locks (`lock_requests`). The lock of a
         destination is named by the nearest directory that exists above it, so a lock taken
         while a directory is missing would name another directory than the lock taken after the
-        copy made it. A destination that `deliver` refuses gets no directory. A directory that
-        cannot be made is left to `deliver`, which reports it for that destination alone."""
+        copy made it. A destination that `deliver` refuses gets no directory. A destination whose
+        directory cannot be made gets no lock, so that no copy makes the directory later while the
+        locks are held; `deliver` raises the error when it reaches that destination."""
+        self._unprepared = {}
         for delivery, _source, dest, _sha in self.pending:
             destination = _located(dest)
             if self._refusal(destination, delivery) is None:
-                self._make_parent(destination)
-        self._make_parent(self.record_path)
-
-    @staticmethod
-    def _make_parent(path: Path) -> None:
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            pass
+                try:
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                except OSError as error:
+                    self._unprepared[destination] = error
+        self.record_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _refusal(self, destination: Path, delivery: Delivery) -> Optional[str]:
         """Return why nothing may ever be delivered to `destination` (located), or None.
@@ -1413,6 +1416,8 @@ class Deliveries:
                         f"{earlier} delivered"
                     )
                     continue
+                if destination in self._unprepared:
+                    raise self._unprepared[destination]
                 refusal = self._refusal(destination, delivery)
                 if refusal is None and destination.is_dir() and not destination.is_symlink():
                     refusal = "a directory"
