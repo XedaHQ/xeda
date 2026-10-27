@@ -1643,15 +1643,15 @@ class FlowLauncher:
                     flow.stale_reason = always
                     log.info("Running %s: %s", flow.name, always)
                 elif not self.settings.rebuild_all and not policy.clean:
-                    # A second consumer may be acquiring a lease on this same run. Reuse must
-                    # not change its trace or directory through a clock marker. A node held
-                    # shared is never refreshed.
+                    # Other launches may hold a lease on this same run. A node held shared is
+                    # never written: if the check wants to refresh its trace (a record that
+                    # has settled since it was taken), the launch starts again with the node
+                    # exclusive.
                     freshness = check_trace(
-                        run_path,
-                        expected,
-                        locate_program,
-                        refresh=not producer_launch and not shared,
+                        run_path, expected, locate_program, refresh=not producer_launch
                     )
+                    if shared and freshness.fresh and freshness.refreshed is not None:
+                        raise launch_locks.NeedsExclusive([node.name])
                     if freshness.fresh and reuse_results(flow, self.run_root, freshness):
                         if freshness.refreshed is not None:
                             write_trace(run_path, freshness.refreshed)
