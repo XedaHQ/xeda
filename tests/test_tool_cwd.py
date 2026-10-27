@@ -214,13 +214,7 @@ def test_a_relative_log_file_goes_to_the_run_path(tmp_path, calls):
     tool = _tool(flow)
     tool.run("arg", stdout=Path("tool.out"))
     tool.run("arg", tee=Path("tool.log"))
-    tool.redirect_stdout = Path("redirected.out")
-    tool.run("arg")
-    assert [kwargs.get("stdout") for _, _, kwargs in calls] == [
-        flow.run_path / "tool.out",
-        None,
-        flow.run_path / "redirected.out",
-    ]
+    assert [kwargs.get("stdout") for _, _, kwargs in calls] == [flow.run_path / "tool.out", None]
     assert calls[1][2]["tee"] == flow.run_path / "tool.log"
 
 

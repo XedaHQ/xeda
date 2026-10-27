@@ -392,10 +392,7 @@ def test_nvc_plugin_load_failure_is_a_failure(tmp_path):
 
 
 @pytest.mark.parametrize("one_shot", [True, False])
-@pytest.mark.parametrize("redirect", [None, Path("tool.log")])
-def test_nvc_evidence_excludes_build_diagnostics_and_avoids_redirect_conflict(
-    tmp_path, monkeypatch, one_shot, redirect
-):
+def test_nvc_evidence_excludes_build_diagnostics(tmp_path, monkeypatch, one_shot):
     import sys
     from xeda.proc_utils import run_process
 
@@ -406,7 +403,6 @@ def test_nvc_evidence_excludes_build_diagnostics_and_avoids_redirect_conflict(
     def run(tool, *args, **kwargs):
         if tool.executable == "nvc" and "-r" in args:
             invocations.append((args, kwargs))
-            assert tool.redirect_stdout is None
             text = (
                 "lib/std.08/env-body.vhd:42:9: note: 0ms+0: FINISH called\nXEDA_NVC_RUNTIME_START\n"
             )
@@ -422,14 +418,12 @@ def test_nvc_evidence_excludes_build_diagnostics_and_avoids_redirect_conflict(
         return original(tool, *args, **kwargs)
 
     monkeypatch.setattr(NvcTool, "run", run)
-    monkeypatch.setattr(Nvc, "nvc", property(lambda flow: NvcTool(redirect_stdout=redirect)))
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
         Nvc, _evidence_design(tmp_path, "std.env.finish;"), {"one_shot": one_shot, "timeout": 5}
     )
     assert flow is not None and not flow.succeeded
     assert invocations[-1][1]["timeout"] == 5
     assert invocations[-1][1]["merge_stderr"] is True
-    assert flow.nvc.redirect_stdout == redirect
 
 
 def test_nvc_evidence_clears_previous_files_before_runtime(tmp_path, monkeypatch):

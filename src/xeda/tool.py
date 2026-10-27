@@ -263,7 +263,6 @@ class Tool(XedaBaseModel):
     version_flag: Optional[List[str]] = ["--version"]
     version_regexps: List[Union[re.Pattern[str], str]] = [VERSION_REGEXP1, VERSION_REGEXP2]
     docker: Optional[Docker] = Field(None)
-    redirect_stdout: Optional[Path] = Field(None, description="Redirect stdout to a file")
     dockerized: bool = False
     print_command: bool = True
     highlight_rules: Optional[Dict[str, str]] = None
@@ -689,8 +688,6 @@ class Tool(XedaBaseModel):
         else `working_directory()`. A tool without a flow needs an absolute `cwd`. The process starts there, and a relative `stdout` or `tee`
         file and the files that Xeda writes for the tool are relative to it too."""
         directory = self._directory(cwd)
-        if not stdout and self.redirect_stdout:
-            stdout = self.redirect_stdout
         stdout = _placed(directory, stdout)
         if tee is not None:
             tee = directory / tee

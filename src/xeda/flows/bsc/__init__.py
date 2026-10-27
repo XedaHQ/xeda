@@ -1899,7 +1899,7 @@ class BscSim(BscFlow, SimFlow):
         )
         with replacing_file(script, encoding="utf-8") as stream:
             stream.write(text)
-        tool = ModelsimTool().derive("vsim", redirect_stdout=None, log_key="simulation_log")
+        tool = ModelsimTool().derive("vsim", log_key="simulation_log")
         tool.run(
             "-batch",
             "-logfile",
@@ -1919,7 +1919,6 @@ class BscSim(BscFlow, SimFlow):
         assert isinstance(ss, self.Settings)
         self.run_directory.remove(RUNTIME_LOG)
         script = prepare_vcs_runtime(self, setup=[], user_script=None, stop_time=None)
-        simulation.redirect_stdout = None
         simulation.run(
             *sim_args,
             "-ucli",
@@ -1955,7 +1954,6 @@ class BscSim(BscFlow, SimFlow):
         tool = self.bsc.derive(
             "xsim", version_flag=None, minimum_version=None, log_key="simulation_log"
         )
-        tool.redirect_stdout = None
         tool.run(
             str(executable) + ".xsim",
             "-log",
@@ -2005,7 +2003,7 @@ class BscSim(BscFlow, SimFlow):
                 )
         obj = self.run_directory.writable("bsc_verilator_hooks.o")
         self.run_directory.remove(obj)
-        self.bsc.derive("c++", version_flag=None, minimum_version=None, redirect_stdout=None).run(
+        self.bsc.derive("c++", version_flag=None, minimum_version=None).run(
             "-std=c++14",
             "-I",
             str(Path(roots[-1]) / "include"),
@@ -2048,7 +2046,7 @@ class BscSim(BscFlow, SimFlow):
             flags += ["-I", str(prefix / "include" / "iverilog")]
         target = self.run_directory.writable("iverilog_evidence.vpi")
         self.run_directory.remove(target)
-        self.bsc.derive("cc", version_flag=None, minimum_version=None, redirect_stdout=None).run(
+        self.bsc.derive("cc", version_flag=None, minimum_version=None).run(
             *flags, source, "-o", target, timeout=120
         )
 

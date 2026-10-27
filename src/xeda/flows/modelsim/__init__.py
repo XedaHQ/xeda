@@ -144,9 +144,8 @@ class Modelsim(SimFlow):
             modelsim_opts.extend(["-modelsimini", str(ss.modelsimini)])
         vsim = ModelsimTool()
         # One `vsim` run does both the build and the simulation. Keep all its output on failure
-        # or timeout. Only the runtime transcript supplies evidence. A general stdout redirect
-        # (`redirect_stdout`) could hide that transcript, so the derived tool sets none.
-        runtime = vsim.derive(vsim.executable, redirect_stdout=None)
+        # or timeout. Only the runtime transcript supplies evidence.
+        runtime = vsim.derive(vsim.executable)
         runtime.run(
             *modelsim_opts,
             timeout=ss.timeout,

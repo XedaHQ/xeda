@@ -799,12 +799,10 @@ class GhdlSim(Ghdl, SimFlow):
         sim_tops = (design.rtl.top,) if design.tb.cocotb is not None and design.rtl.top else tb_top
         runtime = self.ghdl
         if not self.cocotb:
+            # The evidence tee shows native output and copies it into this invocation's log.
             self._sim_log = self.run_directory.writable("sim.log")
             self.run_directory.remove(self._sim_log)
             run_flags.append("--unbuffered")
-            # The evidence tee shows native output and copies it into this invocation's log.
-            # A flow's general stdout redirection still applies to analysis/elaboration.
-            runtime = runtime.derive(runtime.executable, redirect_stdout=None)
         runtime.run(
             "run",
             *cf,

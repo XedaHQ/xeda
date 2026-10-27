@@ -396,7 +396,7 @@ class Nvc(SimFlow):
         source = self.copy_from_template("nvc_end.cpp")
         if self.nvc.dockerized:
             # Container paths must come from the container, never a host installation.
-            executable = self.nvc.derive("sh", redirect_stdout=None).run_get_stdout(
+            executable = self.nvc.derive("sh").run_get_stdout(
                 "-c", 'readlink -f "$(command -v nvc)"'
             )
             prefix = Path(executable.strip()).parent.parent if executable else None
@@ -415,7 +415,7 @@ class Nvc(SimFlow):
         target = "nvc_end.so"
         self.run_directory.remove(target)
         self.run_directory.writable(target)
-        self.nvc.derive("c++", redirect_stdout=None).run(*flags, source, "-o", target, timeout=120)
+        self.nvc.derive("c++").run(*flags, source, "-o", target, timeout=120)
         return "./" + target
 
     def has_evidence_adapter(self) -> bool:
@@ -531,7 +531,6 @@ class Nvc(SimFlow):
             self._sim_log = self.run_directory.writable("sim.log")
             self._end_record = self.run_directory.writable("nvc_end.json")
             env["XEDA_NVC_END_RECORD"] = "nvc_end.json"
-            runtime = self.nvc.derive(self.nvc.executable, redirect_stdout=None)
         options = dict(env=env, timeout=ss.timeout, tee=self._sim_log, merge_stderr=True)
         if one_shot:
             sources = self.sources_read(tb=True)

@@ -418,8 +418,7 @@ def test_ghdl_rejects_conflicting_severity_flag(tmp_path, flag):
         )
 
 
-@pytest.mark.parametrize("redirect", [None, Path("tool.log")])
-def test_ghdl_evidence_uses_runtime_only_and_copies_flags(tmp_path, monkeypatch, redirect):
+def test_ghdl_evidence_uses_runtime_only_and_copies_flags(tmp_path, monkeypatch):
     from xeda.proc_utils import run_process
     import sys
 
@@ -428,8 +427,6 @@ def test_ghdl_evidence_uses_runtime_only_and_copies_flags(tmp_path, monkeypatch,
 
     def run(self, *args, **kwargs):
         invocations.append((args, kwargs))
-        if args[0] == "run":
-            assert self.redirect_stdout is None
         text = "" if args[0] == "run" else "simulation finished @5ns\n"
         here = self.working_directory()
         tee = kwargs.get("tee")
@@ -444,7 +441,6 @@ def test_ghdl_evidence_uses_runtime_only_and_copies_flags(tmp_path, monkeypatch,
     monkeypatch.setattr(
         GhdlTool, "probe_stdout", lambda *args, **kwargs: "GHDL 6.0.0\nmcode code generator\n"
     )
-    monkeypatch.setattr(GhdlSim, "ghdl", property(lambda flow: GhdlTool(redirect_stdout=redirect)))
     flags = ["--assert-level=error"]
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
         GhdlSim, design, {"run_flags": flags, "stop_time": 10}
@@ -455,7 +451,6 @@ def test_ghdl_evidence_uses_runtime_only_and_copies_flags(tmp_path, monkeypatch,
     assert runtime.count("--assert-level=error") == 1
     assert "--stop-time=10000000fs" in runtime
     assert options["merge_stderr"] is True
-    assert flow.ghdl.redirect_stdout == redirect
     assert "simulation finished" not in (flow.run_path / "sim.log").read_text()
 
 

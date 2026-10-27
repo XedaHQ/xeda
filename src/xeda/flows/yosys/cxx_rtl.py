@@ -200,14 +200,12 @@ class YosysSim(YosysBase, SimFlow):
         self.results["_tool"] = yosys.info  # TODO where should this go?
         self.run_yosys(*args)
 
-        yosys_config = yosys.derive(
-            "yosys-config", sibling=True, source_name="yosys", redirect_stdout=None
-        )
+        yosys_config = yosys.derive("yosys-config", sibling=True, source_name="yosys")
         yosys_include_dir = yosys_config.probe_stdout("--datdir/include")
         if not yosys_include_dir:
             raise FlowFatalError("yosys-config did not report its include directory.")
         runtime_include = Path(yosys_include_dir) / "backends" / "cxxrtl" / "runtime"
-        cxx = yosys.derive("g++", redirect_stdout=None)
+        cxx = yosys.derive("g++")
         self.artifacts["cxxrtl_cpp"] = cxxrtl_cpp
         if ss.cxxrtl.header:
             self.artifacts["cxxrtl_header"] = cxxrtl_cpp.with_suffix(".h")
@@ -234,7 +232,6 @@ class YosysSim(YosysBase, SimFlow):
         self.artifacts["simulator"] = sim_bin_file
         sim_bin = yosys.derive(
             executable=str(self.run_file(sim_bin_file)),
-            redirect_stdout=None,
             log_key="simulation_log",
         )
         self._driver_exit_code = None

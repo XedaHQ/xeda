@@ -490,8 +490,6 @@ class Vcs(SimFlow):
                 common_run_args.append(f"-gui={ss.gui}")
             elif ss.gui is True:
                 common_run_args.append("-gui")
-        runtime_tool = self.vcs if ss.one_shot_run else self.simv
-        runtime_tool.redirect_stdout = None
         if ss.one_shot_run:
             self.vcs.run(
                 *vcs_args,
