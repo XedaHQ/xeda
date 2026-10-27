@@ -23,6 +23,7 @@ import dataclasses
 import enum
 import functools
 import importlib
+import io
 import logging
 import os
 import pkgutil
@@ -32,6 +33,8 @@ import tempfile
 import types
 import warnings
 from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import PurePath
 from typing import Any
 
@@ -385,6 +388,55 @@ def process_state() -> dict[str, Any]:
         "warning filters": [repr(f) for f in warnings.filters],
         "temporary directory": tempfile.tempdir,
     }
+
+
+def _deny(record: logging.LogRecord) -> bool:
+    return False
+
+
+@contextmanager
+def streams_written() -> Iterator[dict[str, str]]:
+    """Keep what the block writes to the standard output and error, and put the streams back.
+
+    This catches a `print` (the Python streams) and a child process that inherits the descriptors
+    1 and 2. The result has the keys `output` and `error`, filled when the block ends."""
+    written = {"output": "", "error": ""}
+    # A handler that an earlier test left on a logger writes log records to a stream: that is the
+    # application's output and not the launch's. A handler that the block adds is not silenced.
+    silenced = [
+        handler
+        for logger in [logging.getLogger(), *logging.root.manager.loggerDict.values()]
+        if isinstance(logger, logging.Logger)
+        for handler in logger.handlers
+        if not type(handler).__module__.startswith("_pytest")
+    ]
+    for handler in silenced:
+        handler.addFilter(_deny)
+    python_output, python_error = io.StringIO(), io.StringIO()
+    saved_python = sys.stdout, sys.stderr
+    saved_descriptors = os.dup(1), os.dup(2)
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as error:
+        for stream in saved_python:
+            stream.flush()
+        os.dup2(output.fileno(), 1)
+        os.dup2(error.fileno(), 2)
+        sys.stdout, sys.stderr = python_output, python_error
+        try:
+            yield written
+        finally:
+            sys.stdout, sys.stderr = saved_python
+            for handler in silenced:
+                handler.removeFilter(_deny)
+            os.dup2(saved_descriptors[0], 1)
+            os.dup2(saved_descriptors[1], 2)
+            for descriptor in saved_descriptors:
+                os.close(descriptor)
+            for key, file, text in (
+                ("output", output, python_output),
+                ("error", error, python_error),
+            ):
+                file.seek(0)
+                written[key] = file.read().decode("utf-8", "replace") + text.getvalue()
 
 
 def _configured(logger_state: tuple) -> bool:

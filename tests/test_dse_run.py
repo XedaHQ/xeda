@@ -251,6 +251,8 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     assert proc.returncode == 0, proc.stderr[-3000:]
     document = json.loads(proc.stdout)
     assert document["success"] is True
+    # The command line prints the tables of the best run, on stderr with --json.
+    assert "Best so far" in proc.stderr and "Best results" in proc.stderr
     # the design's name, and the file it was read from
     assert document["design"] == "sqrt"
     assert Path(document["design_file"]).samefile(tmp_path / "sqrt.yaml")

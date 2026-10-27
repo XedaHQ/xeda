@@ -277,7 +277,9 @@ def test_the_environment_file_of_a_start_outside_the_run_directory_is_not_checke
     elsewhere.mkdir()
     _tool(flow).run("arg", env={"ONE": "1"}, cwd=elsewhere)
     assert (elsewhere / "env.sh").read_text() == 'export ONE="1"'
-    assert list(flow.run_path.iterdir()) == []
+    # the run directory holds only the log of the tool (`logs/<program>.log`)
+    assert [p.name for p in flow.run_path.iterdir()] == ["logs"]
+    assert not list(flow.run_path.rglob("env.sh"))
 
 
 def test_the_environment_file_of_a_start_below_the_run_directory_goes_there(tmp_path, calls):

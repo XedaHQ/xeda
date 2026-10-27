@@ -36,6 +36,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import contextvars
 import threading
 from collections import deque
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
@@ -59,8 +60,7 @@ from ..design import names_a_design_file
 from ..flow_runner import DefaultRunner
 from ..flow_runner.chains import parse_request
 from ..errors import RecordError, SpecError
-from ..flow_runner.default_runner import PreparedRequest, print_results
-from ..flow_runner.launch_report import results_of
+from ..flow_runner.default_runner import PreparedRequest
 from ..flow_runner.settings_layers import command_line_table
 from ..flow_runner.run_lock import run_dir_lock
 from ..outcomes import (
@@ -73,8 +73,8 @@ from ..outcomes import (
     run_document,
     spec_document,
 )
-from ..proc_utils import tool_output_stream
-from ..records import CANCELED, ErrorInfo, decode_record
+from ..proc_utils import TOOL_OUTPUT, tool_output_stream
+from ..records import CANCELED, ErrorInfo, RunRecord, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
 from ..xedaproject import resolve_project_file
 from .constants import HEARTBEAT, LAYOUT
@@ -153,6 +153,8 @@ class RemoteOutcome:
     document: Dict[str, Any]
     success: bool
     error: Optional[BaseException] = None
+    #: The record of the requested node of a launch that came back, which the caller may show.
+    record: Optional[RunRecord] = None
 
     @property
     def exit_status(self) -> int:
@@ -252,7 +254,9 @@ class _Agent:
         #: default one.
         self.attach_options = ""
         self._stderr: Deque[str] = deque(maxlen=_STDERR_LINES)
-        self._drain_thread = threading.Thread(target=self._drain, daemon=True)
+        self._drain_thread = threading.Thread(
+            target=contextvars.copy_context().run, args=(self._drain,), daemon=True
+        )
         self._drain_thread.start()
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -272,7 +276,9 @@ class _Agent:
     # -- heartbeat and cancel
 
     def start_heartbeat(self) -> None:
-        self._beats = threading.Thread(target=self._beat, name="heartbeat", daemon=True)
+        self._beats = threading.Thread(
+            target=contextvars.copy_context().run, args=(self._beat,), name="heartbeat", daemon=True
+        )
         self._beats.start()
 
     def _beat(self) -> None:
@@ -319,7 +325,7 @@ class _Agent:
 
     def emit(self, payload: bytes) -> None:
         text = payload.decode("utf-8", "replace")
-        if self.launching:
+        if self.launching and TOOL_OUTPUT.get() == "terminal":
             stream = tool_output_stream()
             stream.write(text + "\n")
             stream.flush()
@@ -1765,12 +1771,7 @@ def _finish(
                     run.localize = lambda: document
                     raise
                 _note_deliveries(document, local.requested, planned, delivered)
-            print_results(
-                results=results_of(record),
-                title=f"Results of flow:{run.flow} design:{local.design_name}",
-                skip_if_false={"artifacts", "reports"},
-            )
-    return RemoteOutcome(document, result.get("outcome") == Outcome.PASSED.value)
+    return RemoteOutcome(document, result.get("outcome") == Outcome.PASSED.value, None, record)
 
 
 __all__ = [

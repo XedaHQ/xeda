@@ -13,28 +13,39 @@ import sys
 import termios
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
+import contextvars
 from contextvars import ContextVar
 from pathlib import Path
-from typing import IO, Any, Dict, Iterator, List, Optional, TextIO, Tuple, Union
+from typing import IO, Any, Dict, Iterator, List, Literal, Optional, TextIO, Tuple, Union, cast
 
 import colorama
 import psutil
 
+from .console import console_target
 from .utils import ExecutableNotFound, NonZeroExitCode, live_log
 
 log = logging.getLogger(__name__)
 
+#: Where the output of a tool goes besides its log: nowhere (`"log"`) or the terminal
+#: (`"terminal"`).
+ToolOutput = Literal["log", "terminal"]
 
-#: The stream that tool output and echoed commands are written to. `None` means `sys.stdout`.
-#: The machine-readable modes of the CLI (`--json`) point it at `sys.stderr`, so that a
-#: parseable result can own stdout. Child processes that inherit stdout are redirected too.
-_tool_output: Optional[TextIO] = None
+#: Where the output of the tools of this context goes. A tool always writes its log in the run
+#: directory. The output reaches a standard stream only when this is `"terminal"`, so a program
+#: that uses Xeda as a library sees nothing on its streams unless it asks. The command line sets
+#: it. The stream is the one of the console of the command line: standard output, or standard
+#: error under `--json`, so that a parseable result owns standard output.
+TOOL_OUTPUT: ContextVar[ToolOutput] = ContextVar("xeda_tool_output", default="log")
 
 #: The prefix under which a container image is recorded, beside the programs that `run_process`
 #: starts.
 DOCKER_IMAGE_PREFIX = "docker-image:"
+
+#: How many of the last lines of its output an error says for a program that has no log.
+OUTPUT_TAIL_LINES = 20
 
 #: Seconds allowed for a tool to exit gracefully after an interrupt or another exception.
 PROCESS_STOP_GRACE = 5.0
@@ -91,26 +102,80 @@ def note_program(name: str) -> None:
             names.before[name] = program_state(name)
 
 
-def set_tool_output(stream: Optional[TextIO]) -> None:
-    """Route tool output away from stdout. `None` restores the default (`sys.stdout`)."""
-    global _tool_output  # pylint: disable=global-statement
-    _tool_output = stream
-
-
 def tool_output_stream() -> TextIO:
-    """Return the stream that tool output is written to."""
-    return _tool_output if _tool_output is not None else sys.stdout
+    """Return the stream that tool output reaches when `TOOL_OUTPUT` is `"terminal"`."""
+    return cast(TextIO, console_target() or sys.stdout)
 
 
 def tool_output_redirect() -> Optional[TextIO]:
-    """Return the stream that a child process should inherit as its stdout, or `None` to leave
-    stdout unchanged.
+    """Return the stream that a child process should inherit as its stdout when `TOOL_OUTPUT` is
+    `"terminal"`, or `None` to leave stdout unchanged.
 
-    Any code that spawns a subprocess outside `run_process` (design generators, the remote
-    runner) must honor this. Otherwise the output lands on fd 1 and corrupts a `--json`
-    document.
+    The result is not `None` only when the command line moved tool output off standard output
+    (`--json`). A child that has no log, and that code outside `run_process` starts (a design
+    generator, the remote runner), gets `child_stdout()`. Otherwise the output lands on fd 1 and
+    corrupts a `--json` document.
     """
-    return _tool_output
+    return cast(TextIO, console_target()) if TOOL_OUTPUT.get() == "terminal" else None
+
+
+def child_stdout() -> Union[None, int, TextIO]:
+    """Return what a child process that has no log gets as its stdout (`Popen(stdout=...)`): its
+    own stream (`None`) or the redirect of the command line in `"terminal"` mode, and the null
+    device in `"log"` mode, so that a library caller never finds the output of a child on its
+    standard output."""
+    if TOOL_OUTPUT.get() != "terminal":
+        return subprocess.DEVNULL
+    stream = tool_output_redirect()
+    if stream is None:
+        return None
+    return stream if _stream_has_fileno(stream) else subprocess.DEVNULL
+
+
+def run_child(
+    command: Any,
+    *,
+    cwd: Union[str, os.PathLike],
+    source: str = "child",
+    stdout: Any = None,
+    **kwargs: Any,
+) -> "subprocess.CompletedProcess[str]":
+    """Run a child process that has no log (a design generator) in the directory `cwd` and wait
+    for it. `command` and `kwargs` are those of `subprocess.run`, except `stdout`.
+
+    The child writes where `child_stdout()` says (its own standard error as before). In `"log"`
+    mode its output, error output included, goes to the `xeda` logger at INFO, one record for
+    each line, with `source` in front, and `stdout` of the result is empty. A caller that gives
+    `stdout` gets it as it is. With `check`, a nonzero exit raises `NonZeroExitCode`, which says
+    the last lines of the output in `"log"` mode."""
+    check = kwargs.pop("check", False)
+    tail: list[str] = []
+    if stdout is not None or TOOL_OUTPUT.get() == "terminal":
+        done = subprocess.run(
+            command, cwd=cwd, stdout=child_stdout() if stdout is None else stdout, **kwargs
+        )
+    else:
+        if kwargs.get("stderr") is None:
+            kwargs["stderr"] = subprocess.STDOUT
+        done = subprocess.run(
+            command,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            **kwargs,
+        )
+        # The lines are logged before a failure is raised: they say why the child failed.
+        lines = (done.stdout or "").splitlines()
+        for line in lines:
+            log.info("%s: %s", source, line)
+        done.stdout = ""
+        tail = lines[-OUTPUT_TAIL_LINES:]
+    if check and done.returncode != 0:
+        raise _nonzero_exit(command, done.returncode, tail)
+    return done
 
 
 def _stream_has_fileno(stream: Optional[TextIO]) -> bool:
@@ -344,30 +409,6 @@ class _Deadline:
             self.proc.wait()
 
 
-def _needs_line_copy(
-    stdout: Union[None, bool, str, os.PathLike],
-    highlight_rules: Optional[Dict[str, str]],
-    redirect: Optional[TextIO],
-    tee: Path | None = None,
-) -> bool:
-    """Return whether the stdout of a child must be piped and copied to `tool_output_stream()`
-    line by line in Python, and not handed to `Popen` directly.
-
-    This applies only with no capture requested (`stdout is None`). Then the lines are copied
-    when a `tee` log is wanted, when highlighting wants to inspect each line, or when `redirect`
-    (tool output has been redirected, for example under `--json`) is a stream that cannot be
-    passed to `Popen` as a file descriptor (`_stream_has_fileno`). Handing such a stream to
-    `Popen` raises `io.UnsupportedOperation` deep inside `subprocess`.
-    """
-    if stdout is not None:
-        return False
-    return (
-        tee is not None
-        or bool(highlight_rules)
-        or (redirect is not None and not _stream_has_fileno(redirect))
-    )
-
-
 def _stdout_terminal_fd() -> Optional[int]:
     """Return the file descriptor of the terminal that tool output is written to directly, or
     None if that stream is not a terminal.
@@ -414,7 +455,7 @@ _ESCAPE_SEQUENCES = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _LINE_ENDS = re.compile(r"\r\n|\r|\n")
 
 
-def _write_log_lines(log_file: IO[str], segments: Sequence[str]) -> None:
+def _write_log_lines(log_file: "_Fanout", segments: Sequence[str]) -> None:
     """Write lines of the output of a terminal to a log, without the escape sequences and
     without the empty lines that a line end after a carriage return leaves."""
     for segment in segments:
@@ -433,7 +474,7 @@ def _readable(fd: int, timeout: float) -> bool:
 
 def _copy_from_terminal(
     master: int,
-    log_file: IO[str],
+    log_file: "_Fanout",
     stream: TextIO,
     child_ended: Callable[[], bool],
     release: Callable[[], None],
@@ -480,6 +521,33 @@ def _copy_from_terminal(
         _write_log_lines(log_file, [pending + decoder.decode(b"", final=True)])
 
 
+class _LogFile:
+    """A log file that more than one thread can write: the output of a tool and, in a thread of
+    its own, its error output. `plain` drops the escape sequences of a terminal from the text."""
+
+    def __init__(self, file: IO[str], *, plain: bool = False) -> None:
+        self._file = file
+        self._plain = plain
+        self._lock = threading.Lock()
+
+    def write(self, text: str) -> None:
+        if self._plain:
+            text = _ESCAPE_SEQUENCES.sub("", text)
+        with self._lock:
+            self._file.write(text)
+
+
+class _Fanout:
+    """The log files that receive the same text."""
+
+    def __init__(self, files: Sequence[_LogFile]) -> None:
+        self.files = list(files)
+
+    def write(self, text: str) -> None:
+        for file in self.files:
+            file.write(text)
+
+
 def _run_in_terminal(
     command: List[str],
     env: Optional[Dict[str, Any]],
@@ -487,27 +555,23 @@ def _run_in_terminal(
     check: bool,
     merge_stderr: bool,
     timeout: float | None,
-    tee: Path,
+    logs: _Fanout,
     on_stop: Callable[[], None] | None,
     new_session: bool,
 ) -> None:
     """Run a child as `run_process` does, with a pseudo-terminal in place of the pipe. Stdout and,
-    with `merge_stderr`, stderr are the terminal. The time limit, the stop hook, the log and the
-    exit status are those of the pipe."""
+    with `merge_stderr`, stderr are the terminal, so the logs hold both. The time limit, the stop
+    hook, the logs and the exit status are those of the pipe."""
     master, slave = os.openpty()
     try:
-        # The log is made before the tool starts: a log that cannot be made must not start it.
-        with (
-            live_log(tee, encoding="utf-8") as log_file,
-            subprocess.Popen(
-                command,
-                stdout=slave,
-                stderr=slave if merge_stderr else None,
-                env=env,
-                cwd=cwd,
-                start_new_session=new_session,
-            ) as proc,
-        ):
+        with subprocess.Popen(
+            command,
+            stdout=slave,
+            stderr=slave if merge_stderr else None,
+            env=env,
+            cwd=cwd,
+            start_new_session=new_session,
+        ) as proc:
 
             def release_slave() -> None:
                 nonlocal slave
@@ -518,7 +582,7 @@ def _run_in_terminal(
             with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
                 _copy_from_terminal(
                     master,
-                    log_file,
+                    logs,
                     tool_output_stream(),
                     deadline.leader_exited,
                     release_slave,
@@ -535,12 +599,297 @@ def _run_in_terminal(
             os.close(slave)
 
 
-def proc_output(is_stderr: bool, line):
-    print(
-        f"{'[E] ' if is_stderr else ''}{line}",
-        end="",
-        file=sys.stderr if is_stderr else tool_output_stream(),
+def _finish(
+    command: List[str],
+    proc: "subprocess.Popen[Any]",
+    deadline: _Deadline,
+    check: bool,
+    timeout: float | None,
+    tail: Sequence[str] = (),
+) -> None:
+    """Raise what the end of a tool means: its time limit, or its exit status when `check`. The
+    `tail` is the last lines of the output of a tool that has no log: the error says them."""
+    if deadline.expired:
+        assert timeout is not None
+        raise ProcessTimeout(command, timeout)
+    if check and proc.returncode != 0:
+        raise _nonzero_exit(command, proc.returncode, tail)
+
+
+def _nonzero_exit(command: Any, exit_code: int, tail: Sequence[str]) -> NonZeroExitCode:
+    """Return the error of a command that exited with `exit_code`. It says `tail`, the last lines
+    of the output of a command that has no log."""
+    if tail:
+        return NonZeroExitCode(
+            command, exit_code, "The last lines of its output:\n" + "\n".join(tail)
+        )
+    return NonZeroExitCode(command, exit_code)
+
+
+def _run_inherited(
+    command: List[str],
+    env: Optional[Dict[str, Any]],
+    cwd: Union[None, str, os.PathLike],
+    check: bool,
+    timeout: float | None,
+    on_stop: Callable[[], None] | None,
+    new_session: bool,
+) -> None:
+    """Run a child that has no log, in `"terminal"` mode. The child writes to the terminal itself:
+    it inherits the stream of the tool output (`tool_output_redirect()`) and its error output.
+    Xeda copies nothing, so the child keeps its colors and its progress bars."""
+    with subprocess.Popen(
+        command,
+        stdout=tool_output_redirect(),
+        env=env,
+        cwd=cwd,
+        start_new_session=new_session,
+    ) as proc:
+        log.debug("Started %s[%d]", command[0], proc.pid)
+        with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
+            proc.wait()
+        _finish(command, proc, deadline, check, timeout)
+
+
+def _run_copying(
+    command: List[str],
+    env: Optional[Dict[str, Any]],
+    cwd: Union[None, str, os.PathLike],
+    check: bool,
+    highlight_rules: Optional[Dict[str, str]],
+    merge_stderr: bool,
+    timeout: float | None,
+    tee: Path | None,
+    log_to: Path | None,
+    log_append: bool,
+    on_stop: Callable[[], None] | None,
+    terminal: bool,
+    new_session: bool,
+) -> None:
+    """Run a child whose output is not captured. The output goes to the logs (`tee` and `log_to`)
+    as it arrives. It goes to the terminal too, when `TOOL_OUTPUT` is `"terminal"`.
+
+    The error output goes to `log_to` and, in `"terminal"` mode, to the standard error, unless
+    `merge_stderr` folds it into the output. A child with no log and no terminal has its output
+    sent to the `xeda` logger at DEBUG."""
+    show = TOOL_OUTPUT.get() == "terminal"
+    redirect = tool_output_redirect()
+    if (
+        show
+        and tee is None
+        and log_to is None
+        and not highlight_rules
+        and (redirect is None or _stream_has_fileno(redirect))
+    ):
+        _run_inherited(command, env, cwd, check, timeout, on_stop, new_session)
+        return
+    # The logs are made before the tool starts: a log that cannot be made must not start it.
+    with contextlib.ExitStack() as stack:
+        tee_log = (
+            _LogFile(stack.enter_context(live_log(tee, encoding="utf-8")))
+            if tee is not None
+            else None
+        )
+        tool_log = (
+            _LogFile(
+                stack.enter_context(live_log(log_to, encoding="utf-8", append=log_append)),
+                plain=True,
+            )
+            if log_to is not None
+            else None
+        )
+        logs = _Fanout([f for f in (tee_log, tool_log) if f is not None])
+        # The child gets a terminal when it asks for one. A pseudo-terminal has one stream. The
+        # error output joins it when the tool has a log (`log_to`), which holds both streams. A
+        # `tee` log with a `log_to` beside it would then get the error output that a pipe leaves
+        # out of it, unless `merge_stderr` says it should: its text must not depend on whether
+        # Xeda writes to a terminal, so that case keeps the pipe.
+        if (
+            terminal
+            and show
+            and logs.files
+            and (tee is None or log_to is None or merge_stderr)
+            and _stdout_terminal_fd() is not None
+        ):
+            _run_in_terminal(
+                command,
+                env,
+                cwd,
+                check,
+                merge_stderr or log_to is not None,
+                timeout,
+                logs,
+                on_stop,
+                new_session,
+            )
+            return
+        # Compile the regex keys once, to improve performance.
+        highlight_rules_re: Dict[re.Pattern, str] = {}
+        for pattern, subs in (highlight_rules or {}).items():
+            highlight_rules_re[re.compile(pattern)] = subs
+        # The error output of the child goes to the log of the tool, apart from `tee`, which
+        # holds the output alone unless `merge_stderr` says otherwise.
+        errors_apart = tool_log is not None and not merge_stderr
+        stderr = (
+            subprocess.PIPE
+            if errors_apart
+            else subprocess.STDOUT if merge_stderr or not show else None
+        )
+        name = Path(command[0]).name
+        tail: deque[str] = deque(maxlen=OUTPUT_TAIL_LINES)
+        with subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=stderr,
+            env=env,
+            cwd=cwd,
+            universal_newlines=True,
+            bufsize=1,
+            start_new_session=new_session,
+        ) as proc:
+            assert proc.stdout is not None, f"Popen for '{name}' failed: stdout is None!"
+            pump = None
+            if errors_apart:
+                assert proc.stderr is not None and tool_log is not None
+                pump = _context_thread(_copy_errors, proc.stderr, tool_log, show, name)
+                pump.start()
+            terminal_fd = _stdout_terminal_fd() if show else None
+            with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
+                with open(proc.stdout.fileno(), errors="ignore", closefd=False) as proc_stdout:
+                    for line in proc_stdout:
+                        logs.write(line)
+                        if show:
+                            for re_pat, subs in highlight_rules_re.items():
+                                line, matches = re_pat.subn(
+                                    subs + colorama.Style.RESET_ALL, line, count=1
+                                )
+                                if matches > 0:
+                                    break
+                            # Check on every line, not once up front. A tool can switch the
+                            # terminal into raw mode while it runs and restore it on exit, so
+                            # the answer can change during the call. The check costs well
+                            # under a microsecond.
+                            shown = tool_output_stream()
+                            shown.write(line)
+                            if _needs_explicit_carriage_return(terminal_fd):
+                                shown.write("\r")
+                        elif not logs.files:
+                            log.debug("%s: %s", name, line.rstrip("\r\n"))
+                            tail.append(line.rstrip("\r\n"))
+                proc.wait()
+            if pump is not None:
+                pump.join(PROCESS_STOP_GRACE)
+            _finish(command, proc, deadline, check, timeout, tail)
+
+
+def _context_thread(target: Any, *args: Any) -> threading.Thread:
+    """Return a daemon thread that runs `target(*args)` in a copy of the current context, so
+    that its log records carry the launch and the node of the caller."""
+    return threading.Thread(
+        target=contextvars.copy_context().run, args=(target, *args), daemon=True
     )
+
+
+def _copy_errors(pipe: IO[str], tool_log: _LogFile | None, show: bool, name: str) -> None:
+    """Copy the error output of a child to the log of the tool, and to the standard error when
+    the terminal shows the output. Without a log and without a terminal, it goes to the `xeda`
+    logger at DEBUG. The function runs in a thread of its own and ends with the pipe."""
+    try:
+        with open(pipe.fileno(), errors="ignore", closefd=False) as errors:
+            for line in errors:
+                if tool_log is not None:
+                    tool_log.write(line)
+                if show:
+                    sys.stderr.write(line)
+                elif tool_log is None:
+                    log.debug("%s: %s", name, line.rstrip("\r\n"))
+    except (OSError, ValueError):
+        pass  # the pipe was closed under the thread: Xeda stopped the tool
+
+
+def _run_to_file(
+    command: List[str],
+    env: Optional[Dict[str, Any]],
+    cwd: Union[None, str, os.PathLike],
+    check: bool,
+    stdout: Path,
+    timeout: float | None,
+    on_stop: Callable[[], None] | None,
+    new_session: bool,
+    log_to: Path | None,
+    log_append: bool,
+) -> None:
+    """Run a child whose output goes to the file `stdout` alone. The file is the log of the tool:
+    a new file at the name, made before the tool starts and written as it runs. The output of a
+    failed tool stays, since it says why the tool failed. The error output goes to `log_to`, and
+    to the standard error when the terminal shows the output."""
+    show = TOOL_OUTPUT.get() == "terminal"
+    name = Path(command[0]).name
+    with contextlib.ExitStack() as stack:
+        out_file = stack.enter_context(live_log(stdout, encoding="utf-8"))
+        tool_log = (
+            _LogFile(
+                stack.enter_context(live_log(log_to, encoding="utf-8", append=log_append)),
+                plain=True,
+            )
+            if log_to is not None
+            else None
+        )
+        with subprocess.Popen(
+            command,
+            cwd=cwd,
+            stdout=out_file,
+            stderr=subprocess.PIPE,
+            env=env,
+            universal_newlines=True,
+            start_new_session=new_session,
+        ) as proc:
+            log.debug("Started %s[%d]", command[0], proc.pid)
+            assert proc.stderr is not None
+            pump = _context_thread(_copy_errors, proc.stderr, tool_log, show, name)
+            pump.start()
+            with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
+                log.info("Standard output is redirected to: %s", os.path.abspath(stdout))
+                proc.wait()
+            pump.join(PROCESS_STOP_GRACE)
+        _finish(command, proc, deadline, check, timeout)
+
+
+def _run_capturing(
+    command: List[str],
+    env: Optional[Dict[str, Any]],
+    cwd: Union[None, str, os.PathLike],
+    check: bool,
+    merge_stderr: bool,
+    timeout: float | None,
+    on_stop: Callable[[], None] | None,
+    new_session: bool,
+) -> str:
+    """Run a child and return its output. The error output joins the output with `merge_stderr`.
+    Without it, the error output goes to the standard error in `"terminal"` mode and to the
+    `xeda` logger at DEBUG otherwise. A failure says the last lines of the output."""
+    show = TOOL_OUTPUT.get() == "terminal"
+    with subprocess.Popen(
+        command,
+        cwd=cwd,
+        shell=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT if merge_stderr else None if show else subprocess.PIPE,
+        bufsize=1,
+        universal_newlines=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        start_new_session=new_session,
+    ) as proc:
+        log.debug("Started %s[%d]", command[0], proc.pid)
+        with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
+            out, err = proc.communicate(timeout=None)
+    for line in (err or "").splitlines():
+        log.debug("%s: %s", Path(command[0]).name, line)
+    lines = [*(out or "").splitlines(), *(err or "").splitlines()]
+    _finish(command, proc, deadline, check, timeout, lines[-OUTPUT_TAIL_LINES:])
+    return out.strip()
 
 
 def _pwd(cwd: Union[None, str, "os.PathLike[str]"]) -> str:
@@ -574,8 +923,16 @@ def run_process(
     tee: Path | None = None,
     on_stop: Callable[[], None] | None = None,
     terminal: bool = False,
+    log_to: Path | None = None,
+    log_append: bool = False,
 ) -> Union[None, str]:
     """Run `executable`, and return its captured stdout when `stdout` is True.
+
+    Where the output goes depends on `TOOL_OUTPUT`. In `"log"` mode, the default, it reaches no
+    standard stream: it goes to the logs the caller names, and without any to the `xeda` logger
+    at DEBUG. In `"terminal"` mode it also goes to the terminal (`tool_output_stream()`), and a
+    child with no log gets the terminal itself. `print_command` shows the command line in
+    `"terminal"` mode only.
 
     On POSIX the child leads a session and a process group of its own, so that stopping it also
     stops the processes that it started: after `timeout` seconds, and when an exception (Ctrl-C
@@ -592,10 +949,13 @@ def run_process(
 
     `tee` also writes every line of the output to this file. The output is then not captured, so
     `tee` with a `stdout` other than `None` is a `ValueError`. A `stdout` that is a path sends
-    the output to that file alone. Either file is the log of a tool. Xeda
-    makes it as a new file at the given name before the tool starts and writes it as the output
-    arrives (`utils.live_log`). The new file replaces whatever was there, a link or a hard link
-    included, and Xeda never writes through that link. A log that cannot be made starts no tool.
+    the output to that file alone. `log_to` is the log of the tool: it receives the output and
+    the error output, or the error output alone when `stdout` is a path. It does not hold the
+    escape sequences of a pseudo-terminal. `log_append` adds to the file when this run made it
+    (`live_log`). Each of these files is the log of a tool. Xeda makes it as a new file at the
+    given name before the tool starts and writes it as the output arrives (`utils.live_log`). The
+    new file replaces whatever was there, a link or a hard link included, and Xeda never writes
+    through that link. A log that cannot be made starts no tool.
 
     `on_stop` stops what killing the process does not reach (a container: `Docker.run`). It is
     called at most once, and only when Xeda stopped the process: its time limit expired, or an
@@ -610,10 +970,10 @@ def run_process(
     `docker kill` of `Docker.run` is bounded by `tool.DOCKER_KILL_TIMEOUT`).
 
     `merge_stderr` folds the stderr of the child into stdout while capturing (`stdout=True`) or
-    copying lines (`tee` or highlighting), so stderr diagnostics also reach the transcript.
+    copying lines, so stderr diagnostics also reach the transcript.
 
-    `terminal` says that the child asks for a terminal. When the output is copied to a `tee` log
-    and Xeda writes to a terminal, the child gets a pseudo-terminal in place of the pipe, for its
+    `terminal` says that the child asks for a terminal. When the output is copied to a log and
+    Xeda writes to a terminal, the child gets a pseudo-terminal in place of the pipe, for its
     stdout and, with `merge_stderr`, its stderr. It then behaves as it does when a person runs
     it: it writes colors and redraws a progress bar in place. `tool_output_stream()` gets what it
     writes as it writes it. The log gets the same text without the escape sequences, a line for
@@ -627,6 +987,8 @@ def run_process(
         raise ValueError(f"timeout must be a positive number of seconds, not {timeout!r}")
     if tee is not None and stdout is not None:
         raise ValueError("`tee` copies the output while showing it: not with `stdout` given")
+    if log_to is not None and stdout is True:
+        raise ValueError("`log_to` is the log of output that is not captured: not with `stdout`")
     # A relative path runs from `cwd`, where the process starts: note the program found there.
     program = str(executable)
     if cwd is not None and not os.path.isabs(program) and os.sep in program:
@@ -640,8 +1002,8 @@ def run_process(
     env = {**(os.environ if env is None else env), "PWD": _pwd(cwd)}
     command: List[str] = [str(c) for c in (executable, *args)]
     cmd_str = " ".join(map(lambda x: str(x), command))
-    if print_command:
-        print("Running `%s`" % cmd_str, file=tool_output_stream())
+    if print_command and TOOL_OUTPUT.get() == "terminal":
+        tool_output_stream().write(f"Running `{cmd_str}`\n")
     else:
         log.debug("Running `%s`", cmd_str)
     if cwd:
@@ -655,115 +1017,37 @@ def run_process(
     # then raises `KeyboardInterrupt`, and `_Deadline` signals the group of the tool. SIGTERM and
     # SIGHUP to Xeda do the same (`_Deadline`).
     new_session = os.name == "posix"
-    if terminal and stdout is None and tee is not None and _stdout_terminal_fd() is not None:
-        _run_in_terminal(command, env, cwd, check, merge_stderr, timeout, tee, on_stop, new_session)
+    if stdout is True:
+        return _run_capturing(command, env, cwd, check, merge_stderr, timeout, on_stop, new_session)
+    if isinstance(stdout, (str, os.PathLike)):
+        _run_to_file(
+            command,
+            env,
+            cwd,
+            check,
+            Path(stdout),
+            timeout,
+            on_stop,
+            new_session,
+            log_to,
+            log_append,
+        )
         return None
-    if _needs_line_copy(stdout, highlight_rules, tool_output_redirect(), tee):
-        # Compile the regex keys once, to improve performance.
-        highlight_rules_re: Dict[re.Pattern, str] = {}
-        for pattern, subs in (highlight_rules or {}).items():
-            highlight_rules_re[re.compile(pattern)] = subs
-
-        # The log is made before the tool starts: a log that cannot be made must not start it.
-        with (
-            (
-                live_log(tee, encoding="utf-8") if tee is not None else contextlib.nullcontext()
-            ) as tee_file,
-            subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT if merge_stderr else None,
-                env=env,
-                cwd=cwd,
-                universal_newlines=True,
-                bufsize=1,
-                start_new_session=new_session,
-            ) as proc,
-        ):
-            assert proc.stdout is not None, f"Popen for '{cmd_str}' failed: stdout is None!"
-            terminal_fd = _stdout_terminal_fd()
-            with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
-                with open(proc.stdout.fileno(), errors="ignore", closefd=False) as proc_stdout:
-                    for line in proc_stdout:
-                        if tee_file is not None:
-                            tee_file.write(line)
-                        for re_pat, subs in highlight_rules_re.items():
-                            line, matches = re_pat.subn(
-                                subs + colorama.Style.RESET_ALL, line, count=1
-                            )
-                            if matches > 0:
-                                break
-                        # Check on every line, not once up front. A tool can switch the
-                        # terminal into raw mode while it runs and restore it on exit, so
-                        # the answer can change during the call. The check costs well
-                        # under a microsecond.
-                        print(
-                            line,
-                            end="\r" if _needs_explicit_carriage_return(terminal_fd) else "",
-                            file=tool_output_stream(),
-                        )
-                ret = proc.wait()
-            if deadline.expired:
-                assert timeout is not None
-                raise ProcessTimeout(command, timeout)
-            if check and ret != 0:
-                raise NonZeroExitCode(command, ret)
-            return None
-    elif stdout and isinstance(stdout, (str, os.PathLike)):
-        stdout = Path(stdout)
-
-        def cm_call():
-            assert stdout
-            # The log of the tool, as with `tee`: a new file at the name, made before the tool
-            # starts and written as it runs. The output of a failed tool stays, since it says
-            # why the tool failed.
-            return live_log(stdout, encoding="utf-8")
-
-        cm = cm_call
-    else:
-        cm = contextlib.nullcontext
-
-    out = err = ""
-    with cm() as f:
-        with subprocess.Popen(
-            [executable, *args],
-            cwd=cwd,
-            shell=False,
-            # With no capture requested, the child inherits stdout, unless tool output has been
-            # redirected. Without the redirect it would write straight to fd 1 and corrupt a
-            # machine-readable result.
-            stdout=f if f else subprocess.PIPE if stdout else tool_output_redirect(),
-            stderr=subprocess.STDOUT if (merge_stderr and stdout and not f) else None,
-            bufsize=1,
-            universal_newlines=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            start_new_session=new_session,
-        ) as proc:
-            log.debug("Started %s[%d]", executable, proc.pid)
-            with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
-                if stdout:
-                    if isinstance(stdout, bool):
-                        out, err = proc.communicate(timeout=None)
-                    else:
-                        log.info(
-                            "Standard output is redirected to: %s",
-                            os.path.abspath(stdout),
-                        )
-                        proc.wait()
-                else:
-                    proc.wait()
-        if deadline.expired:
-            assert timeout is not None
-            raise ProcessTimeout(command, timeout)
-        if check and proc.returncode != 0:
-            raise NonZeroExitCode(proc.args, proc.returncode)
-        if stdout and isinstance(stdout, bool):
-            if err:
-                print(err, file=sys.stderr)
-            return out.strip()
-
+    _run_copying(
+        command,
+        env,
+        cwd,
+        check,
+        highlight_rules,
+        merge_stderr,
+        timeout,
+        tee,
+        log_to,
+        log_append,
+        on_stop,
+        terminal,
+        new_session,
+    )
     return None
 
 

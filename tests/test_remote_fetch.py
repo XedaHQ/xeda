@@ -33,12 +33,15 @@ def _run_dir(root: Path, name: str = "d/flow") -> Path:
     run = root / name
     (run / "reports").mkdir(parents=True)
     (run / "reports" / "deep").mkdir()
+    (run / "logs").mkdir()
     (run / "other").mkdir()
     for relative in (
         "results.json",
         "settings.json",
         "trace.json",
         "flow.log",
+        "logs/tool.log",
+        "logs/notes.txt",
         "notes.txt",
         "out.bit",
         "reports/timing.rpt",
@@ -61,6 +64,7 @@ def test_fetch_default_selection(tmp_path):
         "d/flow/results.json",
         "d/flow/settings.json",
         "d/flow/flow.log",
+        "d/flow/logs/tool.log",
         "d/flow/reports/timing.rpt",
         "d/flow/reports/deep/more.rpt",
     }
@@ -80,6 +84,7 @@ def test_a_named_node_also_fetches_its_outputs_and_artifacts(tmp_path):
         "d/flow/results.json",
         "d/flow/settings.json",
         "d/flow/flow.log",
+        "d/flow/logs/tool.log",
         "d/flow/reports/timing.rpt",
         "d/flow/reports/deep/more.rpt",
         "d/flow/out.bit",
@@ -127,6 +132,8 @@ def test_fetch_all_selection(tmp_path):
             "results.json",
             "settings.json",
             "flow.log",
+            "logs/tool.log",
+            "logs/notes.txt",
             "notes.txt",
             "out.bit",
             "reports/timing.rpt",
@@ -145,11 +152,13 @@ def test_two_nodes_have_their_own_places(tmp_path):
 def test_failed_node_fetches_only_what_it_wrote(tmp_path):
     run = _run_dir(tmp_path)  # every file is here, as an earlier successful run left it
     results = dict(artifacts={"bit": "out.bit", "stale": "other/x.v"}, outputs={"x": ["other/x.v"]})
-    written = frozenset({"results.json", "flow.log", "out.bit", "notes.txt"})
+    written = frozenset({"results.json", "flow.log", "logs/tool.log", "out.bit", "notes.txt"})
     for fetch_all in (False, True):
         node = _node(run, named=True, success=False, written=written, **results)
         selected = select_fetch(tmp_path, [node], fetch_all=fetch_all).files
-        expected = {"results.json", "flow.log", "out.bit"} | ({"notes.txt"} if fetch_all else set())
+        expected = {"results.json", "flow.log", "logs/tool.log", "out.bit"} | (
+            {"notes.txt"} if fetch_all else set()
+        )
         assert set(selected) == {f"d/flow/{name}" for name in expected}
     # with no word from the remote about what the run wrote, nothing comes back
     node = _node(run, named=True, success=False, written=None, **results)

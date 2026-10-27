@@ -1,12 +1,11 @@
 import logging
 import multiprocessing
-import traceback
 from concurrent.futures import CancelledError, TimeoutError
 from copy import deepcopy
 from datetime import datetime
 from inspect import isclass
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import Any, Callable, ClassVar, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import psutil
 from attrs import define
@@ -27,14 +26,13 @@ from ...utils import (
     semantic_hash,
     settings_to_dict,
 )
+from ... import log_context
 from ..chains import FlowRequest, parse_request
 from ..default_runner import (
     FlowLauncher,
     add_file_logger,
     get_flow_class,
-    print_results,
     remove_file_logger,
-    with_debug_logging,
 )
 from ..scrub import run_directory_names
 from ..settings_layers import merge_layers
@@ -111,6 +109,18 @@ class FlowOutcome:
             "timestamp": self.timestamp,
             "run_path": str(self.run_path) if self.run_path else None,
         }
+
+
+#: The results of a run that an exploration reports.
+RESULTS_SHOWN = [
+    "fmax",
+    "lut",
+    "ff",
+    "slice",
+    "latch",
+    "bram_tile",
+    "dsp",
+]
 
 
 class Optimizer:
@@ -246,7 +256,7 @@ class Executioner:
             log.exception("KeyboardInterrupt received during the execution of flow")
         except FlowFatalError as e:
             log.warning("Fatal exception during execution of flow: %s", e)
-            traceback.print_exc()
+            log.debug("Traceback of the exception", exc_info=True)
             raise e
         except NonZeroExitCode as e:
             log.warning("%s", e)
@@ -255,7 +265,7 @@ class Executioner:
                 "Received exception during the execution of flow, but will continue: %s",
                 e,
             )
-            traceback.print_exc()
+            log.debug("Traceback of the exception", exc_info=True)
         return None, idx
 
 
@@ -318,6 +328,9 @@ class Dse(FlowLauncher):
         self.optimizer: Optimizer = optimizer_class(
             max_workers=self.settings.max_workers, settings=optimizer_settings
         )
+        #: Called after each iteration that has a best run, with that run's outcome. The library
+        #: prints nothing: the command line passes a callback that shows the results.
+        self.best_so_far: Optional[Callable[[FlowOutcome], None]] = None
 
     def _refuse_unaccepted_request(self, flow, flow_settings, flow_overrides, xedaproject) -> None:
         """Refuse a clock-writing optimizer on an OpenROAD flow or a chain that ends in one, then
@@ -325,7 +338,7 @@ class Dse(FlowLauncher):
         _refuse_openroad(self.optimizer, flow)
         super()._refuse_unaccepted_request(flow, flow_settings, flow_overrides, xedaproject)
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def run_flow(
         self,
         flow_class: Union[str, Type[Flow]],
@@ -351,15 +364,7 @@ class Dse(FlowLauncher):
         future = None
         pool = None
 
-        results_sub = [
-            "fmax",
-            "lut",
-            "ff",
-            "slice",
-            "latch",
-            "bram_tile",
-            "dsp",
-        ]
+        results_sub = RESULTS_SHOWN
 
         successful_results: List[Dict[str, Any]] = []
         if isinstance(flow_class, str):
@@ -682,12 +687,12 @@ class Dse(FlowLauncher):
                         f"End of iteration #{num_iterations}. Execution time: {timer.timedelta}"
                     )
                     if optimizer.best:
-                        print_results(
-                            results=optimizer.best.results,
-                            title="Best so far",
-                            subset=results_sub,
-                            skip_if_false=True,
+                        log.debug(
+                            "Best so far: %s",
+                            {k: optimizer.best.results.get(k) for k in results_sub},
                         )
+                        if self.best_so_far is not None:
+                            self.best_so_far(optimizer.best)
                     else:
                         log.info("No results to report.")
 
@@ -695,18 +700,12 @@ class Dse(FlowLauncher):
             log.critical("Received Keyboard Interrupt")
         except Exception as e:
             log.exception("Received exception: %s", e)
-            traceback.print_exc()
         finally:
             try:
                 if pool:
                     pool.close()
                     pool.join()
                 if optimizer.best:
-                    print_results(
-                        results=optimizer.best.results,
-                        title="Best results",
-                        subset=results_sub,
-                    )
                     log.info("The best result was written to %s", best_json_path)
                 else:
                     log.error("No successful runs!")

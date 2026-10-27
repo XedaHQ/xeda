@@ -1,4 +1,4 @@
-"""The last stage of a launch: show what a run produced, and record it.
+"""The last stage of a launch: record what a run produced.
 
 The functions are free functions with explicit arguments. This module never imports
 `default_runner`: the launcher passes what each function needs.
@@ -6,119 +6,26 @@ The functions are free functions with explicit arguments. This module never impo
 
 from __future__ import annotations
 
-import json
 import logging
-from collections.abc import Iterable, Mapping
-from datetime import datetime, timedelta, timezone
+from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Protocol, Union
+from typing import Any, Optional, Protocol
 
 from box import Box
-from rich import box
-from rich.style import Style
-from rich.table import Table
-from rich.text import Text
 
-from ..artifacts import drop_unwritten_artifacts, iter_artifact_paths
-from ..console import console
+from ..artifacts import drop_unwritten_artifacts
 from ..deliver import deliverable_setting_names
 from ..design import Design
 from ..errors import RecordError
 from ..flow import Flow
 from ..records import RunRecord, encode_record, read_record, record_of
-from ..utils import LOCATION_FORMS, dump_json, json_encodable, with_json_keys
+from ..utils import LOCATION_FORMS, dump_json
 from .launch_run import timestamp_text
 from .outputs import recorded_outputs
 from .trace import Freshness, output_equivalences
 
 log = logging.getLogger(__name__)
-
-
-def print_results(
-    flow: Optional[Flow] = None,
-    results: Optional[Dict[str, Any]] = None,
-    title: Optional[str] = None,
-    subset: Optional[Iterable[str]] = None,
-    skip_if_false: Union[bool, Iterable[str], None] = None,
-) -> None:
-    """Print the selected results of a flow in a table."""
-    if results is None and flow:
-        results = flow.results
-    assert results is not None, "results is None"
-    # The table shows what `results.json` holds: keys as that file writes them, so a key it can
-    # write (a tuple, a `Path`) cannot crash the table printed after the run.
-    results = with_json_keys(dict(results))
-    console.print()
-    table = Table(
-        title=title,
-        title_style=Style(frame=True, bold=True),
-        show_header=False,
-        box=box.ROUNDED,
-        show_lines=True,
-    )
-    table.add_column(style="bold", min_width=8, no_wrap=True)
-    table.add_column(justify="right", min_width=8)
-    skip_fields = [
-        "timestamp",
-        "design",
-        "design_hash",
-        "flow",
-        "flow_hash",
-        "settings_hash",
-        "tools",
-        "run_path",
-        "artifacts",
-        "outputs",
-    ]
-    for k, v in results.items():
-        skipable = skip_if_false and (isinstance(skip_if_false, bool) or k in skip_if_false)
-        if skipable and not v:
-            continue
-        if v is not None and not str(k).startswith("_"):
-            if k == "success":
-                table.add_row("Status", "[green]OK[/green]" if v else "[red]FAILED[/red]")
-                continue
-            if (subset and k not in subset) or k in skip_fields:
-                continue
-            if k == "runtime" and isinstance(v, (float, int)):
-                table.add_row(
-                    "Run time",
-                    str(timedelta(seconds=round(v))),
-                    style=Style(dim=True),
-                )
-                continue
-            if isinstance(v, (dict,)):
-                table.add_row(f"{k}:", "", style=Style(bold=True))
-                for xk, xv in v.items():
-                    if isinstance(xv, dict):
-                        xv = json.dumps(xv, indent=1, default=json_encodable)
-                    else:
-                        xv = str(xv)
-                    table.add_row(Text(f" {xk}"), str(xv))
-                continue
-            if isinstance(v, float):
-                v = f"{v:,.3f}"
-            elif isinstance(v, int):
-                v = f"{v:,}"
-            table.add_row(str(k), str(v))
-    console.print(table)
-
-
-def artifact_rows(artifacts: Mapping[str, Any]) -> list[tuple[str, str, bool]]:
-    """Flatten an artifacts mapping into the rows of the "Artifacts:" table.
-
-    Each row is `(label, path, end_section)`. The paths of a label are found with
-    `iter_artifact_paths`, so a value nested through any mix of mappings, lists and tuples is
-    flattened the same way as everywhere else that artifacts are walked. The label is shown
-    once, on the row of its first path. A label with no path leaves (`None`, `""`, an empty list
-    or dict, ...) gets no rows at all.
-    """
-    rows: list[tuple[str, str, bool]] = []
-    for label, value in artifacts.items():
-        paths = [str(path) for path in iter_artifact_paths(value)]
-        for i, path in enumerate(paths):
-            rows.append((label if i == 0 else "", path, i == len(paths) - 1))
-    return rows
 
 
 def drop_unwritten(flow: Flow) -> None:
@@ -135,7 +42,6 @@ def drop_unwritten(flow: Flow) -> None:
 class ReportSettings(Protocol):
     """The launcher settings `report` reads."""
 
-    display_results: bool
     dump_results_json: bool
     backups: bool
 
@@ -149,32 +55,11 @@ def report(
     record: bool,
     run_root: Path,
 ) -> None:
-    """Show the results and, for a run that just executed (`record`), record the run.
+    """For a run that just executed (`record`), record the run.
 
     The record of the run (`records.record_of`) is then `flow.record`, and `results.json` holds
     it. If `results.json` cannot be written, the error propagates and `flow.record` stays unset.
     The directory of a reused run is left exactly as it was."""
-    if settings.display_results and flow.artifacts and flow.succeeded:
-        table = Table(
-            box=box.SIMPLE,
-            show_header=True,
-            show_edge=False,
-            show_footer=True,
-            collapse_padding=True,
-            pad_edge=False,
-        )
-        table.add_column(
-            "Artifacts:", justify="left", style="cyan", header_style="blue", no_wrap=False
-        )
-        table.add_column("", justify="left", style="green", no_wrap=False)
-
-        for label, artifact, end_section in artifact_rows(flow.artifacts):
-            table.add_row(label, artifact, end_section=end_section)
-
-        console.print("")
-        console.print(table)
-        console.print("")
-
     if record:
         assert flow.run_id is not None, f"{flow.name} has no run id"
         stored = record_of(
@@ -185,13 +70,6 @@ def report(
             log.info("Results written to %s", results_json)
         # Only now: a record that could not be stored is no record of the flow.
         flow.record = stored
-
-    if settings.display_results:
-        print_results(
-            flow,
-            title=f"Results of flow:{flow.name} design:{design.name}",
-            skip_if_false={"artifacts", "reports"},
-        )
 
 
 def adoptable_document(

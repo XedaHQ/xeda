@@ -96,7 +96,7 @@ def test_a_confirmation_that_says_yes_removes(tree):
     asked = []
 
     def confirm(listed):
-        asked.append(sorted(listed))
+        asked.append(sorted(candidate.path for candidate in listed))
         return True
 
     result = scrub_design(FLOW, design_dir, run_root=run_root, confirm=confirm)

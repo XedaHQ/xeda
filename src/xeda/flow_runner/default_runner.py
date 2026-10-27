@@ -8,12 +8,11 @@ import importlib
 import logging
 import os
 import sys
-import threading
 import time
 import types
 import uuid
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -66,6 +65,7 @@ from ..flow import (
     registered_flows,
 )
 from ..flow import flowrun_hash as flow_run_hash
+from .. import log_context
 from ..proc_utils import recording_programs
 from ..run_dir import (
     DIR_NAME_HASH_LEN,
@@ -99,7 +99,6 @@ from .error_codes import error_info
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
 from .launch_report import (
-    print_results,
     report,
     reuse_results,
     warn_outputs_to_delivered_nothing,
@@ -120,7 +119,7 @@ from .plan_freshness import (
     NodeFreshness,
     judge_plan,
 )
-from .scrub import ScrubConfirmation, run_directory_names, scrub_runs
+from .scrub import ScrubConfirmation, ScrubDone, run_directory_names, scrub_runs
 from .run_lock import CompletedRun, run_dir_lock
 from .settings_layers import (
     API_ORIGIN,
@@ -181,10 +180,7 @@ MOVED_NAMES: dict[str, tuple[str, str]] = {
     "_refuse_a_change": ("scrub", "_refuse_a_change"),
     "_remove_confirmed": ("scrub", "_remove_confirmed"),
     "_run_directories_in": ("scrub", "_run_directories_in"),
-    "_say": ("scrub", "_say"),
-    "_say_skipped": ("scrub", "_say_skipped"),
     "_target_parents": ("scrub", "_target_parents"),
-    "_artifact_rows": ("launch_report", "artifact_rows"),
     "_warn_outputs_to_delivered_nothing": ("launch_report", "warn_outputs_to_delivered_nothing"),
     "_refuse_outputs_to_a_programmer": ("launch_input", "refuse_outputs_to_a_programmer"),
     "_setting_naming": ("launch_input", "setting_naming"),
@@ -238,7 +234,6 @@ __all__ = [
     "add_file_logger",
     "remove_file_logger",
     "get_flow_class",
-    "print_results",
 ]
 
 log = logging.getLogger(__name__)
@@ -407,73 +402,26 @@ def _choosing_once(
 FlowLauncherType = TypeVar("FlowLauncherType", bound="FlowLauncher")
 
 
-class _DebugLogging:
-    """The launches of the process that run at DEBUG now.
-
-    It also keeps the level of the `xeda` logger from before the first of them. The state
-    belongs to the process, so launchers on several threads share it: the level is DEBUG from
-    the first debug launch to the end of the last one."""
-
-    def __init__(self) -> None:
-        self.lock = threading.Lock()
-        self.active = 0
-        #: The level to put back. `None` when no launch changed it (it was DEBUG or lower already).
-        self.previous: Optional[int] = None
-
-    def enter(self) -> None:
-        package = logging.getLogger("xeda")
-        with self.lock:
-            if self.active == 0:
-                level = package.level
-                if level == logging.NOTSET or level > logging.DEBUG:
-                    self.previous = level
-                    package.setLevel(logging.DEBUG)
-            self.active += 1
-
-    def leave(self) -> None:
-        package = logging.getLogger("xeda")
-        with self.lock:
-            self.active -= 1
-            if self.active == 0:
-                # A level that the application set meanwhile is the application's: only the level
-                # set here is undone.
-                if self.previous is not None and package.level == logging.DEBUG:
-                    package.setLevel(self.previous)
-                self.previous = None
-
-
-_DEBUG_LOGGING = _DebugLogging()
-
-
-@contextmanager
-def xeda_debug_logging(enabled: bool) -> Iterator[None]:
-    """Log DEBUG records from the loggers of Xeda (`xeda.*`) while the block runs, when `enabled`.
-
-    The level of the logger is put back as it was after the block. Nothing else changes: not
-    the root logger, not the handlers, so the logging of an application that embeds Xeda stays
-    its own. A block that is not `enabled` touches nothing."""
-    if not enabled:
-        yield
-        return
-    _DEBUG_LOGGING.enter()
-    try:
-        yield
-    finally:
-        _DEBUG_LOGGING.leave()
-
-
 _Method = TypeVar("_Method", bound=Callable[..., Any])
 
 
-def with_debug_logging(method: _Method) -> _Method:
-    """Wrap a launcher method so that it logs at DEBUG for the length of the call.
-
-    That happens when the launcher was given `debug` (`xeda_debug_logging`)."""
+def with_node_context(method: _Method) -> _Method:
+    """Wrap `_launch` so that the log records of one node carry its label (`xeda_node`)."""
 
     @functools.wraps(method)
-    def wrapper(self: FlowLauncher, *args: Any, **kwargs: Any) -> Any:
-        with xeda_debug_logging(self.settings.debug):
-            return method(self, *args, **kwargs)
+    def wrapper(
+        self: FlowLauncher,
+        flow_class: Union[str, Type[Flow]],
+        *args: Any,
+        plan_node: NodeKey | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        if plan_node is not None:
+            label = plan_node.label
+        else:
+            label = (get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class).name
+        with log_context.running_node(label):
+            return method(self, flow_class, *args, plan_node=plan_node, **kwargs)
 
     return cast(_Method, wrapper)
 
@@ -490,6 +438,7 @@ class FlowLauncher:
 
         debug: bool = False
         dump_settings_json: bool = True
+        #: Whether the command line shows the tables of a run. The library prints nothing.
         display_results: bool = True
         dump_results_json: bool = True
         #: Run every flow, even one whose trace still matches. Without it, runs are make-like.
@@ -564,6 +513,8 @@ class FlowLauncher:
         #: Asked whether to remove the older runs of `scrub_old_runs` (`xeda.flow_runner.scrub`).
         #: None: nothing is removed, and the launch logs that.
         self.confirm_scrub: Optional[ScrubConfirmation] = None
+        #: Told what that scrub did, when it ends (`xeda.flow_runner.scrub.ScrubDone`).
+        self.scrub_done: Optional[ScrubDone] = None
         #: The design and project file `run()` was given: never an output's destination.
         self._launch_inputs: List[Path] = []
         #: Every file the flows of the current launch read (`xeda.deliver.ReadInputs`).
@@ -604,6 +555,14 @@ class FlowLauncher:
         if self._run_root_ready:
             return self._run_root
         return ensure_run_root(self._run_root, start=self._start, create=False)
+
+    @property
+    def launch_id(self) -> str | None:
+        """The id of the launch that this thread runs through the launcher, or None outside a
+        launch. It is 32 hexadecimal digits, made once when the launch starts. Each log record of
+        the launch carries it as `xeda_launch_id`. The launcher keeps no state for it, so launches
+        that run at once in several threads each see their own."""
+        return log_context.current_launch_id()
 
     @property
     def xeda_run_dir(self) -> Path:
@@ -647,7 +606,7 @@ class FlowLauncher:
         self.run_root
         return self.run_path_of(design_name, node_name, identity, target=target)
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def resolve(
         self,
         flow_class: type[Flow],
@@ -820,7 +779,7 @@ class FlowLauncher:
                 raise FlowFatalError("The plan does not match this request's identity or path")
         return node
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def launch_flow(
         self,
         flow_class: Union[str, Type[Flow]],
@@ -1134,6 +1093,7 @@ class FlowLauncher:
             for f in self.launched[self._launched_before :]
         )
 
+    @with_node_context
     def _launch(
         self,
         flow_class: Union[str, Type[Flow]],
@@ -1231,6 +1191,7 @@ class FlowLauncher:
                 [run_path],
                 run_root=self.run_root,
                 confirm=self.confirm_scrub,
+                on_result=self.scrub_done,
             )
         with run_dir_lock(run_path, self.run_root), ExitStack() as read_leases:
             run_path.mkdir(parents=True, exist_ok=True)
@@ -1699,7 +1660,7 @@ class FlowLauncher:
                     prune(run_path)
                 log.warning("Removed the following files: %s", " ".join(str(p) for p in removed))
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def run_flow(
         self,
         flow_class: Union[str, Type[Flow]],
@@ -1875,7 +1836,7 @@ class FlowLauncher:
                 )
         require_no_bindings(layers, [NodeKey(requested.name)])
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def run(
         self,
         flow: Union[Type[Flow], str],
@@ -1915,7 +1876,7 @@ class FlowLauncher:
         )
         return self.run_resolved(request, plan)
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def resolve_run(
         self,
         flow: Union[Type[Flow], str],
@@ -1961,7 +1922,7 @@ class FlowLauncher:
         self._refuse_unaccepted_plan(request, plan)
         return request, plan
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def run_resolved(self, request: _Request, plan: Plan) -> Optional[Flow]:
         """Execute the request and plan that `resolve_run` returned."""
         previous, self._request_context = self._request_context, request
@@ -1976,7 +1937,7 @@ class FlowLauncher:
         finally:
             self._request_context = previous
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def plan(
         self,
         flow: type[Flow] | str,
@@ -2008,7 +1969,7 @@ class FlowLauncher:
             target,
         )[1]
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def prepare_request(
         self,
         flow: type[Flow] | str | FlowRequest,
@@ -2057,7 +2018,7 @@ class FlowLauncher:
             request.design, request.sections, plan, request.flow_request, request.design.target
         )
 
-    @with_debug_logging
+    @log_context.with_launch_context
     def plan_with_freshness(
         self,
         flow: type[Flow] | str,

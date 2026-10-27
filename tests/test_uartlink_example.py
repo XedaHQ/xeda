@@ -37,6 +37,8 @@ from .tool_utils import (
     run_report,
 )
 
+pytestmark = pytest.mark.usefixtures("tool_output_on_terminal")
+
 EXAMPLE = Path(__file__).parent.parent / "examples" / "bluespec" / "uart_link"
 DESIGN = EXAMPLE / "uart_link.yaml"
 COSIM = EXAMPLE / "tb" / "cosim.yaml"

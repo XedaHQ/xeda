@@ -852,9 +852,11 @@ def _launch(
         )
         asked_settings, asked_design = copy.deepcopy(settings), design.model_dump_json()
         process_before = ss.process_state()
+        written = {"output": "", "error": ""}
         try:
             runner = DefaultRunner(world.root, **{**launcher, **launch.launcher})
-            flow = runner.launch_flow(flow_class, design, settings)
+            with ss.streams_written() as written:
+                flow = runner.launch_flow(flow_class, design, settings)
             outcomes.append("ok" if flow.succeeded else "failed")
             seen.finished.append((launch.label, flow))
         except Exception as e:  # noqa: BLE001 - how it ends is compared, not judged
@@ -867,6 +869,11 @@ def _launch(
         # change made meanwhile
         changes = [
             f"process: {line}" for line in ss.process_changes(process_before, ss.process_state())
+        ]
+        changes += [
+            f"the launch wrote to the standard {stream}: {text.strip()[:200]!r}"
+            for stream, text in written.items()
+            if text.strip()
         ]
         if settings != asked_settings:
             changes.append("the settings mapping the caller gave changed")
@@ -2545,6 +2552,18 @@ REVIEWED_WRITES = [
         "utils.py",
         'with os.fdopen(fd, "w", encoding=encoding, buffering=1) as f:',
         "`live_log`: the temporary file `mkstemp` just created, already at the log's name",
+    ),
+    (
+        "utils.py",
+        'fd = os.open(target, os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0))',
+        "`live_log` with `append`: the log that an earlier tool of this run made at its name; "
+        "`O_NOFOLLOW` makes the open fail on a link, and the descriptor is kept only for a regular "
+        "file with one name",
+    ),
+    (
+        "utils.py",
+        'with os.fdopen(fd, "a", encoding=encoding, buffering=1) as f:',
+        "`live_log` with `append`: the descriptor of that log, which `_open_for_append` checked",
     ),
     ("utils.py", "return path.rename(backup_path)", "`backup_existing`: a rename, not a write"),
     (

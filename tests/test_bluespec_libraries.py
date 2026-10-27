@@ -172,6 +172,7 @@ def test_stream_exchange_library_keeps_width_targets(target, top):
 
 
 @pytest.mark.real_tool
+@pytest.mark.usefixtures("tool_output_on_terminal")
 @pytest.mark.parametrize("path,target,top_field,expected_top", LIBRARY_SIMULATIONS)
 def test_every_library_test_target_runs(path, target, top_field, expected_top, tmp_path, capfd):
     """Run every library test target in CI so source and testbench changes stay executable."""

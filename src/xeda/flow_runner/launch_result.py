@@ -19,6 +19,7 @@ from typing import Protocol
 
 from ..deliver import Delivered, Delivery, DeliveryError
 from ..flow import Flow
+from ..log_context import launch_context, tag_launch_id
 from ..outcomes import DeliveryRecord, Disposition, NodeResult, Outcome, Result, aggregate
 from ..records import CANCELED, INTERNAL_ERROR, PRODUCER_FAILED, ErrorInfo
 from ..spec import Spec
@@ -376,13 +377,26 @@ def launch_result(runner: LaunchRunner, spec: Spec, launch: Callable[[], object]
     delivery before the run of its first node, a bug. A refusal at the turn of a later node is the
     failure of that node (`LaunchCollector.settle`). So does `KeyboardInterrupt`: an interrupt is
     no outcome, and the node that it interrupted left no record to read (`results.json` is
-    replaced as a whole)."""
+    replaced as a whole).
+
+    The launch id is made here, once, as the launch starts; a call made inside another launch of the
+    same thread keeps the id of the outer one. An exception that leaves the launch carries it
+    (`log_context.launch_id_of`), so that `failed_result` names the same launch."""
     before = runner.collector
-    try:
-        launch()
-    except Exception as raised:
-        collector = runner.collector
-        if collector is before or not (collector.accounts_for(raised) or collector.settle(raised)):
+    # The launch runs under an id of its own, and each log record of the launch carries it
+    # (`xeda_launch_id`). The `Result` names the same id.
+    with launch_context() as launch_id:
+        try:
+            launch()
+        except Exception as raised:
+            collector = runner.collector
+            if collector is before or not (
+                collector.accounts_for(raised) or collector.settle(raised)
+            ):
+                tag_launch_id(raised, launch_id)
+                raise
+        except BaseException as raised:
+            tag_launch_id(raised, launch_id)
             raise
     collector = runner.collector
     plan = collector.plan
@@ -400,7 +414,7 @@ def launch_result(runner: LaunchRunner, spec: Spec, launch: Callable[[], object]
     launch_error = _launch_error(collector, nodes, roots)
     outcome, error = aggregate(nodes, roots, launch_error)
     return Result(
-        launch_id=uuid.uuid4().hex,
+        launch_id=launch_id,
         spec=spec,
         roots=roots,
         outcome=outcome,
@@ -416,13 +430,15 @@ def failed_result(
     launch_error: ErrorInfo,
     *,
     interrupted: bool = False,
+    launch_id: str | None = None,
 ) -> Result:
     """Return the result of a launch that an exception ended outside the nodes.
 
     The nodes are those of the plan of the launch, or of `plan` if the launch reported none: a node
     that ended keeps its outcome, and a node that did not start is `skipped` or `blocked`. With
     `interrupted`, the node that was running is `canceled`. `launch_error` is the error of the
-    launch, and it decides the outcome."""
+    launch, and it decides the outcome. `launch_id` is the id of the launch that the exception left
+    (`log_context.launch_id_of`), so that the result names the launch of its log records."""
     collector = runner.collector
     ended = collector.ended if collector.plan is not None else {}
     plan = collector.plan or plan
@@ -462,7 +478,7 @@ def failed_result(
     roots = (plan.nodes[-1].name,) if plan is not None else ()
     outcome, error = aggregate(nodes, roots, launch_error)
     return Result(
-        launch_id=uuid.uuid4().hex,
+        launch_id=launch_id or uuid.uuid4().hex,
         spec=spec,
         roots=roots,
         outcome=outcome,

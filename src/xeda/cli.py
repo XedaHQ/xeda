@@ -40,6 +40,8 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         info_table,
         machine_readable_mode,
         print_flow_settings,
+        print_results,
+        print_run_tables,
         resolve_format,
         select_design_in_project,
     )
@@ -54,10 +56,14 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     )
     from .flow_runner.chains import parse_request
     from .flow_runner.dse import Dse
+    from .flow_runner.dse.dse_runner import RESULTS_SHOWN
     from .flow_runner.error_codes import public_error, request_error_info
+    from .flow_runner.launch_report import results_of
     from .flow_runner.launch_result import failed_result, launch_result
     from .records import CANCELED, ErrorInfo
     from .flow_runner.resolver import Plan
+    from .flow_runner.scrub import ScrubCandidate, ScrubResult
+    from .log_context import launch_id_of
     from .flow_runner.settings_layers import command_line_table
     from .introspect import (
         boards_info,
@@ -561,18 +567,56 @@ def _prompt_overwrite(conflicts: Sequence[Conflict]) -> bool:
         return False
 
 
-def _prompt_scrub(directories: Sequence[Path]) -> bool:
-    """Ask on the terminal (or on the input that stands for it) whether to remove the run
-    directories that scrub listed. Only the word "yes" says yes. The answer is also no when there
-    is no input to read: the input is at its end, closed or unreadable. The commands ask even when
-    stdin is no terminal, so a script can pipe "yes" to them. The question goes to stderr with
-    `--json`."""
+def _prompt_scrub(candidates: Sequence[ScrubCandidate]) -> bool:
+    """Show the run directories that scrub listed and ask on the terminal (or on the input that
+    stands for it) whether to remove them. Only the word "yes" says yes. The answer is also no
+    when there is no input to read: the input is at its end, closed or unreadable. The commands
+    ask even when stdin is no terminal, so a script can pipe "yes" to them. The listing and the
+    question go to stderr with `--json`."""
+    console.print(
+        f"[red]This will remove all of the following {len(candidates)} run directories:[/red]"
+    )
+    for candidate in candidates:
+        console.print(candidate.path)
+        for alias in candidate.aliases:
+            _say_scrub(f"{alias} (another name of the same directory)")
     try:
         answer = console.input("Type 'yes' if you're sure you want to continue: ")
     except (EOFError, ValueError, OSError):
         console.print()
+        _say_scrub("Not confirmed. No files or folders were removed.")
         return False
-    return answer.lower() == "yes"
+    if answer.lower() != "yes":
+        _say_scrub("Not confirmed. No files or folders were removed.")
+        return False
+    return True
+
+
+def _say_scrub(message: str) -> None:
+    """Print one line of what scrub did, as it is: not folded inside a path, and no part of it
+    taken for markup."""
+    console.print(message, markup=False, highlight=False, soft_wrap=True)
+
+
+def _print_scrub_result(result: ScrubResult) -> None:
+    """Say what a scrub did: the links it skipped, the directories that were gone or kept, and
+    how many it removed."""
+    for link, reason in result.reasons.items():
+        _say_scrub(f"skipped {link}: {reason}")
+    for gone in result.gone:
+        _say_scrub(f"{gone} is gone already")
+    for kept in result.kept:
+        _say_scrub(
+            f"kept {kept}: its run records changed after the listing "
+            "(a run finished or refreshed there)"
+        )
+    if result.removed or result.kept or result.gone:
+        summary = f"{len(result.removed)} folders removed"
+        if result.kept:
+            summary += f", {len(result.kept)} kept"
+        if result.gone:
+            summary += f", {len(result.gone)} gone already"
+        _say_scrub(summary + ".")
 
 
 def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
@@ -1004,6 +1048,12 @@ def run(
                     log.critical("%s", error["message"])
                 log.critical("Remote dry run of flow '%s' on '%s' failed.", flow, remote)
             sys.exit(outcome.exit_status)
+        if outcome.record is not None and not json_flag:
+            print_results(
+                results_of(outcome.record),
+                title=f"Results of flow:{flow} design:{document['spec']['design']}",
+                skip_if_false={"artifacts", "reports"},
+            )
         if not outcome.success:
             log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
         if json_flag:
@@ -1047,7 +1097,10 @@ def run(
         sys.exit(1)
 
     def not_started(
-        error: Exception, spec: Optional[Spec] = None, plan: Optional[Plan] = None
+        error: Exception,
+        spec: Optional[Spec] = None,
+        plan: Optional[Plan] = None,
+        launch_id: Optional[str] = None,
     ) -> NoReturn:
         """Report an exception that ended the command before the launch gave an outcome.
 
@@ -1062,7 +1115,7 @@ def run(
         if json_flag:
             if spec is not None and not refused:
                 assert launcher is not None
-                document = failed_result(launcher, spec, plan, info).to_dict()
+                document = failed_result(launcher, spec, plan, info, launch_id=launch_id).to_dict()
             else:
                 spec_fields = request_spec() if spec is None else spec_document_of(spec)
                 document = run_document(
@@ -1134,6 +1187,7 @@ def run(
         launcher.settings.post_cleanup_purge = post_cleanup_purge
         launcher.settings.scrub_old_runs = scrub
         launcher.confirm_scrub = _prompt_scrub
+        launcher.scrub_done = _print_scrub_result
         launcher.settings.debug = debug
         resolved, plan = launcher.resolve_run(
             chain,
@@ -1152,7 +1206,7 @@ def run(
     spec = Spec(chain, resolved.design, settings=table)
     try:
         result = launch_result(launcher, spec, lambda: launcher.run_resolved(resolved, plan))
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as interrupt:
         if not json_flag:
             raise
         # The launch is canceled, and `--json` still prints its one run document: the nodes that
@@ -1160,11 +1214,23 @@ def run(
         canceled = ErrorInfo(CANCELED, "The launch was canceled by Ctrl-C.", None, None, None)
         log.critical("%s", canceled.message)
         emit_structured(
-            failed_result(launcher, spec, plan, canceled, interrupted=True).to_dict(), "json"
+            failed_result(
+                launcher,
+                spec,
+                plan,
+                canceled,
+                interrupted=True,
+                launch_id=launch_id_of(interrupt),
+            ).to_dict(),
+            "json",
         )
         sys.exit(1)
     except Exception as e:
-        not_started(e, spec, plan)
+        not_started(e, spec, plan, launch_id_of(e))
+    if json_flag:
+        pass
+    elif launcher.settings.display_results:
+        print_run_tables(result, resolved.design.name)
     if not result.passed and result.error is not None:
         log.critical("%s", result.error.message)
     if json_flag:
@@ -1458,6 +1524,10 @@ def dse(
             debug=debug,
             **dse_settings_dict,
         )
+        # The tables go to stderr with --json (`machine_readable_mode`).
+        dse.best_so_far = lambda best: print_results(
+            best.results, title="Best so far", subset=RESULTS_SHOWN, skip_if_false=True
+        )
         best = dse.run(
             flow,
             xedaproject=xedaproject,
@@ -1472,6 +1542,8 @@ def dse(
     except BaseException as e:
         dse_failure(type(e).__name__, _error_message(e), e)
         raise  # unreachable: dse_failure exits
+    if best is not None:
+        print_results(best.results, title="Best results", subset=RESULTS_SHOWN)
     if json_flag:
         document = {
             "flow": flow,
@@ -1585,6 +1657,7 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
         )
     except RunDirectoryError as e:  # a run directory that cannot be removed
         fail(type(e).__name__, _error_message(e))
+    _print_scrub_result(result)
     if json_flag:
         emit_structured(
             {

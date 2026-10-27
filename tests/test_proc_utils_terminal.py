@@ -39,6 +39,7 @@ from .test_proc_utils import (
     _tree,
     _wait_until,
 )
+from .tool_utils import terminal_output
 
 pytestmark = [
     pytest.mark.python_compat,
@@ -108,10 +109,10 @@ class Terminal:
 
 
 @pytest.fixture
-def terminal(monkeypatch):
+def terminal():
     shown = Terminal()
-    monkeypatch.setattr(proc_utils, "_tool_output", shown.stream)
-    yield shown
+    with terminal_output(shown.stream):
+        yield shown
     shown.close()
 
 
@@ -129,6 +130,12 @@ class GoneTerminal:
 
     def flush(self) -> None:
         pass
+
+
+@pytest.fixture
+def gone_terminal():
+    with terminal_output(GoneTerminal()):
+        yield
 
 
 def child(code: str) -> list[str]:
@@ -212,11 +219,10 @@ def test_a_tool_past_its_time_limit_is_stopped_as_before(terminal, tmp_path):
     assert time.monotonic() - started < 30
 
 
-def test_a_terminal_that_fails_leaves_the_log_what_the_tool_had_written(monkeypatch, tmp_path):
+def test_a_terminal_that_fails_leaves_the_log_what_the_tool_had_written(gone_terminal, tmp_path):
     """The log is written before the terminal, as the lines of a pipe are: a terminal that is gone
     (a closed ssh session) raises, the tool is stopped, and the log has what came before."""
 
-    monkeypatch.setattr(proc_utils, "_tool_output", GoneTerminal())
     log = tmp_path / "tool.log"
     code = "import time; print('first', flush=True); time.sleep(60)"
     started = time.monotonic()
@@ -227,13 +233,12 @@ def test_a_terminal_that_fails_leaves_the_log_what_the_tool_had_written(monkeypa
 
 
 def test_a_terminal_that_fails_leaves_the_log_the_line_the_tool_had_not_ended(
-    monkeypatch, tmp_path
+    gone_terminal, tmp_path
 ):
     """The tool wrote `first` and has not ended the line, and the terminal fails on that text. The
     log has `first`, as it has the last line when the output ends. The tool writes no line end
     until it is stopped, so the terminal gets `first` alone in its first write."""
 
-    monkeypatch.setattr(proc_utils, "_tool_output", GoneTerminal())
     log = tmp_path / "tool.log"
     code = "import sys, time; sys.stdout.write('first'); sys.stdout.flush(); time.sleep(60)"
     started = time.monotonic()
@@ -244,12 +249,11 @@ def test_a_terminal_that_fails_leaves_the_log_the_line_the_tool_had_not_ended(
 
 
 def test_a_terminal_that_fails_leaves_the_log_a_character_the_tool_had_not_ended(
-    monkeypatch, tmp_path
+    gone_terminal, tmp_path
 ):
     """The tool wrote `first` and the first byte of a character of two bytes. The terminal fails
     on that text. The log has what it has when the output ends there: `first` and a replacement
     character for the cut character."""
-    monkeypatch.setattr(proc_utils, "_tool_output", GoneTerminal())
     log = tmp_path / "tool.log"
     code = (
         "import sys, time\n"
@@ -403,6 +407,12 @@ def test_a_tool_asks_for_a_terminal_if_it_declares_one_and_colors_are_wanted(
     tool.run("--bitstream", "x.bit", tee=tmp_path / "loader.log", merge_stderr=True, cwd=tmp_path)
     assert asked["terminal"] is colors
     plain = Tool(executable="some-tool")
+    plain.console_colors = colors
+    plain.run(tee=tmp_path / "plain.log", merge_stderr=True, cwd=tmp_path)
+    assert asked["terminal"] is colors  # a tool with no highlight rules gets a terminal too
+    plain.run(tee=tmp_path / "plain.log", highlight_rules={"a": "b"}, cwd=tmp_path)
+    assert asked["terminal"] is False  # one with highlight rules keeps the pipe it highlights on
+    plain.console_colors = False
     plain.run(tee=tmp_path / "plain.log", cwd=tmp_path)
     assert asked["terminal"] is False
 
@@ -481,7 +491,7 @@ def test_an_interrupt_stops_a_child_that_outlived_a_tool_with_a_terminal(
         def flush(self) -> None:
             terminal.stream.flush()
 
-    monkeypatch.setattr(proc_utils, "_tool_output", Interrupting())
+    monkeypatch.setattr(proc_utils, "console_target", lambda: Interrupting())
     grandchild = None
     try:
         with pytest.raises(KeyboardInterrupt), _stopped_within():
@@ -520,3 +530,47 @@ def test_a_time_limit_stops_what_a_tool_with_a_terminal_started(terminal, tmp_pa
     except BaseException:
         _kill(grandchild)
         raise
+
+
+# --------------------------------------------------------------------- a tool of a flow, with a log
+
+
+def test_a_tool_with_a_log_sees_a_terminal_and_the_log_has_all_its_text(terminal, tmp_path):
+    """The log of a tool (`log_to`) is not a reason to take its terminal away: the tool writes to a
+    pseudo-terminal, its error output is the same terminal, and the log gets the text without the
+    escape codes."""
+    log = tmp_path / "tool.log"
+    run_process(sys.executable, child(PROGRESS), log_to=log, terminal=True)
+    assert log_lines(log) == [
+        "stdout is a terminal: True | stderr is a terminal: True",
+        "Load SRAM: [" + "=" * 16 + "] 33%",
+        "Load SRAM: [" + "=" * 33 + "] 66%",
+        "Load SRAM: [" + "=" * 50 + "] 100%",
+        "Done",
+        "FAIL",
+    ]
+    assert "\x1b[32mDone\x1b[0m" in terminal.shown()
+
+
+def test_a_tee_log_without_merged_errors_keeps_the_pipe(terminal, tmp_path):
+    """A pseudo-terminal has one stream, so a `tee` log that leaves the error output out gets a
+    pipe: its text must not depend on whether Xeda writes to a terminal."""
+    tee, log = tmp_path / "tee.log", tmp_path / "tool.log"
+    run_process(sys.executable, child(PROGRESS), tee=tee, log_to=log, terminal=True)
+    assert "stdout is a terminal: False" in log_lines(tee)[0]
+    assert "FAIL" not in log_lines(tee) and "FAIL" in log_lines(log)
+
+
+def test_a_flow_tool_sees_a_terminal_in_a_terminal(terminal, tmp_path, monkeypatch):
+    from rich.console import Console
+
+    from xeda.run_dir import RunDirectory
+
+    monkeypatch.setattr("xeda.tool.console", Console(force_terminal=True, color_system="standard"))
+    tool = Tool(sys.executable, version_flag=None)
+    assert tool.console_colors
+    tool._run_directory = RunDirectory.unlaunched(tmp_path)
+    tool.run("-c", PROGRESS, cwd=tmp_path)
+    lines = log_lines(tmp_path / "logs" / f"{Path(sys.executable).name}.log")
+    assert lines[0] == "stdout is a terminal: True | stderr is a terminal: True"
+    assert lines[-1] == "FAIL"

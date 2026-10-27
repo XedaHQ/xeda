@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from types import MappingProxyType
 from pathlib import Path
 from typing import Callable, NamedTuple, Optional
 
-from ..console import console
 from ..design import target_name_problem
 from ..run_dir import (
     OutputState,
@@ -29,11 +29,23 @@ from .run_lock import run_dir_lock
 log = logging.getLogger(__name__)
 
 
+class ScrubCandidate(NamedTuple):
+    """A run directory that scrub lists for removal: the path it lists it under, and the other
+    names of the same directory (links to it), which go with it."""
+
+    path: Path
+    aliases: tuple[Path, ...]
+
+
 #: The answer of the user to the question whether to remove the run directories that scrub
-#: listed. It gets the directories (one path for each, whatever its other names) and returns
-#: whether to remove them. Only the command line asks the user. A caller that gives none gets no
-#: removal: an unanswered question answers "no".
-ScrubConfirmation = Callable[[Sequence[Path]], bool]
+#: listed. It gets the directories (one candidate for each, with its other names) and returns
+#: whether to remove them. The library prints nothing, so the callback shows the listing where it
+#: asks. Only the command line asks the user. A caller that gives none gets no removal: an
+#: unanswered question answers "no".
+ScrubConfirmation = Callable[[Sequence[ScrubCandidate]], bool]
+
+#: Told, when a scrub ends, what it did (`ScrubResult`). The command line shows it.
+ScrubDone = Callable[["ScrubResult"], None]
 
 
 #: The files that a launch writes in every run directory it enters (the trace only after a
@@ -65,6 +77,8 @@ class ScrubResult(NamedTuple):
     kept: list[Path]
     gone: list[Path]
     skipped: list[Path]
+    #: Why each skipped link was skipped.
+    reasons: Mapping[Path, str] = MappingProxyType({})
 
 
 class _Removal(NamedTuple):
@@ -152,14 +166,10 @@ def run_directory_names(path: Path, flow_name: str, run_root: Path) -> list[Path
     return unique([path, *(p for p in beside if os.path.realpath(p) == leads_to)])
 
 
-def _say_skipped(skipped: Iterable[_Skipped]) -> None:
-    """Say, one line each, which links scrub did not list, and why.
-
-    The lines go to the console and, at info level, to the log, because `xeda scrub` configures
-    no logging."""
+def _log_skipped(skipped: Iterable[_Skipped]) -> None:
+    """Log, one record each, which links scrub did not list, and why. The result holds them too."""
     for link, problem in skipped:
         log.info("Not scrubbing %s: %s", link, problem)
-        _say(f"skipped {link}: {problem}")
 
 
 def _target_parents(design_dir: Path) -> _Scan:
@@ -308,13 +318,6 @@ def _problem_now(listed: _Listed) -> Optional[str]:
         return f"it cannot be examined ({error.strerror or error})"
 
 
-def _say(message: str) -> None:
-    """Print one line of what scrub did, as it is.
-
-    The line is not folded inside a path, and no part of it is taken for markup."""
-    console.print(message, markup=False, highlight=False, soft_wrap=True)
-
-
 def _remove_confirmed(
     candidates: Sequence[_Listed],
     run_root: Path,
@@ -323,7 +326,8 @@ def _remove_confirmed(
     """List `candidates`, ask `confirm` once, and remove them if it says yes.
 
     Without `confirm`, nothing is asked and nothing is removed: the library never prompts.
-    It logs once what it did not remove. With `confirm`, the listing is printed first.
+    It logs once what it did not remove. With `confirm`, the callback shows the listing: it gets
+    the directories to remove, and the library logs the other names of each.
 
     Each candidate is removed as a run directory claimed under `run_root`, the real run root,
     under its own lock. The lock is waited for, so scrub never removes a directory while a
@@ -333,7 +337,7 @@ def _remove_confirmed(
     Scrub removes the runs it listed, which are the runs that were confirmed. Once it holds the
     lock of a candidate, it looks at what is at the path. If nothing is there any more
     (`_is_gone`: another scrub, or a purge, removed it while this one waited), scrub skips the
-    candidate and says so, because it wanted the directory gone. If the candidate no longer
+    candidate and logs it, because it wanted the directory gone. If the candidate no longer
     leads to the directory whose lock is held (`_lock_path` asked again: a link retargeted, or
     replaced by a directory, while scrub waited), scrub removes nothing and fails with a
     `RunDirectoryError`, because it would remove a directory whose lock it does not hold. What
@@ -346,7 +350,7 @@ def _remove_confirmed(
     If the run records of a run directory are not what the listing saw (`_completion_records`),
     a launch wrote to the directory after the listing: a run ended there, or a launch found its
     run up to date and refreshed the trace. Scrub cannot tell which, and what is there is no
-    longer what was confirmed, so it keeps the directory and says so. It removes the rest. The
+    longer what was confirmed, so it keeps the directory and logs it. It removes the rest. The
     result holds three lists: the directories removed, kept and gone."""
     if not candidates:
         return _Removal([], [], [])
@@ -359,15 +363,7 @@ def _remove_confirmed(
             ", ".join(str(c.path) for c in candidates),
         )
         return _Removal([], [], [])
-    console.print(
-        f"[red]This will remove all of the following {len(candidates)} run directories:[/red]"
-    )
-    for c in candidates:
-        console.print(c.path)
-        for alias in c.aliases:
-            _say(f"{alias} (another name of the same directory)")
-    if not confirm([c.path for c in candidates]):
-        console.print("Not confirmed. No files or folders were removed.")
+    if not confirm([ScrubCandidate(c.path, tuple(c.aliases)) for c in candidates]):
         return _Removal([], [], [])
     log.warning(
         "Removing the following directories: %s",
@@ -381,7 +377,6 @@ def _remove_confirmed(
         with run_dir_lock(locked, run_root):
             if _is_gone(p):
                 log.info("Not removing %s: it is gone already", p)
-                _say(f"{p} is gone already")
                 done.gone.append(p)
                 continue
             _refuse_a_change(p, c, locked, leads_to)
@@ -390,10 +385,6 @@ def _remove_confirmed(
                     _refuse_a_change(alias, c, locked, leads_to)
             if _completion_records(p) != c.records:
                 log.info("Not removing %s: its run records changed after the listing", p)
-                _say(
-                    f"kept {p}: its run records changed after the listing "
-                    "(a run finished or refreshed there)"
-                )
                 done.kept.append(p)
                 continue
             # The links first, as themselves: another scrub that listed one then finds it gone,
@@ -401,12 +392,6 @@ def _remove_confirmed(
             # refuses. Then the directory whose lock is held, never what a link leads to by now.
             RunDirectory.claimed(locked, run_root).delete(p, *c.aliases)
         done.removed.append(p)
-    summary = f"{len(done.removed)} folders removed"
-    if done.kept:
-        summary += f", {len(done.kept)} kept"
-    if done.gone:
-        summary += f", {len(done.gone)} gone already"
-    _say(summary + ".")
     return done
 
 
@@ -417,23 +402,37 @@ def scrub_runs(
     run_root: Optional[Path] = None,
     *,
     confirm: Optional[ScrubConfirmation] = None,
+    on_result: Optional[ScrubDone] = None,
 ) -> bool:
     """Find the run directories of `flow_name` directly in `dir` and remove them, with confirmation.
 
     `confirm` answers the question (`ScrubConfirmation`). Without it, nothing is removed.
+    `on_result` is told what scrub did, when it ends (`ScrubDone`).
 
     They are the directories named `flow_name` or `flow_name_<hash>` (`_run_directories_in`),
     except `exclude`. The `--scrub` option of a launch scrubs its own directory this way, so it
     never reaches the directory of another target. Each directory is removed as a run directory
     claimed under `run_root` (default: the parent of `dir`), the real run root, so none that
     leads out of it is ever removed. The links to it that the listing found (`_listed`) go with
-    it. A link named like a run directory that is none is said, and left alone."""
+    it. A link named like a run directory that is none is logged and left alone."""
     if run_root is None:
         run_root = dir.parent
     scan = _run_directories_in(flow_name, dir, exclude, run_root)
-    _say_skipped(scan.skipped)
+    _log_skipped(scan.skipped)
     listed = _listed(flow_name, scan.candidates)
-    return bool(_remove_confirmed(listed, run_root, confirm).removed)
+    done = _remove_confirmed(listed, run_root, confirm)
+    if on_result is not None:
+        on_result(
+            ScrubResult(
+                [dir],
+                done.removed,
+                done.kept,
+                done.gone,
+                [s.link for s in scan.skipped],
+                {s.link: s.problem for s in scan.skipped},
+            )
+        )
+    return bool(done.removed)
 
 
 def scrub_design(
@@ -453,10 +452,10 @@ def scrub_design(
     are only those in `<design_dir>/<target>`. What is on disk decides (`_target_parents`). No
     design file is read, so a target that the design no longer names is found, and one that was
     never built is nothing to do. A link named like a run directory that is none
-    (`run_directory_problem`) is not listed: it is said before the question, and returned as
-    `skipped`. A `target` that is no target name is a `RunDirectoryError`, before anything is
+    (`run_directory_problem`) is not listed: it is logged, and returned as `skipped` with its
+    reason. A `target` that is no target name is a `RunDirectoryError`, before anything is
     looked at. So is a symbolic link at the design or the named target (`refuse_link_on_way`);
-    the error names it. A link found at a target below the design is not followed: it is said
+    the error names it. A link found at a target below the design is not followed: it is logged
     and returned as `skipped`."""
     if target is not None:
         problem = target_name_problem(target)
@@ -474,6 +473,13 @@ def scrub_design(
     scans = [_run_directories_in(flow_name, parent, (), run_root) for parent in parents]
     skipped = unique([*found_skipped, *(s for scan in scans for s in scan.skipped)])
     candidates = [p for scan in scans for p in scan.candidates]
-    _say_skipped(skipped)
+    _log_skipped(skipped)
     done = _remove_confirmed(_listed(flow_name, candidates), run_root, confirm)
-    return ScrubResult(parents, done.removed, done.kept, done.gone, [s.link for s in skipped])
+    return ScrubResult(
+        parents,
+        done.removed,
+        done.kept,
+        done.gone,
+        [s.link for s in skipped],
+        {s.link: s.problem for s in skipped},
+    )

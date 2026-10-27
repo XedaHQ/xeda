@@ -22,6 +22,7 @@ a login shell can print text of its own:
     XEDA-ERROR <code> <text>
 """
 
+import contextvars
 import hashlib
 import io
 import logging
@@ -366,7 +367,11 @@ def _execute(
             if line:
                 tail.append(line)
 
-    threads = [threading.Thread(target=feed, daemon=True), threading.Thread(target=drain)]
+    # A thread starts with an empty context: the records it logs carry the launch of the caller.
+    threads = [
+        threading.Thread(target=contextvars.copy_context().run, args=(feed,), daemon=True),
+        threading.Thread(target=contextvars.copy_context().run, args=(drain,)),
+    ]
     for thread in threads:
         thread.start()
     reply = _Reply()

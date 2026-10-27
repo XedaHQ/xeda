@@ -22,7 +22,7 @@ import re
 import shutil
 import stat
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -280,6 +280,9 @@ class RunDirectory:
     path: Path
     #: The run root that the directory lies under. None for a flow built directly (`unlaunched`).
     run_root: Path | None = None
+    #: The logs of tools (`logs/<program>.log`) that this run made so far. A later tool of the run
+    #: adds to such a log, and the first tool of a run replaces the log of an earlier run.
+    tool_logs: set[Path] = field(default_factory=set, compare=False, repr=False)
 
     @staticmethod
     def lies_under(path: Path, run_root: Path) -> bool:

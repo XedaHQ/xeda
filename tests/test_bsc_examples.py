@@ -31,6 +31,8 @@ from .tool_utils import (
     run_report,
 )
 
+pytestmark = pytest.mark.usefixtures("tool_output_on_terminal")
+
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "bluespec"
 EXAMPLES = sorted(
     path for path in EXAMPLES_DIR.glob("*/*.yaml") if not path.name.endswith("-library.yaml")
