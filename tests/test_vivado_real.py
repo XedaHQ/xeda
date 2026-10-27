@@ -86,6 +86,7 @@ def test_vivado_synth_reads_every_file_by_its_own_name(work_dir) -> None:
     assert _logged(flow.run_path, "io x.xdc")
 
 
+@pytest.mark.usefixtures("tool_output_on_terminal")
 @pytest.mark.parametrize("waive_drc", [False, True], ids=["drc_errors", "drc_waived"])
 def test_vivado_synth_fails_when_write_bitstream_does(work_dir, capfd, waive_drc) -> None:
     """Pins without a location or I/O standard fail `write_bitstream`'s DRC (UCIO-1, NSTD-1),

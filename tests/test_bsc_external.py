@@ -254,6 +254,7 @@ def _axi4_fabric_design(repo: Path) -> Design:
     )
 
 
+@pytest.mark.usefixtures("tool_output_on_terminal")
 @pytest.mark.parametrize(
     "simulator", ["bluesim", pytest.param("verilator", marks=_AXI4_VERILATOR_XFAIL)]
 )
@@ -276,6 +277,7 @@ def test_axi4_fabric_reproduces_golden_output(bsc_contrib_repo, tmp_path, capfd,
 # b. SequenceRules: a BH (Bluespec Classic) self-checking testbench, on every simulator.
 
 
+@pytest.mark.usefixtures("tool_output_on_terminal")
 @pytest.mark.parametrize("simulator", ["bluesim", "verilator", "iverilog"])
 def test_sequence_rules_reproduces_golden_output(bsc_contrib_repo, tmp_path, capfd, simulator):
     """`bsc_sim` on bsc-contrib's SequenceRules (BH) testbench reproduces its golden
@@ -307,6 +309,7 @@ def test_sequence_rules_reproduces_golden_output(bsc_contrib_repo, tmp_path, cap
 # c. COBS: a BH self-checking testbench, Bluesim only.
 
 
+@pytest.mark.usefixtures("tool_output_on_terminal")
 def test_cobs_reproduces_golden_output(bsc_contrib_repo, tmp_path, capfd):
     """`bsc_sim`/Bluesim on bsc-contrib's COBS (BH) testbench reproduces its golden trace, in
     order."""
